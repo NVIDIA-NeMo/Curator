@@ -43,7 +43,9 @@ NeMo Curator can be installed manually by cloning the repository and installing 
 ```
 pip install --extra-index-url https://pypi.nvidia.com .
 ```
-NeMo Curator is available in the [NeMo Framework Container](https://registry.ngc.nvidia.com/orgs/ea-bignlp/teams/ga-participants/containers/nemofw-training) which can be applied for [here](https://developer.nvidia.com/nemo-framework). It comes preinstalled in the container.
+### NeMo Framework Container
+
+NeMo Curator is available in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo). The NeMo Framework Container provides an end-to-end platform for development of custom generative AI models anywhere. The latest release of NeMo Curator comes preinstalled in the container.
 
 ## Usage
 
