@@ -29,20 +29,23 @@ def console_script():
     arguments = add_distributed_args(parser).parse_args()
     _ = get_client(arguments, arguments.device)
 
-    dataframe = pd.DataFrame({'text': ['Sarah and Ryan went out to play', 'Jensen is the CEO of NVIDIA']})
+    dataframe = pd.DataFrame(
+        {"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]}
+    )
     dd = dask.dataframe.from_pandas(dataframe, npartitions=1)
     dataset = DocumentDataset(dd)
 
     modifier = PiiModifierBatched(
-        log_dir='./logs',
+        log_dir="./logs",
         batch_size=2000,
-        language='en',
-        supported_entities=['PERSON', "EMAIL_ADDRESS"],
-        anonymize_action='replace')
+        language="en",
+        supported_entities=["PERSON", "EMAIL_ADDRESS"],
+        anonymize_action="replace",
+    )
 
     modify = Modify(modifier, batched=True)
     modified_dataset = modify(dataset)
-    modified_dataset.df.to_json('output_files/*.jsonl', lines=True, orient='records')
+    modified_dataset.df.to_json("output_files/*.jsonl", lines=True, orient="records")
 
 
 if __name__ == "__main__":

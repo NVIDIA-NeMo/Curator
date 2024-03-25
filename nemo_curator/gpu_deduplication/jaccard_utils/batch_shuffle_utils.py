@@ -17,9 +17,7 @@ import dask_cuda
 import numpy as np
 from dask import config
 from dask.dataframe.shuffle import rearrange_by_column
-from dask_cuda.explicit_comms.dataframe.shuffle import (
-    shuffle as explicit_comms_shuffle,
-)
+from dask_cuda.explicit_comms.dataframe.shuffle import shuffle as explicit_comms_shuffle
 from packaging.version import Version
 
 from nemo_curator.gpu_deduplication.jaccard_utils.get_output_map_utils import (

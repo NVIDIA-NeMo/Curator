@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .add_id import AddId
 from .distributed_data_classifier import DomainClassifier, QualityClassifier
 from .exact_dedup import ExactDuplicates
 from .filter import Filter, Score, ScoreFilter
@@ -19,7 +20,6 @@ from .fuzzy_dedup import LSH, MinHash
 from .meta import Sequential
 from .modify import Modify
 from .task import TaskDecontamination
-from .add_id import AddId
 
 __all__ = [
     "DomainClassifier",

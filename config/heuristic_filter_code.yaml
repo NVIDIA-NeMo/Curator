@@ -1,7 +1,7 @@
 input_field: text
 filters:
   # The filters below define a chain of heuristic filters to be applied to each document in a corpus.
-  # This particular cascade of filters is intended to filter Python code data. 
+  # This particular cascade of filters is intended to filter Python code data.
   # The filter listed at the top will be applied first, and the following filters will be applied in
   # the order they appear in this file. Each filter can be removed and re-ordered as desired.
   # Change this based on the language of the data

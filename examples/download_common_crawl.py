@@ -32,14 +32,22 @@ def main(args):
     client = get_client(args, args.device)
 
     # Download and sample data
-    common_crawl = download_common_crawl(output_directory, start_snapshot, end_snapshot, url_limit=url_limit)
+    common_crawl = download_common_crawl(
+        output_directory, start_snapshot, end_snapshot, url_limit=url_limit
+    )
     sample = common_crawl.df.sample(frac=10 / len(common_crawl))
 
     # Inspect the samples
     print(sample.compute())
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     return add_distributed_args(parser)
+
 
 if __name__ == "__main__":
     main(attach_args().parse_args())

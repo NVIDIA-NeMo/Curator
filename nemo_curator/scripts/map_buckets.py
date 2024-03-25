@@ -15,12 +15,16 @@
 import os
 import time
 
+from nemo_curator.gpu_deduplication.utils import (
+    get_client,
+    get_num_workers,
+    parse_nc_args,
+)
+from nemo_curator.modules.fuzzy_dedup import _MapBuckets
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_bucket_ddf_from_parquet_path,
     get_text_ddf_from_json_path_with_blocksize,
 )
-from nemo_curator.gpu_deduplication.utils import get_client, get_num_workers, parse_nc_args
-from nemo_curator.modules.fuzzy_dedup import _MapBuckets
 
 
 def get_anchor_and_output_map_info(

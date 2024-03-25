@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Dict
+from typing import Dict, List
 
 import pandas as pd
 
@@ -46,13 +46,15 @@ class PiiModifierBatched(DocumentModifier):
 
     """
 
-    def __init__(self,
-                 language: str = DEFAULT_LANGUAGE,
-                 supported_entities: List[str] = None,
-                 anonymize_action: str = "redact",
-                 batch_size: int = DEFAULT_BATCH_SIZE,
-                 device: str = 'gpu',
-                 **kwargs):
+    def __init__(
+        self,
+        language: str = DEFAULT_LANGUAGE,
+        supported_entities: List[str] = None,
+        anonymize_action: str = "redact",
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        device: str = "gpu",
+        **kwargs,
+    ):
         super().__init__()
 
         self.language = language
@@ -65,18 +67,22 @@ class PiiModifierBatched(DocumentModifier):
 
     def modify_document(self, text: pd.Series, partition_info: Dict = None):
         import logging
-        logging.basicConfig(format="%(asctime)s %(levelname)s:%(message)s", level=logging.INFO,
-                            datefmt="%Y-%m-%d %H:%M:%S")
 
-        deidentifier = load_object_on_worker(
-            "deidentifier",
-            self.load_deidentifier,
-            {}
+        logging.basicConfig(
+            format="%(asctime)s %(levelname)s:%(message)s",
+            level=logging.INFO,
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
+
+        deidentifier = load_object_on_worker("deidentifier", self.load_deidentifier, {})
         try:
-            output: List[str] = deidentifier.deidentify_text_batch(text.tolist(), self.batch_size)
+            output: List[str] = deidentifier.deidentify_text_batch(
+                text.tolist(), self.batch_size
+            )
         except Exception as e:
-            logging.error(f"Encountered error {str(e)} in partition {partition_info['number']}")
+            logging.error(
+                f"Encountered error {str(e)} in partition {partition_info['number']}"
+            )
             return pd.Series([True])
         output: pd.Series = pd.Series(output)
         return output
@@ -86,16 +92,19 @@ class PiiModifierBatched(DocumentModifier):
         Helper function to load the de-identifier
         """
         import spacy
-        if self.device == 'gpu':
+
+        if self.device == "gpu":
             spacy.require_gpu()
-        from nemo_curator.pii.algorithm import PiiDeidentifier, DEFAULT_MAX_DOC_SIZE
+        from nemo_curator.pii.algorithm import DEFAULT_MAX_DOC_SIZE, PiiDeidentifier
 
         deidentifier: PiiDeidentifier = PiiDeidentifier(
             language=self.language,
             supported_entities=self.supported_entities,
             anonymize_action=self.anonymize_action,
-            **self.kwargs
+            **self.kwargs,
         )
-        deidentifier.analyzer.nlp_engine.nlp[deidentifier.language].max_length = DEFAULT_MAX_DOC_SIZE
+        deidentifier.analyzer.nlp_engine.nlp[deidentifier.language].max_length = (
+            DEFAULT_MAX_DOC_SIZE
+        )
 
         return deidentifier

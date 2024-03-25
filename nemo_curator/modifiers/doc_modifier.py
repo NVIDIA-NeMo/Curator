@@ -22,7 +22,7 @@ class DocumentModifier(ABC):
         self._sentences = None
         self._paragraphs = None
         self._ngrams = None
-    
+
     @abstractmethod
     def modify_document(self, text):
         pass

@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 class Sequential:
     def __init__(self, modules):
         self.modules = modules
-    
+
     def __call__(self, dataset):
         for module in self.modules:
             dataset = module(dataset)

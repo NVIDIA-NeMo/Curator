@@ -12,20 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Iterable, Union, List
 from collections import defaultdict
-from functools import reduce, partial
+from functools import partial, reduce
+from typing import Iterable, List, Union
 
-from dask import delayed
 import dask.dataframe as dd
+from dask import delayed
 
-from nemo_curator.tasks.downstream_task import DownstreamTask
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.text_utils import get_words
+from nemo_curator.tasks.downstream_task import DownstreamTask
 from nemo_curator.utils.distributed_utils import single_partition_write_with_filename
+from nemo_curator.utils.text_utils import get_words
+
 
 class TaskDecontamination:
-    def __init__(self, tasks: Union[DownstreamTask, Iterable[DownstreamTask]], text_field="text", max_ngram_size=13, max_matches=10, min_document_length=200, remove_char_each_side=200, max_splits=10, removed_dir=None) -> None:
+    def __init__(
+        self,
+        tasks: Union[DownstreamTask, Iterable[DownstreamTask]],
+        text_field="text",
+        max_ngram_size=13,
+        max_matches=10,
+        min_document_length=200,
+        remove_char_each_side=200,
+        max_splits=10,
+        removed_dir=None,
+    ) -> None:
         """
         Removes segments of downstream evaluation tasks from a dataset
         Args:
@@ -56,11 +67,18 @@ class TaskDecontamination:
         # Perform task decontamintation
         task_ngrams = self.prepare_task_ngram_count()
         found_result = self._find_matching_ngrams(task_ngrams, delayed_dataset)
-        matched_ngrams, ngram_freq = found_result['matched-ngrams'], found_result['ngrams-freq']
-        delayed_removed_dataset = self._remove_matching_ngrams(matched_ngrams, ngram_freq, delayed_dataset)
+        matched_ngrams, ngram_freq = (
+            found_result["matched-ngrams"],
+            found_result["ngrams-freq"],
+        )
+        delayed_removed_dataset = self._remove_matching_ngrams(
+            matched_ngrams, ngram_freq, delayed_dataset
+        )
 
         # Restore the dataset to its original format
-        removed_dataset = DocumentDataset(dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta))
+        removed_dataset = DocumentDataset(
+            dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta)
+        )
 
         return removed_dataset
 
@@ -74,10 +92,12 @@ class TaskDecontamination:
         Computes a dictionary of all ngrams in each task as keys and each value set to 0.
         """
         delayed_ngrams = [delayed(task.generate_ngrams)() for task in self.tasks]
-        aggregated_ngrams = delayed(reduce)(TaskDecontamination._merge_task_ngrams, delayed_ngrams)
+        aggregated_ngrams = delayed(reduce)(
+            TaskDecontamination._merge_task_ngrams, delayed_ngrams
+        )
 
         return aggregated_ngrams
-    
+
     @staticmethod
     def _compute_ngram_freq_sorted(task_ngrams):
         ngrams_freq = defaultdict(int)
@@ -94,30 +114,43 @@ class TaskDecontamination:
         delayed_dataset = dataset.df.to_delayed()
 
         return self._find_matching_ngrams(task_ngrams, delayed_dataset)
-    
+
     def _find_matching_ngrams(self, task_ngrams: dict, delayed_dataset) -> dict:
-        task_ngrams_frequency_sorted = delayed(self._compute_ngram_freq_sorted)(task_ngrams)
-        delayed_counts = [delayed(self._find_ngrams_partition)(partition, task_ngrams, task_ngrams_frequency_sorted) for partition in delayed_dataset]
+        task_ngrams_frequency_sorted = delayed(self._compute_ngram_freq_sorted)(
+            task_ngrams
+        )
+        delayed_counts = [
+            delayed(self._find_ngrams_partition)(
+                partition, task_ngrams, task_ngrams_frequency_sorted
+            )
+            for partition in delayed_dataset
+        ]
         combined_counts = delayed(reduce)(self._merge_counts, delayed_counts)
-        formatted_result = delayed(self._format_matching_ngrams_result)(combined_counts, task_ngrams_frequency_sorted)
+        formatted_result = delayed(self._format_matching_ngrams_result)(
+            combined_counts, task_ngrams_frequency_sorted
+        )
 
         return formatted_result
 
-    def _find_ngrams_partition(self, dataset_partition, task_ngrams, ngrams_freq_sorted):
+    def _find_ngrams_partition(
+        self, dataset_partition, task_ngrams, ngrams_freq_sorted
+    ):
         partition_count = defaultdict(int)
         for document in dataset_partition[self.text_field]:
             doc_result = self._find_ngrams(document, task_ngrams, ngrams_freq_sorted)
-            partition_count = TaskDecontamination._merge_counts(partition_count, doc_result)
-        
+            partition_count = TaskDecontamination._merge_counts(
+                partition_count, doc_result
+            )
+
         return partition_count
-    
+
     @staticmethod
     def _merge_counts(first: dict, second: dict):
         for ngram, count in second.items():
             first[ngram] = first.get(ngram, 0) + count
-        
+
         return first
-    
+
     @staticmethod
     def _format_matching_ngrams_result(matched_ngrams, ngram_freq):
         return {
@@ -143,7 +176,7 @@ class TaskDecontamination:
             for i in range(len(words) - self.max_ngram_size + 1):
                 # Check if we found a matching n-gram
                 check_ngram_free = TaskDecontamination._check_text(
-                    words[i:i + self.max_ngram_size],
+                    words[i : i + self.max_ngram_size],
                     task_ngrams,
                     text,
                     positions[i],
@@ -162,7 +195,7 @@ class TaskDecontamination:
                 for ngram_len, _ in ngrams_freq_sorted:
                     # Check if we found a matching n-gram
                     check_ngram_free = TaskDecontamination._check_text(
-                        words[i:i + ngram_len],
+                        words[i : i + ngram_len],
                         task_ngrams,
                         text,
                         positions[i],
@@ -185,7 +218,7 @@ class TaskDecontamination:
             # check the ending n-gram
             if ngram_free and len(words) - self.max_ngram_size > 0:
                 # get the last words of the lax max ngram
-                last_seq_words = words[len(words) - self.max_ngram_size:len(words)]
+                last_seq_words = words[len(words) - self.max_ngram_size : len(words)]
                 last_seq_start_position = len(words) - self.max_ngram_size
 
                 # check all n-grams lower than max ngram-len
@@ -199,7 +232,7 @@ class TaskDecontamination:
                     for i in range(len(last_seq_words) - ngram_len + 1):
                         # Check for matching n-grams
                         check_ngram_free = TaskDecontamination._check_text(
-                            last_seq_words[i:i + ngram_len],
+                            last_seq_words[i : i + ngram_len],
                             task_ngrams,
                             text,
                             positions[last_seq_start_position + i],
@@ -228,22 +261,35 @@ class TaskDecontamination:
             # Count the matched n-gram and consider it later
             local_ngram[seq] += 1
             if (start_position + len(seq) + 1) < len(text):
-                text_buf.append(text[start_position + len(seq) + 1:len(text)])
+                text_buf.append(text[start_position + len(seq) + 1 : len(text)])
             return False
 
         return True
-    
-    def remove_matching_ngrams(self, matched_ngrams: dict, ngram_freq: List[tuple], dataset: DocumentDataset):
+
+    def remove_matching_ngrams(
+        self, matched_ngrams: dict, ngram_freq: List[tuple], dataset: DocumentDataset
+    ):
         original_meta = dataset.df.dtypes.to_dict()
         delayed_dataset = dataset.df.to_delayed()
-        delayed_removed_dataset = self._remove_matching_ngrams(matched_ngrams, ngram_freq, delayed_dataset)
-        removed_dataset = DocumentDataset(dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta))
+        delayed_removed_dataset = self._remove_matching_ngrams(
+            matched_ngrams, ngram_freq, delayed_dataset
+        )
+        removed_dataset = DocumentDataset(
+            dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta)
+        )
 
         return removed_dataset
-    
-    def _remove_matching_ngrams(self, matched_ngrams: dict, ngram_freq: List[tuple], delayed_dataset):
+
+    def _remove_matching_ngrams(
+        self, matched_ngrams: dict, ngram_freq: List[tuple], delayed_dataset
+    ):
         threshhold_ngrams = delayed(self._threshold_ngram_count)(matched_ngrams)
-        delayed_removed_dataset = [delayed(self._remove_ngrams_partition)(partition, threshhold_ngrams, ngram_freq) for partition in delayed_dataset]
+        delayed_removed_dataset = [
+            delayed(self._remove_ngrams_partition)(
+                partition, threshhold_ngrams, ngram_freq
+            )
+            for partition in delayed_dataset
+        ]
 
         return delayed_removed_dataset
 
@@ -252,11 +298,15 @@ class TaskDecontamination:
         for ngram, count in matched_ngrams.items():
             if count <= self.max_matches:
                 filtered_ngrams.add(ngram)
-        
+
         return filtered_ngrams
 
     def _remove_ngrams_partition(self, partition, task_ngrams, ngrams_freq_sorted):
-        document_fn = partial(self._remove_ngrams, task_ngrams=task_ngrams, ngrams_freq_sorted=ngrams_freq_sorted)
+        document_fn = partial(
+            self._remove_ngrams,
+            task_ngrams=task_ngrams,
+            ngrams_freq_sorted=ngrams_freq_sorted,
+        )
         split_text = partition[self.text_field].apply(document_fn)
         num_splits = split_text.apply(len)
 
@@ -269,7 +319,6 @@ class TaskDecontamination:
         partition[self.text_field] = split_text
         filtered_partition = partition[valid_documents_mask]
         return filtered_partition.explode(self.text_field, ignore_index=True)
-
 
     def _remove_ngrams(self, document, task_ngrams, ngrams_freq_sorted):
         """
@@ -288,7 +337,7 @@ class TaskDecontamination:
             for i in range(len(words) - self.max_ngram_size + 1):
                 # Check if we found a matching n-gram
                 check_ngram_free = self._clean_text(
-                    words[i:i + self.max_ngram_size],
+                    words[i : i + self.max_ngram_size],
                     task_ngrams,
                     text,
                     positions[i],
@@ -307,7 +356,7 @@ class TaskDecontamination:
                 for ngram_len, _ in ngrams_freq_sorted:
                     # Check if we found a matching n-gram
                     check_ngram_free = self._clean_text(
-                        words[i:i + ngram_len],
+                        words[i : i + ngram_len],
                         task_ngrams,
                         text,
                         positions[i],
@@ -330,7 +379,7 @@ class TaskDecontamination:
             # check the ending n-gram
             if ngram_free and len(words) - self.max_ngram_size > 0:
                 # get the last words of the lax max ngram
-                last_seq_words = words[len(words) - self.max_ngram_size:len(words)]
+                last_seq_words = words[len(words) - self.max_ngram_size : len(words)]
                 last_seq_start_position = len(words) - self.max_ngram_size
 
                 # check all n-grams lower than max ngram-len
@@ -344,7 +393,7 @@ class TaskDecontamination:
                     for i in range(len(last_seq_words) - ngram_len + 1):
                         # Check for matching n-grams
                         check_ngram_free = self._clean_text(
-                            last_seq_words[i:i + ngram_len],
+                            last_seq_words[i : i + ngram_len],
                             task_ngrams,
                             text,
                             positions[last_seq_start_position + i],
@@ -373,7 +422,16 @@ class TaskDecontamination:
 
         return text_buf_ngram_free
 
-    def _clean_text(self, words, matched_ngrams, text, start_position, text_buf, text_buf_ngram_free, nosplit_remove=False):
+    def _clean_text(
+        self,
+        words,
+        matched_ngrams,
+        text,
+        start_position,
+        text_buf,
+        text_buf_ngram_free,
+        nosplit_remove=False,
+    ):
         seq = " ".join(words)
         if seq in matched_ngrams:
             print(" [matched]: {}".format(seq), flush=True)
@@ -415,7 +473,7 @@ class TaskDecontamination:
         while pos > 0 and not text[pos] in punctuations:
             pos -= 1
         if pos > 0:
-            text_first = text[0:pos + 1]
+            text_first = text[0 : pos + 1]
 
         # add length of seq and remove_char_each_side
         pos = start_pos + len(seq) + remove_char_each_side
@@ -425,6 +483,6 @@ class TaskDecontamination:
         while pos < len(text) and not text[pos] in punctuations:
             pos += 1
         if pos + 1 < len(text):
-            text_second = text[pos + 1:len(text)]
+            text_second = text[pos + 1 : len(text)]
 
         return text_first, text_second

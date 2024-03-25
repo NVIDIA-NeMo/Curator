@@ -12,9 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_modifier import DocumentModifier
 from .c4 import BoilerPlateStringModifier
+from .doc_modifier import DocumentModifier
 from .fasttext import FastTextLabelModifier
 from .unicode_reformatter import UnicodeReformatter
 
-__all__ = ["DocumentModifier", "BoilerPlateStringModifier", "FastTextLabelModifier", "UnicodeReformatter"]
+__all__ = [
+    "DocumentModifier",
+    "BoilerPlateStringModifier",
+    "FastTextLabelModifier",
+    "UnicodeReformatter",
+]

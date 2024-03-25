@@ -62,11 +62,15 @@ if __name__ == "__main__":
     print("Starting sampling workflow", flush=True)
     st = time.time()
     df = read_data(
-        input_files=get_all_files_paths_under(args.input_file_path, recurse_subdirecties=False),
+        input_files=get_all_files_paths_under(
+            args.input_file_path, recurse_subdirecties=False
+        ),
         file_type=args.input_file_type,
         add_filename=True,
     )
-    input_files = get_all_files_paths_under(args.input_file_path, recurse_subdirecties=False)
+    input_files = get_all_files_paths_under(
+        args.input_file_path, recurse_subdirecties=False
+    )
     sampled_df = sample_dataframe(df, num_samples=args.num_samples)
     write_to_disk(
         df=sampled_df,

@@ -12,4 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .modules import *
+[tool.isort]
+profile = "black"  # black-compatible
+line_length = 88  # should match black parameters
+py_version = 310
+extend_skip = ["setup.py"]
+
+[tool.black]
+line_length = 88
+
+[tool.pytest.ini_options]
+markers = [
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')"
+]

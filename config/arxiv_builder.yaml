@@ -1,7 +1,7 @@
 download_module: nemo_curator.download.arxiv.ArxivDownloader
 download_params: {}
 iterator_module: nemo_curator.download.arxiv.ArxivIterator
-iterator_params: 
+iterator_params:
   log_frequency: 1000
 extract_module: nemo_curator.download.arxiv.ArxivExtractor
 extract_params: {}

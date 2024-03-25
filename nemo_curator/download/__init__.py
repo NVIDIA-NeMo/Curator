@@ -12,9 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .doc_builder import DocumentDownloader, DocumentIterator, DocumentExtractor, download_and_extract, import_downloader, import_extractor, import_iterator, batch_download
-from .commoncrawl import download_common_crawl, CommonCrawlWARCDownloader, CommonCrawlWARCExtractor, CommonCrawlWARCIterator, CommonCrawlWARCDownloaderExtractOnly
-from .wikipedia import download_wikipedia, WikipediaDownloader, WikipediaIterator, WikipediaExtractor
-from .arxiv import download_arxiv, ArxivDownloader, ArxivIterator, ArxivExtractor
+from .arxiv import ArxivDownloader, ArxivExtractor, ArxivIterator, download_arxiv
+from .commoncrawl import (
+    CommonCrawlWARCDownloader,
+    CommonCrawlWARCDownloaderExtractOnly,
+    CommonCrawlWARCExtractor,
+    CommonCrawlWARCIterator,
+    download_common_crawl,
+)
+from .doc_builder import (
+    DocumentDownloader,
+    DocumentExtractor,
+    DocumentIterator,
+    batch_download,
+    download_and_extract,
+    import_downloader,
+    import_extractor,
+    import_iterator,
+)
+from .wikipedia import (
+    WikipediaDownloader,
+    WikipediaExtractor,
+    WikipediaIterator,
+    download_wikipedia,
+)
 
-__all__ = ["DocumentDownloader", "DocumentIterator", "DocumentExtractor", "download_and_extract", "import_downloader", "import_extractor", "import_iterator", "download_common_crawl", "CommonCrawlWARCDownloader", "CommonCrawlWARCExtractor", "CommonCrawlWARCIterator", "CommonCrawlWARCDownloaderExtractOnly", "download_wikipedia", "WikipediaDownloader", "WikipediaIterator", "WikipediaExtractor", "batch_download", "download_arxiv", "ArxivDownloader", "ArxivIterator", "ArxivExtractor"]
+__all__ = [
+    "DocumentDownloader",
+    "DocumentIterator",
+    "DocumentExtractor",
+    "download_and_extract",
+    "import_downloader",
+    "import_extractor",
+    "import_iterator",
+    "download_common_crawl",
+    "CommonCrawlWARCDownloader",
+    "CommonCrawlWARCExtractor",
+    "CommonCrawlWARCIterator",
+    "CommonCrawlWARCDownloaderExtractOnly",
+    "download_wikipedia",
+    "WikipediaDownloader",
+    "WikipediaIterator",
+    "WikipediaExtractor",
+    "batch_download",
+    "download_arxiv",
+    "ArxivDownloader",
+    "ArxivIterator",
+    "ArxivExtractor",
+]

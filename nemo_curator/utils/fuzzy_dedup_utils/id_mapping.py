@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def convert_str_id_to_int(df, id_column="id"):
     """
     Converts the legacy id format "dataset_name-0000034"

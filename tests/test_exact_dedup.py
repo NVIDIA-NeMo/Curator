@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 from dask import dataframe as dd
 from dask.dataframe.utils import assert_eq
+
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
 

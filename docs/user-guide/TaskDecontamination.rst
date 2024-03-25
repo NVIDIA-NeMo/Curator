@@ -38,7 +38,7 @@ Let's examine this small example:
     ]
 
     task_decontaminate = nc.TaskDecontamination(downstream_tasks)
-    
+
     decontaminated_books = task_decontaminate(books)
 
     decontaminated_books.to_json("decontaminated_books/", write_to_filename=True)

@@ -8,7 +8,7 @@ Background
 
 When preparing text data to be used in training a large language model (LLM), it is useful to classify
 text documents in various ways, to enhance the LLM's performance by making it able to produce more
-contextually appropriate and accurate language across various subjects. NeMo Curator provides this module to 
+contextually appropriate and accurate language across various subjects. NeMo Curator provides this module to
 help a user run inference with pre-trained models on large amounts of text documents. We achieve
 this by chunking the datasets across multiple computing nodes, each equipped with multiple GPUs, to
 accelerate the classification task in a distributed way. In other words, because the classification of

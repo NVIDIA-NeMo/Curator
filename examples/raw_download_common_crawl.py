@@ -14,11 +14,11 @@
 
 import argparse
 
-from nemo_curator.download import batch_download, CommonCrawlWARCDownloader
-from nemo_curator.utils.download_utils import get_common_crawl_urls
+from nemo_curator.download import CommonCrawlWARCDownloader, batch_download
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.download_utils import get_common_crawl_urls
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
+from nemo_curator.utils.script_utils import add_distributed_args
 
 
 def main(args):
@@ -45,8 +45,14 @@ def main(args):
     for file in output_files:
         print(file)
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     return add_distributed_args(parser)
+
 
 if __name__ == "__main__":
     main(attach_args().parse_args())

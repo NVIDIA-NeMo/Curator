@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
 import os
-from packaging import version
+from abc import ABC, abstractmethod
 
 import torch
+from packaging import version
 from transformers import __version__ as TRANSFORMERS_VERSION
 from transformers.models.deberta_v2 import DebertaV2TokenizerFast
 
@@ -34,7 +34,7 @@ from nemo_curator.utils.distributed_utils import (
 
 
 class DistributedDataClassifier(ABC):
-    """ Abstract class for running multi-node multi-GPU data classification """
+    """Abstract class for running multi-node multi-GPU data classification"""
 
     def __init__(
         self,
@@ -292,7 +292,9 @@ class QualityClassifier(DistributedDataClassifier):
         else:
             preds = torch.argmax(probs, dim=1)
 
-        df[self.pred_column] = [self.labels[i] for i in preds.to("cpu").numpy().tolist()]
+        df[self.pred_column] = [
+            self.labels[i] for i in preds.to("cpu").numpy().tolist()
+        ]
         df[self.prob_column] = probs.to("cpu").numpy().tolist()
 
         return df
@@ -304,7 +306,9 @@ class QualityClassifier(DistributedDataClassifier):
         return cfg
 
     def _load_model(self, cfg, device):
-        model = CustomModel(cfg, out_dim=self.out_dim, config_path=None, pretrained=True)
+        model = CustomModel(
+            cfg, out_dim=self.out_dim, config_path=None, pretrained=True
+        )
         model = model.to(device)
         sd = torch.load(self.model_file_name, map_location="cpu")
         if "model_state_dict" in sd:

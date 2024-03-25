@@ -19,8 +19,11 @@ import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import FastTextLangId
 from nemo_curator.modifiers import UnicodeReformatter
-from nemo_curator.utils.file_utils import get_all_files_paths_under, separate_by_metadata
-from nemo_curator.utils.distributed_utils import read_data, write_to_disk, get_client
+from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
+from nemo_curator.utils.file_utils import (
+    get_all_files_paths_under,
+    separate_by_metadata,
+)
 from nemo_curator.utils.script_utils import add_distributed_args
 
 
@@ -31,6 +34,7 @@ def load_dataset(input_data_dir):
 
     return dataset
 
+
 def main(args):
     # Params
     multilingual_data_path = "/path/to/multilingual"
@@ -39,7 +43,7 @@ def main(args):
 
     # Download a fastText language identification model
     # and see a list of supported languages here:
-    # https://fasttext.cc/docs/en/language-identification.html 
+    # https://fasttext.cc/docs/en/language-identification.html
     model_path = "/path/to/model.bin"
     target_language = "EN"
     language_field = "language"
@@ -49,14 +53,22 @@ def main(args):
 
     # Filter data
     multilingual_dataset = load_dataset(multilingual_data_path)
-    language_id_pipeline = nc.ScoreFilter(FastTextLangId(model_path), score_field=language_field, score_type='object')
+    language_id_pipeline = nc.ScoreFilter(
+        FastTextLangId(model_path), score_field=language_field, score_type="object"
+    )
     filtered_dataset = language_id_pipeline(multilingual_dataset)
-    
+
     # Remove the language score
-    filtered_dataset.df[language_field] = filtered_dataset.df[language_field].apply(lambda score: score[1])
+    filtered_dataset.df[language_field] = filtered_dataset.df[language_field].apply(
+        lambda score: score[1]
+    )
 
     # Split the dataset by language
-    language_stats = separate_by_metadata(filtered_dataset.df, language_separated_output_path, metadata_field=language_field).compute()
+    language_stats = separate_by_metadata(
+        filtered_dataset.df,
+        language_separated_output_path,
+        metadata_field=language_field,
+    ).compute()
 
     # Read the language specific data and fix the unicode in it
     lang_data_path = os.path.join(language_separated_output_path, target_language)
@@ -70,8 +82,14 @@ def main(args):
     # Write the cleaned_data
     write_to_disk(cleaned_data.df, cleaned_data_output_path, write_to_filename=True)
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     return add_distributed_args(parser)
+
 
 if __name__ == "__main__":
     main(attach_args().parse_args())

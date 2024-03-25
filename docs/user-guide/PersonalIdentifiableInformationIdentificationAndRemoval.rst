@@ -101,4 +101,3 @@ Resuming from Interruptions
 It can be helpful to track which documents in a dataset have already been processed so that long curation jobs can be resumed if they are interrupted.
 NeMo Curator provides a utility for easily tracking which dataset shards have already been processed. A call to ``get_batched_files`` will return an iterator over the files that have yet to be processed by a modifier such as ``PiiModifierBatched``
 When you re-run the code example provided above, NeMo Curator ensures that only unprocessed files are processed by the PII module.
-

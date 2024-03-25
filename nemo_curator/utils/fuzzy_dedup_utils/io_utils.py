@@ -76,7 +76,9 @@ def get_text_ddf_from_json_path_with_blocksize(
     text_ddf = text_ddf.map_partitions(
         convert_str_id_to_int,
         id_column=id_column,
-        meta=cudf.DataFrame({text_column: ["a"], "doc_id": [0], "dataset_id": np.uint32(1)}),
+        meta=cudf.DataFrame(
+            {text_column: ["a"], "doc_id": [0], "dataset_id": np.uint32(1)}
+        ),
     )
     return text_ddf
 

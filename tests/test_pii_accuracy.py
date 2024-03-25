@@ -32,7 +32,10 @@ def load_test_cases(filename):
         (re.sub(r"<[^>]*>([^<]*)</[^>]*>", r"\1", line)).strip() for line in data
     ]
     masked_data = [
-        (re.sub(r"(<[^>]*>([^<]*)</[^>]*>)", lambda x: "*" * len(x.group(2)), line)).strip() for line in data
+        (
+            re.sub(r"(<[^>]*>([^<]*)</[^>]*>)", lambda x: "*" * len(x.group(2)), line)
+        ).strip()
+        for line in data
     ]
 
     return list(zip(raw_data, masked_data))
@@ -70,7 +73,7 @@ class TestPIIAccuracy:
 
     def test_ssn(self):
         generate_single_category_test("US_SSN", "ssn.txt")
-    
+
     def test_birthdates(self):
         generate_single_category_test("DATE_TIME", "birthdates.txt")
 
@@ -84,7 +87,7 @@ class TestPIIAccuracy:
         generate_single_category_test("PHONE_NUMBER", "phone_numbers.txt")
 
     def test_multiple(self):
-        deidentifier = PiiDeidentifier("en", anonymize_action='mask')
+        deidentifier = PiiDeidentifier("en", anonymize_action="mask")
         test_data = load_test_cases("multiple.txt")
 
         for input, target in test_data:
@@ -103,7 +106,7 @@ class TestPIIAccuracy:
             assert match == True
 
     def test_batch_accuracy(self):
-        deidentifier = PiiDeidentifier("en", anonymize_action='mask')
+        deidentifier = PiiDeidentifier("en", anonymize_action="mask")
         test_data = load_test_cases("multiple.txt")
         inputs = [data[0] for data in test_data]
         targets = [data[1] for data in test_data]

@@ -19,29 +19,33 @@ import nemo_curator
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modifiers import UnicodeReformatter
 
+
 def list_to_dataset(documents, col_name="text", npartitions=2):
     data = {col_name: documents}
     pdf = pd.DataFrame(data)
-    
+
     return DocumentDataset(dd.from_pandas(pdf, npartitions=npartitions))
+
 
 class TestUnicodeReformatter:
     def test_reformatting(self):
         # Examples taken from ftfy documentation:
         # https://ftfy.readthedocs.io/en/latest/
-        dataset = list_to_dataset([
-            "âœ” No problems",
-            "The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows.",
-            "l’humanitÃ©",
-            "Ã perturber la rÃ©flexion",
-            "Clean document already."
-        ])
+        dataset = list_to_dataset(
+            [
+                "âœ” No problems",
+                "The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows.",
+                "l’humanitÃ©",
+                "Ã perturber la rÃ©flexion",
+                "Clean document already.",
+            ]
+        )
         expected_results = [
             "✔ No problems",
             "The Mona Lisa doesn't have eyebrows.",
             "l'humanité",
             "à perturber la réflexion",
-            "Clean document already."
+            "Clean document already.",
         ]
         expected_results.sort()
 
@@ -50,4 +54,6 @@ class TestUnicodeReformatter:
         actual_results = fixed_dataset.df.compute()["text"].to_list()
         actual_results.sort()
 
-        assert expected_results == actual_results, f"Expected: {expected_results}, but got: {actual_results}"
+        assert (
+            expected_results == actual_results
+        ), f"Expected: {expected_results}, but got: {actual_results}"

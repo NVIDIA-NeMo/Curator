@@ -13,11 +13,13 @@
 # limitations under the License.
 
 import ftfy
+
 from nemo_curator.modifiers import DocumentModifier
+
 
 class UnicodeReformatter(DocumentModifier):
     def __init__(self):
         super().__init__()
-    
+
     def modify_document(self, text):
         return ftfy.fix_text(text)

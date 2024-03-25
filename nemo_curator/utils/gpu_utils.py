@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def is_cudf_type(obj):
     """
     Check if an object is a cuDF type
@@ -22,4 +23,3 @@ def is_cudf_type(obj):
         str(getattr(obj, "_meta", "")),
     ]
     return any("cudf" in obj_type for obj_type in types)
-

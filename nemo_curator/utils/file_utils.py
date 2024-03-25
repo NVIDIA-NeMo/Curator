@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import pathlib
-from functools import reduce
-import pandas as pd
-import dask.dataframe as dd
-from dask import delayed
+from functools import partial, reduce
+
 import dask.bag as db
+import dask.dataframe as dd
 import numpy as np
-import json
-from functools import partial
+import pandas as pd
+from dask import delayed
 
 from nemo_curator.utils.distributed_utils import single_partition_write_with_filename
 
@@ -58,6 +58,7 @@ def get_all_files_paths_under(root, recurse_subdirectories=True, followlinks=Fal
     file_ls.sort()
     return file_ls
 
+
 # Using this for restarting jobs
 # can lead to problems when there is an error while
 # writing a file we can use the offset counter approach
@@ -89,7 +90,9 @@ def get_remaining_files(input_file_path, output_file_path, input_file_type):
     return input_files
 
 
-def get_batched_files(input_file_path, output_file_path, input_file_type, batch_size=64):
+def get_batched_files(
+    input_file_path, output_file_path, input_file_type, batch_size=64
+):
     """
     This function returns a batch of files that still remain to be processed.
 
@@ -101,11 +104,16 @@ def get_batched_files(input_file_path, output_file_path, input_file_type, batch_
     Returns:
         A batch of files that are not in the output directory.
     """
-    remaining_files = get_remaining_files(input_file_path, output_file_path, input_file_type)
+    remaining_files = get_remaining_files(
+        input_file_path, output_file_path, input_file_type
+    )
     for i in range(0, len(remaining_files), batch_size):
-        yield remaining_files[i:i + batch_size]
+        yield remaining_files[i : i + batch_size]
 
-def write_dataframe_by_meta(df: pd.DataFrame, output_dir, metadata_field, remove_metadata, output_type):
+
+def write_dataframe_by_meta(
+    df: pd.DataFrame, output_dir, metadata_field, remove_metadata, output_type
+):
     counts = df[metadata_field].value_counts().to_dict()
 
     for meta_value in counts:
@@ -113,17 +121,27 @@ def write_dataframe_by_meta(df: pd.DataFrame, output_dir, metadata_field, remove
         meta_slice = df[df[metadata_field] == meta_value]
         if remove_metadata:
             meta_slice = meta_slice.drop(columns=[metadata_field])
-        single_partition_write_with_filename(meta_slice, meta_output_dir, output_type=output_type)
-    
+        single_partition_write_with_filename(
+            meta_slice, meta_output_dir, output_type=output_type
+        )
+
     return counts
+
 
 def merge_counts(first: dict, second: dict):
     for ngram, count in second.items():
         first[ngram] = first.get(ngram, 0) + count
-    
+
     return first
 
-def separate_by_metadata(df: dd.DataFrame, output_dir, metadata_field, remove_metadata=False, output_type="jsonl") -> dict:
+
+def separate_by_metadata(
+    df: dd.DataFrame,
+    output_dir,
+    metadata_field,
+    remove_metadata=False,
+    output_type="jsonl",
+) -> dict:
     """
     Saves the dataframe to subfolders named after a metadata
 
@@ -132,15 +150,21 @@ def separate_by_metadata(df: dd.DataFrame, output_dir, metadata_field, remove_me
         output_dir: The base directory for which all metadata based subdirs will be created under
         metadata_field: The metadata field to split on
         remove_metadata: Whether to remove the metadata from the dataframe when saving it
-    
+
     Returns:
         A delayed dictionary mapping each metadata to the count of entries with that metadata value.
     """
     delayed_data = df.to_delayed()
-    delayed_counts = [delayed(write_dataframe_by_meta)(partition, output_dir, metadata_field, remove_metadata, output_type) for partition in delayed_data]
+    delayed_counts = [
+        delayed(write_dataframe_by_meta)(
+            partition, output_dir, metadata_field, remove_metadata, output_type
+        )
+        for partition in delayed_data
+    ]
     merged_counts = delayed(reduce)(merge_counts, delayed_counts)
 
     return merged_counts
+
 
 def parse_str_of_num_bytes(s, return_str=False):
     try:
@@ -153,29 +177,33 @@ def parse_str_of_num_bytes(s, return_str=False):
     else:
         return int(size)
 
+
 def _save_jsonl(documents, output_path, start_index=0, max_index=10000, prefix=None):
-  """ Worker function to write out the data to jsonl files """
+    """Worker function to write out the data to jsonl files"""
 
-  def _output_json(document):
-    myjson = json.dumps(document, ensure_ascii=False)
-    return myjson.encode('utf-8')
+    def _output_json(document):
+        myjson = json.dumps(document, ensure_ascii=False)
+        return myjson.encode("utf-8")
 
-  def _name(start_index, npad, prefix, i):
-    tag = str(start_index + i).rjust(npad, '0')
-    return f"{prefix}{tag}"
+    def _name(start_index, npad, prefix, i):
+        tag = str(start_index + i).rjust(npad, "0")
+        return f"{prefix}{tag}"
 
-  # Create the naming function
-  npad = int(np.log10(max_index) + 1)
-  name = partial(_name, start_index, npad, prefix)
+    # Create the naming function
+    npad = int(np.log10(max_index) + 1)
+    name = partial(_name, start_index, npad, prefix)
 
-  output_glob_string = os.path.join(output_path, "*.jsonl")
+    output_glob_string = os.path.join(output_path, "*.jsonl")
 
-  documents.map(_output_json).to_textfiles(
-      output_glob_string,
-      name_function=name,
-  )
+    documents.map(_output_json).to_textfiles(
+        output_glob_string,
+        name_function=name,
+    )
 
-def reshard_jsonl(input_dir, output_dir, output_file_size="100M", start_index=0, file_prefix=""):
+
+def reshard_jsonl(
+    input_dir, output_dir, output_file_size="100M", start_index=0, file_prefix=""
+):
     """
     Reshards a directory of jsonl files to have a new (approximate) file size for each shard
 

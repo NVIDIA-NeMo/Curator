@@ -17,29 +17,29 @@ import argparse
 import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.tasks import (
-    Winogrande,
-    Squad,
-    TriviaQA,
-    Quac,
-    WebQA,
-    Race,
-    Drop,
-    WiC,
+    ANLI,
+    CB,
     PIQA,
-    ArcEasy,
+    RTE,
+    WSC,
     ArcChallenge,
-    OpenBookQA,
+    ArcEasy,
     BoolQ,
     Copa,
-    RTE,
+    Drop,
     MultiRC,
-    WSC,
-    CB,
-    ANLI,
-    Record
+    OpenBookQA,
+    Quac,
+    Race,
+    Record,
+    Squad,
+    TriviaQA,
+    WebQA,
+    WiC,
+    Winogrande,
 )
+from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.distributed_utils import read_data, write_to_disk, get_client
 from nemo_curator.utils.script_utils import add_distributed_args
 
 
@@ -49,6 +49,7 @@ def load_dataset(input_data_dir):
     dataset = DocumentDataset(raw_data)
 
     return dataset
+
 
 def main(args):
     # Params
@@ -75,7 +76,7 @@ def main(args):
         WSC(),
         CB(),
         ANLI(),
-        Record()
+        Record(),
     ]
 
     # Prepare samples for the classifier
@@ -87,10 +88,18 @@ def main(args):
     decontaminated_dataset = decontaminator(target_dataset)
 
     # Write filtered dataset
-    write_to_disk(decontaminated_dataset.df, decontaminated_output_path, write_to_filename=True)
+    write_to_disk(
+        decontaminated_dataset.df, decontaminated_output_path, write_to_filename=True
+    )
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     return add_distributed_args(parser)
+
 
 if __name__ == "__main__":
     main(attach_args().parse_args())

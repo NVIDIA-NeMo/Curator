@@ -12,14 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 import os
+import time
+
+from nemo_curator.gpu_deduplication.utils import enable_spilling, parse_nc_args
 from nemo_curator.modules.fuzzy_dedup import ConnectedComponents
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.gpu_deduplication.utils import (
-    enable_spilling,
-    parse_nc_args,
-)
 
 
 def main(args):

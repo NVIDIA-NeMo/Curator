@@ -27,7 +27,7 @@ def value_counts(df, column_name):
     """
     This function groups a DataFrame by the specified column and counts the occurrences of each group.
     It is essentially the same as pandas.Series.value_counts, except it returns a DataFrame.
-    
+
     Args:
         df: A DataFrame.
         column_name: The column by which to group the DataFrame.
@@ -58,12 +58,16 @@ def main():
     print("Starting statistics workflow", flush=True)
     st = time.time()
 
-    df = read_data( 
-        input_files=get_all_files_paths_under(args.input_file_path, recurse_subdirecties=False),
+    df = read_data(
+        input_files=get_all_files_paths_under(
+            args.input_file_path, recurse_subdirecties=False
+        ),
         file_type=args.input_file_type,
         add_filename=True,
-    ) 
-    input_files = get_all_files_paths_under(args.input_file_path, recurse_subdirecties=False)
+    )
+    input_files = get_all_files_paths_under(
+        args.input_file_path, recurse_subdirecties=False
+    )
 
     result = value_counts(df, column_name=args.label)
     result = result.rename(columns={0: "count"})

@@ -19,9 +19,11 @@ from dask.dataframe.shuffle import shuffle as dd_shuffle
 from dask.utils import M
 
 from nemo_curator.gpu_deduplication.jaccard_utils.get_anchor_utils import (
-    add_anchor_docs,)
+    add_anchor_docs,
+)
 from nemo_curator.gpu_deduplication.jaccard_utils.get_output_map_utils import (
-    get_output_map_based_on_str_bytes,)
+    get_output_map_based_on_str_bytes,
+)
 from nemo_curator.gpu_deduplication.jaccard_utils.io_utils import (
     get_bucket_ddf_from_parquet_path,
     get_text_ddf_from_json_path_with_blocksize,
@@ -41,7 +43,7 @@ def get_anchor_and_output_map_info(
     num_workers,
     shuffle_type,
 ):
-  """
+    """
     Get anchor docs with bucket info
     Args:
         input_data_paths: list of paths to input data
@@ -53,75 +55,76 @@ def get_anchor_and_output_map_info(
     Returns:
         ddf_anchor_docs_with_bk
     """
-  ddf_text = get_text_ddf_from_json_path_with_blocksize(
-      input_data_paths=input_data_paths,
-      num_files=num_files,
-      blocksize=text_ddf_blocksize,
-  )
-  ddf_bk = get_bucket_ddf_from_parquet_path(input_bucket_path=input_bucket_path,
-                                            num_workers=num_workers)
-  output_map_df = get_output_map_based_on_str_bytes(ddf_bk=ddf_bk,
-                                                    ddf_text=ddf_text)
-  ddf_anchor_docs_with_bk = ddf_bk.map_partitions(add_anchor_docs)
-  print("output_map_df is based on string bytes", flush=True)
-  ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.merge(output_map_df,
-                                                          on=["bucket"])
-  # Bucket is no longer needed
-  ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.drop(columns=["bucket"])
-  # Below removes any duplicates lying around after dropping buckets
-  ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.map_partitions(
-      M.drop_duplicates,
-      meta=ddf_anchor_docs_with_bk._meta,
-      enforce_metadata=False,
-      transform_divisions=False,
-      align_dataframes=False,
-  )
-  ddf_anchor_docs_with_bk = dd_shuffle(
-      ddf_anchor_docs_with_bk,
-      ["dataset_id", "doc_id"],
-      ignore_index=True,
-      shuffle=shuffle_type,
-  ).map_partitions(
-      M.drop_duplicates,
-      meta=ddf_anchor_docs_with_bk._meta,
-      enforce_metadata=False,
-      transform_divisions=False,
-      align_dataframes=False,
-  )
-  del output_map_df
-  return ddf_anchor_docs_with_bk
+    ddf_text = get_text_ddf_from_json_path_with_blocksize(
+        input_data_paths=input_data_paths,
+        num_files=num_files,
+        blocksize=text_ddf_blocksize,
+    )
+    ddf_bk = get_bucket_ddf_from_parquet_path(
+        input_bucket_path=input_bucket_path, num_workers=num_workers
+    )
+    output_map_df = get_output_map_based_on_str_bytes(ddf_bk=ddf_bk, ddf_text=ddf_text)
+    ddf_anchor_docs_with_bk = ddf_bk.map_partitions(add_anchor_docs)
+    print("output_map_df is based on string bytes", flush=True)
+    ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.merge(
+        output_map_df, on=["bucket"]
+    )
+    # Bucket is no longer needed
+    ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.drop(columns=["bucket"])
+    # Below removes any duplicates lying around after dropping buckets
+    ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.map_partitions(
+        M.drop_duplicates,
+        meta=ddf_anchor_docs_with_bk._meta,
+        enforce_metadata=False,
+        transform_divisions=False,
+        align_dataframes=False,
+    )
+    ddf_anchor_docs_with_bk = dd_shuffle(
+        ddf_anchor_docs_with_bk,
+        ["dataset_id", "doc_id"],
+        ignore_index=True,
+        shuffle=shuffle_type,
+    ).map_partitions(
+        M.drop_duplicates,
+        meta=ddf_anchor_docs_with_bk._meta,
+        enforce_metadata=False,
+        transform_divisions=False,
+        align_dataframes=False,
+    )
+    del output_map_df
+    return ddf_anchor_docs_with_bk
 
 
 def attach_args(parser=None):
-  description = """Takes the buckets generated from minhashes and uses
+    description = """Takes the buckets generated from minhashes and uses
     document length information to create a coarse mapping of mapping multiple
     buckets to a logical partition by using a modified bin packing algorithm.
     """
-  if not parser:
-    parser = parse_nc_args(description=description)
-  parser.add_argument(
-      "--input-bucket-dir",
-      type=str,
-      help="The directory containing bucket information files",
-  )
-  parser.add_argument(
-      "--text-ddf-blocksize",
-      type=int,
-      default=256,
-      help="The block size for chunking jsonl files for text ddf in mb",
-  )
-  parser.add_argument(
-      "--output-dir",
-      type=str,
-      help="The output directory to write results in",
-  )
-  parser.add_argument(
-      "--shuffle-type",
-      type=str,
-      default="tasks",
-      help="Type of shuffle to use before writing to parquet",
-  )
-  return parser
+    if not parser:
+        parser = parse_nc_args(description=description)
+    parser.add_argument(
+        "--input-bucket-dir",
+        type=str,
+        help="The directory containing bucket information files",
+    )
+    parser.add_argument(
+        "--text-ddf-blocksize",
+        type=int,
+        default=256,
+        help="The block size for chunking jsonl files for text ddf in mb",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        help="The output directory to write results in",
+    )
+    parser.add_argument(
+        "--shuffle-type",
+        type=str,
+        default="tasks",
+        help="Type of shuffle to use before writing to parquet",
+    )
+    return parser
 
 
 def jaccard_get_output_map_workflow(
@@ -133,7 +136,7 @@ def jaccard_get_output_map_workflow(
     num_files,
     shuffle_type,
 ):
-  """
+    """
     Workflow for jaccard shuffle
     Args:
         client: dask client
@@ -145,50 +148,50 @@ def jaccard_get_output_map_workflow(
         parts_per_worker: number of parts per worker
         shuffle_type: type of shuffle to use before writing to parquet
     """
-  num_workers = get_num_workers(client)
-  ddf_anchor_docs_with_bk = get_anchor_and_output_map_info(
-      input_data_paths,
-      input_bucket_path,
-      text_ddf_blocksize,
-      num_files,
-      num_workers,
-      shuffle_type,
-  )
-  ddf_anchor_docs_with_bk.to_parquet(
-      output_anchor_docs_with_bk_path,
-      write_index=False,
-  )
+    num_workers = get_num_workers(client)
+    ddf_anchor_docs_with_bk = get_anchor_and_output_map_info(
+        input_data_paths,
+        input_bucket_path,
+        text_ddf_blocksize,
+        num_files,
+        num_workers,
+        shuffle_type,
+    )
+    ddf_anchor_docs_with_bk.to_parquet(
+        output_anchor_docs_with_bk_path,
+        write_index=False,
+    )
 
 
 def main(args):
-  input_data_paths = args.input_data_dirs
-  input_bucket_path = args.input_bucket_dir
-  OUTPUT_PATH = args.output_dir
-  output_anchor_docs_with_bk_path = os.path.join(OUTPUT_PATH,
-                                                 "anchor_docs_with_bk.parquet")
-  client = get_client(args)
-  print(f"Num Workers = {get_num_workers(client)}", flush=True)
-  print("Connected to dask cluster", flush=True)
-  print("Running jaccard map buckets script", flush=True)
-  print(f"Args = {args}")
-  st = time.time()
-  jaccard_get_output_map_workflow(
-      client,
-      input_data_paths,
-      input_bucket_path,
-      output_anchor_docs_with_bk_path,
-      args.text_ddf_blocksize,
-      args.num_files,
-      args.shuffle_type,
-  )
-  et = time.time()
-  print(f"Bucket Mapping time taken = {et-st} s")
+    input_data_paths = args.input_data_dirs
+    input_bucket_path = args.input_bucket_dir
+    OUTPUT_PATH = args.output_dir
+    output_anchor_docs_with_bk_path = os.path.join(
+        OUTPUT_PATH, "anchor_docs_with_bk.parquet"
+    )
+    client = get_client(args)
+    print(f"Num Workers = {get_num_workers(client)}", flush=True)
+    print("Connected to dask cluster", flush=True)
+    print("Running jaccard map buckets script", flush=True)
+    print(f"Args = {args}")
+    st = time.time()
+    jaccard_get_output_map_workflow(
+        client,
+        input_data_paths,
+        input_bucket_path,
+        output_anchor_docs_with_bk_path,
+        args.text_ddf_blocksize,
+        args.num_files,
+        args.shuffle_type,
+    )
+    et = time.time()
+    print(f"Bucket Mapping time taken = {et-st} s")
 
 
 def console_script():
-  main(attach_args().parse_args())
+    main(attach_args().parse_args())
 
 
 if __name__ == "__main__":
-  main(attach_args().parse_args())
-  
+    main(attach_args().parse_args())

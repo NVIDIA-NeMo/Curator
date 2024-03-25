@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import dask_cudf
 import dask.dataframe as dd
+import dask_cudf
 
 from nemo_curator.utils.distributed_utils import read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
@@ -24,6 +24,7 @@ class DocumentDataset:
     A collection of documents and document metadata.
     Internally it may be distributed across multiple nodes, and may be on GPUs.
     """
+
     def __init__(self, dataset_df):
         self.df = dataset_df
 
@@ -41,13 +42,15 @@ class DocumentDataset:
         files_per_partition=1,
         add_filename=False,
     ):
-        return cls(_read_json_or_parquet(
-            input_files=input_files,
-            file_type="jsonl",
-            backend=backend,
-            files_per_partition=files_per_partition,
-            add_filename=add_filename,
-        ))
+        return cls(
+            _read_json_or_parquet(
+                input_files=input_files,
+                file_type="jsonl",
+                backend=backend,
+                files_per_partition=files_per_partition,
+                add_filename=add_filename,
+            )
+        )
 
     @classmethod
     def read_parquet(
@@ -57,13 +60,15 @@ class DocumentDataset:
         files_per_partition=1,
         add_filename=False,
     ):
-        return cls(_read_json_or_parquet(
-            input_files=input_files,
-            file_type="parquet",
-            backend=backend,
-            files_per_partition=files_per_partition,
-            add_filename=add_filename,
-        ))
+        return cls(
+            _read_json_or_parquet(
+                input_files=input_files,
+                file_type="parquet",
+                backend=backend,
+                files_per_partition=files_per_partition,
+                add_filename=add_filename,
+            )
+        )
 
     @classmethod
     def read_pickle(

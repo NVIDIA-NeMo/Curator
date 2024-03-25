@@ -15,15 +15,20 @@
 import os
 import time
 
+from nemo_curator.gpu_deduplication.utils import (
+    get_client,
+    get_num_workers,
+    parse_nc_args,
+)
+from nemo_curator.modules.fuzzy_dedup import _Shuffle
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_text_ddf_from_json_path_with_blocksize,
 )
-from nemo_curator.gpu_deduplication.utils import get_client, get_num_workers, parse_nc_args
-from nemo_curator.modules.fuzzy_dedup import _Shuffle
 
 
 def func():
     import cudf
+
     from nemo_curator.modules.fuzzy_dedup import _Shuffle
 
 
@@ -56,7 +61,7 @@ def main(args):
         id_fields=["dataset_id", "doc_id"],
         text_field=args.input_json_text_field,
         profile_dir=args.profile_path,
-        int_to_str_id="adlr_id"
+        int_to_str_id="adlr_id",
     )
     shuffle.shuffle_docs_on_buckets(
         documents_df=text_ddf,

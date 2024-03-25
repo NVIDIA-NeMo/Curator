@@ -1,7 +1,7 @@
 input_field: text
 filters:
   # The filters below define a chain of heuristic filters to be applied to each document in a corpus.
-  # This particular cascade of filters is intended to filter English language data. 
+  # This particular cascade of filters is intended to filter English language data.
   # The filter listed at the top will be applied first, and the following filters will be applied in
   # the order they appear in this file. Each filter can be removed and re-ordered as desired.
   - name: nemo_curator.filters.heuristic_filter.NonAlphaNumericFilter
@@ -14,16 +14,16 @@ filters:
     params:
       max_number_to_text_ratio: 0.15
   - name: nemo_curator.filters.heuristic_filter.UrlsFilter
-    params: 
+    params:
       max_url_to_text_ratio: 0.2
   - name: nemo_curator.filters.heuristic_filter.WhiteSpaceFilter
-    params: 
+    params:
       max_white_space_ratio: 0.25
   - name: nemo_curator.filters.heuristic_filter.ParenthesesFilter
-    params: 
+    params:
       max_parentheses_ratio: 0.1
   - name: nemo_curator.filters.heuristic_filter.BoilerPlateStringFilter
-    params: 
+    params:
       remove_if_at_top_or_bottom: True
       max_boilerplate_string_ratio: 0.4
   - name: nemo_curator.filters.heuristic_filter.RepeatedLinesFilter
@@ -46,7 +46,7 @@ filters:
     params:
       max_num_sentences_without_endmark_ratio: 0.85
   - name: nemo_curator.filters.heuristic_filter.WordsWithoutAlphabetsFilter
-    params: 
+    params:
       min_words_with_alphabets: 0.8
   - name: nemo_curator.filters.heuristic_filter.CommonEnglishWordsFilter
     params:
@@ -54,10 +54,10 @@ filters:
       stop_at_false: True
   - name: nemo_curator.filters.heuristic_filter.MeanWordLengthFilter
     params:
-      max_mean_word_length: 10 
+      max_mean_word_length: 10
       min_mean_word_length: 3
   - name: nemo_curator.filters.heuristic_filter.LongWordFilter
-    params: 
+    params:
       max_word_length: 1000
   - name: nemo_curator.filters.heuristic_filter.EllipsisFilter
     params:

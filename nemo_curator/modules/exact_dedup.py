@@ -23,7 +23,9 @@ from hashlib import md5
 from typing import Union
 
 import pandas as pd
-from dask import dataframe as dd, config
+from dask import config
+from dask import dataframe as dd
+
 from nemo_curator._compat import DASK_P2P_ERROR
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.gpu_deduplication.utils import create_logger, performance_report_if

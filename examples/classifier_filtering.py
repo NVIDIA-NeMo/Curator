@@ -12,16 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import fasttext
-import random
 import argparse
+import random
+
+import fasttext
 
 import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import FastTextLabelModifier
 from nemo_curator.filters import BatchedFastTextQualityFilter
+from nemo_curator.modifiers import FastTextLabelModifier
+from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.distributed_utils import read_data, write_to_disk, get_client
 from nemo_curator.utils.script_utils import add_distributed_args
 
 
@@ -32,14 +33,18 @@ def load_dataset(input_data_dir):
 
     return dataset
 
+
 def create_samples(data_path, label, num_samples):
     raw_dataset = load_dataset(data_path)
     label_quality = nc.Modify(FastTextLabelModifier(label))
 
     labeled_dataset = label_quality(raw_dataset)
-    labeled_samples = labeled_dataset.df.sample(frac=num_samples / len(labeled_dataset.df))
+    labeled_samples = labeled_dataset.df.sample(
+        frac=num_samples / len(labeled_dataset.df)
+    )
 
     return labeled_samples["text"].compute().values.tolist()
+
 
 def main(args):
     # Params
@@ -51,8 +56,12 @@ def main(args):
 
     # Prepare samples for the classifier
     client = get_client(args, args.device)
-    low_quality_samples = create_samples(low_quality_data_path, "__label__lq", num_low_quality_samples)
-    high_quality_samples = create_samples(high_quality_data_path, "__label__hq", num_high_quality_samples)
+    low_quality_samples = create_samples(
+        low_quality_data_path, "__label__lq", num_low_quality_samples
+    )
+    high_quality_samples = create_samples(
+        high_quality_data_path, "__label__hq", num_high_quality_samples
+    )
 
     train_samples = low_quality_samples + high_quality_samples
     random.shuffle(train_samples)
@@ -61,7 +70,7 @@ def main(args):
     with open(train_file, "w") as f:
         for sample in train_samples:
             f.write(sample)
-            f.write('\n')
+            f.write("\n")
 
     # Train fastText classifier
     model = fasttext.train_supervised(
@@ -75,14 +84,25 @@ def main(args):
 
     # Filter data
     target_dataset = load_dataset(low_quality_data_path)
-    filter_pipeline = nc.ScoreFilter(BatchedFastTextQualityFilter(model_path), score_field="quality_score", batched=True, score_type=float)
+    filter_pipeline = nc.ScoreFilter(
+        BatchedFastTextQualityFilter(model_path),
+        score_field="quality_score",
+        batched=True,
+        score_type=float,
+    )
     filtered_dataset = filter_pipeline(target_dataset)
 
     # Write filtered dataset
     write_to_disk(filtered_dataset.df, filtered_output, write_to_filename=True)
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     return add_distributed_args(parser)
+
 
 if __name__ == "__main__":
     main(attach_args().parse_args())

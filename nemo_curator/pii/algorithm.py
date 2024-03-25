@@ -13,42 +13,36 @@
 # limitations under the License.
 
 from pathlib import Path
-from typing import (
-    List,
-    Mapping,
-    Any,
-    Union
-)
+from typing import Any, List, Mapping, Union
 
 import yaml
-from presidio_analyzer import (
-    AnalyzerEngine,
-    RecognizerRegistry
-)
+from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
 from presidio_analyzer.nlp_engine import NerModelConfiguration
 from presidio_analyzer.nlp_engine.ner_model_configuration import LABELS_TO_IGNORE
 from presidio_analyzer.predefined_recognizers import (
+    CreditCardRecognizer,
     EmailRecognizer,
+    IpRecognizer,
     PhoneRecognizer,
     SpacyRecognizer,
     UsSsnRecognizer,
-    CreditCardRecognizer,
-    IpRecognizer
 )
-from presidio_anonymizer import (
-    AnonymizerEngine,
-    BatchAnonymizerEngine
-)
+from presidio_anonymizer import AnonymizerEngine, BatchAnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
 
 from nemo_curator.pii.custom_batch_analyzer_engine import CustomBatchAnalyzerEngine
 from nemo_curator.pii.custom_nlp_engine import CustomNlpEngine
 from nemo_curator.pii.recognizers.address_recognizer import AddressRecognizer
 
-__all__ = ['DEFAULT_LANGUAGE', 'SUPPORTED_ENTITIES', 'DEFAULT_MAX_DOC_SIZE', 'PiiDeidentifier']
+__all__ = [
+    "DEFAULT_LANGUAGE",
+    "SUPPORTED_ENTITIES",
+    "DEFAULT_MAX_DOC_SIZE",
+    "PiiDeidentifier",
+]
 
 
-DEFAULT_LANGUAGE = 'en'
+DEFAULT_LANGUAGE = "en"
 SUPPORTED_ENTITIES = [
     "ADDRESS",
     "CREDIT_CARD",
@@ -70,12 +64,11 @@ class PiiDeidentifier(object):
     """Cleans PII from an unstructured text"""
 
     def __init__(
-            self,
-            language: str = DEFAULT_LANGUAGE,
-            supported_entities: List[str] = None,
-            anonymize_action: str = "replace",
-            **kwargs
-
+        self,
+        language: str = DEFAULT_LANGUAGE,
+        supported_entities: List[str] = None,
+        anonymize_action: str = "replace",
+        **kwargs
     ):
         """
         Parameters:
@@ -100,21 +93,25 @@ class PiiDeidentifier(object):
             "PATORG",
             "HCW",
             "HOSPITAL",
-            "FAC"
+            "FAC",
         }
         LABELS_TO_IGNORE.update(additional_labels_to_ignore)
 
-        recognizer_registry = RecognizerRegistry(recognizers=[
-            EmailRecognizer(),
-            PhoneRecognizer(),
-            SpacyRecognizer(),
-            UsSsnRecognizer(),
-            CreditCardRecognizer(),
-            IpRecognizer()
-        ])
+        recognizer_registry = RecognizerRegistry(
+            recognizers=[
+                EmailRecognizer(),
+                PhoneRecognizer(),
+                SpacyRecognizer(),
+                UsSsnRecognizer(),
+                CreditCardRecognizer(),
+                IpRecognizer(),
+            ]
+        )
 
         self.language = language
-        ner_model_configuration = NerModelConfiguration(labels_to_ignore=LABELS_TO_IGNORE)
+        ner_model_configuration = NerModelConfiguration(
+            labels_to_ignore=LABELS_TO_IGNORE
+        )
         self.analyzer = AnalyzerEngine(
             registry=recognizer_registry,
             nlp_engine=CustomNlpEngine(ner_model_configuration=ner_model_configuration),
@@ -134,12 +131,15 @@ class PiiDeidentifier(object):
 
         elif anonymize_action == "mask":
             self.operators["DEFAULT"] = OperatorConfig(
-                "mask", {"chars_to_mask": kwargs.get("chars_to_mask", 100),
-                         "masking_char": kwargs.get("masking_char", "*"),
-                         "from_end": False}
+                "mask",
+                {
+                    "chars_to_mask": kwargs.get("chars_to_mask", 100),
+                    "masking_char": kwargs.get("masking_char", "*"),
+                    "from_end": False,
+                },
             )
 
-        elif anonymize_action == 'lambda':
+        elif anonymize_action == "lambda":
             self.operators["DEFAULT"] = OperatorConfig(
                 "custom", {"lambda": kwargs.get("lambda")}
             )
@@ -149,9 +149,7 @@ class PiiDeidentifier(object):
                 "replace", {"new_value": kwargs.get("new_value")}
             )
 
-        self.supported_entities = (
-            supported_entities or SUPPORTED_ENTITIES
-        )
+        self.supported_entities = supported_entities or SUPPORTED_ENTITIES
 
         if "ADDRESS" in self.supported_entities:
             self.add_custom_recognizer(
@@ -160,13 +158,13 @@ class PiiDeidentifier(object):
 
     @staticmethod
     def from_config(config: Mapping[str, Any]):
-        config = config.get('pii_config')
-        language = config.get('language')
-        supported_entities = config.get('supported_entities')
-        operator_config = config.get('anonymize', {})
-        operator_name = operator_config.get('action')
+        config = config.get("pii_config")
+        language = config.get("language")
+        supported_entities = config.get("supported_entities")
+        operator_config = config.get("anonymize", {})
+        operator_name = operator_config.get("action")
         if operator_name:
-            del operator_config['action']
+            del operator_config["action"]
 
         return PiiDeidentifier(
             language=language,
@@ -184,7 +182,8 @@ class PiiDeidentifier(object):
     def from_default_config():
         return PiiDeidentifier(
             PiiDeidentifier.DEFAULT_LANGUAGE,
-            supported_entities=SUPPORTED_ENTITIES, anonymize_action='replace'
+            supported_entities=SUPPORTED_ENTITIES,
+            anonymize_action="replace",
         )
 
     def list_supported_entities(self):
@@ -204,21 +203,18 @@ class PiiDeidentifier(object):
         """Use a custom cleaning operation for a specific entity types"""
         self.operators[entity] = operator
 
-    def analyze_text(self,
-                     text,
-                     entities: List[str] = None,
-                     language: str = 'en'
-                     ):
+    def analyze_text(self, text, entities: List[str] = None, language: str = "en"):
         if not entities:
             entities = self.supported_entities
         return self.analyzer.analyze(text, language, entities=entities)
 
-    def analyze_text_batch(self,
-                           texts: List[str],
-                           entities: List[str] = None,
-                           language: str = 'en',
-                           batch_size: int = 32
-                           ):
+    def analyze_text_batch(
+        self,
+        texts: List[str],
+        entities: List[str] = None,
+        language: str = "en",
+        batch_size: int = 32,
+    ):
         """
         For processing batches, use batch analyzer
 
@@ -233,7 +229,9 @@ class PiiDeidentifier(object):
         if not entities:
             entities = self.supported_entities
 
-        return self.batch_analyzer.analyze_iterator(texts, language, entities=entities, batch_size=batch_size)
+        return self.batch_analyzer.analyze_iterator(
+            texts, language, entities=entities, batch_size=batch_size
+        )
 
     def deidentify_text_batch(self, texts: List[str], batch_size: int = 32):
         """
@@ -248,7 +246,10 @@ class PiiDeidentifier(object):
         List(str): list of deidentified text
         """
         analyzer_results_list = self.batch_analyzer.analyze_iterator(
-            texts, self.language, entities=self.supported_entities, batch_size=batch_size
+            texts,
+            self.language,
+            entities=self.supported_entities,
+            batch_size=batch_size,
         )
 
         anonymized_results_list = self.batch_anonymizer.anonymize_list(
@@ -276,10 +277,12 @@ class PiiDeidentifier(object):
 
 
 if __name__ == "__main__":
-    txt = "Hello, I am John. I was born on December 5, 1983. My email is john.doe@gmail.com and " \
-          "you can call me on (814) 566 4637"
+    txt = (
+        "Hello, I am John. I was born on December 5, 1983. My email is john.doe@gmail.com and "
+        "you can call me on (814) 566 4637"
+    )
     piid = PiiDeidentifier("en", ["DATE_TIME"])
     print(piid.deidentify_text(txt))
 
-    piid = PiiDeidentifier("en", ["ADDRESS", "PERSON"], anonymize_action='replace')
+    piid = PiiDeidentifier("en", ["ADDRESS", "PERSON"], anonymize_action="replace")
     print(piid.deidentify_text_batch([txt]))

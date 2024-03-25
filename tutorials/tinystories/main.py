@@ -24,10 +24,7 @@ from modifiers import QuotationUnifier
 
 from nemo_curator import ScoreFilter, Sequential
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import (
-    RepeatingTopNGramsFilter,
-    WordCountFilter,
-)
+from nemo_curator.filters import RepeatingTopNGramsFilter, WordCountFilter
 from nemo_curator.modifiers.pii_modifier import PiiModifierBatched
 from nemo_curator.modifiers.unicode_reformatter import UnicodeReformatter
 from nemo_curator.modules import ExactDuplicates

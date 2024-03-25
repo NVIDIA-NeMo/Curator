@@ -16,19 +16,20 @@ import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import warnings
+from pathlib import Path
+from typing import Union
+
 import cudf
 import dask.dataframe as dd
 import dask_cudf
 import pandas as pd
 from dask.distributed import Client, LocalCluster, get_worker
 from dask_cuda import LocalCUDACluster
-from typing import Union
-from pathlib import Path
 
 
 class DotDict:
     def __init__(self, d):
-        self.__dict__['_data'] = d
+        self.__dict__["_data"] = d
 
     def __getattr__(self, name):
         if name in self._data:
@@ -39,6 +40,7 @@ class DotDict:
 
 class NoWorkerError(Exception):
     pass
+
 
 def start_dask_gpu_local_cluster(args) -> Client:
     """
@@ -384,7 +386,9 @@ def single_partition_write_with_filename(df, output_file_dir, output_type="jsonl
         if output_type == "jsonl":
             output_file_path = output_file_path + ".jsonl"
             if isinstance(df, pd.DataFrame):
-                df.to_json(output_file_path, orient="records", lines=True, force_ascii=False)
+                df.to_json(
+                    output_file_path, orient="records", lines=True, force_ascii=False
+                )
             else:
                 # See open issue here: https://github.com/rapidsai/cudf/issues/15211
                 # df.to_json(
@@ -439,9 +443,13 @@ def write_to_disk(df, output_file_dir, write_to_filename=False, output_type="jso
             if isinstance(df, dask_cudf.DataFrame):
                 # See open issue here: https://github.com/rapidsai/cudf/issues/15211
                 # df.to_json(output_file_dir, orient="records", lines=True, engine="cudf", force_ascii=False)
-                df.to_json(output_file_dir, orient="records", lines=True, force_ascii=False)
+                df.to_json(
+                    output_file_dir, orient="records", lines=True, force_ascii=False
+                )
             else:
-                df.to_json(output_file_dir, orient="records", lines=True, force_ascii=False)
+                df.to_json(
+                    output_file_dir, orient="records", lines=True, force_ascii=False
+                )
         elif output_type == "parquet":
             df.to_parquet(output_file_dir, write_index=False)
         else:

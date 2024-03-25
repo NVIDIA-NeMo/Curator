@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def random_select_anchor(df_bk, n=2):
     """
     Randomly select `n` anchors from each bucket.

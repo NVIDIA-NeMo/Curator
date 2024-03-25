@@ -43,7 +43,7 @@ Let's examine this small example:
                     text_field="text",
                     score_field="word_count",
                 )
-    
+
     long_books = filter_step(books)
 
     long_books.to_json("long_books/", write_to_filename=True)
@@ -101,7 +101,7 @@ For example, if the dataset in the above example came pre-populated with the ``w
                     WordCountFilter(min_words=80).keep_document,
                     filter_field="word_count",
                 )
-    
+
     long_books = filter_step(books)
 
     long_books.to_json("long_books/", write_to_filename=True)
@@ -117,7 +117,7 @@ Alternatively, if you simply want to track the length of the words in the docume
                     text_field="text",
                     score_field="word_count",
                 )
-    
+
     annotated_books = filter_step(books)
 
     annotated_books.to_json("annotated_books/", write_to_filename=True)
@@ -161,15 +161,15 @@ Classifier Filtering
 
 The classifier-based filtering approach we have implemented follows closely to that used in `Brown et al., 2020 <https://arxiv.org/abs/2005.14165>`_,
 and trains a binary skip-gram classifier that can be used to distinguish between low and high quality documents. To implement this, we use the
-functions provided by fastText. Following the examples provided in the fastText documentation, we first create a file consisting of 
+functions provided by fastText. Following the examples provided in the fastText documentation, we first create a file consisting of
 high and low-quality training documents. We provide an example of how to train and use a model in ``examples/classifier_filtering.py``.
 
 We also provide CLI scripts for the same functionality. The :code:`prepare_fasttext_training_data` script will randomly sample documents
-from an input dataset and will prepare them to be used to train a fasText skip-gram classifier. For a high-quality dataset we recommend sampling from 
+from an input dataset and will prepare them to be used to train a fasText skip-gram classifier. For a high-quality dataset we recommend sampling from
 either OpenWebText2 or Wikipedia and an unfiltered version of Common Crawl can be used for a low-quality dataset.
 
 .. code-block:: bash
-    
+
     prepare_fasttext_training_data \
       --input-data-dir=<Specify the path to common-crawl/low-quality data> \
       --output-num-samples=<Specify the number of low-quality documents to be used for training> \
@@ -183,12 +183,12 @@ either OpenWebText2 or Wikipedia and an unfiltered version of Common Crawl can b
       --output-train-file=${res_dir}/hq_samples.txt \
 
 Once the samples have been prepared and written to :code:`.txt` files, users can use the :code:`train_fasttext` script that reads in the samples within the :code:`.txt` files
-in order to train a quality classifier. :code:`train_fasttext` will read in all of the samples within the :code:`.txt` files, split the data into training and 
+in order to train a quality classifier. :code:`train_fasttext` will read in all of the samples within the :code:`.txt` files, split the data into training and
 validation sets and train the binary skip-gram classifier. After training, it evaluates the model on the validation samples and writes the predictions
 to a jsonl file prints the confusion matrix to stdout.
 
 .. code-block:: bash
-    
+
     train_fasttext \
       --fasttext-files-dir=${res_dir} \
       --output-train-file=${res_dir}/fasttext_samples.train \
@@ -202,7 +202,7 @@ be used for classifier-based quality filtering with a fastText model. Additional
 as is described in `Brown et al., 2020 <https://arxiv.org/abs/2005.14165>`_.
 
 .. code-block:: bash
-    
+
     filter_documents \
       --input-data-dir=<Specify the path to common-crawl/uncurated data> \
       --filter-config-file=./config/fasttext_quality_filter.yaml \
@@ -236,7 +236,7 @@ The filters are general enough that users should feel free to remove certain fil
 with the results of different filter configurations/parameters.
 
 Additionally, these filters have been used for curating high-quality non-English documents. However, it is advised that when applying
-to non-English data that users write out the document scores by specifying the :code:`--document-score-dir` argument. This will allow users to 
+to non-English data that users write out the document scores by specifying the :code:`--document-score-dir` argument. This will allow users to
 examine if a particular filter is responsible for undesirably removing many documents from a corpus.
 
 .. code-block:: bash

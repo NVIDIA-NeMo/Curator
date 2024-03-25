@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import time
-
-import argparse
 
 from nemo_curator import DomainClassifier
 from nemo_curator.datasets import DocumentDataset
@@ -73,9 +72,7 @@ def main(args):
     )
     result_dataset = domain_classifier(dataset=input_dataset)
 
-    result_dataset.to_json(
-        output_file_dir=output_file_path, write_to_filename=True
-    )
+    result_dataset.to_json(output_file_dir=output_file_path, write_to_filename=True)
 
     global_et = time.time()
     print(
@@ -85,7 +82,12 @@ def main(args):
 
     client.close()
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     parser.add_argument(
         "--scheduler-address",
         type=str,
@@ -132,7 +134,7 @@ def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.Argument
         default="gpu",
         help="Device to run the script on. Either 'cpu' or 'gpu'.",
     )
-    
+
     return parser
 
 

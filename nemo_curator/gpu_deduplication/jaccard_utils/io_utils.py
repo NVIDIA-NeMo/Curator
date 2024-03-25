@@ -20,10 +20,7 @@ import dask_cudf
 import numpy as np
 from dask import dataframe as dd
 
-from nemo_curator.gpu_deduplication.ioutils import (
-    bucketed_read,
-    read_json_func,
-)
+from nemo_curator.gpu_deduplication.ioutils import bucketed_read, read_json_func
 from nemo_curator.gpu_deduplication.jaccard_utils.doc_id_mapping import (
     convert_adlr_id_to_int,
 )

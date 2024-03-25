@@ -91,7 +91,7 @@ datasets. In general, it can be called as follows in order to download and extra
     --builder-config-file=<Path to .yaml file that describes how the data should be downloaded and extracted> \
     --output-json-dir=<Path to output directory to which data will be written in .jsonl format>
 
-This utility takes as input a list of URLs that point to files that contain prepared, unextracted data (e.g., pre-crawled web pages from Common Crawl), a config file that describes how to download and extract the data, and the output directory to where the extracted text will be written in jsonl format (one json written to each document per line). For each URL provided in the list of URLs, a corresponding jsonl file will be written to the output directory. 
+This utility takes as input a list of URLs that point to files that contain prepared, unextracted data (e.g., pre-crawled web pages from Common Crawl), a config file that describes how to download and extract the data, and the output directory to where the extracted text will be written in jsonl format (one json written to each document per line). For each URL provided in the list of URLs, a corresponding jsonl file will be written to the output directory.
 
 The config file that must be provided at runtime, should take the following form
 
@@ -133,7 +133,7 @@ If you would prefer to use this over `wget <https://en.wikipedia.org/wiki/Wget>`
 Downloading and Extracting Common Crawl
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-As described in the first section of this document, the first step towards using the :code:`download_and_extract` for Common Crawl will be to create a list of URLs that point to the location of the WARC files hosted by Common Crawl. 
+As described in the first section of this document, the first step towards using the :code:`download_and_extract` for Common Crawl will be to create a list of URLs that point to the location of the WARC files hosted by Common Crawl.
 Within NeMo Curator, we provide the utility :code:`get_common_crawl_urls` to obtain these urls. This utility can be run as follows
 
 .. code-block:: bash
@@ -144,9 +144,9 @@ Within NeMo Curator, we provide the utility :code:`get_common_crawl_urls` to obt
     --ending-snapshot="2020-50" \
     --output-warc-url-file=./url_data/warc_urls_cc_2020_50.txt
 
-This script pulls the Common Crawl index from `https://index.commoncrawl.org` and stores the index to the file 
-specified by the argument :code:`--cc-snapshot-index-file`. It then retrieves all WARC urls between the 
-dates specified by the arguments :code:`--starting-snapshot` and :code:`--ending-snapshot`. 
+This script pulls the Common Crawl index from `https://index.commoncrawl.org` and stores the index to the file
+specified by the argument :code:`--cc-snapshot-index-file`. It then retrieves all WARC urls between the
+dates specified by the arguments :code:`--starting-snapshot` and :code:`--ending-snapshot`.
 Finally, it writes all WARC urls to the text file :code:`--output-warc-urls`. This file is a simple text file
 with the following format::
 
@@ -175,16 +175,15 @@ example of a single line of an output `.jsonl` file extracted from a WARC record
 
 .. code-block:: json
 
-   {"text": "커뮤니티\n\n어린이 요리 교실은 평소 조리와 제과 제빵에 관심이 있는 초등학생을 대상으로 나이프스킬, 한식, 중식, 양식, 제과, 제빵, 디저트, 
-    생활요리 등 요리 기초부터 시작해 다양한 요리에 대해 배우고, 경험할 수 있도록 구성되었다.\n\n요즘 부모들의 자녀 요리 교육에 대한 관심이 높아지고 
-    있는데, 어린이 요리교실은 자녀들이 어디서 어떻게 요리를 처음 시작할지 막막하고 어려워 고민하는 이들을 위해 만들어졌다.\n\n그 뿐만 아니라 학생들이 
-    식재료를 다루는 과정에서 손으로 만지고 느끼는 것이 감각을 자극하여 두뇌발달에 도움을 주며, 조리를 통해 자신의 감정을 자연스럽게 표현할 수 
-    있고 이를 통해 정서적 안정을 얻을 수 있다. 또한, 다양한 사물을 만져 보면서 차이점을 구별하고 사물의 특징에 대해 인지할 수 있으므로 인지 능력 향상에 
-    도움이 되며, 만지고 느끼고 비교하는 과정에서 감각 기능을 향상시킬 수 있다.\n\n방과 후 시간이 되지 않는 초등학생들을 위해 평일반 뿐만 아니라 주말반도 
-    운영하고 있으며 두 분의 선생님들의 안전적인 지도하에 수업이 진행된다. 한국조리예술학원은 젊은 감각과 학생들과의 소통을 통해 자발적인 교육을 가르친다. 
-    자세한 학원 문의는 한국조리예술학원 홈페이지나 대표 전화, 카카오톡 플러스친구를 통해 가능하다.", "id": "a515a7b6-b6ec-4bed-998b-8be2f86f8eac", 
-    "source_id": "https://data.commoncrawl.org/crawl-data/CC-MAIN-2020-50/segments/1606141163411.0/warc/CC-MAIN-20201123153826-20201123183826-00000.warc.gz", 
+   {"text": "커뮤니티\n\n어린이 요리 교실은 평소 조리와 제과 제빵에 관심이 있는 초등학생을 대상으로 나이프스킬, 한식, 중식, 양식, 제과, 제빵, 디저트,
+    생활요리 등 요리 기초부터 시작해 다양한 요리에 대해 배우고, 경험할 수 있도록 구성되었다.\n\n요즘 부모들의 자녀 요리 교육에 대한 관심이 높아지고
+    있는데, 어린이 요리교실은 자녀들이 어디서 어떻게 요리를 처음 시작할지 막막하고 어려워 고민하는 이들을 위해 만들어졌다.\n\n그 뿐만 아니라 학생들이
+    식재료를 다루는 과정에서 손으로 만지고 느끼는 것이 감각을 자극하여 두뇌발달에 도움을 주며, 조리를 통해 자신의 감정을 자연스럽게 표현할 수
+    있고 이를 통해 정서적 안정을 얻을 수 있다. 또한, 다양한 사물을 만져 보면서 차이점을 구별하고 사물의 특징에 대해 인지할 수 있으므로 인지 능력 향상에
+    도움이 되며, 만지고 느끼고 비교하는 과정에서 감각 기능을 향상시킬 수 있다.\n\n방과 후 시간이 되지 않는 초등학생들을 위해 평일반 뿐만 아니라 주말반도
+    운영하고 있으며 두 분의 선생님들의 안전적인 지도하에 수업이 진행된다. 한국조리예술학원은 젊은 감각과 학생들과의 소통을 통해 자발적인 교육을 가르친다.
+    자세한 학원 문의는 한국조리예술학원 홈페이지나 대표 전화, 카카오톡 플러스친구를 통해 가능하다.", "id": "a515a7b6-b6ec-4bed-998b-8be2f86f8eac",
+    "source_id": "https://data.commoncrawl.org/crawl-data/CC-MAIN-2020-50/segments/1606141163411.0/warc/CC-MAIN-20201123153826-20201123183826-00000.warc.gz",
     "url": "http://hanjowon.co.kr/web/home.php?mid=70&go=pds.list&pds_type=1&start=20&num=67&s_key1=&s_que=", "language": "KOREAN"}
 
 Once all records have been processed within a WARC file, it is by default deleted from disk.
-

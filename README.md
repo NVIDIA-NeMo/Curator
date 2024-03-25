@@ -14,7 +14,7 @@ We currently support the following data-curation modules. For more details on ea
  - [Text reformatting and cleaning](docs/user-guide/LanguageIdentificationUnicodeFormatting.rst)
    - Fix unicode decoding errors via [ftfy](https://ftfy.readthedocs.io/en/latest/)
  - [Quality filtering](docs/user-guide/QualityFiltering.rst)
-   - Multilingual heuristic-based filtering 
+   - Multilingual heuristic-based filtering
    - Classifier-based filtering via [fastText](https://fasttext.cc/)
  - [Document-level deduplication](docs/user-guide/GpuDeduplication.rst)
    - Both exact and fuzzy deduplication are accelerated using cuDF and Dask.
@@ -79,7 +79,7 @@ Note: This is not the only way to run NeMo Curator on SLURM. There are example s
 
 ## Module Ablation and Compute Performance
 
-The modules within NeMo Curator were in large part designed to curate high-quality documents from Common Crawl snapshots and to be able to do so 
+The modules within NeMo Curator were in large part designed to curate high-quality documents from Common Crawl snapshots and to be able to do so
 in a scalable manner. In order to assess the quality of the Common Crawl documents curated by the modules in NeMo Curator, we performed a series
 of ablation experiments in which we trained a 357M-parameter GPT-style model on the datasets resulting from the different stages of our data curation
 pipeline implemented in NeMo Curator. The figure below demonstrates that the different data curation modules implemented within NeMo Curator
@@ -89,7 +89,7 @@ lead to improved model zero-shot downstream task performance.
   <img src="./docs/user-guide/images/zeroshot_ablations.png" alt="drawing" width="700"/>
 </p>
 
-In terms of scalability and compute performance, using the RAPIDS + Dask fuzzy deduplication, we are able to deduplicate the 1.1 Trillion token Red Pajama dataset in 1.8 hours using 64 A100s. 
+In terms of scalability and compute performance, using the RAPIDS + Dask fuzzy deduplication, we are able to deduplicate the 1.1 Trillion token Red Pajama dataset in 1.8 hours using 64 A100s.
 
 Additionally, using the CPU-based modules the table below shows the time required and resulting data size reduction of each step of processing the [Common Crawl snapshot from November/December of 2020](https://commoncrawl.org/2020/12/nov-dec-2020-crawl-archive-now-available/) using 30 CPU nodes (with hardware similar to the `c5.24xlarge` [Amazon AWS C5 instance](https://aws.amazon.com/ec2/instance-types/c5/)):
 

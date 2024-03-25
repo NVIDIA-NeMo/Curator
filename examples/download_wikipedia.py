@@ -31,14 +31,22 @@ def main(args):
     client = get_client(args, args.device)
 
     # Download and sample data
-    wikipedia = download_wikipedia(output_directory, dump_date=dump_date, url_limit=url_limit)
+    wikipedia = download_wikipedia(
+        output_directory, dump_date=dump_date, url_limit=url_limit
+    )
     sample = wikipedia.df.sample(frac=10 / len(wikipedia))
 
     # Inspect the samples
     print(sample.compute())
 
-def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
+
+def attach_args(
+    parser=argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    ),
+):
     return add_distributed_args(parser)
+
 
 if __name__ == "__main__":
     main(attach_args().parse_args())

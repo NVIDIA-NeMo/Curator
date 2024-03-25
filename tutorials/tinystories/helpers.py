@@ -15,10 +15,7 @@
 import json
 import os
 
-from docbuilder import (
-    TinyStoriesExtractor,
-    TinyStoriesIterator,
-)
+from docbuilder import TinyStoriesExtractor, TinyStoriesIterator
 
 
 def write_jsonl(input_filename: str, output_dir: str, dump_every_n: int = 10000):

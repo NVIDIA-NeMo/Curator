@@ -13,10 +13,15 @@
 # limitations under the License.
 
 import logging
-from typing import List, Iterable, Dict, Union, Any, Optional, Iterator
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
-from presidio_analyzer import DictAnalyzerResult, RecognizerResult, AnalyzerEngine, BatchAnalyzerEngine, \
-    EntityRecognizer
+from presidio_analyzer import (
+    AnalyzerEngine,
+    BatchAnalyzerEngine,
+    DictAnalyzerResult,
+    EntityRecognizer,
+    RecognizerResult,
+)
 from presidio_analyzer.nlp_engine import NlpArtifacts
 
 from nemo_curator.pii.custom_nlp_engine import CustomNlpEngine
@@ -103,11 +108,14 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
             texts=texts,
             language=language,
             batch_size=batch_size,
-            as_tuples=kwargs.get('as_tuples', False)
+            as_tuples=kwargs.get("as_tuples", False),
         )
 
         results = self.analyze_batch(
-            texts=texts, nlp_artifacts_batch=nlp_artifacts_batch, language=language, **kwargs
+            texts=texts,
+            nlp_artifacts_batch=nlp_artifacts_batch,
+            language=language,
+            **kwargs,
         )
 
         return results
@@ -177,4 +185,3 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
                 raise ValueError(f"type {type(value)} is unsupported.")
 
             yield DictAnalyzerResult(key=key, value=value, recognizer_results=results)
-

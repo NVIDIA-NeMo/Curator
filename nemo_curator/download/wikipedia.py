@@ -12,25 +12,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import bz2
+import codecs
 import os
 import re
 import subprocess
-import bz2
-import codecs
-import mwparserfromhell
-from urllib.parse import urlparse, quote
 import xml.etree.cElementTree as etree
+from urllib.parse import quote, urlparse
 
+import mwparserfromhell
+from distributed import Lock
+
+from nemo_curator.datasets import DocumentDataset
 from nemo_curator.download.doc_builder import (
     DocumentDownloader,
-    DocumentIterator,
     DocumentExtractor,
-    download_and_extract
+    DocumentIterator,
+    download_and_extract,
 )
-from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.download_utils import get_wikipedia_urls
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
-from distributed import Lock
 
 # The majority of this code is taken from the HuggingFace
 # implementation of the Wikipedia dataset preparation:
@@ -157,10 +158,7 @@ MEDIA_ALIASES = {
     "koi": ["Медиа", "Файл", "Изображение"],
     "krc": ["Медиа", "Файл", "Изображение"],
     "ks": ["میڈیا", "فَیِل"],
-    "ksh": [
-        "Beld", "Meedije", "Medie", "Belld", "Medium", "Datei", "Meedijum",
-        "Bild"
-    ],
+    "ksh": ["Beld", "Meedije", "Medie", "Belld", "Medium", "Datei", "Meedijum", "Bild"],
     "ku": ["میدیا", "پەڕگە", "Medya", "Wêne"],
     "kv": ["Медиа", "Файл", "Изображение"],
     "kw": ["Restren"],
@@ -248,8 +246,14 @@ MEDIA_ALIASES = {
     "sl": ["Slika", "Datoteka"],
     "sq": ["Figura", "Skeda"],
     "sr": [
-        "Датотека", "Medij", "Slika", "Медија", "Datoteka", "Медиј", "Medija",
-        "Слика"
+        "Датотека",
+        "Medij",
+        "Slika",
+        "Медија",
+        "Datoteka",
+        "Медиј",
+        "Medija",
+        "Слика",
     ],
     "srn": ["Afbeelding", "Gefre"],
     "stq": ["Bielde", "Bild"],
@@ -294,7 +298,19 @@ MEDIA_ALIASES = {
     "zh": ["媒体文件", "F", "文件", "媒體", "档案", "图像", "圖像", "媒体", "檔案"],
     "zh-classical": ["文件", "媒體", "圖像", "檔案"],
     "zh-min-nan": ["tóng-àn", "文件", "媒體", "Mûi-thé", "圖像", "檔案"],
-    "zh-yue": ["檔", "档", "文件", "图", "媒體", "圖", "档案", "图像", "圖像", "媒体", "檔案"],
+    "zh-yue": [
+        "檔",
+        "档",
+        "文件",
+        "图",
+        "媒體",
+        "圖",
+        "档案",
+        "图像",
+        "圖像",
+        "媒体",
+        "檔案",
+    ],
 }
 
 CAT_ALIASES = {
@@ -420,8 +436,13 @@ CAT_ALIASES = {
     "krc": ["Категория"],
     "ks": ["زٲژ"],
     "ksh": [
-        "Saachjropp", "Saachjrop", "Katejori", "Kategorie", "Saachjrupp",
-        "Kattejori", "Sachjrop"
+        "Saachjropp",
+        "Saachjrop",
+        "Katejori",
+        "Kategorie",
+        "Saachjrupp",
+        "Kattejori",
+        "Sachjrop",
     ],
     "ku": ["Kategorî", "پۆل"],
     "kv": ["Категория"],
@@ -558,207 +579,238 @@ CAT_ALIASES = {
 
 class WikipediaDownloader(DocumentDownloader):
 
-  def __init__(self, download_dir, verbose=False):
-    super().__init__()
-    self._download_dir = download_dir
-    self._verbose = verbose
-    self._lock = Lock(name="wikipedia_downloader")
+    def __init__(self, download_dir, verbose=False):
+        super().__init__()
+        self._download_dir = download_dir
+        self._verbose = verbose
+        self._lock = Lock(name="wikipedia_downloader")
 
-  def download(self, url):
-    urlpath = urlparse(url).path[1:]
-    output_name = urlpath.replace('/', '-')
-    output_file = os.path.join(self._download_dir, output_name)
-    if os.path.exists(output_file):
-      print(f"bz2 file: {output_file} exists. Not downloading")
-    else:
-      print(f"Downloading {url} and writing to {output_file}")
-      # Download with either wget or s5cmd (aws)
-      cmd = ["wget", url, "-O", output_file]
-      if self._verbose:
-        stdout, stderr = None, None
-      else:
-        stdout, stderr = subprocess.DEVNULL, subprocess.DEVNULL
-      with self._lock:
-        p = subprocess.run(
-            cmd,
-            stdout=stdout,
-            stderr=stderr,
-        )
-      if p.returncode != 0:
-        print(f"Failed to download {url} to {output_file}")
+    def download(self, url):
+        urlpath = urlparse(url).path[1:]
+        output_name = urlpath.replace("/", "-")
+        output_file = os.path.join(self._download_dir, output_name)
+        if os.path.exists(output_file):
+            print(f"bz2 file: {output_file} exists. Not downloading")
+        else:
+            print(f"Downloading {url} and writing to {output_file}")
+            # Download with either wget or s5cmd (aws)
+            cmd = ["wget", url, "-O", output_file]
+            if self._verbose:
+                stdout, stderr = None, None
+            else:
+                stdout, stderr = subprocess.DEVNULL, subprocess.DEVNULL
+            with self._lock:
+                p = subprocess.run(
+                    cmd,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+            if p.returncode != 0:
+                print(f"Failed to download {url} to {output_file}")
 
-    return output_file
+        return output_file
 
 
 class WikipediaIterator(DocumentIterator):
 
-  def __init__(self, language='en', log_frequency=1000):
-    super().__init__()
-    self._language = language
-    self._log_frequency = log_frequency
-    self._counter = 0
+    def __init__(self, language="en", log_frequency=1000):
+        super().__init__()
+        self._language = language
+        self._log_frequency = log_frequency
+        self._counter = 0
 
-  def iterate(self, file_path):
-    self._counter = 0
-    bname = os.path.split(file_path)[-1]
-    input_file = bz2.BZ2File(filename=file_path)
-    utf_f = codecs.getreader("utf-8")(input_file)
-    context = etree.iterparse(utf_f, events=("end",))
+    def iterate(self, file_path):
+        self._counter = 0
+        bname = os.path.split(file_path)[-1]
+        input_file = bz2.BZ2File(filename=file_path)
+        utf_f = codecs.getreader("utf-8")(input_file)
+        context = etree.iterparse(utf_f, events=("end",))
 
-    for i, (unused_event, elem) in enumerate(context):
-      if not elem.tag.endswith("page"):
-        continue
-      if self._counter > 0 and self._counter % self._log_frequency == 0:
-        print(f"Extracted {self._counter} articles from {file_path}")
-      self._counter += 1
+        for i, (unused_event, elem) in enumerate(context):
+            if not elem.tag.endswith("page"):
+                continue
+            if self._counter > 0 and self._counter % self._log_frequency == 0:
+                print(f"Extracted {self._counter} articles from {file_path}")
+            self._counter += 1
 
-      namespace = elem.tag[:-4]
-      title = elem.find(f"./{namespace}title").text
-      ns = elem.find(f"./{namespace}ns").text
-      id_ = elem.find(f"./{namespace}id").text
-      red_ = elem.find(f"./{namespace}redirect")
+            namespace = elem.tag[:-4]
+            title = elem.find(f"./{namespace}title").text
+            ns = elem.find(f"./{namespace}ns").text
+            id_ = elem.find(f"./{namespace}id").text
+            red_ = elem.find(f"./{namespace}redirect")
 
-      url = f"https://{self._language}.wikipedia.org/wiki/{quote(title)}"
+            url = f"https://{self._language}.wikipedia.org/wiki/{quote(title)}"
 
-      # Filter pages that are not in the "main" namespace.
-      if ns != "0":
-        elem.clear()
-        continue
+            # Filter pages that are not in the "main" namespace.
+            if ns != "0":
+                elem.clear()
+                continue
 
-      raw_content = elem.find(f"./{namespace}revision/{namespace}text").text
-      elem.clear()
+            raw_content = elem.find(f"./{namespace}revision/{namespace}text").text
+            elem.clear()
 
-      # Filter redirects.
-      if raw_content is None or red_ is not None:
-        continue
+            # Filter redirects.
+            if raw_content is None or red_ is not None:
+                continue
 
-      yield {
-          'title': title,
-          'id': id_,
-          'url': url,
-          'language': self._language,
-          'source_id': f'{bname}',
-      }, raw_content
+            yield {
+                "title": title,
+                "id": id_,
+                "url": url,
+                "language": self._language,
+                "source_id": f"{bname}",
+            }, raw_content
 
 
 class WikipediaExtractor(DocumentExtractor):
 
-  def __init__(self, language='en', parser=mwparserfromhell):
-    super().__init__()
-    self._language = language
-    self._parser = parser
+    def __init__(self, language="en", parser=mwparserfromhell):
+        super().__init__()
+        self._language = language
+        self._parser = parser
 
-  def extract(self, content):
-    wikicode = self._parser.parse(content)
+    def extract(self, content):
+        wikicode = self._parser.parse(content)
 
-    # Filters for magic words that are parser instructions -- e.g., __NOTOC__
-    re_rm_magic = re.compile("__[A-Z]*__", flags=re.UNICODE)
+        # Filters for magic words that are parser instructions -- e.g., __NOTOC__
+        re_rm_magic = re.compile("__[A-Z]*__", flags=re.UNICODE)
 
-    # Filters for file/image links.
-    media_prefixes = "|".join(["File", "Image", "Media"] +
-                              MEDIA_ALIASES.get(self._language, []))
-    re_rm_wikilink = re.compile(f"^(?:{media_prefixes}):",
-                                flags=re.IGNORECASE | re.UNICODE)
+        # Filters for file/image links.
+        media_prefixes = "|".join(
+            ["File", "Image", "Media"] + MEDIA_ALIASES.get(self._language, [])
+        )
+        re_rm_wikilink = re.compile(
+            f"^(?:{media_prefixes}):", flags=re.IGNORECASE | re.UNICODE
+        )
 
-    def rm_wikilink(obj):
-      return bool(re_rm_wikilink.match(str(obj.title)))
+        def rm_wikilink(obj):
+            return bool(re_rm_wikilink.match(str(obj.title)))
 
-    # Filters for references and tables
-    def rm_tag(obj):
-      return str(obj.tag) in {"ref", "table"}
+        # Filters for references and tables
+        def rm_tag(obj):
+            return str(obj.tag) in {"ref", "table"}
 
-    # Leave category links in-place but remove the category prefixes
-    cat_prefixes = "|".join(["Category"] + CAT_ALIASES.get(self._language, []))
-    re_clean_wikilink = re.compile(f"^(?:{cat_prefixes}):",
-                                   flags=re.IGNORECASE | re.UNICODE)
+        # Leave category links in-place but remove the category prefixes
+        cat_prefixes = "|".join(["Category"] + CAT_ALIASES.get(self._language, []))
+        re_clean_wikilink = re.compile(
+            f"^(?:{cat_prefixes}):", flags=re.IGNORECASE | re.UNICODE
+        )
 
-    def is_category(obj):
-      return bool(re_clean_wikilink.match(str(obj.title)))
+        def is_category(obj):
+            return bool(re_clean_wikilink.match(str(obj.title)))
 
-    def clean_wikilink(obj):
-      text = obj.__strip__()
-      text = re.sub(re_clean_wikilink, "", text)
-      obj.text = text
+        def clean_wikilink(obj):
+            text = obj.__strip__()
+            text = re.sub(re_clean_wikilink, "", text)
+            obj.text = text
 
-    def try_replace_obj(obj):
-      try:
-        clean_wikilink(obj)
-      except ValueError:
-        # For unknown reasons, objects are sometimes not found.
-        pass
+        def try_replace_obj(obj):
+            try:
+                clean_wikilink(obj)
+            except ValueError:
+                # For unknown reasons, objects are sometimes not found.
+                pass
 
-    def try_remove_obj(obj, section):
-      try:
-        section.remove(obj)
-      except ValueError:
-        # For unknown reasons, objects are sometimes not found.
-        pass
+        def try_remove_obj(obj, section):
+            try:
+                section.remove(obj)
+            except ValueError:
+                # For unknown reasons, objects are sometimes not found.
+                pass
 
-    section_text = []
-    # Filter individual sections to clean.
-    wiki_code_kwargs = {
-        'flat': True,
-        'include_lead': True,
-        'include_headings': True,
+        section_text = []
+        # Filter individual sections to clean.
+        wiki_code_kwargs = {
+            "flat": True,
+            "include_lead": True,
+            "include_headings": True,
+        }
+        for section in wikicode.get_sections(**wiki_code_kwargs):
+            for obj in section.ifilter_wikilinks(recursive=True):
+                if rm_wikilink(obj):
+                    try_remove_obj(obj, section)
+                elif is_category(obj):
+                    try_replace_obj(obj)
+                for obj in section.ifilter_tags(matches=rm_tag, recursive=True):
+                    try_remove_obj(obj, section)
+
+            section_text.append(
+                re.sub(
+                    re_rm_magic,
+                    "",
+                    section.strip_code().strip(),
+                )
+            )
+        # Don't return any meta here
+        return {}, "\n\n".join(section_text)
+
+
+def download_wikipedia(
+    output_path: str,
+    language: str = "en",
+    dump_date=None,
+    output_type: str = "jsonl",
+    raw_download_dir=None,
+    keep_raw_download=False,
+    force_download=False,
+    url_limit=None,
+) -> DocumentDataset:
+    """
+    Downloads the latest Wikipedia dumps and extracts them using mwparserfromhell
+
+    Args:
+      output_path: The path to the root directory of the files
+      language: The language of the Wikipedia articles to download
+      dump_date: A string formatted as "YYYYMMDD" for the wikipedia dump to use.
+        If None, latest dump is used.
+      output_type: The file type to save the data as.
+      raw_download_dir: Path to store the raw download files for intermediate processing.
+        If None, they are stored in a folder named "downloads" under output_path.
+      keep_raw_download: If True, keeps the bz2 files that have not been extracted.
+      force_download: If False, will skip processing all files in output_paths that already exist and
+        directly read from them instead.
+      url_limit: The maximum number of raw files to download from the snapshot. If None, all
+        files from the range of snapshots are downloaded.
+    """
+    wikipedia_urls = get_wikipedia_urls(language=language, dump_date=dump_date)
+    if url_limit:
+        wikipedia_urls = wikipedia_urls[:url_limit]
+    output_paths = list(
+        map(
+            lambda url: os.path.join(
+                output_path, url.split("/")[-1] + f".{output_type}"
+            ),
+            wikipedia_urls,
+        )
+    )
+
+    if not raw_download_dir:
+        raw_download_dir = os.path.join(output_path, "downloads")
+    expand_outdir_and_mkdir(raw_download_dir)
+
+    downloader = WikipediaDownloader(raw_download_dir)
+    iterator = WikipediaIterator(language=language)
+    extractor = WikipediaExtractor(language=language)
+
+    output_format = {
+        "text": str,
+        "title": str,
+        "id": str,
+        "url": str,
+        "language": str,
+        "source_id": str,
+        "filename": str,
     }
-    for section in wikicode.get_sections(**wiki_code_kwargs):
-      for obj in section.ifilter_wikilinks(recursive=True):
-        if rm_wikilink(obj):
-          try_remove_obj(obj, section)
-        elif is_category(obj):
-          try_replace_obj(obj)
-        for obj in section.ifilter_tags(matches=rm_tag, recursive=True):
-          try_remove_obj(obj, section)
+    dataset = download_and_extract(
+        wikipedia_urls,
+        output_paths,
+        downloader,
+        iterator,
+        extractor,
+        output_format,
+        output_type=output_type,
+        keep_raw_download=keep_raw_download,
+        force_download=force_download,
+    )
 
-      section_text.append(re.sub(
-          re_rm_magic,
-          "",
-          section.strip_code().strip(),
-      ))
-    # Don't return any meta here
-    return {}, "\n\n".join(section_text)
-
-
-def download_wikipedia(output_path: str, language: str="en", dump_date=None, output_type: str="jsonl", raw_download_dir=None, keep_raw_download=False, force_download=False, url_limit=None) -> DocumentDataset:
-  """
-  Downloads the latest Wikipedia dumps and extracts them using mwparserfromhell
-
-  Args:
-    output_path: The path to the root directory of the files
-    language: The language of the Wikipedia articles to download
-    dump_date: A string formatted as "YYYYMMDD" for the wikipedia dump to use.
-      If None, latest dump is used.
-    output_type: The file type to save the data as.
-    raw_download_dir: Path to store the raw download files for intermediate processing.
-      If None, they are stored in a folder named "downloads" under output_path.
-    keep_raw_download: If True, keeps the bz2 files that have not been extracted.
-    force_download: If False, will skip processing all files in output_paths that already exist and
-      directly read from them instead.
-    url_limit: The maximum number of raw files to download from the snapshot. If None, all
-      files from the range of snapshots are downloaded.
-  """
-  wikipedia_urls = get_wikipedia_urls(language=language, dump_date=dump_date)
-  if url_limit:
-    wikipedia_urls = wikipedia_urls[:url_limit]
-  output_paths = list(map(lambda url: os.path.join(output_path, url.split("/")[-1] + f".{output_type}"), wikipedia_urls))
-
-  if not raw_download_dir:
-    raw_download_dir = os.path.join(output_path, "downloads")
-  expand_outdir_and_mkdir(raw_download_dir)
-
-  downloader = WikipediaDownloader(raw_download_dir)
-  iterator = WikipediaIterator(language=language)
-  extractor = WikipediaExtractor(language=language)
-
-  output_format = {
-    "text": str,
-    "title": str,
-    "id": str,
-    "url": str,
-    "language": str,
-    "source_id": str,
-    "filename": str,
-  }
-  dataset = download_and_extract(wikipedia_urls, output_paths, downloader, iterator, extractor, output_format, output_type=output_type, keep_raw_download=keep_raw_download, force_download=force_download)
-
-  return dataset
+    return dataset

@@ -48,7 +48,7 @@ You could read, filter the dataset, and write it using the following methods
                     text_field="text",
                     score_field="word_count",
                 )
-    
+
     long_books = filter_step(books)
 
     long_books.to_json("long_books/", write_to_filename=True)
@@ -106,7 +106,7 @@ Consider a modified version of the code above:
                     text_field="text",
                     score_field="word_count",
                 )
-    
+
     long_books = filter_step(books)
 
     long_books.to_json("long_books/", write_to_filename=True)
@@ -130,7 +130,7 @@ In these cases, we recommend processing the input dataset in batches using a sim
                         text_field="text",
                         score_field="word_count",
                     )
-        
+
         long_books = filter_step(books)
 
         long_books.to_json("long_books/", write_to_filename=True)

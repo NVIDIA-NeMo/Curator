@@ -13,13 +13,14 @@
 # limitations under the License.
 
 import argparse
+import time
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.script_utils import add_distributed_args
-import time
+
 
 def pre_imports():
     import cudf  # noqa: F401
@@ -65,10 +66,12 @@ def main(args):
 
     # When there are few duplicates we can compute the results to a list and use `isin`.
     result = input_dataset.df[
-        ~input_dataset.df[dataset_id_field].isin(docs_to_remove[dataset_id_field].compute())
+        ~input_dataset.df[dataset_id_field].isin(
+            docs_to_remove[dataset_id_field].compute()
+        )
     ]
     write_to_disk(result, output_dir, output_type="parquet")
-    print(time.time()-t0)
+    print(time.time() - t0)
 
 
 def attach_args(

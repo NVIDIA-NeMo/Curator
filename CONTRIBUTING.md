@@ -52,7 +52,7 @@ We use ``black`` as our style guide. To fix your format run `pip install pre-com
 1. Minimize the use of ``**kwargs``.
 1. ``RaiseError`` is preferred to ``assert``. Write: ```if X: raise Error``` instead of ```assert X```.
 1. Classes are preferred to standalone methods.
-1. Methods should be atomic. A method shouldn't be longer than 75 lines, e.g. can be fit into the computer screen without scrolling.
+1. Methods should be atomic. A method shouldn't be longer than 88 lines, e.g. can be fit into the computer screen without scrolling.
 1. If a method has arguments that don't fit into one line, each argument should be in its own line for readability.
 1. Add ``__init__.py`` for every folder.
 1. F-strings are prefered to formatted strings.

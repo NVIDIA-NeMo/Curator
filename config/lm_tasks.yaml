@@ -1,6 +1,6 @@
 tasks:
   # The Python modules below define language model downstream evaluation
-  # task data. If one of the below tasks is specified, N-grams will 
+  # task data. If one of the below tasks is specified, N-grams will
   # be constructed from the documents that make up the task data
   # using the script prepare_task_data.
   # find_matching_ngrams will then search for these N-grams

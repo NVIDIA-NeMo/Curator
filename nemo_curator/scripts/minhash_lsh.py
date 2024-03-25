@@ -18,10 +18,12 @@ import time
 import cudf
 import dask_cudf
 import numpy as np
+
 from nemo_curator import LSH
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.gpu_deduplication.jaccard_utils.doc_id_mapping import \
-    convert_str_id_to_int
+from nemo_curator.gpu_deduplication.jaccard_utils.doc_id_mapping import (
+    convert_str_id_to_int,
+)
 from nemo_curator.gpu_deduplication.utils import create_logger, parse_nc_args
 from nemo_curator.utils.distributed_utils import get_client
 

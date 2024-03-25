@@ -14,9 +14,11 @@
 
 from __future__ import annotations
 
-import numpy as np
-import numba
 from typing import Tuple
+
+import numba
+import numpy as np
+
 from nemo_curator._compat import DASK_SHUFFLE_METHOD_ARG
 
 

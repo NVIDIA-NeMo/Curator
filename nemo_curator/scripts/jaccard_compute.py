@@ -12,15 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import time
 import os
+import time
 
-from nemo_curator.gpu_deduplication.utils import (
-    enable_spilling,
-    parse_nc_args,
-)
-from nemo_curator.utils.distributed_utils import get_num_workers, get_client
+from nemo_curator.gpu_deduplication.utils import enable_spilling, parse_nc_args
 from nemo_curator.modules.fuzzy_dedup import JaccardSimilarity
+from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 
 
 def main(args):
@@ -30,7 +27,9 @@ def main(args):
     """
     OUTPUT_PATH = args.output_dir
     shuffled_docs_path = args.shuffled_docs_path
-    output_final_results_path = os.path.join(OUTPUT_PATH, "jaccard_similarity_results.parquet")
+    output_final_results_path = os.path.join(
+        OUTPUT_PATH, "jaccard_similarity_results.parquet"
+    )
     client = get_client(args, "gpu")
     enable_spilling()
     client.run(enable_spilling)

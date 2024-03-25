@@ -40,7 +40,7 @@ Here is the implementation of the ``UnicodeReformatter`` modifier:
   class UnicodeReformatter(DocumentModifier):
       def __init__(self):
           super().__init__()
-      
+
       def modify_document(self, text: str) -> str:
           return ftfy.fix_text(text)
 
@@ -51,7 +51,7 @@ Related Scripts
 -----------------------------------------
 
 To perform the language identification, we can use the config file provided in the `config` directory
-and provide the path to a local copy of the `lid.176.bin` language identification fastText model. Then, with the general purpose 
+and provide the path to a local copy of the `lid.176.bin` language identification fastText model. Then, with the general purpose
 :code:`filter_documents` tool, we can compute language scores and codes for each document in the corpus as follows
 
 .. code-block:: bash
@@ -77,7 +77,7 @@ within that file. Below is an example run command for :code:`separate_by_metadat
      --input-metadata-field=language \
      --output-data-dir=<Output directory containing language sub-directories> \
      --output-metadata-distribution=./data/lang_distro.json
-    
+
 After running this module, the output directory will consist of one directory per language present within the corpus and all documents
 within those directories will contain text that originates from the same language. Finally, the text within a specific language can have
 its unicode fixed using the :code:`text_cleaning` module

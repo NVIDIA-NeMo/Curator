@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import dask.dataframe as dd
-from dask import delayed
 import numpy as np
+from dask import delayed
 
 from nemo_curator.datasets import DocumentDataset
 
@@ -24,7 +24,7 @@ class AddId:
         self.id_field = id_field
         self.id_prefix = id_prefix
         self.start_index = start_index
-    
+
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
         original_meta = dataset.df.dtypes.to_dict()
         original_meta[self.id_field] = "object"
@@ -33,18 +33,25 @@ class AddId:
         parition_lengths = [0]
         for partition in delayed_dataset[:-1]:
             parition_lengths.append(delayed(len)(partition))
-        
+
         lower_id_bounds = delayed(np.cumsum)(parition_lengths)
         delayed_id_dataset = []
         for i, partition in enumerate(delayed_dataset):
-            delayed_id_dataset.append(delayed(self._add_id_to_partition)(partition, lower_id_bounds[i]))
+            delayed_id_dataset.append(
+                delayed(self._add_id_to_partition)(partition, lower_id_bounds[i])
+            )
 
-        id_dataset = DocumentDataset(dataset_df=dd.from_delayed(delayed_id_dataset, meta=original_meta))
+        id_dataset = DocumentDataset(
+            dataset_df=dd.from_delayed(delayed_id_dataset, meta=original_meta)
+        )
 
         return id_dataset
-    
+
     def _add_id_to_partition(self, partition, partition_start_id):
-        id_column = [f"{self.id_prefix}-{int(i + self.start_index):010d}" for i in range(partition_start_id, len(partition) + partition_start_id)]
+        id_column = [
+            f"{self.id_prefix}-{int(i + self.start_index):010d}"
+            for i in range(partition_start_id, len(partition) + partition_start_id)
+        ]
         partition[self.id_field] = id_column
 
         return partition
