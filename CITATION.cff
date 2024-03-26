@@ -1,0 +1,25 @@
+cff-version: 1.0.0
+message: "If you use this software, please cite it as below."
+title: "NeMo-Curator: a toolkit for data curation"
+repository-code: https://github.com/NVIDIA/NeMo-Curator
+authors:
+  - family-names: Jennings
+    given-names: Joseph
+  - family-names: Patwary
+    given-names: Mostofa
+  - family-names: Subramanian
+    given-names: Sandeep
+  - family-names: Prabhumoye
+    given-names: Shrimai
+  - family-names: Dattagupta
+    given-names: Ayush
+  - family-names: Jawa
+    given-names: Vibhu
+  - family-names: Liu
+    given-names: Jiwei
+  - family-names: Wolf
+    given-names: Ryan
+  - family-names: Yurick
+    given-names: Sarah
+  - family-names: Singh
+    given-names: Varun
