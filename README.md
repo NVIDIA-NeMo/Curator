@@ -37,7 +37,7 @@ These modules are designed to be flexible and allow for reordering with few exce
 
 ## Installation
 
-NeMo Curator currently requires a GPU with CUDA 12 or above installed in order to be used.
+NeMo Curator currently requires Python 3.10 and a GPU with CUDA 12 or above installed in order to be used.
 
 NeMo Curator can be installed manually by cloning the repository and installing as follows:
 ```
