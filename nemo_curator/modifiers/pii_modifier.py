@@ -18,14 +18,15 @@ import pandas as pd
 
 from nemo_curator.modifiers import DocumentModifier
 from nemo_curator.pii.algorithm import DEFAULT_LANGUAGE
+from nemo_curator.utils.decorators import batched
 from nemo_curator.utils.distributed_utils import load_object_on_worker
 
-__all__ = ["PiiModifierBatched"]
+__all__ = ["PiiModifier"]
 
 DEFAULT_BATCH_SIZE = 2000
 
 
-class PiiModifierBatched(DocumentModifier):
+class PiiModifier(DocumentModifier):
     """
     This class is the entry point to using the PII de-identification module on documents stored as CSV, JSONL or
     other formats. It works with the `Modify` functionality as shown below:
@@ -34,13 +35,13 @@ class PiiModifierBatched(DocumentModifier):
     dd = dask.dataframe.from_pandas(dataframe, npartitions=1)
     dataset = DocumentDataset(dd)
 
-    modifier = PiiModifierBatched(
+    modifier = PiiModifier(
         batch_size=2000,
         language='en',
         supported_entities=['PERSON', "EMAIL_ADDRESS"],
         anonymize_action='replace')
 
-    modify = Modify(modifier, batched=True)
+    modify = Modify(modifier)
     modified_dataset = modify(dataset)
     modified_dataset.df.to_json('output_files/*.jsonl', lines=True, orient='records')
 
@@ -65,6 +66,7 @@ class PiiModifierBatched(DocumentModifier):
         self.batch_size = batch_size
         self.device = device
 
+    @batched
     def modify_document(self, text: pd.Series, partition_info: Dict = None):
         import logging
 

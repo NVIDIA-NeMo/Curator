@@ -19,7 +19,7 @@ import fasttext
 
 import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import BatchedFastTextQualityFilter
+from nemo_curator.filters import FastTextQualityFilter
 from nemo_curator.modifiers import FastTextLabelModifier
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
@@ -85,9 +85,8 @@ def main(args):
     # Filter data
     target_dataset = load_dataset(low_quality_data_path)
     filter_pipeline = nc.ScoreFilter(
-        BatchedFastTextQualityFilter(model_path),
+        FastTextQualityFilter(model_path),
         score_field="quality_score",
-        batched=True,
         score_type=float,
     )
     filtered_dataset = filter_pipeline(target_dataset)

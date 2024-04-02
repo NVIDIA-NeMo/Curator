@@ -18,7 +18,7 @@ import dask.dataframe
 import pandas as pd
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers.pii_modifier import PiiModifierBatched
+from nemo_curator.modifiers.pii_modifier import PiiModifier
 from nemo_curator.modules.modify import Modify
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import add_distributed_args
@@ -35,7 +35,7 @@ def console_script():
     dd = dask.dataframe.from_pandas(dataframe, npartitions=1)
     dataset = DocumentDataset(dd)
 
-    modifier = PiiModifierBatched(
+    modifier = PiiModifier(
         log_dir="./logs",
         batch_size=2000,
         language="en",
@@ -43,7 +43,7 @@ def console_script():
         anonymize_action="replace",
     )
 
-    modify = Modify(modifier, batched=True)
+    modify = Modify(modifier)
     modified_dataset = modify(dataset)
     modified_dataset.df.to_json("output_files/*.jsonl", lines=True, orient="records")
 

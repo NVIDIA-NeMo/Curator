@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers.pii_modifier import PiiModifierBatched
+from nemo_curator.modifiers.pii_modifier import PiiModifier
 from nemo_curator.modules.modify import Modify
 
 # from nemo_curator.pii.algorithm import DEFAULT_LANGUAGE
@@ -43,7 +43,7 @@ def main(args):
         args.supported_entities.split(",") if args.supported_entities else None
     )
 
-    modifier = PiiModifierBatched(
+    modifier = PiiModifier(
         language=args.language,
         supported_entities=supported_entities,
         anonymize_action=args.anonymize_action,
@@ -68,7 +68,7 @@ def main(args):
         dataset = DocumentDataset(source_data)
         logging.debug(f"Dataset has {source_data.npartitions} partitions")
 
-        modify = Modify(modifier, batched=True)
+        modify = Modify(modifier)
         modified_dataset = modify(dataset)
         write_to_disk(
             modified_dataset.df,

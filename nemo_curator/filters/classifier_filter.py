@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 
 from nemo_curator.filters.doc_filter import DocumentFilter
+from nemo_curator.utils.decorators import batched
 from nemo_curator.utils.distributed_utils import NoWorkerError, load_object_on_worker
 
 
@@ -34,42 +35,7 @@ class FastTextQualityFilter(DocumentFilter):
         self._seed = np.random.seed(seed)
         self._name = "fasttext_quality_filter"
 
-    def score_document(self, text):
-        text = text.replace("\n", " ").replace("__label__", " ")
-        model_attr = f"{self._name}_{self._model_path}"
-        # Workers don't exist during type inference
-        try:
-            model = load_object_on_worker(model_attr, self._load_model, {})
-        except NoWorkerError:
-            return 1.0
-        pred = model.predict(text)
-        document_score = pred[1][0]
-        if pred[0][0] != self._label:
-            document_score = 1 - document_score
-
-        return document_score
-
-    def keep_document(self, score):
-        return np.random.pareto(self._alpha) > 1 - score
-
-    def _load_model(self):
-        return fasttext.load_model(self._model_path)
-
-
-class BatchedFastTextQualityFilter(DocumentFilter):
-
-    def __init__(self, model_path=None, label="__label__hq", alpha=3, seed=42):
-        if model_path is None:
-            raise ValueError(
-                "Must provide a valid path to a FastText model "
-                "to compute document scores with this filter"
-            )
-        self._model_path = model_path
-        self._label = label
-        self._alpha = alpha
-        self._seed = np.random.seed(seed)
-        self._name = "fasttext_quality_filter"
-
+    @batched
     def score_document(self, df):
         model_attr = f"{self._name}_{self._model_path}"
         try:
@@ -88,6 +54,7 @@ class BatchedFastTextQualityFilter(DocumentFilter):
 
         return df.apply(_score_document)
 
+    @batched
     def keep_document(self, df):
         return np.random.pareto(self._alpha, size=len(df)) > 1 - df
 
@@ -108,19 +75,23 @@ class FastTextLangId(DocumentFilter):
         self._cutoff = min_langid_score
         self._name = "lang_id"
 
-    def score_document(self, text):
-        pp = text.strip().replace("\n", " ")
-
+    @batched
+    def score_document(self, df):
         model_attr = f"{self._name}_{self._model_path}"
         try:
             model = load_object_on_worker(model_attr, self._load_model, {})
         except NoWorkerError:
-            return [1.0, "N/A"]
-        label, score = model.predict(pp, k=1)
-        score = score[0]
-        lang_code = label[0][-2:].upper()
+            return pd.Series([[1.0, "N/A"] for _ in range(len(df))])
 
-        return [score, lang_code]
+        def _score_document(text):
+            pp = text.strip().replace("\n", " ")
+            label, score = model.predict(pp, k=1)
+            score = score[0]
+            lang_code = label[0][-2:].upper()
+
+            return [score, lang_code]
+
+        return df.apply(_score_document)
 
     def keep_document(self, score):
         return score[0] >= self._cutoff

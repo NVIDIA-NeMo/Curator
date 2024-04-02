@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .classifier_filter import (
-    BatchedFastTextQualityFilter,
-    FastTextLangId,
-    FastTextQualityFilter,
-)
+from .classifier_filter import FastTextLangId, FastTextQualityFilter
 from .code import (
     AlphaFilter,
     GeneralCommentToCodeFilter,
@@ -54,7 +50,6 @@ from .heuristic_filter import (
 )
 
 __all__ = [
-    "BatchedFastTextQualityFilter",
     "DocumentFilter",
     "import_filter",
     "FastTextLangId",

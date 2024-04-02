@@ -14,16 +14,16 @@
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modifiers import DocumentModifier
+from nemo_curator.utils.module_utils import is_batched
 
 
 class Modify:
-    def __init__(self, modifier: DocumentModifier, text_field="text", batched=False):
+    def __init__(self, modifier: DocumentModifier, text_field="text"):
         self.modifier = modifier
         self.text_field = text_field
-        self.batched = batched
 
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
-        if self.batched:
+        if is_batched(self.modifier.modify_document):
             dataset.df[self.text_field] = dataset.df[self.text_field].map_partitions(
                 self.modifier.modify_document, meta=(None, str)
             )

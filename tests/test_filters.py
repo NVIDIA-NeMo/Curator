@@ -53,6 +53,7 @@ from nemo_curator.filters import (
     XMLHeaderFilter,
 )
 from nemo_curator.modules import Filter, Score, ScoreFilter, Sequential
+from nemo_curator.utils.decorators import batched
 
 
 class LetterCountFilter(DocumentFilter):
@@ -82,9 +83,11 @@ class BatchedLengthFilter(DocumentFilter):
         self.min_length = min_length
         self.max_length = max_length
 
+    @batched
     def score_document(self, df):
         return df.str.len()
 
+    @batched
     def keep_document(self, scores):
         min_threshold = self.min_length <= scores
         max_threshold = scores <= self.max_length
@@ -200,7 +203,7 @@ class TestFilterModule:
 
     def test_batch_score_filter(self, letter_count_data):
         length_filter = BatchedLengthFilter(min_length=8, max_length=11)
-        filter_step = ScoreFilter(length_filter, text_field="documents", batched=True)
+        filter_step = ScoreFilter(length_filter, text_field="documents")
         filtered_data = filter_step(letter_count_data)
 
         expected_indices = [1, 2]
@@ -216,7 +219,6 @@ class TestFilterModule:
             length_filter.score_document,
             text_field="documents",
             score_field=score_field,
-            batched=True,
         )
         scored_data = score_step(letter_count_data)
 
@@ -233,10 +235,9 @@ class TestFilterModule:
             length_filter.score_document,
             text_field="documents",
             score_field=score_field,
-            batched=True,
         )
         scored_data = score_step(letter_count_data)
-        filter_step = Filter(length_filter.keep_document, score_field, batched=True)
+        filter_step = Filter(length_filter.keep_document, score_field)
         filtered_data = filter_step(scored_data)
 
         expected_indices = [1, 2]

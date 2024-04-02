@@ -51,9 +51,9 @@ You could read, de-identify the dataset, and write it to an output directory usi
     from nemo_curator.utils.distributed_utils import read_data, write_to_disk, get_client
     from nemo_curator.utils.file_utils import get_batched_files
     from nemo_curator.modules.modify import Modify
-    from nemo_curator.modifiers.pii_modifier import PiiModifierBatched
+    from nemo_curator.modifiers.pii_modifier import PiiModifier
 
-    modifier = PiiModifierBatched(
+    modifier = PiiModifier(
         language="en",
         supported_entities=["PERSON", "EMAIL_ADDRESS"],
         anonymize_action="replace",
@@ -70,7 +70,7 @@ You could read, de-identify the dataset, and write it to an output directory usi
         dataset = DocumentDataset(source_data)
         print(f"Dataset has {source_data.npartitions} partitions")
 
-        modify = Modify(modifier, batched=True)
+        modify = Modify(modifier)
         modified_dataset = modify(dataset)
         write_to_disk(modified_dataset.df,
                       "output_directory",
@@ -80,11 +80,11 @@ You could read, de-identify the dataset, and write it to an output directory usi
 
 Let's walk through this code line by line.
 
-* ``modifier = PiiModifierBatched`` creates an instance of ``PiiModifierBatched`` class that is responsible for PII de-identification
+* ``modifier = PiiModifier`` creates an instance of ``PiiModifier`` class that is responsible for PII de-identification
 * ``for file_names in get_batched_files`` retrieves a batch of 32 documents from the `book_dataset`
 * ``source_data = read_data(file_names, file_type="jsonl", backend='pandas', add_filename=True)`` reads the data from all the files using Dask using Pandas as the backend. The ``add_filename`` argument ensures that the output files have the same filename as the input files.
 * ``dataset = DocumentDataset(source_data)``  creates an instance of ``DocumentDataset`` using the batch files. ``DocumentDataset`` is the standard format for text datasets in NeMo Curator.
-* ``modify = Modify(modifier, batched=True)`` creates an instance of the ``Modify`` class. This class can take any modifier as an argument
+* ``modify = Modify(modifier)`` creates an instance of the ``Modify`` class. This class can take any modifier as an argument
 * ``modified_dataset = modify(dataset)`` modifies the data in the dataset by performing the PII de-identification based upon the passed parameters.
 * ``write_to_disk(modified_dataset.df ....`` writes the de-identified documents to disk.
 

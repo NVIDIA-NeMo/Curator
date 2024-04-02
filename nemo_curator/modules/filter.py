@@ -15,12 +15,11 @@
 from dask.typing import no_default
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.utils.module_utils import is_batched
 
 
 class Score:
-    def __init__(
-        self, score_fn, score_field, text_field="text", batched=False, score_type=None
-    ):
+    def __init__(self, score_fn, score_field, text_field="text", score_type=None):
         """
         Args:
           score_fn: The score function that takes in a document string and outputs a score for the document
@@ -30,7 +29,6 @@ class Score:
         self.score_fn = score_fn
         self.score_field = score_field
         self.text_field = text_field
-        self.batched = batched
         self.score_type = score_type
 
     def __call__(self, dataset):
@@ -40,7 +38,7 @@ class Score:
         else:
             meta = no_default
 
-        if self.batched:
+        if is_batched(self.score_fn):
             dataset.df[self.score_field] = dataset.df[self.text_field].map_partitions(
                 self.score_fn, meta=meta
             )
@@ -53,7 +51,7 @@ class Score:
 
 
 class Filter:
-    def __init__(self, filter_fn, filter_field, invert=False, batched=False):
+    def __init__(self, filter_fn, filter_field, invert=False):
         """
         Args:
           filter_fn: A function that returns True if the document is to be kept
@@ -63,10 +61,9 @@ class Filter:
         self.filter_fn = filter_fn
         self.filter_field = filter_field
         self.invert = invert
-        self.batched = batched
 
     def __call__(self, dataset):
-        if self.batched:
+        if is_batched(self.filter_fn):
             bool_mask = dataset.df[self.filter_field].map_partitions(
                 self.filter_fn, meta=(None, bool)
             )
@@ -89,7 +86,6 @@ class ScoreFilter:
         score_field=None,
         score_type=None,
         invert=False,
-        batched=False,
     ):
         """
         Args:
@@ -100,7 +96,6 @@ class ScoreFilter:
         self.score_field = score_field
         self.score_type = score_type
         self.invert = invert
-        self.batched = batched
 
     def __call__(self, dataset):
         # Set the metadata for the function calls if provided
@@ -109,7 +104,7 @@ class ScoreFilter:
         else:
             meta = no_default
 
-        if self.batched:
+        if is_batched(self.filter_obj.score_document):
             scores = dataset.df[self.text_field].map_partitions(
                 self.filter_obj.score_document, meta=meta
             )
@@ -121,7 +116,7 @@ class ScoreFilter:
         if self.score_field is not None:
             dataset.df[self.score_field] = scores
 
-        if self.batched:
+        if is_batched(self.filter_obj.keep_document):
             bool_mask = scores.map_partitions(
                 self.filter_obj.keep_document, meta=(None, bool)
             )

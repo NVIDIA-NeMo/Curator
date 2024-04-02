@@ -51,7 +51,7 @@ class TaskDecontamination:
             tasks = [tasks]
         self.tasks = tasks
         self.text_field = text_field
-        self.max_ngram_size = 13
+        self.max_ngram_size = max_ngram_size
         self.max_matches = max_matches
         self.min_document_length = min_document_length
         self.remove_char_each_side = remove_char_each_side
