@@ -44,4 +44,4 @@ repos:
     hooks:
       - id: isort
         name: Format imports
-        exclude: docs/
+        exclude: docs/|nemo_curator/modules/__init__.py
