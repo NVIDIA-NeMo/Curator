@@ -64,6 +64,9 @@ setup(
         "presidio-anonymizer==2.2.351",
         "usaddress==0.5.10",
         "nemo_toolkit[nlp]>=1.23.0",
+        # justext installation breaks without lxml[html_clean]
+        # due to this: https://github.com/miso-belica/jusText/issues/47
+        "lxml[html_clean]",
     ],
     entry_points={
         "console_scripts": [
