@@ -11,11 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import pandas as pd
+from dask.dataframe.extensions import make_array_nonempty
 from dask.typing import no_default
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.module_utils import is_batched
+
+# Override so that pd.NA is not passed during the metadata inference
+make_array_nonempty.register(
+    pd.StringDtype,
+    lambda x: pd.array(["a", "b"], dtype=x),
+)
 
 
 class Score:

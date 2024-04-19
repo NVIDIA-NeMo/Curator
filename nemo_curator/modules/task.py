@@ -302,6 +302,8 @@ class TaskDecontamination:
         return filtered_ngrams
 
     def _remove_ngrams_partition(self, partition, task_ngrams, ngrams_freq_sorted):
+        text_type = partition[self.text_field].dtype
+
         document_fn = partial(
             self._remove_ngrams,
             task_ngrams=task_ngrams,
@@ -318,7 +320,15 @@ class TaskDecontamination:
 
         partition[self.text_field] = split_text
         filtered_partition = partition[valid_documents_mask]
-        return filtered_partition.explode(self.text_field, ignore_index=True)
+        exploded_partition = filtered_partition.explode(
+            self.text_field, ignore_index=True
+        )
+        # After exploding, the string datatype can become an "object" type
+        exploded_partition[self.text_field] = exploded_partition[
+            self.text_field
+        ].astype(text_type)
+
+        return exploded_partition
 
     def _remove_ngrams(self, document, task_ngrams, ngrams_freq_sorted):
         """
