@@ -18,7 +18,6 @@ import warnings
 import numpy as np
 from bs4 import BeautifulSoup
 from comment_parser import comment_parser
-from nemo.collections.common.tokenizers import SentencePieceTokenizer
 
 from nemo_curator.filters.doc_filter import DocumentFilter, import_filter
 from nemo_curator.utils.constants import regex_alpha, regex_alphanum
@@ -104,6 +103,8 @@ class NumberOfLinesOfCodeFilter(DocumentFilter):
 class TokenizerFertilityFilter(DocumentFilter):
 
     def __init__(self, path_to_tokenizer=None, min_char_to_token_ratio=2.5):
+        from nemo.collections.common.tokenizers import SentencePieceTokenizer
+
         if path_to_tokenizer is None:
             raise ValueError(
                 "Must provide a valid path to a SentencePiece " "tokenizer"
