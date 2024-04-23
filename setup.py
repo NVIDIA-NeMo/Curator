@@ -55,10 +55,6 @@ setup(
         "comment_parser",
         "beautifulsoup4",
         "mwparserfromhell @ git+https://github.com/earwig/mwparserfromhell.git@0f89f44",
-        "cudf-cu12>=24.2",
-        "dask-cudf-cu12>=24.2",
-        "cugraph-cu12>=24.2",
-        "dask-cuda>=24.2",
         "spacy>=3.6.0, <4.0.0",
         "presidio-analyzer==2.2.351",
         "presidio-anonymizer==2.2.351",
@@ -68,6 +64,15 @@ setup(
         # due to this: https://github.com/miso-belica/jusText/issues/47
         "lxml[html_clean]",
     ],
+    extras_require={
+        "cuda12x": [
+            "cudf-cu12>=24.2",
+            "dask-cudf-cu12>=24.2",
+            "cugraph-cu12>=24.2",
+            "dask-cuda>=24.2",
+            "spacy[cuda12x]>=3.6.0, <4.0.0",
+        ]
+    },
     entry_points={
         "console_scripts": [
             "get_common_crawl_urls=nemo_curator.scripts.get_common_crawl_urls:console_script",

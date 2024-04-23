@@ -40,9 +40,8 @@ jobs:
         # Explicitly install cython: https://github.com/VKCOM/YouTokenToMe/issues/94
         run: |
           pip install wheel cython
-          pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com .
+          pip install --no-cache-dir .
           pip install pytest
       - name: Run tests
-        # TODO: Remove env variable when gpu dependencies are optional
         run: |
-          RAPIDS_NO_INITIALIZE=1 python -m pytest -v --cpu
+          python -m pytest -v --cpu

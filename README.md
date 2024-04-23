@@ -37,12 +37,20 @@ These modules are designed to be flexible and allow for reordering with few exce
 
 ## Installation
 
-NeMo Curator currently requires Python 3.10 and a GPU with CUDA 12 or above installed in order to be used.
+NeMo Curator currently requires Python 3.10 and the GPU accelerated modules require CUDA 12 or above installed in order to be used.
 
-NeMo Curator can be installed manually by cloning the repository and installing as follows:
+NeMo Curator can be installed manually by cloning the repository and installing as follows -
+
+For CPU only modules:
 ```
-pip install --extra-index-url https://pypi.nvidia.com .
+pip install .
 ```
+
+For CPU + CUDA accelerated modules
+```
+pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"
+```
+
 ### NeMo Framework Container
 
 NeMo Curator is available in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo). The NeMo Framework Container provides an end-to-end platform for development of custom generative AI models anywhere. The latest release of NeMo Curator comes preinstalled in the container.

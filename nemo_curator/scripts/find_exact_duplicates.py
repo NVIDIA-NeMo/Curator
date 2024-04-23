@@ -19,7 +19,8 @@ import dask_cudf
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.gpu_deduplication.ioutils import strip_trailing_sep
-from nemo_curator.gpu_deduplication.utils import create_logger, parse_nc_args
+from nemo_curator.gpu_deduplication.utils import parse_nc_args
+from nemo_curator.log import create_logger
 from nemo_curator.modules import ExactDuplicates
 from nemo_curator.utils.distributed_utils import get_client, read_data
 from nemo_curator.utils.file_utils import get_all_files_paths_under

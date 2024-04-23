@@ -16,14 +16,16 @@ import os
 from itertools import combinations
 from typing import Iterable
 
-import cudf
-import dask_cudf
 import numpy as np
 import pytest
 from dask.dataframe.utils import assert_eq
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import LSH, MinHash
+from nemo_curator.utils.import_utils import gpu_only_import
+
+cudf = gpu_only_import("cudf")
+dask_cudf = gpu_only_import("dask_cudf")
 
 
 @pytest.fixture

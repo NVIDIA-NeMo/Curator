@@ -19,13 +19,18 @@ import os
 # See https://github.com/NVIDIA/NeMo-Curator/issues/31
 os.environ["TORCHINDUCTOR_COMPILE_THREADS"] = "1"
 
+from nemo_curator.utils.import_utils import gpu_only_import_from
+
 from .add_id import AddId
 from .exact_dedup import ExactDuplicates
 from .filter import Filter, Score, ScoreFilter
-from .fuzzy_dedup import LSH, MinHash
 from .meta import Sequential
 from .modify import Modify
 from .task import TaskDecontamination
+
+# GPU packages
+LSH = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup", "LSH")
+MinHash = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup", "MinHash")
 
 # Pytorch related imports must come after all imports that require cugraph,
 # because of context cleanup issues b/w pytorch and cugraph

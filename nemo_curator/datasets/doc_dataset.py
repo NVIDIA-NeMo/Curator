@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import dask.dataframe as dd
-import dask_cudf
 
 from nemo_curator.utils.distributed_utils import read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
@@ -182,10 +181,7 @@ def _read_json_or_parquet(
                 )
                 dfs.append(df)
 
-            if backend == "cudf":
-                raw_data = dask_cudf.concat(dfs, ignore_unknown_divisions=True)
-            else:
-                raw_data = dd.concat(dfs, ignore_unknown_divisions=True)
+            raw_data = dd.concat(dfs, ignore_unknown_divisions=True)
 
     elif isinstance(input_files, str):
         # Single file

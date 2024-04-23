@@ -149,7 +149,9 @@ class TestFilterModule:
         filtered_data = filter_step(letter_count_data)
 
         expected_indices = [2, 3]
-        expected_data = DocumentDataset(letter_count_data.df.loc[expected_indices])
+        # Compute before loc due to https://github.com/dask/dask-expr/issues/1036
+        expected_data = letter_count_data.df.compute().loc[expected_indices]
+        expected_data = DocumentDataset(dd.from_pandas(expected_data, 2))
         expected_data.df[score_field] = pd.Series([5, 7], index=expected_data.df.index)
         assert all_equal(
             expected_data, filtered_data
@@ -168,7 +170,9 @@ class TestFilterModule:
         filtered_data = filter_step(scored_data)
 
         expected_indices = [2, 3]
-        expected_data = letter_count_data.df.loc[expected_indices]
+        # Compute before loc due to https://github.com/dask/dask-expr/issues/1036
+        expected_data = letter_count_data.df.compute().loc[expected_indices]
+        expected_data = dd.from_pandas(expected_data, 2)
         expected_data[score_field] = pd.Series([5, 7], index=expected_data.index)
         expected_data = DocumentDataset(expected_data)
         assert all_equal(

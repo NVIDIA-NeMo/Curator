@@ -28,7 +28,8 @@ from dask import dataframe as dd
 
 from nemo_curator._compat import DASK_P2P_ERROR
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.gpu_deduplication.utils import create_logger, performance_report_if
+from nemo_curator.log import create_logger
+from nemo_curator.utils.distributed_utils import performance_report_if
 from nemo_curator.utils.gpu_utils import is_cudf_type
 
 

@@ -15,12 +15,9 @@
 import os
 import time
 
-from nemo_curator.gpu_deduplication.utils import (
-    get_client,
-    get_num_workers,
-    parse_nc_args,
-)
+from nemo_curator.gpu_deduplication.utils import get_num_workers, parse_nc_args
 from nemo_curator.modules.fuzzy_dedup import _Shuffle
+from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_text_ddf_from_json_path_with_blocksize,
 )
@@ -38,7 +35,7 @@ def main(args):
     OUTPUT_PATH = args.output_dir
     output_shuffled_docs_path = os.path.join(OUTPUT_PATH, "shuffled_docs.parquet")
 
-    client = get_client(args)
+    client = get_client(args, "gpu")
     client.run(func)
     print(f"Num Workers = {get_num_workers(client)}", flush=True)
     print("Connected to dask cluster", flush=True)
