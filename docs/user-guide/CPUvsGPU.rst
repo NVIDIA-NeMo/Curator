@@ -96,3 +96,11 @@ Every SLURM cluster is different, so make sure you understand how your SLURM clu
 
 Our Python examples are designed to work such that they can be run locally on their own, or easily substituted into the ``start-slurm.sh`` to run on multiple nodes.
 You can adapt your scripts easily too by simply following the pattern of adding ``get_client`` with ``add_distributed_args``.
+
+-----------------------------------------
+Dask with K8s
+-----------------------------------------
+
+We also provide an example guide for how to get started with NeMo Curator on a Kubernetes cluster.
+
+Please visit :ref:`curator_kubernetes` for more information.

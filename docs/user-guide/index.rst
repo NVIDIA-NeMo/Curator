@@ -27,6 +27,9 @@
 :ref:`Personally Identifiable Information Identification and Removal <data-curator-pii>`
    The purpose of the personally identifiable information (PII) redaction tool is to help scrub sensitive data out of training datasets
 
+:ref:`curator-kubernetes`
+   Demonstration of how to run the NeMo Curator on a Dask Cluster deployed on top of Kubernetes
+
 .. toctree::
    :maxdepth: 4
    :titlesonly:
@@ -41,3 +44,4 @@
    TaskDecontamination.rst
    PersonalIdentifiableInformationIdentificationAndRemoval.rst
    DistributedDataClassification.rst
+   KubernetesCurator.rst
