@@ -11,7 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import math
 
 
 def is_batched(function):
     return hasattr(function, "batched") and function.batched
+
+
+def count_digits(num):
+    return math.floor(math.log10(num)) + 1

@@ -79,8 +79,10 @@ these ids must be added prior to performing fuzzy/exact deduplication
     parser.add_argument(
         "--starting-index",
         type=int,
-        default=0,
-        help="Starting index from which to start indexing the documents",
+        default=None,
+        help="If supplied, determines the starting index from which to start "
+        "indexing the documents. By default, it is unspecified, and uses an id"
+        " scheme that is fast to calculate and is not guaranteed to be ordered.",
     )
     parser.add_argument(
         "--output-data-dir",
