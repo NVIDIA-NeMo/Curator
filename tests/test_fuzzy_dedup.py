@@ -114,7 +114,7 @@ class TestMinhashes:
             tuple(zip(minhash_signatures, strings))
         ):
             true_jaccard = jaccard_index(str1, str2, char_ngrams)
-            minhash_approximation = minhash_overlap(sig1, sig2)
+            minhash_approximation = minhash_overlap(np.array(sig1), np.array(sig2))
             assert abs(true_jaccard - minhash_approximation) < THRESHOLD
 
     def test_minhash_cache(self, fuzzy_dedup_data, tmpdir):
@@ -172,7 +172,9 @@ class TestLSH:
         )
         buckets = lsh(self.dataset)
         buckets_df = buckets.df.compute().to_pandas()
-        buckets_df["new_id"] = list(zip(buckets_df.dataset_id, buckets_df.id))
+        buckets_df["new_id"] = list(
+            map(list, zip(buckets_df.dataset_id, buckets_df.id))
+        )
         docs_list = buckets_df.groupby("_bucket_id").new_id.apply(list)
         expected_df = cudf.Series(
             [[(1, 1), (1, 2)], [(1, 2), (2, 3)], [(3, 4), (4, 5)]], name="new_id"
