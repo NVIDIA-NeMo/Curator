@@ -15,9 +15,9 @@
 import os
 import time
 
-from nemo_curator.gpu_deduplication.utils import parse_nc_args
 from nemo_curator.modules.fuzzy_dedup import ConnectedComponents
 from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.utils.script_utils import parse_gpu_dedup_args
 
 
 def main(args):
@@ -51,7 +51,7 @@ def main(args):
 def attach_args(parser=None):
     description = """Computes connected component"""
     if not parser:
-        parser = parse_nc_args(description=description)
+        parser = parse_gpu_dedup_args(description=description)
 
     parser.add_argument(
         "--jaccard-pairs-path",

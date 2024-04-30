@@ -22,9 +22,7 @@ from dask.dataframe.shuffle import partitioning_index
 from dask.highlevelgraph import HighLevelGraph
 from dask.utils import M
 
-from nemo_curator.gpu_deduplication.jaccard_utils.batch_shuffle_utils import (
-    rearange_by_column_direct,
-)
+from nemo_curator.utils.fuzzy_dedup_utils.shuffle_utils import rearange_by_column_direct
 
 
 def _split_part(part, nsplits):

@@ -42,14 +42,14 @@ def add_distributed_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         type=str,
         default=None,
         help="Address to the scheduler of a created dask cluster. If not provided"
-        "a single node LocalCUDACluster will be started.",
+        "a single node Cluster will be started.",
     )
     parser.add_argument(
         "--scheduler-file",
         type=str,
         default=None,
         help="Path to the scheduler file of a created dask cluster. If not provided"
-        " a single node LocalCUDACluster will be started.",
+        " a single node Cluster will be started.",
     )
     parser.add_argument(
         "--n-workers",
@@ -68,7 +68,7 @@ def add_distributed_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         type=str,
         default=None,
         help="Initial pool size to use for the RMM Pool Memory allocator"
-        "Note: This only applies to the localCUDACluster. If providing an user created "
+        "Note: This only applies to the LocalCUDACluster. If providing an user created "
         "cluster refer to"
         "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size",  # noqa: E501
     )
@@ -96,7 +96,7 @@ def add_distributed_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
     parser.add_argument(
         "--num-files",
         type=int,
-        default=-1,
+        default=None,
         help="Upper limit on the number of json files to process",
     )
     parser.add_argument(
@@ -106,6 +106,62 @@ def add_distributed_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPa
         help="Device to run the script on. Either 'cpu' or 'gpu'.",
     )
 
+    return parser
+
+
+def parse_gpu_dedup_args(
+    description="Default gpu dedup nemo_curator argument parser",
+) -> argparse.ArgumentParser:
+    """
+    Adds default set of arguments that are common to multiple stages
+    of the pipeline
+    """
+    parser = argparse.ArgumentParser(
+        description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser = add_distributed_args(parser)
+
+    # Set default device to GPU for dedup
+    parser.set_defaults(device="gpu")
+    parser.add_argument(
+        "--input-data-dirs",
+        type=str,
+        nargs="+",
+        default=None,
+        required=False,
+        help="Input directories consisting of .jsonl files that are accessible "
+        "to all nodes. This path must be accessible by all machines in the cluster",
+    )
+    parser.add_argument(
+        "--input-json-text-field",
+        type=str,
+        default="text",
+        help="The name of the field within each json object of the jsonl "
+        "file that contains the text from which minhashes will be computed. ",
+    )
+    parser.add_argument(
+        "--input-json-id-field",
+        type=str,
+        default="adlr_id",
+        help="The name of the field within each json object of the jsonl "
+        "file that assigns a unqiue ID to each document. "
+        "Can be created by running the script "
+        "'./prospector/add_id.py' which adds the field 'adlr_id' "
+        "to the documents in a distributed fashion",
+    )
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default="./logs/",
+        help="The output log directory where node and local",
+    )
+    parser.add_argument(
+        "--profile-path",
+        type=str,
+        default=None,
+        help="Path to save dask profile",
+    )
     return parser
 
 

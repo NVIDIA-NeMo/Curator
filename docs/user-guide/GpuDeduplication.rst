@@ -58,24 +58,108 @@ steps (all scripts are included in the :code:`nemo_curator/scripts/` subdirector
     2. Output: _exact_duplicates.parquet. List of exact duplicates and the document hash.
 
 * Fuzzy Dedup
-    1. Minhashes (Compute minhashes)
-        1. Input: Data Directories
-        2. Output: minhashes.parquet for each data dir.
-    2. Buckets (Minhash Buckets/LSH)
-        1. Input: Minhash directories
-        2. Output: _buckets.parquet
-    3. Map Buckets
-        1. Input: Buckets.parquet + Data Dirs
-        2. Output: anchor_docs_with_bk.parquet
-    4. Jaccard Shuffle
-        1. Input: anchor_docs_with_bk.parquet + Data Dirs
-        2. Output: shuffled_docs.parquet
-    5. Jaccard compute
-        1. Input: Shuffled docs.parquet
-        2. Output: jaccard_similarity_results.parquet
-    6. Connected Components
-        1. Input: jaccard_similarity_results.parquet
-        2. Output: connected_components.parquet
+
+  1. Compute Minhashes
+    - Input: Data Directories
+    - Output: minhashes.parquet for each data dir.
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python compute_minhashes.py`
+                 gpu_compute_minhashes \
+                   --input-data-dirs /path/to/jsonl/dir1 /path/to/jsonl/dir2 \
+                   --output-minhash-dir /path/to/output_minhashes \
+                   --input-json-text-field text_column_name \
+                   --input-json-id-field id_column_name \
+                   --minhash-length number_of_hashes \
+                   --char-ngram char_ngram_size \
+                   --hash-bytes 4(or 8 byte hashes) \
+                   --seed 42 \
+                   --log-dir ./
+                   # --scheduler-file /path/to/file.json
+
+
+  2. Buckets (Minhash Buckets)
+    - Input: Minhash directories
+    - Output: Buckets.parquet
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python minhash_lsh.py`
+                 minhash_buckets \
+                   --input-data-dirs /path/to/output_minhashes/dir1 /path/to/output_minhashes/dir2 \
+                   --output-bucket-dir /path/to/dedup_output \
+                   --input-minhash-field _minhash_signature \
+                   --input-json-id-field id_column_name \
+                   --minhash-length number_of_hashes \
+                   --num-bands num_bands \
+                   --buckets-per-shuffle 1 `#Value b/w [1-num_bands]. Higher is better but might lead to oom` \
+                   --log-dir ./
+                   # --scheduler-file /path/to/file.json
+
+  3. Jaccard Map Buckets
+    - Input: Buckets.parquet + Data Dir
+    - Output: anchor_docs_with_bk.parquet
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python map_buckets.py`
+                 jaccard_map_buckets \
+                   --input-data-dirs /path/to/jsonl/dir1 /path/to/jsonl/dir2 \
+                   --input-bucket-dir /path/to/dedup_output/_buckets.parquet \
+                   --output-dir /path/to/dedup_output \
+                   --input-json-text-field text_column_name \
+                   --input-json-id-field id_column_name \
+                   # --scheduler-file /path/to/file.json
+
+  4. Jaccard Shuffle
+    - Input: anchor_docs_with_bk.parquet + Data Dir
+    - Output: shuffled_docs.parquet
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python jaccard_shuffle.py`
+                 jaccard_shuffle \
+                   --input-data-dirs /path/to/jsonl/dir1 /path/to/jsonl/dir2 \
+                   --input-bucket-mapping-dir /path/to/dedup_output/anchor_docs_with_bk.parquet \
+                   --output-dir /path/to/dedup_output \
+                   --input-json-text-field text_column_name \
+                   --input-json-id-field id_column_name \
+                   # --scheduler-file /path/to/file.json
+
+  5. Jaccard compute
+    - Input: Shuffled docs.parquet
+    - Output: jaccard_similarity_results.parquet
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python jaccard_compute.py`
+                 jaccard_compute \
+                   --shuffled-docs-path /path/to/dedup_output/shuffled_docs.parquet \
+                   --output-dir /path/to/dedup_output \
+                   --ngram-size char_ngram_size_for_similarity \
+                   # --scheduler-file /path/to/file.json
+
+  6. Connected Components
+    - Input: jaccard_similarity_results.parquet
+    - Output: connected_components.parquet
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python connected_components.py`
+                 gpu_connected_component \
+                   --jaccard-pairs_path /path/to/dedup_output/jaccard_similarity_results.parquet \
+                   --output-dir /path/to/dedup_output \
+                   --cache-dir /path/to/cc_cache \
+                   --jaccard-threshold 0.8
+                   # --scheduler-file /path/to/file.json
+
 
 In addition to the scripts, there are examples in the `examples` directory that showcase using the python module
 directly in your own code. It also has examples on how to remove documents from the corpus using the list of duplicate IDs generated from exact or fuzzy

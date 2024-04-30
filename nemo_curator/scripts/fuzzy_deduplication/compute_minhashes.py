@@ -17,8 +17,6 @@ import time
 
 from nemo_curator import MinHash
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.gpu_deduplication.ioutils import strip_trailing_sep
-from nemo_curator.gpu_deduplication.utils import parse_nc_args
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import (
     get_client,
@@ -26,6 +24,8 @@ from nemo_curator.utils.distributed_utils import (
     read_data,
 )
 from nemo_curator.utils.file_utils import get_all_files_paths_under
+from nemo_curator.utils.fuzzy_dedup_utils.io_utils import strip_trailing_sep
+from nemo_curator.utils.script_utils import parse_gpu_dedup_args
 
 
 def pre_imports():
@@ -111,7 +111,7 @@ def attach_args(parser=None):
     -minhash signatures is created. This dataframe is written to file after processing
     """
     if not parser:
-        parser = parse_nc_args(description=description)
+        parser = parse_gpu_dedup_args(description=description)
 
     parser.add_argument(
         "--minhash-length",
@@ -148,12 +148,6 @@ def attach_args(parser=None):
         help="Output directory where minhashes will be written. "
         "Each file is a parquet file that contains two series, the document ids, "
         "and a series of lists, each list denoting the minhash signature for that document id.",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="gpu",
-        help="Type of cluster to start up",
     )
     return parser
 

@@ -34,11 +34,6 @@ from dask.utils import M
 from tqdm import tqdm
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.gpu_deduplication.jaccard_utils.merge_utils import (
-    extract_partitioning_index,
-    filter_text_rows_by_bucket_batch,
-    merge_left_to_shuffled_right,
-)
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import (
     get_current_client,
@@ -50,6 +45,11 @@ from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     aggregated_anchor_docs_with_bk_read,
     get_restart_offsets,
     update_restart_offsets,
+)
+from nemo_curator.utils.fuzzy_dedup_utils.merge_utils import (
+    extract_partitioning_index,
+    filter_text_rows_by_bucket_batch,
+    merge_left_to_shuffled_right,
 )
 from nemo_curator.utils.fuzzy_dedup_utils.output_map_utils import (
     build_partition,

@@ -1,5 +1,8 @@
 ### Deduplication Steps
 
+> [!CAUTION]
+> The examples references here are outdated and will be replaced with an example using the Python API directly. For more details on the scripts refer to [nemo_curator/scripts/fuzzy_deduplication](/nemo_curator/scripts/fuzzy_deduplication)
+
 1. Exact dedup
     1. Input: Data directories
     2. Output: exact_duplicates.parquet. List of exact duplicates and the document hash.

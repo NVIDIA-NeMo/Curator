@@ -15,12 +15,12 @@
 import os
 import time
 
-from nemo_curator.gpu_deduplication.utils import get_num_workers, parse_nc_args
 from nemo_curator.modules.fuzzy_dedup import _Shuffle
-from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_text_ddf_from_json_path_with_blocksize,
 )
+from nemo_curator.utils.script_utils import parse_gpu_dedup_args
 
 
 def func():
@@ -79,7 +79,7 @@ def attach_args(parser=None):
     shuffled by buckets
     """
     if not parser:
-        parser = parse_nc_args(description=description)
+        parser = parse_gpu_dedup_args(description=description)
 
     parser.add_argument(
         "--input-bucket-mapping-dir",

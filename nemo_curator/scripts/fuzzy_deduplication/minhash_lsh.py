@@ -21,12 +21,10 @@ import numpy as np
 
 from nemo_curator import LSH
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.gpu_deduplication.jaccard_utils.doc_id_mapping import (
-    convert_str_id_to_int,
-)
-from nemo_curator.gpu_deduplication.utils import parse_nc_args
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.utils.fuzzy_dedup_utils.id_mapping import convert_str_id_to_int
+from nemo_curator.utils.script_utils import parse_gpu_dedup_args
 
 
 def pre_imports():
@@ -85,7 +83,7 @@ def attach_args(parser=None):
     denoting the bucket id's that document belongs to.
     """
     if not parser:
-        parser = parse_nc_args(description=description)
+        parser = parse_gpu_dedup_args(description=description)
 
     parser.add_argument(
         "--minhash-length",
@@ -110,12 +108,6 @@ def attach_args(parser=None):
         type=int,
         required=True,
         help="Number of buckets to shuffle per batch",
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="gpu",
-        help="Type of cluster to start up",
     )
     parser.add_argument(
         "--output-bucket-dir",

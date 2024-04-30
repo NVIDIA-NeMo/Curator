@@ -18,12 +18,12 @@ import time
 import dask_cudf
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.gpu_deduplication.ioutils import strip_trailing_sep
-from nemo_curator.gpu_deduplication.utils import parse_nc_args
 from nemo_curator.log import create_logger
 from nemo_curator.modules import ExactDuplicates
 from nemo_curator.utils.distributed_utils import get_client, read_data
 from nemo_curator.utils.file_utils import get_all_files_paths_under
+from nemo_curator.utils.fuzzy_dedup_utils.io_utils import strip_trailing_sep
+from nemo_curator.utils.script_utils import parse_gpu_dedup_args
 
 
 def pre_imports():
@@ -88,7 +88,7 @@ def attach_args(parser=None):
     description = """Compute Exact duplicates in a given dataset.
     """
     if not parser:
-        parser = parse_nc_args(description=description)
+        parser = parse_gpu_dedup_args(description=description)
     parser.add_argument(
         "--hash-method",
         type=str,

@@ -180,3 +180,10 @@ def get_frag_size(frag):
 
 def get_file_size(file_path):
     return os.path.getsize(file_path)
+
+
+def strip_trailing_sep(path: str):
+    """
+    Strips a path string of trailing path seperators like `/` if any.
+    """
+    return path.rstrip(os.path.sep)
