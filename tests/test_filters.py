@@ -14,6 +14,8 @@
 
 import os
 
+import dask
+import numpy as np
 import pandas as pd
 import pytest
 from dask import dataframe as dd
@@ -508,7 +510,7 @@ class TestHeuristicFilters:
     def test_repeatingtopngrams(self):
         dataset = list_to_dataset(
             [
-                "this is a totally fine sentence with no repeating ngrams so we are ok",
+                "this is a totally fine sentence with no repeat ngrams so we are ok",
                 "a b . a b",
                 "a a a a a a",
                 "totally fine small dupe a b a b",
@@ -752,6 +754,74 @@ class TestCodeFilters:
         filtered_data = filters(dataset)
 
         expected_indices = [0]
+        expected_data = DocumentDataset(dataset.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+
+class FakeQualityFilter(DocumentFilter):
+    """
+    Emulates FastTextQualityFilter without a model
+    """
+
+    def __init__(self, alpha=3, seed=42):
+        super().__init__()
+        self._alpha = alpha
+        self._seed = np.random.seed(seed)
+
+    @batched
+    def score_document(self, df):
+        return pd.Series(np.arange(len(df)) / len(df))
+
+    @batched
+    def keep_document(self, df):
+        return np.random.pareto(self._alpha, size=len(df)) > 1 - df
+
+
+class FakeLangId(DocumentFilter):
+    """
+    Emulates FastTextLangId without a model
+    """
+
+    def __init__(self, min_langid_score=0.3, convert_string=False):
+        super().__init__()
+        self._cutoff = min_langid_score
+
+        # Dask will automatically convert the list score type
+        # to a string without this option.
+        # See https://github.com/NVIDIA/NeMo-Curator/issues/33
+        dask.config.set({"dataframe.convert-string": convert_string})
+
+    @batched
+    def score_document(self, df):
+        scores = [[0.5, "EN"], [0.7, "HI"], [0.2, "PT"]]
+        scores = scores * len(df)
+        scores = scores[: len(df)]
+        return pd.Series(scores)
+
+    def keep_document(self, score):
+        return score[0] >= self._cutoff
+
+
+class TestClassifierFilters:
+    def test_fake_quality_filter(self):
+        dataset = list_to_dataset(["a", "b", "c", "d"], npartitions=1)
+        filters = ScoreFilter(FakeQualityFilter())
+        filtered_data = filters(dataset)
+
+        expected_indices = [1, 2, 3]
+        expected_data = DocumentDataset(dataset.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_fake_langid_filter(self):
+        dataset = list_to_dataset(["a", "b", "c", "d"], npartitions=1)
+        filters = ScoreFilter(FakeLangId())
+        filtered_data = filters(dataset)
+
+        expected_indices = [0, 1, 3]
         expected_data = DocumentDataset(dataset.df.loc[expected_indices])
         assert all_equal(
             expected_data, filtered_data

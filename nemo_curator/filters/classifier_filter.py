@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dask
 import fasttext
 import numpy as np
 import pandas as pd
@@ -74,6 +75,11 @@ class FastTextLangId(DocumentFilter):
         self._lang_code = None
         self._cutoff = min_langid_score
         self._name = "lang_id"
+
+        # Dask will automatically convert the list score type
+        # to a string without this option.
+        # See https://github.com/NVIDIA/NeMo-Curator/issues/33
+        dask.config.set({"dataframe.convert-string": False})
 
     @batched
     def score_document(self, df):

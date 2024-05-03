@@ -60,7 +60,7 @@ def main(args):
 
     # Remove the language score
     filtered_dataset.df[language_field] = filtered_dataset.df[language_field].apply(
-        lambda score: score[1]
+        lambda score: score[1], meta=(None, str)
     )
 
     # Split the dataset by language
