@@ -102,6 +102,7 @@ setup(
             "quality_classifier_multiple_models_inference=nemo_curator.distributed_data_classification.quality_classifier_multiple_models_inference:console_script",
             "quality_classifier_inference=nemo_curator.distributed_data_classification.quality_classifier_inference:console_script",
             "verify_results=nemo_curator.distributed_data_classification.verify_results:console_script",
+            "blend_datasets=nemo_curator.scripts.blend_datasets:console_script",
         ],
     },
 )
