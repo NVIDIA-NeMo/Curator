@@ -35,6 +35,8 @@ from tqdm import tqdm
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
+from nemo_curator.modules.config import FuzzyDuplicatesConfig
+from nemo_curator.modules.meta import Sequential
 from nemo_curator.utils.distributed_utils import (
     get_current_client,
     get_num_workers,
@@ -194,7 +196,7 @@ class LSH:
     def __init__(
         self,
         cache_dir: str,
-        minhash_length: int,
+        num_hashes: int,
         num_buckets: int,
         buckets_per_shuffle: int = 1,
         logger: Union[logging.LoggerAdapter, str] = "./",
@@ -207,9 +209,9 @@ class LSH:
         ----------
         cache_dir: str
           Needs to be specified, will compute & write duplicate id, bucket pairs to cache directory.
-        minhash_length: Length of minhash signature
+        num_hashes: Length of minhash signature
         num_buckets: Number of bands/buckets to create from the minhash signature.
-          Hashes_per_signature = minhash_length / num_buckets
+          Hashes_per_signature = num_hashes / num_buckets
         buckets_per_shuffle: Number of bands/buckets to shuffle concurrently.
           Larger values process larger batches by processing multiple bands
           but might lead to memory pressures and related errors.
@@ -219,13 +221,13 @@ class LSH:
         profile_dir: str, Default None
           If specified directory to write dask profile
         """
-        self.minhash_length = minhash_length
+        self.num_hashes = num_hashes
         self.num_buckets = num_buckets
         self.id_fields = [id_fields] if isinstance(id_fields, str) else id_fields
         self.minhash_field = minhash_field
         self.buckets_per_shuffle = buckets_per_shuffle
         self.bucket_ranges = self._generate_bucket_ranges(
-            self.num_buckets, self.minhash_length
+            self.num_buckets, self.num_hashes
         )
 
         if cache_dir is None:
@@ -245,15 +247,15 @@ class LSH:
             self._logger = logger
 
     def _generate_bucket_ranges(
-        self, num_buckets: int, minhash_length: int
+        self, num_buckets: int, num_hashes: int
     ) -> List[List[int]]:
         """
         Generates a list of indices for the minhash ranges given num_bands &
-        minhash_length.
-        eg: num_bands=3, minhash_length=6
+        num_hashes.
+        eg: num_bands=3, num_hashes=6
         [[0, 1], [2, 3], [4, 5]]
         """
-        minhashes_per_bucket = minhash_length // num_buckets
+        minhashes_per_bucket = num_hashes // num_buckets
 
         bucket_ranges = [
             list(
@@ -308,7 +310,7 @@ class LSH:
         self, df: dask_cudf.DataFrame
     ) -> Tuple[cudf.DataFrame, int]:
         meta = df._meta_nonempty[self.id_fields]
-        meta[self.minhash_field] = [np.ones(self.minhash_length)] * len(meta)
+        meta[self.minhash_field] = [np.ones(self.num_hashes)] * len(meta)
         return self.minhash_to_buckets(meta, self.bucket_ranges)
 
     def lsh(
@@ -325,7 +327,6 @@ class LSH:
             bucket_ranges=self.bucket_ranges,
             meta=meta,
         )
-
         bucket_start_id = 0
         for i in range(0, self.num_buckets, self.buckets_per_shuffle):
             value_vars = [
@@ -380,6 +381,154 @@ class LSH:
 
         buckets_df = dask_cudf.read_parquet(write_path, split_row_groups=False)
         return DocumentDataset(buckets_df)
+
+
+class FuzzyDuplicates:
+    def __init__(
+        self,
+        config: FuzzyDuplicatesConfig,
+        logger: Union[logging.LoggerAdapter, str] = "./",
+    ):
+        """
+        Parameters
+        ----------
+        config: FuzzyDuplicatesConfig,
+            Config options for finding FuzzyDuplicates
+        logger: Existing logger to log to, or a path to a log directory.
+
+        Returns
+        -------
+        DocumentDataset containing IDs of all documents and the corresponding duplicate group
+        they belong to. Documents in the same group are near duplicates.
+        """
+        if isinstance(logger, str):
+            self._logger = create_logger(
+                rank=0,
+                log_file=os.path.join(logger, "FuzzyDuplicates.log"),
+                name="FuzzyDuplicates",
+            )
+        else:
+            self._logger = logger
+
+        self.config = config
+        self.minhash = MinHash(
+            seed=self.config.seed,
+            num_hashes=self.config.num_hashes,
+            char_ngrams=self.config.char_ngrams,
+            use_64bit_hash=self.config.use_64_bit_hash,
+            logger=self._logger,
+            id_field=self.config.id_field,
+            text_field=self.config.text_field,
+            profile_dir=self.config.profile_dir,
+            cache_dir=self.config.cache_dir,
+        )
+        self.lsh = LSH(
+            cache_dir=self.config.cache_dir,
+            num_hashes=self.config.num_hashes,
+            num_buckets=self.config.num_buckets,
+            buckets_per_shuffle=self.config.buckets_per_shuffle,
+            logger=self._logger,
+            id_fields=[self.config.id_field],
+            profile_dir=self.config.profile_dir,
+        )
+        self.map_buckets = _MapBuckets(
+            id_fields=[self.config.id_field],
+            text_field=self.config.text_field,
+            logger=self._logger,
+            num_anchors=self.config.num_anchors,
+        )
+        self.jaccard_shuffle = _Shuffle(
+            id_fields=[self.config.id_field],
+            text_field=self.config.text_field,
+            logger=self._logger,
+            profile_dir=self.config.profile_dir,
+        )
+        self.jaccard_compute = JaccardSimilarity(
+            id_field=self.config.id_field,
+            text_field=self.config.text_field,
+            ngram_width=self.config.char_ngrams,
+            anchor_id_fields=[
+                f"anchor_{i}_{self.config.id_field}"
+                for i in range(self.config.num_anchors)
+            ],
+        )
+        self.connected_components = ConnectedComponents(
+            cache_dir=self.config.cache_dir,
+            jaccard_pairs_path=os.path.join(
+                self.config.cache_dir, "jaccard_similarity_results.parquet"
+            ),
+            id_column=self.config.id_field,
+            convert_str_ids=False,
+            jaccard_threshold=self.config.jaccard_threshold,
+        )
+
+    def __call__(self, dataset: DocumentDataset):
+        """
+        Parameters
+        ----------
+        dataset: DocumentDataset
+            The input datset to compute FuzzyDuplicates. Must contain a text and unique id field.
+
+        Returns
+        -------
+        DocumentDataset containing IDs of all documents and the corresponding duplicate group
+        they belong to. Documents in the same group are near duplicates.
+        """
+        # Minhash + LSH
+        print("Stage1: Starting Minhash + LSH computation")
+        minhashLSH = Sequential([self.minhash, self.lsh])
+        buckets_df = minhashLSH(dataset)
+        print("Stage1: Minhash + LSH complete!")
+
+        # Map buckets to lower cardinality distribution
+        print("Stage2 (False Postive Check): Starting Map_Buckets")
+        ddf_mapped_buckets_w_anchors = self.map_buckets.map_buckets_with_anchors(
+            documents_df=dataset.df, buckets_df=buckets_df.df
+        )
+        mapped_buckets_w_anchors_path = os.path.join(
+            self.config.cache_dir, "anchor_docs_with_bk.parquet"
+        )
+        ddf_mapped_buckets_w_anchors.to_parquet(
+            mapped_buckets_w_anchors_path, write_index=False
+        )
+        print("Stage2 (False Postive Check): Map_Buckets Complete!")
+
+        # Shuffle documents based on mapped buckets
+        print("Stage3 (False Postive Check): Shuffle docs")
+        shuffled_docs_path = os.path.join(
+            self.config.cache_dir, "shuffled_docs.parquet"
+        )
+        self.jaccard_shuffle.shuffle_docs_on_buckets(
+            documents_df=dataset.df,
+            bucket_w_anchors_path=mapped_buckets_w_anchors_path,
+            output_shuffled_docs_path=shuffled_docs_path,
+            bucket_mapping_df_blocksize=256,
+            parts_per_worker=1,
+            bucket_parts_per_worker=8,
+        )
+        print("Stage3 (False Postive Check): Shuffle docs complete!")
+
+        # jaccard comparision within buckets
+        print("Stage4 (False Postive Check): Jaccard Similarity in Buckets")
+        jaccard_pairs_path = os.path.join(
+            self.config.cache_dir, "jaccard_similarity_results.parquet"
+        )
+        jaccard_pairs_df = self.jaccard_compute.jaccard_compute(
+            shuffled_docs_path=shuffled_docs_path
+        )
+        jaccard_pairs_df.to_parquet(
+            jaccard_pairs_path,
+            write_index=False,
+            write_metadata_file=False,
+        )
+        print("Stage4 (False Postive Check): Jaccard Similarity in Buckets Complete!")
+
+        # Connected components across buckets
+        print("Stage5: Connected Components across buckets")
+        cc_path = os.path.join(self.config.cache_dir, "connected_components.parquet")
+        self.connected_components.cc_workflow(cc_path)
+        print("Stage5: Connected Components across buckets complete!")
+        return DocumentDataset(dask_cudf.read_parquet(cc_path, split_row_groups=False))
 
 
 class _MapBuckets:
@@ -508,6 +657,7 @@ class _MapBuckets:
         """
         Add output_partition_id to buckets_ddf
         """
+        documents_df = documents_df.copy()
         documents_df[bytes_column] = documents_df[self.text_field].map_partitions(
             lambda s: s.str.byte_count()
         )
@@ -620,7 +770,7 @@ class _MapBuckets:
             ddf_anchor_docs_with_bk,
             self.id_fields,
             ignore_index=True,
-            shuffle=shuffle_type,
+            shuffle_method=shuffle_type,
         ).map_partitions(
             M.drop_duplicates,
             meta=ddf_anchor_docs_with_bk._meta,
@@ -1195,7 +1345,7 @@ class ConnectedComponents:
             ddf,
             [self.left_id, self.right_id],
             ignore_index=True,
-            shuffle="tasks",
+            shuffle_method="tasks",
         )
         ddf = ddf.map_partitions(
             M.drop_duplicates,
@@ -1301,11 +1451,11 @@ class ConnectedComponents:
                     how="inner",
                     broadcast=True,
                 )
+                subset_ddf = subset_ddf.drop(
+                    columns=pair_ids,
+                )
                 subset_ddf = subset_ddf.rename(
                     columns={"uid": f"{self.id_column}_{tag}"}
-                )
-                subset_ddf = subset_ddf.drop(
-                    columns=[f"dataset_id_{tag}", f"doc_id_{tag}"]
                 )
 
             subset_ddf = subset_ddf[[self.left_id, self.right_id, "jaccard"]]

@@ -64,7 +64,7 @@ def main(args):
     )
     lsh = LSH(
         cache_dir=args.output_bucket_dir,
-        minhash_length=args.minhash_length,
+        num_hashes=args.minhash_length,
         num_buckets=args.num_bands,
         buckets_per_shuffle=args.buckets_per_shuffle,
         id_fields=["dataset_id", "doc_id"],
