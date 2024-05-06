@@ -282,6 +282,23 @@ class TestFilterModule:
             expected_scores == scores.compute()
         ), f"Expected {expected_scores} but got {scores}"
 
+    def test_chain_filter(self, letter_count_data):
+        letter_count_filter = LetterCountFilter(min_count=4)
+        length_filter = BatchedLengthFilter(min_length=8, max_length=11)
+        filters = Sequential(
+            [
+                ScoreFilter(letter_count_filter, text_field="documents"),
+                ScoreFilter(length_filter, text_field="documents"),
+            ]
+        )
+        filtered_data = filters(letter_count_data)
+
+        expected_indices = [2]
+        expected_data = DocumentDataset(letter_count_data.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
 
 class TestHeuristicFilters:
     def test_nonalpha(self):

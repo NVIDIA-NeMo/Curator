@@ -85,8 +85,8 @@ class PiiModifier(DocumentModifier):
             logging.error(
                 f"Encountered error {str(e)} in partition {partition_info['number']}"
             )
-            return pd.Series([True])
-        output: pd.Series = pd.Series(output)
+            return pd.Series([True], index=text.index)
+        output: pd.Series = pd.Series(output, text.index)
         return output
 
     def load_deidentifier(self):

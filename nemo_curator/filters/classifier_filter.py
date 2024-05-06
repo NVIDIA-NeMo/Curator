@@ -37,7 +37,7 @@ class FastTextQualityFilter(DocumentFilter):
         self._name = "fasttext_quality_filter"
 
     @batched
-    def score_document(self, df):
+    def score_document(self, df: pd.Series):
         model_attr = f"{self._name}_{self._model_path}"
         try:
             model = load_object_on_worker(model_attr, self._load_model, {})
@@ -56,7 +56,7 @@ class FastTextQualityFilter(DocumentFilter):
         return df.apply(_score_document)
 
     @batched
-    def keep_document(self, df):
+    def keep_document(self, df: pd.Series):
         return np.random.pareto(self._alpha, size=len(df)) > 1 - df
 
     def _load_model(self):
@@ -82,7 +82,7 @@ class FastTextLangId(DocumentFilter):
         dask.config.set({"dataframe.convert-string": False})
 
     @batched
-    def score_document(self, df):
+    def score_document(self, df: pd.Series):
         model_attr = f"{self._name}_{self._model_path}"
         try:
             model = load_object_on_worker(model_attr, self._load_model, {})

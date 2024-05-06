@@ -15,6 +15,7 @@
 from .c4 import BoilerPlateStringModifier
 from .doc_modifier import DocumentModifier
 from .fasttext import FastTextLabelModifier
+from .pii_modifier import PiiModifier
 from .unicode_reformatter import UnicodeReformatter
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "BoilerPlateStringModifier",
     "FastTextLabelModifier",
     "UnicodeReformatter",
+    "PiiModifier",
 ]

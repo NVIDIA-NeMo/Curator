@@ -153,6 +153,33 @@ Here is the ``WordCountFilter`` rewritten to use batches in the ``keep_document`
       pass_max = score <= self._max_words
       return pass_min & pass_max
 
+When you use the ``batched`` decorator, the index of the series returned from the function must remain the same as the index that was passed in.
+The index may not be continuous due to filters being applied prior to the current filter.
+In the above code, the index will be the same automatically so no change is required.
+However, when writing functions that transform the series into a different structure like a list, special care is needed.
+The following code example demonstrates what this error may look like, and how to fix it.
+
+.. code-block:: python
+
+  class BuggyLengthFilter(DocumentFilter):
+
+    @batched
+    def score_document(self, documents: pd.Series):
+      scores = []
+      for document in documents:
+        scores.append(len(document))
+
+      return pd.Series(scores) # Bad! Does not preserve the index
+
+  class CorrectLengthFilter(DocumentFilter):
+
+    @batched
+    def score_document(self, documents: pd.Series):
+      scores = []
+      for document in documents:
+        scores.append(len(document))
+
+      return pd.Series(scores, index=documents.index) # Good! Preserves the index
 
 
 -----------------------------------------
