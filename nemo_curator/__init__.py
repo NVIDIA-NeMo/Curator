@@ -12,4 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dask
+
 from .modules import *
+
+# Dask will automatically convert the list score type
+# to a string without this option.
+# See https://github.com/NVIDIA/NeMo-Curator/issues/33
+# This also happens when reading and writing to files
+dask.config.set({"dataframe.convert-string": False})

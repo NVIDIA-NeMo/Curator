@@ -76,11 +76,6 @@ class FastTextLangId(DocumentFilter):
         self._cutoff = min_langid_score
         self._name = "lang_id"
 
-        # Dask will automatically convert the list score type
-        # to a string without this option.
-        # See https://github.com/NVIDIA/NeMo-Curator/issues/33
-        dask.config.set({"dataframe.convert-string": False})
-
     @batched
     def score_document(self, df: pd.Series):
         model_attr = f"{self._name}_{self._model_path}"
