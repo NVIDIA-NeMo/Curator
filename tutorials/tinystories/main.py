@@ -97,19 +97,23 @@ def filter_dataset(dataset: DocumentDataset) -> DocumentDataset:
                 WordCountFilter(min_words=80),
                 text_field="text",
                 score_field="word_count",
+                score_type=int,
             ),
-            ScoreFilter(IncompleteStoryFilter(), text_field="text"),
+            ScoreFilter(IncompleteStoryFilter(), text_field="text", score_type=bool),
             ScoreFilter(
                 RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2),
                 text_field="text",
+                score_type=float,
             ),
             ScoreFilter(
                 RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
                 text_field="text",
+                score_type=float,
             ),
             ScoreFilter(
                 RepeatingTopNGramsFilter(n=4, max_repeating_ngram_ratio=0.16),
                 text_field="text",
+                score_type=float,
             ),
         ]
     )
