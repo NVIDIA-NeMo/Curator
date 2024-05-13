@@ -17,7 +17,7 @@ from typing import Dict, List
 import pandas as pd
 
 from nemo_curator.modifiers import DocumentModifier
-from nemo_curator.pii.algorithm import DEFAULT_LANGUAGE
+from nemo_curator.pii.constants import DEFAULT_LANGUAGE, DEFAULT_MAX_DOC_SIZE
 from nemo_curator.utils.decorators import batched
 from nemo_curator.utils.distributed_utils import load_object_on_worker
 
@@ -97,7 +97,7 @@ class PiiModifier(DocumentModifier):
 
         if self.device == "gpu":
             spacy.require_gpu()
-        from nemo_curator.pii.algorithm import DEFAULT_MAX_DOC_SIZE, PiiDeidentifier
+        from nemo_curator.pii.algorithm import PiiDeidentifier
 
         deidentifier: PiiDeidentifier = PiiDeidentifier(
             language=self.language,

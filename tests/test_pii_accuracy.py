@@ -17,7 +17,6 @@ import re
 from pathlib import Path
 
 import pandas as pd
-import pytest
 from dask import dataframe as dd
 from dask.distributed import Client, LocalCluster
 
