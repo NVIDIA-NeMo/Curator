@@ -16,13 +16,14 @@ import math
 from operator import getitem
 
 import numpy as np
+import pandas as pd
 from dask.base import tokenize
 from dask.dataframe.core import new_dd_object
 from dask.dataframe.shuffle import partitioning_index
 from dask.highlevelgraph import HighLevelGraph
 from dask.utils import M
 
-from nemo_curator.utils.fuzzy_dedup_utils.shuffle_utils import rearange_by_column_direct
+from nemo_curator._compat import DASK_SHUFFLE_CAST_DTYPE
 
 
 def _split_part(part, nsplits):
@@ -129,6 +130,21 @@ def extract_partitioning_index(
     # a partition-wise merge between `left_df` and `right_df`.
     # We call this `global_partitioning_index`:
 
+    if DASK_SHUFFLE_CAST_DTYPE:
+        # Need to use the same type-casting logic as `shuffle`
+        dtypes = {}
+        if not isinstance(merge_on, list):
+            merge_on = [merge_on]
+        for col, dtype in left_df[merge_on].dtypes.items():
+            if pd.api.types.is_numeric_dtype(dtype):
+                dtypes[col] = np.float64
+        if not dtypes:
+            dtypes = None
+        cast_dtype = {"cast_dtype": dtypes}
+    else:
+        # `cast_dtype` argument doesn't exist yet
+        cast_dtype = {}
+
     num_bucket_files = bk_mapping.file_id.max() + 1
     global_partitioning_index = left_df[merge_on].map_partitions(
         partitioning_index,
@@ -137,6 +153,7 @@ def extract_partitioning_index(
         enforce_metadata=False,
         transform_divisions=False,
         align_dataframes=False,
+        **cast_dtype,
     )
 
     if total_bucket_partitions < num_bucket_files:
@@ -157,7 +174,7 @@ def extract_partitioning_index(
     # want to send the rows of `left_df` to the partition
     # indices encoded in `global_partitioning_index`. Instead, we
     # need to take a modulus with `parts_per_bucket_batch` to
-    # define a `"_partitoins"` column.
+    # define a `"_partitions"` column.
     left_df["_partitions"] = global_partitioning_index % parts_per_bucket_batch
 
     return left_df, global_partitioning_index
@@ -195,6 +212,10 @@ def merge_left_to_shuffled_right(
     subset_bucket_df,
     merge_on,
 ):
+    from nemo_curator.utils.fuzzy_dedup_utils.shuffle_utils import (
+        rearange_by_column_direct,
+    )
+
     # We are merging an unshuffled batch of "left" partitions
     # with a shuffled batch of "right" partitions. To minimize
     # data movement, we can manaully rerrange the "left" batch

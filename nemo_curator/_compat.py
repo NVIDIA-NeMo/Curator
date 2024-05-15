@@ -20,3 +20,4 @@ _dask_version = parseVersion(dask.__version__)
 # TODO: remove when dask min version gets bumped
 DASK_SHUFFLE_METHOD_ARG = _dask_version > parseVersion("2024.1.0")
 DASK_P2P_ERROR = _dask_version < parseVersion("2023.10.0")
+DASK_SHUFFLE_CAST_DTYPE = _dask_version > parseVersion("2023.12.0")
