@@ -13,24 +13,88 @@
 # limitations under the License.
 
 import os
+
+os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 
 import torch
+import torch.nn as nn
+from crossfit import op
+from crossfit.backend.torch.hf.model import HFModel
 from packaging import version
+from transformers import AutoConfig, AutoModel
 from transformers import __version__ as TRANSFORMERS_VERSION
 from transformers.models.deberta_v2 import DebertaV2TokenizerFast
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.distributed_data_classification.pytorch_utils import (
-    CFG,
-    CustomModel,
-    TestDataset,
-    collate,
-)
-from nemo_curator.utils.distributed_utils import (
-    load_object_on_worker,
-    process_all_batches,
-)
+
+
+@dataclass
+class DomainModelConfig:
+    model = "microsoft/deberta-v3-base"
+    fc_dropout = 0.2
+    max_len = 512
+
+
+@dataclass
+class QualityModelConfig:
+    model = "microsoft/deberta-v3-base"
+    fc_dropout = 0.2
+    max_len = 512
+
+
+class CustomModel(nn.Module):
+    def __init__(
+        self, config, out_dim, config_path=None, pretrained=False, autocast=False
+    ):
+        super().__init__()
+        self.config = config
+        if config_path is None:
+            self.config = AutoConfig.from_pretrained(
+                config.model, output_hidden_states=True
+            )
+        else:
+            self.config = torch.load(config_path)
+        if pretrained:
+            self.model = AutoModel.from_pretrained(config.model, config=self.config)
+        else:
+            self.model = AutoModel(self.config)
+        self.fc_dropout = nn.Dropout(config.fc_dropout)
+        self.fc = nn.Linear(self.config.hidden_size, out_dim)
+        self._init_weights(self.fc)
+        self.autocast = autocast
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
+    def feature(self, input_ids, attention_mask):
+        outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
+        last_hidden_states = outputs[0]
+        return last_hidden_states
+
+    def _forward(self, batch):
+        feature = self.feature(batch["input_ids"], batch["attention_mask"])
+        output = self.fc(self.fc_dropout(feature))
+        output = output.to(torch.float32)
+        return torch.softmax(output[:, 0, :], dim=1)
+
+    def forward(self, batch):
+        if self.autocast:
+            with torch.autocast(device_type="cuda"):
+                return self._forward(batch)
+        else:
+            return self._forward(batch)
 
 
 class DistributedDataClassifier(ABC):
@@ -38,31 +102,28 @@ class DistributedDataClassifier(ABC):
 
     def __init__(
         self,
-        model_file_name,
+        model,
         labels,
         filter_by,
         batch_size,
         out_dim,
         pred_column,
         max_chars,
-        num_workers,
         device_type,
         autocast,
     ):
-        self.model_file_name = model_file_name
+        self.model = model
         self.labels = labels
         self.filter_by = filter_by
         self.batch_size = batch_size
         self.out_dim = out_dim
         self.pred_column = pred_column
         self.max_chars = max_chars
-        self.num_workers = num_workers
         self.device_type = device_type
         self.autocast = autocast
 
     def __call__(self, dataset: DocumentDataset):
         result_doc_dataset = self._run_classifier(dataset)
-
         if self.filter_by is not None:
             return self._filter_documents(result_doc_dataset)
 
@@ -71,13 +132,6 @@ class DistributedDataClassifier(ABC):
     @abstractmethod
     def _run_classifier(self):
         pass
-
-    def _cfg_per_partition(self):
-        return load_object_on_worker(
-            "cfg_with_tokenizer",
-            self._load_cfg_with_tokenizer,
-            {},
-        )
 
     def _filter_documents(
         self,
@@ -96,116 +150,180 @@ class DistributedDataClassifier(ABC):
         raise TypeError("filter_by must be a string or list type")
 
 
+def _run_classifier_helper(
+    df: "dask_cudf.DataFrame",
+    model: "HFModel",
+    labels: list[str],
+    max_chars: int,
+    batch_size: int,
+    label_col: str,
+    prob_col: str = None,
+) -> "dask_cudf.DataFrame":
+
+    keep_prob = prob_col is not None
+    prob_internal_col = "_prob"
+    # TODO: Make crossfit handle this cleanly
+    pred_internal_col = "labels"
+    df["sliced_text"] = df["text"].str.slice(0, max_chars)
+    columns_to_keep_list = df.columns.to_list()
+    columns_to_keep_list.remove("sliced_text")
+
+    classifier_pipe = op.Sequential(
+        op.Tokenizer(model, cols=["sliced_text"], tokenizer_type="sentencepiece"),
+        op.Predictor(
+            model,
+            sorted_data_loader=True,
+            batch_size=batch_size,
+            pred_output_col=prob_internal_col,
+        ),
+        repartition=df.npartitions,
+        keep_cols=columns_to_keep_list,
+    )
+    df = classifier_pipe(df)
+    # TODO: Make crossfit handle this cleanly
+    # to prevent the labeler from dropping the prob_internal_col
+    # and combine it into a single step
+    labeling_pipe = op.Sequential(
+        op.Labeler(labels, cols=[prob_internal_col]),
+        keep_cols=columns_to_keep_list + [prob_internal_col],
+    )
+    df = labeling_pipe(df)
+    if keep_prob:
+        df = df.rename(
+            columns={prob_internal_col: prob_col, pred_internal_col: label_col},
+        )
+    else:
+        df = df.rename(columns={pred_internal_col: label_col})
+        df = df.drop(columns=[prob_internal_col])
+    return df
+
+
+class DomainModel(HFModel):
+    def __init__(self, config, out_dim=None, model_path=None, autocast=False):
+        self.config = config
+        self.out_dim = out_dim
+        self.model_path = model_path
+        self.autocast = autocast
+        super().__init__(self.config.model)
+
+    def load_model(self, device="cuda"):
+        model = CustomModel(
+            self.config,
+            out_dim=self.out_dim,
+            config_path=None,
+            pretrained=True,
+            autocast=self.autocast,
+        )
+        model = model.to(device)
+        if os.path.exists(self.model_path):
+            sd = torch.load(os.path.join(self.model_path), map_location="cpu")
+            sd = {k[7:] if k.startswith("module.") else k: sd[k] for k in sd.keys()}
+            if version.parse(TRANSFORMERS_VERSION) >= version.parse("4.31.0"):
+                sd.pop("model.embeddings.position_ids", None)
+            model.load_state_dict(sd, strict=True)
+        else:
+            raise ValueError(f"Model path {self.model_path} does not exist")
+        return model.eval()
+
+    def load_tokenizer(self):
+        return DebertaV2TokenizerFast.from_pretrained(self.config.model)
+
+    def load_config(self):
+        return AutoConfig.from_pretrained(self.path_or_name)
+
+
+class QualityModel(HFModel):
+    def __init__(self, config, out_dim=None, model_path=None, autocast=False):
+        self.config = config
+        self.out_dim = out_dim
+        self.model_path = model_path
+        self.autocast = autocast
+        super().__init__(self.config.model)
+
+    def load_model(self, device="cuda"):
+        model = CustomModel(
+            self.config,
+            out_dim=self.out_dim,
+            config_path=None,
+            pretrained=True,
+            autocast=self.autocast,
+        )
+        model = model.to(device)
+        if os.path.exists(self.model_path):
+            sd = torch.load(self.model_path, map_location="cpu")
+            if "model_state_dict" in sd:
+                sd = sd["model_state_dict"]
+            sd = {k[7:] if k.startswith("module.") else k: sd[k] for k in sd.keys()}
+            model.load_state_dict(sd, strict=True)
+        else:
+            raise ValueError(f"Model path {self.model_path} does not exist")
+        model.eval()
+        return model
+
+    def load_tokenizer(self):
+        return DebertaV2TokenizerFast.from_pretrained(self.config.model)
+
+    def load_config(self):
+        return AutoConfig.from_pretrained(self.path_or_name)
+
+
 class DomainClassifier(DistributedDataClassifier):
     def __init__(
         self,
-        model_file_name,
+        model_path,
         labels,
         filter_by=None,
         batch_size=256,
         out_dim=None,
-        pred_column="pred",
+        pred_column="domain_pred",
+        prob_column=None,
         max_chars=2000,
-        num_workers=0,
         device_type="cuda",
         autocast=True,
     ):
         if out_dim is None:
             out_dim = len(labels)
 
+        self.prob_column = prob_column
+
+        model = DomainModel(
+            config=DomainModelConfig,
+            out_dim=out_dim,
+            model_path=model_path,
+            autocast=autocast,
+        )
+
         super().__init__(
-            model_file_name=model_file_name,
+            model=model,
             labels=labels,
             filter_by=filter_by,
             batch_size=batch_size,
             out_dim=out_dim,
             pred_column=pred_column,
             max_chars=max_chars,
-            num_workers=num_workers,
             device_type=device_type,
             autocast=autocast,
         )
 
     def _run_classifier(self, dataset: DocumentDataset):
         print("Starting domain classifier inference", flush=True)
-
         df = dataset.df
-
-        meta_df = df._meta.copy()
-        meta_df[self.pred_column] = [0] * len(meta_df)
-
-        df = df.map_partitions(
-            self._inference_per_partition,
-            meta=meta_df,
-            enforce_metadata=False,
+        df = _run_classifier_helper(
+            df=df,
+            model=self.model,
+            labels=self.labels,
+            max_chars=self.max_chars,
+            batch_size=self.batch_size,
+            label_col=self.pred_column,
+            prob_col=self.prob_column,
         )
-
         return DocumentDataset(df)
 
-    def _inference_per_partition(self, df):
-        cfg = self._cfg_per_partition()
 
-        dataset_valid = TestDataset(cfg, df, self.max_chars)
-        loader_valid = torch.utils.data.DataLoader(
-            dataset_valid,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-        )
-
-        device = torch.device(self.device_type)
-        load_model_kwargs = {"cfg": cfg, "device": device}
-
-        preds = process_all_batches(
-            loader_valid,
-            self._load_model,
-            load_model_kwargs,
-            self._run_inference,
-            {},
-        )
-        preds = preds.cpu().numpy()
-        df[self.pred_column] = [self.labels[i] for i in preds]
-
-        return df
-
-    def _load_cfg_with_tokenizer(self):
-        cfg = CFG()
-        tokenizer = DebertaV2TokenizerFast.from_pretrained(cfg.model)
-        cfg.tokenizer = tokenizer
-        return cfg
-
-    def _load_model(self, cfg, device):
-        model = CustomModel(
-            cfg, out_dim=self.out_dim, config_path=None, pretrained=True
-        )
-        model = model.to(device)
-        sd = torch.load(os.path.join(self.model_file_name), map_location="cpu")
-        sd = {k[7:] if k.startswith("module.") else k: sd[k] for k in sd.keys()}
-        if version.parse(TRANSFORMERS_VERSION) >= version.parse("4.31.0"):
-            sd.pop("model.embeddings.position_ids", None)
-
-        model.load_state_dict(sd, strict=True)
-        model.eval()
-        return model
-
-    def _run_inference(self, batch, model):
-        with torch.no_grad():
-            batch = collate(batch)
-            if self.autocast:
-                with torch.autocast(device_type=self.device_type):
-                    out = model(batch)[:, 0, :]
-            else:
-                out = model(batch)[:, 0, :]
-            pred_idx = torch.sigmoid(out).argmax(1)
-
-        return pred_idx
-
-
-# TODO: Implement MultipleModelQualityClassifier class
 class QualityClassifier(DistributedDataClassifier):
     def __init__(
         self,
-        model_file_name,
+        model_path,
         labels,
         filter_by=None,
         batch_size=256,
@@ -213,121 +331,46 @@ class QualityClassifier(DistributedDataClassifier):
         pred_column="quality_pred",
         prob_column="quality_prob",
         max_chars=6000,
-        num_workers=0,
         device_type="cuda",
         autocast=True,
-        max_len=1024,
     ):
-        # Binary case
         if len(labels) == 2:
-            out_dim = 1
-            self.binary_classification = True
+            out_dim = 1  # Binary classification
         else:
             if out_dim is None:
-                out_dim = len(labels)
-            self.binary_classification = False
+                out_dim = len(labels)  # Multiclass classification
 
         self.prob_column = prob_column
-        self.max_len = max_len
+
+        model = QualityModel(
+            config=QualityModelConfig,
+            out_dim=out_dim,
+            model_path=model_path,
+            autocast=autocast,
+        )
 
         super().__init__(
-            model_file_name=model_file_name,
+            model=model,
             labels=labels,
             filter_by=filter_by,
             batch_size=batch_size,
             out_dim=out_dim,
             pred_column=pred_column,
             max_chars=max_chars,
-            num_workers=num_workers,
             device_type=device_type,
             autocast=autocast,
         )
 
     def _run_classifier(self, dataset: DocumentDataset):
-        print("Starting quality classifier inference", flush=True)
-
+        print("Starting Quality classifier inference", flush=True)
         df = dataset.df
-
-        meta_df = df._meta.copy()
-        meta_df[self.pred_column] = ["low"] * len(meta_df)
-        meta_df[self.prob_column] = [[0, 0, 1]] * len(meta_df)
-
-        df = df.map_partitions(
-            self._inference_per_partition,
-            meta=meta_df,
-            enforce_metadata=False,
-        )
-
-        return DocumentDataset(df)
-
-    def _inference_per_partition(self, df):
-        cfg = self._cfg_per_partition()
-
-        dataset_valid = TestDataset(cfg, df, self.max_chars)
-        loader_valid = torch.utils.data.DataLoader(
-            dataset_valid,
+        df = _run_classifier_helper(
+            df=df,
+            model=self.model,
+            labels=self.labels,
+            max_chars=self.max_chars,
             batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
+            label_col=self.pred_column,
+            prob_col=self.prob_column,
         )
-        device = torch.device(self.device_type)
-        if len(self.labels) == 1:
-            raise ValueError("Labels must be more than 1")
-
-        load_model_kwargs = {
-            "cfg": cfg,
-            "device": device,
-        }
-
-        probs = process_all_batches(
-            loader_valid,
-            self._load_model,
-            load_model_kwargs,
-            self._run_inference,
-            {},
-        )
-
-        if self.binary_classification:
-            preds = (probs > 0.5).to(torch.int64).squeeze()
-        else:
-            preds = torch.argmax(probs, dim=1)
-
-        df[self.pred_column] = [
-            self.labels[i] for i in preds.to("cpu").numpy().tolist()
-        ]
-        df[self.prob_column] = probs.to("cpu").numpy().tolist()
-
-        return df
-
-    def _load_cfg_with_tokenizer(self):
-        cfg = CFG(max_len=self.max_len)
-        tokenizer = DebertaV2TokenizerFast.from_pretrained(cfg.model)
-        cfg.tokenizer = tokenizer
-        return cfg
-
-    def _load_model(self, cfg, device):
-        model = CustomModel(
-            cfg, out_dim=self.out_dim, config_path=None, pretrained=True
-        )
-        model = model.to(device)
-        sd = torch.load(self.model_file_name, map_location="cpu")
-        if "model_state_dict" in sd:
-            sd = sd["model_state_dict"]
-        sd = {k[7:] if k.startswith("module.") else k: sd[k] for k in sd.keys()}
-        model.load_state_dict(sd, strict=True)
-        model.eval()
-        return model
-
-    def _run_inference(self, batch, model):
-        with torch.no_grad():
-            batch = collate(batch)
-            if self.autocast:
-                with torch.autocast(device_type=self.device_type):
-                    out = model(batch)[:, 0, :]
-            else:
-                out = model(batch)[:, 0, :]
-            if self.binary_classification:
-                probs = torch.sigmoid(out)
-            else:
-                probs = torch.softmax(out, dim=1)
-        return probs
+        return DocumentDataset(df)

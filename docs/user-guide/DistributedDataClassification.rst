@@ -49,13 +49,13 @@ Let's see how ``DomainClassifier`` works in a small excerpt taken from ``example
         "Travel_and_Transportation",
     ]
 
-    model_file_name = "pytorch_model_file.pth"
+    model_path = "pytorch_model_file.pth"
 
     files = get_all_files_paths_under("books_dataset/")
     input_dataset = DocumentDataset.read_json(files, backend="cudf", add_filename=True)
 
     domain_classifier = DomainClassifier(
-        model_file_name=model_file_name,
+        model_path=model_path,
         labels=labels,
         filter_by=["Games", "Sports"],
     )

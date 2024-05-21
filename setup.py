@@ -60,6 +60,7 @@ setup(
         "presidio-anonymizer==2.2.351",
         "usaddress==0.5.10",
         "nemo_toolkit[nlp]>=1.23.0",
+        "crossfit @ git+https://github.com/rapidsai/crossfit.git@1ee3de4",
         # justext installation breaks without lxml[html_clean]
         # due to this: https://github.com/miso-belica/jusText/issues/47
         "lxml[html_clean]",
@@ -68,6 +69,7 @@ setup(
         "cuda12x": [
             "cudf-cu12>=24.2",
             "dask-cudf-cu12>=24.2",
+            "cuml-cu12>=24.2",
             "cugraph-cu12>=24.2",
             "dask-cuda>=24.2",
             "spacy[cuda12x]>=3.6.0, <4.0.0",
@@ -97,11 +99,9 @@ setup(
             "gpu_connected_component=nemo_curator.scripts.fuzzy_deduplication.connected_components:console_script",
             "gpu_exact_dups=nemo_curator.scripts.find_exact_duplicates:console_script",
             "deidentify=nemo_curator.scripts.find_pii_and_deidentify:console_script",
-            "generate_statistics=nemo_curator.distributed_data_classification.generate_statistics:console_script",
-            "domain_classifier_inference=nemo_curator.distributed_data_classification.domain_classifier_inference:console_script",
-            "quality_classifier_multiple_models_inference=nemo_curator.distributed_data_classification.quality_classifier_multiple_models_inference:console_script",
-            "quality_classifier_inference=nemo_curator.distributed_data_classification.quality_classifier_inference:console_script",
-            "verify_results=nemo_curator.distributed_data_classification.verify_results:console_script",
+            "domain_classifier_inference=nemo_curator.scripts.domain_classifier_inference:console_script",
+            "quality_classifier_inference=nemo_curator.scripts.quality_classifier_inference:console_script",
+            "verify_classification_results=nemo_curator.scripts.verify_classification_results:console_script",
             "blend_datasets=nemo_curator.scripts.blend_datasets:console_script",
         ],
     },

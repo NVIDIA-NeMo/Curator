@@ -53,7 +53,7 @@ def main(args):
         "Travel_and_Transportation",
     ]
 
-    model_file_name = "/path/to/pytorch_model_file.pth"
+    model_path = "/path/to/pytorch_model_file.pth"
 
     # Input can be a string or list
     input_file_path = "/path/to/data"
@@ -66,7 +66,7 @@ def main(args):
     )
 
     domain_classifier = DomainClassifier(
-        model_file_name=model_file_name,
+        model_path=model_path,
         labels=labels,
         filter_by=["Games", "Sports"],
     )

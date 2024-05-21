@@ -165,6 +165,82 @@ def parse_gpu_dedup_args(
     return parser
 
 
+def parse_distributed_classifier_args(
+    description="Default distributed classifier argument parser",
+) -> argparse.ArgumentParser:
+    """
+    Adds default set of arguments that are common to multiple stages
+    of the pipeline
+    """
+
+    parser = argparse.ArgumentParser(
+        description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser = add_distributed_args(parser)
+    # Set low default RMM pool size for classifier
+    # to allow pytorch to grow its memory usage
+    # by default
+    parser.set_defaults(rmm_pool_size="512MB")
+    parser.add_argument(
+        "--input-data-dir",
+        type=str,
+        help="The path of the input files",
+        required=True,
+    )
+    parser.add_argument(
+        "--output-data-dir",
+        type=str,
+        help="The path of the output files",
+        required=True,
+    )
+    parser.add_argument(
+        "--model-path",
+        type=str,
+        help="The path to the model file",
+        required=True,
+    )
+    parser.add_argument(
+        "--input-file-type",
+        type=str,
+        help="The type of the input files",
+        required=True,
+    )
+    parser.add_argument(
+        "--output-file-type",
+        type=str,
+        default="jsonl",
+        help="The type of the output files",
+        required=False,
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=128,
+        help="The batch size to be used for inference",
+    )
+    attach_bool_arg(
+        parser, "autocast", default=True, help_str="Whether to use autocast or not"
+    )
+    attach_bool_arg(
+        parser,
+        "enable-spilling",
+        default=True,
+        help_str="Whether to enable spilling or not",
+    )
+
+    # Setting to False makes it more stable for long running jobs
+    # possibly because of memory fragmentation
+    attach_bool_arg(
+        parser,
+        "set-torch-to-use-rmm",
+        default=False,
+        help_str="Whether to set torch to use RMM or not",
+    )
+
+    return parser
+
+
 def chunk_list(lst, nchnks):
     nitem = len(lst)
     splits = splitnum(nitem, nchnks)
