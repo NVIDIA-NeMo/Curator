@@ -267,6 +267,37 @@ class TestFuzzyDuplicates:
         expected_df = expected_df.sort_values()
         assert_eq(expected_df, result_df, check_index=False)
 
+    def test_different_fields(self, fuzzy_dedup_data, tmpdir):
+        fuzzy_dedup_data.df = fuzzy_dedup_data.df.reset_index(drop=True).rename(
+            columns={"id": "col0", "text": "col1"}
+        )
+        config = FuzzyDuplicatesConfig(
+            cache_dir=tmpdir,
+            id_field="col0",
+            text_field="col1",
+            num_buckets=10,
+            hashes_per_bucket=1,
+            buckets_per_shuffle=5,
+            false_positive_check=True,
+            num_anchors=2,
+            jaccard_threshold=0.39,
+        )
+        fuzzy_duplicates = FuzzyDuplicates(config=config)
+        result = fuzzy_duplicates(fuzzy_dedup_data)
+        result_df = result.df.compute()
+        # Drop non duplicated docs
+        result_df = result_df[result_df.group.duplicated(keep=False)]
+        result_df = result_df.groupby("group")["col0"].collect()
+        # Sort to maintain uniform ordering
+        result_df = result_df.list.sort_values()
+        result_df = result_df.sort_values()
+
+        duplicate_docs = [[4, -1], [1, 2]]
+        expected_df = cudf.Series(duplicate_docs, name="col0")
+        expected_df = expected_df.list.sort_values()
+        expected_df = expected_df.sort_values()
+        assert_eq(expected_df, result_df, check_index=False)
+
     @pytest.mark.xfail
     def test_non_uniform_indices(
         self,

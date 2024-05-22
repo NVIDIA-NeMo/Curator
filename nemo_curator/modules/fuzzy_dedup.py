@@ -1207,7 +1207,7 @@ class JaccardSimilarity:
 
     @staticmethod
     def _get_max_num_rows_to_process_once(df, text_field):
-        nbytes = df["text"].str.byte_count().sum()
+        nbytes = df[text_field].str.byte_count().sum()
         # Number of exmploded bytes
         exploded_bytes = nbytes * 5 * 2
         max_chars_allowed = 2_147_483_647
