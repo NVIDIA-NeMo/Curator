@@ -15,6 +15,7 @@
 import dask
 
 from .modules import *
+from .utils.distributed_utils import get_client
 
 # Dask will automatically convert the list score type
 # to a string without this option.

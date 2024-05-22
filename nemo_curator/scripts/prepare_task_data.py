@@ -20,11 +20,11 @@ import yaml
 import nemo_curator
 from nemo_curator.tasks.downstream_task import import_task
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
     # Read in config file
     with open(args.task_config_file, "r") as config_file:
         task_params = yaml.load(config_file, Loader=yaml.FullLoader)

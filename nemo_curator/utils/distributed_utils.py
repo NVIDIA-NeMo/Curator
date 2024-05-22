@@ -32,35 +32,22 @@ cudf = gpu_only_import("cudf")
 LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
 
 
-class DotDict:
-    def __init__(self, d):
-        self.__dict__["_data"] = d
-
-    def __getattr__(self, name):
-        if name in self._data:
-            return self._data[name]
-        else:
-            raise AttributeError(f"No attribute '{name}'")
-
-
 class NoWorkerError(Exception):
     pass
 
 
-def start_dask_gpu_local_cluster(args) -> Client:
+def start_dask_gpu_local_cluster(
+    nvlink_only=False,
+    protocol="tcp",
+    rmm_pool_size="1024M",
+    enable_spilling=True,
+    set_torch_to_use_rmm=True,
+) -> Client:
     """
     This function sets up a Dask cluster across all the
     GPUs present on the machine.
 
     """
-    # Setting conservative defaults
-    # which should work across most systems
-    nvlink_only = getattr(args, "nvlink_only", False)
-    protocol = getattr(args, "protocol", "tcp")
-    rmm_pool_size = getattr(args, "rmm_pool_size", "1024M")
-    enable_spilling = getattr(args, "enable_spilling", True)
-    set_torch_to_use_rmm = getattr(args, "set_torch_to_use_rmm", True)
-
     extra_kwargs = (
         {
             "enable_tcp_over_ucx": True,
@@ -91,36 +78,57 @@ def start_dask_gpu_local_cluster(args) -> Client:
     return client
 
 
-def start_dask_cpu_local_cluster(args) -> Client:
+def start_dask_cpu_local_cluster(
+    n_workers=os.cpu_count(), threads_per_worker=1
+) -> Client:
     """
     This function sets up a Dask cluster across all the
     CPUs present on the machine.
 
     """
-    # TODO: expand args as needed for CPU clusters
-    n_workers = getattr(args, "n_workers", None)
-    if n_workers is None:
-        # Setting threads_per_worker
-        # to 1 ensure 1 worker per CPU
-        # by default
-        threads_per_worker = getattr(args, "threads_per_worker", 1)
-    else:
-        threads_per_worker = None
     cluster = LocalCluster(n_workers=n_workers, threads_per_worker=threads_per_worker)
     client = Client(cluster)
     return client
 
 
-def get_client(args, cluster_type) -> Client:
+def get_client(
+    cluster_type="cpu",
+    scheduler_address=None,
+    scheduler_file=None,
+    n_workers=os.cpu_count(),
+    threads_per_worker=1,
+    nvlink_only=False,
+    protocol="tcp",
+    rmm_pool_size="1024M",
+    enable_spilling=True,
+    set_torch_to_use_rmm=True,
+) -> Client:
     """
-    This function sets up a Dask cluster across n GPUs if not already set up.
-    It also ensures maximum memory efficiency for the GPU by:
+    Initializes or connects to a Dask cluster.
+    The Dask cluster can be CPU-based or GPU-based (if GPUs are available).
+    The intialization ensures maximum memory efficiency for the GPU by:
         1. Ensuring the PyTorch memory pool is the same as the RAPIDS memory pool.
         2. Enabling spilling for cuDF.
 
     Args:
-        args: An argparse Namespace object.
-        cluster_type="cpu": The type of cluster to set up. Either "cpu" or "gpu".
+        cluster_type: The type of cluster to set up. Either "cpu" or "gpu". Defaults to "cpu".
+            Many options in get_client only apply to CPU-based or GPU-based clusters. Make sure you check the description of the parameter.
+        scheduler_address: This can be the address of a Scheduler server like a string '127.0.0.1:8786' or a cluster object
+            like LocalCluster(). If specified, all other arguments are ignored and the client is connected to the existing cluster.
+        scheduler_file: Path to a file with scheduler information if available. If specified, all other arguments are ignored
+            and the client is connected to the existing cluster.
+        n_workers: For CPU-based clusters only. The number of workers to start. Defaults to os.cpu_count(). For GPU-based clusters,
+            the number of workers is locked to the number of GPUs in CUDA_VISIBLE_DEVICES.
+        threads_per_worker: For CPU-based clusters only. The number of threads per each worker. Defaults to 1.
+            Before increasing, ensure that your functions frequently release the GIL.
+        nvlink_only: For GPU-based clusters only. Whether to use nvlink or not.
+        protocol: For GPU-based clusters only. Protocol to use for communication. "tcp" or "ucx".
+        rmm_pool_size: For GPU-based clusters only. RMM pool size to initialize each worker with. Can be an integer (bytes),
+            float (fraction of total device memory), string (like "5GB" or "5000M"), or None to disable RMM pools.
+        enable_spilling: For GPU-based clusters only. Enables automatic spilling (and "unspilling") of buffers from device to
+            host to enable out-of-memory computation, i.e., computing on objects that occupy more memory than is available on the GPU.
+        set_torch_to_use_rmm: For GPU-based clusters only. Sets up the PyTorch memory pool to be the same as the RAPIDS memory pool.
+            This helps avoid OOM errors when using both PyTorch and RAPIDS on the same GPU.
     Returns:
         A Dask client object.
 
@@ -128,24 +136,28 @@ def get_client(args, cluster_type) -> Client:
     if cluster_type not in ["cpu", "gpu"]:
         raise ValueError(f"Unknown cluster type: {cluster_type}")
 
-    # Helper class allows the user to pass in a dict instead of a parser
-    if type(args) == dict:
-        args = DotDict(args)
-
-    if args.scheduler_address:
-        if args.scheduler_file:
+    if scheduler_address:
+        if scheduler_file:
             raise ValueError(
                 "Only one of scheduler_address or scheduler_file can be provided"
             )
         else:
-            return Client(address=args.scheduler_address, timeout="30s")
-    elif args.scheduler_file:
-        return Client(scheduler_file=args.scheduler_file, timeout="30s")
+            return Client(address=scheduler_address, timeout="30s")
+    elif scheduler_file:
+        return Client(scheduler_file=scheduler_file, timeout="30s")
     else:
         if cluster_type == "gpu":
-            return start_dask_gpu_local_cluster(args)
+            return start_dask_gpu_local_cluster(
+                nvlink_only=nvlink_only,
+                protocol=protocol,
+                rmm_pool_size=rmm_pool_size,
+                enable_spilling=enable_spilling,
+                set_torch_to_use_rmm=set_torch_to_use_rmm,
+            )
         else:
-            return start_dask_cpu_local_cluster(args)
+            return start_dask_cpu_local_cluster(
+                n_workers=n_workers, threads_per_worker=threads_per_worker
+            )
 
 
 def _set_torch_to_use_rmm():

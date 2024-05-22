@@ -17,7 +17,7 @@ import argparse
 import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def main(args):
@@ -28,7 +28,7 @@ def main(args):
     output_path = "/path/to/output"
 
     # Set up Dask client
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
 
     # Blend the datasets
     datasets = [DocumentDataset.read_json(path) for path in dataset_paths]

@@ -1,3 +1,6 @@
+
+.. _data-curator-cpuvsgpu:
+
 ======================================
 CPU and GPU Modules with Dask
 ======================================
@@ -16,34 +19,26 @@ All of the ``examples/`` use it to set up a Dask cluster.
 
 .. code-block:: python
 
-    import argparse
     from nemo_curator.utils.distributed_utils import get_client
-    from nemo_curator.utils.script_utils import add_distributed_args
 
+    # Set up Dask client
+    client = get_client(cluster_type="cpu")
 
-    def main(args):
-        # Set up Dask client
-        client = get_client(args, args.device)
+    # Perform some computation...
 
-        # Perform some computation...
+``get_client`` takes a bunch of arguments that allow you to initialize or connect to an existing Dask cluster.
 
-    def attach_args(parser=argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)):
-        return add_distributed_args(parser)
-
-    if __name__ == "__main__":
-        main(attach_args().parse_args())
-
-In this short example, you can see that ``get_client`` takes an argparse object with options configured in the corresponding ``add_distributed_args``.
-
-* ``--device`` controls what type of Dask cluster to create. "cpu" will create a CPU based local Dask cluster, while "gpu" will create a GPU based local cluster.
-  If "cpu" is specified, the number of processes started with the cluster can be specified with the ``--n-workers`` argument.
+* ``cluster_type`` controls what type of Dask cluster to create. "cpu" will create a CPU based local Dask cluster, while "gpu" will create a GPU based local cluster.
+  If "cpu" is specified, the number of processes started with the cluster can be specified with the ``n_workers`` argument.
   By default, this argument is set to ``os.cpu_count()``.
   If "gpu" is specified, one worker is started per GPU.
   It is possible to run entirely CPU-based workflows on a GPU cluster, though the process count (and therefore the number of parallel tasks) will be limited by the number of GPUs on your machine.
 
-* ``--scheduler-address`` and ``--scheduler-file`` are used for connecting to an existing Dask cluster.
+* ``scheduler_address`` and ``scheduler_file`` are used for connecting to an existing Dask cluster.
   Supplying one of these is essential if you are running a Dask cluster on SLURM or Kubernetes.
   All other arguments are ignored if either of these are passed, as the cluster configuration will be done when you create the schduler and works on your cluster.
+
+* The remaining arguments can be modified `here <https://github.com/NVIDIA/NeMo-Curator/blob/main/nemo_curator/utils/distributed_utils.py>`_.
 
 -----------------------------------------
 CPU Modules

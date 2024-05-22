@@ -22,7 +22,11 @@ from nemo_curator.utils.file_utils import (
     expand_outdir_and_mkdir,
     get_all_files_paths_under,
 )
-from nemo_curator.utils.script_utils import add_distributed_args, attach_bool_arg
+from nemo_curator.utils.script_utils import (
+    add_distributed_args,
+    attach_bool_arg,
+    parse_client_args,
+)
 
 
 def read_urls(file_path):
@@ -32,7 +36,7 @@ def read_urls(file_path):
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
 
     if args.input_url_file:
         urls = read_urls(args.input_url_file)

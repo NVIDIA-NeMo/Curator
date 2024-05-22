@@ -22,11 +22,15 @@ from nemo_curator.utils.file_utils import (
     get_all_files_paths_under,
     separate_by_metadata,
 )
-from nemo_curator.utils.script_utils import add_distributed_args, attach_bool_arg
+from nemo_curator.utils.script_utils import (
+    add_distributed_args,
+    attach_bool_arg,
+    parse_client_args,
+)
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
 
     files = get_all_files_paths_under(args.input_data_dir)
     input_data = read_data(

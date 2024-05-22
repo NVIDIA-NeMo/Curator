@@ -21,7 +21,10 @@ from nemo_curator import QualityClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_remaining_files
-from nemo_curator.utils.script_utils import parse_distributed_classifier_args
+from nemo_curator.utils.script_utils import (
+    parse_client_args,
+    parse_distributed_classifier_args,
+)
 
 warnings.filterwarnings("ignore")
 
@@ -65,7 +68,9 @@ def main():
     print(f"Arguments parsed = {args}", flush=True)
     max_chars = 6000
 
-    client = get_client(args, cluster_type="gpu")
+    client_args = parse_client_args(args)
+    client_args["cluster_type"] = "gpu"
+    client = get_client(**client_args)
     print("Starting quality classifier inference", flush=True)
     global_st = time.time()
     files_per_run = len(client.scheduler_info()["workers"]) * 2

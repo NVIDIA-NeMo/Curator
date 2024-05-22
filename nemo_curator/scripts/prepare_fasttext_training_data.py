@@ -20,7 +20,7 @@ from nemo_curator.modifiers import FastTextLabelModifier
 from nemo_curator.modules import Modify
 from nemo_curator.utils.distributed_utils import get_client, read_data
 from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def sample_rows(df, n, seed):
@@ -30,7 +30,7 @@ def sample_rows(df, n, seed):
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
     # Get local path
     files = list(get_all_files_paths_under(args.input_data_dir))
     raw_data = read_data(files, file_type="jsonl", backend="pandas")

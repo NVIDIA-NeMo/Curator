@@ -24,7 +24,7 @@ from nemo_curator.modules.modify import Modify
 # from nemo_curator.pii.algorithm import DEFAULT_LANGUAGE
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_batched_files
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def main(args):
@@ -204,7 +204,7 @@ def attach_args(
 
 def console_script():
     arguments = add_distributed_args(attach_args()).parse_args()
-    client = get_client(arguments, arguments.device)
+    client = get_client(**parse_client_args(arguments))
     if not arguments.n_workers:
         arguments.n_workers = len(client.scheduler_info()["workers"])
     main(arguments)

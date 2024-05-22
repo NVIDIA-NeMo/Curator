@@ -19,11 +19,11 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modifiers import UnicodeReformatter
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_files
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
 
     # Make the output directories
     output_clean_dir = expand_outdir_and_mkdir(args.output_clean_dir)

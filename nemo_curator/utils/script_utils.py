@@ -165,6 +165,30 @@ def parse_gpu_dedup_args(
     return parser
 
 
+def parse_client_args(args: argparse.Namespace):
+    """
+    Extracts relevant arguments from an argparse namespace to pass to get_client
+    """
+    relevant_args = [
+        "scheduler_address",
+        "scheduler_file",
+        "n_workers",
+        "threads_per_worker",
+        "nvlink_only",
+        "protocol",
+        "rmm_pool_size",
+        "enable_spilling",
+        "set_torch_to_use_rmm",
+    ]
+    dict_args = vars(args)
+
+    parsed_args = {arg: dict_args[arg] for arg in relevant_args if arg in dict_args}
+    if "device" in dict_args:
+        parsed_args["cluster_type"] = dict_args["device"]
+
+    return parsed_args
+
+
 def parse_distributed_classifier_args(
     description="Default distributed classifier argument parser",
 ) -> argparse.ArgumentParser:

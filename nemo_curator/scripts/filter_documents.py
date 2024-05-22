@@ -20,7 +20,11 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.config_utils import build_filter_pipeline
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_files
-from nemo_curator.utils.script_utils import add_distributed_args, attach_bool_arg
+from nemo_curator.utils.script_utils import (
+    add_distributed_args,
+    attach_bool_arg,
+    parse_client_args,
+)
 
 
 def get_dataframe_complement(original_df, filtered_df):
@@ -61,7 +65,7 @@ def write_scores(df, output_dir):
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
     if args.device == "cpu":
         backend = "pandas"
     elif args.device == "gpu":

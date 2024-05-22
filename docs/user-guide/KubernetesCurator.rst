@@ -1,4 +1,5 @@
-.. _curator_kubernetes:
+
+.. _data-curator-kubernetes:
 
 ======================================
 Running NeMo Curator on Kubernetes

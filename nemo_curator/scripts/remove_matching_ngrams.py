@@ -23,11 +23,11 @@ from nemo_curator.utils.file_utils import (
     get_all_files_paths_under,
     get_batched_files,
 )
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def main(args):
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
 
     output_tdd_dir = expand_outdir_and_mkdir(args.output_task_deduped_dir)
     output_rm_doc_dir = None

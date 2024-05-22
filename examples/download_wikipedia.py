@@ -16,7 +16,7 @@ import argparse
 
 from nemo_curator.download import download_wikipedia
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def main(args):
@@ -28,7 +28,7 @@ def main(args):
     url_limit = 10
 
     # Set up Dask client
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
 
     # Download and sample data
     wikipedia = download_wikipedia(

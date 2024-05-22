@@ -19,7 +19,7 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def pre_imports():
@@ -33,7 +33,7 @@ def main(args):
     output_dir = "./"
     dataset_id_field = "id"
     dataset_text_field = "text"
-    client = get_client(args, args.device)
+    client = get_client(**parse_client_args(args))
     backend = "cudf" if args.device == "gpu" else "pandas"
 
     if args.device == "gpu":

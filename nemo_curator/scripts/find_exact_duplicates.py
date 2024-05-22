@@ -23,7 +23,7 @@ from nemo_curator.modules import ExactDuplicates
 from nemo_curator.utils.distributed_utils import get_client, read_data
 from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import strip_trailing_sep
-from nemo_curator.utils.script_utils import parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
 
 
 def pre_imports():
@@ -38,9 +38,9 @@ def main(args):
 
     assert args.hash_method == "md5", "Currently only md5 hash is supported"
     args.set_torch_to_use_rmm = False
-    client = get_client(args, cluster_type="cpu" if args.no_gpu else "gpu")
+    client = get_client(**parse_client_args(args))
     logger.info(f"Client Created {client}")
-    if not args.no_gpu:
+    if args.device == "gpu":
         client.run(pre_imports)
         logger.info("Pre imports complete")
 
@@ -102,9 +102,6 @@ def attach_args(parser=None):
         help="Output directory where duplicate docs will be written. "
         "Each file is a pickle file that contains a dictionary of numpy arrays. "
         "The keys are the document ids and the values are the duplicate docs",
-    )
-    parser.add_argument(
-        "--no-gpu", action="store_true", help="Use CPU based exact dedup"
     )
 
     return parser

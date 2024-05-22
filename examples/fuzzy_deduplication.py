@@ -21,7 +21,7 @@ from dask import dataframe as dd
 from nemo_curator import FuzzyDuplicates, FuzzyDuplicatesConfig
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client, write_to_disk
-from nemo_curator.utils.script_utils import add_distributed_args
+from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
 
 
 def pre_imports():
@@ -44,7 +44,7 @@ def main(args):
     assert args.device == "gpu"
 
     with dask.config.set({"dataframe.backend": backend}):
-        client = get_client(args, args.device)
+        client = get_client(**parse_client_args(args))
         client.run(pre_imports)
 
         t0 = time.time()

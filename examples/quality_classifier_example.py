@@ -19,6 +19,7 @@ import time
 from nemo_curator import QualityClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.utils.script_utils import parse_client_args
 
 
 def main(args):
@@ -31,7 +32,7 @@ def main(args):
     input_file_path = "/path/to/data"
     output_file_path = "./"
 
-    client = get_client(args, cluster_type=args.device)
+    client = get_client(**parse_client_args(args))
 
     input_dataset = DocumentDataset.read_json(
         input_file_path, backend="cudf", add_filename=True

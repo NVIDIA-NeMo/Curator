@@ -17,7 +17,7 @@ import time
 
 from nemo_curator.modules.fuzzy_dedup import ConnectedComponents
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
 
 
 def main(args):
@@ -34,7 +34,7 @@ def main(args):
     args.set_torch_to_use_rmm = False
     args.enable_spilling = True
 
-    client = get_client(args, cluster_type="gpu")
+    client = get_client(**parse_client_args(args))
 
     components_stage = ConnectedComponents(
         cache_dir=args.cache_dir,

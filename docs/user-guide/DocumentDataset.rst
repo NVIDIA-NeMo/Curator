@@ -1,3 +1,6 @@
+
+.. _data-curator-documentdataset:
+
 ======================================
 Working with DocumentDataset
 ======================================
