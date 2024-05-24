@@ -1,7 +1,7 @@
 ---
 name: Feature request
 about: Suggest an idea for NeMo-Curator
-title: "[FEA]"
+title: ""
 labels: enhancement
 assignees: ''
 
