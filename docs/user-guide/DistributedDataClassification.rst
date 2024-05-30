@@ -35,7 +35,7 @@ Usage
 NeMo Curator provides a base class ``DistributedDataClassifier`` that can be extended to fit your specfic model.
 The only requirement is that the model can fit on a single GPU.
 We have also provided two subclasses that focus on domain and quality classification.
-Let's see how ``DomainClassifier`` works in a small excerpt taken from ``examples/distributed_data_classification_examples/domain_api_example.py``:
+Let's see how ``DomainClassifier`` works in a small excerpt taken from ``examples/domain_classifier_example.py``:
 
 .. code-block:: python
 
