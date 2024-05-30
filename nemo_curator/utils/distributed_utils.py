@@ -13,6 +13,7 @@
 # limitations under the License.
 from __future__ import annotations
 
+import ast
 import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
@@ -188,7 +189,11 @@ def _enable_spilling():
 
 
 def read_single_partition(
-    files, backend="cudf", filetype="jsonl", add_filename=False
+    files,
+    backend="cudf",
+    filetype="jsonl",
+    add_filename=False,
+    input_meta: Union[str, dict] = None,
 ) -> Union[cudf.DataFrame, pd.DataFrame]:
     """
     This function reads a file with cuDF, sorts the columns of the DataFrame
@@ -198,10 +203,19 @@ def read_single_partition(
         files: The path to the jsonl files to read.
         backend: The backend to use for reading the data. Either "cudf" or "pandas".
         add_filename: Whether to add a "filename" column to the DataFrame.
+        input_meta: A dictionary or a string formatted as a dictionary, which outlines
+            the field names and their respective data types within the JSONL input file.
+
     Returns:
         A cudf DataFrame or a pandas DataFrame.
 
     """
+    if input_meta is not None and filetype != "jsonl":
+        warnings.warn(
+            "input_meta is only valid for JSONL files and will be ignored for other "
+            " file formats.."
+        )
+
     if filetype == "jsonl":
         read_kwargs = {"lines": True}
         if backend == "cudf":
@@ -209,6 +223,11 @@ def read_single_partition(
         else:
             read_kwargs["dtype"] = False
             read_f = pd.read_json
+
+        if input_meta is not None:
+            read_kwargs["dtype"] = (
+                ast.literal_eval(input_meta) if type(input_meta) == str else input_meta
+            )
     elif filetype == "parquet":
         read_kwargs = {}
         if backend == "cudf":
@@ -264,10 +283,11 @@ def read_pandas_pickle(file, add_filename=False) -> pd.DataFrame:
 
 def read_data(
     input_files,
-    file_type="pickle",
-    backend="cudf",
-    files_per_partition=1,
-    add_filename=False,
+    file_type: str = "pickle",
+    backend: str = "cudf",
+    files_per_partition: int = 1,
+    add_filename: bool = False,
+    input_meta: Union[str, dict] = None,
 ) -> Union[dd.DataFrame, dask_cudf.DataFrame]:
     """
     This function can read multiple data formats and returns a Dask-cuDF DataFrame.
@@ -278,6 +298,8 @@ def read_data(
         backend: The backend to use for reading the data.
         files_per_partition: The number of files to read per partition.
         add_filename: Whether to add a "filename" column to the DataFrame.
+        input_meta: A dictionary or a string formatted as a dictionary, which outlines
+            the field names and their respective data types within the JSONL input file.
 
     Returns:
         A Dask-cuDF or a Dask-pandas DataFrame.
@@ -309,6 +331,7 @@ def read_data(
             filetype=file_type,
             backend=backend,
             add_filename=add_filename,
+            input_meta=input_meta,
             enforce_metadata=False,
         )
     else:

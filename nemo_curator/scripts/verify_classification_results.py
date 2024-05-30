@@ -13,7 +13,9 @@
 # limitations under the License.
 
 import argparse
+import ast
 import os
+from typing import Union
 
 import pandas as pd
 
@@ -27,30 +29,39 @@ def parse_args():
 
     """
     parser = argparse.ArgumentParser(description="Run verification")
+
     parser.add_argument(
         "--results_file_path",
         type=str,
-        help="The path of the input files",
         required=True,
+        help="The path of the input files",
     )
     parser.add_argument(
         "--expected_results_file_path",
         type=str,
-        help="The path of the expected_result file",
         required=True,
+        help="The path of the expected_result file",
     )
     parser.add_argument(
         "--results_pred_column",
         type=str,
-        help="The prediction column name for the input files",
         default="pred",
+        help="The prediction column name for the input files",
     )
     parser.add_argument(
         "--expected_pred_column",
         type=str,
-        help="The prediction column name for the expected_result file",
         default="pred",
+        help="The prediction column name for the expected_result file",
     )
+    parser.add_argument(
+        "--input-meta",
+        type=str,
+        default=None,
+        help="A string formatted as a dictionary, which outlines the field names and "
+        "their respective data types within the JSONL input files.",
+    )
+
     return parser.parse_args()
 
 
@@ -122,10 +133,11 @@ def verify_same_dataframe(
 
 
 def verify_results(
-    results_file_path,
-    expected_results_file_path,
-    results_pred_column,
-    expected_pred_column,
+    results_file_path: str,
+    expected_results_file_path: str,
+    results_pred_column: str,
+    expected_pred_column: str,
+    input_meta: Union[str, dict] = None,
 ):
     """
     This function compares an input file with its expected result file.
@@ -136,9 +148,14 @@ def verify_results(
         expected_results_file_path: The path of the expected_result file.
         results_pred_column: The prediction column name for the input files.
         expected_pred_column: The prediction column name for the expected_result file.
+        input_meta: A dictionary or a string formatted as a dictionary, which outlines
+            the field names and their respective data types within the JSONL input file.
 
     """
-    expected_df = pd.read_json(expected_results_file_path, lines=True)
+    if type(input_meta) == str:
+        input_meta = ast.literal_eval(input_meta)
+
+    expected_df = pd.read_json(expected_results_file_path, lines=True, dtype=input_meta)
     expected_df = expected_df.sort_values(by=["text"]).reset_index(drop=True)
     expected_counts = expected_df[expected_pred_column].value_counts().to_dict()
 
@@ -150,7 +167,10 @@ def verify_results(
         ]
 
     got_paths = [p for p in os.scandir(results_file_path)]
-    got_df = [pd.read_json(path, lines=True)[expected_columns] for path in got_paths]
+    got_df = [
+        pd.read_json(path, lines=True, dtype=input_meta)[expected_columns]
+        for path in got_paths
+    ]
     got_df = pd.concat(got_df, ignore_index=True)
     got_df = got_df.sort_values(by=["text"]).reset_index(drop=True)
     got_counts = got_df[results_pred_column].value_counts().to_dict()
@@ -172,6 +192,7 @@ def main():
         args.expected_results_file_path,
         args.results_pred_column,
         args.expected_pred_column,
+        args.input_meta,
     )
 
 

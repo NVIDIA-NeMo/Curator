@@ -181,7 +181,9 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
         if fp.endswith(".jsonl")
     ]
     print("Reading the data...")
-    orig_dataset = DocumentDataset.read_json(files, add_filename=True)
+    orig_dataset = DocumentDataset.read_json(
+        files, add_filename=True, input_meta=args.input_meta
+    )
     dataset = orig_dataset
 
     curation_steps = Sequential(
@@ -214,6 +216,13 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
 def main():
     parser = argparse.ArgumentParser()
     parser = add_distributed_args(parser)
+    parser.add_argument(
+        "--input-meta",
+        type=str,
+        default=None,
+        help="A string formatted as a dictionary, which outlines the field names and "
+        "their respective data types within the JSONL input files.",
+    )
     args = parser.parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.
     args.n_workers = min(args.n_workers, 8)
@@ -225,6 +234,7 @@ def main():
         os.makedirs(JSONL_ROOT_DIR)
 
     jsonl_val_dir = download_and_convert_to_jsonl()
+
     run_curation_pipeline(args, jsonl_val_dir)
 
 

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List, Union
+
 import dask.dataframe as dd
 
 from nemo_curator.utils.distributed_utils import read_data, write_to_disk
@@ -36,10 +38,11 @@ class DocumentDataset:
     @classmethod
     def read_json(
         cls,
-        input_files,
-        backend="pandas",
-        files_per_partition=1,
-        add_filename=False,
+        input_files: Union[str, List[str]],
+        backend: str = "pandas",
+        files_per_partition: int = 1,
+        add_filename: bool = False,
+        input_meta: Union[str, dict] = None,
     ):
         return cls(
             _read_json_or_parquet(
@@ -48,6 +51,7 @@ class DocumentDataset:
                 backend=backend,
                 files_per_partition=files_per_partition,
                 add_filename=add_filename,
+                input_meta=input_meta,
             )
         )
 
@@ -77,15 +81,15 @@ class DocumentDataset:
         files_per_partition=1,
         add_filename=False,
     ):
-        raw_data = read_data(
-            input_files=input_files,
-            file_type="pickle",
-            backend=backend,
-            files_per_partition=files_per_partition,
-            add_filename=add_filename,
+        return cls(
+            read_data(
+                input_files=input_files,
+                file_type="pickle",
+                backend=backend,
+                files_per_partition=files_per_partition,
+                add_filename=add_filename,
+            )
         )
-
-        return cls(raw_data)
 
     def to_json(
         self,
@@ -128,11 +132,12 @@ class DocumentDataset:
 
 
 def _read_json_or_parquet(
-    input_files,
-    file_type,
-    backend,
-    files_per_partition,
-    add_filename,
+    input_files: Union[str, List[str]],
+    file_type: str,
+    backend: str,
+    files_per_partition: int,
+    add_filename: bool,
+    input_meta: Union[str, dict] = None,
 ):
     """
     `input_files` may be a list or a string type.
@@ -162,6 +167,7 @@ def _read_json_or_parquet(
                 backend=backend,
                 files_per_partition=files_per_partition,
                 add_filename=add_filename,
+                input_meta=input_meta,
             )
 
         # List of directories
@@ -178,6 +184,7 @@ def _read_json_or_parquet(
                     backend=backend,
                     files_per_partition=files_per_partition,
                     add_filename=add_filename,
+                    input_meta=input_meta,
                 )
                 dfs.append(df)
 
@@ -200,6 +207,7 @@ def _read_json_or_parquet(
             backend=backend,
             files_per_partition=files_per_partition,
             add_filename=add_filename,
+            input_meta=input_meta,
         )
 
     else:

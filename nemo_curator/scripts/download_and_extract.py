@@ -15,7 +15,7 @@
 import argparse
 import os
 
-from nemo_curator.download import batch_download, download_and_extract
+from nemo_curator.download.doc_builder import batch_download, download_and_extract
 from nemo_curator.utils.config_utils import build_downloader
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.file_utils import (
@@ -77,6 +77,7 @@ def main(args):
         output_format,
         keep_raw_download=args.keep_downloaded_files,
         force_download=args.overwrite_existing_json,
+        input_meta=args.input_meta,
     )
 
     # Sample to trigger the dask computation
@@ -119,6 +120,13 @@ such that it simply returns the pre-downloaded file
         default=None,
         required=False,
         help="Path to input data directory",
+    )
+    parser.add_argument(
+        "--input-meta",
+        type=str,
+        default=None,
+        help="A string formatted as a dictionary, which outlines the field names and "
+        "their respective data types within the JSONL input files.",
     )
     parser.add_argument(
         "--output-json-dir",

@@ -48,6 +48,7 @@ def main(args):
         blocksize=args.text_ddf_blocksize,
         id_column=args.input_json_id_field,
         text_column=args.input_json_text_field,
+        input_meta=args.input_meta,
     )
     print(
         "Graph creation for get_text_ddf_from_json_path_with_blocksize" " complete.",
@@ -87,6 +88,13 @@ def attach_args(parser=None):
         help="The directory containing anchor docs with bk files",
     )
     parser.add_argument(
+        "--input-meta",
+        type=str,
+        default=None,
+        help="A string formatted as a dictionary, which outlines the field names and "
+        "their respective data types within the JSONL input files.",
+    )
+    parser.add_argument(
         "--text-ddf-blocksize",
         type=int,
         default=256,
@@ -115,6 +123,7 @@ def attach_args(parser=None):
         type=int,
         help="The number of bucket parts to process per worker per batch",
     )
+
     return parser
 
 

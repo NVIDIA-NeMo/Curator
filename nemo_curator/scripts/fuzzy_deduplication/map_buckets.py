@@ -34,6 +34,7 @@ def get_anchor_and_output_map_info(
     input_bucket_field,
     input_id_field,
     input_text_field,
+    input_meta,
 ):
     """
     Get anchor docs with bucket info
@@ -53,6 +54,7 @@ def get_anchor_and_output_map_info(
         blocksize=text_ddf_blocksize,
         id_column=input_id_field,
         text_column=input_text_field,
+        input_meta=input_meta,
     )
     ddf_bk = get_bucket_ddf_from_parquet_path(
         input_bucket_path=input_bucket_path, num_workers=num_workers
@@ -78,6 +80,13 @@ def attach_args(parser=None):
         "--input-bucket-dir",
         type=str,
         help="The directory containing bucket information files",
+    )
+    parser.add_argument(
+        "--input-meta",
+        type=str,
+        default=None,
+        help="A string formatted as a dictionary, which outlines the field names and "
+        "their respective data types within the JSONL input files.",
     )
     parser.add_argument(
         "--text-ddf-blocksize",
@@ -116,6 +125,7 @@ def jaccard_get_output_map_workflow(
     input_bucket_field,
     input_id_field,
     input_text_field,
+    input_meta,
 ):
     """
     Workflow for jaccard shuffle
@@ -140,6 +150,7 @@ def jaccard_get_output_map_workflow(
         input_bucket_field,
         input_id_field,
         input_text_field,
+        input_meta=input_meta,
     )
     ddf_anchor_docs_with_bk.to_parquet(
         output_anchor_docs_with_bk_path,
@@ -171,6 +182,7 @@ def main(args):
         args.input_bucket_field,
         args.input_json_id_field,
         args.input_json_text_field,
+        args.input_meta,
     )
     et = time.time()
     print(f"Bucket Mapping time taken = {et-st} s")

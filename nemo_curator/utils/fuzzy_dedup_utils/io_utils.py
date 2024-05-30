@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import ast
 import os
 from glob import glob
 
@@ -26,31 +27,40 @@ from nemo_curator.utils.fuzzy_dedup_utils.id_mapping import convert_str_id_to_in
 # TODO:
 # Combine this with
 # nemo_curator.distributed_utils.read_cudf_jsonl
-def read_json_func(files, engine="cudf", include_path_column=False, columns=None):
+def _read_json_func(
+    files, engine="cudf", include_path_column=False, columns=None, input_meta=None
+):
     """
     Reads multiple Json Lines files into a cuDF
     dataframe with an additional `path` column denoting the path
     of the input file.
     """
+    if type(input_meta) == str:
+        input_meta = ast.literal_eval(input_meta)
+
     if not include_path_column:
         if columns:
-            return cudf.read_json(files, engine="cudf", lines=True)[columns]
+            return cudf.read_json(files, engine="cudf", lines=True, dtype=input_meta)[
+                columns
+            ]
         else:
-            return cudf.read_json(files, engine="cudf", lines=True)
+            return cudf.read_json(files, engine="cudf", lines=True, dtype=input_meta)
 
     dfs = []
     for file in files:
         if columns:
-            df = cudf.read_json(file, engine=engine, lines=True)[columns]
+            df = cudf.read_json(file, engine=engine, lines=True, dtype=input_meta)[
+                columns
+            ]
         else:
-            df = cudf.read_json(file, engine=engine, lines=True)
+            df = cudf.read_json(file, engine=engine, lines=True, dtype=input_meta)
         df["path"] = file
         dfs.append(df)
     return cudf.concat(dfs, ignore_index=True)
 
 
 def get_text_ddf_from_json_path_with_blocksize(
-    input_data_paths, num_files, blocksize, id_column, text_column
+    input_data_paths, num_files, blocksize, id_column, text_column, input_meta
 ):
     data_paths = [
         entry.path for data_path in input_data_paths for entry in os.scandir(data_path)
@@ -71,7 +81,11 @@ def get_text_ddf_from_json_path_with_blocksize(
     )
     filepaths_ls = chunk_files(data_paths, blocksize)
     text_ddf = dd.from_map(
-        read_json_func, filepaths_ls, columns=list(meta_df.columns), meta=meta_df
+        _read_json_func,
+        filepaths_ls,
+        columns=list(meta_df.columns),
+        input_meta=input_meta,
+        meta=meta_df,
     )
     text_ddf = text_ddf.map_partitions(
         convert_str_id_to_int,

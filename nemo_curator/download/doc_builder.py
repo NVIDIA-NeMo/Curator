@@ -15,7 +15,7 @@
 import importlib
 import os
 from abc import ABC, abstractmethod
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import dask.dataframe as dd
 import pandas as pd
@@ -111,6 +111,7 @@ def _download_and_extract_single_partition(
     output_type: str,
     keep_raw_download: bool,
     force_download: bool,
+    input_meta: Union[str, dict] = None,
 ) -> pd.DataFrame:
     url, output_path = paths
 
@@ -158,6 +159,7 @@ def download_and_extract(
     output_type: str = "jsonl",
     keep_raw_download=False,
     force_download=False,
+    input_meta: Union[str, dict] = None,
 ) -> DocumentDataset:
     """
     Downloads and extracts a dataset into a format accepted by the NeMo Curator
@@ -174,6 +176,8 @@ def download_and_extract(
       keep_raw_download: Whether to keep the pre-extracted download file.
       force_download: If False, will skip processing all files in output_paths that already exist and
         directly read from them instead.
+      input_meta: A dictionary or a string formatted as a dictionary, which outlines
+        the field names and their respective data types within the JSONL input file.
 
     Returns:
       A DocumentDataset of the downloaded data
@@ -192,6 +196,7 @@ def download_and_extract(
         keep_raw_download=keep_raw_download,
         force_download=force_download,
         enforce_metadata=False,
+        input_meta=input_meta,
         meta=output_format,
     )
 
