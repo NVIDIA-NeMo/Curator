@@ -67,13 +67,29 @@ Before installing NeMo Curator, ensure that the following requirements are met:
 
 ## Install NeMo Curator
 
-Two options are available for installing NeMo Curator. You  can install it from the repository or through the NeMo Framework container.
+You can install NeMo-Curator from PyPi, from source or get it through the NeMo Framework container.
 
-### Install from the Repository
+### PyPi
+
+NeMo Curator can be installed via PyPi as follows -
+
+To install the CPU-only modules:
+
+```bash
+pip install nemo-curator
+```
+
+To install the CPU and CUDA-accelerated modules:
+
+```bash
+pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
+```
+
+### From Source
 
 1. Clone the NeMo Curator repository in GitHub.
 
-    ```
+    ```bash
     git clone https://github.com/NVIDIA/NeMo-Curator.git
     cd NeMo-Curator
     ```
@@ -82,19 +98,26 @@ Two options are available for installing NeMo Curator. You  can install it from 
 
     To install the CPU-only modules:
 
-    ```
+    ```bash
     pip install .
     ```
 
     To install the CPU and CUDA-accelerated modules:
 
-    ```
+    ```bash
     pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"
     ```
 
 ### Install from the NeMo Framework Container
 
 NeMo Curator is available in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo/tags). The latest release of NeMo Curator comes preinstalled in the container.
+
+If you want the latest commit inside the container, uninstall the existing version using:
+
+```bash
+pip uninstall nemo-curator
+```
+And follow the instructions for installing from source from [above](#from-source).
 
 ## Use the Python Library
 

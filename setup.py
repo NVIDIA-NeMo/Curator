@@ -21,7 +21,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="nemo_curator",
-    version="0.2.0",
+    version="0.3.0",
     description="Scalable Data Preprocessing Tool for "
     "Training Large Language Models",
     long_description=long_description,
@@ -54,7 +54,7 @@ setup(
         "jieba==0.42.1",
         "comment_parser",
         "beautifulsoup4",
-        "mwparserfromhell @ git+https://github.com/earwig/mwparserfromhell.git@0f89f44",
+        "mwparserfromhell==0.6.5",
         "spacy>=3.6.0, <4.0.0",
         "presidio-analyzer==2.2.351",
         "presidio-anonymizer==2.2.351",
