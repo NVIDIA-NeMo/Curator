@@ -61,9 +61,11 @@ This section explains how to install NeMo Curator and use the Python library, Py
 
 Before installing NeMo Curator, ensure that the following requirements are met:
 
-- Python 3.10 (or above)
-- CUDA 12 (or above)
+- Python 3.10
+- Ubuntu 22.04/20.04
 - NVIDIA GPU (optional)
+  - Volta™ or higher ([compute capability 7.0+](https://developer.nvidia.com/cuda-gpus))
+  - CUDA 12 (or above)
 
 ## Install NeMo Curator
 
