@@ -14,6 +14,18 @@
 
 import dask
 
+# Disable query planning if possible
+# https://github.com/NVIDIA/NeMo-Curator/issues/73
+if dask.config.get("dataframe.query-planning") is True:
+    raise NotImplementedError(
+        "NeMo Curator does not support query planning yet. "
+        "Please disable query planning before importing "
+        "`nemo_curator`, `dask.dataframe` or `dask_cudf`."
+    )
+else:
+    dask.config.set({"dataframe.query-planning": False})
+
+
 from .modules import *
 from .utils.distributed_utils import get_client
 
@@ -21,12 +33,4 @@ from .utils.distributed_utils import get_client
 # to a string without this option.
 # See https://github.com/NVIDIA/NeMo-Curator/issues/33
 # This also happens when reading and writing to files
-
-# Disable query planning
-# https://github.com/NVIDIA/NeMo-Curator/issues/73
-dask.config.set(
-    {
-        "dataframe.convert-string": False,
-        "dataframe.query-planning": False,
-    }
-)
+dask.config.set({"dataframe.convert-string": False})
