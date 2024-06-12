@@ -30,6 +30,7 @@ repos:
       - id: check-yaml
       - id: detect-private-key
       - id: end-of-file-fixer
+        exclude: docs/
       - id: requirements-txt-fixer
       - id: trailing-whitespace
 

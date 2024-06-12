@@ -32,13 +32,14 @@
    :titlesonly:
 
 
-   Download.rst
-   DocumentDataset.rst
-   CPUvsGPU.rst
-   QualityFiltering.rst
-   LanguageIdentificationUnicodeFormatting.rst
-   GpuDeduplication.rst
-   TaskDecontamination.rst
-   PersonalIdentifiableInformationIdentificationAndRemoval.rst
-   DistributedDataClassification.rst
-   KubernetesCurator.rst
+   download.rst
+   documentdataset.rst
+   cpuvsgpu.rst
+   qualityfiltering.rst
+   languageidentificationunicodeformatting.rst
+   gpudeduplication.rst
+   taskdecontamination.rst
+   personalidentifiableinformationidentificationandremoval.rst
+   distributeddataclassification.rst
+   kubernetescurator.rst
+
