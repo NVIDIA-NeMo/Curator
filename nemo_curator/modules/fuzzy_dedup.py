@@ -1296,6 +1296,8 @@ class ConnectedComponents:
 
         assert num_nodes == len(labels_df)
         print(f"assert num_nodes:{num_nodes}==labels_df:{len(labels_df)} passed")
+        # Ensure all docs in the same group are in the same partition
+        labels_df = labels_df.shuffle(on=["group"], ignore_index=True)
         labels_df.to_parquet(output_path, write_index=False)
         Comms.destroy()
 
