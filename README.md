@@ -8,40 +8,40 @@ At the core of the NeMo Curator is the `DocumentDataset` which serves as the the
 
 NeMo Curator provides a collection of scalable data-mining modules. Some of the key features include:
 
-[Data download and text extraction](docs/user-guide/Download.rst)
+[Data download and text extraction](docs/user-guide/download.rst)
 
 - Default implementations for downloading and extracting Common Crawl, Wikipedia, and ArXiv data
 - Easily customize the download and extraction and extend to other datasets
 
-[Language identification and separation](docs/user-guide/LanguageIdentificationUnicodeFormatting.rst)
+[Language identification and separation](docs/user-guide/languageidentificationunicodeformatting.rst)
 
 - Language identification with [fastText](https://fasttext.cc/docs/en/language-identification.html) and [pycld2](https://pypi.org/project/pycld2/)
 
-[Text reformatting and cleaning](docs/user-guide/LanguageIdentificationUnicodeFormatting.rst)
+[Text reformatting and cleaning](docs/user-guide/languageidentificationunicodeformatting.rst)
 
 - Fix unicode decoding errors via [ftfy](https://ftfy.readthedocs.io/en/latest/)
 
-[Quality filtering](docs/user-guide/QualityFiltering.rst)
+[Quality filtering](docs/user-guide/qualityfiltering.rst)
 
 - Multilingual heuristic-based filtering
 - Classifier-based filtering via [fastText](https://fasttext.cc/)
 
-[Document-level deduplication](docs/user-guide/GpuDeduplication.rst)
+[Document-level deduplication](docs/user-guide/gpudeduplication.rst)
 
 - Both exact and fuzzy deduplication are accelerated using cuDF and Dask
 - For fuzzy deduplication, our implementation follows the method described in [Microsoft Turing NLG 530B](https://arxiv.org/abs/2201.11990)
 
-[Multilingual downstream-task decontamination](docs/user-guide/TaskDecontamination.rst)
+[Multilingual downstream-task decontamination](docs/user-guide/taskdecontamination.rst)
 
 - Our implementation follows the approach of [OpenAI GPT3](https://arxiv.org/pdf/2005.14165.pdf) and [Microsoft Turing NLG 530B](https://arxiv.org/abs/2201.11990)
 
-[Distributed data classification](docs/user-guide/DistributedDataClassification.rst)
+[Distributed data classification](docs/user-guide/distributeddataclassification.rst)
 
 - Multi-node, multi-GPU classifier inference
 - Provides sophisticated domain and quality classification
 - Flexible interface for extending to your own classifier network
 
-[Personal identifiable information (PII) redaction](docs/user-guide/PersonalIdentifiableInformationIdentificationAndRemoval.rst)
+[Personal identifiable information (PII) redaction](docs/user-guide/personalidentifiableinformationidentificationandremoval.rst)
 
 - Identification tools for removing addresses, credit card numbers, social security numbers, and more
 
