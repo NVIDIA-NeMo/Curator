@@ -64,6 +64,9 @@ setup(
         # justext installation breaks without lxml[html_clean]
         # due to this: https://github.com/miso-belica/jusText/issues/47
         "lxml[html_clean]",
+        # Numpy 2.0 breaks with spacy https://github.com/explosion/spaCy/issues/13528
+        # TODO: Remove when issue is fixed
+        "numpy<2",
     ],
     extras_require={
         "cuda12x": [
