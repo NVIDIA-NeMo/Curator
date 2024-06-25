@@ -1,4 +1,4 @@
-.. include:: DataCuration.rsts
+.. include:: datacuration.rsts
 
 :ref:`Downloading and Extracting Text <data-curator-download>`
    Downloading a massive public dataset is usually the first step in data curation, and it can be cumbersome due to the dataset’s massive size and hosting method. This section describes how to download and extract large corpora efficiently.
