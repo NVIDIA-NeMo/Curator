@@ -160,6 +160,39 @@ steps (all scripts are included in the :code:`nemo_curator/scripts/` subdirector
                    --jaccard-threshold 0.8
                    # --scheduler-file /path/to/file.json
 
+* Incremental Fuzzy Dedup
+    To incrementally perform fuzzy dedup, organize your incremental dataset snapshots into separate directories and pass a list of all your directories to :code:`gpu_compute_minhashes`. All other subsequent steps can be done as described above without modification.
+
+    - Input (assuming incremental snapshots are all under :code:`/input/`):
+
+         .. code-block:: bash
+
+                 /input/cc-2020-40
+                 /input/cc-2021-42
+                 /input/cc-2022-60
+    - Output (assuming :code:`--output-minhash-dir=/output`):
+
+         .. code-block:: bash
+
+                 /output/cc-2020-40/minhashes.parquet
+                 /output/cc-2021-42/minhashes.parquet
+                 /output/cc-2022-60/minhashes.parquet
+    - Example call:
+
+         .. code-block:: bash
+
+                 # same as `python compute_minhashes.py`
+                 gpu_compute_minhashes \
+                   --input-data-dirs /input/cc-2020-40 /input/cc-2020-42 /input/cc-2020-60 \
+                   --output-minhash-dir /output/ \
+                   --input-json-text-field text_column_name \
+                   --input-json-id-field id_column_name \
+                   --minhash-length number_of_hashes \
+                   --char-ngram char_ngram_size \
+                   --hash-bytes 4(or 8 byte hashes) \
+                   --seed 42 \
+                   --log-dir ./
+                   # --scheduler-file /path/to/file.json
 
 In addition to the scripts, there are examples in the `examples` directory that showcase using the python module
 directly in your own code. It also has examples on how to remove documents from the corpus using the list of duplicate IDs generated from exact or fuzzy

@@ -1,6 +1,21 @@
-# NeMo Curator
+<div align="center">
 
-NeMo Curator is a Python library specifically designed for scalable and efficient dataset preparation. It greatly accelerates data curation by leveraging GPUs with [Dask](https://www.dask.org/) and [RAPIDS](https://developer.nvidia.com/rapids), resulting in significant time savings. The library provides a customizable and modular interface, simplifying pipeline expansion and accelerating model convergence through the preparation of high-quality tokens.
+  <a href="https://github.com/NVIDIA/NeMo-Curator/blob/main/LICENSE">![https://pypi.org/project/nemo-curator](https://img.shields.io/github/license/NVIDIA/NeMo-Curator)</a>
+  <a href="https://pypi.org/project/nemo-curator/">![https://pypi.org/project/nemo-curator/](https://img.shields.io/pypi/pyversions/nemo-curator.svg)</a>
+  <a href="https://github.com/NVIDIA/NeMo-Curator/graphs/contributors">![NVIDIA/NeMo-Curator](https://img.shields.io/github/contributors/NVIDIA/NeMo-Curator)</a>
+  <a href="https://github.com/NVIDIA/NeMo-Curator/releases">![https://github.com/NVIDIA/NeMo-Curator/releases](https://img.shields.io/github/release/NVIDIA/NeMo-Curator)</a>
+  <a href="https://pypi.org/project/nemo-curator/">![https://github.com/Naereen/badges/](https://badgen.net/badge/open%20source/❤/blue?icon=github)</a>
+
+</div>
+
+# NeMo Curator
+🚀 **The GPU-Accelerated Open Source Framework for Efficient Large Language Model Data Curation** 🚀
+
+<p align="center">
+  <img src="./docs/user-guide/images/diagram.png" alt="diagram"/>
+</p>
+
+NeMo Curator is a Python library specifically designed for fast and scalable dataset preparation and curation for [large language model (LLM)](https://www.nvidia.com/en-us/glossary/large-language-models/) use-cases such as foundation model pretraining, domain-adaptive pretraining (DAPT), supervised fine-tuning (SFT) and paramter-efficient fine-tuning (PEFT). It greatly accelerates data curation by leveraging GPUs with [Dask](https://www.dask.org/) and [RAPIDS](https://developer.nvidia.com/rapids), resulting in significant time savings. The library provides a customizable and modular interface, simplifying pipeline expansion and accelerating model convergence through the preparation of high-quality tokens.
 
 At the core of the NeMo Curator is the `DocumentDataset` which serves as the the main dataset class. It acts as a straightforward wrapper around a Dask `DataFrame`. The Python library offers easy-to-use methods for expanding the functionality of your curation pipeline while eliminating scalability concerns.
 
@@ -8,42 +23,34 @@ At the core of the NeMo Curator is the `DocumentDataset` which serves as the the
 
 NeMo Curator provides a collection of scalable data-mining modules. Some of the key features include:
 
-[Data download and text extraction](docs/user-guide/download.rst)
+- [Data download and text extraction](docs/user-guide/download.rst)
 
-- Default implementations for downloading and extracting Common Crawl, Wikipedia, and ArXiv data
-- Easily customize the download and extraction and extend to other datasets
+  - Default implementations for downloading and extracting Common Crawl, Wikipedia, and ArXiv data
+  - Easily customize the download and extraction and extend to other datasets
 
-[Language identification and separation](docs/user-guide/languageidentificationunicodeformatting.rst)
+- [Language identification and separation](docs/user-guide/languageidentificationunicodeformatting.rst) with [fastText](https://fasttext.cc/docs/en/language-identification.html) and [pycld2](https://pypi.org/project/pycld2/)
 
-- Language identification with [fastText](https://fasttext.cc/docs/en/language-identification.html) and [pycld2](https://pypi.org/project/pycld2/)
+- [Text reformatting and cleaning](docs/user-guide/languageidentificationunicodeformatting.rst) to fix unicode decoding errors via [ftfy](https://ftfy.readthedocs.io/en/latest/)
 
-[Text reformatting and cleaning](docs/user-guide/languageidentificationunicodeformatting.rst)
+- [Quality filtering](docs/user-guide/qualityfiltering.rst)
 
-- Fix unicode decoding errors via [ftfy](https://ftfy.readthedocs.io/en/latest/)
+  - Multilingual heuristic-based filtering
+  - Classifier-based filtering via [fastText](https://fasttext.cc/)
 
-[Quality filtering](docs/user-guide/qualityfiltering.rst)
+- [Document-level deduplication](docs/user-guide/gpudeduplication.rst)
 
-- Multilingual heuristic-based filtering
-- Classifier-based filtering via [fastText](https://fasttext.cc/)
+  - Both exact and fuzzy (near-identical) deduplication are accelerated using cuDF and Dask
+  - For fuzzy deduplication, our implementation follows the method described in [Microsoft Turing NLG 530B](https://arxiv.org/abs/2201.11990)
 
-[Document-level deduplication](docs/user-guide/gpudeduplication.rst)
+- [Multilingual downstream-task decontamination](docs/user-guide/taskdecontamination.rst) following the approach of [OpenAI GPT3](https://arxiv.org/pdf/2005.14165.pdf) and [Microsoft Turing NLG 530B](https://arxiv.org/abs/2201.11990)
 
-- Both exact and fuzzy deduplication are accelerated using cuDF and Dask
-- For fuzzy deduplication, our implementation follows the method described in [Microsoft Turing NLG 530B](https://arxiv.org/abs/2201.11990)
+- [Distributed data classification](docs/user-guide/distributeddataclassification.rst)
 
-[Multilingual downstream-task decontamination](docs/user-guide/taskdecontamination.rst)
+  - Multi-node, multi-GPU classifier inference
+  - Provides sophisticated domain and quality classification
+  - Flexible interface for extending to your own classifier network
 
-- Our implementation follows the approach of [OpenAI GPT3](https://arxiv.org/pdf/2005.14165.pdf) and [Microsoft Turing NLG 530B](https://arxiv.org/abs/2201.11990)
-
-[Distributed data classification](docs/user-guide/distributeddataclassification.rst)
-
-- Multi-node, multi-GPU classifier inference
-- Provides sophisticated domain and quality classification
-- Flexible interface for extending to your own classifier network
-
-[Personal identifiable information (PII) redaction](docs/user-guide/personalidentifiableinformationidentificationandremoval.rst)
-
-- Identification tools for removing addresses, credit card numbers, social security numbers, and more
+- [Personal identifiable information (PII) redaction](docs/user-guide/personalidentifiableinformationidentificationandremoval.rst) for removing addresses, credit card numbers, social security numbers, and more
 
 These modules offer flexibility and permit reordering, with only a few exceptions. In addition, the [NeMo Framework Launcher](https://github.com/NVIDIA/NeMo-Megatron-Launcher) provides pre-built pipelines that can serve as a foundation for your customization use cases.
 
@@ -52,12 +59,18 @@ These modules offer flexibility and permit reordering, with only a few exception
 - [Documentation](docs/)
 - [Examples](examples/)
 - [Tutorials](tutorials/)
+- Blog posts
+  - [Curating Trillion-Token Datasets: Introducing NVIDIA NeMo Data Curator](https://developer.nvidia.com/blog/curating-trillion-token-datasets-introducing-nemo-data-curator/)
+  - [Scale and Curate High-Quality Datasets for LLM Training with NVIDIA NeMo Curator](https://developer.nvidia.com/blog/scale-and-curate-high-quality-datasets-for-llm-training-with-nemo-curator/)
+  - [Curating Custom Datasets for LLM Training with NVIDIA NeMo Curator](https://developer.nvidia.com/blog/curating-custom-datasets-for-llm-training-with-nvidia-nemo-curator/)
 
 ## Get Started
 
 This section explains how to install NeMo Curator and use the Python library, Python modules, and CLI scripts. It also includes a list of tutorials to help you get started right away. Finally, this section explains how to use the NeMo Framework Launcher as an alternative method for interfacing with NeMo Curator.
 
-## Requirements
+### Install NeMo Curator
+
+#### Requirements
 
 Before installing NeMo Curator, ensure that the following requirements are met:
 
@@ -67,13 +80,9 @@ Before installing NeMo Curator, ensure that the following requirements are met:
   - Volta™ or higher ([compute capability 7.0+](https://developer.nvidia.com/cuda-gpus))
   - CUDA 12 (or above)
 
-## Install NeMo Curator
-
 You can install NeMo-Curator from PyPi, from source or get it through the NeMo Framework container.
 
-### PyPi
-
-NeMo Curator can be installed via PyPi as follows -
+#### From PyPi
 
 To install the CPU-only modules:
 
@@ -87,7 +96,7 @@ To install the CPU and CUDA-accelerated modules:
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
 ```
 
-### From Source
+#### From Source
 
 1. Clone the NeMo Curator repository in GitHub.
 
@@ -110,18 +119,17 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
     pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"
     ```
 
-### Install from the NeMo Framework Container
+#### From the NeMo Framework Container
 
-NeMo Curator is available in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo/tags). The latest release of NeMo Curator comes preinstalled in the container.
-
-If you want the latest commit inside the container, uninstall the existing version using:
+The latest release of NeMo Curator comes preinstalled in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo/tags). If you want the latest commit inside the container, uninstall the existing version using:
 
 ```bash
 pip uninstall nemo-curator
 ```
 And follow the instructions for installing from source from [above](#from-source).
 
-## Use the Python Library
+## Use NeMo Curator
+### Python API Quick Example
 
 The following snippet demonstrates how to create a small data curation pipeline that downloads and curates a small subset of the Common Crawl dataset.
 
@@ -130,32 +138,38 @@ The following snippet demonstrates how to create a small data curation pipeline 
 dataset = download_common_crawl("/datasets/common_crawl/", "2021-04", "2021-10", url_limit=10)
 # Build your pipeline
 curation_pipeline = Sequential([
+  # Fix unicode
   Modify(UnicodeReformatter()),
+  # Discard short records
   ScoreFilter(WordCountFilter(min_words=80)),
+  # Discard low-quality records
   ScoreFilter(FastTextQualityFilter(model_path="model.bin")),
+  # Discard records from the evaluation metrics to prevent test set leakage.
   TaskDecontamination([Winogrande(), Squad(), TriviaQA()])
 ])
-# Curate your dataset
+# Execute the pipeline on your dataset
 curated_dataset = curation_pipeline(dataset)
 ```
 
-## Explore NeMo Curator Tutorials
+### Explore NeMo Curator Tutorials
 
-To get started with NeMo Curator, you can follow the tutorials available here: [Tutorials]
-(https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials). These tutorials include:
+To get started with NeMo Curator, you can follow the tutorials [available here](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials). These tutorials include:
 
-- `tinystories` which focuses on data curation for training from scratch.
-- `peft-curation` which focuses on data curation for parameter-efficient fine-tuning use-cases.
+- [`tinystories`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/tinystories) which focuses on data curation for training LLMs from scratch.
+- [`peft-curation`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/peft-curation) which focuses on data curation for LLM parameter-efficient fine-tuning (PEFT) use-cases.
+- [`distributed_data_classification`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/distributed_data_classification) which focuses on using the quality and domain classifiers to help with data annotation.
+- [`single_node_tutorial`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/single_node_tutorial) which demonstrates an end-to-end data curation pipeline for curating Wikipedia data in Thai.
 
-## Access Python Modules
 
-The Data Curation section of the [NeMo Framework User Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/index.html) provides in-depth information about how the Python modules work. The [examples](examples/) directory in the GitHub repository provides scripts that showcase these modules.
+### Access Python Modules
 
-## Use CLI Scripts
+The NeMo Curator section of the [NeMo Framework User Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/index.html) provides in-depth information about how the Python modules work. The [examples](examples/) directory in the GitHub repository provides scripts that showcase these modules.
+
+### Use CLI Scripts
 
 NeMo Curator also offers CLI scripts for you to use. The scripts in `nemo_curator/scripts` map closely to the supplied Python modules. Refer to the [NeMo Framework User Guide](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/index.html) for more information about the Python modules and scripts.
 
-## Use NeMo Framework Launcher
+### Use NeMo Framework Launcher
 
 As an alternative method for interfacing with NeMo Curator, you can use the [NeMo Framework Launcher](https://github.com/NVIDIA/NeMo-Megatron-Launcher). The launcher enables you to easily configure the parameters and cluster. It can also automatically generate the SLURM batch scripts that wrap around the CLI scripts required to run your pipeline.
 
@@ -211,5 +225,3 @@ Additionally, using the CPU-based modules, the following table shows the time re
 ## Contribute to NeMo Curator
 
 We welcome community contributions! Please refer to [CONTRIBUTING.md](https://github.com/NVIDIA/NeMo/blob/stable/CONTRIBUTING.md) for the process.
-
-To contribute an article to the collection, please submit a pull request to the ``gh-pages-src`` branch of this repository. For detailed information, please consult the README located at the [gh-pages-src branch](https://github.com/NVIDIA/NeMo/tree/gh-pages-src#readme).
