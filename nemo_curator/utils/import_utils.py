@@ -237,7 +237,7 @@ def safe_import(module, *, msg=None, alt=None):
     """A function used to import modules that may not be available
 
     This function will attempt to import a module with the given name, but it
-    will not throw an ModuleNotFoundError if the module is not found. Instead, it will
+    will not throw an ImportError if the module is not found. Instead, it will
     return a placeholder object which will raise an exception only if used.
 
     Parameters
@@ -259,7 +259,7 @@ def safe_import(module, *, msg=None, alt=None):
     """
     try:
         return importlib.import_module(module)
-    except ModuleNotFoundError:
+    except ImportError:
         exception_text = traceback.format_exc()
         logger.debug(f"Import of {module} failed with: {exception_text}")
     except Exception:
@@ -303,7 +303,7 @@ def safe_import_from(module, symbol, *, msg=None, alt=None):
     try:
         imported_module = importlib.import_module(module)
         return getattr(imported_module, symbol)
-    except ModuleNotFoundError:
+    except ImportError:
         exception_text = traceback.format_exc()
         logger.debug(f"Import of {module} failed with: {exception_text}")
     except AttributeError:
@@ -346,7 +346,7 @@ def gpu_only_import(module, *, alt=None):
 
     return safe_import(
         module,
-        msg=f"{module} is not installed in non GPU-enabled installations. {GPU_INSTALL_STRING}",
+        msg=f"{module} is not enabled in non GPU-enabled installations or environemnts. {GPU_INSTALL_STRING}",
         alt=alt,
     )
 
@@ -379,6 +379,6 @@ def gpu_only_import_from(module, symbol, *, alt=None):
     return safe_import_from(
         module,
         symbol,
-        msg=f"{module}.{symbol} is not installed in non GPU-enabled installations. {GPU_INSTALL_STRING}",
+        msg=f"{module}.{symbol} is not enabled in non GPU-enabled installations or environments. {GPU_INSTALL_STRING}",
         alt=alt,
     )
