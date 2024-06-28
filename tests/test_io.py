@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import os
 import random
 import string
 import tempfile
@@ -20,8 +21,15 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import pytest
+from dask import dataframe as dd
+from dask.dataframe.utils import assert_eq
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.utils.distributed_utils import (
+    read_single_partition,
+    single_partition_write_with_filename,
+    write_to_disk,
+)
 
 
 def _generate_dummy_dataset(num_rows: int = 50) -> str:
@@ -138,3 +146,77 @@ class TestIO:
         assert (
             output_meta == expected_meta
         ), f"Expected: {expected_meta}, got: {output_meta}"
+
+
+class TestWriteWithFilename:
+    @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
+    def test_multifile_single_partition(self, tmp_path, file_ext):
+        df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file0", "file1", "file1"]})
+
+        single_partition_write_with_filename(
+            df=df, output_file_dir=tmp_path, output_type=file_ext
+        )
+        assert os.path.exists(tmp_path / f"file0.{file_ext}")
+        assert os.path.exists(tmp_path / f"file1.{file_ext}")
+
+        df1 = read_single_partition(
+            files=[tmp_path / f"file0.{file_ext}"], backend="pandas", filetype=file_ext
+        )
+        assert_eq(df1, df.iloc[0:1], check_index=False)
+        df2 = read_single_partition(
+            files=[tmp_path / f"file1.{file_ext}"], backend="pandas", filetype=file_ext
+        )
+        assert_eq(df2, df.iloc[1:3], check_index=False)
+
+    @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
+    def test_singlefile_single_partition(self, tmp_path, file_ext):
+        df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file2", "file2", "file2"]})
+        single_partition_write_with_filename(
+            df=df, output_file_dir=tmp_path, output_type=file_ext
+        )
+        assert len(os.listdir(tmp_path)) == 1
+        assert os.path.exists(tmp_path / f"file2.{file_ext}")
+        got = read_single_partition(
+            files=[tmp_path / f"file2.{file_ext}"], backend="pandas", filetype=file_ext
+        )
+        assert_eq(got, df)
+
+    def test_multifile_single_partition_error(self, tmp_path):
+        df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file0", "file1", "file1"]})
+
+        with pytest.raises(ValueError, match="Unknown output type"):
+            single_partition_write_with_filename(
+                df=df, output_file_dir=tmp_path, output_type="pickle"
+            )
+
+    # Test multiple partitions where we need to append to existing files
+    @pytest.mark.parametrize(
+        "file_ext, read_f",
+        [
+            ("jsonl", DocumentDataset.read_json),
+            ("parquet", DocumentDataset.read_parquet),
+        ],
+    )
+    def test_multifile_multi_partition(self, tmp_path, file_ext, read_f):
+        df1 = pd.DataFrame({"a": [1, 2, 3], "filename": ["file1", "file2", "file2"]})
+        df2 = df1.copy()
+        df2["filename"] = "file3"
+        df3 = df1.copy()
+        df3["filename"] = ["file4", "file5", "file6"]
+        ddf = dd.concat([df1, df2, df3])
+        ddf["filename"] = ddf["filename"] + f".{file_ext}"
+        write_to_disk(
+            df=ddf,
+            output_file_dir=tmp_path / file_ext,
+            write_to_filename=True,
+            output_type=file_ext,
+        )
+
+        got_df = read_f(
+            str(tmp_path / file_ext),
+            files_per_partition=2,
+            backend="pandas",
+            add_filename=True,
+        ).df
+
+        assert_eq(got_df, ddf, check_index=False)

@@ -409,10 +409,10 @@ def single_partition_write_with_filename(df, output_file_dir, output_type="jsonl
     assert "filename" in df.columns
 
     if len(df) > 0:
-        empty_partition = True
+        empty_partition = False
     else:
         warnings.warn(f"Empty partition found")
-        empty_partition = False
+        empty_partition = True
 
     if is_cudf_type(df):
         import cudf
@@ -421,34 +421,39 @@ def single_partition_write_with_filename(df, output_file_dir, output_type="jsonl
     else:
         success_ser = pd.Series([empty_partition])
 
-    if empty_partition:
-        filename = df.filename.iloc[0]
-        num_filenames = len(df.filename.unique())
-        if num_filenames > 1:
-            raise ValueError(
-                f"More than one filename found in partition: {num_filenames}"
-            )
-        filename = Path(filename).stem
-        output_file_path = os.path.join(output_file_dir, filename)
-        if output_type == "jsonl":
-            output_file_path = output_file_path + ".jsonl"
-            if isinstance(df, pd.DataFrame):
-                df.to_json(
-                    output_file_path, orient="records", lines=True, force_ascii=False
-                )
+    if not empty_partition:
+        filenames = df.filename.unique()
+        filenames = list(filenames.values_host) if is_cudf_type(df) else list(filenames)
+        num_files = len(filenames)
+        for filename in filenames:
+            out_df = df[df.filename == filename] if num_files > 1 else df
+            filename = Path(filename).stem
+            output_file_path = os.path.join(output_file_dir, filename)
+            if output_type == "jsonl":
+                output_file_path = output_file_path + ".jsonl"
+                if isinstance(df, pd.DataFrame):
+                    out_df.to_json(
+                        output_file_path,
+                        orient="records",
+                        lines=True,
+                        force_ascii=False,
+                    )
+                else:
+                    # See open issue here: https://github.com/rapidsai/cudf/issues/15211
+                    # df.to_json(
+                    #     output_file_path, orient="records", lines=True, engine="cudf", force_ascii=False
+                    # )
+                    out_df.to_json(
+                        output_file_path,
+                        orient="records",
+                        lines=True,
+                        force_ascii=False,
+                    )
+            elif output_type == "parquet":
+                output_file_path = output_file_path + ".parquet"
+                out_df.to_parquet(output_file_path)
             else:
-                # See open issue here: https://github.com/rapidsai/cudf/issues/15211
-                # df.to_json(
-                #     output_file_path, orient="records", lines=True, engine="cudf", force_ascii=False
-                # )
-                df.to_json(
-                    output_file_path, orient="records", lines=True, force_ascii=False
-                )
-        elif output_type == "parquet":
-            output_file_path = output_file_path + ".parquet"
-            df.to_parquet(output_file_path)
-        else:
-            raise ValueError(f"Unknown output type: {output_type}")
+                raise ValueError(f"Unknown output type: {output_type}")
 
     return success_ser
 
