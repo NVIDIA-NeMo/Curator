@@ -182,8 +182,13 @@ def download_and_extract(
     Returns:
       A DocumentDataset of the downloaded data
     """
+    if len(urls) == 0:
+        raise ValueError("No urls were provided to download")
+
     if len(urls) != len(output_paths):
-        raise ValueError("Different number of urls and output_paths")
+        raise ValueError(
+            f"Different number of urls and output_paths. {len(urls)} urls vs {len(output_paths)} output_paths"
+        )
 
     output_format = dict(sorted(output_format.items()))
     df = dd.from_map(

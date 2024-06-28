@@ -313,6 +313,14 @@ def download_common_crawl(
     common_crawl_urls = get_common_crawl_urls(
         starting_snapshot=start_snapshot, ending_snapshot=end_snapshot, news=news
     )
+
+    if len(common_crawl_urls) == 0:
+        raise ValueError(
+            f"No Common Crawl download urls found between {start_snapshot} and {end_snapshot}. "
+            "Ensure that a valid Common Crawl snapshot (https://data.commoncrawl.org/) is "
+            "within the range provided."
+        )
+
     if url_limit:
         common_crawl_urls = common_crawl_urls[:url_limit]
     output_paths = list(
