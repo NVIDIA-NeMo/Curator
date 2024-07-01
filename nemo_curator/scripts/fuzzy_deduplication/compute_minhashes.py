@@ -25,7 +25,7 @@ from nemo_curator.utils.distributed_utils import (
 )
 from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import strip_trailing_sep
-from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def pre_imports():
@@ -42,7 +42,7 @@ def main(args):
     assert args.device == "gpu"
 
     args.set_torch_to_use_rmm = False
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     client.run(pre_imports)
     logger.info("Pre imports complete")
@@ -106,18 +106,19 @@ def main(args):
 
 
 def attach_args(parser=None):
-    description = """Computes minhash signatures from an input directory of documents
-    contained within jsonl files. For each document a dataframe of document-ids
-    -minhash signatures is created. This dataframe is written to file after processing
-    """
     if not parser:
-        parser = parse_gpu_dedup_args(description=description)
+        description = """Computes minhash signatures from an input directory of documents
+        contained within jsonl files. For each document a dataframe of document-ids
+        -minhash signatures is created. This dataframe is written to file after processing
+        """
+        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
 
-    parser.add_argument(
-        "--minhash-length",
-        type=int,
-        default=260,
-        help="The number of minhashes to compute for each document.",
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_minhash_length()
+    argumentHelper.add_arg_seed(
+        help="Random seed used for intializing the hash "
+        "functions used to compute the MinHashes"
     )
     parser.add_argument(
         "--char-ngram",
@@ -125,7 +126,7 @@ def attach_args(parser=None):
         default=5,
         help="The number of consecutive characters to include in a sliding "
         "window when creating the document shingles for computing "
-        "MinHash signatures.",
+        "minhash signatures.",
     )
     parser.add_argument(
         "--hash-bytes",
@@ -135,13 +136,6 @@ def attach_args(parser=None):
         "(default is an unsigned 32-bit integer)",
     )
     parser.add_argument(
-        "--seed",
-        type=int,
-        default=42,
-        help="Random seed used for intializing the hash "
-        "functions used to compute the MinHashes",
-    )
-    parser.add_argument(
         "--output-minhash-dir",
         type=str,
         required=True,
@@ -149,6 +143,7 @@ def attach_args(parser=None):
         "Each file is a parquet file that contains two series, the document ids, "
         "and a series of lists, each list denoting the minhash signature for that document id.",
     )
+
     return parser
 
 

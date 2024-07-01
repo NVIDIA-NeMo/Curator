@@ -24,7 +24,7 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.fuzzy_dedup_utils.id_mapping import convert_str_id_to_int
-from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def pre_imports():
@@ -40,7 +40,7 @@ def main(args):
 
     assert args.device == "gpu"
     args.set_torch_to_use_rmm = False
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     client.run(pre_imports)
     logger.info("Pre imports complete")
@@ -78,18 +78,21 @@ def main(args):
 
 
 def attach_args(parser=None):
-    description = """Compute buckets from existing minhashes and writes the output
-    to files. Each row corresponding to a document-id followed by the columns
-    denoting the bucket id's that document belongs to.
-    """
     if not parser:
-        parser = parse_gpu_dedup_args(description=description)
+        description = """Compute buckets from existing minhashes and writes the output
+        to files. Each row corresponding to a document-id followed by the columns
+        denoting the bucket id's that document belongs to.
+        """
+        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
 
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_minhash_length()
     parser.add_argument(
-        "--minhash-length",
+        "--buckets-per-shuffle",
         type=int,
-        default=260,
-        help="The minhash signature length of each input document",
+        required=True,
+        help="Number of buckets to shuffle per batch",
     )
     parser.add_argument(
         "--input-minhash-field",
@@ -102,12 +105,6 @@ def attach_args(parser=None):
         type=int,
         default=20,
         help="The number of minhashes to compute for each document.",
-    )
-    parser.add_argument(
-        "--buckets-per-shuffle",
-        type=int,
-        required=True,
-        help="Number of buckets to shuffle per batch",
     )
     parser.add_argument(
         "--output-bucket-dir",

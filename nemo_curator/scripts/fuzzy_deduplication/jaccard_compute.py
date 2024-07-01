@@ -17,7 +17,7 @@ import time
 
 from nemo_curator.modules.fuzzy_dedup import JaccardSimilarity
 from nemo_curator.utils.distributed_utils import get_client, get_num_workers
-from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
@@ -31,7 +31,7 @@ def main(args):
         OUTPUT_PATH, "jaccard_similarity_results.parquet"
     )
     args.enable_spilling = True
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     print(f"Num Workers = {get_num_workers(client)}", flush=True)
     print("Connected to dask cluster", flush=True)
@@ -55,26 +55,23 @@ def main(args):
 
 
 def attach_args(parser=None):
-    description = """Computes jaccard similarity"""
     if not parser:
-        parser = parse_gpu_dedup_args(description=description)
+        description = """Computes jaccard similarity"""
+        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
 
-    parser.add_argument(
-        "--shuffled-docs-path",
-        type=str,
-        help="The directory containing the shuffled documents",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        help="The output directory to write results to",
-    )
+    ArgumentHelper(parser).add_arg_output_dir()
     parser.add_argument(
         "--ngram-size",
         type=int,
         default=5,
         help="Size of ngram to use during jaccard similarity",
     )
+    parser.add_argument(
+        "--shuffled-docs-path",
+        type=str,
+        help="The directory containing the shuffled documents",
+    )
+
     return parser
 
 

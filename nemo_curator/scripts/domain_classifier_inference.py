@@ -23,10 +23,7 @@ from nemo_curator.datasets import DocumentDataset
 # Get relevant args
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_remaining_files
-from nemo_curator.utils.script_utils import (
-    parse_client_args,
-    parse_distributed_classifier_args,
-)
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 warnings.filterwarnings("ignore")
 
@@ -61,11 +58,11 @@ def main():
         "Travel_and_Transportation",
     ]
 
-    args = parse_distributed_classifier_args().parse_args()
+    args = ArgumentHelper.parse_distributed_classifier_args().parse_args()
     print(f"Arguments parsed = {args}", flush=True)
     max_chars = 2000
 
-    client_args = parse_client_args(args)
+    client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
     print("Starting domain classifier inference", flush=True)

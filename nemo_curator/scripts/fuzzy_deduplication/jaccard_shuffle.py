@@ -20,7 +20,7 @@ from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_text_ddf_from_json_path_with_blocksize,
 )
-from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def func():
@@ -35,7 +35,7 @@ def main(args):
     OUTPUT_PATH = args.output_dir
     output_shuffled_docs_path = os.path.join(OUTPUT_PATH, "shuffled_docs.parquet")
 
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
     client.run(func)
     print(f"Num Workers = {get_num_workers(client)}", flush=True)
     print("Connected to dask cluster", flush=True)
@@ -75,31 +75,18 @@ def main(args):
 
 
 def attach_args(parser=None):
-    description = """Shuffles input text documents based on the given bucket
-    map. The output is a partitioned parquet dataset with the documents
-    shuffled by buckets
-    """
     if not parser:
-        parser = parse_gpu_dedup_args(description=description)
+        description = """Shuffles input text documents based on the given bucket
+        map. The output is a partitioned parquet dataset with the documents
+        shuffled by buckets
+        """
+        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
 
-    parser.add_argument(
-        "--input-bucket-mapping-dir",
-        type=str,
-        help="The directory containing anchor docs with bk files",
-    )
-    parser.add_argument(
-        "--input-meta",
-        type=str,
-        default=None,
-        help="A string formatted as a dictionary, which outlines the field names and "
-        "their respective data types within the JSONL input files.",
-    )
-    parser.add_argument(
-        "--text-ddf-blocksize",
-        type=int,
-        default=256,
-        help="The block size for chunking jsonl files for text ddf in mb",
-    )
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_input_meta()
+    argumentHelper.add_arg_output_dir()
+    argumentHelper.add_arg_text_ddf_blocksize()
     parser.add_argument(
         "--bucket-mapping-ddf-blocksize",
         type=int,
@@ -107,21 +94,21 @@ def attach_args(parser=None):
         help="The block size for for anchor_docs_with_bk ddf in mb",
     )
     parser.add_argument(
-        "--output-dir",
+        "--bucket-parts-per-worker",
+        default=8,
+        type=int,
+        help="The number of bucket parts to process per worker per batch",
+    )
+    parser.add_argument(
+        "--input-bucket-mapping-dir",
         type=str,
-        help="The output directory to write results in",
+        help="The directory containing anchor docs with bk files",
     )
     parser.add_argument(
         "--parts-per-worker",
         default=1,
         type=int,
         help="The number of parts to process per worker per batch",
-    )
-    parser.add_argument(
-        "--bucket-parts-per-worker",
-        default=8,
-        type=int,
-        help="The number of bucket parts to process per worker per batch",
     )
 
     return parser

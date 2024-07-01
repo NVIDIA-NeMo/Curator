@@ -20,11 +20,7 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.config_utils import build_filter_pipeline
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_files
-from nemo_curator.utils.script_utils import (
-    add_distributed_args,
-    attach_bool_arg,
-    parse_client_args,
-)
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def get_dataframe_complement(original_df, filtered_df):
@@ -65,7 +61,7 @@ def write_scores(df, output_dir):
 
 
 def main(args):
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
     if args.device == "cpu":
         backend = "pandas"
     elif args.device == "gpu":
@@ -181,20 +177,15 @@ def attach_args(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
-    parser.add_argument(
-        "--input-data-dir",
-        type=str,
-        default=None,
-        help="Input directory consisting of dataset files that are accessible "
-        "to all nodes. Use this for a distributed file system",
-    )
-    parser.add_argument(
-        "--input-local-data-dir",
-        type=str,
-        default=None,
-        help="Input directory consisting of dataset files. "
-        "Use this argument when a distributed file system is not available.",
-    )
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_batch_size()
+    argumentHelper.add_arg_input_data_dir()
+    argumentHelper.add_arg_input_file_type()
+    argumentHelper.add_arg_input_local_data_dir()
+    argumentHelper.add_arg_log_dir(default="./log/filter_docs")
+    argumentHelper.add_arg_output_file_type()
+    argumentHelper.add_distributed_args()
     parser.add_argument(
         "--filter-config-file",
         type=str,
@@ -202,41 +193,52 @@ def attach_args(
         help="The input filter configuration file that contains the "
         "path to the filter module as well as the filter parameters",
     )
-    parser.add_argument(
-        "--output-retained-document-dir",
-        type=str,
-        default=None,
-        help="The output directory to where documents that are "
-        "retained during filtering will be written. If this argument "
-        "is not specified, then the document scores from the "
-        "filter(s) will be written to the document meta data in place",
-    )
-    parser.add_argument(
-        "--output-removed-document-dir",
-        type=str,
-        default=None,
-        help="The output directory to where documents that are removed during "
-        "filtering will be written. This argument is mainly for quality control "
-        "in order examine documents that are not preserved during filtering. "
-        "If it is not specified and the retained-document-dir is specified, "
-        "then only the retained documents will be written to disk",
-    )
-    attach_bool_arg(
+    ArgumentHelper.attach_bool_arg(
         parser,
         "filter-only",
         default=False,
-        help_str="Specifying this flag will indicate to the code that only the "
+        help="Specifying this flag will indicate to the code that only the "
         "filtering operation should be performed and that scores should not be "
         "computed. This flag should be specified if scores have been "
         "pre-computed on the documents (e.g., the code was run without the "
         "'--output-retained-document-dir' argument) and users desire to apply "
         "the filter using the pre-computed scores",
     )
-    attach_bool_arg(
+    parser.add_argument(
+        "--id-field",
+        type=str,
+        default="adlr_id",
+        help="The name of the field within each object of the dataset "
+        "file that assigns a unqiue ID to each document. "
+        "If this is specified and found within the object, a list of all "
+        "ids will be written to the output score directory such that each line"
+        "is consistent with the lines of the written score files ",
+    )
+    ArgumentHelper.attach_bool_arg(
+        parser,
+        "keep-node-scores-tmp-dir",
+        default=False,
+        help="If multiple nodes are used when computing scores, "
+        "each node will write out its scores to a temporary directory "
+        "shared across all nodes. Then, the rank 0 node will "
+        "concatenate all of the scores creating the output file. "
+        "By default, this directory is removed after concatenation, "
+        "however users can keep this temporary directory by specifying "
+        "the flag --keep-node-scores-tmp-dir ",
+    )
+    parser.add_argument(
+        "--log-frequency",
+        type=int,
+        default=10000,
+        help="The frequency with which to write log messages when "
+        "computing scores. By default a log message will "
+        "be written every 10000 documents in a file",
+    )
+    ArgumentHelper.attach_bool_arg(
         parser,
         "log-scores",
         default=False,
-        help_str="Specifying this flag will cause the computed scores to be "
+        help="Specifying this flag will cause the computed scores to be "
         "logged as additional keys for each document. This only applies to "
         "filters with 'log_score: True' in the config. This can aid in "
         "performing an interactive quality check of the documents.",
@@ -253,64 +255,24 @@ def attach_args(
         "specified, then filter scores will not be written",
     )
     parser.add_argument(
-        "--id-field",
+        "--output-removed-document-dir",
         type=str,
-        default="adlr_id",
-        help="The name of the field within each object of the dataset "
-        "file that assigns a unqiue ID to each document. "
-        "If this is specified and found within the object, a list of all "
-        "ids will be written to the output score directory such that each line"
-        "is consistent with the lines of the written score files ",
-    )
-    attach_bool_arg(
-        parser,
-        "keep-node-scores-tmp-dir",
-        default=False,
-        help_str="If multiple nodes are used when computing scores, "
-        "each node will write out its scores to a temporary directory "
-        "shared across all nodes. Then, the rank 0 node will "
-        "concatenate all of the scores creating the output file. "
-        "By default, this directory is removed after concatenation, "
-        "however users can keep this temporary directory by specifying "
-        "the flag --keep-node-scores-tmp-dir ",
+        default=None,
+        help="The output directory to where documents that are removed during "
+        "filtering will be written. This argument is mainly for quality control "
+        "in order examine documents that are not preserved during filtering. "
+        "If it is not specified and the retained-document-dir is specified, "
+        "then only the retained documents will be written to disk",
     )
     parser.add_argument(
-        "--log-frequency",
-        type=int,
-        default=10000,
-        help="The frequency with which to write log messages when "
-        "computing scores. By default a log message will "
-        "be written every 10000 documents in a file",
-    )
-    parser.add_argument(
-        "--log-dir",
+        "--output-retained-document-dir",
         type=str,
-        default="./log/filter_docs",
-        help="The output log directory where node and local"
-        " ranks will write their respective log files",
+        default=None,
+        help="The output directory to where documents that are "
+        "retained during filtering will be written. If this argument "
+        "is not specified, then the document scores from the "
+        "filter(s) will be written to the document meta data in place",
     )
-    parser.add_argument(
-        "--input-file-type",
-        type=str,
-        default="jsonl",
-        help="File type of the dataset to be read in. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
-    parser.add_argument(
-        "--output-file-type",
-        type=str,
-        default="jsonl",
-        help="File type the dataset will be written to. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=64,
-        help="Number of files to read into memory at a time.",
-    )
-
-    parser = add_distributed_args(parser)
 
     return parser
 

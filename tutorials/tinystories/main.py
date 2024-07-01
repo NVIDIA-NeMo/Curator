@@ -31,7 +31,7 @@ from nemo_curator.modules import ExactDuplicates
 from nemo_curator.modules.modify import Modify
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR_PATH, "data")
@@ -173,7 +173,7 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
         jsonl_dir (str): Directory path where the JSONL files are stored.
     """
     # Initialize the Dask cluster.
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"Running curation pipeline on '{jsonl_dir}'...")
     files = [
         fp
@@ -181,9 +181,7 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
         if fp.endswith(".jsonl")
     ]
     print("Reading the data...")
-    orig_dataset = DocumentDataset.read_json(
-        files, add_filename=True, input_meta=args.input_meta
-    )
+    orig_dataset = DocumentDataset.read_json(files, add_filename=True)
     dataset = orig_dataset
 
     curation_steps = Sequential(
@@ -215,15 +213,7 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser = add_distributed_args(parser)
-    parser.add_argument(
-        "--input-meta",
-        type=str,
-        default=None,
-        help="A string formatted as a dictionary, which outlines the field names and "
-        "their respective data types within the JSONL input files.",
-    )
-    args = parser.parse_args()
+    args = ArgumentHelper(parser).add_distributed_args().parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.
     args.n_workers = min(args.n_workers, 8)
 

@@ -19,11 +19,11 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modifiers import UnicodeReformatter
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_files
-from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     # Make the output directories
     output_clean_dir = expand_outdir_and_mkdir(args.output_clean_dir)
@@ -71,49 +71,20 @@ the 'language' field within each JSON object.
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
-    parser.add_argument(
-        "--input-data-dir",
-        type=str,
-        default=None,
-        help="Input directory consisting of .jsonl files that are accessible "
-        "to all nodes. Use this for a distributed file system",
-    )
-    parser.add_argument(
-        "--input-text-field",
-        type=str,
-        default="text",
-        help="The name of the field within each datapoint object of the input "
-        "file that contains the text.",
-    )
-    parser.add_argument(
-        "--input-file-type",
-        type=str,
-        default="jsonl",
-        help="File type of the dataset to be read in. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_batch_size()
+    argumentHelper.add_arg_input_data_dir()
+    argumentHelper.add_arg_input_file_type()
+    argumentHelper.add_arg_input_text_field()
+    argumentHelper.add_arg_output_file_type()
+    argumentHelper.add_distributed_args()
     parser.add_argument(
         "--output-clean-dir",
         type=str,
-        default=None,
         required=True,
-        help="The output directory to where the cleaned " "jsonl files will be written",
+        help="The output directory to where the cleaned jsonl files will be written",
     )
-    parser.add_argument(
-        "--output-file-type",
-        type=str,
-        default="jsonl",
-        help="File type the dataset will be written to. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=64,
-        help="Number of files to read into memory at a time.",
-    )
-
-    parser = add_distributed_args(parser)
 
     return parser
 

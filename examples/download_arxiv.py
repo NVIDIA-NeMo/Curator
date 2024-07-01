@@ -16,7 +16,7 @@ import argparse
 
 from nemo_curator.download import download_arxiv
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
@@ -27,7 +27,7 @@ def main(args):
     url_limit = 10
 
     # Set up Dask client
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     # Download and sample data
     arxiv = download_arxiv(output_directory, url_limit=url_limit)
@@ -42,7 +42,7 @@ def attach_args(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     ),
 ):
-    return add_distributed_args(parser)
+    return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":

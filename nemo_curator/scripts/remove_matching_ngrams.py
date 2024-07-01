@@ -23,11 +23,11 @@ from nemo_curator.utils.file_utils import (
     get_all_files_paths_under,
     get_batched_files,
 )
-from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     output_tdd_dir = expand_outdir_and_mkdir(args.output_task_deduped_dir)
     output_rm_doc_dir = None
@@ -95,20 +95,14 @@ def attach_args(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
-    parser.add_argument(
-        "--input-data-dir",
-        type=str,
-        default=None,
-        help="Input directory consisting of .jsonl files that are accessible "
-        "to all nodes. Use this for a distributed file system",
-    )
-    parser.add_argument(
-        "--input-text-field",
-        type=str,
-        default="text",
-        help="The name of the field within each datapoint object of the input "
-        "file that contains the text.",
-    )
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_batch_size()
+    argumentHelper.add_arg_input_data_dir()
+    argumentHelper.add_arg_input_file_type()
+    argumentHelper.add_arg_input_text_field()
+    argumentHelper.add_arg_output_file_type()
+    argumentHelper.add_distributed_args()
     parser.add_argument(
         "--input-matched-ngrams",
         type=str,
@@ -116,23 +110,6 @@ def attach_args(
         required=True,
         help="Input dictionary (.pkl file), that contains matched "
         "n-gram data from the find_matching_ngrams code",
-    )
-    parser.add_argument(
-        "--output-task-deduped-dir",
-        type=str,
-        default=None,
-        required=True,
-        help="Output directory to where task-deduplicated (split) "
-        "documents will be written",
-    )
-    parser.add_argument(
-        "--output-removed-doc-dir",
-        type=str,
-        default=None,
-        help="Output directory to where removed documents will be written. "
-        "Documents will be removed from the corpus if they are split more "
-        "than --max-document-splits number of times, or if the user specifies "
-        "that they be removed via the flag, --remove-split-docs",
     )
     parser.add_argument(
         "--match-threshold",
@@ -152,27 +129,22 @@ def attach_args(
         "--max-document-splits number of times",
     )
     parser.add_argument(
-        "--input-file-type",
+        "--output-removed-doc-dir",
         type=str,
-        default="jsonl",
-        help="File type of the dataset to be read in. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
+        default=None,
+        help="Output directory to where removed documents will be written. "
+        "Documents will be removed from the corpus if they are split more "
+        "than --max-document-splits number of times, or if the user specifies "
+        "that they be removed via the flag, --remove-split-docs",
     )
     parser.add_argument(
-        "--output-file-type",
+        "--output-task-deduped-dir",
         type=str,
-        default="jsonl",
-        help="File type the dataset will be written to. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
+        default=None,
+        required=True,
+        help="Output directory to where task-deduplicated (split) "
+        "documents will be written",
     )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=64,
-        help="Number of files to read into memory at a time.",
-    )
-
-    parser = add_distributed_args(parser)
 
     return parser
 

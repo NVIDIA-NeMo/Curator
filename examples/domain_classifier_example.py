@@ -19,7 +19,7 @@ import time
 from nemo_curator import DomainClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
@@ -60,7 +60,7 @@ def main(args):
     input_file_path = "/path/to/data"
     output_file_path = "./"
 
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     input_dataset = DocumentDataset.read_json(
         input_file_path, backend="cudf", add_filename=True
@@ -89,54 +89,18 @@ def attach_args(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     ),
 ):
-    parser.add_argument(
-        "--scheduler-address",
-        type=str,
-        default=None,
-        help="Address to the scheduler of a created dask cluster. If not provided"
-        "a single node LocalCUDACluster will be started.",
-    )
-    parser.add_argument(
-        "--scheduler-file",
-        type=str,
-        default=None,
-        help="Path to the scheduler file of a created dask cluster. If not provided"
-        " a single node LocalCUDACluster will be started.",
-    )
-    parser.add_argument(
-        "--nvlink-only",
-        action="store_true",
-        help="Start a local cluster with only NVLink enabled."
-        "Only applicable when protocol=ucx and no scheduler file/address is specified",
-    )
-    parser.add_argument(
-        "--protocol",
-        type=str,
-        default="ucx",
-        help="Protcol to use for dask cluster"
-        "Note: This only applies to the localCUDACluster. If providing an user created "
-        "cluster refer to"
-        "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol",  # noqa: E501
-    )
-    parser.add_argument(
-        "--rmm-pool-size",
-        type=str,
-        default="14GB",
-        help="Initial pool size to use for the RMM Pool Memory allocator"
-        "Note: This only applies to the localCUDACluster. If providing an user created "
-        "cluster refer to"
-        "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size",  # noqa: E501
-    )
-    parser.add_argument("--enable-spilling", action="store_true")
-    parser.add_argument("--set-torch-to-use-rmm", action="store_true")
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="gpu",
-        help="Device to run the script on. Either 'cpu' or 'gpu'.",
-    )
+    argumentHelper = ArgumentHelper(parser)
 
-    return parser
+    argumentHelper.add_arg_device()
+    argumentHelper.add_arg_enable_spilling()
+    argumentHelper.add_arg_nvlink_only()
+    argumentHelper.add_arg_protocol()
+    argumentHelper.add_arg_rmm_pool_size()
+    argumentHelper.add_arg_scheduler_address()
+    argumentHelper.add_arg_scheduler_file()
+    argumentHelper.add_arg_set_torch_to_use_rmm()
+
+    return argumentHelper.parser
 
 
 if __name__ == "__main__":

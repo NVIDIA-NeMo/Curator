@@ -21,7 +21,7 @@ from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_bucket_ddf_from_parquet_path,
     get_text_ddf_from_json_path_with_blocksize,
 )
-from nemo_curator.utils.script_utils import parse_client_args, parse_gpu_dedup_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def get_anchor_and_output_map_info(
@@ -70,40 +70,22 @@ def get_anchor_and_output_map_info(
 
 
 def attach_args(parser=None):
-    description = """Takes the buckets generated from minhashes and uses
-    document length information to create a coarse mapping of mapping multiple
-    buckets to a logical partition by using a modified bin packing algorithm.
-    """
     if not parser:
-        parser = parse_gpu_dedup_args(description=description)
+        description = """Takes the buckets generated from minhashes and uses
+        document length information to create a coarse mapping of mapping multiple
+        buckets to a logical partition by using a modified bin packing algorithm.
+        """
+        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
+
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_input_meta()
+    argumentHelper.add_arg_output_dir()
+    argumentHelper.add_arg_text_ddf_blocksize()
     parser.add_argument(
         "--input-bucket-dir",
         type=str,
         help="The directory containing bucket information files",
-    )
-    parser.add_argument(
-        "--input-meta",
-        type=str,
-        default=None,
-        help="A string formatted as a dictionary, which outlines the field names and "
-        "their respective data types within the JSONL input files.",
-    )
-    parser.add_argument(
-        "--text-ddf-blocksize",
-        type=int,
-        default=256,
-        help="The block size for chunking jsonl files for text ddf in mb",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        help="The output directory to write results in",
-    )
-    parser.add_argument(
-        "--shuffle-type",
-        type=str,
-        default="tasks",
-        help="Type of shuffle to use before writing to parquet",
     )
     parser.add_argument(
         "--input-bucket-field",
@@ -111,6 +93,13 @@ def attach_args(parser=None):
         default="_bucket_id",
         help="Name of the column containing minhashes",
     )
+    parser.add_argument(
+        "--shuffle-type",
+        type=str,
+        default="tasks",
+        help="Type of shuffle to use before writing to parquet",
+    )
+
     return parser
 
 
@@ -165,7 +154,7 @@ def main(args):
     output_anchor_docs_with_bk_path = os.path.join(
         OUTPUT_PATH, "anchor_docs_with_bk.parquet"
     )
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"Num Workers = {get_num_workers(client)}", flush=True)
     print("Connected to dask cluster", flush=True)
     print("Running jaccard map buckets script", flush=True)

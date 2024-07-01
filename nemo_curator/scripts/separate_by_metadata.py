@@ -22,15 +22,11 @@ from nemo_curator.utils.file_utils import (
     get_all_files_paths_under,
     separate_by_metadata,
 )
-from nemo_curator.utils.script_utils import (
-    add_distributed_args,
-    attach_bool_arg,
-    parse_client_args,
-)
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     files = get_all_files_paths_under(args.input_data_dir)
     input_data = read_data(
@@ -67,13 +63,17 @@ def attach_args(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
-    parser.add_argument(
-        "--input-data-dir",
-        type=str,
-        default=None,
-        help="Input directory consisting of .jsonl files that are accessible "
-        "to all nodes. Use this for a distributed file system",
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_input_data_dir()
+    argumentHelper.add_arg_input_file_type()
+    argumentHelper.add_arg_output_data_dir(
+        help="The output directory to where the metadata-separated files "
+        "will be written. Each file will be written to its respective "
+        "metadata directory that is a sub-directory of this directory"
     )
+    argumentHelper.add_arg_output_file_type()
+    argumentHelper.add_distributed_args()
     parser.add_argument(
         "--input-metadata-field",
         type=str,
@@ -87,46 +87,21 @@ def attach_args(
         help="Output json file containing the frequency of documents "
         "that occur for a particular metadata.",
     )
-    parser.add_argument(
-        "--output-data-dir",
-        type=str,
-        required=True,
-        help="The output directory to where the metadata-separated "
-        "files will be written. Each file will be written to its "
-        "respective metadata directory that is a sub-directory "
-        "of this directory",
-    )
-    attach_bool_arg(
-        parser,
-        "remove-metadata-field",
-        default=False,
-        help_str="Option of whether to remove the metadata field "
-        "after filtering. Useful only in the case in which one metadata "
-        "is desired to be separated from the others",
-    )
-    attach_bool_arg(
+    ArgumentHelper.attach_bool_arg(
         parser,
         "remove-input-dir",
         default=False,
-        help_str="Specify '--remove-input-dir' to remove the original "
+        help="Specify '--remove-input-dir' to remove the original "
         "input directory. This is false by default.",
     )
-    parser.add_argument(
-        "--input-file-type",
-        type=str,
-        default="jsonl",
-        help="File type of the dataset to be read in. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
+    ArgumentHelper.attach_bool_arg(
+        parser,
+        "remove-metadata-field",
+        default=False,
+        help="Option of whether to remove the metadata field "
+        "after filtering. Useful only in the case in which one metadata "
+        "is desired to be separated from the others",
     )
-    parser.add_argument(
-        "--output-file-type",
-        type=str,
-        default="jsonl",
-        help="File type the dataset will be written to. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
-
-    parser = add_distributed_args(parser)
 
     return parser
 

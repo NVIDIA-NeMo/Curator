@@ -21,26 +21,9 @@ from nemo_curator import QualityClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_remaining_files
-from nemo_curator.utils.script_utils import (
-    parse_client_args,
-    parse_distributed_classifier_args,
-)
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 warnings.filterwarnings("ignore")
-
-
-def add_quality_model_specific_args(parser):
-    """
-    This function adds a command line argument for the number of labels.
-
-    Args:
-        parser: An argparse ArgumentParser object.
-    Returns:
-        An argparse ArgumentParser with 1 additional argument.
-
-    """
-    parser.add_argument("--num-labels", type=int, default=3)
-    return parser
 
 
 def get_labels(num_labels):
@@ -61,14 +44,14 @@ def get_labels(num_labels):
 
 
 def main():
-    parser = parse_distributed_classifier_args()
-    parser = add_quality_model_specific_args(parser)
+    parser = ArgumentHelper.parse_distributed_classifier_args()
+    parser.add_argument("--num-labels", type=int, default=3)
     args = parser.parse_args()
     labels = get_labels(args.num_labels)
     print(f"Arguments parsed = {args}", flush=True)
     max_chars = 6000
 
-    client_args = parse_client_args(args)
+    client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
     print("Starting quality classifier inference", flush=True)

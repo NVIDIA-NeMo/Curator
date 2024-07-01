@@ -19,6 +19,8 @@ from typing import Union
 
 import pandas as pd
 
+from nemo_curator.utils.script_utils import ArgumentHelper
+
 
 def parse_args():
     """
@@ -30,12 +32,14 @@ def parse_args():
     """
     parser = argparse.ArgumentParser(description="Run verification")
 
+    ArgumentHelper(parser).add_arg_input_meta()
     parser.add_argument(
-        "--results_file_path",
+        "--expected_pred_column",
         type=str,
-        required=True,
-        help="The path of the input files",
+        default="pred",
+        help="The prediction column name for the expected_result file",
     )
+
     parser.add_argument(
         "--expected_results_file_path",
         type=str,
@@ -43,23 +47,16 @@ def parse_args():
         help="The path of the expected_result file",
     )
     parser.add_argument(
+        "--results_file_path",
+        type=str,
+        required=True,
+        help="The path of the input files",
+    )
+    parser.add_argument(
         "--results_pred_column",
         type=str,
         default="pred",
         help="The prediction column name for the input files",
-    )
-    parser.add_argument(
-        "--expected_pred_column",
-        type=str,
-        default="pred",
-        help="The prediction column name for the expected_result file",
-    )
-    parser.add_argument(
-        "--input-meta",
-        type=str,
-        default=None,
-        help="A string formatted as a dictionary, which outlines the field names and "
-        "their respective data types within the JSONL input files.",
     )
 
     return parser.parse_args()

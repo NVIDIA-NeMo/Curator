@@ -15,6 +15,7 @@
 import argparse
 
 from nemo_curator.utils.download_utils import get_wikipedia_urls
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
@@ -35,17 +36,8 @@ Pulls urls pointing to the latest Wikipedia dumps
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
-    parser.add_argument(
-        "--language",
-        type=str,
-        default="en",
-        help="Desired language of the Wikipedia dump",
-    )
-    parser.add_argument(
-        "--wikidumps-index-baseurl",
-        type=str,
-        default="https://dumps.wikimedia.org",
-        help="The base url for all Wikipedia dumps",
+    ArgumentHelper(parser).add_arg_language(
+        help="Desired language of the Wikipedia dump"
     )
     parser.add_argument(
         "--output-url-file",
@@ -54,6 +46,13 @@ Pulls urls pointing to the latest Wikipedia dumps
         help="The output file to which the urls containing "
         "the latest dump data will be written",
     )
+    parser.add_argument(
+        "--wikidumps-index-baseurl",
+        type=str,
+        default="https://dumps.wikimedia.org",
+        help="The base url for all Wikipedia dumps",
+    )
+
     return parser
 
 

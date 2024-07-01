@@ -40,7 +40,7 @@ from nemo_curator.tasks import (
 )
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def load_dataset(input_data_dir):
@@ -80,7 +80,7 @@ def main(args):
     ]
 
     # Prepare samples for the classifier
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     # Filter data
     target_dataset = load_dataset(contaminated_dataset_path)
@@ -98,7 +98,7 @@ def attach_args(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     ),
 ):
-    return add_distributed_args(parser)
+    return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":

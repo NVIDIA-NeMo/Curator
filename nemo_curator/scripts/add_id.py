@@ -22,15 +22,11 @@ from nemo_curator.utils.file_utils import (
     expand_outdir_and_mkdir,
     get_all_files_paths_under,
 )
-from nemo_curator.utils.script_utils import (
-    add_distributed_args,
-    attach_bool_arg,
-    parse_client_args,
-)
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
-    client = get_client(**parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))
 
     output_dir = expand_outdir_and_mkdir(args.output_data_dir)
     files = get_all_files_paths_under(args.input_data_dir)
@@ -73,29 +69,21 @@ these ids must be added prior to performing fuzzy/exact deduplication
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
-    parser.add_argument(
-        "--input-data-dir",
-        type=str,
-        default=None,
-        help="Input directory consisting of .jsonl files that are accessible "
-        "to all nodes. Use this for a distributed file system",
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.add_arg_input_data_dir()
+    argumentHelper.add_arg_input_file_type()
+    argumentHelper.add_arg_output_data_dir(
+        help="The output directory to where the jsonl files with ids will "
+        "be written."
     )
-    parser.add_argument(
-        "--starting-index",
-        type=int,
-        default=None,
-        help="If supplied, determines the starting index from which to start "
-        "indexing the documents. By default, it is unspecified, and uses an id"
-        " scheme that is fast to calculate and is not guaranteed to be ordered.",
+    argumentHelper.add_arg_output_file_type()
+    argumentHelper.add_arg_seed()
+    argumentHelper.add_arg_shuffle(
+        help="Shuffle the order of files before assigning IDs."
+        "Useful for creating a copy dataset with different IDs"
     )
-    parser.add_argument(
-        "--output-data-dir",
-        type=str,
-        default=None,
-        help="The output directory to where the jsonl "
-        "files with ids will be written. If not specified, the ids will "
-        "be written in-place",
-    )
+    argumentHelper.add_distributed_args()
     parser.add_argument(
         "--id-field-name",
         type=str,
@@ -113,35 +101,14 @@ these ids must be added prior to performing fuzzy/exact deduplication
         "document belongs to a particular dataset (e.g., wiki for documents"
         "that come from the wikipedia dataset)",
     )
-    attach_bool_arg(
-        parser,
-        "shuffle",
-        help_str="Shuffle the order of files before assigning IDs."
-        "Useful for creating a copy dataset with different IDs",
-    )
     parser.add_argument(
-        "--seed",
+        "--starting-index",
         type=int,
-        default=42,
-        help="If shuffling is specified, use this random seed to "
-        "perform the random shuffling",
+        default=None,
+        help="If supplied, determines the starting index from which to start "
+        "indexing the documents. By default, it is unspecified, and uses an id"
+        " scheme that is fast to calculate and is not guaranteed to be ordered.",
     )
-    parser.add_argument(
-        "--input-file-type",
-        type=str,
-        default="jsonl",
-        help="File type of the dataset to be read in. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
-    parser.add_argument(
-        "--output-file-type",
-        type=str,
-        default="jsonl",
-        help="File type the dataset will be written to. Supported file formats"
-        " include 'jsonl' (default), 'pickle', or 'parquet'.",
-    )
-
-    parser = add_distributed_args(parser)
 
     return parser
 

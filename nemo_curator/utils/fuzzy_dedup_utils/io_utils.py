@@ -60,7 +60,7 @@ def _read_json_func(
 
 
 def get_text_ddf_from_json_path_with_blocksize(
-    input_data_paths, num_files, blocksize, id_column, text_column, input_meta
+    input_data_paths, num_files, blocksize, id_column, text_column, input_meta=None
 ):
     data_paths = [
         entry.path for data_path in input_data_paths for entry in os.scandir(data_path)

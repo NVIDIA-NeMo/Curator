@@ -21,13 +21,13 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modifiers.pii_modifier import PiiModifier
 from nemo_curator.modules.modify import Modify
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import add_distributed_args, parse_client_args
+from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def console_script():
     parser = argparse.ArgumentParser()
-    arguments = add_distributed_args(parser).parse_args()
-    _ = get_client(**parse_client_args(arguments))
+    args = ArgumentHelper(parser).add_distributed_args().parse_args()
+    _ = get_client(**ArgumentHelper.parse_client_args(args))
 
     dataframe = pd.DataFrame(
         {"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]}
