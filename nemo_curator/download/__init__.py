@@ -18,6 +18,8 @@ from .commoncrawl import (
     CommonCrawlWARCDownloaderExtractOnly,
     CommonCrawlWARCExtractor,
     CommonCrawlWARCIterator,
+    JusTextExtractor,
+    ResiliparseExtractor,
     download_common_crawl,
 )
 from .doc_builder import (
@@ -50,6 +52,8 @@ __all__ = [
     "CommonCrawlWARCExtractor",
     "CommonCrawlWARCIterator",
     "CommonCrawlWARCDownloaderExtractOnly",
+    "JusTextExtractor",
+    "ResiliparseExtractor",
     "download_wikipedia",
     "WikipediaDownloader",
     "WikipediaIterator",

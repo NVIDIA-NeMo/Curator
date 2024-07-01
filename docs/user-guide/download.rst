@@ -18,7 +18,7 @@ the extraction step to limit the amount of documents that undergo this heavy com
 NeMo Curator provides example utilities for downloading and extracting Common Crawl, ArXiv, and Wikipedia data.
 In addition, it provides a flexible interface to extend the utility to other datasets.
 Our Common Crawl example demonstrates how to process a crawl by downloading the data from S3, doing preliminary language filtering with pyCLD2,
-and extracting the relevant text with jusText to output :code:`.jsonl` files.
+and extracting the relevant text with jusText or Resiliparse to output :code:`.jsonl` files.
 
 NeMo Curator currently does not provide out-of-the-box support for web-crawling or web-scraping.
 It provides utilities for downloading and extracting data from the preexisting online sources given above.
@@ -47,13 +47,34 @@ By "extraction", we typically mean the process of converting a data format from 
   * ``"2021-04"`` is the last common crawl snapshot that will be included in the download.
   * ``output_type="jsonl"`` is the file format that will be used for storing the data on disk. Currently ``"jsonl"`` and ``"parquet"`` are supported.
 
+  The user may choose to modify the HTML text extraction algorithm used in ``download_common_crawl``. See an example below.
+
+  .. code-block:: python
+
+    from nemo_curator.download import (
+      ResiliparseExtractor,
+      download_common_crawl,
+    )
+
+    # Change the extraction algorithm
+    extraction_algorithm = ResiliparseExtractor()
+    common_crawl = download_common_crawl(
+      "/extracted/output/folder",
+      "2020-50",
+      "2021-04",
+      output_type="jsonl",
+      algorithm=extraction_algorithm,
+    )
+
+  Above, we changed the extraction algorithm from the default ``JusTextExtractor``.
+
   The return value ``common_crawl`` will be in NeMo Curator's standard ``DocumentDataset`` format. Check out the function's docstring for more parameters you can use.
 
   NeMo Curator's Common Crawl extraction process looks like this under the hood:
 
   1. Decode the HTML within the record from binary to text
   2. If the HTML can be properly decoded, then with `pyCLD2 <https://github.com/aboSamoor/pycld2>`_, perform language detection on the input HTML
-  3. Finally, the extract the relevant text with `jusText <https://github.com/miso-belica/jusText>`_ from the HTML and write it out as a single string within the 'text' field of a json entry within a `.jsonl` file
+  3. Finally, the extract the relevant text with `jusText <https://github.com/miso-belica/jusText>`_ or `Resiliparse <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_ from the HTML and write it out as a single string within the 'text' field of a json entry within a `.jsonl` file
 * ``download_wikipedia`` will download and extract the latest wikipedia dump. Files are downloaded using ``wget``. Wikipedia might download slower than the other datasets. This is because they limit the number of downloads that can occur per-ip address.
 
   .. code-block:: python

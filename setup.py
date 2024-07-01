@@ -46,6 +46,7 @@ setup(
         "fasttext==0.9.2",
         "pycld2==0.41",
         "justext==3.0.0",
+        "resiliparse",
         "ftfy==6.1.1",
         "warcio==1.7.4",
         "zstandard==0.18.0",
