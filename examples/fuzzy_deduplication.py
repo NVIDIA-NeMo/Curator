@@ -16,7 +16,6 @@ import argparse
 import time
 
 import dask
-from dask import dataframe as dd
 
 from nemo_curator import FuzzyDuplicates, FuzzyDuplicatesConfig
 from nemo_curator.datasets import DocumentDataset
@@ -49,6 +48,8 @@ def main(args):
 
         t0 = time.time()
         if filetype == "parquet":
+            from dask import dataframe as dd
+
             input_dataset = DocumentDataset(
                 dd.read_parquet(
                     dataset_dir,
