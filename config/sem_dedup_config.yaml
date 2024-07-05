@@ -1,0 +1,32 @@
+# Configuration file for semdantic dedup
+cache_dir: "semdedup_cache"
+num_files: 16
+id_col_name: "id"
+id_col_type: "int"
+input_column: "text"
+
+# Embeddings configuration
+embeddings_save_loc: "embeddings"
+embedding_model_name_or_path: "sentence-transformers/all-MiniLM-L6-v2"
+embedding_batch_size: 128
+embedding_max_mem_gb: 25
+
+# Clustering configuration
+clustering_save_loc: "clustering_results"
+n_clusters: 1000
+seed: 1234
+max_iter: 100
+kmeans_with_cos_dist: false
+
+# Semdedup configuration
+which_to_keep: "hard"
+largest_cluster_size_to_process: 100000
+sim_metric: "cosine"
+
+# Extract dedup configuration
+eps_thresholds:
+  - 0.01
+  - 0.001
+
+# Which threshold to use for extracting deduped data
+eps_to_extract: 0.01

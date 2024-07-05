@@ -89,6 +89,7 @@ class ArgumentHelper:
 
     def add_arg_input_data_dir(
         self,
+        required=False,
         help: str = "Input directory consisting of .jsonl files that are accessible "
         "to all nodes. Use this for a distributed file system",
     ):
@@ -96,12 +97,14 @@ class ArgumentHelper:
             "--input-data-dir",
             type=str,
             default=None,
+            required=required,
             help=help,
         )
 
     def add_arg_input_file_type(
         self,
         choices=None,
+        required=False,
         help="File type of the dataset to be read in. Supported file formats "
         "include 'jsonl' (default), 'pickle', or 'parquet'.",
     ):
@@ -109,7 +112,19 @@ class ArgumentHelper:
             "--input-file-type",
             type=str,
             default="jsonl",
+            required=required,
             choices=choices,
+            help=help,
+        )
+
+    def add_arg_input_file_extension(
+        self,
+        help: str = "The file extension of the input files. If not provided, the input file type will be used.",
+    ):
+        self.parser.add_argument(
+            "--input-file-extension",
+            type=str,
+            default=None,
             help=help,
         )
 
@@ -496,3 +511,38 @@ class ArgumentHelper:
         )
 
         return argumentHelper.parser
+
+    @staticmethod
+    def parse_semdedup_args(
+        add_input_args=False,
+        description="Default argument parser for semantic deduplication",
+    ) -> argparse.ArgumentParser:
+        """
+        Adds default set of arguments that are common to multiple stages of the semantic deduplication pipeline
+        of the pipeline
+        """
+        parser = argparse.ArgumentParser(
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+            description=description,
+        )
+        argumentHelper = ArgumentHelper(parser)
+        argumentHelper.add_distributed_args()
+        if add_input_args:
+            argumentHelper.add_arg_input_data_dir(required=True)
+            argumentHelper.add_arg_input_file_extension()
+            argumentHelper.add_arg_input_file_type()
+            argumentHelper.add_arg_input_text_field()
+
+        argumentHelper.parser.add_argument(
+            "--config-file",
+            type=str,
+            help="Path to the semdedup config file",
+            required=True,
+        )
+        # Set low default RMM pool size for classifier
+        # to allow pytorch to grow its memory usage
+        # by default
+        parser.set_defaults(rmm_pool_size="512MB")
+        parser.set_defaults(device="gpu")
+        parser.set_defaults(set_torch_to_use_rmm=False)
+        return parser

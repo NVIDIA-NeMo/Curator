@@ -63,7 +63,9 @@ def get_all_files_paths_under(root, recurse_subdirectories=True, followlinks=Fal
 # can lead to problems when there is an error while
 # writing a file we can use the offset counter approach
 # in jaccard shuffle as a more robust way to restart jobs
-def get_remaining_files(input_file_path, output_file_path, input_file_type):
+def get_remaining_files(
+    input_file_path, output_file_path, input_file_type, num_files=-1
+):
     """
     This function returns a list of the files that still remain to be read.
 
@@ -71,12 +73,16 @@ def get_remaining_files(input_file_path, output_file_path, input_file_type):
         input_file_path: The path of the input files.
         output_file_path: The path of the output files.
         input_file_type: The type of the input files.
+        num_files: The max number of files to be returned. If -1, all files are returned.
     Returns:
         A list of files that still remain to be read.
 
     """
     if input_file_type == "pickle":
         return [input_file_path]
+
+    if not os.path.exists(output_file_path):
+        expand_outdir_and_mkdir(output_file_path)
     completed_files = [
         os.path.basename(entry.path) for entry in os.scandir(output_file_path)
     ]
@@ -86,7 +92,16 @@ def get_remaining_files(input_file_path, output_file_path, input_file_type):
         for entry in os.scandir(input_file_path)
         if os.path.basename(entry.path) not in completed_files
     ]
+    # Gaurd against non extension files if present in the input directory
+    input_files = [f for f in input_files if f.endswith(input_file_type)]
     input_files.sort()
+
+    len_written_files = len(completed_files)
+    if num_files > 0:
+        left_to_sample = max(num_files - len_written_files, 0)
+    else:
+        left_to_sample = len(input_files)
+    input_files = input_files[:left_to_sample]
     return input_files
 
 

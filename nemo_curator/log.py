@@ -19,7 +19,7 @@ import socket
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 
 
-def create_logger(rank, log_file, name="logger", log_level=logging.INFO):
+def create_logger(rank, log_file, name="logger", log_level=logging.INFO, stdout=False):
     # Create the logger
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
@@ -36,8 +36,12 @@ def create_logger(rank, log_file, name="logger", log_level=logging.INFO):
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    logger = logging.LoggerAdapter(logger, extra)
+    if stdout:
+        stdout_handler = logging.StreamHandler()
+        stdout_handler.setFormatter(formatter)
+        logger.addHandler(stdout_handler)
 
+    logger = logging.LoggerAdapter(logger, extra)
     return logger
 
 

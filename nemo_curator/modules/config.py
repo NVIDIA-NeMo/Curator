@@ -13,7 +13,8 @@
 # limitations under the License.
 
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
 
 import yaml
 
@@ -98,3 +99,70 @@ class FuzzyDuplicatesConfig(BaseConfig):
             raise ValueError("Jaccard Threshold must be between [0,1]")
         if self.buckets_per_shuffle <= 0:
             raise ValueError("Buckets per shuffle must be greater than 0")
+
+
+@dataclass
+class SemDedupConfig(BaseConfig):
+    """
+    Configuration for Semantic Deduplication.
+
+    Attributes:
+        cache_dir (str): Directory to store cache.
+        num_files (int): Number of files. Default is -1, meaning all files.
+        id_col_name (str): Column name for ID.
+        id_col_type (str): Column type for ID.
+        input_column (str): Input column for embeddings.
+        embeddings_save_loc (str): Location to save embeddings.
+        embedding_model_name_or_path (str): Model name or path for embeddings.
+        embedding_batch_size (int): Inital Batch size for processing embeddings.
+        embedding_max_mem_gb (int): Maximum memory in GB for embeddings.
+        clustering_save_loc (str): Location to save clustering results.
+        n_clusters (int): Number of clusters.
+        seed (int): Seed for clustering.
+        max_iter (int): Maximum iterations for clustering.
+        kmeans_with_cos_dist (bool): Use KMeans with cosine distance.
+        which_to_keep (str): Which duplicates to keep.
+        largest_cluster_size_to_process (int): Largest cluster size to process.
+        sim_metric (str): Similarity metric for deduplication.
+        eps_thresholds (List[float]): Epsilon thresholds to calculate if semantically similar or not.
+        eps_to_extract (float): Epsilon value to extract deduplicated data.
+    """
+
+    cache_dir: str
+    num_files: int = -1
+    id_col_name: str = "id"
+    id_col_type: str = "str"
+    input_column: str = "text"
+
+    # Embeddings
+    embeddings_save_loc: str = "embeddings"
+    embedding_model_name_or_path: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_batch_size: int = 128
+    embedding_max_mem_gb: int = 25
+
+    # Clustering config
+    clustering_save_loc: str = "clustering_results"
+    n_clusters: int = 1000
+    seed: int = 1234
+    max_iter: int = 100
+    kmeans_with_cos_dist: bool = False
+
+    # Semdedup config
+    which_to_keep: str = "hard"
+    largest_cluster_size_to_process: int = 100000
+    sim_metric: str = "cosine"
+
+    # Extract dedup config
+    eps_thresholds: List[float] = field(default_factory=lambda: [0.01, 0.001])
+    eps_to_extract: float = 0.01
+
+    def __post_init__(self):
+        if self.cache_dir is None:
+            raise ValueError(
+                "Finding sem-dedup requires a cache directory accessible via all workers to store intermediates"
+            )
+
+        if self.eps_to_extract not in self.eps_thresholds:
+            raise ValueError(
+                f"Epsilon to extract {self.eps_to_extract} must be in eps_thresholds {self.eps_thresholds}"
+            )
