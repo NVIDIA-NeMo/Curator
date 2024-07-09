@@ -18,6 +18,9 @@
 :ref:`GPU Accelerated Exact and Fuzzy Deduplication <data-curator-gpu-deduplication>`
    Both exact and fuzzy deduplication functionalities are supported in NeMo Curator and accelerated using RAPIDS cuDF.
 
+:ref:`Synthetic Data Generation <data-curator-syntheticdata>`
+   Synthetic data generation tools and example piplines are available within NeMo Curator.
+
 :ref:`Downstream Task Decontamination <data-curator-downstream>`
    After training, large language models are usually evaluated by their performance on downstream tasks consisting of unseen test data. When dealing with large datasets, there is a potential for leakage of this test data into the model’s training dataset. NeMo Curator allows you to remove sections of documents in your dataset that are present in downstream tasks.
 

@@ -34,6 +34,13 @@ else:
 
 
 from .modules import *
+from .services import (
+    AsyncLLMClient,
+    AsyncOpenAIClient,
+    LLMClient,
+    NemoDeployClient,
+    OpenAIClient,
+)
 from .utils.distributed_utils import get_client
 
 # Dask will automatically convert the list score type

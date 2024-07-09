@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Union
+from typing import List, Optional, Union
 
 import dask.dataframe as dd
 
@@ -129,6 +129,44 @@ class DocumentDataset:
         write_to_filename=False,
     ):
         raise NotImplementedError("DocumentDataset does not support to_pickle yet")
+
+    @classmethod
+    def from_pandas(
+        cls,
+        data,
+        npartitions: Optional[int] = 1,
+        chunksize: Optional[int] = None,
+        sort: Optional[bool] = True,
+        name: Optional[str] = None,
+    ):
+        """
+        Creates a document dataset from a pandas data frame.
+        For more information on the arguments see Dask's from_pandas documentation
+        https://docs.dask.org/en/stable/generated/dask.dataframe.from_pandas.html
+
+        Args:
+            data: A pandas dataframe
+        Returns:
+            A document dataset with a pandas backend (on the CPU).
+        """
+        return cls(
+            dd.from_pandas(
+                data=data,
+                npartitions=npartitions,
+                chunksize=chunksize,
+                sort=sort,
+                name=name,
+            )
+        )
+
+    def to_pandas(self):
+        """
+        Creates a pandas dataframe from a DocumentDataset
+
+        Returns:
+            A pandas dataframe (on the CPU)
+        """
+        return self.df.to_backend("pandas").compute()
 
 
 def _read_json_or_parquet(
