@@ -21,11 +21,12 @@ import random
 import warnings
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Union
+from typing import List, Union
 
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
+import psutil
 from dask.distributed import Client, LocalCluster, get_worker, performance_report
 
 from nemo_curator.utils.gpu_utils import GPU_INSTALL_STRING, is_cudf_type
@@ -611,3 +612,13 @@ def seed_all(seed: int = 42):
         # Ensure deterministic behavior for CUDA algorithms
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+
+def get_network_interfaces() -> List[str]:
+    """
+    Gets a list of all valid network interfaces on a machine
+
+    Returns:
+        A list of all valid network interfaces on a machine
+    """
+    return list(psutil.net_if_addrs().keys())

@@ -21,7 +21,7 @@ long_description = (here / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="nemo_curator",
-    version="0.3.0",
+    version="0.4.0",
     description="Scalable Data Preprocessing Tool for "
     "Training Large Language Models",
     long_description=long_description,
@@ -34,6 +34,7 @@ setup(
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.10",
     ],
     packages=find_packages(),
     python_requires=">=3.10, <3.11",
