@@ -25,7 +25,10 @@ from nemo_curator.utils.fuzzy_dedup_utils.output_map_utils import (
     get_agg_text_bytes_df,
 )
 
-USE_EXCOMMS = Version(dask_cuda.__version__) >= Version("23.10")
+dask_cuda_version = Version(dask_cuda.__version__)
+USE_EXCOMMS = (
+    dask_cuda_version >= Version("23.10") and dask_cuda_version < Version("24.06")
+) or dask_cuda_version >= Version("24.08")
 
 
 def write_partitioned_file(df, output_path, partition_on, batch_id):
