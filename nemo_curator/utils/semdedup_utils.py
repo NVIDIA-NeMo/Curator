@@ -157,7 +157,7 @@ def rank_within_cluster(
         sort_descending = keep_hard
         cluster_sorted = sorted(
             zip(example_id, cluster_dists_to_cent, cluster_label),
-            key=lambda x: x[2],
+            key=lambda x: x[1],
             reverse=sort_descending,
         )  # -- sort_descending = True for descending sort
 

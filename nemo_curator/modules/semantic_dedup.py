@@ -525,8 +525,8 @@ class SemDedup:
         cache_dir = config.cache_dir
         self.embedding_creator = EmbeddingCreator(
             embedding_model_name_or_path=config.embedding_model_name_or_path,
-            max_memory=config.embedding_max_mem_gb,
-            batch_size=config.embedding_batch_size,
+            embedding_max_mem_gb=config.embedding_max_mem_gb,
+            embedding_batch_size=config.embedding_batch_size,
             input_column=config.input_column,
             embedding_output_dir=os.path.join(cache_dir, config.embeddings_save_loc),
             logger=logger,
