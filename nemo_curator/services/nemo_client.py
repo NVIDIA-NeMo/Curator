@@ -11,15 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
+
 import warnings
 from typing import Iterable, List, Optional, Union
 
 from nemo_curator.services.conversation_formatter import ConversationFormatter
-from nemo_curator.utils.import_utils import safe_import_from
 
 from .model_client import AsyncLLMClient, LLMClient
-
-NemoQueryLLM = safe_import_from("nemo.deploy.nlp", "NemoQueryLLM")
 
 
 class NemoDeployClient(LLMClient):

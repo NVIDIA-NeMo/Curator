@@ -45,7 +45,7 @@ setup(
         "charset_normalizer>=3.1.0",
         "awscli>=1.22.55",
         "fasttext==0.9.2",
-        "pycld2==0.41",
+        "pycld2",
         "justext==3.0.1",
         "resiliparse",
         "ftfy==6.1.1",
