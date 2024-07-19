@@ -41,7 +41,6 @@ def main(args):
     assert args.hash_bytes in {4, 8}, "Currently only 32bit/64bit hashes are supported"
     assert args.device == "gpu"
 
-    args.set_torch_to_use_rmm = False
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     client.run(pre_imports)

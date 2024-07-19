@@ -39,7 +39,6 @@ def main(args):
     logger.info(f"Starting workflow with args:\n {args}")
 
     assert args.device == "gpu"
-    args.set_torch_to_use_rmm = False
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     client.run(pre_imports)

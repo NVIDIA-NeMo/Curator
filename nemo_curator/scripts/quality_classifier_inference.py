@@ -61,8 +61,15 @@ def main():
     if not os.path.exists(args.output_data_dir):
         os.makedirs(args.output_data_dir)
 
+    # Some time jsonl files are stored as .json
+    # So to handle that case we can pass the input_file_extension
+    if args.input_file_extension is not None:
+        input_file_extension = args.input_file_extension
+    else:
+        input_file_extension = args.input_file_type
+
     input_files = get_remaining_files(
-        args.input_data_dir, args.output_data_dir, args.input_file_type
+        args.input_data_dir, args.output_data_dir, input_file_extension
     )
     print(f"Total input files {len(input_files)}", flush=True)
 

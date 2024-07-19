@@ -31,7 +31,6 @@ def main(args):
     """
     st = time.time()
     output_path = os.path.join(args.output_dir, "connected_components.parquet")
-    args.set_torch_to_use_rmm = False
     args.enable_spilling = True
 
     client = get_client(**ArgumentHelper.parse_client_args(args))

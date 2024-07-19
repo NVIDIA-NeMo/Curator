@@ -281,6 +281,22 @@ class ArgumentHelper:
             help="The block size for chunking jsonl files for text ddf in mb",
         )
 
+    def add_arg_model_path(self, help="The path to the model file"):
+        self.parser.add_argument(
+            "--model-path",
+            type=str,
+            help=help,
+            required=True,
+        )
+
+    def add_arg_autocaset(self, help="Whether to use autocast or not"):
+        ArgumentHelper.attach_bool_arg(
+            parser=self.parser,
+            flag_name="autocast",
+            default=True,
+            help=help,
+        )
+
     def add_distributed_args(self) -> argparse.ArgumentParser:
         """
         Adds default set of arguments that are needed for Dask cluster setup
@@ -392,67 +408,30 @@ class ArgumentHelper:
             description,
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
-        parser = ArgumentHelper(parser).add_distributed_args()
+        argumentHelper = ArgumentHelper(parser)
+        argumentHelper.add_distributed_args()
+        argumentHelper.add_arg_input_data_dir(required=True)
+        argumentHelper.add_arg_output_data_dir(help="The path of the output files")
+        argumentHelper.add_arg_input_file_type()
+        argumentHelper.add_arg_input_file_extension()
+        argumentHelper.add_arg_output_file_type()
+        argumentHelper.add_arg_input_text_field()
+        argumentHelper.add_arg_enable_spilling()
+        argumentHelper.add_arg_set_torch_to_use_rmm()
+        argumentHelper.add_arg_batch_size(
+            help="The batch size to be used for inference"
+        )
+        argumentHelper.add_arg_model_path()
+        argumentHelper.add_arg_autocaset()
+
         # Set low default RMM pool size for classifier
         # to allow pytorch to grow its memory usage
         # by default
-        parser.set_defaults(rmm_pool_size="512MB")
-        parser.add_argument(
-            "--input-data-dir",
-            type=str,
-            help="The path of the input files",
-            required=True,
-        )
-        parser.add_argument(
-            "--output-data-dir",
-            type=str,
-            help="The path of the output files",
-            required=True,
-        )
-        parser.add_argument(
-            "--model-path",
-            type=str,
-            help="The path to the model file",
-            required=True,
-        )
-        parser.add_argument(
-            "--input-file-type",
-            type=str,
-            help="The type of the input files",
-            required=True,
-        )
-        parser.add_argument(
-            "--output-file-type",
-            type=str,
-            default="jsonl",
-            help="The type of the output files",
-        )
-        parser.add_argument(
-            "--batch-size",
-            type=int,
-            default=128,
-            help="The batch size to be used for inference",
-        )
-        ArgumentHelper.attach_bool_arg(
-            parser, "autocast", default=True, help="Whether to use autocast or not"
-        )
-        ArgumentHelper.attach_bool_arg(
-            parser,
-            "enable-spilling",
-            default=True,
-            help="Whether to enable spilling or not",
-        )
-
+        argumentHelper.parser.set_defaults(rmm_pool_size="512MB")
         # Setting to False makes it more stable for long running jobs
         # possibly because of memory fragmentation
-        ArgumentHelper.attach_bool_arg(
-            parser,
-            "set-torch-to-use-rmm",
-            default=False,
-            help="Whether to set torch to use RMM or not",
-        )
-
-        return parser
+        argumentHelper.parser.set_defaults(set_torch_to_use_rmm=False)
+        return argumentHelper.parser
 
     @staticmethod
     def parse_gpu_dedup_args(description: str) -> argparse.ArgumentParser:
@@ -472,6 +451,7 @@ class ArgumentHelper:
 
         # Set default device to GPU for dedup
         argumentHelper.parser.set_defaults(device="gpu")
+        argumentHelper.parser.set_defaults(set_torch_to_use_rmm=False)
         argumentHelper.parser.add_argument(
             "--input-data-dirs",
             type=str,

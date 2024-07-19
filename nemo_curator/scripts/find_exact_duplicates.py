@@ -37,7 +37,6 @@ def main(args):
     logger.info(f"Starting workflow with args:\n {args}")
 
     assert args.hash_method == "md5", "Currently only md5 hash is supported"
-    args.set_torch_to_use_rmm = False
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     if args.device == "gpu":
