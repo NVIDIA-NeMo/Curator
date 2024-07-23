@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import os
 import time
 
 from nemo_curator import QualityClassifier
@@ -25,7 +24,6 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 def main(args):
     global_st = time.time()
 
-    labels = ["High", "Medium", "Low"]
     model_path = "/path/to/pytorch_model_file.pth"
 
     # Input can be a string or list
@@ -40,7 +38,6 @@ def main(args):
 
     quality_classifier = QualityClassifier(
         model_path=model_path,
-        labels=labels,
         filter_by=["High", "Medium"],
     )
     result_dataset = quality_classifier(dataset=input_dataset)

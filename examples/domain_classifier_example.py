@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import os
 import time
 
 from nemo_curator import DomainClassifier
@@ -25,37 +24,6 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 def main(args):
     global_st = time.time()
 
-    labels = [
-        "Adult",
-        "Arts_and_Entertainment",
-        "Autos_and_Vehicles",
-        "Beauty_and_Fitness",
-        "Books_and_Literature",
-        "Business_and_Industrial",
-        "Computers_and_Electronics",
-        "Finance",
-        "Food_and_Drink",
-        "Games",
-        "Health",
-        "Hobbies_and_Leisure",
-        "Home_and_Garden",
-        "Internet_and_Telecom",
-        "Jobs_and_Education",
-        "Law_and_Government",
-        "News",
-        "Online_Communities",
-        "People_and_Society",
-        "Pets_and_Animals",
-        "Real_Estate",
-        "Science",
-        "Sensitive_Subjects",
-        "Shopping",
-        "Sports",
-        "Travel_and_Transportation",
-    ]
-
-    model_path = "/path/to/pytorch_model_file.pth"
-
     # Input can be a string or list
     input_file_path = "/path/to/data"
     output_file_path = "./"
@@ -66,11 +34,7 @@ def main(args):
         input_file_path, backend="cudf", add_filename=True
     )
 
-    domain_classifier = DomainClassifier(
-        model_path=model_path,
-        labels=labels,
-        filter_by=["Games", "Sports"],
-    )
+    domain_classifier = DomainClassifier(filter_by=["Games", "Sports"])
     result_dataset = domain_classifier(dataset=input_dataset)
 
     result_dataset.to_json(output_file_dir=output_file_path, write_to_filename=True)

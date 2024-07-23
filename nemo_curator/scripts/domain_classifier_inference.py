@@ -29,35 +29,6 @@ warnings.filterwarnings("ignore")
 
 
 def main():
-    labels = [
-        "Adult",
-        "Arts_and_Entertainment",
-        "Autos_and_Vehicles",
-        "Beauty_and_Fitness",
-        "Books_and_Literature",
-        "Business_and_Industrial",
-        "Computers_and_Electronics",
-        "Finance",
-        "Food_and_Drink",
-        "Games",
-        "Health",
-        "Hobbies_and_Leisure",
-        "Home_and_Garden",
-        "Internet_and_Telecom",
-        "Jobs_and_Education",
-        "Law_and_Government",
-        "News",
-        "Online_Communities",
-        "People_and_Society",
-        "Pets_and_Animals",
-        "Real_Estate",
-        "Science",
-        "Sensitive_Subjects",
-        "Shopping",
-        "Sports",
-        "Travel_and_Transportation",
-    ]
-
     args = ArgumentHelper.parse_distributed_classifier_args().parse_args()
     print(f"Arguments parsed = {args}", flush=True)
     max_chars = 2000
@@ -90,11 +61,8 @@ def main():
         add_filename = True
 
     domain_classifier = DomainClassifier(
-        model_path=args.model_path,
-        labels=labels,
         max_chars=max_chars,
         batch_size=args.batch_size,
-        out_dim=len(labels),
         autocast=args.autocast,
     )
 

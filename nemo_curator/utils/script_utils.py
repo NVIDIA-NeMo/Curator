@@ -283,10 +283,10 @@ class ArgumentHelper:
 
     def add_arg_model_path(self, help="The path to the model file"):
         self.parser.add_argument(
-            "--model-path",
+            "--pretrained-model-name-or-path",
             type=str,
             help=help,
-            required=True,
+            required=False,
         )
 
     def add_arg_autocaset(self, help="Whether to use autocast or not"):
