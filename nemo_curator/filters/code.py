@@ -62,8 +62,8 @@ class GeneralCommentToCodeFilter(DocumentFilter):
           language: Mime string of language
         """
         self._lang = language
-        self._min_threshold = min_comment_to_code_ratio = min_comment_to_code_ratio
-        self._max_threshold = max_comment_to_code_ratio = max_comment_to_code_ratio
+        self._min_threshold = min_comment_to_code_ratio
+        self._max_threshold = max_comment_to_code_ratio
 
         self._name = "comment_ratio"
 
