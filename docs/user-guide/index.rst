@@ -33,6 +33,9 @@
 :ref:`NeMo Curator with NeMo SDK <data-curator-nemo-sdk>`
    Example of how to use NeMo Curator with NeMo SDK to run on various platforms
 
+:ref:`Best Practices <data-curator-best-practices>`
+   A collection of suggestions on how to best use NeMo Curator to curate your dataset
+
 :ref:`Next Steps <data-curator-next-steps>`
    Now that you've curated your data, let's discuss where to go next in the NeMo Framework to put it to good use.
 
@@ -56,4 +59,5 @@
    distributeddataclassification.rst
    kubernetescurator.rst
    nemosdk.rst
+   bestpractices.rst
    nextsteps.rst
