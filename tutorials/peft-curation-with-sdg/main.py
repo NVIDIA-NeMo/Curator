@@ -345,7 +345,7 @@ def main():
     parser.add_argument(
         "--synth-gen-ratio",
         type=float,
-        default=0.01,
+        default=0.005,  # Use 0.5% of the real data for synthetic data generation to keep LLM calls low.
         help="The ratio of synthetic data to real data to generate. Synthetic data generation will be skipped if the value is 0.",
     )
     parser.add_argument(

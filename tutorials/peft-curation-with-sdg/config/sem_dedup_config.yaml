@@ -13,7 +13,7 @@ embedding_max_mem_gb: 20
 
 # Clustering configuration
 clustering_save_loc: "clustering_results"
-n_clusters: 1000
+n_clusters: 20
 seed: 1234
 max_iter: 100
 kmeans_with_cos_dist: false
