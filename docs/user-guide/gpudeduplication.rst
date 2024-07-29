@@ -154,7 +154,7 @@ steps (all scripts are included in the :code:`nemo_curator/scripts/` subdirector
 
                  # same as `python connected_components.py`
                  gpu_connected_component \
-                   --jaccard-pairs_path /path/to/dedup_output/jaccard_similarity_results.parquet \
+                   --jaccard-pairs-path /path/to/dedup_output/jaccard_similarity_results.parquet \
                    --output-dir /path/to/dedup_output \
                    --cache-dir /path/to/cc_cache \
                    --jaccard-threshold 0.8
