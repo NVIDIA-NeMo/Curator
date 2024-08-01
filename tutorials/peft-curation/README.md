@@ -8,6 +8,10 @@ which is a dataset of emails with corresponding classification labels for each e
 a subject, a body and a category (class label). We demonstrate various filtering and processing
 operations that can be applied to each record.
 
+## Walkthrough
+For a detailed walkthrough of this tutorial, please see the following blog post:
+* [Curating Custom Datasets for LLM Parameter-Efficient Fine-Tuning with NVIDIA NeMo Curator](https://developer.nvidia.com/blog/curating-custom-datasets-for-llm-parameter-efficient-fine-tuning-with-nvidia-nemo-curator/).
+
 ## Usage
 After installing the NeMo Curator package, you can simply run the following command:
 ```

@@ -242,7 +242,12 @@ def run_pipeline(args, jsonl_fp):
     Returns:
         The file path to the final curated JSONL file.
     """
-    # Disable synthetic data generation if no API key is provided.
+    # Disable synthetic data generation if no model specified, or no API key is provided.
+    if args.synth_gen_model is None or args.synth_gen_model == "":
+        print(
+            "No synthetic data generation model provided. Skipping synthetic data generation."
+        )
+        args.synth_gen_round = 0
     if args.api_key is None:
         print("No API key provided. Skipping synthetic data generation.")
         args.synth_gen_rounds = 0
@@ -274,17 +279,18 @@ def run_pipeline(args, jsonl_fp):
         AsyncOpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=args.api_key,
+            timeout=args.api_timeout,
         )
     )
     synth_gen = SyntheticGenerator(
         llm_client,
-        "nvidia/nemotron-4-340b-instruct",
-        {
+        sdg_model=args.synth_gen_model,
+        sdg_model_kwargs={
             "top_p": 0.7,
             "max_tokens": 1024,
             "seed": 1234,
         },
-        "nvidia/nemotron-4-340b-reward",
+        reward_model="nvidia/nemotron-4-340b-reward",
         n_variants=synth_n_variants,
     )
 
@@ -343,9 +349,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser = ArgumentHelper(parser).add_distributed_args()
     parser.add_argument(
+        "--synth-gen-model",
+        type=str,
+        default="nvidia/nemotron-4-340b-instruct",
+        choices=["nvidia/nemotron-4-340b-instruct", "meta/llama-3.1-405b-instruct", ""],
+        help="The model from build.nvidia.com to use for synthetic data generation. Leave blank to skip synthetic data generation.",
+    )
+    parser.add_argument(
         "--synth-gen-ratio",
         type=float,
-        default=0.005,  # Use 0.5% of the real data for synthetic data generation to keep LLM calls low.
+        default=0.001,  # Use 0.1% of the real data for synthetic data generation to keep LLM calls low.
         help="The ratio of synthetic data to real data to generate. Synthetic data generation will be skipped if the value is 0.",
     )
     parser.add_argument(
@@ -365,6 +378,12 @@ def main():
         type=str,
         default=None,
         help="The API key to use for the synthetic data generation LLM client.",
+    )
+    parser.add_argument(
+        "--api-timeout",
+        type=int,
+        default=120,
+        help="The timeout value for API calls in seconds.",
     )
 
     args = parser.parse_args()

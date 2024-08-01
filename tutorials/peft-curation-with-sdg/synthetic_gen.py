@@ -14,6 +14,7 @@
 
 import asyncio
 import os
+import traceback
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -119,7 +120,7 @@ class SyntheticGenerator:
 
     def _write_all_to_file(self, gen_entries, out_fp: str):
         """
-        Write all generated synthetic data to a JSON file.
+        Write all generated synthetic data to a JSON file. If nothing was generated, skip writing to the file.
 
         Args:
             gen_entries: List of generated entries.
@@ -157,6 +158,10 @@ class SyntheticGenerator:
                     [f"{row['id']}-synth-{i}" for i in range(self.n_variants)]
                 )
                 synth_tags.extend([row["tags"]] * self.n_variants)
+
+        if not synth_titles:
+            print("    No valid synthetic data generated. Skipping writing to file.")
+            return
 
         # Create a Series object with the generated data.
         gen_data = {
@@ -269,7 +274,6 @@ class SyntheticGenerator:
         source_df = source_df.sample(
             frac=synth_gen_ratio, random_state=self.random_state
         )
-        print(f"Synthesizing {len(source_df)} rows...")
         prompt_requests = []
 
         # Generate prompts for each row in the source data and submit them to the LLM.
@@ -278,21 +282,30 @@ class SyntheticGenerator:
             prompt_requests.append(gen_entry)
 
         gen_entries = []
-        for i in tqdm(range(0, len(prompt_requests), self.max_concurrent_entries)):
-            row_slice = source_df[i : i + self.max_concurrent_entries]
-            request_slice = prompt_requests[i : i + self.max_concurrent_entries]
-            print(f"    Processing batch {i} to {i + self.max_concurrent_entries}...")
+
+        for i in tqdm(
+            range(0, len(prompt_requests), self.max_concurrent_entries),
+            desc=f"Synthesizing {len(source_df)} rows",
+        ):
+            slice_end = min(i + self.max_concurrent_entries, len(prompt_requests))
+            row_slice = source_df[i:slice_end]
+            request_slice = prompt_requests[i:slice_end]
 
             try:
-                result = await tqdm.gather(*request_slice)
-                gen_entries.append((row_slice, result))
-            except Exception as e:
-                print(
-                    f"    Failed to generate synthetic data for batch {i} to {i + self.max_concurrent_entries}."
+                result = await tqdm.gather(
+                    *request_slice, desc=f"---- Rows {i} to {slice_end}"
                 )
-                print(e)
+                gen_entries.append((row_slice, result))
+            except Exception as _:
+                print(
+                    f"    Generation failed for rows {i} to {slice_end} due to the following exception:"
+                )
+                print("---------------------------------------------------------")
+                traceback.print_exc()
+                print("---------------------------------------------------------")
+                print("Continuing synthetic data generation...")
 
-        # Fill up the last batch if anything remains
+        # Write the generated data to a file.
         out_fp = f"{out_dir_path}/{synth_prefix}.jsonl"
         self._write_all_to_file(gen_entries, out_fp)
         return out_dir_path
