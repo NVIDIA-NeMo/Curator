@@ -123,10 +123,13 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
 
 #### From the NeMo Framework Container
 
-The latest release of NeMo Curator comes preinstalled in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo/tags). If you want the latest commit inside the container, uninstall the existing version using:
+The latest release of NeMo Curator comes preinstalled in the [NeMo Framework Container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo/tags). If you want the latest commit inside the container, you can reinstall NeMo Curator using:
 
 ```bash
 pip uninstall nemo-curator
+rm -r /opt/NeMo-Curator
+git clone https://github.com/NVIDIA/NeMo-Curator.git /opt/NeMo-Curator
+pip install --extra-index-url https://pypi.nvidia.com /opt/NeMo-Curator[cuda12x]
 ```
 And follow the instructions for installing from source from [above](#from-source).
 

@@ -42,7 +42,7 @@ Though, SLURM scripts or other cluster scripts should be included if there are s
 The documentation should complement each example by going through the motivation behind why a user would use each module.
 It should include both an explanation of the module, and how it's used in its corresponding example.
 The documentation should also cover potential pitfalls and performance considerations when running the module at scale.
-This existing examples and documentation should serve as a good reference to what is expected.
+The existing examples and documentation should serve as a good reference to what is expected.
 
 ## Python style
 We use ``black`` as our style guide. To fix your format run `pip install pre-commit && pre-commit install && pre-commit run --all`.
@@ -71,16 +71,24 @@ pytest
 
 ## Pull Requests (PR) Guidelines
 
-**Send your PRs to the `main` or `dev` branch**
+**Send your PRs to the `main` branch**
 
 1) Make sure your PR does one thing. Have a clear answer to "What does this PR do?".
-2) Read General Principles and style guide below
+2) Read General Principles and style guide above
 3) Make sure you sign your commits. E.g. use ``git commit -sS`` when committing.
+    1) If you forget to do this, please follow the steps below to undo the commits and reapply the changes under a new (signed and signed-off) commit. Note: This will preserve your changes, but delete the git history of commits.
+    ```bash
+    git reset --soft HEAD~N
+    git add <insert all files you want to include>
+    git commit -sS -m "My commit message"
+    git push --force
+    ```
+    Replace `N` in the first line with the number of commits you want to undo. To undo the latest commit, do `git reset --soft HEAD~1`.
 4) Make sure all unittests finish successfully before sending PR ``pytest`` or (if your dev box does not have GPU) ``pytest --cpu`` from the root folder
 5) Send your PR and request a review
 
-The `dev` branch is for active development and may be unstable. Unit tests are expected to pass before merging into `dev` or `main`.
-Every release `dev` and `main` will sync to be the same.
+Unit tests are expected to pass before merging into `main`.
+Every release a new branch will be cut from `main`.
 
 Full text of the DCO:
 
@@ -110,7 +118,7 @@ By making a contribution to this project, I certify that:
 
 ## Whom should you ask for review:
 
-Joseph Jennings (@jjennings) or Ryan Wolf (@rywolf)
+Ryan Wolf (@ryantwolf), Ayush Dattagupta (@ayushdg), Vibhu Jawa (@VibhuJawa), or Sarah Yurick (@sarahyurick)
 
 They may ask for other reviewers depending on the scope of the change. Your pull requests must pass all checks and peer-review before they can be merged.
 
