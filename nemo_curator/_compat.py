@@ -15,7 +15,11 @@
 import dask
 from packaging.version import parse as parseVersion
 
-_dask_version = parseVersion(dask.__version__)
+try:
+    _dask_version = parseVersion(dask.__version__)
+except TypeError:
+    # When mocking with autodoc the dask version is not there
+    _dask_version = parseVersion("2024.06.0")
 
 # TODO: remove when dask min version gets bumped
 DASK_SHUFFLE_METHOD_ARG = _dask_version > parseVersion("2024.1.0")

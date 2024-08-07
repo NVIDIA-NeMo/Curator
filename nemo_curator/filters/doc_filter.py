@@ -14,9 +14,17 @@
 
 import importlib
 from abc import ABC, abstractmethod
+from typing import Any
 
 
 class DocumentFilter(ABC):
+    """
+    An abstract base class for text-based document filters.
+
+    This class serves as a template for creating specific document filters
+    in the library. Subclasses should implement the abstract methods to
+    define custom filtering behavior.
+    """
 
     def __init__(self):
         super().__init__()
@@ -26,12 +34,50 @@ class DocumentFilter(ABC):
         self._ngrams = None
 
     @abstractmethod
-    def score_document(self, text):
-        pass
+    def score_document(self, text: str) -> Any:
+        """
+        Calculate a score for the given document text.
+
+        This method should be implemented by subclasses to define how
+        a document's text is evaluated and scored.
+
+        Args:
+            text (str): The text content of the document to be scored.
+
+        Returns:
+            Any: A score or set of scores representing the document's
+            relevance or quality. The type and structure of the
+            return value should be consistent for each subclass.
+
+        Raises:
+            NotImplementedError: If the method is not implemented in a subclass.
+        """
+        raise NotImplementedError(
+            "score_document method must be implemented by subclasses"
+        )
 
     @abstractmethod
-    def keep_document(self, scores):
-        pass
+    def keep_document(self, scores: Any) -> bool:
+        """
+        Determine whether to keep a document based on its scores.
+
+        This method should be implemented by subclasses to define the
+        criteria for keeping or discarding a document based on the
+        scores calculated by score_document().
+
+        Args:
+            scores (Any): The score or set of scores returned by score_document().
+                          The type should match what is returned by score_document().
+
+        Returns:
+            bool: True if the document should be kept, False otherwise.
+
+        Raises:
+            NotImplementedError: If the method is not implemented in a subclass.
+        """
+        raise NotImplementedError(
+            "keep_document method must be implemented by subclasses"
+        )
 
     @property
     def name(self):
@@ -62,7 +108,19 @@ class DocumentFilter(ABC):
         self._ngrams = ngrams
 
 
-def import_filter(filter_path):
+def import_filter(filter_path: str) -> DocumentFilter:
+    """
+    Imports a filter under nemo_curator.filters given the module path
+
+    Args:
+        filter_path (str): The path to the filter in the form of "nemo_curator.filters.filter_name"
+
+    Returns:
+        DocumentFilter: The filter that is at the given path
+
+    Raises:
+        ValueError: If the filter_path does not point to a DocumentFilter
+    """
     module_path, filter_name = filter_path.rsplit(".", 1)
     filter_module = importlib.import_module(module_path)
     filter_class = getattr(filter_module, filter_name)

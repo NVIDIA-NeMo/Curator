@@ -192,22 +192,6 @@ class ArxivExtractor(DocumentExtractor):
         super().__init__()
 
     def extract(self, content):
-        r"""function takes a list of tex files and returns a cleaned version of
-        the tex project. The cleaned version is a concatenation of the tex files
-        with the following modifications:
-
-        - if multiple latex files, then concatenate them
-        - remove all comments (i.e. all lines starting with %)
-        - remove everything before the first \section header
-        - remove everything after the first occurrence of either \appendix or
-            \bibliography
-        - inline-expand definitions and macros
-
-        @param tex_files: list of file_content strings
-
-        @return: cleaned tex project as a string, empty string
-        if no tex files are provided
-        """
         if len(content) == 0:
             return None
 

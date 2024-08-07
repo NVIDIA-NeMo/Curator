@@ -45,7 +45,7 @@ class NonAlphaNumericFilter(DocumentFilter):
     Source: Adapted from Gopher (Rae et al., 2021)
     """
 
-    def __init__(self, max_non_alpha_numeric_to_text_ratio=0.25):
+    def __init__(self, max_non_alpha_numeric_to_text_ratio: float = 0.25):
         super().__init__()
         self._cutoff = max_non_alpha_numeric_to_text_ratio
         self._name = "alpha_numeric"

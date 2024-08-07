@@ -115,12 +115,16 @@ def get_client(
         2. Enabling spilling for cuDF. (If `enable_spilling` is True)
 
     Args:
-        cluster_type: The type of cluster to set up. Either "cpu" or "gpu". Defaults to "cpu".
-            Many options in get_client only apply to CPU-based or GPU-based clusters. Make sure you check the description of the parameter.
-        scheduler_address: This can be the address of a Scheduler server like a string '127.0.0.1:8786' or a cluster object
-            like LocalCluster(). If specified, all other arguments are ignored and the client is connected to the existing cluster.
+        cluster_type: If scheduler_address and scheduler_file are None, sets up a local (single node) cluster of the specified type.
+            Either "cpu" or "gpu". Defaults to "cpu". Many options in get_client only apply to CPU-based or GPU-based clusters.
+            Make sure you check the description of the parameter.
+        scheduler_address: Address of existing Dask cluster to connect to. This can be the address of a Scheduler server like a
+            string '127.0.0.1:8786' or a cluster object like LocalCluster(). If specified, all other arguments are ignored and
+            the client is connected to the existing cluster. The other configuration options should be done when setting up the
+            Dask cluster.
         scheduler_file: Path to a file with scheduler information if available. If specified, all other arguments are ignored
-            and the client is connected to the existing cluster.
+            and the client is connected to the existing cluster. The other configuration options should be done when setting up the
+            Dask cluster.
         n_workers: For CPU-based clusters only. The number of workers to start. Defaults to os.cpu_count(). For GPU-based clusters,
             the number of workers is locked to the number of GPUs in CUDA_VISIBLE_DEVICES.
         threads_per_worker: For CPU-based clusters only. The number of threads per each worker. Defaults to 1.
