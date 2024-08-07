@@ -17,14 +17,14 @@ from typing import Dict
 
 from nemo_curator.utils.import_utils import safe_import
 
-sdk = safe_import("nemo_sdk")
+run = safe_import("nemo_run")
 
 
 @dataclass
 class SlurmJobConfig:
     """
     Configuration for running a NeMo Curator script on a SLURM cluster using
-    NeMo SDK
+    NeMo Run
 
     Args:
         job_dir: The base directory where all the files related to setting up
@@ -69,7 +69,7 @@ class SlurmJobConfig:
 
     def to_script(self, add_scheduler_file: bool = True, add_device: bool = True):
         """
-        Converts to a script object executable by NeMo SDK
+        Converts to a script object executable by NeMo Run
         Args:
             add_scheduler_file: Automatically appends a '--scheduler-file' argument to the
                 script_command where the value is job_dir/logs/scheduler.json. All
@@ -79,7 +79,7 @@ class SlurmJobConfig:
                 where the value is the member variable of device. All scripts included in
                 NeMo Curator accept and require this argument.
         Returns:
-            A NeMo SDK Script that will intialize a Dask cluster, and run the specified command.
+            A NeMo Run Script that will intialize a Dask cluster, and run the specified command.
             It is designed to be executed on a SLURM cluster
         """
         env_vars = self._build_env_vars()
@@ -94,7 +94,7 @@ class SlurmJobConfig:
         # Surround the command in quotes so the variable gets set properly
         env_vars["SCRIPT_COMMAND"] = f"\"{env_vars['SCRIPT_COMMAND']}\""
 
-        return sdk.Script(path=self.container_entrypoint, env=env_vars)
+        return run.Script(path=self.container_entrypoint, env=env_vars)
 
     def _build_env_vars(self) -> Dict[str, str]:
         env_vars = vars(self)

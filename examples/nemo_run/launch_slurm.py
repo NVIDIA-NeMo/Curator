@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import nemo_sdk as sdk
-from nemo_sdk.core.execution import SlurmExecutor
+import nemo_run as run
+from nemo_run.core.execution import SlurmExecutor
 
-from nemo_curator.nemo_sdk import SlurmJobConfig
+from nemo_curator.nemo_run import SlurmJobConfig
 
 
-@sdk.factory
+@run.factory
 def nemo_curator_slurm_executor() -> SlurmExecutor:
     """
     Configure the following function with the details of your SLURM cluster
@@ -46,8 +46,8 @@ def main():
         script_command=curator_command,
     )
 
-    executor = sdk.resolve(SlurmExecutor, "nemo_curator_slurm_executor")
-    with sdk.Experiment("example_nemo_curator_exp", executor=executor) as exp:
+    executor = run.resolve(SlurmExecutor, "nemo_curator_slurm_executor")
+    with run.Experiment("example_nemo_curator_exp", executor=executor) as exp:
         exp.add(curator_job.to_script(), tail_logs=True)
         exp.run(detach=False)
 

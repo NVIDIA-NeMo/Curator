@@ -30,8 +30,8 @@
 :ref:`NeMo Curator on Kubernetes <data-curator-kubernetes>`
    Demonstration of how to run the NeMo Curator on a Dask Cluster deployed on top of Kubernetes
 
-:ref:`NeMo Curator with NeMo SDK <data-curator-nemo-sdk>`
-   Example of how to use NeMo Curator with NeMo SDK to run on various platforms
+:ref:`NeMo Curator with NeMo Run <data-curator-nemo-run>`
+   Example of how to use NeMo Curator with NeMo Run to run on various platforms
 
 :ref:`Best Practices <data-curator-best-practices>`
    A collection of suggestions on how to best use NeMo Curator to curate your dataset
@@ -58,6 +58,6 @@
    personalidentifiableinformationidentificationandremoval.rst
    distributeddataclassification.rst
    kubernetescurator.rst
-   nemosdk.rst
+   nemorun.rst
    bestpractices.rst
    nextsteps.rst

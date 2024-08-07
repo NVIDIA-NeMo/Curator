@@ -1,33 +1,33 @@
-.. _data-curator-nemo-sdk:
+.. _data-curator-nemo-run:
 
 ======================================
-NeMo Curator with NeMo SDK
+NeMo Curator with NeMo Run
 ======================================
 -----------------------------------------
-NeMo SDK
+NeMo Run
 -----------------------------------------
 
-The NeMo SDK is a general purpose tool for configuring and executing Python functions and scripts acrosss various computing environments.
+The NeMo Run is a general purpose tool for configuring and executing Python functions and scripts acrosss various computing environments.
 It is used across the NeMo Framework for managing machine learning experiments.
-One of the key features of the NeMo SDK is the ability to run code locally or on platforms like SLURM with minimal changes.
+One of the key features of the NeMo Run is the ability to run code locally or on platforms like SLURM with minimal changes.
 
 -----------------------------------------
 Usage
 -----------------------------------------
 
-We recommend getting slightly familiar with NeMo SDK before jumping into this. The documentation can be found here.
+We recommend getting slightly familiar with NeMo Run before jumping into this. The documentation can be found here.
 
-Let's walk through the example usage for how you can launch a slurm job using `examples/launch_slurm.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/nemo_sdk/launch_slurm.py>`_.
+Let's walk through the example usage for how you can launch a slurm job using `examples/launch_slurm.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/nemo_run/launch_slurm.py>`_.
 
 .. code-block:: python
 
 
-    import nemo_sdk as sdk
-    from nemo_sdk.core.execution import SlurmExecutor
+    import nemo_run as run
+    from nemo_run.core.execution import SlurmExecutor
 
-    from nemo_curator.nemo_sdk import SlurmJobConfig
+    from nemo_curator.nemo_run import SlurmJobConfig
 
-    @sdk.factory
+    @run.factory
     def nemo_curator_slurm_executor() -> SlurmExecutor:
         """
         Configure the following function with the details of your SLURM cluster
@@ -43,7 +43,7 @@ Let's walk through the example usage for how you can launch a slurm job using `e
         )
 
 First, we need to define a factory that can produce a ``SlurmExecutor``.
-This exectuor is where you define all your cluster parameters. Note: NeMo SDK only supports running on SLURM clusters with `Pyxis <https://github.com/NVIDIA/pyxis>`_ right now.
+This exectuor is where you define all your cluster parameters. Note: NeMo Run only supports running on SLURM clusters with `Pyxis <https://github.com/NVIDIA/pyxis>`_ right now.
 After this, there is the main function
 
 .. code-block:: python
@@ -80,17 +80,17 @@ We'll highlight a couple of important ones:
 
 .. code-block:: python
 
-    executor = sdk.resolve(SlurmExecutor, "nemo_curator_slurm_executor")
-    with sdk.Experiment("example_nemo_curator_exp", executor=executor) as exp:
+    executor = run.resolve(SlurmExecutor, "nemo_curator_slurm_executor")
+    with run.Experiment("example_nemo_curator_exp", executor=executor) as exp:
         exp.add(curator_job.to_script(), tail_logs=True)
         exp.run(detach=False)
 
 After configuring the job, we can finally run it.
-First, we use the sdk to resolve our custom factory.
+First, we use the run to resolve our custom factory.
 Next, we use it to begin an experiment named "example_nemo_curator_exp" running on our Slurm exectuor.
 
 ``exp.add(curator_job.to_script(), tail_logs=True)`` adds the NeMo Curator script to be part of the experiment.
-It converts the ``SlurmJobConfig`` to a ``sdk.Script``.
+It converts the ``SlurmJobConfig`` to a ``run.Script``.
 This ``curator_job.to_script()`` has two important parameters.
 * ``add_scheduler_file=True``
 * ``add_device=True``
