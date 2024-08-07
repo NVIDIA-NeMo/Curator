@@ -33,6 +33,7 @@ repos:
         exclude: docs/
       - id: requirements-txt-fixer
       - id: trailing-whitespace
+        exclude: nemo_curator/utils/aegis_utils.py
 
   - repo: https://github.com/psf/black
     rev: 24.4.2

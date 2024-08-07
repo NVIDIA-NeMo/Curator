@@ -49,10 +49,8 @@ ClusteringModel = gpu_only_import_from(
 SemanticClusterLevelDedup = gpu_only_import_from(
     "nemo_curator.modules.semantic_dedup", "SemanticClusterLevelDedup"
 )
-from .distributed_data_classifier import DomainClassifier, QualityClassifier
 
 __all__ = [
-    "DomainClassifier",
     "ExactDuplicates",
     "Filter",
     "FuzzyDuplicatesConfig",
@@ -60,7 +58,6 @@ __all__ = [
     "LSH",
     "MinHash",
     "Modify",
-    "QualityClassifier",
     "Score",
     "ScoreFilter",
     "Sequential",

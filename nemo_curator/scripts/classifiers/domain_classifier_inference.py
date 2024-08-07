@@ -17,7 +17,7 @@ import time
 import warnings
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-from nemo_curator import DomainClassifier
+from nemo_curator.classifiers import DomainClassifier
 from nemo_curator.datasets import DocumentDataset
 
 # Get relevant args
@@ -61,7 +61,7 @@ def main():
         add_filename = True
 
     domain_classifier = DomainClassifier(
-        max_chars=max_chars,
+        max_chars=args.max_chars,
         batch_size=args.batch_size,
         autocast=args.autocast,
     )

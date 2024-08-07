@@ -15,7 +15,7 @@
 import argparse
 import time
 
-from nemo_curator import QualityClassifier
+from nemo_curator.classifiers import AegisClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
@@ -24,28 +24,31 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 def main(args):
     global_st = time.time()
 
-    model_path = "/path/to/pytorch_model_file.pth"
-
     # Input can be a string or list
     input_file_path = "/path/to/data"
     output_file_path = "./"
+    huggingface_token = "hf_1234"  # Replace with a HuggingFace user access token
 
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+    client_args = ArgumentHelper.parse_client_args(args)
+    client_args["cluster_type"] = "gpu"
+    client = get_client(**client_args)
 
     input_dataset = DocumentDataset.read_json(
         input_file_path, backend="cudf", add_filename=True
     )
 
-    quality_classifier = QualityClassifier(
-        model_path=model_path,
-        filter_by=["High", "Medium"],
+    safety_classifier = AegisClassifier(
+        aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
+        token=huggingface_token,
+        filter_by=["safe", "O13"],
     )
-    result_dataset = quality_classifier(dataset=input_dataset)
-    print(result_dataset.df.head())
+    result_dataset = safety_classifier(dataset=input_dataset)
+
+    result_dataset.to_json(output_file_dir=output_file_path, write_to_filename=True)
 
     global_et = time.time()
     print(
-        f"Total time taken for quality classifier inference: {global_et-global_st} s",
+        f"Total time taken for AEGIS classifier inference: {global_et-global_st} s",
         flush=True,
     )
 
@@ -58,17 +61,9 @@ def attach_args(
     ),
 ):
     argumentHelper = ArgumentHelper(parser)
+    argumentHelper.add_distributed_classifier_cluster_args()
 
-    argumentHelper.add_arg_device()
-    argumentHelper.add_arg_enable_spilling()
-    argumentHelper.add_arg_nvlink_only()
-    argumentHelper.add_arg_protocol()
-    argumentHelper.add_arg_rmm_pool_size()
-    argumentHelper.add_arg_scheduler_address()
-    argumentHelper.add_arg_scheduler_file()
-    argumentHelper.add_arg_set_torch_to_use_rmm()
-
-    return argumentHelper.parser
+    return argumentHelper.parser.parse_args()
 
 
 if __name__ == "__main__":

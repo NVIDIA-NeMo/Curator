@@ -17,7 +17,7 @@ import time
 import warnings
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-from nemo_curator import QualityClassifier
+from nemo_curator.classifiers import QualityClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_remaining_files
@@ -31,7 +31,6 @@ def main():
     parser.add_argument("--num-labels", type=int, default=3)
     args = parser.parse_args()
     print(f"Arguments parsed = {args}", flush=True)
-    max_chars = 6000
 
     client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
@@ -63,7 +62,7 @@ def main():
     classifier = QualityClassifier(
         model_path=args.pretrained_model_name_or_path,
         num_labels=args.num_labels,
-        max_chars=max_chars,
+        max_chars=args.max_chars,
         batch_size=args.batch_size,
         autocast=args.autocast,
     )
