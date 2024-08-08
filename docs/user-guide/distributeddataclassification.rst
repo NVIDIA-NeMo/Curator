@@ -46,6 +46,7 @@ Let's see how ``DomainClassifier`` works in a small excerpt taken from ``example
     result_dataset.to_json("games_and_sports/")
 
 In the above excerpt, the domain classifier is obtained directly from `Hugging Face <https://huggingface.co/nvidia/domain-classifier>`_.
+NeMo Curator's ``QualityClassifier`` functions similarly and is obtained from `here <https://huggingface.co/nvidia/quality-classifier-deberta>`_.
 
 This module functions similarly to the ``ScoreFilter`` module.
 The key differences is that it operates on the GPU instead of the CPU.

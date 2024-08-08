@@ -12,12 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from dataclasses import dataclass
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from abc import ABC, abstractmethod
 from typing import List
 
+import torch
+import torch.nn as nn
 from crossfit import op
+from huggingface_hub import PyTorchModelHubMixin
+from transformers import AutoModel
 
 from nemo_curator.datasets import DocumentDataset
 
@@ -76,6 +81,32 @@ class DistributedDataClassifier(ABC):
 
     def get_labels(self) -> List[str]:
         return self.labels
+
+
+class HFDeberta(nn.Module, PyTorchModelHubMixin):
+    def __init__(self, config: dataclass):
+        super(HFDeberta, self).__init__()
+        self.model = AutoModel.from_pretrained(config["base_model"])
+        self.dropout = nn.Dropout(config["fc_dropout"])
+        self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
+
+    def _forward(self, batch):
+        features = self.model(
+            batch["input_ids"], batch["attention_mask"]
+        ).last_hidden_state
+        dropped = self.dropout(features)
+        outputs = self.fc(dropped)
+        return torch.softmax(outputs[:, 0, :], dim=1)
+
+    def forward(self, batch):
+        if self.autocast:
+            with torch.autocast(device_type="cuda"):
+                return self._forward(batch)
+        else:
+            return self._forward(batch)
+
+    def set_autocast(self, autocast):
+        self.autocast = autocast
 
 
 def _run_classifier_helper(

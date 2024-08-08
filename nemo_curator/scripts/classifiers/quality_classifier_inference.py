@@ -19,6 +19,8 @@ import warnings
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from nemo_curator.classifiers import QualityClassifier
 from nemo_curator.datasets import DocumentDataset
+
+# Get relevant args
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_remaining_files
 from nemo_curator.utils.script_utils import ArgumentHelper
@@ -27,9 +29,7 @@ warnings.filterwarnings("ignore")
 
 
 def main():
-    parser = ArgumentHelper.parse_distributed_classifier_args()
-    parser.add_argument("--num-labels", type=int, default=3)
-    args = parser.parse_args()
+    args = ArgumentHelper.parse_distributed_classifier_args().parse_args()
     print(f"Arguments parsed = {args}", flush=True)
 
     client_args = ArgumentHelper.parse_client_args(args)
@@ -42,7 +42,7 @@ def main():
     if not os.path.exists(args.output_data_dir):
         os.makedirs(args.output_data_dir)
 
-    # Some time jsonl files are stored as .json
+    # Some times jsonl files are stored as .json
     # So to handle that case we can pass the input_file_extension
     if args.input_file_extension is not None:
         input_file_extension = args.input_file_extension
@@ -60,8 +60,6 @@ def main():
         add_filename = True
 
     classifier = QualityClassifier(
-        model_path=args.pretrained_model_name_or_path,
-        num_labels=args.num_labels,
         max_chars=args.max_chars,
         batch_size=args.batch_size,
         autocast=args.autocast,
@@ -79,8 +77,9 @@ def main():
             file_type=args.input_file_type,
             add_filename=add_filename,
         )
-        print(f"Total input Dask DataFrame partitions {df.npartitions}", flush=True)
         df = classifier(DocumentDataset(df)).df
+        print(f"Total input Dask DataFrame partitions {df.npartitions}", flush=True)
+
         write_to_disk(
             df=df,
             output_file_dir=args.output_data_dir,

@@ -24,8 +24,6 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 def main(args):
     global_st = time.time()
 
-    model_path = "/path/to/pytorch_model_file.pth"
-
     # Input can be a string or list
     input_file_path = "/path/to/data"
     output_file_path = "./"
@@ -38,10 +36,7 @@ def main(args):
         input_file_path, backend="cudf", add_filename=True
     )
 
-    quality_classifier = QualityClassifier(
-        model_path=model_path,
-        filter_by=["High", "Medium"],
-    )
+    quality_classifier = QualityClassifier(filter_by=["High", "Medium"])
     result_dataset = quality_classifier(dataset=input_dataset)
 
     result_dataset.to_json(output_file_dir=output_file_path, write_to_filename=True)
