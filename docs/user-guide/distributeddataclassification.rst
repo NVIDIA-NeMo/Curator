@@ -69,6 +69,7 @@ the constructor of this classifier.
 NeMo Curator provides an easy way to annotate and filter your data using the safety models through our distributed data classfication framework.
 
 .. code-block:: python
+
   files = get_all_files_paths_under("unsafe_documents/")
   input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
