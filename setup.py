@@ -47,6 +47,9 @@ setup(
         "fasttext==0.9.2",
         "pycld2",
         "justext==3.0.1",
+        # lxml_html_clean has difficulty installing in jusText
+        # installing explicitly to prevent errors/lag with jusText
+        "lxml_html_clean",
         "resiliparse",
         "ftfy==6.1.1",
         "warcio==1.7.4",
