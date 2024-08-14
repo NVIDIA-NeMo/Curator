@@ -14,7 +14,7 @@ Unlike exact or fuzzy deduplication, which focus on textual similarity, semantic
 As outlined in the paper `SemDeDup: Data-efficient learning at web-scale through semantic deduplication <https://arxiv.org/pdf/2303.09540>`_ by Abbas et al.,
 this method can significantly reduce dataset size while maintaining or even improving model performance.
  Semantic deduplication is particularly effective for large, uncurated web-scale datasets, where it can remove up to 50% of the data with minimal performance loss.
-The semantic deduplication module in NeMo Curator uses embeddings from to identify and remove "semantic duplicates" - data pairs that are semantically similar but not exactly identical.
+The semantic deduplication module in NeMo Curator uses embeddings to identify and remove "semantic duplicates" - data pairs that are semantically similar but not exactly identical.
 While this documentation primarily focuses on text-based deduplication, the underlying principles can be extended to other modalities with appropriate embedding models.
 
 -----------------------------------------
@@ -30,7 +30,7 @@ The SemDeDup algorithm consists of the following main steps:
 5. Duplicate Removal: From each group of semantic duplicates within a cluster, one representative datapoint is kept (typically the one with the lowest cosine similarity to the cluster centroid) and the rest are removed.
 
 -----------------------------------------
-Configuration
+Configure Semantic Deduplication
 -----------------------------------------
 
 Semantic deduplication in NeMo Curator can be configured using a YAML file. Here's an example `sem_dedup_config.yaml`:
@@ -73,7 +73,7 @@ Semantic deduplication in NeMo Curator can be configured using a YAML file. Here
 You can customize this configuration file to suit your specific needs and dataset characteristics.
 
 -----------------------------------------
-Changing Embedding Models
+Change Embedding Models
 -----------------------------------------
 
 One of the key advantages of the semantic deduplication module is its flexibility in using different pre-trained models for embedding generation.
@@ -125,15 +125,15 @@ The semantic deduplication process is controlled by two key threshold parameters
                      This value must be one of the thresholds listed in `eps_thresholds`.
 
 This two-step approach offers several advantages:
-- Flexibility to compute matches at multiple thresholds without rerunning the entire process.
-- Ability to analyze the impact of different thresholds on your dataset.
-- Option to fine-tune the final threshold based on specific needs without recomputing all matches.
+* Flexibility to compute matches at multiple thresholds without rerunning the entire process.
+* Ability to analyze the impact of different thresholds on your dataset.
+* Option to fine-tune the final threshold based on specific needs without recomputing all matches.
 
-Choosing appropriate thresholds:
-- Lower thresholds (e.g., 0.001): More strict, resulting in less deduplication but higher confidence in the identified duplicates.
-- Higher thresholds (e.g., 0.1): Less strict, leading to more aggressive deduplication but potentially removing documents that are only somewhat similar.
+When choosing appropriate thresholds:
+* Lower thresholds (e.g., 0.001): More strict, resulting in less deduplication but higher confidence in the identified duplicates.
+* Higher thresholds (e.g., 0.1): Less strict, leading to more aggressive deduplication but potentially removing documents that are only somewhat similar.
 
-It's recommended to experiment with different threshold values to find the optimal balance between data reduction and maintaining dataset diversity and quality.
+We recommended that you experiment with different threshold values to find the optimal balance between data reduction and maintaining dataset diversity and quality.
 The impact of these thresholds can vary depending on the nature and size of your dataset.
 
 Remember, if you want to extract data using a threshold that's not in `eps_thresholds`, you'll need to recompute the semantic matches with the new threshold included in the list.
@@ -158,7 +158,8 @@ You can use the `add_id` module from NeMo Curator if needed:
 
 To perform semantic deduplication, you can either use individual components or the SemDedup class with a configuration file:
 
-Using individual components:
+Use Individual Components
+##########################
 
 1. Embedding Creation:
 
@@ -194,7 +195,7 @@ Using individual components:
     )
     clustered_dataset = clustering_model(embeddings_dataset)
 
-1. Semantic Deduplication:
+3. Semantic Deduplication:
 
 .. code-block:: python
 
@@ -214,7 +215,10 @@ Using individual components:
     semantic_dedup.compute_semantic_match_dfs()
     deduplicated_dataset_ids = semantic_dedup.extract_dedup_data(eps_to_extract=0.07)
 
-1. Alternatively, you can use the SemDedup class to perform all steps:
+Use the SemDedup Class
+#######################
+
+Alternatively, you can use the SemDedup class to perform all steps:
 
 .. code-block:: python
 
@@ -255,10 +259,10 @@ Output
 
 The semantic deduplication process produces a deduplicated dataset, typically reducing the dataset size by 20-50% while maintaining or improving model performance. The output includes:
 
-1. Embeddings for each datapoint
-2. Cluster assignments for each datapoint
-3. A list of semantic duplicates
-4. The final deduplicated dataset
+1. Embeddings for each datapoint.
+2. Cluster assignments for each datapoint.
+3. A list of semantic duplicates.
+4. The final deduplicated dataset.
 
 -----------------------------------------
 Performance Considerations

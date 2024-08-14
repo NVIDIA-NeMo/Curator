@@ -2,7 +2,7 @@
 .. _data-curator-download:
 
 ======================================
-Downloading and Extracting Text
+Download and Extract Text
 ======================================
 -----------------------------------------
 Background
@@ -33,7 +33,7 @@ By "download", we typically mean the transfer of data from a web-hosted data sou
 By "extraction", we typically mean the process of converting a data format from its raw form (e.g., ``.warc.gz``) to a standardized format (e.g., ``.jsonl``) and discarding irrelvant data.
 
 * ``download_common_crawl`` will download and extract the compressed web archive files of common crawl snapshots to a target directory.
-  Common crawl has an S3 bucket and a direct HTTPS endpoint. If you want to use the S3 bucket, ensure you have properly setup your credentials with `s5cmd <https://github.com/peak/s5cmd>`_.
+  Common crawl has an S3 bucket and a direct HTTPS endpoint. If you want to use the S3 bucket, ensure you have properly set up your credentials with `s5cmd <https://github.com/peak/s5cmd>`_.
   Otherwise, the HTTPS endpoints will be used with ``wget``. Here is a small example of how to use it:
 
   .. code-block:: python
@@ -47,7 +47,7 @@ By "extraction", we typically mean the process of converting a data format from 
   * ``"2021-04"`` is the last common crawl snapshot that will be included in the download.
   * ``output_type="jsonl"`` is the file format that will be used for storing the data on disk. Currently ``"jsonl"`` and ``"parquet"`` are supported.
 
-  The user may choose to modify the HTML text extraction algorithm used in ``download_common_crawl``. See an example below.
+You can choose to modify the HTML text extraction algorithm used in ``download_common_crawl``. See an example below.
 
   .. code-block:: python
 
@@ -72,9 +72,9 @@ By "extraction", we typically mean the process of converting a data format from 
 
   NeMo Curator's Common Crawl extraction process looks like this under the hood:
 
-  1. Decode the HTML within the record from binary to text
-  2. If the HTML can be properly decoded, then with `pyCLD2 <https://github.com/aboSamoor/pycld2>`_, perform language detection on the input HTML
-  3. Finally, the extract the relevant text with `jusText <https://github.com/miso-belica/jusText>`_ or `Resiliparse <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_ from the HTML and write it out as a single string within the 'text' field of a json entry within a `.jsonl` file
+ 1. Decode the HTML within the record from binary to text.
+ 2. If the HTML can be properly decoded, then with `pyCLD2 <https://github.com/aboSamoor/pycld2>`_, perform language detection on the input HTML.
+ 3. Finally, the extract the relevant text with `jusText <https://github.com/miso-belica/jusText>`_ or `Resiliparse <https://github.com/chatnoir-eu/chatnoir-resiliparse>`_ from the HTML and write it out as a single string within the 'text' field of a json entry within a `.jsonl` file.
 * ``download_wikipedia`` will download and extract the latest wikipedia dump. Files are downloaded using ``wget``. Wikipedia might download slower than the other datasets. This is because they limit the number of downloads that can occur per-ip address.
 
   .. code-block:: python
@@ -86,7 +86,7 @@ By "extraction", we typically mean the process of converting a data format from 
   * ``"/extracted/output/folder"`` is the path to on your local filesystem where the final extracted files will be placed.
   * ``dump_date="20240201"`` fixes the Wikipedia dump to a specific date. If no date is specified, the latest dump is used.
 
-* ``download_arxiv`` will download and extract latex versions of ArXiv papers. They are hosted on S3, so ensure you have properly setup your credentials with `s5cmd <https://github.com/peak/s5cmd>`_.
+* ``download_arxiv`` will download and extract latex versions of ArXiv papers. They are hosted on S3, so ensure you have properly set up your credentials with `s5cmd <https://github.com/peak/s5cmd>`_.
 
   .. code-block:: python
 
@@ -107,7 +107,7 @@ Related Scripts
 In addition to the Python module described above, NeMo Curator provides several CLI scripts that you may find useful for performing the same function.
 
 The :code:`download_and_extract` script within NeMo Curator is a generic tool that can be used to download and extract from a number of different
-datasets. In general, it can be called as follows in order to download and extract text from the web
+datasets. In general, it can be called as follows in order to download and extract text from the web:
 
 .. code-block:: bash
 
@@ -116,9 +116,9 @@ datasets. In general, it can be called as follows in order to download and extra
     --builder-config-file=<Path to .yaml file that describes how the data should be downloaded and extracted> \
     --output-json-dir=<Path to output directory to which data will be written in .jsonl format>
 
-This utility takes as input a list of URLs that point to files that contain prepared, unextracted data (e.g., pre-crawled web pages from Common Crawl), a config file that describes how to download and extract the data, and the output directory to where the extracted text will be written in jsonl format (one json written to each document per line). For each URL provided in the list of URLs, a corresponding jsonl file will be written to the output directory.
+This utility takes as input a list of URLs that point to files that contain prepared, unextracted data (e.g., pre-crawled web pages from Common Crawl), a config file that describes how to download and extract the data, and the output directory where the extracted text will be written in jsonl format (one json written to each document per line). For each URL provided in the list of URLs, a corresponding jsonl file will be written to the output directory.
 
-The config file that must be provided at runtime, should take the following form
+The config file that must be provided at runtime, should take the following form:
 
 .. code-block:: yaml
 
@@ -137,11 +137,11 @@ Common Crawl Example
 
 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Setup
+Set Up Common Crawl
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 If you prefer, the download process can pull WARC files from S3 using `s5cmd <https://github.com/peak/s5cmd>`_.
 This utility is preinstalled in the NeMo Framework Container, but you must have the necessary credentials within :code:`~/.aws/config` in order to use it.
-If you would prefer to use this over `wget <https://en.wikipedia.org/wiki/Wget>`_ instead, you may set :code:`aws=True` in the :code:`download_params` as follows
+If you prefer to use this method instead of `wget <https://en.wikipedia.org/wiki/Wget>`_ , set :code:`aws=True` in the :code:`download_params` as follows:
 
 .. code-block:: yaml
 
@@ -155,11 +155,11 @@ If you would prefer to use this over `wget <https://en.wikipedia.org/wiki/Wget>`
 
 
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Downloading and Extracting Common Crawl
+Download and Extract Common Crawl
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-As described in the first section of this document, the first step towards using the :code:`download_and_extract` for Common Crawl will be to create a list of URLs that point to the location of the WARC files hosted by Common Crawl.
-Within NeMo Curator, we provide the utility :code:`get_common_crawl_urls` to obtain these urls. This utility can be run as follows
+As described in the first section of this document, the first step in using the :code:`download_and_extract` for Common Crawl is to create a list of URLs that point to the location of the WARC files hosted by Common Crawl.
+Within NeMo Curator, we provide the :code:`get_common_crawl_urls` utility to obtain these URLs. This utility can be run as follows:
 
 .. code-block:: bash
 
@@ -170,9 +170,9 @@ Within NeMo Curator, we provide the utility :code:`get_common_crawl_urls` to obt
     --output-warc-url-file=./url_data/warc_urls_cc_2020_50.txt
 
 This script pulls the Common Crawl index from `https://index.commoncrawl.org` and stores the index to the file
-specified by the argument :code:`--cc-snapshot-index-file`. It then retrieves all WARC urls between the
+specified by the argument :code:`--cc-snapshot-index-file`. It then retrieves all WARC URLs between the
 dates specified by the arguments :code:`--starting-snapshot` and :code:`--ending-snapshot`.
-Finally, it writes all WARC urls to the text file :code:`--output-warc-urls`. This file is a simple text file
+Finally, it writes all WARC URLs to the text file :code:`--output-warc-urls`. This file is a simple text file
 with the following format::
 
   https://data.commoncrawl.org/crawl-data/CC-MAIN-2020-50/segments/1606141163411.0/warc/CC-MAIN-20201123153826-20201123183826-00000.warc.gz
@@ -182,10 +182,10 @@ with the following format::
   https://data.commoncrawl.org/crawl-data/CC-MAIN-2020-50/segments/1606141163411.0/warc/CC-MAIN-20201123153826-20201123183826-00004.warc.gz
   ...
 
-For the CC-MAIN-2020-50 snapshot there are a total of 72,000 compressed WARC files each between 800 - 900 MB.
+For the CC-MAIN-2020-50 snapshot, there are a total of 72,000 compressed WARC files each between 800 - 900 MB.
 
-Now with the prepared list of URLs, we can use the Common Crawl config included in the :code:`config` directory under the root directory of the repository. This config uses the download, data loader and extraction classes defined in the file :code:`nemo_curator/download/commoncrawl.py`.
-With this config and the input list of URLs, the :code:`download_and_extract` utility can be used as follows for downloading and extracting text from Common Crawl
+Now with the prepared list of URLs, we can use the Common Crawl config included in the :code:`config` directory under the root directory of the repository. This config uses the download, data loader, and extraction classes defined in the file :code:`nemo_curator/download/commoncrawl.py`.
+With this config and the input list of URLs, the :code:`download_and_extract` utility can be used as follows for downloading and extracting text from Common Crawl:
 
 .. code-block:: bash
 
@@ -196,7 +196,7 @@ With this config and the input list of URLs, the :code:`download_and_extract` ut
 
 
 As the text is extracted from the WARC records, the prepared documents are written to the directory specified by :code:`--output-json-dir`. Here is an
-example of a single line of an output `.jsonl` file extracted from a WARC record
+example of a single line of an output `.jsonl` file extracted from a WARC record:
 
 .. code-block:: json
 
