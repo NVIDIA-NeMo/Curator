@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import csv
-import statistics
 import warnings
 
 from bs4 import BeautifulSoup
@@ -263,7 +262,7 @@ class PerExtensionFilter(DocumentFilter):
     def _line_statistics(self, source):
         lengths = [len(x) for x in source.split("\n")]
         max_length = max(lengths)
-        mean_length = statistics.fmean(lengths)
+        mean_length = (len(source) + 1) / len(lengths) - 1
 
         return max_length, mean_length
 
