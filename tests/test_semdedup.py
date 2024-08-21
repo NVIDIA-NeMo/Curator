@@ -49,7 +49,7 @@ def dedup_data():
 
 
 @pytest.mark.gpu
-class TestFuzzyDuplicates:
+class TestSemDuplicates:
     @pytest.fixture(autouse=True, scope="class")
     def gpu_client(self, request):
         with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
@@ -57,7 +57,7 @@ class TestFuzzyDuplicates:
             request.cls.cluster = cluster
             yield
 
-    def test_fuzzy_dedup(
+    def test_sem_dedup(
         self,
         dedup_data,
         tmpdir,

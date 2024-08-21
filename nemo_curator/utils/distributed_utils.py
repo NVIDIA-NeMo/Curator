@@ -21,7 +21,7 @@ import random
 import warnings
 from contextlib import nullcontext
 from pathlib import Path
-from typing import List, Union
+from typing import Dict, List, Union
 
 import dask.dataframe as dd
 import numpy as np
@@ -34,6 +34,9 @@ from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_fro
 
 cudf = gpu_only_import("cudf")
 LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
+get_device_total_memory = gpu_only_import_from(
+    "dask_cuda.utils", "get_device_total_memory"
+)
 
 
 class NoWorkerError(Exception):
@@ -633,3 +636,20 @@ def get_network_interfaces() -> List[str]:
         A list of all valid network interfaces on a machine
     """
     return list(psutil.net_if_addrs().keys())
+
+
+def get_gpu_memory_info() -> Dict[str, int]:
+    """
+    Get the total GPU memory for each Dask worker.
+    Returns:
+        dict: A dictionary mapping Dask worker addresses ('IP:PORT') to their
+        respective GPU memory (in bytes).
+    Example:
+        {'192.168.0.100:9000': 3.2e+10, '192.168.0.101:9000': 3.2e+10}
+    Note:
+        If there is no active Dask client, an empty dictionary is returned.
+    """
+    client = get_current_client()
+    if client is None:
+        return {}
+    return client.run(get_device_total_memory)

@@ -27,7 +27,10 @@ from crossfit.backend.torch.hf.model import HFModel
 from peft import PeftModel
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-from nemo_curator.classifiers.base import DistributedDataClassifier
+from nemo_curator.classifiers.base import (
+    DistributedDataClassifier,
+    _get_suggest_memory_for_classifier,
+)
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.aegis_utils import format_aegis
 
@@ -92,11 +95,14 @@ class AegisModel(nn.Module):
 
 
 class AegisHFModel(HFModel):
-    def __init__(self, config: AegisConfig):
+    def __init__(self, config: AegisConfig, max_mem_gb=None):
         self.config = config
+        if max_mem_gb is None:
+            max_mem_gb = _get_suggest_memory_for_classifier()
+
         super().__init__(
             config.pretrained_model_name_or_path,
-            max_mem_gb=48,
+            max_mem_gb=max_mem_gb,
             start_batch_size=4,
             end_batch_size=32,
             batch_size_increment=4,
@@ -166,6 +172,7 @@ class AegisClassifier(DistributedDataClassifier):
         keep_raw_pred: bool = False,
         max_chars: int = 6000,
         device_type: str = "cuda",
+        max_mem_gb: int = None,
     ):
         """
         Constructs the classifier
@@ -189,6 +196,9 @@ class AegisClassifier(DistributedDataClassifier):
             max_chars (int): If the document is larger than max_chars, the classifier will only classify
                 the first max_chars.
             device_type (str): The device to run the classifier on. Currently, it can only be "cuda".
+            max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
+                                it defaults to the available GPU memory minus 4 GB.
+
         """
         config = AegisConfig(peft_model_name_or_path=aegis_variant, token=token)
 
@@ -199,7 +209,7 @@ class AegisClassifier(DistributedDataClassifier):
         self.keep_raw_pred = keep_raw_pred
 
         try:
-            model = AegisHFModel(config=config)
+            model = AegisHFModel(config=config, max_mem_gb=max_mem_gb)
         except OSError as e:
             if "meta-llama/LlamaGuard-7b" in str(e):
                 raise PermissionError(ACCESS_ERROR_MESSAGE)

@@ -289,6 +289,15 @@ class ArgumentHelper:
             required=False,
         )
 
+    def add_arg_max_mem_gb_classifier(self):
+        self.parser.add_argument(
+            "--max-mem-gb-classifier",
+            default=None,
+            type=int,
+            help="Specify the maximum GPU memory (in GB) for the classifier. "
+            "Defaults to using the total GPU memory minus 4 GB if not specified.",
+        )
+
     def add_arg_autocast(self, help="Whether to use autocast or not"):
         ArgumentHelper.attach_bool_arg(
             parser=self.parser,
@@ -441,6 +450,7 @@ class ArgumentHelper:
         self.add_distributed_args()
         self.add_arg_enable_spilling()
         self.add_arg_set_torch_to_use_rmm()
+        self.add_arg_max_mem_gb_classifier()
 
         # Set low default RMM pool size for classifier
         # to allow pytorch to grow its memory usage

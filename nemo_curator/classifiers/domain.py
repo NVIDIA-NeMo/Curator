@@ -21,6 +21,7 @@ from transformers import AutoConfig, AutoTokenizer
 from nemo_curator.classifiers.base import (
     DistributedDataClassifier,
     HFDeberta,
+    _get_suggest_memory_for_classifier,
     _run_classifier_helper,
 )
 from nemo_curator.datasets import DocumentDataset
@@ -36,10 +37,15 @@ class DomainModelConfig:
 
 
 class DomainModel(HFModel):
-    def __init__(self, config: DomainModelConfig, autocast: bool = False):
+    def __init__(
+        self, config: DomainModelConfig, autocast: bool = False, max_mem_gb=None
+    ):
         self.config = config
         self.autocast = autocast
-        super().__init__(self.config.model)
+        if max_mem_gb is None:
+            max_mem_gb = _get_suggest_memory_for_classifier()
+
+        super().__init__(self.config.model, max_mem_gb=max_mem_gb)
 
     def load_model(self, device="cuda"):
         model = HFDeberta.from_pretrained(DOMAIN_IDENTIFIER)
@@ -55,6 +61,25 @@ class DomainModel(HFModel):
 
 
 class DomainClassifier(DistributedDataClassifier):
+    """
+    DomainClassifier is a specialized classifier designed for domain classification tasks, utilizing the
+    NVIDIA Domain Classifier model (https://huggingface.co/nvidia/domain-classifier). This class is optimized
+    for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+
+    Attributes:
+        filter_by (list[str], optional): The classes to filter the dataset by.
+                                         If None, all classes will be included. Defaults to None.
+        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        pred_column (str): The column name where predictions will be stored. Defaults to "domain_pred".
+        prob_column (str, optional): The column name where prediction probabilities will be stored. Defaults to None.
+        max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 2000.
+        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
+        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
+        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
+                                      it defaults to the available GPU memory minus 4 GB.
+
+    """
+
     def __init__(
         self,
         filter_by=None,
@@ -64,6 +89,7 @@ class DomainClassifier(DistributedDataClassifier):
         max_chars=2000,
         device_type="cuda",
         autocast=True,
+        max_mem_gb=None,
     ):
         config = AutoConfig.from_pretrained(DOMAIN_IDENTIFIER)
 
@@ -71,7 +97,9 @@ class DomainClassifier(DistributedDataClassifier):
         self.labels = list(config.label2id.keys())
         self.out_dim = len(self.labels)
 
-        model = DomainModel(config=DomainModelConfig, autocast=autocast)
+        model = DomainModel(
+            config=DomainModelConfig, autocast=autocast, max_mem_gb=max_mem_gb
+        )
 
         super().__init__(
             model=model,

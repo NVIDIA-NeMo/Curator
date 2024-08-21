@@ -31,8 +31,6 @@ warnings.filterwarnings("ignore")
 def main():
     args = ArgumentHelper.parse_distributed_classifier_args().parse_args()
     print(f"Arguments parsed = {args}", flush=True)
-    max_chars = 2000
-
     client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
@@ -64,6 +62,7 @@ def main():
         max_chars=args.max_chars,
         batch_size=args.batch_size,
         autocast=args.autocast,
+        max_mem_gb=args.max_mem_gb_classifier,
     )
 
     for file_batch_id, i in enumerate(range(0, len(input_files), files_per_run)):

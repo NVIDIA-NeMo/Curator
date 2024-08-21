@@ -25,6 +25,7 @@ from huggingface_hub import PyTorchModelHubMixin
 from transformers import AutoModel
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.utils.distributed_utils import get_gpu_memory_info
 
 
 class DistributedDataClassifier(ABC):
@@ -158,3 +159,15 @@ def _run_classifier_helper(
         df = df.drop(columns=[prob_internal_col])
 
     return df
+
+
+def _get_suggest_memory_for_classifier() -> int:
+    gpu_memory_info = get_gpu_memory_info()
+    min_gpu_memory = min(gpu_memory_info.values())
+    # Convert memory from bytes to GB
+    min_gpu_memory_gb = min_gpu_memory / (1024**3)
+    # Subtract 4GB from the minimum
+    # to leave room for other operations
+    # like cuDF operations
+    min_gpu_memory_gb = min_gpu_memory_gb - 4
+    return int(min_gpu_memory_gb)

@@ -17,6 +17,12 @@ import os
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from .aegis import AegisClassifier
 from .domain import DomainClassifier
+from .fineweb_edu import FineWebEduClassifier
 from .quality import QualityClassifier
 
-__all__ = ["DomainClassifier", "QualityClassifier", "AegisClassifier"]
+__all__ = [
+    "DomainClassifier",
+    "QualityClassifier",
+    "AegisClassifier",
+    "FineWebEduClassifier",
+]
