@@ -57,6 +57,7 @@ if [[ $DEVICE == 'gpu' ]]; then
     --scheduler-file $SCHEDULER_FILE \
     --rmm-pool-size $RMM_WORKER_POOL_SIZE \
     --interface $INTERFACE \
+    --enable-cudf-spill \
     --rmm-async >> $WORKER_LOG 2>&1 &
 fi
 

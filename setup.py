@@ -75,11 +75,11 @@ setup(
     ],
     extras_require={
         "cuda12x": [
-            "cudf-cu12>=24.2",
-            "dask-cudf-cu12>=24.2",
-            "cuml-cu12>=24.2",
-            "cugraph-cu12>=24.2",
-            "dask-cuda>=24.2",
+            "cudf-cu12>=24.8",
+            "dask-cudf-cu12>=24.8",
+            "cuml-cu12>=24.8",
+            "cugraph-cu12>=24.8",
+            "dask-cuda>=24.8",
             "spacy[cuda12x]>=3.6.0, <4.0.0",
         ],
     },
