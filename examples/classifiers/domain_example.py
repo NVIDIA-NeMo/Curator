@@ -58,7 +58,7 @@ def attach_args(
     argumentHelper = ArgumentHelper(parser)
     argumentHelper.add_distributed_classifier_cluster_args()
 
-    return argumentHelper.parser.parse_args()
+    return argumentHelper.parser
 
 
 if __name__ == "__main__":
