@@ -42,6 +42,7 @@ jobs:
           pip install wheel cython
           pip install --no-cache-dir .
           pip install pytest
+          pip install pytest-rerunfailures
       - name: Run tests
         run: |
           python -m pytest -v --cpu
