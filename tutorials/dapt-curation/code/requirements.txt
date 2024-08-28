@@ -1,0 +1,6 @@
+arxiv
+arxiv-downloader
+cchardet
+poppler-utils
+unstructured[all-docs]==0.14.5
+unstructured[pdf]
