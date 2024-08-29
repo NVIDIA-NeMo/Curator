@@ -92,6 +92,7 @@ class QualityClassifier(DistributedDataClassifier):
 
         self.prob_column = prob_column
         self.labels = list(config.label2id.keys())
+        self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
 
         model = QualityModel(
