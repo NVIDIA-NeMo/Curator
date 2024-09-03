@@ -57,6 +57,7 @@
    languageidentificationunicodeformatting.rst
    gpudeduplication.rst
    semdedup.rst
+   syntheticdata.rst
    taskdecontamination.rst
    personalidentifiableinformationidentificationandremoval.rst
    distributeddataclassification.rst
