@@ -18,6 +18,9 @@
 :ref:`GPU Accelerated Exact and Fuzzy Deduplication <data-curator-gpu-deduplication>`
    Both exact and fuzzy deduplication functionalities are supported in NeMo Curator and accelerated using RAPIDS cuDF.
 
+:ref:`GPU Accelerated Semantic Deduplication <data-curator-semdedup>`
+   NeMo-Curator provides scalable and GPU accelerated semantic deduplication functionality using RAPIDS cuML, cuDF, crossfit and Pytorch.
+
 :ref:`Synthetic Data Generation <data-curator-syntheticdata>`
    Synthetic data generation tools and example piplines are available within NeMo Curator.
 
@@ -53,6 +56,7 @@
    qualityfiltering.rst
    languageidentificationunicodeformatting.rst
    gpudeduplication.rst
+   semdedup.rst
    taskdecontamination.rst
    personalidentifiableinformationidentificationandremoval.rst
    distributeddataclassification.rst
