@@ -64,3 +64,6 @@ where `N` is the number of workers to spawn.
 
 Once the code finishes executing, the curated dataset will be available under `data/curated/final`.
 By default, the script outputs splits for training (80%), validation (10%) and testing (10%).
+
+## Next Step: Fine-tune Your Own Model
+The curated dataset from this tutorial can be readily used for model customization and fine-tuning using the [NeMo Framework](https://github.com/NVIDIA/NeMo). Please refer to the [law title generation tutorial](https://github.com/NVIDIA/NeMo/blob/main/tutorials/llm/llama-3/sdg-law-title-generation/llama3-sdg-lora-nemofw.ipynb) in the NeMo Framework repository to learn more.

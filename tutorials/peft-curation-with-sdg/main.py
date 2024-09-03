@@ -278,7 +278,7 @@ def run_pipeline(args, jsonl_fp):
     llm_client = AsyncOpenAIClient(
         AsyncOpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
-            api_key=args.api_key,
+            api_key=args.api_key or "",
             timeout=args.api_timeout,
         )
     )
