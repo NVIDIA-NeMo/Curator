@@ -124,7 +124,7 @@ class TestDownload:
             start_snapshot = "2021-10"
             urls = get_common_crawl_urls(start_snapshot, end_snapshot, news=True)
 
-    @pytest.mark.flaky(reruns=3)
+    @pytest.mark.flaky(reruns=4)
     def test_uneven_common_crawl_range(self):
         start_snapshot = "2021-03"
         end_snapshot = "2021-11"
