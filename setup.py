@@ -65,7 +65,6 @@ setup(
         "presidio-anonymizer==2.2.351",
         "usaddress==0.5.10",
         "nemo_toolkit[nlp]>=1.23.0",
-        "Cython",
         "crossfit @ git+https://github.com/rapidsai/crossfit.git@0cc2993",
         # Numpy 2.0 breaks with spacy https://github.com/explosion/spaCy/issues/13528
         # TODO: Remove when issue is fixed

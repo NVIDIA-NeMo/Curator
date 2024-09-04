@@ -89,12 +89,14 @@ You can install NeMo-Curator from PyPi, from source or get it through the NeMo F
 To install the CPU-only modules:
 
 ```bash
+pip install cython
 pip install nemo-curator
 ```
 
 To install the CPU and CUDA-accelerated modules:
 
 ```bash
+pip install cython
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
 ```
 
@@ -112,12 +114,14 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
     To install the CPU-only modules:
 
     ```bash
+    pip install cython
     pip install .
     ```
 
     To install the CPU and CUDA-accelerated modules:
 
     ```bash
+    pip install cython
     pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"
     ```
 
