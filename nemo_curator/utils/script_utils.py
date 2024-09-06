@@ -501,7 +501,7 @@ class ArgumentHelper:
             help="The name of the field within each json object of the jsonl "
             "file that assigns a unqiue ID to each document. "
             "Can be created by running the script "
-            "'./prospector/add_id.py' which adds the field "
+            "'../scripts/add_id.py' which adds the field "
             "to the documents in a distributed fashion",
         )
         argumentHelper.parser.add_argument(
