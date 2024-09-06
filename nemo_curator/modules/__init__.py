@@ -36,6 +36,9 @@ MinHash = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup", "MinHash")
 FuzzyDuplicates = gpu_only_import_from(
     "nemo_curator.modules.fuzzy_dedup", "FuzzyDuplicates"
 )
+BucketsToEdges = gpu_only_import_from(
+    "nemo_curator.modules.fuzzy_dedup", "BucketsToEdges"
+)
 # Pytorch related imports must come after all imports that require cugraph,
 # because of context cleanup issues b/w pytorch and cugraph
 # See this issue: https://github.com/rapidsai/cugraph/issues/2718
@@ -55,6 +58,7 @@ __all__ = [
     "Filter",
     "FuzzyDuplicatesConfig",
     "FuzzyDuplicates",
+    "BucketsToEdges",
     "LSH",
     "MinHash",
     "Modify",
