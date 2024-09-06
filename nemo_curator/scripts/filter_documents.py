@@ -207,7 +207,7 @@ def attach_args(
     parser.add_argument(
         "--id-field",
         type=str,
-        default="adlr_id",
+        required=True,
         help="The name of the field within each object of the dataset "
         "file that assigns a unqiue ID to each document. "
         "If this is specified and found within the object, a list of all "

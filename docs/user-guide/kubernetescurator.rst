@@ -243,7 +243,7 @@ At this point you can tail the logs and look for ``Finished!`` in ``/nemo-worksp
 
     # Writing to: /nemo-workspace/curator/script.log /nemo-workspace/curator/script.log.24_03_27-15-52-31
     # Computing hashes for /nemo-workspace/my_dataset
-    #                  adlr_id                           _hashes
+    #                       id                           _hashes
     # 0  cc-2023-14-0397113620  91b77eae49c10a65d485ac8ca18d6c43
     # 1  cc-2023-14-0397113621  a266f0794cc8ffbd431823e6930e4f80
     # 2  cc-2023-14-0397113622  baee533e2eddae764de2cd6faaa1286c

@@ -87,9 +87,9 @@ these ids must be added prior to performing fuzzy/exact deduplication
     parser.add_argument(
         "--id-field-name",
         type=str,
-        default="adlr_id",
+        required=True,
         help="The name of the field that will contain the id value. "
-        "Default is 'adlr_id'",
+        "This is a required argument",
     )
     parser.add_argument(
         "--id-prefix",
