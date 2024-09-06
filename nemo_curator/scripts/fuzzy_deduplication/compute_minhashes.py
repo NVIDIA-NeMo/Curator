@@ -77,6 +77,7 @@ def main(args):
             backend="cudf",
             files_per_partition=args.files_per_partition,
             add_filename=False,
+            input_meta=args.input_meta,
         )[[id_field, text_field]]
 
         if num_files is not None:
@@ -119,6 +120,7 @@ def attach_args(parser=None):
         help="Random seed used for intializing the hash "
         "functions used to compute the MinHashes"
     )
+    argumentHelper.add_arg_input_meta()
     parser.add_argument(
         "--char-ngram",
         type=int,

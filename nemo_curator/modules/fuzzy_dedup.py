@@ -521,9 +521,9 @@ class FuzzyDuplicates:
                 documents_df=dataset.df,
                 bucket_w_anchors_path=mapped_buckets_w_anchors_path,
                 output_shuffled_docs_path=shuffled_docs_path,
-                bucket_mapping_df_blocksize=256,
-                parts_per_worker=1,
-                bucket_parts_per_worker=8,
+                bucket_mapping_df_blocksize=self.config.bucket_mapping_blocksize,
+                parts_per_worker=self.config.parts_per_worker,
+                bucket_parts_per_worker=self.config.bucket_parts_per_worker,
             )
             print(f"Stage{stage_num} (False Postive Check): Shuffle docs complete!")
             stage_num += 1
@@ -755,7 +755,7 @@ class _MapBuckets:
     ):
         # String bytes limit for cuDF
         # https://github.com/rapidsai/cudf/issues/13733
-        max_text_bytes_per_part = int(np.iinfo(np.int32).max // 1.2)
+        max_text_bytes_per_part = int(np.iinfo(np.int32).max * 3)
 
         self._logger.info(f"max_text_bytes_per_part = {max_text_bytes_per_part}")
         # Increasing in an attempt to prevent hitting

@@ -237,6 +237,8 @@ def read_single_partition(
         read_kwargs = {"lines": filetype == "jsonl"}
         if backend == "cudf":
             read_f = cudf.read_json
+            if input_meta is not None:
+                read_kwargs["prune_columns"] = True
         else:
             read_kwargs["dtype"] = False
             read_f = pd.read_json

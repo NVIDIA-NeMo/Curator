@@ -77,6 +77,9 @@ class FuzzyDuplicatesConfig(BaseConfig):
     # Only required for fp check
     num_anchors: int = 2
     jaccard_threshold: float = 0.8
+    bucket_mapping_blocksize: int = 256
+    parts_per_worker: int = 1
+    bucket_parts_per_worker: int = 8
 
     def __post_init__(self):
         self.num_hashes = self.num_buckets * self.hashes_per_bucket
