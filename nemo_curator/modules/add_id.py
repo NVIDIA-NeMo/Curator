@@ -45,6 +45,7 @@ class AddId:
             self._add_id_fast_partition,
             partition_zero_padding,
             meta=meta,
+            enforce_metadata=False,
         )
 
         return DocumentDataset(id_df)

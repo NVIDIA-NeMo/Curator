@@ -84,6 +84,7 @@ these ids must be added prior to performing fuzzy/exact deduplication
         "Useful for creating a copy dataset with different IDs"
     )
     argumentHelper.add_distributed_args()
+    argumentHelper.set_default_n_workers(2.5)
     parser.add_argument(
         "--id-field-name",
         type=str,

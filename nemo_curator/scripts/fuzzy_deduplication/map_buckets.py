@@ -62,6 +62,7 @@ def get_anchor_and_output_map_info(
     map_buckets = _MapBuckets(
         id_fields=["dataset_id", "doc_id"],
         bucket_field=input_bucket_field,
+        text_field=input_text_field,
     )
     ddf_anchor_docs_with_bk = map_buckets.map_buckets_with_anchors(
         documents_df=ddf_text, buckets_df=ddf_bk, shuffle_type=shuffle_type

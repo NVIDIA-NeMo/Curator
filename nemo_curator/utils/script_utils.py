@@ -14,6 +14,8 @@
 import argparse
 import os
 
+import psutil
+
 
 class ArgumentHelper:
     """
@@ -388,6 +390,25 @@ class ArgumentHelper:
         )
 
         return self.parser
+
+    def set_default_n_workers(self, max_mem_gb_per_worker: float):
+        """
+        Sets the default --n-workers for a script to maximize parallelization while
+        ensuring we don't trigger an out of memory error. Like --n-workers, this
+        only applies when running the script locally.
+
+        Args:
+            max_mem_per_worker (float): The maximum memory that each worker usually achieves for a script
+                in units of gigabytes. It can be determined by watching the Dask dashboard. This value may
+                change based on the size of each shard, so use a jsonl shard size of about 100 MB.
+        """
+        cpu_worker_limit = os.cpu_count()
+
+        memory_gb = psutil.virtual_memory().total / (1024**3)
+        mem_worker_limit = memory_gb // max_mem_gb_per_worker
+
+        n_workers = min(cpu_worker_limit, mem_worker_limit)
+        self.parser.set_defaults(n_workers=n_workers)
 
     @staticmethod
     def parse_client_args(args: argparse.Namespace):
