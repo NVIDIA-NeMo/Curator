@@ -382,3 +382,40 @@ def gpu_only_import_from(module, symbol, *, alt=None):
         msg=f"{module}.{symbol} is not enabled in non GPU-enabled installations or environments. {GPU_INSTALL_STRING}",
         alt=alt,
     )
+
+
+IMAGE_INSTALL_STRING = """Install image packages via `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image]`
+or use `pip install --extra-index-url https://pypi.nvidia.com ".[image]"` if installing from source"""
+
+
+def image_only_import_from(module, symbol, *, alt=None):
+    """A function used to import symbols required only in image installs
+
+    This function will attempt to import a module with the given name.
+    This function will attempt to import a symbol with the given name from
+    the given module, but it will not throw an ImportError if the symbol is not
+    found. Instead, it will return a placeholder object which will raise an
+    exception only if used with instructions on installing an image build.
+
+    Parameters
+    ----------
+    module: str
+        The name of the module to import.
+    symbol: str
+        The name of the symbol to import.
+    alt: object
+        An optional object to be used in place of the given symbol if it fails
+        to import in a non-image install
+
+    Returns
+    -------
+    object
+        The imported symbol, the given alternate, or a class derived from
+        UnavailableMeta.
+    """
+    return safe_import_from(
+        module,
+        symbol,
+        msg=f"{module}.{symbol} is not enabled in without the nemo-curator[image] installations or environments. {IMAGE_INSTALL_STRING}",
+        alt=alt,
+    )

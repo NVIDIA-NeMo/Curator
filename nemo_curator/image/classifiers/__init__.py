@@ -11,13 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from .aesthetic import AestheticClassifier
+from .base import ImageClassifier
+from .nsfw import NsfwClassifier
 
-from nemo_curator.utils.import_utils import image_only_import_from
-
-from .doc_dataset import DocumentDataset
-
-ImageTextPairDataset = image_only_import_from(
-    "nemo_curator.datasets.image_text_pair_dataset", "ImageTextPairDataset"
-)
-
-__all__ = ["DocumentDataset", "ImageTextPairDataset"]
+__all__ = ["AestheticClassifier", "ImageClassifier", "NsfwClassifier"]

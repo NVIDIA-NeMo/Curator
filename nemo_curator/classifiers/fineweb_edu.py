@@ -52,6 +52,8 @@ class FinewebEduModel(HFModel):
             if autocast:
                 with torch.autocast(device_type="cuda"):
                     output = original_forward(*args, **kwargs)
+            else:
+                output = original_forward(*args, **kwargs)
             return output.logits.squeeze(-1).float()
 
         model.forward = custom_forward

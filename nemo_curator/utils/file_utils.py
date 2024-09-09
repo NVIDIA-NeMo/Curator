@@ -25,6 +25,10 @@ from dask import delayed
 
 from nemo_curator.utils.distributed_utils import single_partition_write_with_filename
 
+NEMO_CURATOR_HOME = os.environ.get(
+    "NEMO_CURATOR_HOME", os.path.join(os.path.expanduser("~"), ".nemo_curator")
+)
+
 
 def mkdir(d):
     pathlib.Path(d).mkdir(parents=True, exist_ok=True)
