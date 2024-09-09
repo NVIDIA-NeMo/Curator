@@ -518,11 +518,11 @@ class ArgumentHelper:
         argumentHelper.parser.add_argument(
             "--input-json-id-field",
             type=str,
-            default="adlr_id",
+            required=True,
             help="The name of the field within each json object of the jsonl "
             "file that assigns a unqiue ID to each document. "
             "Can be created by running the script "
-            "'./prospector/add_id.py' which adds the field 'adlr_id' "
+            "'../scripts/add_id.py' which adds the field "
             "to the documents in a distributed fashion",
         )
         argumentHelper.parser.add_argument(

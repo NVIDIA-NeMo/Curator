@@ -59,7 +59,7 @@ def main(args):
         id_fields=["dataset_id", "doc_id"],
         text_field=args.input_json_text_field,
         profile_dir=args.profile_path,
-        int_to_str_id="adlr_id",
+        int_to_str_id=args.input_json_id_field,
     )
     shuffle.shuffle_docs_on_buckets(
         documents_df=text_ddf,
