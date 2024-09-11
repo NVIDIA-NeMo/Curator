@@ -38,18 +38,6 @@ Here are some features which can help optimize memory usage:
 * Enable asynchronous memory allocation: Use the ``--rmm-async`` flag to allow RMM to handle memory allocation more efficiently, by allocating and deallocating GPU memory asynchronously.
 * Set a memory release threshold: For example, ``--rmm-release-threshold 50GB`` can help prevent holding onto excess memory, releasing unused memory when a certain limit is reached. Please keep in mind that using this flag may degrade performance slightly as RMM is busy releasing the unused memory.
 
-Estimate Total VRAM Requirements
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Approximating how much VRAM is needed to process your dataset helps avoid running into OOMs.
-When doing this, there are a couple factors to keep in mind:
-
-* GPU architecture, such as the NVIDIA A100 or the NVIDIA H100 GPU.
-* Data quantification, such as by size (e.g., in GB or TB) or by number of tokens (usually billions of tokens).
-
-With these in mind, here are some general rules of thumb you can use to estimate your memory requirements:
-
-* TODO: Suggest approximate total VRAM needed to process N TB of data, per step in NeMo Curator pipeline
-
 Fuzzy Deduplication Guidelines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Fuzzy deduplication is one of the most computationally expensive algorithms within the NeMo Curator pipeline.
