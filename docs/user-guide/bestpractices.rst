@@ -17,3 +17,43 @@ Here are the methods in increasing order of compute required for them.
 #. `Language model labelling <https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/syntheticdata.html>`_ - Language models can be used to label text as high quality or low quality. NeMo Curator allows you to connect to arbitrary LLM inference endpoints which you can use to label your data. One example of such an endpoint would be Nemotron-4 340B Instruct on `build.nvidia.com <https://build.nvidia.com/explore/discover#nemotron-4-340b-instruct>`_. Due to their size, these models can require a lot of compute and are usually infeasible to run across an entire pretraining dataset. We recommend using these large models on very little amounts of data. Fine-tuning datasets can make good use of them.
 
 #. `Reward model labelling <https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/syntheticdata.html>`_ - Unlike the previous methods, reward models label the quality of conversations between a user and an assistant instead of labelling the quality of a document. In addition, models (like `Nemotron-4 340B Reward <https://huggingface.co/nvidia/Nemotron-4-340B-Reward>`_) may output multiple scores covering different categories. Like LLM labelling, NeMo Curator can connect to arbitrary reward models hosted as an external service. Due to these differences and their large size, we recommend using reward models when filtering fine-tuning data. In particular, synthetic data filtering is a good use of them.
+
+-------------------------------------------
+Handling Out-of-Memory (OOM) Errors
+-------------------------------------------
+NeMo Curator is designed to be scalable with large amounts of text data, but OOM errors occur when the available GPU memory is insufficient for a given task.
+To help avoid these issues and ensure efficient processing, here are some strategies for managing memory usage and mitigating OOM challenges.
+
+Add More GPUs
+~~~~~~~~~~~~~
+If possible, scale your system by adding more GPUs.
+This provides additional VRAM (Video Random Access Memory), which is crucial for holding datasets and intermediate computations.
+Thus, adding more GPUs allows you to distribute the workload, reducing the memory load on each GPU.
+
+Utilize RMM Options
+~~~~~~~~~~~~~~~~~~~
+`RAPIDS Memory Manager (RMM) <https://github.com/rapidsai/rmm>`_ is a package that enables you to allocate device memory in a highly configurable way.
+Here are some features which can help optimize memory usage:
+
+* Enable asynchronous memory allocation: Use the ``--rmm-async`` flag to allow RMM to handle memory allocation more efficiently, by allocating and deallocating GPU memory asynchronously.
+* Set a memory release threshold: For example, ``--rmm-release-threshold 50GB`` can help prevent holding onto excess memory, releasing unused memory when a certain limit is reached. Please keep in mind that using this flag may degrade performance slightly as RMM is busy releasing the unused memory.
+
+Estimate Total VRAM Requirements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Approximating how much VRAM is needed to process your dataset helps avoid running into OOMs.
+When doing this, there are a couple factors to keep in mind:
+
+* GPU architecture, such as the NVIDIA A100 or the NVIDIA H100 GPU.
+* Data quantification, such as by size (e.g., in GB or TB) or by number of tokens (usually billions of tokens).
+
+With these in mind, here are some general rules of thumb you can use to estimate your memory requirements:
+
+* TODO: Suggest approximate total VRAM needed to process N TB of data, per step in NeMo Curator pipeline
+
+Fuzzy Deduplication Guidelines
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Fuzzy deduplication is one of the most computationally expensive algorithms within the NeMo Curator pipeline.
+Here are some suggestions for managing memory use during fuzzy deduplication:
+
+* Reduce bucket counts: During deduplication, the data is grouped into buckets to compare and identify near-duplicate documents. Reducing the number of buckets can help decrease the number of data points loaded into memory for comparison. However, a smaller bucket count can reduce the accuracy of deduplication, so it is important to find an optimal balance between memory usage and deduplication accuracy. You can experiment with this by using the ``buckets_per_shuffle`` parameter when initializing your ``FuzzyDuplicatesConfig``.
+* Adjust files per partition: Processing large datasets in smaller chunks can help reduce the memory load. When reading data with ``DocumentDataset.read_json`` or ``DocumentDataset.read_parquet``, start with a smaller ``files_per_partition`` value and increase as needed.
