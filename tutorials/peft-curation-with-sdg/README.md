@@ -9,12 +9,37 @@ well as human-provided answers.
 
 In this tutorial, we implement various filtering and processing operations on the records. We then
 demonstrate the usage of external LLM services for synthetic data generation and reward models to
-assign qualitative metrics to each synthetic record. We further NeMo Curator's facilities
+assign qualitative metrics to each synthetic record. We further use NeMo Curator's facilities
 to iteratively augment and refine the data until the dataset has reached the desired size.
 
 > **Note:** The use of external LLM services for synthetic data generation is entirely optional.
 > Similarly, this tutorial can be executed on a local machine without the need for a GPU. To fully
 > experience all the capabilities of this code, see the "Optional Prerequisites" section below.
+
+## Overview of the Pipeline
+
+The pipeline for this tutorial aims to demonstrate a basic loop with two stages as follows. These stages are repeated until the desired dataset size is achieved:
+
+1. **Data processing**: perform operations such as HTML tag cleaning, quality-based filtering and semantic deduplication on the records.
+2. **Synthetic data generation**: query a synthetic data generation model (such as [LLaMa 3.1 405B Instruct](https://build.nvidia.com/meta/llama-3_1-405b-instruct), or [Nemotron-4 340B Instruct](https://build.nvidia.com/nvidia/nemotron-4-340b-instruct)) to produce synthetic variants of existing records. Each synthetic record is then fed to a reward model (such as [Nemotron-4 340B Reward](https://build.nvidia.com/nvidia/nemotron-4-340b-reward)), and assigned a quality score. All records are then fed to the data processing stage for further processing.
+
+The following diagram depicts the pipeline demonstrated in this tutorial:
+
+![image](images/peft-sdg.png)
+
+
+### Code Structure
+
+This code is organized as follows:
+- **[main.py](main.py)**: the entry point to the code. Implements the data curation and synthetic data generation pipeline, and consists of the following high-level functionality:
+  - `download_and_convert_to_jsonl()`: contains the logic necessary to download the sample dataset and convert it into JSONL.
+  - `random_split_rows()`: contains the logic for spliting the dataset into training/validation/test splits.
+  - `semantic_dedupe()`: implements the semantic deduplication functionality (requires an NVIDIA GPU).
+  - `run_curation_pipeline()`: the main curation pipeline implementation. Captures the data processing, as well as the synthetic data generation operations.
+- **[docbuilder.py](docbuilder.py)**: contains the implementations of NeMo Curator document builder modules to facilitate dataset download and conversion into the JSONL format.
+- **[filters.py](filters.py)**: contains the implementation of a score-based filtering mechanism, to filter out low-quality documents. Used in `run_curation_pipeline()`.
+- **[modifiers.py](modifiers.py)**: contains the implementation of the HTML-cleaning logic. Used in `run_curation_pipeline()`.
+- **[synthetic_gen.py](synthetic_gen.py)**: abstracts the logic needed for invoking the synthetic data generation model, and also assigning reward scores to each record. Used in `run_curation_pipeline()`.
 
 ## Optional Prerequisites
 
