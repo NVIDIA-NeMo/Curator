@@ -4,27 +4,24 @@
 ======================================
 Synthetic Data Generation
 ======================================
---------------------------------------
-Background
---------------------------------------
-Synthetic data generation has become increasing useful in large language model training.
+
+Synthetic data generation has become increasing useful in large language model (LLM) training.
 It is used in pretraining, fine-tuning, and evaluation.
-Synthetically generated data can be useful for adapting an LLM to low resource languages/domains, or performing knowledge distillation from other models among other purposes.
-There are a variety of ways to construct synthetic data generation pipelines, with numerous LLM and classical filters.
+Synthetically generated data can be useful for adapting an LLM to low-resource languages or domains, and for performing knowledge distillation from other models, among other purposes. There are various ways to construct synthetic data generation pipelines utilizing numerous LLM and classical filters.
 
-NeMo Curator has a simple, easy-to-use set of tools that allow you to use prebuilt synthetic generation pipelines or build your own.
+NeMo Curator has a simple, easy-to-use set of tools that let you use prebuilt synthetic generation pipelines or build your own.
 Any model inference service that uses the OpenAI API is compatible with the synthetic data generation module, allowing you to generate your data from any model.
-Furthermore, NeMo Curator also can interface with `NeMo's Export and Deploy <https://docs.nvidia.com/nemo-framework/user-guide/latest/deployingthenemoframeworkmodel.html#use-nemo-export-and-deploy-module-apis-to-run-inference>`_
+Furthermore, NeMo Curator can also interface with `NeMo's Export and Deploy <https://docs.nvidia.com/nemo-framework/user-guide/latest/deployingthenemoframeworkmodel.html#use-nemo-export-and-deploy-module-apis-to-run-inference>`_
 module which allows you to host your own model for LLM inference.
-NeMo Curator has prebuilt synthetic data generation pipelines for supervised fine-tuning (SFT) and preference data that were used to generate data for the training of `Nemotron-4 340B <https://research.nvidia.com/publication/2024-06_nemotron-4-340b>`_.
-And, you can easily interweave filtering and deduplication steps in your synthetic data pipeline with the other modules in NeMo Curator.
 
---------------------------------------
-Connecting to an LLM Service
---------------------------------------
+NeMo Curator offers prebuilt synthetic data generation pipelines for Supervised Fine-Tuning (SFT) and preference data, which were used to generate data for training `Nemotron-4 340B <https://research.nvidia.com/publication/2024-06_nemotron-4-340b>`_.
+Additionally, you can seamlessly integrate filtering and deduplication steps in your synthetic data pipeline with the other modules available in NeMo Curator.
+
+Connect to an LLM Service
+--------------------------
 NeMo Curator supports connecting to `OpenAI API <https://github.com/openai/openai-python?tab=readme-ov-file#openai-python-api-library>`_ compatible services and `NeMo Deploy <https://docs.nvidia.com/nemo-framework/user-guide/latest/deployingthenemoframeworkmodel.html#use-nemo-export-and-deploy-module-apis-to-run-inference>`_ services.
 Despite its name, the OpenAI API is used for querying models across different platforms beyond OpenAI's own models.
-Here is how we can connect to `build.nvidia.com <https://build.nvidia.com/explore/discover>`_ to query Gemma 2 9b-it using NeMo Curator and the OpenAI API.
+The following code demonstrates how to connect to `build.nvidia.com <https://build.nvidia.com/explore/discover>`_ to query Gemma 2 9b-it using NeMo Curator and the OpenAI API.
 
 .. code-block:: python
 
@@ -54,16 +51,16 @@ Here is how we can connect to `build.nvidia.com <https://build.nvidia.com/explor
     # With parallel delight, Solving problems, so bright,
     # In the realm of computing, it's quite a sight!
 
-As you can see, ``OpenAIClient.query_model`` has a nearly identical function signature and behavior to the OpenAI chat completion API.
-``client.query_model`` returns a list of respones, and the list is only greater than length 1 if ``n > 1`` is specified in the arugments.
+Deploy an LLM Inference Service
+###############################
 
 The OpenAI API is great for accessing models that are hosted externally through a simple API.
-However, these services are often rate limited, and if you are generating lots of synthetic data you may run into these limits.
+However, these services are often rate limited, and if you are generating lots of synthetic data, you may run into these limits.
 An alternative to accessing externally hosted models is to deploy an LLM inference service yourself.
 If you want to self-host models, we recommend using `NeMo's Export and Deploy <https://docs.nvidia.com/nemo-framework/user-guide/latest/deployingthenemoframeworkmodel.html#use-nemo-export-and-deploy-module-apis-to-run-inference>`_ module to ensure that you get the best performance.
 
-Assuming you deploy a model named "mistralai/mixtral-8x7b-instruct-v0.1" on your local machine following `this NeMo Deploy guide <https://docs.nvidia.com/nemo-framework/user-guide/latest/deployingthenemoframeworkmodel.html#deploy-a-llm-model-to-tensorrt-llm>`_,
-you can run the same query using the following code.
+Assuming you deploy a model named "mistralai/mixtral-8x7b-instruct-v0.1" on your local machine following the `NeMo Deploy Guide <https://docs.nvidia.com/nemo-framework/user-guide/latest/deployingthenemoframeworkmodel.html#deploy-a-llm-model-to-tensorrt-llm>`_,
+you can run the same query using the following code:
 
 .. code-block:: python
 
@@ -95,7 +92,7 @@ you can run the same query using the following code.
 
 Let's focus on the main differences here.
 
-* ``nemo_client = NemoQueryLLM(url="localhost:8000", model_name=model)``. This initialization requires you to specify the model name. NemoQueryLLM is primarily built for querying a single LLM, but NeMo Curator allows you to change the model you are querying on your local server for each request.
+* ``nemo_client = NemoQueryLLM(url="localhost:8000", model_name=model)``. This initialization requires you to specify the model's name. NemoQueryLLM is primarily built for querying a single LLM, but NeMo Curator allows you to change the model you are querying on your local server for each request.
 
 * ``conversation_formatter=Mixtral8x7BFormatter()``. LLMs take a tokenized string of text as input, not a list of conversation turns. Therefore, during the alignment process each LLM uses a conversation format to turn the conversation into a single string. For Mixtral-8x7B-Instruct-v0.1, the format looks like this:
 
@@ -103,19 +100,19 @@ Let's focus on the main differences here.
 
     <s> [INST] Instruction [/INST] Model answer</s> [INST] Follow-up instruction [/INST]
 
-  Services that use the OpenAI API perform this formatting on the backend. In contrast, since NeMo Deploy allows you to run any model you want, you need to specify what conversation format you should use on when making the request.
-  NeMo Curator provides prebuilt conversation formatters for Mixtral-8x7B-Instruct-v0.1 and Nemotron-4 340B named ``Mixtral8x7BFormatter`` and ``NemotronFormatter`` respectively.
+    Services that use the OpenAI API perform this formatting on the backend. In contrast, since NeMo Deploy allows you to run any model you want, you need to specify what conversation format you should use on when making the request.
+  NeMo Curator provides prebuilt conversation formatters for Mixtral-8x7B-Instruct-v0.1 and Nemotron-4 340B named ``Mixtral8x7BFormatter`` and ``NemotronFormatter``, respectively.
 
 .. note::
     OpenAI API backends likely format the conversation for you automatically. Depending on your synthetic data generation process, this may lead to incorrect results. Please refer to your service's documentation to see what kind of prompt formatting they follow.
 
-############################
-Querying a Reward Model
-############################
-Reward models can be used to score conversations between a user and assistant.
-Instead of responding to a user prompt with text follow up as an assistant, a reward model will return a mapping of category to score.
-These scores can then be used to filter the dataset to be higher quality.
-Here is how we can query the Nemotron-4 340b reward model in NeMo Curator:
+Query a Reward Model
+####################
+
+Reward models can be used to score conversations between a user and an assistant.
+Instead of responding to a user prompt with text follow-up, a reward model will return a mapping of the categories to score.
+These scores can then be used to filter the dataset for higher quality.
+The following code demonstrates how to can query the Nemotron-4 340b reward model in NeMo Curator:
 
 .. code-block:: python
 
@@ -150,21 +147,19 @@ Here is how we can query the Nemotron-4 340b reward model in NeMo Curator:
 
 For more details on the reward categories, please see the `Nemotron-4 340B Technical Report <https://arxiv.org/abs/2406.11704v1>`_.
 
---------------------------------------
-Nemotron-4 340B Pipeline
---------------------------------------
-Nemotron-4 340B is an LLM released by NVIDIA that synthetically generated 98% of the data used for its supervised fine-tuning and preference fine-tuning.
-NeMo Curator contains prebuilt functions that allow you to follow the same process using the same prompt templates, and you can customize the pipelines to fit your usecase.
+Customize the Nemotron-4 340B Pipeline
+---------------------------------------
+Nemotron-4 340B is an LLM released by NVIDIA that synthetically generated 98% of the data used for its supervised fine-tuning and preference fine-tuning. NeMo Curator contains prebuilt functions that allow you to follow the same process using the same prompt templates, and you can customize the pipelines to fit your use case.
 
+Generate Synthetic Prompts
 ############################
-Synthetic Prompt Generation
-############################
-Prompt generation is the process of synthetically generating the first line of a dialogue between a user and assistant.
+
+Prompt generation is the process of synthetically generating the first line of a dialogue between a user and an assistant.
 This is also called "openline" generation.
-Nemotron-4 340B used four different pipelines based on the generation of the `UltraChat dataset <https://arxiv.org/abs/2305.14233>`_ for generating open Q&A, writing, closed Q&A, and math & coding prompts.
+Nemotron-4 340B used four different pipelines based on the generation of the `UltraChat dataset <https://arxiv.org/abs/2305.14233>`_ for generating open Q&A, writing, closed Q&A, and math and coding prompts.
 NeMo Curator encapsulates all the synthetic data generation methods for Nemotron-4 340B in ``nemo_curator.synthetic.NemotronGenerator``.
 
-We'll dive into all the methods it provides in the following sections, but here is a small example that establishes a pattern you will see with all of the functions.
+We'll dive into all the methods it provides in the following sections, but here is a small example that establishes a pattern you will see with all of the functions:
 
 .. code-block:: python
 
@@ -197,15 +192,15 @@ We'll dive into all the methods it provides in the following sections, but here 
     # 2. Space Exploration and the Universe
     # ...
 
-This example should seem very similar to the ``OpenAIClient.query_model``.
-We specify the model we are using just like before, along with additional keyword arguments to control the model's generation.
-``generator.generate_macro_topics`` queries the LLM and asks it to generate a list of topics about the world.
-There is an additional ``prompt_template`` parameter that is defaulted to the one used in Nemotron-4 340B, but it can be changed if desired.
-``responses`` will be a list of responses. There will be only one response unless ``n > 1`` is specified in ``model_kwargs``.
+This example is similar to the ``OpenAIClient.query_model``.
+We specify the model we are using as before, along with additional keyword arguments to control the model's generation. The
+``generator.generate_macro_topics`` function queries the LLM and asks it to generate a list of topics about the world.
+There is an additional ``prompt_template`` parameter, which defaults to the one used in Nemotron-4 340B, but it can be changed if needed. The
+``responses`` variable will yield a list of responses, with only one response unless ``n > 1`` is specified in ``model_kwargs``.
 
 The output of the above snippet will be a string response that contains a list of topics.
 Many LLM responses in the Nemotron pipeline will contain a list.
-Therefore, ``NemotronGenerator`` provides a helper function that will attempt to convert an LLM response into a Python list of strings
+Therefore, ``NemotronGenerator`` provides a helper function that will attempt to convert an LLM response into a Python list of strings.
 
 .. code-block:: python
 
@@ -220,30 +215,28 @@ Therefore, ``NemotronGenerator`` provides a helper function that will attempt to
     # Output:
     # Climate Change and Sustainable Living
 
-This helper function prompts an LLM to convert the previous response into a yaml format, then attempts to parse the yaml format.
-If the parsing fails, it will throw a ``YamlConversionError``.
+This helper function prompts an LLM to convert the previous response into a YAML format and then attempts to parse it.
+If parsing fails, a ``YamlConversionError`` is thrown. The
 ``topic_list`` is not guaranteed to have a length of 20.
-In our end to end pipelines that you will see later, NeMo Curator will raise a ``YamlConversionError`` if there is a mismatch between desired length of list and the received length of list, but this function does not check for it.
+In our end-to-end pipelines, which you will see later, NeMo Curator will raise a ``YamlConversionError`` if there is a mismatch between the desired and received length list, but this function does not perform this check.
 
-With these examples out of the way, let's look at exactly how to replicate the Nemotron-4 340B synthetic data generation pipeline in NeMo Curator.
+With these examples covered, let's look at exactly how to replicate the Nemotron-4 340B synthetic data generation pipeline in NeMo Curator.
 For a more in-depth explanation of each of the steps, please refer to the `Nemotron-4 340B Technical Report <https://arxiv.org/abs/2406.11704v1>`_.
 
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Open Q&A Prompt Generation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Generate Open Q&A Prompts
+#########################
+
 Open Q&A prompt generation follows these steps:
 
-#. Generate a list of macro topics about the world
+#. Generate a list of macro topics about the world.
 
-#. Generate a list of subtopics related to each macro topic
+#. Generate a list of subtopics related to each macro topic.
 
-#. Create a list of questions relating to the previously generated topics
+#. Create a list of questions relating to the previously generated topics. Additional topics can also be manually specified.
 
-   #. Additional topics can also be manually specified
+#. Revise the questions to be more detailed.
 
-#. Revise the questions to be more detailed
-
-Using NeMo Curator, each step can be performed as follows:
+Using NeMo Curator, you can perform each step as follows:
 
 .. code-block:: python
 
@@ -270,7 +263,7 @@ Using NeMo Curator, each step can be performed as follows:
     )
     revised_questions = ... # Parse responses manually or with convert_response_to_yaml_list
 
-An end-to-end pipeline that composes all of these steps can be run with the ``NemotronGenerator.run_open_qa_pipeline``
+You can run an end-to-end pipeline that includes all of these steps with the ``NemotronGenerator.run_open_qa_pipeline``.
 
 .. code-block:: python
 
@@ -288,20 +281,19 @@ An end-to-end pipeline that composes all of these steps can be run with the ``Ne
     # What are some effective sources of renewable energy?
 
 This function runs all the previous steps together.
-In order to do so, it tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``.
-``ignore_conversion_failure=True`` will cause responses that cannot be automatically converted to be discarded instead of raising an error.
-However, an error will still be thrown if the first step of the pipeline cannot be parsed successfully.
+It attempts to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``. Setting
+``ignore_conversion_failure=True`` will discard responses that cannot be converted, instead of raising an error. However, an error will still be thrown if the first step of the pipeline cannot be parsed successfully.
 
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Writing Prompt Generation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Generate Writing Prompts
+#########################
+
 Writing prompt generation follows these steps:
 
-#. Generate tasks to write an email, essay, etc. about a topic
+#. Generate tasks to write an email, essay, etc. about a topic.
 
-#. Revise the tasks to be more detailed
+#. Revise the tasks to be more detailed.
 
-Using NeMo Curator, each step can be performed as follows:
+Using NeMo Curator, you can perform each step as follows:
 
 .. code-block:: python
 
@@ -319,7 +311,7 @@ Using NeMo Curator, each step can be performed as follows:
     )
     revised_writing_tasks = ...  # Parse responses manually or with convert_response_to_yaml_list
 
-An end-to-end pipeline that composes all of these steps can be run with the ``NemotronGenerator.run_writing_pipeline``
+You can run an end-to-end pipeline that includes all of these steps with the ``NemotronGenerator.run_writing_pipeline``.
 
 .. code-block:: python
 
@@ -336,19 +328,18 @@ An end-to-end pipeline that composes all of these steps can be run with the ``Ne
     # Output:
     # Write a poem about the most effective sources of renewable energy.
 
-This function runs all the previous steps together.
-In order to do so, it tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``.
-``ignore_conversion_failure=True`` will cause responses that cannot be automatically converted to be discarded instead of raising an error.
+This function runs all the previous steps together. It tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``. If
+``ignore_conversion_failure=True``, responses that cannot be converted are discarded instead of raising an error.
 However, an error will still be thrown if the first step of the pipeline cannot be parsed successfully.
 
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Closed Q&A Prompt Generation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Generate Closed Q&A Prompts
+############################
+
 Closed Q&A prompt generation is simple and has a single step:
 
-#. Given a document, generate some questions about it
+#. Given a document, generate some questions about it.
 
-Using NeMo Curator, this can be performed as follows:
+Using NeMo Curator, you can perform this step as follows:
 
 .. code-block:: python
 
@@ -360,7 +351,7 @@ Using NeMo Curator, this can be performed as follows:
     )
     closed_qa_questions = ...  # Parse responses manually or with convert_response_to_yaml_list
 
-An end-to-end pipeline that repeats this for many documents can be run with the ``NemotronGenerator.run_closed_qa_pipeline``
+You can run an end-to-end pipeline that repeats this process for many documents with the ``NemotronGenerator.run_closed_qa_pipeline``.
 
 .. code-block:: python
 
@@ -374,31 +365,24 @@ An end-to-end pipeline that repeats this for many documents can be run with the 
     # Output:
     # (0, "Which President of the United States gave this speech?")
 
-This function runs generates ``n_openlines`` questions for each document provided.
-At the end, it tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``.
-``ignore_conversion_failure=True`` will cause responses that cannot be automatically converted to be discarded instead of raising an error.
-Unlike other pipelines, this pipeline returns a tuple of the question along with the index of the document that the question was about.
-This is so that when questions are discarded if ``ignore_conversion_failure==True`` you can still know the mapping between documents and questions.
+This function generates ``n_openlines`` questions for each document provided.
+It tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``. Setting
+``ignore_conversion_failure=True`` will discard responses that cannot be converted, instead of raising an error.
+Unlike other pipelines, this one returns a tuple of the question along with the index of the document it pertains to.
+This ensures that even if questions are discarded when ``ignore_conversion_failure==True``, you can still map questions to their respective documents.
 
-
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Math & Coding Prompt Generation
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-**************
-Math
-**************
+Generate Math Prompts
+######################
 
 Math prompt generation follows these steps:
 
-#. Generate math macro topics targeted at a specific school level
+#. Generate math macro topics targeted at a specific school level.
 
-#. Generate subtopics for each macro topic
+#. Generate subtopics for each macro topic.
 
-#. Generate a math problem for each topic
+#. Generate a math problem for each topic. Additional topics can also be manually specified.
 
-   #. Additional topics can also be manually specified
-
-Using NeMo Curator, each step can be performed as follows:
+Using NeMo Curator, you can perform each step as follows:
 
 .. code-block:: python
 
@@ -426,7 +410,7 @@ Using NeMo Curator, each step can be performed as follows:
     )
     questions = ...  # Parse responses manually or with convert_response_to_yaml_list
 
-An end-to-end pipeline that composes all of these steps can be run with the ``NemotronGenerator.run_math_pipeline``
+You can run an end-to-end pipeline that includes all of these steps with the ``NemotronGenerator.run_math_pipeline``.
 
 .. code-block:: python
 
@@ -442,24 +426,20 @@ An end-to-end pipeline that composes all of these steps can be run with the ``Ne
     # Prove that the square root of 2 is irrational.
 
 This function runs all the previous steps together.
-In order to do so, it tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``.
-``ignore_conversion_failure=True`` will cause responses that cannot be automatically converted to be discarded instead of raising an error.
+It tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``. Setting
+``ignore_conversion_failure=True`` will discarded responses that cannot be converted, instead of raising an error.
 However, an error will still be thrown if the first step of the pipeline cannot be parsed successfully.
 
-**************
-Coding
-**************
+Generate Coding Prompts
+#######################
 
-The coding generation pipeline is similar to the math generation pipeline.
-Coding, in particular Python-related, prompt generation follows these steps:
+The coding generation pipeline is similar to the math generation pipeline. Specifically, Python-related prompt generation follows these steps:
 
-#. Generate macro topics relating to Python
+#. Generate macro topics relating to Python.
 
-#. Generate subtopics for each macro topic
+#. Generate subtopics for each macro topic.
 
-#. Generate a Python coding problem for each topic
-
-   #. Additional topics can also be manually specified
+#. Generate a Python coding problem for each topic. Additional topics can also be manually specified.
 
 Using NeMo Curator, each step can be performed as follows:
 
@@ -488,7 +468,7 @@ Using NeMo Curator, each step can be performed as follows:
     )
     questions = ...  # Parse responses manually or with convert_response_to_yaml_list
 
-An end-to-end pipeline that composes all of these steps can be run with the ``NemotronGenerator.run_python_pipeline``
+You can run an end-to-end pipeline that includes all of these steps with the ``NemotronGenerator.run_python_pipeline``.
 
 .. code-block:: python
 
@@ -502,26 +482,22 @@ An end-to-end pipeline that composes all of these steps can be run with the ``Ne
     # Output:
     # Demonstrate how to write a for loop in Python.
 
-This function runs all the previous steps together.
-In order to do so, it tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``.
-``ignore_conversion_failure=True`` will cause responses that cannot be automatically converted to be discarded instead of raising an error.
-However, an error will still be thrown if the first step of the pipeline cannot be parsed successfully.
+This function runs all the previous steps together. It tries to automatically convert the LLM responses to Python lists using ``convert_response_to_yaml_list``. Setting ``ignore_conversion_failure=True`` will discard responses that cannot be converted, instead of raising an error. However, an error will still be thrown if the first step of the pipeline cannot be parsed successfully.
 
+Change Prompt Templates
+#######################
 
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Changing Prompt Templates
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Each one of the steps above uses a prompt template that gets populated with the number of topics/openlines along with any additional information in the steps.
-A prompt template in this case is just a string with a placeholder.
+Each of the steps above uses a prompt template that is populated with the number of topics/openlines and any additional information required for the steps. In this context, a prompt template is a string with a placeholder.
+
 For example, here is the default prompt template for ``Nemotron.generate_writing_tasks``:
 
 .. code-block:: python
 
     DEFAULT_WRITING_TASK_PROMPT_TEMPLATE = 'Can you generate {n_openlines} tasks, each of which requires to create a "{text_material_type}" related to {topic}? Each task should be concise and include one or two sentences only. The tasks should be as diverse as possible. Your answer should be a list of tasks.'
 
-A complete collection of prompt templates are provided at ``nemo_curator.synthetic.prompts``.
+A complete collection of prompt templates is provided at ``nemo_curator.synthetic.prompts``.
 So long as the placeholders match the required function arguments, you can swap prompt templates around.
-For example, the default prompt template for generating a Python problem from a topic is ``PYTHON_PROBLEM_BEGINNER_PROMPT_TEMPLATE``, but it can be changed as follows.
+For example, the default prompt template for generating a Python problem from a topic is ``PYTHON_PROBLEM_BEGINNER_PROMPT_TEMPLATE``, but it can be changed as follows:
 
 .. code-block:: python
 
@@ -551,9 +527,9 @@ For example, the default prompt template for generating a Python problem from a 
     )
     questions = ...  # Parse responses manually or with convert_response_to_yaml_list
 
+You can supply your own prompt template with additional placeholders, and NeMo Curator will properly insert values for them as long as they are specified in the ``prompt_kwargs`` of the function.
 
-You can supply your own prompt template that has additional placeholders, and NeMo Curator will properly insert values for them so long as they are specified in the ``prompt_kwargs`` of the function.
-For example, you can define a prompt template that generates macro topics with exceptions.
+For example, you can define a prompt template that generates macro topics with exceptions:
 
 .. code-block:: python
 
@@ -568,12 +544,12 @@ For example, you can define a prompt template that generates macro topics with e
         },
     )
 
-############################
-Dialogue Generation
-############################
-After prompts are generated with the methods above and mixed together, a dialogue can be synthesized.
-In the dialogue, an LLM will play the part of both user and assistant.
-``Nemotron.generate_dialogue`` is a simple method to do this.
+Generate Dialogue
+##################
+
+After generating and mixing prompts using the methods above, you can synthesize a dialogue.
+In the dialogue, an LLM will play the part of both user and assistant. The
+``Nemotron.generate_dialogue`` method provides a simple way to achieve this.
 
 .. code-block:: python
 
@@ -592,8 +568,9 @@ In the dialogue, an LLM will play the part of both user and assistant.
 
 ``n_user_turns`` specifies that there will be 3 user turns in the dialogue, where each turn is followed by 1 assistant turn.
 Therefore, the total number of turns (and the length of the returned list) will always be ``2*n_user_turns``.
-Having an LLM play the role of an assistant is easy, since that is what it is designed to do.
-In order to impersonate a user, the following special prompt template is used:
+Having an LLM play the role of an assistant is easy, as that is its primary function.
+
+To impersonate a user, the following special prompt template is used:
 
 .. code-block:: python
 
@@ -612,12 +589,11 @@ In order to impersonate a user, the following special prompt template is used:
         conversation_history=conversation_history
     )
 
+Generate Synthetic Two-Turn Prompts
+###################################
 
-#######################################
-Synthetic Two-Turn Prompt Generation
-#######################################
 Nemotron-4 340B uses two-turn prompts for its preference data.
-In this context, a two-turn prompt is a conversation that has a user turn, assistant turn, and a final user turn.
+In this context, a two-turn prompt is a conversation that has a user turn, an assistant turn, and a final user turn.
 Here is an example:
 
 .. code-block:: python
@@ -648,12 +624,13 @@ Two-turn prompt generation is easy in NeMo Curator with ``Nemotron.generate_two_
 
 The user impersonation follows the same format as described in the dialogue generation section.
 
-############################
-Entity Classification
-############################
+Classify Entities
+##################
+
 In addition to generating data, it can be helpful to classify a small amount of data using an LLM.
 Nemotron-4 340B uses an LLM to classify Wikipedia entities to determine if they relate to math or Python progamming.
-NeMo Curator provides two simple functions for classifying math and Python entities.
+
+NeMo Curator provides two simple functions for classifying math and Python entities:
 
 .. code-block:: python
 
@@ -675,12 +652,10 @@ NeMo Curator provides two simple functions for classifying math and Python entit
     # No ...
 
 
-###################################
-Asynchronous Generation
-###################################
-All of the code so far has been sending requests to the LLM service synchronously.
-This can be very ineffecient since many requests can be sent simultaneously in most of the pipelines.
-Therefore, NeMo Curator provides an asynchronous alternative using OpenAI's async API.
+Generate Asynchronously
+########################
+
+All of the code so far has been sending requests to the LLM service synchronously. This can be very inefficient since many requests can be sent simultaneously in most pipelines. Therefore, NeMo Curator provides an asynchronous alternative using OpenAI's async API.
 
 .. code-block:: python
 
@@ -715,17 +690,16 @@ Therefore, NeMo Curator provides an asynchronous alternative using OpenAI's asyn
 As you can see, the asynchronous modules have the same interface as the synchronous modules.
 The only exception is that a ``max_concurrent_requests`` parameter can be supplied to the constructor of ``AsyncNemotronGenerator`` as a form of rate limiting if your service is rate limited.
 
------------------------------------------------
-Combining with other NeMo Curator modules
------------------------------------------------
+Combine Synthetic Data Generation with other NeMo Curator Modules
+-----------------------------------------------------------------
 Synthetic data generation, unlike the rest of NeMo Curator, operates independently of Dask.
 This is due to the scale differences between modules.
-Synthetic data is usually generated on the order of 100,000 samples while pretraining datasets operate at the scale of 1,000,000,000+ samples.
+Synthetic data is usually generated on the order of 100,000 samples, while pretraining datasets operate at the scale of 1,000,000,000+ samples.
 Starting up a Dask cluster for that scale is usually not needed.
 However, you may want to deduplicate or filter your responses with NeMo Curator.
 For example, topics might end up getting duplicated, and sending duplicate topics as queries to an LLM wastes valuable resources.
-
 We recommend using ``DocumentDataset.from_pandas`` and ``DocumentDataset.to_pandas`` to transition between workflows that require the other NeMo Curator modules.
+
 For example, you could do something like this:
 
 .. code-block:: python
