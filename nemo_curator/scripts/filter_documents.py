@@ -126,7 +126,10 @@ def main(args):
 
         # Write scores to separate directory
         if args.output_document_score_dir:
-            if args.id_field in filtered_dataset.df.columns:
+            if (
+                args.id_field is not None
+                and args.id_field in filtered_dataset.df.columns
+            ):
                 output_df = filtered_dataset.df[[args.id_field, *score_fields]]
             else:
                 output_df = filtered_dataset.df[score_fields]
@@ -207,7 +210,7 @@ def attach_args(
     parser.add_argument(
         "--id-field",
         type=str,
-        required=True,
+        default=None,
         help="The name of the field within each object of the dataset "
         "file that assigns a unqiue ID to each document. "
         "If this is specified and found within the object, a list of all "
