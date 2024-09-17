@@ -54,7 +54,7 @@ def main(args):
             dask_cudf.read_parquet(data_path, blocksize="2GB", aggregate_files=True)
         )
     df = dask_cudf.concat(dfs, ignore_unknown_divisions=True)
-    df = df[~df.id_field.isna()]
+    df = df[~df[id_field].isna()]
     df = df.map_partitions(
         convert_str_id_to_int,
         id_column=id_field,
