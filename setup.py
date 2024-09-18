@@ -21,6 +21,13 @@ here = pathlib.Path(__file__).parent.resolve()
 long_description = (here / "README.md").read_text(encoding="utf-8")
 
 
+def strtobool(value: str) -> bool:
+    value = value.lower()
+    if value in ("y", "yes", "1", "true"):
+        return True
+    return False
+
+
 def req_file(filename, folder="requirements"):
     with open(os.path.join(folder, filename), encoding="utf-8") as f:
         content = f.readlines()
@@ -29,8 +36,14 @@ def req_file(filename, folder="requirements"):
 
 install_requires = req_file("requirements.txt")
 
-extras_require = {
-    "cuda12x": req_file("requirements_cuda12x.txt"),
+cuda12_requirements_filename = (
+    "requirements_rapids_nightly.txt"
+    if strtobool(os.getenv("RAPIDS_NIGHTLY", "false"))
+    else "requirements_cuda12x.txt"
+)
+
+extras_require: dict = {
+    "cuda12x": req_file(cuda12_requirements_filename),
     "image": req_file("requirements_image.txt"),
 }
 
