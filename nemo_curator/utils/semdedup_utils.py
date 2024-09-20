@@ -31,12 +31,13 @@ from dask.distributed import progress
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 
 
-def _assign_and_sort_clusters(
+def assign_and_sort_clusters(
     id_col: str,
     kmeans_centroids_file: str,
     nearest_cent_dir: str,
     output_sorted_clusters_dir: str,
-    cluster_ids=List[int],
+    cluster_ids: List[int],
+    embedding_col: str,
     sim_metric: str = "cosine",
     keep_hard: bool = True,
     kmeans_with_cos_dist: bool = True,
@@ -78,6 +79,7 @@ def _assign_and_sort_clusters(
             nearest_cent_dir=nearest_cent_dir,
             output_sorted_clusters_dir=output_sorted_clusters_dir,
             centroids=kmeans_centroids,
+            embedding_col=embedding_col,
             sim_metric=sim_metric,
             keep_hard=keep_hard,
             kmeans_with_cos_dist=kmeans_with_cos_dist,
@@ -98,6 +100,7 @@ def rank_within_cluster(
     nearest_cent_dir: str,
     output_sorted_clusters_dir: str,
     centroids: np.ndarray,
+    embedding_col: str,
     sim_metric: str = "cosine",
     keep_hard: bool = True,
     kmeans_with_cos_dist: bool = False,
@@ -131,10 +134,10 @@ def rank_within_cluster(
             continue
 
         cluster_df = cudf.read_parquet(
-            cluster_c_path, columns=[id_col, "dist_to_cent", "embeddings"]
+            cluster_c_path, columns=[id_col, "dist_to_cent", embedding_col]
         )
         embeds = torch.as_tensor(
-            cluster_df["embeddings"].list.leaves.values.reshape(
+            cluster_df[embedding_col].list.leaves.values.reshape(
                 cluster_df.shape[0], -1
             ),
             device="cuda",
@@ -188,11 +191,15 @@ def _semdedup(
 
 
 def get_cluster_reps(
-    cluster_id: int, emb_by_clust_dir: str, id_col: str, sorted_ids: np.ndarray
+    cluster_id: int,
+    emb_by_clust_dir: str,
+    id_col: str,
+    embedding_col: str,
+    sorted_ids: np.ndarray,
 ) -> torch.Tensor:
     cluster_i_path = os.path.join(emb_by_clust_dir, f"nearest_cent={cluster_id}")
     cluster_reps = cudf.read_parquet(
-        cluster_i_path, columns=["embeddings", id_col]
+        cluster_i_path, columns=[embedding_col, id_col]
     ).sort_values(by=id_col)
     num = cluster_reps.shape[0]
 
@@ -203,7 +210,7 @@ def get_cluster_reps(
     cluster_reps = cluster_reps.sort_values(by="inverse_sort_id")
 
     cluster_reps = torch.as_tensor(
-        cluster_reps["embeddings"].list.leaves.values.reshape(len(cluster_reps), -1),
+        cluster_reps[embedding_col].list.leaves.values.reshape(len(cluster_reps), -1),
         device="cuda",
     )
     return cluster_reps
@@ -217,6 +224,7 @@ def get_semantic_matches_per_cluster(
     id_col_type: str,
     eps_list: List[float],
     output_dir: str,
+    embedding_col: str,
     which_to_keep: str,
 ) -> None:
 
@@ -251,7 +259,9 @@ def get_semantic_matches_per_cluster(
 
     text_ids = cluster_i[:, 0].astype(id_col_type)
 
-    cluster_reps = get_cluster_reps(cluster_id, emb_by_clust_dir, id_col, text_ids)
+    cluster_reps = get_cluster_reps(
+        cluster_id, emb_by_clust_dir, id_col, embedding_col, text_ids
+    )
     M, M1 = _semdedup(cluster_reps, "cuda")
     assert cluster_reps.shape[0] == len(text_ids)
 

@@ -39,7 +39,7 @@ from nemo_curator.modules.config import SemDedupConfig
 from nemo_curator.utils.distributed_utils import write_to_disk
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.semdedup_utils import (
-    _assign_and_sort_clusters,
+    assign_and_sort_clusters,
     extract_dedup_data,
     get_semantic_matches_per_cluster,
 )
@@ -123,6 +123,7 @@ class EmbeddingCreator:
         embedding_batch_size: int,
         embedding_output_dir: str,
         input_column: str = "text",
+        embedding_column: str = "embeddings",
         write_embeddings_to_disk: bool = True,
         write_to_filename: bool = False,
         logger: Union[logging.Logger, str] = "./",
@@ -160,6 +161,7 @@ class EmbeddingCreator:
         self.logger = self._setup_logger(logger)
         self.embedding_output_dir = embedding_output_dir
         self.input_column = input_column
+        self.embedding_column = embedding_column
         self.model = EmbeddingCrossFitModel(self.embeddings_config)
         self.write_embeddings_to_disk = write_embeddings_to_disk
         self.write_to_filename = write_to_filename
@@ -190,7 +192,7 @@ class EmbeddingCreator:
                 self.model,
                 sorted_data_loader=True,
                 batch_size=self.batch_size,
-                pred_output_col="embeddings",
+                pred_output_col=self.embedding_column,
             ),
             keep_cols=ddf.columns.tolist(),
         )
@@ -215,12 +217,14 @@ class EmbeddingCreator:
 
 
 ### Clustering Module
-def get_embedding_ar(df: "cudf.DataFrame") -> cp.ndarray:
-    return df["embeddings"].list.leaves.values.reshape(len(df), -1)
+def get_embedding_ar(df: "cudf.DataFrame", embedding_col: str) -> cp.ndarray:
+    return df[embedding_col].list.leaves.values.reshape(len(df), -1)
 
 
-def add_dist_to_cents(df: "cudf.DataFrame", centroids: cp.ndarray) -> "cudf.DataFrame":
-    embed_array = get_embedding_ar(df)
+def add_dist_to_cents(
+    df: "cudf.DataFrame", embedding_col: str, centroids: cp.ndarray
+) -> "cudf.DataFrame":
+    embed_array = get_embedding_ar(df, embedding_col)
     centroids_ar = centroids[df["nearest_cent"].values]
     dist_to_cents = cp.sqrt(np.sum((embed_array - centroids_ar) ** 2, axis=1))
     df["dist_to_cent"] = dist_to_cents
@@ -234,6 +238,7 @@ class ClusteringModel:
         max_iter: int,
         n_clusters: int,
         clustering_output_dir: str,
+        embedding_col: str = "embeddings",
         sim_metric: str = "cosine",
         which_to_keep: str = "hard",
         sort_clusters: bool = True,
@@ -249,6 +254,7 @@ class ClusteringModel:
             max_iter (int): Maximum number of iterations for the clustering algorithm.
             n_clusters (int): The number of clusters to form.
             clustering_output_dir (str): Directory path where clustering results will be saved.
+            embedding_col (str): Column name where the embeddings are stored.
             sim_metric (str): Similarity metric to use for clustering, default is "cosine".
             which_to_keep (str): Strategy to decide which duplicates to keep; default is "hard".
             sort_clusters (bool): Whether to sort clusters, default is True.
@@ -262,6 +268,7 @@ class ClusteringModel:
         self.max_iter = max_iter
         self.n_clusters = n_clusters
         self.clustering_output_dir = clustering_output_dir
+        self.embedding_col = embedding_col
         self.sim_metric = sim_metric
         self.keep_hard = which_to_keep == "hard"
         self.kmeans_with_cos_dist = kmeans_with_cos_dist
@@ -291,15 +298,20 @@ class ClusteringModel:
     def __call__(self, embeddings_dataset: DocumentDataset):
         embeddings_df = embeddings_dataset.df
 
-        assert "embeddings" in embeddings_df.columns
-        embeddings_df = embeddings_df[[self.id_col, "embeddings"]]
+        if self.embedding_col not in embeddings_df.columns:
+            raise ValueError(
+                f"Expected embedding column '{self.embedding_col}'"
+                f" to be in dataset. Only found columns {embeddings_df.columns}"
+            )
+
+        embeddings_df = embeddings_df[[self.id_col, self.embedding_col]]
 
         embeddings_df = embeddings_df.to_backend("pandas").persist()
         embeddings_df = embeddings_df.repartition(partition_size=self.partition_size)
         embeddings_df = embeddings_df.to_backend("cudf")
 
         cupy_darr = embeddings_df.map_partitions(
-            get_embedding_ar, meta=cp.ndarray([1, 1])
+            get_embedding_ar, self.embedding_col, meta=cp.ndarray([1, 1])
         )
         cupy_darr.compute_chunk_sizes()
 
@@ -317,7 +329,10 @@ class ClusteringModel:
         meta_df = embeddings_df._meta.copy()
         meta_df["dist_to_cent"] = cp.zeros(1)
         embeddings_df = embeddings_df.map_partitions(
-            add_dist_to_cents, centroids=kmeans.cluster_centers_, meta=meta_df
+            add_dist_to_cents,
+            embedding_col=self.embedding_col,
+            centroids=kmeans.cluster_centers_,
+            meta=meta_df,
         )
         centroids = kmeans.cluster_centers_
         embeddings_df = embeddings_df.reset_index(drop=True)
@@ -348,13 +363,14 @@ class ClusteringModel:
         del embeddings_df
 
         if self.sort_clusters:
-            _assign_and_sort_clusters(
+            assign_and_sort_clusters(
                 id_col=self.id_col,
                 kmeans_centroids_file=kmeans_centroids_file,
                 nearest_cent_dir=clustering_output_dir,
                 output_sorted_clusters_dir=os.path.join(
                     self.clustering_output_dir, "sorted"
                 ),
+                embedding_col=self.embedding_col,
                 sim_metric=self.sim_metric,
                 keep_hard=self.keep_hard,
                 kmeans_with_cos_dist=self.kmeans_with_cos_dist,
@@ -380,6 +396,7 @@ class SemanticClusterLevelDedup:
         id_col_type: str,
         which_to_keep: str,
         output_dir: str,
+        embedding_col: str = "embeddings",
         logger: Union[logging.Logger, str] = "./",
     ) -> None:
         """
@@ -393,6 +410,7 @@ class SemanticClusterLevelDedup:
             id_col_type (str): Data type of the ID column.
             which_to_keep (str): Strategy for which duplicate to keep.
             output_dir (str): Directory to save output files.
+            embedding_col (str): Column where the embeddings are stored.
             logger (Union[logging.Logger, str]): Logger instance or path to the log file directory.
         """
         self.n_clusters = n_clusters
@@ -406,6 +424,7 @@ class SemanticClusterLevelDedup:
             output_dir, "semdedup_pruning_tables"
         )
         self.computed_semantic_match_dfs = False
+        self.embedding_col = embedding_col
         self.logger = self._setup_logger(logger)
 
     def _setup_logger(self, logger: Union[logging.Logger, str]) -> logging.Logger:
@@ -461,6 +480,7 @@ class SemanticClusterLevelDedup:
                 id_col_type=self.id_col_type,
                 eps_list=eps_list,
                 output_dir=self.semdedup_pruning_tables_dir,
+                embedding_col=self.embedding_col,
                 which_to_keep=self.which_to_keep,
             )
         )
