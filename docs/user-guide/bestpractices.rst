@@ -33,11 +33,19 @@ Here are some features which can help optimize memory usage:
 * Enable asynchronous memory allocation: Use the ``--rmm-async`` flag to allow RMM to handle memory allocation more efficiently, by allocating and deallocating GPU memory asynchronously.
 * Set a memory release threshold: For example, ``--rmm-release-threshold 50GB`` can help prevent holding onto excess memory, releasing unused memory when a certain limit is reached. Please keep in mind that using this flag may degrade performance slightly as RMM is busy releasing the unused memory.
 
-You can set these flags while calling your Python script directly, for example:
+You can set these flags while initializing your own Dask client, for example:
 
-.. code-block:: bash
+.. code-block:: python
 
-  python your_script.py --rmm-async --rmm-release-threshold 50GB
+  from dask_cuda import LocalCUDACluster
+  from dask.distributed import Client
+
+  cluster = LocalCUDACluster(
+      rmm_async=True,
+      rmm_release_threshold="50GB",
+  )
+
+  client = Client(cluster)
 
 Fuzzy Deduplication Guidelines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -45,11 +53,27 @@ Fuzzy deduplication is one of the most computationally expensive algorithms with
 Here are some suggestions for managing memory use during fuzzy deduplication:
 
 * Reduce bucket counts: During deduplication, the data is grouped into buckets to compare and identify near-duplicate documents. Increasing the number of buckets increases the probability that two documents within a given Jaccard similarity score are marked as duplicates. This leads to more accurate results as it reduces the number of false negatives. However, increasing the number of buckets also increases the memory requirements from the increased number of hashes it needs to store. Thus, it is important to find an optimal balance between memory usage and deduplication accuracy. You can experiment with this by using the ``num_buckets`` parameter when initializing your ``FuzzyDuplicatesConfig``.
+  * The user may also need to change the ``hashes_per_bucket`` parameter to match the same Jaccard threshold being aimed for. Think of it like this: with a high ``num_buckets`` and low ``hashes_per_bucket``, the hashes of a string will be spread out across many buckets, which reduces the chances of dissimilar strings being hashed into the same bucket, but increases the chances of similar strings being hashed into different buckets. On the other hand, with a low ``num_buckets`` and high ``hashes_per_bucket``, the hashes will be more densely packed into a smaller number of buckets, which not only increases the likelihood of similar strings sharing buckets, but also increases the chances of dissimilar strings being hashed into the same bucket.
 * Reduce buckets per shuffle: Because duplicates are still considered bucket by bucket, reducing the ``buckets_per_shuffle`` parameter in the ``FuzzyDuplicatesConfig`` does not affect accuracy. Instead, reducing the buckets per shuffle helps lower the amount of data being transferred between GPUs. However, using a lower ``buckets_per_shuffle`` will increase the time it takes to process the data.
 * Adjust files per partition: Processing large datasets in smaller chunks can help reduce the memory load. When reading data with ``DocumentDataset.read_json`` or ``DocumentDataset.read_parquet``, start with a smaller ``files_per_partition`` value and increase as needed.
+  * When reading your data, we suggest aiming to create partitions no larger than 2GB. For example, if you know each file is ~100MB, then setting ``files_per_partition=20`` would result in partitions that are about 2GB in size.
+  * For other suggestions on best practices regarding reading data with Dask, please refer to `Dask cuDF Best Practices <https://github.com/rapidsai/cudf/blob/branch-24.10/docs/dask_cudf/source/best_practices.rst#reading-data>`_.
+
+Using the ``get_client`` Function
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For both GPU and CPU operations, we provide the ``get_client`` to initialize your Dask client with a ``LocalCUDACluster`` or ``LocalCluster``, respectively. While the NeMo Curator team has established default values for the parameters of the ``get_client`` function that are suitable for most scenarios, it is useful to understand these parameters and become familiar with them to ensure optimal performance and adherence to best practices when working with Dask configurations and setups.
+
+Please refer to the `distributed_utils.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/nemo_curator/utils/distributed_utils.py>`_ script for detailed docstrings, especially for the ``get_client`` function, and the ``start_dask_gpu_local_cluster`` and ``start_dask_cpu_local_cluster`` functions which are called by ``get_client``.
 
 Add More GPUs
 ~~~~~~~~~~~~~
 If possible, scale your system by adding more GPUs.
 This provides additional VRAM (Video Random Access Memory), which is crucial for holding datasets and intermediate computations.
 Thus, adding more GPUs allows you to distribute the workload, reducing the memory load on each GPU.
+
+.. TODO: Share rough dataset sizes and how many GPUs we've been able to run this on internally; that can give a sense of the requirements.
+
+Report GPU Memory and Utilization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When debugging your GPU memory errors, it can be useful to capture and understand your GPU usage per step in the NeMo Curator pipeline. For this, using RMM's `Memory stastics and profiling <https://docs.rapids.ai/api/rmm/stable/guide/#memory-statistics-and-profiling>`_ can be helpful. You may also refer to `this article <https://medium.com/rapids-ai/monitoring-dask-rapids-with-prometheus-grafana-96eaf6b8f3a0>`_, for a general tutorial including how to monitor GPUs with a dashboard.
