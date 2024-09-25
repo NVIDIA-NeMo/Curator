@@ -32,7 +32,6 @@ class Dedup:
 
         agg_clustering = AgglomerativeClustering(
             n_clusters=None,
-            affinity="precomputed",
             linkage="complete",
             distance_threshold=threshold,
         )
