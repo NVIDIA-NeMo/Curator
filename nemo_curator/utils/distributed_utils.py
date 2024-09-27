@@ -38,8 +38,6 @@ get_device_total_memory = gpu_only_import_from(
     "dask_cuda.utils", "get_device_total_memory"
 )
 
-LocalCUDACluster()
-
 
 class NoWorkerError(Exception):
     pass
