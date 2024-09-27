@@ -65,7 +65,6 @@ def start_dask_gpu_local_cluster(
         if nvlink_only and protocol == "ucx"
         else {}
     )
-    LocalCUDACluster()
 
     cluster = LocalCUDACluster(
         rmm_pool_size=rmm_pool_size,
