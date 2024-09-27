@@ -33,13 +33,7 @@ from nemo_curator.utils.gpu_utils import GPU_INSTALL_STRING, is_cudf_type
 from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
 
 cudf = gpu_only_import("cudf")
-
-
-if TYPE_CHECKING:
-    from dask_cuda import LocalCUDACluster
-else:
-    LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
-
+LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
 get_device_total_memory = gpu_only_import_from(
     "dask_cuda.utils", "get_device_total_memory"
 )
@@ -76,7 +70,7 @@ def start_dask_gpu_local_cluster(
         rmm_pool_size=rmm_pool_size,
         protocol=protocol,
         rmm_async=True,
-        enable_cudf_spill=True,
+        enable_cudf_spill=enable_spilling,
         **extra_kwargs,
     )
     client = Client(cluster)
