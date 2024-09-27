@@ -38,6 +38,8 @@ get_device_total_memory = gpu_only_import_from(
     "dask_cuda.utils", "get_device_total_memory"
 )
 
+LocalCUDACluster()
+
 
 class NoWorkerError(Exception):
     pass
@@ -65,6 +67,7 @@ def start_dask_gpu_local_cluster(
         if nvlink_only and protocol == "ucx"
         else {}
     )
+    LocalCUDACluster()
 
     cluster = LocalCUDACluster(
         rmm_pool_size=rmm_pool_size,
@@ -188,18 +191,6 @@ def _set_torch_to_use_rmm():
         return
 
     torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
-
-
-def _enable_spilling():
-    """
-    Setting this environment variable enables automatic spilling (and "unspilling")
-    of buffers from device to host to enable out-of-memory computation,
-    i.e., computing on objects that occupy more memory than is available on the GPU.
-
-    """
-    import cudf
-
-    cudf.set_option("spill", True)
 
 
 def read_single_partition(
