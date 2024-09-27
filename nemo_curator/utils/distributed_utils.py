@@ -21,7 +21,7 @@ import random
 import warnings
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Union
+from typing import Dict, List, Union
 
 import dask.dataframe as dd
 import numpy as np
@@ -29,7 +29,7 @@ import pandas as pd
 import psutil
 from dask.distributed import Client, LocalCluster, get_worker, performance_report
 
-from nemo_curator.utils.gpu_utils import GPU_INSTALL_STRING, is_cudf_type
+from nemo_curator.utils.gpu_utils import is_cudf_type
 from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
 
 cudf = gpu_only_import("cudf")
