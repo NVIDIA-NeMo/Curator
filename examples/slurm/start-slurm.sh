@@ -68,7 +68,6 @@ export CUDF_SPILL="1"
 export RMM_SCHEDULER_POOL_SIZE="1GB"
 export RMM_WORKER_POOL_SIZE="72GiB"
 export LIBCUDF_CUFILE_POLICY=OFF
-export DASK_DATAFRAME__QUERY_PLANNING=False
 
 
 # =================================================================

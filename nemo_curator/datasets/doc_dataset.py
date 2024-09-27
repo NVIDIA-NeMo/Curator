@@ -155,7 +155,6 @@ class DocumentDataset:
                 npartitions=npartitions,
                 chunksize=chunksize,
                 sort=sort,
-                name=name,
             )
         )
 

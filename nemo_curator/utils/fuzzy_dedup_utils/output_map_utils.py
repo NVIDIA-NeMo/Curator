@@ -19,7 +19,7 @@ from typing import Tuple
 import numba
 import numpy as np
 
-from nemo_curator._compat import DASK_SHUFFLE_METHOD_ARG
+from nemo_curator._compat import DASK_SHUFFLE_METHOD_ARG, query_planning_enabled
 
 
 def get_agg_text_bytes_df(
@@ -32,11 +32,20 @@ def get_agg_text_bytes_df(
     """
     Groupby bucket and calculate total bytes for a bucket.
     """
-    shuffle_arg = "shuffle_method" if DASK_SHUFFLE_METHOD_ARG else "shuffle"
+    if query_planning_enabled():
+        # `shuffle_method: bool` doesn't really make sense
+        # when query-planning is enabled, because dask-expr
+        # will ALWAYS use a shuffle-based reduction when
+        # `split_out>1`
+        shuffle_arg = {}
+    else:
+        shuffle_arg = {
+            "shuffle_method" if DASK_SHUFFLE_METHOD_ARG else "shuffle": shuffle
+        }
     agg_df = (
         df[[agg_column, bytes_column]]
         .groupby([agg_column])
-        .agg({bytes_column: "sum"}, split_out=n_partitions, **{shuffle_arg: shuffle})
+        .agg({bytes_column: "sum"}, split_out=n_partitions, **shuffle_arg)
     )
     agg_df = agg_df.reset_index(drop=False)
     # Doing a per partition sort

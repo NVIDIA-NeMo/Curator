@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+
 import dask
 from packaging.version import parse as parseVersion
 
@@ -25,3 +27,19 @@ except TypeError:
 DASK_SHUFFLE_METHOD_ARG = _dask_version > parseVersion("2024.1.0")
 DASK_P2P_ERROR = _dask_version < parseVersion("2023.10.0")
 DASK_SHUFFLE_CAST_DTYPE = _dask_version > parseVersion("2023.12.0")
+
+# Query-planning check (and cache)
+_DASK_QUERY_PLANNING_ENABLED = None
+
+
+def query_planning_enabled():
+    global _DASK_QUERY_PLANNING_ENABLED
+
+    if _DASK_QUERY_PLANNING_ENABLED is None:
+        if _dask_version > parseVersion("2024.6.0"):
+            import dask.dataframe as dd
+
+            _DASK_QUERY_PLANNING_ENABLED = dd.DASK_EXPR_ENABLED
+        else:
+            _DASK_QUERY_PLANNING_ENABLED = "dask_expr" in sys.modules
+    return _DASK_QUERY_PLANNING_ENABLED

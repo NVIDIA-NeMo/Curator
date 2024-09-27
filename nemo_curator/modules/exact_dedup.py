@@ -88,7 +88,7 @@ class ExactDuplicates:
         Get the id's for text/documents that are exact duplicates
         Parameters
         ----------
-        df: dask.dataframe.core.DataFrame
+        df: dask.dataframe.DataFrame
           A dataframe with the following requirements:
           * A column where each row is the text from one document
           * A unique ID column for each document
