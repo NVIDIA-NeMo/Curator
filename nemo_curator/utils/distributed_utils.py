@@ -21,7 +21,7 @@ import random
 import warnings
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import TYPE_CHECKING, Dict, List, Union
 
 import dask.dataframe as dd
 import numpy as np
@@ -33,7 +33,13 @@ from nemo_curator.utils.gpu_utils import GPU_INSTALL_STRING, is_cudf_type
 from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
 
 cudf = gpu_only_import("cudf")
-LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
+
+
+if TYPE_CHECKING:
+    from dask_cuda import LocalCUDACluster
+else:
+    LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
+
 get_device_total_memory = gpu_only_import_from(
     "dask_cuda.utils", "get_device_total_memory"
 )
@@ -70,13 +76,10 @@ def start_dask_gpu_local_cluster(
         rmm_pool_size=rmm_pool_size,
         protocol=protocol,
         rmm_async=True,
+        enable_cudf_spill=True,
         **extra_kwargs,
     )
     client = Client(cluster)
-
-    if enable_spilling:
-        _enable_spilling()
-        client.run(_enable_spilling)
 
     if set_torch_to_use_rmm:
         _set_torch_to_use_rmm()
