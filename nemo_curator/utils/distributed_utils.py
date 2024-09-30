@@ -29,7 +29,7 @@ import pandas as pd
 import psutil
 from dask.distributed import Client, LocalCluster, get_worker, performance_report
 
-from nemo_curator.utils.gpu_utils import GPU_INSTALL_STRING, is_cudf_type
+from nemo_curator.utils.gpu_utils import is_cudf_type
 from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
 
 cudf = gpu_only_import("cudf")
@@ -70,13 +70,10 @@ def start_dask_gpu_local_cluster(
         rmm_pool_size=rmm_pool_size,
         protocol=protocol,
         rmm_async=True,
+        enable_cudf_spill=enable_spilling,
         **extra_kwargs,
     )
     client = Client(cluster)
-
-    if enable_spilling:
-        _enable_spilling()
-        client.run(_enable_spilling)
 
     if set_torch_to_use_rmm:
         _set_torch_to_use_rmm()
@@ -191,18 +188,6 @@ def _set_torch_to_use_rmm():
         return
 
     torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
-
-
-def _enable_spilling():
-    """
-    Setting this environment variable enables automatic spilling (and "unspilling")
-    of buffers from device to host to enable out-of-memory computation,
-    i.e., computing on objects that occupy more memory than is available on the GPU.
-
-    """
-    import cudf
-
-    cudf.set_option("spill", True)
 
 
 def read_single_partition(
