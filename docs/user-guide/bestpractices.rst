@@ -76,4 +76,6 @@ Thus, adding more GPUs allows you to distribute the workload, reducing the memor
 Report GPU Memory and Utilization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When debugging your GPU memory errors, it can be useful to capture and understand your GPU usage per step in the NeMo Curator pipeline. For this, using RMM's `Memory stastics and profiling <https://docs.rapids.ai/api/rmm/stable/guide/#memory-statistics-and-profiling>`_ can be helpful. You may also refer to `this article <https://medium.com/rapids-ai/monitoring-dask-rapids-with-prometheus-grafana-96eaf6b8f3a0>`_, for a general tutorial including how to monitor GPUs with a dashboard.
+When debugging your GPU memory errors, it can be useful to capture and understand your GPU usage per step in the NeMo Curator pipeline.
+The `Dask dashboard <https://docs.dask.org/en/stable/dashboard.html>`_ is a good starting point to view GPU utilization and memory at a high level.
+You may also refer to `this article <https://medium.com/rapids-ai/monitoring-dask-rapids-with-prometheus-grafana-96eaf6b8f3a0>`_, for a more in-depth tutorial including how to monitor GPUs with a dashboard.
