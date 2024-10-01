@@ -64,7 +64,7 @@ class TestMetadataSep:
             add_filename=True,
         ).df
         separate_by_metadata(
-            df=df,
+            input_data=df,
             output_dir=str(output_dir),
             metadata_field="metadata",
             output_type=file_ext,
