@@ -43,6 +43,18 @@ class NoWorkerError(Exception):
     pass
 
 
+def _enable_spilling():
+    """
+    Setting this environment variable enables automatic spilling (and "unspilling")
+    of buffers from device to host to enable out-of-memory computation,
+    i.e., computing on objects that occupy more memory than is available on the GPU.
+    """
+    # Workaround for below (which is missing in 24.08, but fixed in 24.10)
+    # Remove this when we update to 24.10 or later dask-cuda
+    # https://github.com/rapidsai/dask-cuda/pull/1369/files
+    cudf.set_option("spill", True)
+
+
 def start_dask_gpu_local_cluster(
     nvlink_only=False,
     protocol="tcp",
@@ -79,6 +91,11 @@ def start_dask_gpu_local_cluster(
         _set_torch_to_use_rmm()
         client.run(_set_torch_to_use_rmm)
         print("Torch is using RMM memory pool", flush=True)
+
+    if enable_spilling:
+        _enable_spilling()
+        print("cuDF Spilling is enabled", flush=True)
+
     return client
 
 
