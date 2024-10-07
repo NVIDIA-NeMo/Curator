@@ -18,7 +18,7 @@ import os
 import random
 import shutil
 import time
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cudf
 import dask.bag as db
@@ -28,6 +28,7 @@ import pandas as pd
 import torch
 from dask.distributed import progress
 
+from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 
 
@@ -41,7 +42,8 @@ def assign_and_sort_clusters(
     sim_metric: str = "cosine",
     keep_hard: bool = True,
     kmeans_with_cos_dist: bool = True,
-    logger: logging.Logger = None,
+    logger: Optional[logging.Logger] = None,
+    profile_dir: Optional[str] = None,
 ):
     """
     Args:
@@ -55,6 +57,7 @@ def assign_and_sort_clusters(
         sorted_clusters_file_loc (str): The location to save the sorted clusters file. Defaults to an empty string.
         cluster_ids (list): The range of cluster IDs to sort.
         logger (logging.Logger): A logger object to log messages. Defaults to None.
+        profile_dir (str): If specified directory to write dask profile. Default is None.
 
     Returns:
         None
@@ -72,26 +75,30 @@ def assign_and_sort_clusters(
     kmeans_centroids = np.load(kmeans_centroids_file)
     start_time = time.time()
 
-    cluster_ids_bag = db.from_sequence(cluster_ids, npartitions=len(cluster_ids))
-    completed_count = cluster_ids_bag.map(
-        lambda cluster_c: rank_within_cluster(
-            id_col=id_col,
-            nearest_cent_dir=nearest_cent_dir,
-            output_sorted_clusters_dir=output_sorted_clusters_dir,
-            centroids=kmeans_centroids,
-            embedding_col=embedding_col,
-            sim_metric=sim_metric,
-            keep_hard=keep_hard,
-            kmeans_with_cos_dist=kmeans_with_cos_dist,
-            cluster_ids=[cluster_c],
-        )
-    ).compute()
+    with performance_report_if_with_ts_suffix(
+        profile_dir,
+        "ranking-clusters",
+    ):
+        cluster_ids_bag = db.from_sequence(cluster_ids, npartitions=len(cluster_ids))
+        completed_count = cluster_ids_bag.map(
+            lambda cluster_c: rank_within_cluster(
+                id_col=id_col,
+                nearest_cent_dir=nearest_cent_dir,
+                output_sorted_clusters_dir=output_sorted_clusters_dir,
+                centroids=kmeans_centroids,
+                embedding_col=embedding_col,
+                sim_metric=sim_metric,
+                keep_hard=keep_hard,
+                kmeans_with_cos_dist=kmeans_with_cos_dist,
+                cluster_ids=[cluster_c],
+            )
+        ).compute()
 
-    missing = len(cluster_ids) - sum(completed_count)
+        missing = len(cluster_ids) - sum(completed_count)
     logger.info(
         f"Completed {sum(completed_count)} clusters. Missing {missing} clusters."
     )
-    logger.info(f"Time for ranking: {(time.time() - start_time) / 60:.2f} mins")
+    logger.info(f"Time taken for Ranking Clusters: {time.time() - start_time}")
     logger.info("DONE!")
 
 
@@ -365,6 +372,8 @@ def extract_pruned_data(
     eps: float,
     n_clusters: int,
     output_parquet_path: str,
+    logger: Optional[logging.Logger] = None,
+    profile_dir: Optional[str] = None,
 ) -> Tuple[int, int, int]:
     """
     Extracts pruned data from sorted clusters and saves it to a CSV file.
@@ -377,25 +386,38 @@ def extract_pruned_data(
         eps (float): Epsilon value for pruning.
         n_clusters (int): Number of clusters.
         output_csv_path (str): Path to save the output CSV file.
+        logger (Optional[logging.Logger]): Logger object or path to store logs, defaults to None.
+        profile_dir (str): If specified directory to write dask profile. Default is None.
 
     Returns:
         Tuple[int, int, int]: Number of kept records, removed records, and total records.
     """
 
-    results_df = dd.from_map(
-        prune_single_cluster,
-        range(n_clusters),
-        id_col=id_col,
-        id_col_type=id_col_type,
-        sorted_clusters_dir=sorted_clusters_dir,
-        semdedup_pruning_tables_dir=semdedup_pruning_tables_dir,
-        eps=eps,
-    )
-    results_df[id_col] = results_df[id_col].astype(id_col_type)
-    results_df = results_df.persist()
-    progress(results_df)
+    t0 = time.time()
 
-    results_df.to_parquet(output_parquet_path)
+    with performance_report_if_with_ts_suffix(
+        profile_dir,
+        "extracting-pruned-from-clusters",
+    ):
+        results_df = dd.from_map(
+            prune_single_cluster,
+            range(n_clusters),
+            id_col=id_col,
+            id_col_type=id_col_type,
+            sorted_clusters_dir=sorted_clusters_dir,
+            semdedup_pruning_tables_dir=semdedup_pruning_tables_dir,
+            eps=eps,
+        )
+        results_df[id_col] = results_df[id_col].astype(id_col_type)
+        results_df = results_df.persist()
+        progress(results_df)
+
+        results_df.to_parquet(output_parquet_path)
+    if logger:
+        logger.info(
+            f"Time taken for Extracting Pruned Data : {time.time() - t0} and output written at {output_parquet_path}"
+        )
+
     total_kept = len(results_df)
 
     np_files = [
@@ -417,7 +439,8 @@ def extract_dedup_data(
     output_summary_file,
     output_parquet_path,
     logger: logging.Logger,
-) -> None:
+    profile_dir: Optional[str] = None,
+) -> dd.DataFrame:
     """
     Extracts deduplicated data based on provided parameters and logs the process.
 
@@ -433,6 +456,8 @@ def extract_dedup_data(
         eps=eps,
         n_clusters=n_clusters,
         output_parquet_path=output_parquet_path,
+        logger=logger,
+        profile_dir=profile_dir,
     )
 
     logger.info(

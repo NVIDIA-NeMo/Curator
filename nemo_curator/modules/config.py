@@ -14,7 +14,7 @@
 
 import warnings
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 import yaml
 
@@ -61,7 +61,7 @@ class FuzzyDuplicatesConfig(BaseConfig):
 
     # General config
     cache_dir: str
-    profile_dir: str = None
+    profile_dir: Optional[str] = None
     id_field: str = "id"
     text_field: str = "text"
 
@@ -117,6 +117,8 @@ class SemDedupConfig(BaseConfig):
 
     Attributes:
         cache_dir (str): Directory to store cache.
+        profile_dir (Optional[str]): If specified directory to write dask profile. Default is None.
+        cache_dir (str): Directory to store cache.
         num_files (int): Number of files. Default is -1, meaning all files.
         id_col_name (str): Column name for ID.
         id_col_type (str): Column type for ID.
@@ -138,6 +140,7 @@ class SemDedupConfig(BaseConfig):
     """
 
     cache_dir: str
+    profile_dir: Optional[str] = None
     num_files: int = -1
     id_col_name: str = "id"
     id_col_type: str = "str"

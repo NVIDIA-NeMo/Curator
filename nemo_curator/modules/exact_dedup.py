@@ -20,7 +20,7 @@ import warnings
 from contextlib import nullcontext
 from datetime import datetime
 from hashlib import md5
-from typing import Union
+from typing import Optional, Union
 
 import pandas as pd
 from dask import config
@@ -29,7 +29,7 @@ from dask import dataframe as dd
 from nemo_curator._compat import DASK_P2P_ERROR
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
-from nemo_curator.utils.distributed_utils import performance_report_if
+from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
 from nemo_curator.utils.gpu_utils import is_cudf_type
 
 
@@ -44,8 +44,8 @@ class ExactDuplicates:
         id_field: str = "id",
         text_field: str = "text",
         hash_method: str = "md5",
-        profile_dir: str = None,
-        cache_dir: str = None,
+        profile_dir: Optional[str] = None,
+        cache_dir: Optional[str] = None,
     ):
         """
         Parameters
@@ -158,13 +158,13 @@ class ExactDuplicates:
             warnings.warn(
                 f"Output path f{write_path} already exists and will be overwritten"
             )
-        with performance_report_if(
+        with performance_report_if_with_ts_suffix(
             self.profile_dir,
-            f"exact-dedup-profile-{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+            "exact-dedup-profile",
         ):
             result.to_parquet(write_path, write_index=False, overwrite=True)
         self._logger.info(
-            f"Exact dedup computation for dataset took {time.time() - t0}s complete at {write_path}"  # noqa:E501
+            f"Time taken for Exact Dedup Computation = {time.time() - t0}s and output written at {write_path}"
         )
         if is_cudf_type(result):
             import dask_cudf

@@ -20,8 +20,9 @@ os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import random
 import warnings
 from contextlib import nullcontext
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import dask.dataframe as dd
 import numpy as np
@@ -604,6 +605,16 @@ def performance_report_if(path=None, report_name="dask-profile.html"):
         return performance_report(os.path.join(path, report_name))
     else:
         return nullcontext()
+
+
+def performance_report_if_with_ts_suffix(
+    path: Optional[str] = None, report_name: str = "dask-profile"
+):
+    """Suffixes the report_name with the timestamp"""
+    return performance_report_if(
+        path=path,
+        report_name=f"{report_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+    )
 
 
 def seed_all(seed: int = 42):
