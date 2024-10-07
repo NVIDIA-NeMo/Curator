@@ -33,6 +33,9 @@
 :ref:`NeMo Curator on Kubernetes <data-curator-kubernetes>`
    Demonstration of how to run the NeMo Curator on a Dask Cluster deployed on top of Kubernetes
 
+:ref:`NeMo Curator and Apache Spark <data-curator-sparkother>`
+   Demonstration of how to read and write datasets when using Apache Spark and NeMo Curator
+
 :ref:`Best Practices <data-curator-best-practices>`
    A collection of suggestions on how to best use NeMo Curator to curate your dataset
 
@@ -62,6 +65,7 @@
    personalidentifiableinformationidentificationandremoval.rst
    distributeddataclassification.rst
    kubernetescurator.rst
+   sparkother.rst
    bestpractices.rst
    nextsteps.rst
    api/index.rst
