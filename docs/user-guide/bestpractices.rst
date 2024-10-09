@@ -33,7 +33,19 @@ Here are some features which can help optimize memory usage:
 * Enable asynchronous memory allocation: Use the ``--rmm-async`` flag to allow RMM to handle memory allocation more efficiently, by allocating and deallocating GPU memory asynchronously.
 * Set a memory release threshold: For example, ``--rmm-release-threshold 50GB`` can help prevent holding onto excess memory, releasing unused memory when a certain limit is reached. Please keep in mind that using this flag may degrade performance slightly as RMM is busy releasing the unused memory.
 
-You can set these flags while initializing your own Dask client, for example:
+You can pass these parameters directly into NeMo Curator's ``get_client`` function, which initializes a Dask client for you:
+
+.. code-block:: python
+
+  from nemo_curator.utils.distributed_utils import get_client
+
+  client = get_client(
+    cluster_type="gpu",
+    rmm_async=True,
+    rmm_release_threshold="50GB",
+  )
+
+Alternatively, you can set these flags while initializing your own Dask client, for example:
 
 .. code-block:: python
 
