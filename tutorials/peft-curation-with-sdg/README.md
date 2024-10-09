@@ -66,21 +66,27 @@ python tutorials/peft-curation-with-sdg/main.py \
     --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
     --device gpu
 
-# To control the amount of synthetic data to generate using LLaMa 3.1 405B
-python tutorials/peft-curation-with-sdg/main.py \
-    --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
-    --device gpu \  # Use the GPU and enable semantic deduplication
-    --synth-gen-rounds 1 \ # Do 1 round of synthetic data generation
-    --synth-gen-ratio 0.001 \  # Generate synthetic data using 0.1% of the real data
-    --synth-gen-model "meta/llama-3.1-405b-instruct" # Use LLaMa 3.1 405B
+# Here are some examples that:
+# - Use the GPU and enable semantic deduplication
+# - Do 1 round of synthetic data generation
+# - Generate synthetic data using 0.1% of the real data
+# - Use the specified model from build.nvidia.com for synthetic data generation
 
-# To control the amount of synthetic data to generate using Nemotron-4 340B
+# Using LLaMa 3.1 405B:
 python tutorials/peft-curation-with-sdg/main.py \
     --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
-    --device gpu \  # Use the GPU and enable semantic deduplication
-    --synth-gen-rounds 1 \ # Do 1 round of synthetic data generation
-    --synth-gen-ratio 0.001 \  # Generate synthetic data using 0.1% of the real data
-    --synth-gen-model "nvidia/nemotron-4-340b-instruct" # Use Nemotron-4 340B
+    --device gpu \
+    --synth-gen-rounds 1 \
+    --synth-gen-ratio 0.001 \
+    --synth-gen-model "meta/llama-3.1-405b-instruct"
+
+# Using Nemotron-4 340B:
+python tutorials/peft-curation-with-sdg/main.py \
+    --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
+    --device gpu \
+    --synth-gen-rounds 1 \
+    --synth-gen-ratio 0.001 \
+    --synth-gen-model "nvidia/nemotron-4-340b-instruct"
 ```
 
 By default, this tutorial will use at most 8 workers to run the curation pipeline. If you face any
@@ -91,4 +97,4 @@ Once the code finishes executing, the curated dataset will be available under `d
 By default, the script outputs splits for training (80%), validation (10%) and testing (10%).
 
 ## Next Step: Fine-tune Your Own Model
-The curated dataset from this tutorial can be readily used for model customization and fine-tuning using the [NeMo Framework](https://github.com/NVIDIA/NeMo). Please refer to the [law title generation tutorial](https://github.com/NVIDIA/NeMo/blob/main/tutorials/llm/llama-3/sdg-law-title-generation/llama3-sdg-lora-nemofw.ipynb) in the NeMo Framework repository to learn more.
+The curated dataset from this tutorial can be readily used for model customization and fine-tuning using the [NeMo Framework](https://github.com/NVIDIA/NeMo). Please refer to the [law title generation tutorial](https://github.com/NVIDIA/NeMo/blob/main/tutorials/llm/llama-3/sdg-law-title-generation/llama3-sdg-lora-nemofw.ipynb) in the NeMo Framework repository to learn more. In that tutorial, you will learn more about using the data you just curated to fine-tune a model that can read a legal question and generate a title for that question.

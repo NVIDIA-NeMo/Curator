@@ -402,6 +402,9 @@ def main():
     curated_dir = os.path.dirname(train_fp_curated)
     os.system(f"cp {val_fp} {curated_dir}")
     os.system(f"cp {test_fp} {curated_dir}")
+    print(
+        "--------------------------------------------------------------------------------"
+    )
     print(f"Curated files are saved in '{curated_dir}'.")
 
 
