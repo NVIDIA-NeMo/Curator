@@ -14,7 +14,6 @@
 import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import List, Optional, Union

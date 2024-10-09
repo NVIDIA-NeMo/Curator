@@ -14,7 +14,6 @@
 import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
 import torch
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
@@ -23,7 +22,6 @@ from transformers import AutoConfig, AutoModelForSequenceClassification
 from nemo_curator.classifiers.base import (
     DistributedDataClassifier,
     _get_suggest_memory_for_classifier,
-    _run_classifier_helper,
 )
 from nemo_curator.datasets import DocumentDataset
 

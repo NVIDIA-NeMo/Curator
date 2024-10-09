@@ -16,7 +16,6 @@ import logging
 import os
 from datetime import datetime
 
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
 import dask_cudf
 
 from nemo_curator.datasets import DocumentDataset
