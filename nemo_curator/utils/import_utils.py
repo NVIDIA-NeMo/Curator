@@ -346,7 +346,7 @@ def gpu_only_import(module, *, alt=None):
 
     return safe_import(
         module,
-        msg=f"{module} is not enabled in non GPU-enabled installations or environemnts. {GPU_INSTALL_STRING}",
+        msg=f"{module} is not enabled in non GPU-enabled installations or environments. {GPU_INSTALL_STRING}",
         alt=alt,
     )
 
