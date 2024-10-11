@@ -2,7 +2,7 @@ awscli>=1.22.55
 beautifulsoup4
 charset_normalizer>=3.1.0
 comment_parser
-crossfit @ git+https://github.com/rapidsai/crossfit.git@0.0.5
+crossfit>=0.0.6
 dask-mpi>=2021.11.0
 dask[complete]>=2021.7.1
 distributed>=2021.7.1
