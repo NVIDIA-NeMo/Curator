@@ -21,6 +21,9 @@
 :ref:`GPU Accelerated Semantic Deduplication <data-curator-semdedup>`
    NeMo-Curator provides scalable and GPU accelerated semantic deduplication functionality using RAPIDS cuML, cuDF, crossfit and Pytorch.
 
+:ref:`Distributed Data Classification <data-curator-distributeddataclassifer>`
+   NeMo-Curator provides a scalable and GPU accelerated module to help users run inference with pre-trained models on large volumes of text documents.
+
 :ref:`Synthetic Data Generation <data-curator-syntheticdata>`
    Synthetic data generation tools and example piplines are available within NeMo Curator.
 
