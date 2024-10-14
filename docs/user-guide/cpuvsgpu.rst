@@ -64,6 +64,7 @@ The following NeMo Curator modules are GPU based.
 
 * Exact Deduplication
 * Fuzzy Deduplication
+* Semantic Deduplication
 * Distributed Data Classification
 
   * Domain Classification
