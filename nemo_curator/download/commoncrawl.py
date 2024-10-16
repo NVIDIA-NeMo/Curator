@@ -224,6 +224,11 @@ def get_stop_list_dict(languages=[]):
             lang_key = language.upper()
         stop_list_dict[lang_key] = justext.get_stoplist(language)
 
+    # List obtained from https://github.com/stopwords-iso/stopwords-th
+    from .thai_stopwords import thai_stopwords
+
+    stop_list_dict["THAI"] = thai_stopwords
+
     return stop_list_dict
 
 
