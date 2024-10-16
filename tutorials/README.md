@@ -27,5 +27,5 @@ To get started, we recommend starting with the following tutorials to become fam
 | [synthetic-preference-data](./synthetic-preference-data) | Demonstrates the use of NeMo Curator synthetic data generation modules to leverage [LLaMa 3.1 405B Instruct](https://build.nvidia.com/meta/llama-3_1-405b-instruct) for generating synthetic preference data |
 | [synthetic-retrieval-evaluation](./synthetic-retrieval-evaluation) | Demonstrates the use of NeMo Curator synthetic data generation modules to leverage [LLaMa 3.1 405B Instruct](https://build.nvidia.com/meta/llama-3_1-405b-instruct) for generating synthetic data to evaluate retrieval pipelines |
 | [tinystories](./tinystories) | A comprehensive example of curating a small dataset to use for model pre-training. | [Blog post](https://developer.nvidia.com/blog/curating-custom-datasets-for-llm-training-with-nvidia-nemo-curator/)
-| [zyda2-tutorial](./zyda2-tutorial) | A comprehensive tutorial on how to reproduce Zyda2 dataset. |
+| [zyda2-tutorial](./zyda2-tutorial) | A comprehensive tutorial on how to reproduce [Zyda2 dataset](https://huggingface.co/datasets/Zyphra/Zyda2) with NeMo Curator. | [Nvidia blog post](https://developer.nvidia.com/blog/train-highly-accurate-llms-with-the-zyda-2-open-5t-token-dataset-processed-with-nvidia-nemo-curator/) [Zyphra blog post](https://www.zyphra.com/post/building-zyda-2)
 </div>

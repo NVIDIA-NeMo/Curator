@@ -1,5 +1,9 @@
 # Zyda2
-This tutorial demonstrates how to reproduce Zyda2 dataset, that was curated by Zyphra using NeMo Curator: https://huggingface.co/datasets/Zyphra/Zyda2-5T
+This tutorial demonstrates how to reproduce Zyda2 dataset, that was curated by Zyphra in collaboration with Nvidia using NeMo Curator.
+
+- Download Zyda2 dataset from HuggingFace: https://huggingface.co/datasets/Zyphra/Zyda2
+- Zyphra blog: https://www.zyphra.com/post/building-zyda-2
+- Nvidia blog: https://developer.nvidia.com/blog/train-highly-accurate-llms-with-the-zyda-2-open-5t-token-dataset-processed-with-nvidia-nemo-curator/
 
 ## Tutorial structure
 Tutorial is split into separate folders each containing scripts for running corresponding steps:
