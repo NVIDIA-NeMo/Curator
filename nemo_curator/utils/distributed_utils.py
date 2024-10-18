@@ -106,6 +106,7 @@ def start_dask_gpu_local_cluster(
         _enable_spilling()
         print("cuDF Spilling is enabled", flush=True)
 
+    assert get_num_workers(client) > 0, "No workers are currently connected."
     return client
 
 
@@ -122,7 +123,9 @@ def start_dask_cpu_local_cluster(
         threads_per_worker=threads_per_worker,
         **cluster_kwargs,
     )
+
     client = Client(cluster)
+    assert get_num_workers(client) > 0, "No workers are currently connected."
     return client
 
 
@@ -207,9 +210,13 @@ def get_client(
                 "Only one of scheduler_address or scheduler_file can be provided"
             )
         else:
-            return Client(address=scheduler_address, timeout="30s")
+            client = Client(address=scheduler_address, timeout="30s")
+            assert get_num_workers(client) > 0, "No workers are currently connected."
+            return client
     elif scheduler_file:
-        return Client(scheduler_file=scheduler_file, timeout="30s")
+        client = Client(scheduler_file=scheduler_file, timeout="30s")
+        assert get_num_workers(client) > 0, "No workers are currently connected."
+        return client
     else:
         if cluster_type == "gpu":
             return start_dask_gpu_local_cluster(
