@@ -242,15 +242,27 @@ def run_pipeline(args, jsonl_fp):
     Returns:
         The file path to the final curated JSONL file.
     """
-    # Disable synthetic data generation if no model specified, or no API key is provided.
-    if args.synth_gen_model is None or args.synth_gen_model == "":
+    # Disable synthetic data generation if the necessary arguments are not provided.
+    if not args.synth_gen_endpoint:
+        print(
+            "No synthetic data generation endpoint provided. Skipping synthetic data generation."
+        )
+        args.synth_gen_rounds = 0
+    if not args.synth_gen_model:
         print(
             "No synthetic data generation model provided. Skipping synthetic data generation."
         )
-        args.synth_gen_round = 0
-    if args.api_key is None:
-        print("No API key provided. Skipping synthetic data generation.")
         args.synth_gen_rounds = 0
+    if not args.api_key:
+        print(
+            "No synthetic data generation API key provided. Skipping synthetic data generation."
+        )
+        args.synth_gen_rounds = 0
+
+    if args.synth_gen_rounds:
+        print(
+            f"Using {args.synth_gen_endpoint}/{args.synth_gen_model} for synthetic data generation."
+        )
 
     synth_gen_ratio = args.synth_gen_ratio
     synth_gen_rounds = args.synth_gen_rounds
@@ -277,7 +289,7 @@ def run_pipeline(args, jsonl_fp):
     # Create the synthetic data generator.
     llm_client = AsyncOpenAIClient(
         AsyncOpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
+            base_url=args.synth_gen_endpoint,
             api_key=args.api_key or "",
             timeout=args.api_timeout,
         )
@@ -349,11 +361,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser = ArgumentHelper(parser).add_distributed_args()
     parser.add_argument(
+        "--synth-gen-endpoint",
+        type=str,
+        default="https://integrate.api.nvidia.com/v1",
+        help="The API endpoint to use for synthetic data generation. Any endpoint compatible with the OpenAI API can be used.",
+    )
+    parser.add_argument(
         "--synth-gen-model",
         type=str,
         default="nvidia/nemotron-4-340b-instruct",
-        choices=["nvidia/nemotron-4-340b-instruct", "meta/llama-3.1-405b-instruct", ""],
-        help="The model from build.nvidia.com to use for synthetic data generation. Leave blank to skip synthetic data generation.",
+        help="The model from the provided API endpoint to use for synthetic data generation. Leave blank to skip synthetic data generation.",
     )
     parser.add_argument(
         "--synth-gen-ratio",

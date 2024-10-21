@@ -48,12 +48,12 @@ showcased in this code:
 
 * In order to run the data curation pipeline with semantic deduplication enabled, you would need an
 NVIDIA GPU.
-* To generate synthetic data, you would need a synthetic data generation model compatible with the OpenAI API. Out of the box, this tutorial supports the following model through the [build.nvidia.com](https://build.nvidia.com) API gateway:
+* To generate synthetic data, you would need a synthetic data generation model compatible with the [OpenAI API](https://platform.openai.com/docs/api-reference/introduction). Out of the box, this tutorial supports the following model through the [build.nvidia.com](https://build.nvidia.com) API gateway:
   * [Nemotron-4 340B Instruct](https://build.nvidia.com/nvidia/nemotron-4-340b-instruct)
   * [LLaMa 3.1 405B Instruct](https://build.nvidia.com/meta/llama-3_1-405b-instruct)
-* For assigning qualitative metrics to the generated records, you would need a reward model compatible with the OpenAI API (such as the [Nemotron-4 340B Reward](https://build.nvidia.com/nvidia/nemotron-4-340b-reward) model).
+* For assigning qualitative metrics to the generated records, you would need a reward model compatible with the [OpenAI API](https://platform.openai.com/docs/api-reference/introduction) (such as the [Nemotron-4 340B Reward](https://build.nvidia.com/nvidia/nemotron-4-340b-reward) model).
 
-> **Note:** A valid [build.nvidia.com](https://build.nvidia.com) API key is required to use any of the above models.
+> **Note:** A valid [build.nvidia.com](https://build.nvidia.com) API key is required to use any of the above models. You can obtain a free API key by visiting [build.nvidia.com](https://build.nvidia.com) and creating an account with your email address.
 
 ## Usage
 After installing the NeMo Curator package, you can simply run the following commands:
@@ -61,32 +61,36 @@ After installing the NeMo Curator package, you can simply run the following comm
 # Running the basic pipeline (no GPUs or external LLMs needed)
 python tutorials/peft-curation-with-sdg/main.py
 
-# Run with synthetic data generation and semantic dedeuplication
+# Running with synthetic data generation and semantic dedeuplication using
+# an external LLM inference endpoint located at "https://api.example.com/v1/chat/completions"
+# and the model called "my-llm-model" that is served at that endpoint:
 python tutorials/peft-curation-with-sdg/main.py \
-    --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
+    --synth-gen-endpoint https://api.example.com/v1/chat/completions \
+    --synth-gen-model my-llm-model \
+    --api-key API_KEY_FOR_LLM_ENDPOINT \
     --device gpu
 
 # Here are some examples that:
-# - Use the GPU and enable semantic deduplication
+# - Use the specified model from build.nvidia.com for synthetic data generation
 # - Do 1 round of synthetic data generation
 # - Generate synthetic data using 0.1% of the real data
-# - Use the specified model from build.nvidia.com for synthetic data generation
+# - Use the GPU and enable semantic deduplication
 
 # Using LLaMa 3.1 405B:
 python tutorials/peft-curation-with-sdg/main.py \
     --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
-    --device gpu \
+    --synth-gen-model "meta/llama-3.1-405b-instruct" \
     --synth-gen-rounds 1 \
     --synth-gen-ratio 0.001 \
-    --synth-gen-model "meta/llama-3.1-405b-instruct"
+    --device gpu
 
 # Using Nemotron-4 340B:
 python tutorials/peft-curation-with-sdg/main.py \
     --api-key YOUR_BUILD.NVIDIA.COM_API_KEY \
-    --device gpu \
+    --synth-gen-model "nvidia/nemotron-4-340b-instruct" \
     --synth-gen-rounds 1 \
     --synth-gen-ratio 0.001 \
-    --synth-gen-model "nvidia/nemotron-4-340b-instruct"
+    --device gpu
 ```
 
 By default, this tutorial will use at most 8 workers to run the curation pipeline. If you face any
