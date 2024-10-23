@@ -149,33 +149,59 @@ class TestIO:
 
 
 class TestWriteWithFilename:
+    @pytest.mark.parametrize("keep_filename_column", [True, False])
     @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
-    def test_multifile_single_partition(self, tmp_path, file_ext):
+    def test_multifile_single_partition(
+        self,
+        tmp_path,
+        keep_filename_column,
+        file_ext,
+    ):
         df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file0", "file1", "file1"]})
 
         single_partition_write_with_filename(
-            df=df, output_file_dir=tmp_path, output_type=file_ext
+            df=df,
+            output_file_dir=tmp_path,
+            keep_filename_column=keep_filename_column,
+            output_type=file_ext,
         )
         assert os.path.exists(tmp_path / f"file0.{file_ext}")
         assert os.path.exists(tmp_path / f"file1.{file_ext}")
+
+        if not keep_filename_column:
+            df = df.drop("filename", axis=1)
 
         df1 = read_single_partition(
             files=[tmp_path / f"file0.{file_ext}"], backend="pandas", filetype=file_ext
         )
         assert_eq(df1, df.iloc[0:1], check_index=False)
+
         df2 = read_single_partition(
             files=[tmp_path / f"file1.{file_ext}"], backend="pandas", filetype=file_ext
         )
         assert_eq(df2, df.iloc[1:3], check_index=False)
 
+    @pytest.mark.parametrize("keep_filename_column", [True, False])
     @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
-    def test_singlefile_single_partition(self, tmp_path, file_ext):
+    def test_singlefile_single_partition(
+        self,
+        tmp_path,
+        keep_filename_column,
+        file_ext,
+    ):
         df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file2", "file2", "file2"]})
+
         single_partition_write_with_filename(
-            df=df, output_file_dir=tmp_path, output_type=file_ext
+            df=df,
+            output_file_dir=tmp_path,
+            keep_filename_column=keep_filename_column,
+            output_type=file_ext,
         )
         assert len(os.listdir(tmp_path)) == 1
         assert os.path.exists(tmp_path / f"file2.{file_ext}")
+
+        if not keep_filename_column:
+            df = df.drop("filename", axis=1)
         got = read_single_partition(
             files=[tmp_path / f"file2.{file_ext}"], backend="pandas", filetype=file_ext
         )

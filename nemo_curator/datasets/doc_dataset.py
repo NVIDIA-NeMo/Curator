@@ -35,6 +35,9 @@ class DocumentDataset:
     def persist(self):
         return DocumentDataset(self.df.persist())
 
+    def head(self, n=5):
+        return self.df.head(n)
+
     @classmethod
     def read_json(
         cls,
@@ -107,6 +110,7 @@ class DocumentDataset:
         self,
         output_file_dir,
         write_to_filename=False,
+        keep_filename_column=False,
     ):
         """
         See nemo_curator.utils.distributed_utils.write_to_disk docstring for other parameters.
@@ -116,6 +120,7 @@ class DocumentDataset:
             df=self.df,
             output_file_dir=output_file_dir,
             write_to_filename=write_to_filename,
+            keep_filename_column=keep_filename_column,
             output_type="jsonl",
         )
 
@@ -123,6 +128,7 @@ class DocumentDataset:
         self,
         output_file_dir,
         write_to_filename=False,
+        keep_filename_column=False,
     ):
         """
         See nemo_curator.utils.distributed_utils.write_to_disk docstring for other parameters.
@@ -132,6 +138,7 @@ class DocumentDataset:
             df=self.df,
             output_file_dir=output_file_dir,
             write_to_filename=write_to_filename,
+            keep_filename_column=keep_filename_column,
             output_type="parquet",
         )
 

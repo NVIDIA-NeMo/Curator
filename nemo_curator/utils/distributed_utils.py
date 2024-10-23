@@ -494,13 +494,19 @@ def process_all_batches(
     )
 
 
-def single_partition_write_with_filename(df, output_file_dir, output_type="jsonl"):
+def single_partition_write_with_filename(
+    df,
+    output_file_dir,
+    keep_filename_column=False,
+    output_type="jsonl",
+):
     """
     This function processes a DataFrame and writes it to disk
 
     Args:
         df: A DataFrame.
         output_file_dir: The output file path.
+        keep_filename_column: Whether to keep or drop the "filename" column, if it exists.
         output_type="jsonl": The type of output file to write.
     Returns:
         If the DataFrame is non-empty, return a Series containing a single element, True.
@@ -526,12 +532,18 @@ def single_partition_write_with_filename(df, output_file_dir, output_type="jsonl
         filenames = df.filename.unique()
         filenames = list(filenames.values_host) if is_cudf_type(df) else list(filenames)
         num_files = len(filenames)
+
         for filename in filenames:
             out_df = df[df.filename == filename] if num_files > 1 else df
+            if not keep_filename_column:
+                out_df = out_df.drop("filename", axis=1)
+
             filename = Path(filename).stem
             output_file_path = os.path.join(output_file_dir, filename)
+
             if output_type == "jsonl":
                 output_file_path = output_file_path + ".jsonl"
+
                 if isinstance(df, pd.DataFrame):
                     out_df.to_json(
                         output_file_path,
@@ -550,16 +562,24 @@ def single_partition_write_with_filename(df, output_file_dir, output_type="jsonl
                         lines=True,
                         force_ascii=False,
                     )
+
             elif output_type == "parquet":
                 output_file_path = output_file_path + ".parquet"
                 out_df.to_parquet(output_file_path)
+
             else:
                 raise ValueError(f"Unknown output type: {output_type}")
 
     return success_ser
 
 
-def write_to_disk(df, output_file_dir, write_to_filename=False, output_type="jsonl"):
+def write_to_disk(
+    df,
+    output_file_dir,
+    write_to_filename=False,
+    keep_filename_column=False,
+    output_type="jsonl",
+):
     """
     This function writes a Dask DataFrame to the specified file path.
     If write_to_filename is True, then it expects the
@@ -569,6 +589,7 @@ def write_to_disk(df, output_file_dir, write_to_filename=False, output_type="jso
         df: A Dask DataFrame.
         output_file_dir: The output file path.
         write_to_filename: Whether to write the filename using the "filename" column.
+        keep_filename_column: Whether to keep or drop the "filename" column, if it exists.
         output_type="jsonl": The type of output file to write.
 
     """
@@ -589,11 +610,13 @@ def write_to_disk(df, output_file_dir, write_to_filename=False, output_type="jso
         output = df.map_partitions(
             single_partition_write_with_filename,
             output_file_dir,
+            keep_filename_column=keep_filename_column,
             output_type=output_type,
             meta=output_meta,
             enforce_metadata=False,
         )
         output = output.compute()
+
     else:
         if output_type == "jsonl":
             if is_cudf_type(df):
