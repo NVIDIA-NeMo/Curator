@@ -53,6 +53,14 @@ class H14_NSFW_Detector(nn.Module):
 
 
 class NsfwClassifier(ImageClassifier):
+    """
+    NSFW Classifier is a small MLP trained on top of
+    OpenAI's ViT-L CLIP image embeddings. It is used to assess the likelihood
+    of images containing sexually explicit material.
+    More information on the model can be found here:
+    https://github.com/LAION-AI/CLIP-based-NSFW-Detector.
+    """
+
     def __init__(
         self,
         embedding_column: str = "image_embedding",
@@ -60,6 +68,22 @@ class NsfwClassifier(ImageClassifier):
         batch_size: int = -1,
         model_path: Optional[str] = None,
     ) -> None:
+        """
+        Constructs the classifier.
+
+        Args:
+            embedding_column (str): The column name that stores the image
+                embeddings.
+            pred_column (str): The column name to be added where the nsfw
+                scores will be stored.
+            pred_type (Union[str, type]): The datatype of the pred_column.
+            batch_size (int): If greater than 0, the image embeddings
+                will be processed in batches of at most this size. If less than 0,
+                all embeddings will be processed at once.
+            model_path (Optional[str]): If specified, will load the model from the
+                given path. If not specified, will default to being stored in
+                NEMO_CURATOR_HOME.
+        """
         super().__init__(
             model_name="nsfw_classifier",
             embedding_column=embedding_column,
@@ -94,11 +118,11 @@ class NsfwClassifier(ImageClassifier):
         weights = torch.load(self.model_path, map_location=torch.device("cpu"))
         model.load_state_dict(weights)
         model.eval()
-        model = self.configure_forward(model)
+        model = self._configure_forward(model)
 
         return model
 
-    def configure_forward(self, model):
+    def _configure_forward(self, model):
         original_forward = model.forward
 
         def custom_forward(*args, **kwargs):

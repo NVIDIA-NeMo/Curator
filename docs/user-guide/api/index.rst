@@ -18,4 +18,5 @@ API Reference
    decontamination.rst
    services.rst
    synthetic.rst
+   image/index.rst
    misc.rst

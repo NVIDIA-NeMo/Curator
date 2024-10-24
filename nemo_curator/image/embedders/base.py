@@ -11,9 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import os
 from abc import ABC, abstractmethod
-from typing import Iterable
+from typing import Callable, Iterable
 
 import cupy as cp
 import torch
@@ -26,17 +25,49 @@ from nemo_curator.utils.distributed_utils import load_object_on_worker
 
 
 class ImageEmbedder(ABC):
+    """
+    An abstract base class for generating image embeddings.
+
+    Subclasses only need to define how a model is loaded and a dataset
+    is read in from a tar file shard. This class handles distributing
+    the tasks across workers and saving the metadata to the dataset.
+    The embedding model must be able to fit onto a single GPU.
+    """
+
     def __init__(
         self,
         model_name: str,
         image_embedding_column: str,
         classifiers: Iterable[ImageClassifier],
     ) -> None:
+        """
+        Constructs an image embedder.
+
+        Args:
+            model_name (str): A unqiue name to identify the model on each worker
+                and in the logs.
+            image_embedding_column (str): The column name to be added where the
+                image embeddings will be saved.
+            classifiers (Iterable[ImageClassifier]): A collection of classifiers. If
+                the iterable has a nonzero length, all classifiers will be loaded
+                on the GPU at the same time and be passed the image embeddings
+                immediately after they are created.
+        """
         self.model_name = model_name
         self.image_embedding_column = image_embedding_column
         self.classifiers = classifiers
 
     def __call__(self, dataset: ImageTextPairDataset) -> ImageTextPairDataset:
+        """
+        Generates image embeddings for all images in the dataset.
+
+        Args:
+            dataset (ImageTextPairDataset): The dataset to create image embeddings for.
+
+        Returns:
+            ImageTextPairDataset: A dataset with image embeddings and potentially
+                classifier scores.
+        """
         meta = dataset.metadata.dtypes.to_dict()
         meta[self.image_embedding_column] = "object"
         for classifier in self.classifiers:
@@ -122,8 +153,36 @@ class ImageEmbedder(ABC):
 
     @abstractmethod
     def load_dataset_shard(self, tar_path: str) -> Iterable:
+        """
+        Loads images and metadata from a tarfile in the dataset.
+
+        Args:
+            tar_path (str): The path to a tar file shard in the input WebDataset.
+
+        Returns:
+            Iterable: An iterator over the dataset. Each iteration should produce
+                a tuple of (image, metadata) pairs. The batch of images will be passed
+                directly to the model created by ImageEmbedder.load_embedding_model.
+                The metadata must be a list of dictionaries. Each element of the list
+                must correspond to the image in the batch at the same position.
+                Each dictionary must contain a field that is the same as
+                id_field in the dataset. This ID field in the metadata will be used
+                to match the image to the its record in the metadata (Parquet) files.
+        """
         pass
 
     @abstractmethod
-    def load_embedding_model(self, device):
+    def load_embedding_model(self, device: str) -> Callable:
+        """
+        Loads the model used to generate image embeddings.
+
+        Args:
+            device (str): A PyTorch device identifier that specifies what GPU
+                to load the model on.
+
+        Returns:
+            Callable: A callable model, usually a torch.nn.Module.
+                The input to this model will be the batches of images output
+                by the ImageEmbedder.load_dataset_shard.
+        """
         pass

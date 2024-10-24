@@ -201,7 +201,7 @@ The key feature of CrossFit used in NeMo Curator is the sorted sequence data loa
 - Groups sorted sequences into optimized batches.
 - Efficiently allocates batches to the provided GPU memories by estimating the memory footprint for each sequence length and batch size.
 
-.. image:: images/sorted_sequence_dataloader.png
+.. image:: assets/sorted_sequence_dataloader.png
    :alt: Sorted Sequence Data Loader
 
 Check out the `rapidsai/crossfit`_ repository for more information.

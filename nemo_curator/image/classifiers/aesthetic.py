@@ -46,6 +46,13 @@ class MLP(nn.Module):
 
 
 class AestheticClassifier(ImageClassifier):
+    """
+    LAION-Aesthetics_Predictor V2 is a linear classifier trained on top of
+    OpenAI CLIP ViT-L/14 image embeddings. It is used to assess the aesthetic
+    quality of images. More information on the model can be found here:
+    https://laion.ai/blog/laion-aesthetics/.
+    """
+
     def __init__(
         self,
         embedding_column: str = "image_embedding",
@@ -53,6 +60,22 @@ class AestheticClassifier(ImageClassifier):
         batch_size: int = -1,
         model_path: Optional[str] = None,
     ) -> None:
+        """
+        Constructs the classifier.
+
+        Args:
+            embedding_column (str): The column name that stores the image
+                embeddings.
+            pred_column (str): The column name to be added where the aesthetic
+                scores will be stored.
+            pred_type (Union[str, type]): The datatype of the pred_column.
+            batch_size (int): If greater than 0, the image embeddings
+                will be processed in batches of at most this size. If less than 0,
+                all embeddings will be processed at once.
+            model_path (Optional[str]): If specified, will load the model from the
+                given path. If not specified, will default to being stored in
+                NEMO_CURATOR_HOME.
+        """
         super().__init__(
             model_name="aesthetic_classifier",
             embedding_column=embedding_column,
@@ -90,11 +113,11 @@ class AestheticClassifier(ImageClassifier):
         weights = torch.load(self.model_path, map_location=torch.device("cpu"))
         model.load_state_dict(weights)
         model.eval()
-        model = self.configure_forward(model)
+        model = self._configure_forward(model)
 
         return model
 
-    def configure_forward(self, model):
+    def _configure_forward(self, model):
         original_forward = model.forward
 
         def custom_forward(*args, **kwargs):

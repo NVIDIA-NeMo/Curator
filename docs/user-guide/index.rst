@@ -1,5 +1,9 @@
 .. include:: datacuration.rsts
 
+-------------------
+Text Curation
+-------------------
+
 :ref:`Downloading and Extracting Text <data-curator-download>`
    Downloading a massive public dataset is usually the first step in data curation, and it can be cumbersome due to the dataset’s massive size and hosting method. This section describes how to download and extract large corpora efficiently.
 
@@ -19,7 +23,7 @@
    Both exact and fuzzy deduplication functionalities are supported in NeMo Curator and accelerated using RAPIDS cuDF.
 
 :ref:`GPU Accelerated Semantic Deduplication <data-curator-semdedup>`
-   NeMo-Curator provides scalable and GPU accelerated semantic deduplication functionality using RAPIDS cuML, cuDF, crossfit and Pytorch.
+   NeMo Curator provides scalable and GPU accelerated semantic deduplication functionality using RAPIDS cuML, cuDF, crossfit and PyTorch.
 
 :ref:`Distributed Data Classification <data-curator-distributeddataclassifer>`
    NeMo-Curator provides a scalable and GPU accelerated module to help users run inference with pre-trained models on large volumes of text documents.
@@ -32,6 +36,56 @@
 
 :ref:`Personally Identifiable Information Identification and Removal <data-curator-pii>`
    The purpose of the personally identifiable information (PII) redaction tool is to help scrub sensitive data out of training datasets
+
+.. toctree::
+   :maxdepth: 4
+   :titlesonly:
+
+
+   download.rst
+   documentdataset.rst
+   cpuvsgpu.rst
+   qualityfiltering.rst
+   languageidentificationunicodeformatting.rst
+   gpudeduplication.rst
+   semdedup.rst
+   syntheticdata.rst
+   taskdecontamination.rst
+   personalidentifiableinformationidentificationandremoval.rst
+   distributeddataclassification.rst
+
+-------------------
+Image Curation
+-------------------
+
+:ref:`Get Started <data-curator-image-getting-started>`
+   Install NeMo Curator's image curation modules.
+
+:ref:`Image-Text Pair Datasets <data-curator-image-datasets>`
+   Image-text pair datasets are commonly used as the basis for training multimodal generative models. NeMo Curator interfaces with the standardized WebDataset format for curating such datasets.
+
+:ref:`Image Embedding Creation <data-curator-image-embedding>`
+   Image embeddings are the backbone to many data curation operations in NeMo Curator. This section describes how to efficiently create embeddings for massive datasets.
+
+:ref:`Classifiers <data-curator-image-classifiers>`
+   NeMo Curator provides several ways to use common classifiers like aesthetic scoring and not-safe-for-work (NSFW) scoring.
+
+:ref:`Semantic Deduplication <data-curator-semdedup>`
+   Semantic deduplication with image datasets has been shown to drastically improve model performance. NeMo Curator has a semantic deduplication module that can work with any modality.
+
+.. toctree::
+   :maxdepth: 4
+   :titlesonly:
+
+   image/gettingstarted.rst
+   image/datasets.rst
+   image/classifiers/index.rst
+   semdedup.rst
+
+
+-------------------
+Reference
+-------------------
 
 :ref:`NeMo Curator on Kubernetes <data-curator-kubernetes>`
    Demonstration of how to run the NeMo Curator on a Dask Cluster deployed on top of Kubernetes
@@ -56,17 +110,6 @@
    :titlesonly:
 
 
-   download.rst
-   documentdataset.rst
-   cpuvsgpu.rst
-   qualityfiltering.rst
-   languageidentificationunicodeformatting.rst
-   gpudeduplication.rst
-   semdedup.rst
-   syntheticdata.rst
-   taskdecontamination.rst
-   personalidentifiableinformationidentificationandremoval.rst
-   distributeddataclassification.rst
    kubernetescurator.rst
    sparkother.rst
    bestpractices.rst
