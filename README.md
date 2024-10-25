@@ -91,7 +91,7 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
 ```bash
 git clone https://github.com/NVIDIA/NeMo-Curator.git
 pip install cython
-pip install ./NeMo-Curator[all]
+pip install --extra-index-url https://pypi.nvidia.com "./NeMo-Curator[all]"
 ```
 
 #### NeMo Framework Container
@@ -102,7 +102,7 @@ The latest release of NeMo Curator comes preinstalled in the [NeMo Framework Con
 pip uninstall nemo-curator
 rm -r /opt/NeMo-Curator
 git clone https://github.com/NVIDIA/NeMo-Curator.git /opt/NeMo-Curator
-pip install --extra-index-url https://pypi.nvidia.com /opt/NeMo-Curator[all]
+pip install --extra-index-url https://pypi.nvidia.com "/opt/NeMo-Curator[all]"
 ```
 
 #### Extras
