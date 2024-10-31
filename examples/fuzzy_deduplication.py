@@ -31,7 +31,7 @@ def main(args):
 
     dataset_dir = "/path/to/dataset"
     log_dir = "./"
-    cache_dir = "./fuzzy_cache"
+    cache_dir = "./fuzzy_cache"  # must be cleared between runs
     output_dir = "./output"
     dataset_id_field = "id"
     dataset_text_field = "text"

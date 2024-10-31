@@ -512,7 +512,7 @@ class FuzzyDuplicates:
                     )
                 )
                 ddf_mapped_buckets_w_anchors.to_parquet(
-                    mapped_buckets_w_anchors_path, write_index=False
+                    mapped_buckets_w_anchors_path, write_index=False, overwrite=True
                 )
             self._logger.info(
                 f"Time taken for Map_buckets : {time.time() - t0}s and output written at {mapped_buckets_w_anchors_path}"
@@ -556,6 +556,7 @@ class FuzzyDuplicates:
                     jaccard_pairs_path,
                     write_index=False,
                     write_metadata_file=False,
+                    overwrite=True,
                 )
                 self._logger.info(
                     f"Time taken for Jaccard Similarity = {time.time()-t0}s and output written at {jaccard_pairs_path}"
@@ -1143,12 +1144,15 @@ class _Shuffle:
                 try:
                     # NOTE: If we have more text-df partitions than bucket-map
                     # partitions, we are more likely to see an OverflowError
+
+                    subset_merged_df = merge_left_to_shuffled_right(
+                        subset_text_df,
+                        subset_bucket_df,
+                        merge_on,
+                    )
+                    # Returns a dataframe or None (when the merge is empty)
                     output_df = text_bytes_aware_shuffle(
-                        df=merge_left_to_shuffled_right(
-                            subset_text_df,
-                            subset_bucket_df,
-                            merge_on,
-                        ),
+                        df=subset_merged_df,
                         partition_on=partition_on,
                         text_column=self.text_field,
                         num_workers=num_workers,
@@ -1167,19 +1171,20 @@ class _Shuffle:
                     )
                     continue
 
-                if self.int_to_str_id is not None:
+                if self.int_to_str_id is not None and output_df is not None:
                     output_df = output_df.map_partitions(
                         int_ids_to_str, id_column=self.int_to_str_id
                     )
                 batch_label = f"{end_bucket_offset}_{end_text_offset}"
-                written_files = output_df.map_partitions(
-                    write_partitioned_file,
-                    output_path,
-                    partition_on,
-                    batch_label,
-                    meta=cudf.Series([True]),
-                )
-                written_files = written_files.compute()
+                if output_df is not None:
+                    written_files = output_df.map_partitions(
+                        write_partitioned_file,
+                        output_path,
+                        partition_on,
+                        batch_label,
+                        meta=cudf.Series([True]),
+                    )
+                    written_files = written_files.compute()
                 update_restart_offsets(output_path, bucket_part_offset, end_text_offset)
                 del output_df
 
