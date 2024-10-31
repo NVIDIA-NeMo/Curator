@@ -17,6 +17,7 @@ To get started, we recommend starting with the following tutorials to become fam
 | Tutorial | Description | Additional Resources |
 | --- | --- | --- |
 | [pretraining-data-curation](./pretraining-data-curation/) | Demonstrates accelerated pipeline for curating large-scale data for LLM pretraining in a distributed environment | |
+| [pretraining-vietnamese-data-curation](./pretraining-vietnamese-data-curation/) | Demonstrates how to use NeMo Curator to process large-scale and high-quality Vietnamese data in a distributed environment | |
 | [dapt-curation](./dapt-curation) | Data curation sample for domain-adaptive pre-training (DAPT), focusing on [ChipNeMo](https://blogs.nvidia.com/blog/llm-semiconductors-chip-nemo/) data curation as an example | [Blog post](https://developer.nvidia.com/blog/streamlining-data-processing-for-domain-adaptive-pretraining-with-nvidia-nemo-curator/) |
 | [distributed_data_classification](./distributed_data_classification) | Demonstrates data domain and data quality classification at scale in a distributed environment | |
 | [nemotron_340B_synthetic_datagen](./nemotron_340B_synthetic_datagen) | Demonstrates the use of NeMo Curator synthetic data generation modules to leverage [Nemotron-4 340B Instruct](https://build.nvidia.com/nvidia/nemotron-4-340b-instruct) for generating synthetic preference data | |
