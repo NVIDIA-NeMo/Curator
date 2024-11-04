@@ -62,6 +62,7 @@ def main():
     aegis_classifier = AegisClassifier(
         aegis_variant=args.aegis_variant,
         token=args.token,
+        text_field=args.input_text_field,
         max_chars=args.max_chars,
         batch_size=args.batch_size,
         max_mem_gb=args.max_mem_gb_classifier,

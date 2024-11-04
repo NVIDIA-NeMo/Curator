@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
+from typing import Optional
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import torch
@@ -29,21 +30,26 @@ FINEWEB_EDU_IDENTIFIER = "HuggingFaceTB/fineweb-edu-classifier"
 
 
 class FinewebEduModel(HFModel):
-    def __init__(self, path_or_name, max_mem_gb=None, autocast=False):
+    def __init__(
+        self,
+        path_or_name: str,
+        max_mem_gb: Optional[int] = None,
+        autocast: bool = False,
+    ):
         self.path_or_name = path_or_name
         self.autocast = autocast
         if max_mem_gb is None:
             max_mem_gb = _get_suggest_memory_for_classifier()
         super().__init__(path_or_name=path_or_name, max_mem_gb=max_mem_gb)
 
-    def load_model(self, device="cuda"):
+    def load_model(self, device: str = "cuda"):
         model = AutoModelForSequenceClassification.from_pretrained(self.path_or_name)
         model = model.to(device)
         model = self.configure_forward(model, self.autocast)
         return model
 
     @staticmethod
-    def configure_forward(model, autocast=True):
+    def configure_forward(model, autocast: bool = True):
         original_forward = model.forward
 
         def custom_forward(*args, **kwargs):
@@ -83,14 +89,14 @@ class FineWebEduClassifier(DistributedDataClassifier):
 
     def __init__(
         self,
-        batch_size=256,
+        batch_size: int = 256,
         text_field: str = "text",
-        pred_column="fineweb-edu-score",
+        pred_column: str = "fineweb-edu-score",
         int_column="fineweb-edu-score-int",
-        max_chars=-1,
-        device_type="cuda",
-        autocast=True,
-        max_mem_gb=None,
+        max_chars: int = -1,
+        device_type: str = "cuda",
+        autocast: bool = True,
+        max_mem_gb: Optional[int] = None,
     ):
         model = FinewebEduModel(
             path_or_name=FINEWEB_EDU_IDENTIFIER,
@@ -112,7 +118,7 @@ class FineWebEduClassifier(DistributedDataClassifier):
             out_dim=1,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset):
+    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
         print("Starting Fineweb EDU classifier inference", flush=True)
         ddf = dataset.df
 

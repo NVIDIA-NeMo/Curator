@@ -59,6 +59,7 @@ def main():
         add_filename = True
 
     domain_classifier = DomainClassifier(
+        text_field=args.input_text_field,
         max_chars=args.max_chars,
         batch_size=args.batch_size,
         autocast=args.autocast,

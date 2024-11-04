@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -33,15 +33,15 @@ class DistributedDataClassifier(ABC):
 
     def __init__(
         self,
-        model,
-        labels,
-        filter_by,
-        batch_size,
-        out_dim,
-        pred_column,
-        max_chars,
-        device_type,
-        autocast,
+        model: str,
+        labels: List[str],
+        filter_by: Optional[List[str]],
+        batch_size: int,
+        out_dim: int,
+        pred_column: str,
+        max_chars: int,
+        device_type: str,
+        autocast: bool,
     ):
         self.model = model
         self.labels = labels
@@ -53,7 +53,7 @@ class DistributedDataClassifier(ABC):
         self.device_type = device_type
         self.autocast = autocast
 
-    def __call__(self, dataset: DocumentDataset):
+    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
         result_doc_dataset = self._run_classifier(dataset)
         if self.filter_by is not None:
             return self._filter_documents(result_doc_dataset)
@@ -61,13 +61,13 @@ class DistributedDataClassifier(ABC):
         return result_doc_dataset
 
     @abstractmethod
-    def _run_classifier(self):
+    def _run_classifier(self) -> DocumentDataset:
         pass
 
     def _filter_documents(
         self,
         dataset: DocumentDataset,
-    ):
+    ) -> DocumentDataset:
         df = dataset.df
 
         filter_by = self.filter_by
@@ -106,7 +106,7 @@ class HFDeberta(nn.Module, PyTorchModelHubMixin):
         else:
             return self._forward(batch)
 
-    def set_autocast(self, autocast):
+    def set_autocast(self, autocast: bool):
         self.autocast = autocast
 
 
@@ -117,6 +117,7 @@ def _run_classifier_helper(
     max_chars: int,
     batch_size: int,
     label_col: str,
+    text_field: str = "text",
     prob_col: str = None,
 ) -> "dask_cudf.DataFrame":
 
@@ -124,7 +125,7 @@ def _run_classifier_helper(
     prob_internal_col = "_prob"
     # TODO: Make crossfit handle this cleanly
     pred_internal_col = "labels"
-    df["sliced_text"] = df["text"].str.slice(0, max_chars)
+    df["sliced_text"] = df[text_field].str.slice(0, max_chars)
     columns_to_keep_list = df.columns.to_list()
     columns_to_keep_list.remove("sliced_text")
 

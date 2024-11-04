@@ -60,6 +60,7 @@ def main():
         add_filename = True
 
     fineweb_edu_classifier = FineWebEduClassifier(
+        text_field=args.input_text_field,
         batch_size=args.batch_size,
         autocast=args.autocast,
         max_chars=args.max_chars,

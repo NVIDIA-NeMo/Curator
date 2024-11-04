@@ -13,6 +13,7 @@
 # limitations under the License.
 import os
 from dataclasses import dataclass
+from typing import List, Optional
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from crossfit.backend.torch.hf.model import HFModel
@@ -31,14 +32,17 @@ QUALITY_IDENTIFIER = "nvidia/quality-classifier-deberta"
 
 @dataclass
 class QualityModelConfig:
-    model = "microsoft/deberta-v3-base"
-    fc_dropout = 0.2
-    max_len = 1024
+    model: str = "microsoft/deberta-v3-base"
+    fc_dropout: float = 0.2
+    max_len: int = 1024
 
 
 class QualityModel(HFModel):
     def __init__(
-        self, config: QualityModelConfig, autocast: bool = False, max_mem_gb: int = None
+        self,
+        config: QualityModelConfig,
+        autocast: bool = False,
+        max_mem_gb: Optional[int] = None,
     ):
         self.config = config
         self.autocast = autocast
@@ -46,7 +50,7 @@ class QualityModel(HFModel):
             max_mem_gb = _get_suggest_memory_for_classifier()
         super().__init__(self.config.model, max_mem_gb=max_mem_gb)
 
-    def load_model(self, device="cuda"):
+    def load_model(self, device: str = "cuda"):
         model = HFDeberta.from_pretrained(QUALITY_IDENTIFIER)
         model.set_autocast(self.autocast)
         model = model.to(device)
@@ -68,6 +72,7 @@ class QualityClassifier(DistributedDataClassifier):
     Attributes:
         filter_by (list[str], optional): The classes to filter the dataset by. If None, all classes will be included. Defaults to None.
         batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        text_field (str): The field in the dataset that should be classified.
         pred_column (str): The column name where predictions will be stored. Defaults to "quality_pred".
         prob_column (str): The column name where prediction probabilities will be stored. Defaults to "quality_prob".
         max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 6000.
@@ -79,17 +84,19 @@ class QualityClassifier(DistributedDataClassifier):
 
     def __init__(
         self,
-        filter_by=None,
-        batch_size=256,
-        pred_column="quality_pred",
-        prob_column="quality_prob",
-        max_chars=6000,
-        device_type="cuda",
-        autocast=True,
-        max_mem_gb=None,
+        filter_by: Optional[List[str]] = None,
+        batch_size: int = 256,
+        text_field: str = "text",
+        pred_column: str = "quality_pred",
+        prob_column: str = "quality_prob",
+        max_chars: int = 6000,
+        device_type: str = "cuda",
+        autocast: bool = True,
+        max_mem_gb: Optional[int] = None,
     ):
         config = AutoConfig.from_pretrained(QUALITY_IDENTIFIER)
 
+        self.text_field = text_field
         self.prob_column = prob_column
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
@@ -111,7 +118,7 @@ class QualityClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset):
+    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
         print("Starting Quality classifier inference", flush=True)
         df = dataset.df
         df = _run_classifier_helper(
@@ -121,6 +128,7 @@ class QualityClassifier(DistributedDataClassifier):
             max_chars=self.max_chars,
             batch_size=self.batch_size,
             label_col=self.pred_column,
+            text_field=self.text_field,
             prob_col=self.prob_column,
         )
         return DocumentDataset(df)
