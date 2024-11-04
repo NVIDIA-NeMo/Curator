@@ -430,6 +430,30 @@ class TestHeuristicFilters:
             expected_data, filtered_data
         ), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_wordcount_zh(self):
+        dataset = list_to_dataset(["", "你好。", "我喜欢学习中文。"])
+        filters = ScoreFilter(WordCountFilter(min_words=2, max_words=5, lang="zh"))
+        filtered_data = filters(dataset)
+
+        expected_indices = [1, 2]
+        expected_data = DocumentDataset(dataset.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_wordcount_ja(self):
+        dataset = list_to_dataset(
+            ["", "猫が寝ます。", "私は日本語のテキストを分割します。"]
+        )
+        filters = ScoreFilter(WordCountFilter(min_words=5, max_words=11, lang="ja"))
+        filtered_data = filters(dataset)
+
+        expected_indices = [1, 2]
+        expected_data = DocumentDataset(dataset.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
     def test_boilerplate(self):
         dataset = list_to_dataset(
             [

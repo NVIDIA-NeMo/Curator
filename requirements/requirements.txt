@@ -12,6 +12,7 @@ in-place==0.5.0
 jieba==0.42.1
 justext==3.0.1
 lxml_html_clean
+mecab-python3
 mwparserfromhell==0.6.5
 nemo_toolkit[nlp]>=1.23.0
 numpy<2

@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import regex
-
-from nemo_curator.filters.doc_filter import DocumentFilter, import_filter
+from nemo_curator.filters.doc_filter import DocumentFilter
 from nemo_curator.utils.constants import (
     bullet_list,
     common_english_words,
@@ -34,14 +32,13 @@ from nemo_curator.utils.text_utils import (
     get_paragraphs,
     get_sentences,
     get_word_splitter,
-    is_paragraph_indices_in_top_or_bottom_only,
 )
 
 
 class NonAlphaNumericFilter(DocumentFilter):
     """
-    If more than 25% of the document is non-alphanumeric then discard
-    Intended to be applied only too english text
+    If more than 25% of the document is non-alphanumeric, then discard.
+    Intended to be applied only to English text.
     Source: Adapted from Gopher (Rae et al., 2021)
     """
 
@@ -65,9 +62,13 @@ class NonAlphaNumericFilter(DocumentFilter):
 
 class SymbolsToWordsFilter(DocumentFilter):
     """
-    Remove any document with symbol-to-word ratio greater than
-    0.1 for either the hash symbol or the elipsis
+    Remove any document with a symbol-to-word ratio greater than
+    0.1 for either the hash symbol or the elipsis.
     Source: Gopher (Rae et al., 2021)
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, max_symbol_to_word_ratio=0.1, lang="en"):
@@ -93,7 +94,7 @@ class SymbolsToWordsFilter(DocumentFilter):
 
 class NumbersFilter(DocumentFilter):
     """
-    If more than 15% of the document contains numbers then discard
+    If more than 15% of the document contains numbers, then discard.
     """
 
     def __init__(self, max_number_to_text_ratio=0.15):
@@ -116,7 +117,7 @@ class NumbersFilter(DocumentFilter):
 
 class UrlsFilter(DocumentFilter):
     """
-    If more than 20% of the document is comprised of URLs then discard
+    If more than 20% of the document is comprised of URLs, then discard.
     """
 
     def __init__(self, max_url_to_text_ratio=0.2):
@@ -141,7 +142,7 @@ class UrlsFilter(DocumentFilter):
 
 class BulletsFilter(DocumentFilter):
     """
-    If more than 90% of the lines start with a bullet then discard
+    If more than 90% of the lines start with a bullet, then discard.
     Source: Gopher (Rae et al., 2021)
     """
 
@@ -171,7 +172,7 @@ class BulletsFilter(DocumentFilter):
 class WhiteSpaceFilter(DocumentFilter):
     """
     If the document contains a significant number
-    of white space characters then discard
+    of white space characters, then discard.
     """
 
     def __init__(self, max_white_space_ratio=0.25):
@@ -196,7 +197,7 @@ class WhiteSpaceFilter(DocumentFilter):
 
 class ParenthesesFilter(DocumentFilter):
     """
-    If more than 10% of the sentence is in parentheses then discard
+    If more than 10% of the sentence is in parentheses, then discard.
     """
 
     def __init__(self, max_parentheses_ratio=0.1):
@@ -219,10 +220,14 @@ class ParenthesesFilter(DocumentFilter):
 
 class LongWordFilter(DocumentFilter):
     """
-    If the document contains a word longer than 1000 characters then discard
+    If the document contains a word longer than 1000 characters, then discard.
     NOTE: This seems to be catching things like minified `.js` files
     that don't have spaces anywhere.
     Source: C4 (Google)
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, max_word_length=1000, lang="en"):
@@ -241,7 +246,11 @@ class LongWordFilter(DocumentFilter):
 class WordCountFilter(DocumentFilter):
     """
     If a document contains a number of words not
-    within a specified range then discard
+    within a specified range, then discard.
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, min_words=50, max_words=100000, lang="en"):
@@ -260,7 +269,7 @@ class WordCountFilter(DocumentFilter):
 
 class BoilerPlateStringFilter(DocumentFilter):
     """
-    If more than 40% of paragraphs contain boilerplate strings then discard.
+    If more than 40% of paragraphs contain boilerplate strings, then discard.
     This includes things like "terms of use", "privacy policy", etc.
     Source: Adapted significantly from Google C4 processing.
     """
@@ -300,7 +309,11 @@ class BoilerPlateStringFilter(DocumentFilter):
 
 class MeanWordLengthFilter(DocumentFilter):
     """
-    If the mean word length is not in a specified range then discard
+    If the mean word length is not in a specified range, then discard.
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(
@@ -326,7 +339,7 @@ class MeanWordLengthFilter(DocumentFilter):
 class RepeatedLinesFilter(DocumentFilter):
     """
     If the document shrinks by > 30% in terms of number of lines after
-    removing duplicate lines then discard
+    removing duplicate lines, then discard.
     Source: Gopher (Rae et al., 2021)
     """
 
@@ -348,7 +361,7 @@ class RepeatedLinesFilter(DocumentFilter):
 class RepeatedParagraphsFilter(DocumentFilter):
     """
     If the document shrinks by > 30% in terms of number of lines after
-    removing duplicate paragraphs then discard.
+    removing duplicate paragraphs, then discard.
     Source: Gopher (Rae et al., 2021)
     """
 
@@ -370,7 +383,7 @@ class RepeatedParagraphsFilter(DocumentFilter):
 class RepeatedLinesByCharFilter(DocumentFilter):
     """
     If the document shrinks by > 20% in terms of number of lines
-    after removing duplicate lines then discard
+    after removing duplicate lines, then discard.
     Source: Gopher (Rae et al., 2021)
     """
 
@@ -393,7 +406,7 @@ class RepeatedLinesByCharFilter(DocumentFilter):
 class RepeatedParagraphsByCharFilter(DocumentFilter):
     """
     If the document shrinks by > 10% in terms of number of lines after
-    removing duplicate paragraphs then discard.
+    removing duplicate paragraphs, then discard.
     Source: Gopher (Rae et al., 2021)
     """
 
@@ -416,8 +429,12 @@ class RepeatedParagraphsByCharFilter(DocumentFilter):
 class RepeatingTopNGramsFilter(DocumentFilter):
     """
     If the document shrinks by > x% in terms of number of characters after
-    removing the top n-grams then discard.
+    removing the top n-grams, then discard.
     Source: Gopher (Rae et al., 2021)
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, n=2, max_repeating_ngram_ratio=0.2, lang="en"):
@@ -462,8 +479,12 @@ class RepeatingTopNGramsFilter(DocumentFilter):
 class RepeatingDuplicateNGramsFilter(DocumentFilter):
     """
     If the document shrinks by > x% in terms of number of characters
-    after removing all duplicate n-grams then discard.
+    after removing all duplicate n-grams, then discard.
     Source: Gopher (Rae et al., 2021)
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, n=2, max_repeating_duplicate_ngram_ratio=0.2, lang="en"):
@@ -513,7 +534,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
 class PunctuationFilter(DocumentFilter):
     """
     If more than 85% of the sentences do not end with a
-    punctuation mark then discard.
+    punctuation mark, then discard.
     Source: Google C4 processing
     """
 
@@ -537,7 +558,7 @@ class PunctuationFilter(DocumentFilter):
 
 class EllipsisFilter(DocumentFilter):
     """
-    If more than 30% of the sentences end with an elipsis then discard.
+    If more than 30% of the sentences end with an elipsis, then discard.
     Source: Google C4 processing
     """
 
@@ -564,9 +585,13 @@ class EllipsisFilter(DocumentFilter):
 
 class CommonEnglishWordsFilter(DocumentFilter):
     """
-    If the sentence contains at least 2 common english words, keep
-    NOTE: we purposefully check for the lowercase versions of those common words
+    If the sentence contains at least 2 common English words, then keep it.
+    NOTE: We purposefully check for the lowercase versions of those common words
     to remove documents with over-capitalization.
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, min_num_common_words=2, stop_at_false=True):
@@ -592,8 +617,12 @@ class CommonEnglishWordsFilter(DocumentFilter):
 
 class WordsWithoutAlphabetsFilter(DocumentFilter):
     """
-    80% of words in a document must contain at least one alphabetic character
+    80% of words in a document must contain at least one alphabetic character.
     Source: Gopher (Rae et al., 2021)
+
+    For Chinese and Japanese text, we use external libraries to split the text
+    because these languages are not separated by spaces. For all other langauges,
+    such as English, we assume words are separated by spaces.
     """
 
     def __init__(self, min_words_with_alphabets=0.8, lang="en"):
@@ -617,7 +646,7 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
 
 class PornographicUrlsFilter(DocumentFilter):
     """
-    Check if any of the urls within the document point to porn
+    Check if any of the URLs within the document point to pornography.
     """
 
     def __init__(self):
