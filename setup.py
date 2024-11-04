@@ -55,7 +55,7 @@ extras_require["image"] = list(
 
 setup(
     name="nemo_curator",
-    version="0.5.0",
+    version="0.6.0.dev0",
     description="Scalable Data Preprocessing Tool for "
     "Training Large Language Models",
     long_description=long_description,

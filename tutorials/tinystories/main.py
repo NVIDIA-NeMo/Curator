@@ -215,7 +215,7 @@ def main():
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.
-    args.n_workers = min(args.n_workers, 8)
+    args.n_workers = min(args.n_workers, 4)
 
     # Prepare the download and JSONL directories.
     if not os.path.isdir(DATA_DIR):
