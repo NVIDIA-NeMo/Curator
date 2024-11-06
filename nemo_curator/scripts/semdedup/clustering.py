@@ -55,18 +55,20 @@ def main(args):
     clustering_output_dir = os.path.join(
         semdedup_config.cache_dir, semdedup_config.clustering_save_loc
     )
+
     # Switch to https://github.com/NVIDIA/NeMo-Curator/issues/50
     # When we fix that
     embedding_df = dask_cudf.read_parquet(embedding_fp, blocksize="2GB")
     embedding_dataset = DocumentDataset(embedding_df)
 
     clustering_model = ClusteringModel(
-        id_col=semdedup_config.id_col_name,
+        id_column=args.id_column,
         max_iter=semdedup_config.max_iter,
         n_clusters=semdedup_config.n_clusters,
         clustering_output_dir=clustering_output_dir,
         logger=logger,
     )
+
     clustered_embeddings = clustering_model(embedding_dataset)
     clustered_embeddings.df.head(10)
     dt2 = datetime.now()
@@ -85,6 +87,7 @@ def attach_args():
             "This script requires that the embeddings have been created beforehand using: "
             "semdedup_extract_embeddings"
             "Input arguments include: "
+            "--id-column for the identifier in the dataset, "
             "--config-file for the path to the semdedup config file. "
             "Important configuration parameters include: "
             " cache_dir for the directory to store cache,"
@@ -94,7 +97,6 @@ def attach_args():
             " max_iter for the maximum iterations for clustering,"
             " kmeans_with_cos_dist for using KMeans with cosine distance,"
         ),
-        add_input_args=False,
     )
     return parser
 

@@ -40,6 +40,7 @@ def main(args):
     output_data_dir = os.path.join(
         semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
     )
+
     # Some time jsonl files are stored as .json
     # So to handle that case we can pass the input_file_extension
     if args.input_file_extension is not None:
@@ -47,36 +48,42 @@ def main(args):
     else:
         input_file_extension = args.input_file_type
     print("input_file_extension", input_file_extension)
+
     st = time.time()
     input_files = get_remaining_files(
         input_file_path=args.input_data_dir,
         output_file_path=output_data_dir,
         input_file_type=input_file_extension,
+        output_file_type="parquet",
         num_files=semdedup_config.num_files,
     )
+
     logger.info(f"Processing {len(input_files)} files")
     if len(input_files) == 0:
         logger.info("No files to process")
         return
 
     ddf = read_data(
-        input_files=input_files, file_type=args.input_file_type, add_filename=False
+        input_files=input_files,
+        file_type=args.input_file_type,
+        add_filename=True,
     )
     ddf = ddf.reset_index(drop=True)
     dataset = DocumentDataset(ddf)
+
     # Can repartition here if needed
     # ddf = ddf.repartition(partition_size="64MB")
     embedding_creator = EmbeddingCreator(
         embedding_model_name_or_path=semdedup_config.embedding_model_name_or_path,
-        embedding_max_mem_gb=semdedup_config.embedding_max_mem_gb,
         embedding_batch_size=semdedup_config.embedding_batch_size,
         embedding_output_dir=os.path.join(
             semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
         ),
-        input_column=semdedup_config.input_column,
+        input_column=args.input_text_field,
         logger=logger,
-        write_to_filename=False,
+        write_to_filename=True,
     )
+
     embedding_dataset = embedding_creator(dataset=dataset)
     print(embedding_dataset.df.head())
     logger.info(f"Time taken: {time.time() - st}")
@@ -91,21 +98,18 @@ def attach_args():
             "The model is specified in the config file using embedding_model_name_or_path (e.g. 'sentence-transformers/paraphrase-MiniLM-L6-v2'). "
             "The embeddings are saved in the specified cache directory under the embeddings_save_loc directory. "
             "Input arguments include: "
-            "--input_data_dir for the directory containing input data files, "
-            "--input_file_extension for specifying the file extension of input files (e.g., .jsonl), "
-            "--input_file_type for the type of input files (e.g., json, csv), "
-            "--input_text_field for the field in the input files containing the text data to be embedded. "
-            "Additional configuration can be provided via the --config-file argument. "
+            "--input-data-dir for the directory containing input data files, "
+            "--input-file-type for the type of input files (e.g., json, csv), "
+            "--input-file-extension for specifying the file extension of input files (e.g., .jsonl), "
+            "--input-text-field for the field in the input files containing the text data to be embedded, "
+            "--config-file for the path to the semdedup config file. "
             "Important configuration parameters include: "
             " cache_dir for the directory to store cache"
             " num_files for the number of files to process (default is -1, meaning all files),"
-            " input_column for specifying the input column for embeddings,"
             " embeddings_save_loc for the location to save embeddings,"
             " embedding_model_name_or_path for the model name or path for embeddings,"
-            " embedding_batch_size for the batch size for processing embeddings,"
-            " embedding_max_mem_gb for the maximum memory in GB for embeddings"
+            " embedding_batch_size for the batch size for processing embeddings"
         ),
-        add_input_args=True,
     )
     return parser
 

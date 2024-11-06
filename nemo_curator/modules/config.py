@@ -120,13 +120,9 @@ class SemDedupConfig(BaseConfig):
         profile_dir (Optional[str]): If specified directory to write dask profile. Default is None.
         cache_dir (str): Directory to store cache.
         num_files (int): Number of files. Default is -1, meaning all files.
-        id_col_name (str): Column name for ID.
-        id_col_type (str): Column type for ID.
-        input_column (str): Input column for embeddings.
         embeddings_save_loc (str): Location to save embeddings.
         embedding_model_name_or_path (str): Model name or path for embeddings.
         embedding_batch_size (int): Inital Batch size for processing embeddings.
-        embedding_max_mem_gb (int): Maximum memory in GB for embeddings.
         clustering_save_loc (str): Location to save clustering results.
         n_clusters (int): Number of clusters.
         seed (int): Seed for clustering.
@@ -142,15 +138,11 @@ class SemDedupConfig(BaseConfig):
     cache_dir: str
     profile_dir: Optional[str] = None
     num_files: int = -1
-    id_col_name: str = "id"
-    id_col_type: str = "str"
-    input_column: str = "text"
 
     # Embeddings
     embeddings_save_loc: str = "embeddings"
     embedding_model_name_or_path: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: int = 128
-    embedding_max_mem_gb: int = 25
 
     # Clustering config
     clustering_save_loc: str = "clustering_results"

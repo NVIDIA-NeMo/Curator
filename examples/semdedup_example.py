@@ -72,7 +72,7 @@ def main(args):
 
 
 def attach_args():
-    parser = ArgumentHelper.parse_semdedup_args(add_input_args=True)
+    parser = ArgumentHelper.parse_semdedup_args()
     return parser
 
 

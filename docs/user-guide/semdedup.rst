@@ -40,15 +40,11 @@ Semantic deduplication in NeMo Curator can be configured using a YAML file. Here
     # Configuration file for semantic dedup
     cache_dir: "semdedup_cache"
     num_files: -1
-    id_col_name: "id"
-    id_col_type: "int"
-    input_column: "text"
 
     # Embeddings configuration
     embeddings_save_loc: "embeddings"
     embedding_model_name_or_path: "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: 128
-    embedding_max_mem_gb: 25
 
     # Clustering configuration
     clustering_save_loc: "clustering_results"
@@ -99,7 +95,7 @@ The module supports various types of models, including:
 When changing the model, ensure that:
 
 1. The model is compatible with the data type you're working with (primarily text for this module).
-2. You adjust the ``embedding_batch_size`` and ``embedding_max_mem_gb`` parameters as needed, as different models may have different memory requirements.
+2. You adjust the ``embedding_batch_size`` parameter as needed, as different models may have different memory requirements.
 3. The chosen model is appropriate for the language or domain of your dataset.
 
 By selecting an appropriate embedding model, you can optimize the semantic deduplication process for your specific use case and potentially improve the quality of the deduplicated dataset.
@@ -172,11 +168,10 @@ Use Individual Components
     # Step 1: Embedding Creation
     embedding_creator = EmbeddingCreator(
         embedding_model_name_or_path="path/to/pretrained/model",
-        embedding_max_mem_gb=32,
         embedding_batch_size=128,
         embedding_output_dir="path/to/output/embeddings",
         input_column="text",
-        logger="path/to/log/dir"
+        logger="path/to/log/dir",
     )
     embeddings_dataset = embedding_creator(dataset)
 
@@ -189,7 +184,7 @@ Use Individual Components
 
     # Step 2: Clustering
     clustering_model = ClusteringModel(
-        id_col="doc_id",
+        id_column="doc_id",
         max_iter=100,
         n_clusters=50000,
         clustering_output_dir="path/to/output/clusters",
@@ -208,8 +203,8 @@ Use Individual Components
         n_clusters=50000,
         emb_by_clust_dir="path/to/embeddings/by/cluster",
         sorted_clusters_dir="path/to/sorted/clusters",
-        id_col="doc_id",
-        id_col_type="str",
+        id_column="doc_id",
+        id_column_type="str",
         which_to_keep="hard",
         output_dir="path/to/output/deduped",
         logger="path/to/log/dir"
@@ -235,7 +230,13 @@ Alternatively, you can use the SemDedup class to perform all steps:
     config = SemDedupConfig(**config_dict)
 
     # Initialize SemDedup with the configuration
-    sem_dedup = SemDedup(config, logger="path/to/log/dir")
+    sem_dedup = SemDedup(
+        config=config,
+        input_column="text",
+        id_column="doc_id",
+        id_column_type="str",
+        logger="path/to/log/dir",
+    )
 
     # Perform semantic deduplication
     deduplicated_dataset_ids = sem_dedup(dataset)
@@ -249,7 +250,6 @@ Parameters
 Key parameters in the configuration file include:
 
 - ``embedding_model_name_or_path``: Path or identifier for the pre-trained model used for embedding generation.
-- ``embedding_max_mem_gb``: Maximum memory usage for the embedding process.
 - ``embedding_batch_size``: Number of samples to process in each embedding batch.
 - ``n_clusters``: Number of clusters for k-means clustering.
 - ``eps_to_extract``: Deduplication threshold. Higher values result in more aggressive deduplication.

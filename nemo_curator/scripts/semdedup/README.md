@@ -10,7 +10,7 @@ Please edit `config/sem_dedup_config.yaml` to configure the pipeline and run it 
 
 2) Compute embeddings:
     ```sh
-    python compute_embeddings.py --input-data-dir "$INPUT_DATA_DIR" --input-file-type "jsonl" --input-file-extension "json" --config-file "$CONFIG_FILE"
+    semdedup_extract_embeddings --input-data-dir "$INPUT_DATA_DIR" --input-file-type "jsonl" --input-file-extension "json" --input-text-field "text" --config-file "$CONFIG_FILE"
     ```
     **Input:** `input_data_dir/*.jsonl` and YAML file from step (1)
 
@@ -18,7 +18,7 @@ Please edit `config/sem_dedup_config.yaml` to configure the pipeline and run it 
 
 3) Clustering
     ```sh
-    python clustering.py --config-file "$CONFIG_FILE"
+    semdedup_clustering --id-column "my_id" --config-file "$CONFIG_FILE"
     ```
     **Input:** Output from step (2) and YAML file from step (1)
 
@@ -30,7 +30,7 @@ Please edit `config/sem_dedup_config.yaml` to configure the pipeline and run it 
 
 4) Extract deduplicated data
     ```sh
-    python extract_dedup_data.py --config-file "$CONFIG_FILE"
+    semdedup_extract_unique_ids --id-column "my_id" --id-column-type "str" --config-file "$CONFIG_FILE"
     ```
     **Input:** Output from step (3) and YAML file from step (1)
 
