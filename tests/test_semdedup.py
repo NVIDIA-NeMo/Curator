@@ -64,15 +64,17 @@ class TestSemDuplicates:
         cache_dir = os.path.join(tmpdir, "test_sem_dedup_cache")
         config = SemDedupConfig(
             cache_dir=cache_dir,
-            id_col_name="id",
-            id_col_type="int",
-            input_column="text",
             seed=42,
             n_clusters=3,
             eps_thresholds=[0.10],
             eps_to_extract=0.10,
         )
-        sem_duplicates = SemDedup(config=config)
+        sem_duplicates = SemDedup(
+            config=config,
+            input_column="text",
+            id_column="id",
+            id_column_type="int",
+        )
         result = sem_duplicates(dedup_data)
         result_df = result.df.compute()
         duplicate_docs = [2, 3, 4, 200, 300]
