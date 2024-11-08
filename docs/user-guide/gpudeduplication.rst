@@ -376,7 +376,8 @@ steps (all scripts are included in the `nemo_curator/scripts/fuzzy_deduplication
 
        .. code-block:: bash
 
-               python buckets_to_edges.py \
+               # same as `python buckets_to_edges.py`
+               buckets_to_edges \
                  --input-bucket-dir /path/to/dedup_output/_buckets.parquet \
                  --output-dir /path/to/dedup_output \
                  --input-json-id-field id_column_name

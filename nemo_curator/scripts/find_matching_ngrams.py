@@ -76,13 +76,13 @@ def attach_args(
         "--max-ngram-size",
         type=int,
         default=13,
-        help="The maximum n-gram size to consider within the dataset",
+        help="The maximum n-gram size to consider within the dataset.",
     )
     parser.add_argument(
         "--min-ngram-size",
         type=int,
         default=8,
-        help="The minimum n-gram size to consider within the datset",
+        help="The minimum n-gram size to consider within the datset.",
     )
     parser.add_argument(
         "--output-matched-ngram-data",
@@ -90,8 +90,8 @@ def attach_args(
         default=None,
         help="Output dictionary that contains the output matched n-grams "
         "and the frequency of their matches, min-ngram size, max-ngram "
-        "size and the frequencies of n-gram sizes. All of these data will be "
-        "used by remove_matching_grams for which this program is a prequisite",
+        "size, and the frequencies of n-gram sizes. All of these data will be "
+        "used by remove_matching_grams for which this program is a prerequisite.",
     )
 
     return parser

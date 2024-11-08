@@ -16,6 +16,8 @@ import os
 
 import psutil
 
+from nemo_curator import __version__
+
 
 class ArgumentHelper:
     """
@@ -24,6 +26,25 @@ class ArgumentHelper:
 
     def __init__(self, parser: argparse.ArgumentParser):
         self.parser = parser
+
+        version_string = f"NVIDIA NeMo Curator -- v{__version__}"
+        self.attach_version_arg(version_string)
+        parser_print_help = self.parser.print_help
+
+        def print_help_with_version(*args, **kwargs):
+            print(version_string)
+            parser_print_help(*args, **kwargs)
+
+        self.parser.print_help = print_help_with_version
+
+    def attach_version_arg(self, version_string: str):
+        self.parser.add_argument(
+            "--version",
+            "-v",
+            action="version",
+            version=version_string,
+            help="Show the version and exit.",
+        )
 
     @staticmethod
     def attach_bool_arg(
@@ -66,7 +87,7 @@ class ArgumentHelper:
             "--device",
             type=str,
             default="gpu",
-            help="Device to run the script on. Either 'cpu' or 'gpu'.",
+            help='Device to run the script on. Either "cpu" or "gpu".',
         )
 
     def add_arg_enable_spilling(self):
@@ -86,14 +107,14 @@ class ArgumentHelper:
             type=str,
             default=default,
             help="The output log directory where node and local"
-            " ranks will write their respective log files",
+            " ranks will write their respective log files.",
         )
 
     def add_arg_input_data_dir(
         self,
         required=False,
         help: str = "Input directory consisting of .jsonl files that are accessible "
-        "to all nodes. Use this for a distributed file system",
+        "to all nodes. Use this for a distributed file system.",
     ):
         self.parser.add_argument(
             "--input-data-dir",
@@ -108,7 +129,7 @@ class ArgumentHelper:
         choices=None,
         required=False,
         help="File type of the dataset to be read in. Supported file formats "
-        "include 'jsonl' (default), 'pickle', or 'parquet'.",
+        'include "jsonl" (default), "pickle", or "parquet".',
     ):
         self.parser.add_argument(
             "--input-file-type",
@@ -179,7 +200,7 @@ class ArgumentHelper:
             "--minhash-length",
             type=int,
             default=260,
-            help="The minhash signature length of each input document",
+            help="The minhash signature length of each input document.",
         )
 
     def add_arg_nvlink_only(self):
@@ -187,7 +208,7 @@ class ArgumentHelper:
             "--nvlink-only",
             action="store_true",
             help="Start a local cluster with only NVLink enabled."
-            "Only applicable when protocol=ucx and no scheduler file/address is specified",
+            'Only applicable when protocol="ucx" and no scheduler file or address is specified.',
         )
 
     def add_arg_output_data_dir(self, help: str):
@@ -199,7 +220,7 @@ class ArgumentHelper:
         )
 
     def add_arg_output_dir(
-        self, required=False, help: str = "The output directory to write results in"
+        self, required=False, help: str = "The output directory to write results."
     ):
         self.parser.add_argument(
             "--output-dir",
@@ -212,7 +233,7 @@ class ArgumentHelper:
         self,
         choices=None,
         help="File type the dataset will be written to. Supported file formats "
-        "include 'jsonl' (default), 'pickle', or 'parquet'.",
+        'include "jsonl" (default), "pickle", or "parquet".',
     ):
         self.parser.add_argument(
             "--output-file-type",
@@ -235,10 +256,10 @@ class ArgumentHelper:
             "--protocol",
             type=str,
             default="ucx",
-            help="Protcol to use for dask cluster. "
-            "Note: This only applies to the localCUDACluster. If providing an user created "
-            "cluster refer to "
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol",  # noqa: E501
+            help="Protocol to use for Dask cluster. "
+            "Note: This only applies to the LocalCUDACluster. If providing a user-created "
+            "cluster, please refer to "
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol.",  # noqa: E501
         )
 
     def add_arg_rmm_pool_size(self):
@@ -247,9 +268,9 @@ class ArgumentHelper:
             type=str,
             default="14GB",
             help="Initial pool size to use for the RMM Pool Memory allocator. "
-            "Note: This only applies to the localCUDACluster. If providing an user created "
-            "cluster refer to "
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size",  # noqa: E501
+            "Note: This only applies to the LocalCUDACluster. If providing a user-created "
+            "cluster, please refer to "
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size.",  # noqa: E501
         )
 
     def add_arg_scheduler_address(self):
@@ -257,8 +278,8 @@ class ArgumentHelper:
             "--scheduler-address",
             type=str,
             default=None,
-            help="Address to the scheduler of a created dask cluster. If not provided"
-            "a single node LocalCUDACluster will be started.",
+            help="Address to the scheduler of a created Dask cluster. If not provided, "
+            "a single-node LocalCUDACluster will be started.",
         )
 
     def add_arg_scheduler_file(self):
@@ -266,8 +287,8 @@ class ArgumentHelper:
             "--scheduler-file",
             type=str,
             default=None,
-            help="Path to the scheduler file of a created dask cluster. If not provided"
-            " a single node LocalCUDACluster will be started.",
+            help="Path to the scheduler file of a created Dask cluster. If not provided, "
+            " a single-node LocalCUDACluster will be started.",
         )
 
     def add_arg_seed(
@@ -297,7 +318,7 @@ class ArgumentHelper:
             "--text-ddf-blocksize",
             type=int,
             default=256,
-            help="The block size for chunking jsonl files for text ddf in mb",
+            help="The block size for chunking JSONL files for text DataFrames in MB.",
         )
 
     def add_arg_model_path(self, help="The path to the model file"):
@@ -330,80 +351,81 @@ class ArgumentHelper:
             "--max-chars",
             type=int,
             default=default,
-            help="Truncates all documents in the dataset to this number of characters before running model inference on them",
+            help="Truncates all documents in the dataset to this number of characters before running model inference on them.",
         )
 
     def add_distributed_args(self) -> argparse.ArgumentParser:
         """
-        Adds default set of arguments that are needed for Dask cluster setup
+        Adds default set of arguments that are needed for Dask cluster setup.
+
         """
         self.parser.add_argument(
             "--device",
             type=str,
             default="cpu",
-            help="Device to run the script on. Either 'cpu' or 'gpu'.",
+            help='Device to run the script on. Either "cpu" or "gpu".',
         )
         self.parser.add_argument(
             "--files-per-partition",
             type=int,
             default=2,
-            help="Number of jsonl files to combine into single partition",
+            help="Number of JSONL files to combine into a single partition.",
         )
         self.parser.add_argument(
             "--n-workers",
             type=int,
             default=os.cpu_count(),
-            help="The number of workers to run in total on the Dask CPU cluster",
+            help="The number of workers to run in total on the Dask CPU cluster.",
         )
         self.parser.add_argument(
             "--num-files",
             type=int,
             default=None,
-            help="Upper limit on the number of json files to process",
+            help="Upper limit on the number of JSON files to process.",
         )
         self.parser.add_argument(
             "--nvlink-only",
             action="store_true",
-            help="Start a local cluster with only NVLink enabled."
-            "Only applicable when protocol=ucx and no scheduler file/address is specified",
+            help="Start a local cluster with only NVLink enabled. "
+            'Only applicable when protocol="ucx" and no scheduler file or address is specified.',
         )
         self.parser.add_argument(
             "--protocol",
             type=str,
             default="tcp",
-            help="Protcol to use for dask cluster"
-            "Note: This only applies to the localCUDACluster. If providing an user created "
-            "cluster refer to"
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol",  # noqa: E501
+            help="Protcol to use for Dask cluster"
+            "Note: This only applies to the LocalCUDACluster. If providing a user-created "
+            "cluster, please refer to"
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol.",  # noqa: E501
         )
         self.parser.add_argument(
             "--rmm-pool-size",
             type=str,
             default=None,
-            help="Initial pool size to use for the RMM Pool Memory allocator"
-            "Note: This only applies to the LocalCUDACluster. If providing an user created "
-            "cluster refer to"
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size",  # noqa: E501
+            help="Initial pool size to use for the RMM Pool Memory allocator. "
+            "Note: This only applies to the LocalCUDACluster. If providing a user-created "
+            "cluster, please refer to"
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size.",  # noqa: E501
         )
         self.parser.add_argument(
             "--scheduler-address",
             type=str,
             default=None,
-            help="Address to the scheduler of a created dask cluster. If not provided"
-            "a single node Cluster will be started.",
+            help="Address to the scheduler of a created Dask cluster. If not provided, "
+            "a single-node cluster will be started.",
         )
         self.parser.add_argument(
             "--scheduler-file",
             type=str,
             default=None,
-            help="Path to the scheduler file of a created dask cluster. If not provided"
-            " a single node Cluster will be started.",
+            help="Path to the scheduler file of a created Dask cluster. If not provided, "
+            " a single-node cluster will be started.",
         )
         self.parser.add_argument(
             "--threads-per-worker",
             type=int,
             default=1,
-            help="The number of threads ot launch per worker on the Dask CPU cluster. Usually best set at 1 due to the GIL.",
+            help="The number of threads to launch per worker on the Dask CPU cluster. Usually best to set at 1 due to the GIL.",
         )
 
         return self.parser
@@ -417,7 +439,7 @@ class ArgumentHelper:
         Args:
             max_mem_per_worker (float): The maximum memory that each worker usually achieves for a script
                 in units of gigabytes. It can be determined by watching the Dask dashboard. This value may
-                change based on the size of each shard, so use a jsonl shard size of about 100 MB.
+                change based on the size of each shard, so use a JSONL shard size of about 100 MB.
         """
         cpu_worker_limit = os.cpu_count()
 
@@ -430,7 +452,8 @@ class ArgumentHelper:
     @staticmethod
     def parse_client_args(args: argparse.Namespace):
         """
-        Extracts relevant arguments from an argparse namespace to pass to get_client
+        Extracts relevant arguments from an argparse namespace to pass to get_client.
+
         """
         relevant_args = [
             "scheduler_address",
@@ -453,12 +476,13 @@ class ArgumentHelper:
 
     @staticmethod
     def parse_distributed_classifier_args(
-        description="Default distributed classifier argument parser",
+        description="Default distributed classifier argument parser.",
         max_chars_default=2000,
     ) -> argparse.ArgumentParser:
         """
         Adds default set of arguments that are common to multiple stages
-        of the pipeline
+        of the pipeline.
+
         """
         parser = argparse.ArgumentParser(
             description,
@@ -467,13 +491,13 @@ class ArgumentHelper:
         argumentHelper = ArgumentHelper(parser)
         argumentHelper.add_distributed_classifier_cluster_args()
         argumentHelper.add_arg_input_data_dir(required=True)
-        argumentHelper.add_arg_output_data_dir(help="The path of the output files")
+        argumentHelper.add_arg_output_data_dir(help="The path of the output files.")
         argumentHelper.add_arg_input_file_type()
         argumentHelper.add_arg_input_file_extension()
         argumentHelper.add_arg_output_file_type()
         argumentHelper.add_arg_input_text_field()
         argumentHelper.add_arg_batch_size(
-            help="The batch size to be used for inference"
+            help="The batch size to be used for inference."
         )
         argumentHelper.add_arg_model_path()
         argumentHelper.add_arg_autocast()
@@ -483,7 +507,7 @@ class ArgumentHelper:
 
     def add_distributed_classifier_cluster_args(self):
         """
-        Adds Dask cluster args needed for the distributed data classifiers
+        Adds Dask cluster arguments needed for the distributed data classifiers.
         """
         self.add_distributed_args()
         self.add_arg_enable_spilling()
@@ -498,72 +522,63 @@ class ArgumentHelper:
         # possibly because of memory fragmentation
         self.parser.set_defaults(set_torch_to_use_rmm=False)
 
-    @staticmethod
-    def parse_gpu_dedup_args(description: str) -> argparse.ArgumentParser:
+    def parse_gpu_dedup_args(self):
         """
         Adds default set of arguments that are common to multiple stages
-        of the pipeline
+        of the fuzzy deduplication pipeline.
+
         """
 
-        parser = argparse.ArgumentParser(
-            description,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        )
-
-        argumentHelper = ArgumentHelper(parser)
-
-        argumentHelper.add_distributed_args()
+        self.add_distributed_args()
 
         # Set default device to GPU for dedup
-        argumentHelper.parser.set_defaults(device="gpu")
-        argumentHelper.parser.set_defaults(set_torch_to_use_rmm=False)
-        argumentHelper.parser.add_argument(
+        self.parser.set_defaults(device="gpu")
+        self.parser.set_defaults(set_torch_to_use_rmm=False)
+        self.parser.add_argument(
             "--input-data-dirs",
             type=str,
             nargs="+",
             default=None,
             help="Input directories consisting of .jsonl files that are accessible "
-            "to all nodes. This path must be accessible by all machines in the cluster",
+            "to all nodes. This path must be accessible by all machines in the cluster.",
         )
-        argumentHelper.parser.add_argument(
+        self.parser.add_argument(
             "--input-json-text-field",
             type=str,
             default="text",
-            help="The name of the field within each json object of the jsonl "
-            "file that contains the text from which minhashes will be computed. ",
+            help="The name of the field within each JSON object of the JSONL "
+            "file that contains the text from which minhashes will be computed.",
         )
-        argumentHelper.parser.add_argument(
+        self.parser.add_argument(
             "--input-json-id-field",
             type=str,
             required=True,
-            help="The name of the field within each json object of the jsonl "
+            help="The name of the field within each JSON object of the JSONL "
             "file that assigns a unqiue ID to each document. "
             "Can be created by running the script "
-            "'../scripts/add_id.py' which adds the field "
-            "to the documents in a distributed fashion",
+            "../scripts/add_id.py, which adds the field "
+            "to the documents in a distributed fashion.",
         )
-        argumentHelper.parser.add_argument(
+        self.parser.add_argument(
             "--log-dir",
             type=str,
             default="./logs/",
-            help="The output log directory where node and local",
+            help="The output log directory.",
         )
-        argumentHelper.parser.add_argument(
+        self.parser.add_argument(
             "--profile-path",
             type=str,
             default=None,
-            help="Path to save dask profile",
+            help="Path to save Dask profile.",
         )
-
-        return argumentHelper.parser
 
     @staticmethod
     def parse_semdedup_args(
-        description="Default argument parser for semantic deduplication",
+        description="Default argument parser for semantic deduplication.",
     ) -> argparse.ArgumentParser:
         """
-        Adds default set of arguments that are common to multiple stages of the semantic deduplication pipeline
-        of the pipeline
+        Adds default set of arguments that are common to multiple stages of the semantic deduplication pipeline.
+
         """
         parser = argparse.ArgumentParser(
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -582,7 +597,7 @@ class ArgumentHelper:
         argumentHelper.parser.add_argument(
             "--config-file",
             type=str,
-            help="Path to the semdedup config file",
+            help="Path to the semantic deduplication configuration file.",
             required=True,
         )
         # Set low default RMM pool size for classifier

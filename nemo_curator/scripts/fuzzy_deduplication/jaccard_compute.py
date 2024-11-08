@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import time
 
@@ -22,8 +23,8 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 
 def main(args):
     """Computes the Jaccard similarity between document pairs
-    from partitioned parquet dataset. Result is a parquet dataset consiting of
-    document id pair along with their Jaccard similarity score.
+    from a partitioned Parquet dataset. Result is a Parquet dataset consiting of
+    document and ID pairs, along with their Jaccard similarity scores.
     """
     OUTPUT_PATH = args.output_dir
     shuffled_docs_path = args.shuffled_docs_path
@@ -54,22 +55,27 @@ def main(args):
     print(f"Jaccard Computing+Writing time: {time.time() - st:.1f} seconds")
 
 
-def attach_args(parser=None):
-    if not parser:
-        description = """Computes jaccard similarity"""
-        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
+def attach_args():
+    description = "Computes Jaccard similarity scores."
+    parser = argparse.ArgumentParser(
+        description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    argumentHelper = ArgumentHelper(parser)
 
-    ArgumentHelper(parser).add_arg_output_dir()
+    argumentHelper.parse_gpu_dedup_args()
+
+    argumentHelper.add_arg_output_dir()
     parser.add_argument(
         "--ngram-size",
         type=int,
         default=5,
-        help="Size of ngram to use during jaccard similarity",
+        help="Size of n-gram to use during Jaccard similarity computation.",
     )
     parser.add_argument(
         "--shuffled-docs-path",
         type=str,
-        help="The directory containing the shuffled documents",
+        help="The directory containing the shuffled documents.",
     )
 
     return parser

@@ -108,8 +108,8 @@ def attach_args(
         type=str,
         default=None,
         required=True,
-        help="Input dictionary (.pkl file), that contains matched "
-        "n-gram data from the find_matching_ngrams code",
+        help="Input dictionary (.pkl file) that contains matched "
+        "n-gram data from the find_matching_ngrams code.",
     )
     parser.add_argument(
         "--match-threshold",
@@ -118,7 +118,7 @@ def attach_args(
         help="A threshold that determines if a matched n-gram will be "
         "considered for removal in remove_matching_ngrams. N-grams that "
         "exceed this number of matches in the training dataset will not be "
-        "considered during the removal stage",
+        "considered during the removal stage.",
     )
     parser.add_argument(
         "--max-document-splits",
@@ -126,7 +126,7 @@ def attach_args(
         default=10,
         help="A threshold used to determine if a document should be removed "
         "from the corpus if it is split more than "
-        "--max-document-splits number of times",
+        "--max-document-splits number of times.",
     )
     parser.add_argument(
         "--output-removed-doc-dir",
@@ -135,7 +135,7 @@ def attach_args(
         help="Output directory to where removed documents will be written. "
         "Documents will be removed from the corpus if they are split more "
         "than --max-document-splits number of times, or if the user specifies "
-        "that they be removed via the flag, --remove-split-docs",
+        "that they be removed via the flag --remove-split-docs.",
     )
     parser.add_argument(
         "--output-task-deduped-dir",
@@ -143,7 +143,7 @@ def attach_args(
         default=None,
         required=True,
         help="Output directory to where task-deduplicated (split) "
-        "documents will be written",
+        "documents will be written.",
     )
 
     return parser

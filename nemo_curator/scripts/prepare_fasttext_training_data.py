@@ -58,7 +58,7 @@ def main(args):
 def attach_args(
     parser=argparse.ArgumentParser(
         """
-Prepare data for training skip-gram classifier with FastText
+Prepare data for training skip-gram classifier with FastText.
 
 Takes as input a directory of .jsonl files, and writes an output
 file of samples prepared in order to train a skip-gram classifier
@@ -73,10 +73,10 @@ with FastText.
     argumentHelper.add_arg_log_dir(default="./log/prepare_filter_data")
     argumentHelper.add_arg_output_train_file(
         help="The output file containing prepared samples to train a "
-        "skip-gram classifier with FastText"
+        "skip-gram classifier with FastText."
     )
     argumentHelper.add_arg_seed(
-        help="The random seed to use for sampling from the dataset"
+        help="The random seed to use for sampling from the dataset."
     )
     argumentHelper.add_distributed_args()
     parser.add_argument(
@@ -84,8 +84,8 @@ with FastText.
         type=str,
         default="text",
         help="The input field within each JSON object on which the filter will "
-        "operate. By default, the filter will operate on the 'text' "
-        "field but other fields can be specified such as 'url' or 'id'.",
+        'operate. By default, the filter will operate on the "text" '
+        'field, but other fields can be specified, such as "url" or "id".',
     )
     parser.add_argument(
         "--label",
@@ -93,8 +93,8 @@ with FastText.
         default=None,
         required=True,
         help="The label to be used at the beginning of each sample "
-        "in the output file. For example '__label__hq' could be "
-        "used for the high-quality (positive) samples",
+        'in the output file. For example, "__label__hq" could be '
+        "used for the high-quality (positive) samples.",
     )
 
     return parser

@@ -83,22 +83,22 @@ def main(args):
 def attach_args(
     parser=argparse.ArgumentParser(
         """
-Takes an input list of urls and downloads the data
+Takes an input list of URLs, downloads the data,
 and then extracts the text from the downloaded data. Using
 the --builder-config-file argument, users must provide a YAML file
-that points to implementations of the downloader, iterator and extractor
+that points to implementations of the downloader, iterator, and extractor
 classes that will be used to construct the documents that will "
 "make up the dataset. Examples of these config files for the "
-"CommonCrawl, Wikipedia and ArXiv datasets can be ound in the root "
+"Common Crawl, Wikipedia and ArXiv datasets can be found in the root "
 "config directory of this repository.
 
 In the case that users have data that have been pre-downloaded,
 this utility can also be used for "extraction-only" purposes.
 For this scenario, users should either provide a valid path
-to the "--input-data-dir/--input-local-data-dir" directories
+to the --input-data-dir/--input-local-data-dir directories
 (depending on if the data are globally or locally available to each
 MPI rank). Additionally, the downloader class should be implemented
-such that it simply returns the pre-downloaded file
+such that it simply returns the pre-downloaded file.
 """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -113,46 +113,46 @@ such that it simply returns the pre-downloaded file
         type=str,
         required=True,
         help="YAML file that contains paths to implementations of a downloader, "
-        "iterator and extractor that will be used in this program "
-        "to build the documents that make up the output dataset",
+        "iterator, and extractor that will be used in this program "
+        "to build the documents that make up the output dataset.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
         "download-only",
-        help="Specify this flag if you desire to only download the data"
-        "files and not extract text from the downloaded files",
+        help="Specify this flag if you desire to only download the data "
+        "files and not extract text from the downloaded files.",
     )
     parser.add_argument(
         "--input-url-file",
         type=str,
         default=None,
         help="Input directory consisting of .jsonl files that are accessible "
-        "to all nodes. Use this for a distributed file system",
+        "to all nodes. Use this for a distributed file system.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
         "keep-downloaded-files",
         help="If this flag is set to true, the downloaded data files "
-        "will be kept on disk and not removed after extraction",
+        "will be kept on disk and not removed after extraction.",
     )
     parser.add_argument(
         "--output-download-dir",
         type=str,
         default=None,
         help="The directory to where data files will be written "
-        "in 'download-only' mode. Specify this argument only when "
-        "the '--download-only flag is specified'.",
+        'in "download-only" mode. Specify this argument only when '
+        "the --download-only flag is specified.",
     )
     parser.add_argument(
         "--output-json-dir",
         type=str,
         default=None,
-        help="Output directory to store the extracted text in jsonl files",
+        help="Output directory to store the extracted text in JSONL files.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
         "overwrite-existing-json",
-        help="If this flag is specified, then the json data will be "
+        help="If this flag is specified, then the JSON data will be "
         "overwritten if downloading from the the same file.",
     )
 

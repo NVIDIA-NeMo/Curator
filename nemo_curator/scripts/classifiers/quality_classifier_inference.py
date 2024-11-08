@@ -17,6 +17,7 @@ import time
 import warnings
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+
 from nemo_curator.classifiers import QualityClassifier
 from nemo_curator.datasets import DocumentDataset
 
@@ -29,7 +30,9 @@ warnings.filterwarnings("ignore")
 
 
 def main():
-    args = ArgumentHelper.parse_distributed_classifier_args().parse_args()
+    args = ArgumentHelper.parse_distributed_classifier_args(
+        description="Run quality classifier inference."
+    ).parse_args()
     print(f"Arguments parsed = {args}", flush=True)
 
     client_args = ArgumentHelper.parse_client_args(args)

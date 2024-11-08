@@ -119,17 +119,17 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all] # Instal
 
 #### Using Nightly Dependencies for RAPIDS
 
-You can also install NeMo Curator using the [RAPIDS Nightly Builds](https://docs.rapids.ai/install). To do so, you can set the environment variable `RAPIDS_NIGHTLY=1`.
+You can also install NeMo Curator using the [RAPIDS Nightly Builds](https://docs.rapids.ai/install):
 
 ```bash
-# installing from pypi
-RAPIDS_NIGHTLY=1 pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "nemo-curator[cuda12x]"
+# Installing from PyPi
+pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "nemo-curator[cuda12x_nightly]"
 
-# installing from source
-RAPIDS_NIGHTLY=1 pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple ".[cuda12x]"
+# Installing from source
+pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "./NeMo-Curator[cuda12x_nightly]"
 ```
 
-When the `RAPIDS_NIGHTLY` variable is set to 0 (which is the default), it will use the stable version of RAPIDS.
+For the image curation modules and all modules, you can use `[image_nightly]` and `[all_nightly]`, respectively.
 
 ## Use NeMo Curator
 ### Python API Quick Example

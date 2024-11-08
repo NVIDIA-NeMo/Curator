@@ -52,7 +52,7 @@ class PiiDeidentifier(object):
         language: str = DEFAULT_LANGUAGE,
         supported_entities: List[str] = None,
         anonymize_action: str = "replace",
-        **kwargs
+        **kwargs,
     ):
         """
         Parameters:
@@ -154,7 +154,7 @@ class PiiDeidentifier(object):
             language=language,
             supported_entities=supported_entities,
             anonymize_action=operator_name,
-            **operator_config
+            **operator_config,
         )
 
     @staticmethod

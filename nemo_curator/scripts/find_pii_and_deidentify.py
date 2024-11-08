@@ -26,7 +26,7 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
-    """Main function that performs PII de-identifcation given a batch of files"""
+    """Main function that performs PII de-identification given a batch of files"""
     logging.basicConfig(
         format="%(asctime)s %(levelname)s:%(message)s",
         level=logging.DEBUG,
@@ -77,7 +77,7 @@ def main(args):
 
     end_time = time.time()
     logging.debug(
-        "Total time taken in PII job: %0.3f seconds" % (end_time - start_time)
+        "Total time taken for PII job: %0.3f seconds" % (end_time - start_time)
     )
 
 
@@ -97,54 +97,56 @@ def attach_args(
     )
     argumentHelper.add_arg_input_data_dir(help="Directory containing the input files.")
     argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_language(help="Language of input documents")
+    argumentHelper.add_arg_language(help="Language of input documents.")
     argumentHelper.add_arg_output_data_dir(
         help="The output directory to where redacted documents will be written."
     )
     argumentHelper.add_arg_output_file_type()
+    argumentHelper.add_distributed_args()
+
     parser.add_argument(
         "--anonymize-action",
         type=str,
         default="replace",
-        help="Anonymization action. Choose from among: redact, hash, mask and replace",
+        help="Anonymization action. Choose from among: redact, hash, mask, and replace.",
     )
     parser.add_argument(
         "--chars-to-mask",
         type=int,
         default=100,
-        help="The number of characters to mask. Only applicable if anonymize action is mask",
+        help="The number of characters to mask. Only applicable if anonymize action is mask.",
     )
     parser.add_argument(
         "--hash-type",
         type=str,
         default=None,
-        help="The hash type. Choose from among: sha256, sha512 or md5",
+        help="The hash type. Choose from among: sha256, sha512, or md5.",
     )
     parser.add_argument(
         "--masking-char",
         type=str,
         default="*",
-        help="The masking character. Only applicable if anonymize action is mask",
+        help="The masking character. Only applicable if anonymize action is mask.",
     )
     parser.add_argument(
         "--new-value",
         type=str,
         default=None,
-        help="The new value to replace with. Only applicable if anonymize action is replace",
+        help="The new value to replace with. Only applicable if anonymize action is replace.",
     )
     parser.add_argument(
         "--supported-entities",
         type=str,
         default=None,
-        help="Comma separated list of PII entity types. None implies all supported types",
+        help="Comma separated list of PII entity types. None implies all supported types.",
     )
     parser.add_argument(
         "--text-field",
         type=str,
         default="text",
         help="The input field within each JSONL or CSV object on which the PII redactor will "
-        "operate. By default, the redactor will operate on the 'text' "
-        "field but other fields can be specified such as 'url' or 'id'.",
+        'operate. By default, the redactor will operate on the "text" '
+        'field but other fields can be specified such as "url" or "id".',
     )
 
     return parser
@@ -152,7 +154,7 @@ def attach_args(
 
 def console_script():
     parser = attach_args()
-    args = ArgumentHelper(parser).add_distributed_args().parse_args()
+    args = parser.parse_args()
     client = get_client(**ArgumentHelper.parse_client_args(args))
     if not args.n_workers:
         args.n_workers = len(client.scheduler_info()["workers"])

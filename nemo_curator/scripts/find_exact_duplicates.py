@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import time
 
@@ -79,28 +80,31 @@ def main(args):
     )
     exact_dups(dataset=DocumentDataset(input_df))
     logger.info(
-        f"Exact dedup computation across datasets took {time.time() - t0}s complete at {args.output_dir}"  # noqa:E501
+        f"Exact deduplication computation across datasets took {time.time() - t0}s complete at {args.output_dir}"  # noqa:E501
     )
 
 
-def attach_args(parser=None):
-    if not parser:
-        description = """Compute Exact duplicates in a given dataset."""
-        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
-
+def attach_args():
+    description = "Compute exact duplicates in a given dataset."
+    parser = argparse.ArgumentParser(
+        description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.parse_gpu_dedup_args()
 
     argumentHelper.add_arg_output_dir(
         help="Output directory where duplicate docs will be written. "
-        "Each file is a pickle file that contains a dictionary of numpy arrays. "
-        "The keys are the document ids and the values are the duplicate docs",
+        "Each file is a Pickle file that contains a dictionary of NumPy arrays. "
+        "The keys are the document IDs and the values are the duplicate documents.",
         required=True,
     )
     parser.add_argument(
         "--hash-method",
         type=str,
         default="md5",
-        help="Hash Method to use for exact dedup",
+        help="Hash method to use for exact deduplication.",
     )
 
     return parser

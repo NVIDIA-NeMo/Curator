@@ -17,6 +17,7 @@ import time
 import warnings
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+
 from nemo_curator.classifiers import FineWebEduClassifier
 from nemo_curator.datasets import DocumentDataset
 
@@ -29,13 +30,15 @@ warnings.filterwarnings("ignore")
 
 
 def main():
-    args = ArgumentHelper.parse_distributed_classifier_args().parse_args()
+    args = ArgumentHelper.parse_distributed_classifier_args(
+        description="Run FineWeb-Edu classifier inference."
+    ).parse_args()
     print(f"Arguments parsed = {args}", flush=True)
 
     client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
-    print("Starting Fineweb classifier inference", flush=True)
+    print("Starting FineWeb-Edu classifier inference", flush=True)
     global_st = time.time()
     files_per_run = len(client.scheduler_info()["workers"]) * 2
 
@@ -96,7 +99,7 @@ def main():
 
     global_et = time.time()
     print(
-        f"Total time taken for domain classifier inference: {global_et-global_st} s",
+        f"Total time taken for FineWeb-Edu classifier inference: {global_et-global_st} s",
         flush=True,
     )
     client.close()

@@ -29,3 +29,5 @@ from .utils.distributed_utils import get_client, get_network_interfaces
 # See https://github.com/NVIDIA/NeMo-Curator/issues/33
 # This also happens when reading and writing to files
 dask.config.set({"dataframe.convert-string": False})
+
+__version__ = "0.6.0.dev0"

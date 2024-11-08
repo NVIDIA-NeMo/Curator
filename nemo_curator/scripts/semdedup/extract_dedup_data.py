@@ -63,12 +63,12 @@ def attach_args():
     parser = ArgumentHelper.parse_semdedup_args(
         description=(
             "Extracts deduplicated data from the clustered embeddings of a collection of documents. "
-            "This script requires that embeddings and clustering have been performed beforehand using the specified configurations. "
+            "This script requires that embeddings and clustering have been performed "
             "earlier using semdedup_extract_embeddings and semdedup_cluster_embeddings."
             "Input arguments include: "
             "--id-column for the the identifier in the dataset, "
-            "--id-column-type for the data type of id-column, "
-            "--config-file for the path to the semdedup config file. "
+            "--id-column-type for the data type of ID column, "
+            "--config-file for the path to the semantic deduplication configuration file. "
             "Important configuration parameters include:"
             " cache_dir for the directory to store cache"
             " which_to_keep for specifying which duplicates to keep,"

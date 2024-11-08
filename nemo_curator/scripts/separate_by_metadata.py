@@ -65,9 +65,7 @@ def main(args):
 
 def attach_args(
     parser=argparse.ArgumentParser(
-        """
-    Spits a dataset into subdirectories based on metadata values
-""",
+        "Splits a dataset into subdirectories based on metadata values.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 ):
@@ -78,7 +76,7 @@ def attach_args(
     argumentHelper.add_arg_output_data_dir(
         help="The output directory to where the metadata-separated files "
         "will be written. Each file will be written to its respective "
-        "metadata directory that is a sub-directory of this directory"
+        "metadata directory that is a subdirectory of this directory."
     )
     argumentHelper.add_arg_output_file_type()
     argumentHelper.add_distributed_args()
@@ -92,14 +90,14 @@ def attach_args(
     parser.add_argument(
         "--output-metadata-distribution",
         type=str,
-        help="Output json file containing the frequency of documents "
+        help="Output JSON file containing the frequency of documents "
         "that occur for a particular metadata.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
         "remove-input-dir",
         default=False,
-        help="Specify '--remove-input-dir' to remove the original "
+        help="Specify --remove-input-dir to remove the original "
         "input directory. This is false by default.",
     )
     ArgumentHelper.attach_bool_arg(
@@ -108,7 +106,7 @@ def attach_args(
         default=False,
         help="Option of whether to remove the metadata field "
         "after filtering. Useful only in the case in which one metadata "
-        "is desired to be separated from the others",
+        "is desired to be separated from the others.",
     )
 
     exclusive_filters_group = parser.add_mutually_exclusive_group(required=False)

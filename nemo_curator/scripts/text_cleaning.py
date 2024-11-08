@@ -61,12 +61,12 @@ def main(args):
 def attach_args(
     parser=argparse.ArgumentParser(
         """
-Text cleaning and language filtering
+Text cleaning and language filtering.
 
 Takes as input a directory consisting of .jsonl files with one
 document per line and outputs to a separate directory the text
-with fixed unicode. Also, performs language filtering using
-the 'language' field within each JSON object.
+with fixed unicode. Also performs language filtering using
+the \"language\" field within each JSON object.
 """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -83,7 +83,7 @@ the 'language' field within each JSON object.
         "--output-clean-dir",
         type=str,
         required=True,
-        help="The output directory to where the cleaned jsonl files will be written",
+        help="The output directory to where the cleaned JSONL files will be written.",
     )
 
     return parser

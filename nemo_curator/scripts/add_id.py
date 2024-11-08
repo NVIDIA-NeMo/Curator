@@ -57,14 +57,14 @@ def attach_args(
         """
 Adds unique identifiers to each document in the dataset.
 Creates a new ID field with name specified by the argument
-"--id-field-name" within each json.
+"--id-field-name" within each JSON file.
 
 This script essentially works by counting the total
-number of documents within the dataset and then, in parallel
-assigns unique sequential ids to each document in the dataset.
+number of documents within the dataset, and then in parallel
+assigns unique sequential IDs to each document in the dataset.
 
 If a document identifier does not already exist for each document, then
-these ids must be added prior to performing fuzzy/exact deduplication
+these IDs must be added prior to performing fuzzy and/or exact deduplication.
 """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -74,14 +74,14 @@ these ids must be added prior to performing fuzzy/exact deduplication
     argumentHelper.add_arg_input_data_dir()
     argumentHelper.add_arg_input_file_type()
     argumentHelper.add_arg_output_data_dir(
-        help="The output directory to where the jsonl files with ids will "
+        help="The output directory to where the JSONL files with IDs will "
         "be written."
     )
     argumentHelper.add_arg_output_file_type()
     argumentHelper.add_arg_seed()
     argumentHelper.add_arg_shuffle(
-        help="Shuffle the order of files before assigning IDs."
-        "Useful for creating a copy dataset with different IDs"
+        help="Shuffle the order of files before assigning IDs. "
+        "Useful for creating a copy dataset with different IDs."
     )
     argumentHelper.add_distributed_args()
     argumentHelper.set_default_n_workers(2.5)
@@ -90,24 +90,24 @@ these ids must be added prior to performing fuzzy/exact deduplication
         type=str,
         required=True,
         help="The name of the field that will contain the id value. "
-        "This is a required argument",
+        "This is a required argument.",
     )
     parser.add_argument(
         "--id-prefix",
         type=str,
         default="doc_id",
-        help="The prefix to the id number that will be assigned to the "
+        help="The prefix to the ID number that will be assigned to the "
         "document. When performing deduplication jointly with different"
         "datasets, it is helpful to provide a prefix that denotes that a "
         "document belongs to a particular dataset (e.g., wiki for documents"
-        "that come from the wikipedia dataset)",
+        "that come from the Wikipedia dataset).",
     )
     parser.add_argument(
         "--starting-index",
         type=int,
         default=None,
         help="If supplied, determines the starting index from which to start "
-        "indexing the documents. By default, it is unspecified, and uses an id"
+        "indexing the documents. By default, it is unspecified, and uses an ID"
         " scheme that is fast to calculate and is not guaranteed to be ordered.",
     )
 

@@ -1,3 +1,0 @@
-nvidia-dali-cuda120
-nvidia-nvjpeg2k-cu12
-timm>=1.0.8

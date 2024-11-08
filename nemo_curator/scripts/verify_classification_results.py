@@ -30,33 +30,34 @@ def parse_args():
         An argparse Namespace object.
 
     """
-    parser = argparse.ArgumentParser(description="Run verification")
+    description = "Run verification."
+    parser = argparse.ArgumentParser(description=description)
 
     ArgumentHelper(parser).add_arg_input_meta()
     parser.add_argument(
         "--expected_pred_column",
         type=str,
         default="pred",
-        help="The prediction column name for the expected_result file",
+        help="The prediction column name for the expected_result file.",
     )
 
     parser.add_argument(
         "--expected_results_file_path",
         type=str,
         required=True,
-        help="The path of the expected_result file",
+        help="The path of the expected_result file.",
     )
     parser.add_argument(
         "--results_file_path",
         type=str,
         required=True,
-        help="The path of the input files",
+        help="The path of the input files.",
     )
     parser.add_argument(
         "--results_pred_column",
         type=str,
         default="pred",
-        help="The prediction column name for the input files",
+        help="The prediction column name for the input files.",
     )
 
     return parser.parse_args()

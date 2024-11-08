@@ -79,7 +79,7 @@ Optionally, the user can choose to shuffle this dataset as well.
     )
     argumentHelper.add_arg_output_file_type()
     argumentHelper.add_arg_seed()
-    argumentHelper.add_arg_shuffle(help="Shuffles the dataset after blending")
+    argumentHelper.add_arg_shuffle(help="Shuffles the dataset after blending.")
     argumentHelper.add_distributed_args()
     parser.add_argument(
         "--input-data-dirs",
@@ -94,14 +94,14 @@ Optionally, the user can choose to shuffle this dataset as well.
         default=10000,
         help="The number of samples to be included in the output dataset."
         " There may be more samples in order to accurately reflect the "
-        "weight balance, but there will never be less",
+        "weight balance, but there will never be less.",
     )
     parser.add_argument(
         "--weights",
         type=str,
         default=None,
         help="Comma-separated list of floating-point weights corresponding "
-        "to each dataset passed in --input-data-dirs",
+        "to each dataset passed in --input-data-dirs.",
     )
 
     return parser

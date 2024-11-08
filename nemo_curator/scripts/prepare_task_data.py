@@ -47,12 +47,12 @@ def main(args):
 def attach_args(
     parser=argparse.ArgumentParser(
         """
-    Computes N-grams from input downstream task validation datasets.
+    Computes n-grams from input downstream task validation datasets.
     Takes in an input configuration file (defaults can be found under the
     config directory under the root directory of the repository) and
-    writes out the computed N-grams to a pickle file where they can be
-    used by the program find_matching_ngrams which will search for
-    matching N-grams in the input training dataset.
+    writes out the computed n-grams to a Pickle file, where they can be
+    used by the find_matching_ngrams program which will search for
+    matching n-grams in the input training dataset.
 """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -64,8 +64,8 @@ def attach_args(
         default="./task_ngrams.pkl",
         help="N-grams computed from input task data. N-grams are stored "
         "as keys to a dictionary and the values of the dictionary "
-        "are the frequencies of which the n-grams occurr within a "
-        "training dataset (they are initialized to zero within this program)",
+        "are the frequencies of which the n-grams occur within a "
+        "training dataset (they are initialized to zero within this program).",
     )
     parser.add_argument(
         "--task-config-file",

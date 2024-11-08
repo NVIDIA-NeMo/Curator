@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import time
 
@@ -51,7 +52,7 @@ def main(args):
         input_meta=args.input_meta,
     )
     print(
-        "Graph creation for get_text_ddf_from_json_path_with_blocksize" " complete.",
+        "Graph creation for get_text_ddf_from_json_path_with_blocksize complete.",
         flush=True,
     )
     print(f"text_ddf.npartitions  = {text_ddf.npartitions}", flush=True)
@@ -74,15 +75,19 @@ def main(args):
     print(f"Jaccard Shuffle E2E time taken = {et-st} s")
 
 
-def attach_args(parser=None):
-    if not parser:
-        description = """Shuffles input text documents based on the given bucket
-        map. The output is a partitioned parquet dataset with the documents
-        shuffled by buckets
-        """
-        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
-
+def attach_args():
+    description = """
+    Shuffles input text documents based on the given bucket
+    map. The output is a partitioned Parquet dataset with the documents
+    shuffled by buckets.
+    """
+    parser = argparse.ArgumentParser(
+        description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.parse_gpu_dedup_args()
 
     argumentHelper.add_arg_input_meta()
     argumentHelper.add_arg_output_dir()
@@ -91,24 +96,24 @@ def attach_args(parser=None):
         "--bucket-mapping-ddf-blocksize",
         type=int,
         default=256,
-        help="The block size for for anchor_docs_with_bk ddf in mb",
+        help="The block size for for anchor_docs_with_bk DataFrame in MB.",
     )
     parser.add_argument(
         "--bucket-parts-per-worker",
         default=8,
         type=int,
-        help="The number of bucket parts to process per worker per batch",
+        help="The number of bucket parts to process per worker per batch.",
     )
     parser.add_argument(
         "--input-bucket-mapping-dir",
         type=str,
-        help="The directory containing anchor docs with bk files",
+        help="The directory containing anchor_docs_with_bk files.",
     )
     parser.add_argument(
         "--parts-per-worker",
         default=1,
         type=int,
-        help="The number of parts to process per worker per batch",
+        help="The number of parts to process per worker per batch.",
     )
 
     return parser

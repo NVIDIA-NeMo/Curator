@@ -68,7 +68,7 @@ def main(args):
         backend = "cudf"
     else:
         raise ValueError(
-            f"Invalid device '{args.device}'. Please specify either 'cpu' or 'gpu'."
+            f'Invalid device "{args.device}". Please specify either "cpu" or "gpu".'
         )
 
     # Make the output directories
@@ -175,7 +175,7 @@ def attach_args(
 
     For an example of how to use this script
     (and apply to a corpus in distributed fashion), please see
-    the examples directory of this repository
+    the examples directory of this repository.
   """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -194,7 +194,7 @@ def attach_args(
         type=str,
         required=True,
         help="The input filter configuration file that contains the "
-        "path to the filter module as well as the filter parameters",
+        "path to the filter module as well as the filter parameters.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
@@ -204,8 +204,8 @@ def attach_args(
         "filtering operation should be performed and that scores should not be "
         "computed. This flag should be specified if scores have been "
         "pre-computed on the documents (e.g., the code was run without the "
-        "'--output-retained-document-dir' argument) and users desire to apply "
-        "the filter using the pre-computed scores",
+        "--output-retained-document-dir argument) and users desire to apply "
+        "the filter using the pre-computed scores.",
     )
     parser.add_argument(
         "--id-field",
@@ -214,8 +214,8 @@ def attach_args(
         help="The name of the field within each object of the dataset "
         "file that assigns a unqiue ID to each document. "
         "If this is specified and found within the object, a list of all "
-        "ids will be written to the output score directory such that each line"
-        "is consistent with the lines of the written score files ",
+        "IDs will be written to the output score directory such that each line"
+        "is consistent with the lines of the written score files. ",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
@@ -224,10 +224,10 @@ def attach_args(
         help="If multiple nodes are used when computing scores, "
         "each node will write out its scores to a temporary directory "
         "shared across all nodes. Then, the rank 0 node will "
-        "concatenate all of the scores creating the output file. "
+        "concatenate all of the scores, creating the output file. "
         "By default, this directory is removed after concatenation, "
         "however users can keep this temporary directory by specifying "
-        "the flag --keep-node-scores-tmp-dir ",
+        "the flag --keep-node-scores-tmp-dir.",
     )
     parser.add_argument(
         "--log-frequency",
@@ -235,7 +235,7 @@ def attach_args(
         default=10000,
         help="The frequency with which to write log messages when "
         "computing scores. By default a log message will "
-        "be written every 10000 documents in a file",
+        "be written every 10000 documents in a file.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,
@@ -243,29 +243,29 @@ def attach_args(
         default=False,
         help="Specifying this flag will cause the computed scores to be "
         "logged as additional keys for each document. This only applies to "
-        "filters with 'log_score: True' in the config. This can aid in "
+        'filters with "log_score: True" in the config. This can aid in '
         "performing an interactive quality check of the documents.",
     )
     parser.add_argument(
         "--output-document-score-dir",
         type=str,
         default=None,
-        help="The output directory to where the computed document scores will "
+        help="The output directory where the computed document scores will "
         "be written. For each filter, its score will be written to a separate "
         "file where each line of the file corresponds to the score computed "
         "for each document in the corpus within this directory. This only applies to "
-        "filters with 'log_score: True' in the config. If this directory is not "
-        "specified, then filter scores will not be written",
+        'filters with "log_score: True" in the config. If this directory is not '
+        "specified, then filter scores will not be written.",
     )
     parser.add_argument(
         "--output-removed-document-dir",
         type=str,
         default=None,
-        help="The output directory to where documents that are removed during "
+        help="The output directory where documents that are removed during "
         "filtering will be written. This argument is mainly for quality control "
         "in order examine documents that are not preserved during filtering. "
-        "If it is not specified and the retained-document-dir is specified, "
-        "then only the retained documents will be written to disk",
+        "If it is not specified and the output-retained-document-dir is specified, "
+        "then only the retained documents will be written to disk.",
     )
     parser.add_argument(
         "--output-retained-document-dir",
@@ -274,7 +274,7 @@ def attach_args(
         help="The output directory to where documents that are "
         "retained during filtering will be written. If this argument "
         "is not specified, then the document scores from the "
-        "filter(s) will be written to the document meta data in place",
+        "filter(s) will be written to the document metadata in place.",
     )
 
     return parser

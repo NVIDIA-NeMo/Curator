@@ -95,20 +95,20 @@ def attach_args():
     parser = ArgumentHelper.parse_semdedup_args(
         description=(
             "Computes the embeddings of a collection of documents using the specified model. "
-            "The model is specified in the config file using embedding_model_name_or_path (e.g. 'sentence-transformers/paraphrase-MiniLM-L6-v2'). "
+            'The model is specified in the configuration file using embedding_model_name_or_path (e.g. "sentence-transformers/paraphrase-MiniLM-L6-v2"). '
             "The embeddings are saved in the specified cache directory under the embeddings_save_loc directory. "
             "Input arguments include: "
             "--input-data-dir for the directory containing input data files, "
-            "--input-file-type for the type of input files (e.g., json, csv), "
-            "--input-file-extension for specifying the file extension of input files (e.g., .jsonl), "
+            '--input-file-type for the type of input files (e.g., "json", "csv"), '
+            '--input-file-extension for specifying the file extension of input files (e.g., ".jsonl"), '
             "--input-text-field for the field in the input files containing the text data to be embedded, "
-            "--config-file for the path to the semdedup config file. "
+            "--config-file for the path to the semantic deduplication configuration file. "
             "Important configuration parameters include: "
             " cache_dir for the directory to store cache"
             " num_files for the number of files to process (default is -1, meaning all files),"
             " embeddings_save_loc for the location to save embeddings,"
             " embedding_model_name_or_path for the model name or path for embeddings,"
-            " embedding_batch_size for the batch size for processing embeddings"
+            " embedding_batch_size for the batch size for processing embeddings."
         ),
     )
     return parser

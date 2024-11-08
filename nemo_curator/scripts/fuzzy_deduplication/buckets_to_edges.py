@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import time
 
@@ -24,28 +25,34 @@ from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def attach_args(parser=None):
-    description = """Takes the buckets generated from minhashes and converts
+def attach_args():
+    description = """
+    Takes the buckets generated from minhashes and converts
     them into an edge list for the connected components algorithm. This is done by
     assuming all documents in the same bucket are similar.
     """
-    if not parser:
-        parser = ArgumentHelper.parse_gpu_dedup_args(description=description)
+    parser = argparse.ArgumentParser(
+        description,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    argumentHelper = ArgumentHelper(parser)
+
+    argumentHelper.parse_gpu_dedup_args()
     parser.add_argument(
         "--input-bucket-dir",
         type=str,
-        help="The directory containing anchor docs with bk files",
+        help="The directory containing anchor_docs_with_bk files.",
     )
     parser.add_argument(
         "--input-bucket-field",
         type=str,
         default="_bucket_id",
-        help="Name of the column containing the bucket id",
+        help="Name of the column containing the bucket ID.",
     )
     parser.add_argument(
         "--output-dir",
         type=str,
-        help="Output dir to write results",
+        help="Output directory to write results.",
     )
     return parser
 
