@@ -53,3 +53,5 @@ RUN bash -exu <<EOF
   cd /opt/NeMo-Curator/
   pip install --extra-index-url https://pypi.nvidia.com ".[all]"
 EOF
+
+ENV PATH /opt/conda/envs/curator/bin:$PATH

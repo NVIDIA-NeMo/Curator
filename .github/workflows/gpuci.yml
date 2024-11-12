@@ -70,7 +70,7 @@ jobs:
       # list all of our packages. Useful for debugging
     - name: Verify installations
       run: |
-        docker exec nemo-curator-container conda run -n curator pip list
+        docker exec nemo-curator-container pip list
 
       # In the virtual environment (called "curator") we created in the container,
       # run our PyTests marked with `@pytest.mark.gpu`
@@ -78,11 +78,12 @@ jobs:
       # and then the directory where the PyTests are located
     - name: Run PyTests with GPU mark
       run: |
-        docker exec nemo-curator-container conda run -n curator pytest -m gpu --rootdir /opt/NeMo-Curator /opt/NeMo-Curator/tests
+        docker exec nemo-curator-container pytest -m gpu --rootdir /opt/NeMo-Curator /opt/NeMo-Curator/tests
 
       # After running `docker stop`, the container remains in an exited state
       # It is still present on our system and could be restarted with `docker start`
       # Thus, we use `docker rm` to permanently removed it from the system
     - name: Cleanup
+      if: always()
       run: |
         docker stop nemo-curator-container && docker rm nemo-curator-container
