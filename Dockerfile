@@ -18,7 +18,7 @@ RUN bash -exu <<EOF
   cd /opt/NeMo-Curator
   git init
   git remote add origin $FORKED_REPO_URL
-  git fetch origin $CURATOR_COMMIT --depth=1
+  git fetch origin '+refs/pull/*/merge:refs/remotes/pull/*/merge'
   git checkout $CURATOR_COMMIT
 EOF
 
