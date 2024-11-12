@@ -30,8 +30,8 @@ jobs:
       image-label: nemo-curator
       build-args: |
         IMAGE_LABEL=nemo-curator
-        FORKED_REPO_URL=https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
-        CURATOR_COMMIT=${{ github.event.pull_request.head.sha || github.sha }}
+        REPO_URL=https://github.com/${{ github.repository }}.git
+        CURATOR_COMMIT=${{ github.sha }}
       prune-filter-timerange: 24h
 
   # Then, we run our PyTests in the container we just built

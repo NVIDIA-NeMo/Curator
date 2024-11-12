@@ -4,12 +4,12 @@ ARG CUDA_VER=12.5.1
 ARG LINUX_VER=ubuntu22.04
 ARG PYTHON_VER=3.10
 ARG IMAGE_LABEL
-ARG FORKED_REPO_URL
+ARG REPO_URL
 ARG CURATOR_COMMIT
 
 FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} as curator-update
 # Needed to navigate to and pull the forked repository's changes
-ARG FORKED_REPO_URL
+ARG REPO_URL
 ARG CURATOR_COMMIT
 
 # Clone the user's repository, find the relevant commit, and install everything we need
@@ -17,7 +17,7 @@ RUN bash -exu <<EOF
   mkdir -p /opt/NeMo-Curator
   cd /opt/NeMo-Curator
   git init
-  git remote add origin $FORKED_REPO_URL
+  git remote add origin $REPO_URL
   git fetch origin '+refs/pull/*/merge:refs/remotes/pull/*/merge'
   git checkout $CURATOR_COMMIT
 EOF
