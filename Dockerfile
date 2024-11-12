@@ -3,8 +3,28 @@
 ARG CUDA_VER=12.5.1
 ARG LINUX_VER=ubuntu22.04
 ARG PYTHON_VER=3.10
-FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER}
+ARG IMAGE_LABEL
+ARG FORKED_REPO_URL
+ARG CURATOR_COMMIT
 
+FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} as curator-update
+# Needed to navigate to and pull the forked repository's changes
+ARG FORKED_REPO_URL
+ARG CURATOR_COMMIT
+
+# Clone the user's repository, find the relevant commit, and install everything we need
+RUN bash -exu <<EOF
+  mkdir -p /opt/NeMo-Curator
+  cd /opt/NeMo-Curator
+  git init
+  git remote add origin $FORKED_REPO_URL
+  git fetch origin $CURATOR_COMMIT --depth=1
+  git checkout $CURATOR_COMMIT
+EOF
+
+
+FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER}
+LABEL "nemo.library"=${IMAGE_LABEL}
 WORKDIR /opt
 
 # Install the minimal libcu* libraries needed by NeMo Curator
@@ -15,19 +35,21 @@ RUN conda create -y --name curator -c conda-forge -c nvidia \
   libcublas \
   libcurand \
   libcusparse \
-  libcusolver
+  libcusolver && \
+  source activate curator && \
+  pip install --upgrade cython pytest pip
 
-# Needed to navigate to and pull the forked repository's changes
-ARG FORKED_REPO_URL
-ARG CURATOR_COMMIT
+RUN \
+  --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=nemo_curator/__init__.py,from=curator-update \
+  --mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=pyproject.toml,from=curator-update \
+  source activate curator && \
+  pip install ".[all]"
+
+COPY --from=curator-update /opt/NeMo-Curator/ /opt/NeMo-Curator/
 
 # Clone the user's repository, find the relevant commit, and install everything we need
 RUN bash -exu <<EOF
-  git clone $FORKED_REPO_URL
-  cd NeMo-Curator
-  git fetch origin $CURATOR_COMMIT --depth=1
-  git checkout $CURATOR_COMMIT
   source activate curator
-  pip install --upgrade cython pytest pip
+  cd /opt/NeMo-Curator/
   pip install --extra-index-url https://pypi.nvidia.com ".[all]"
 EOF

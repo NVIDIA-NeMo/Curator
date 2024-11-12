@@ -11,12 +11,25 @@ on:
     # If new commits are added, the "gpuCI" label has to be removed and re-added to rerun gpuCI
     types: [ labeled ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # First, we build and push a NeMo-Curator container
   build-container:
     # "build-container" job is run if the "gpuci" label is added to the PR
     if: ${{ github.event.label.name == 'gpuci' }}
-    uses: ./.github/workflows/_build_container.yml
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.11.0
+    with:
+      image-name: nemo_curator_container
+      dockerfile: Dockerfile
+      image-label: nemo-curator
+      build-args: |
+        IMAGE_LABEL=nemo-curator
+        FORKED_REPO_URL=https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git
+        CURATOR_COMMIT=${{ github.event.pull_request.head.sha || github.sha }}
+      prune-filter-timerange: 24h
 
   # Then, we run our PyTests in the container we just built
   run-gpu-tests:
