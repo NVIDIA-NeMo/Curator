@@ -162,7 +162,7 @@ markers = [
 ]
 
 [tool.setuptools.dynamic]
-version = { attr = "nemo_curator.__version__" }
+version = { attr = "nemo_curator.package_info.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["*"]

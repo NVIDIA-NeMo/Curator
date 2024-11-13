@@ -40,8 +40,10 @@ RUN conda create -y --name curator -c conda-forge -c nvidia \
   pip install --upgrade cython pytest pip
 
 RUN \
-  --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=nemo_curator/__init__.py,from=curator-update \
-  --mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=pyproject.toml,from=curator-update \
+--mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=/opt/NeMo-Curator/nemo_curator/__init__.py,from=curator-update \
+--mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/package_info.py,target=/opt/NeMo-Curator/nemo_curator/package_info.py,from=curator-update \
+--mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=/opt/NeMo-Curator/pyproject.toml,from=curator-update \
+  cd /opt/NeMo-Curator && \
   source activate curator && \
   pip install ".[all]"
 
