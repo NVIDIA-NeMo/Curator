@@ -60,7 +60,7 @@ def main(args):
         df = read_data(
             files[:num_files] if num_files else files,
             file_type="jsonl",
-            backend="pandas" if args.no_gpu else "cudf",
+            backend="pandas" if args.device != "gpu" else "cudf",
             files_per_partition=args.files_per_partition,
             add_filename=False,
         )[[id_field, text_field]]
