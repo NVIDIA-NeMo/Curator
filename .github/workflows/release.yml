@@ -23,7 +23,7 @@ on:
 
 jobs:
   release:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_release_library.yml@v0.10.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_release_library.yml@v0.12.0
     with:
       release-ref: ${{ inputs.release-ref }}
       image-name: nemo_curator_container
@@ -35,7 +35,7 @@ jobs:
         CURATOR_COMMIT=${{ github.sha }}
       prune-filter-timerange: 24h
       python-package: nemo_curator
-      container-workdir: /opt/NeMo_Curator
+      container-workdir: /opt/NeMo-Curator
       library-name: NeMo-Curator
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
