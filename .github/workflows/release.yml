@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: "Release NeMo Curator"
+name: 'Release NeMo Curator'
 
 on:
   workflow_dispatch:
@@ -36,7 +36,7 @@ jobs:
       prune-filter-timerange: 24h
       python-package: nemo_curator
       container-workdir: /opt/NeMo-Curator
-      library-name: NeMo-Curator
+      library-name: NeMo Curator
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
