@@ -33,7 +33,6 @@ NeMo Curator's PyPi page can be found `here <https://pypi.org/project/nemo-curat
 
 .. code-block:: bash
 
-    pip install cython
     pip install nemo-curator[image]
 
 #####################
@@ -44,7 +43,6 @@ NeMo Curator's GitHub can be found `here <https://github.com/NVIDIA/NeMo-Curator
 .. code-block:: bash
 
     git clone https://github.com/NVIDIA/NeMo-Curator.git
-    pip install cython
     pip install ./NeMo-Curator[image]
 
 ############################

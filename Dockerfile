@@ -38,7 +38,7 @@ RUN conda create -y --name curator -c conda-forge -c nvidia \
   libcusparse \
   libcusolver && \
   source activate curator && \
-  pip install --upgrade cython pytest pip
+  pip install --upgrade pytest pip
 
 RUN \
 --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=/opt/NeMo-Curator/nemo_curator/__init__.py,from=curator-update \

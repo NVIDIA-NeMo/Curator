@@ -83,14 +83,12 @@ You can get NeMo-Curator in 3 ways.
 #### PyPi
 
 ```bash
-pip install cython
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
 ```
 
 #### Source
 ```bash
 git clone https://github.com/NVIDIA/NeMo-Curator.git
-pip install cython
 pip install --extra-index-url https://pypi.nvidia.com "./NeMo-Curator[all]"
 ```
 

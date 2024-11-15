@@ -15,6 +15,7 @@
 import csv
 import warnings
 
+import sentencepiece
 from bs4 import BeautifulSoup
 from comment_parser import comment_parser
 
@@ -102,19 +103,18 @@ class NumberOfLinesOfCodeFilter(DocumentFilter):
 class TokenizerFertilityFilter(DocumentFilter):
 
     def __init__(self, path_to_tokenizer=None, min_char_to_token_ratio=2.5):
-        from nemo.collections.common.tokenizers import SentencePieceTokenizer
-
         if path_to_tokenizer is None:
             raise ValueError(
                 "Must provide a valid path to a SentencePiece " "tokenizer"
             )
-        self._tokenizer = SentencePieceTokenizer(path_to_tokenizer)
+        self._tokenizer = sentencepiece.SentencePieceProcessor()
+        self._tokenizer.Load(path_to_tokenizer)
         self._threshold = min_char_to_token_ratio
 
         self._name = "tokenizer_fertility"
 
     def score_document(self, source):
-        tokens = self._tokenizer.text_to_tokens(source)
+        tokens = self._tokenizer.encode_as_pieces(source)
         num_chars = len(source)
         num_tokens = len(tokens)
         if num_tokens == 0:
