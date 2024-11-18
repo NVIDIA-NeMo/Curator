@@ -16,6 +16,7 @@
 import json
 import os
 import pathlib
+import warnings
 from functools import partial, reduce
 from typing import List, Optional, Union
 
@@ -45,7 +46,42 @@ def expand_outdir_and_mkdir(outdir):
     return outdir
 
 
-def get_all_files_paths_under(root, recurse_subdirectories=True, followlinks=False):
+def filter_files_by_extension(
+    files_list: List[str],
+    keep_extensions: Union[str, List[str]],
+) -> List[str]:
+    """
+    Given a list of files, filter it to only include files matching given extension(s).
+
+    Args:
+        files_list: List of files.
+        keep_extensions: A string (e.g., "json") or a list of strings (e.g., ["json", "parquet"])
+            representing which file types to keep from files_list.
+
+    """
+    filtered_files = []
+
+    if isinstance(keep_extensions, str):
+        keep_extensions = [keep_extensions]
+
+    file_extensions = [s if s.startswith(".") else "." + s for s in keep_extensions]
+
+    for file in files_list:
+        if file.endswith(tuple(file_extensions)):
+            filtered_files.append(file)
+
+    if len(files_list) != len(filtered_files):
+        warnings.warn(f"Skipped at least one file due to unmatched file extension(s).")
+
+    return filtered_files
+
+
+def get_all_files_paths_under(
+    root: str,
+    recurse_subdirectories: bool = True,
+    followlinks: bool = False,
+    keep_extensions: Optional[Union[str, List[str]]] = None,
+) -> List[str]:
     """
     This function returns a list of all the files under a specified directory.
     Args:
@@ -54,6 +90,9 @@ def get_all_files_paths_under(root, recurse_subdirectories=True, followlinks=Fal
                               Please note that this can be slow for large
                               number of files.
         followlinks: Whether to follow symbolic links.
+        keep_extensions: A string or list of strings representing a file type
+                   or multiple file types to include in the output, e.g.,
+                   "jsonl" or ["jsonl", "parquet"].
     """
     if recurse_subdirectories:
         file_ls = [
@@ -65,6 +104,10 @@ def get_all_files_paths_under(root, recurse_subdirectories=True, followlinks=Fal
         file_ls = [entry.path for entry in os.scandir(root)]
 
     file_ls.sort()
+
+    if keep_extensions is not None:
+        file_ls = filter_files_by_extension(file_ls, keep_extensions)
+
     return file_ls
 
 
@@ -146,7 +189,10 @@ def _update_filetype(file_set, old_file_type, new_file_type):
 
 
 def get_batched_files(
-    input_file_path, output_file_path, input_file_type, batch_size=64
+    input_file_path: str,
+    output_file_path: str,
+    input_file_type: str,
+    batch_size: int = 64,
 ):
     """
     This function returns a batch of files that still remain to be processed.
@@ -329,7 +375,7 @@ def separate_by_metadata(
     return delayed(reduce)(merge_counts, delayed_counts)
 
 
-def parse_str_of_num_bytes(s, return_str=False):
+def parse_str_of_num_bytes(s: str, return_str: bool = False) -> Union[str, int]:
     try:
         power = "kmg".find(s[-1].lower()) + 1
         size = float(s[:-1]) * 1024**power
@@ -342,7 +388,10 @@ def parse_str_of_num_bytes(s, return_str=False):
 
 
 def _save_jsonl(documents, output_path, start_index=0, max_index=10000, prefix=None):
-    """Worker function to write out the data to jsonl files"""
+    """
+    Worker function to write out the data to jsonl files
+
+    """
 
     def _encode_text(document):
         return document.strip().encode("utf-8")
@@ -375,7 +424,11 @@ def _save_jsonl(documents, output_path, start_index=0, max_index=10000, prefix=N
 
 
 def reshard_jsonl(
-    input_dir, output_dir, output_file_size="100M", start_index=0, file_prefix=""
+    input_dir: str,
+    output_dir: str,
+    output_file_size: str = "100M",
+    start_index: int = 0,
+    file_prefix: str = "",
 ):
     """
     Reshards a directory of jsonl files to have a new (approximate) file size for each shard
