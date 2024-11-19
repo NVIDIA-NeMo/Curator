@@ -41,7 +41,6 @@ if __name__ == "__main__":
         cache_dir=connected_component_cache_dir,
         jaccard_pairs_path=buckets_to_edges_out,
         id_column=input_id_field,
-        convert_str_ids=True,
     )
 
     # Load and run connected components
