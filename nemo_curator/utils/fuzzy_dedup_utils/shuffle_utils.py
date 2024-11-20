@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
 
 import cudf
 import dask_cuda
@@ -21,10 +20,7 @@ from dask import config
 from packaging.version import Version
 
 from nemo_curator._compat import query_planning_enabled
-from nemo_curator.utils.fuzzy_dedup_utils.output_map_utils import (
-    build_partition,
-    get_agg_text_bytes_df,
-)
+from nemo_curator.utils.fuzzy_dedup_utils.output_map_utils import build_partition
 
 dask_cuda_version = Version(dask_cuda.__version__)
 USE_EXCOMMS = (
@@ -125,80 +121,4 @@ def get_shuffle_part_ids_df(
     df = cudf.DataFrame()
     df[partition_on] = agg_df[partition_on]
     df[output_col] = output_ar
-    return df
-
-
-def get_shuffle_partition_info(
-    df,
-    partition_on,
-    output_column,
-    text_column,
-    bytes_column="_text_bytes",
-    num_workers=None,
-):
-    df[bytes_column] = df[text_column].map_partitions(lambda s: s.str.byte_count())
-    agg_df, _ = get_agg_text_bytes_df(
-        df, agg_column=partition_on, bytes_column=bytes_column, n_partitions=1
-    )
-    del df
-
-    agg_df = agg_df.reset_index(drop=True)
-    shuffle_part_ids = agg_df.map_partitions(
-        get_shuffle_part_ids_df,
-        partition_on,
-        size_col=bytes_column,
-        num_workers=num_workers,
-        output_col=output_column,
-    ).persist()
-    return shuffle_part_ids
-
-
-def text_bytes_aware_shuffle(
-    df,
-    partition_on: str,
-    text_column: str,
-    num_workers: Optional[int] = None,
-):
-    """
-    This shuffle takes into account the text bytes of each partition
-    and tries to make sure that the output partitions do not exceed
-    the char limit of cuDF
-
-    Args:
-        df: dask_cudf dataframe
-        partition_on: column name to partition on
-        text_column: column name for the text data
-
-    Returns:
-        dask_cudf dataframe with _partitions columns or None if `df` is empty after the merge
-    """
-    print("Starting text bytes aware shuffle", flush=True)
-    output_col = "_partitions"
-
-    df = df.persist()
-    if len(df) == 0:
-        return None
-    shuffle_part_ids = get_shuffle_partition_info(
-        df=df,
-        partition_on=partition_on,
-        num_workers=num_workers,
-        output_column=output_col,
-        text_column=text_column,
-    )
-    n_output_partitions = shuffle_part_ids[output_col].max().compute() + 1
-    n_output_partitions = int(n_output_partitions)
-    df = df.merge(shuffle_part_ids, on=partition_on, how="inner").persist()
-
-    df = (
-        rearange_by_column_direct(
-            df,
-            col=output_col,
-            npartitions=n_output_partitions,
-            ignore_index=True,
-            excomms_default=True,
-        )
-        .drop(columns=[output_col])
-        .persist()
-    )
-    print(f"Will write {len(df)} rows to disk", flush=True)
     return df

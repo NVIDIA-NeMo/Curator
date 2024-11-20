@@ -119,6 +119,7 @@ def aggregated_anchor_docs_with_bk_read(path, blocksize):
         sorted(glob(f"{path}/*.parquet"), key=natural_sort_key),
         format="parquet",
     )
+    # create chunks of files to which are less than blocksize
     chunks = chunk_files(ds.get_fragments(), blocksize)
 
     # Record mapping between file indices and partition indices.
