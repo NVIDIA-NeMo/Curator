@@ -15,18 +15,31 @@
 import sys
 
 import dask
-from packaging.version import parse as parseVersion
+from packaging.version import parse as parse_version
 
 try:
-    _dask_version = parseVersion(dask.__version__)
+    _dask_version = parse_version(dask.__version__)
 except TypeError:
     # When mocking with autodoc the dask version is not there
-    _dask_version = parseVersion("2024.06.0")
+    _dask_version = parse_version("2024.06.0")
+
+try:
+    import cudf
+
+    CURRENT_CUDF_VERSION = parse_version(cudf.__version__)
+except (ImportError, TypeError):
+    CURRENT_CUDF_VERSION = parse_version("24.10.0")
+
+# TODO remove this once 24.12.0 becomes the base version of cudf in nemo-curator
+MINHASH_PERMUTED_AVAILABLE = CURRENT_CUDF_VERSION >= parse_version("24.12.0") or (
+    CURRENT_CUDF_VERSION.is_prerelease
+    and CURRENT_CUDF_VERSION.base_version >= "24.12.0"
+)
 
 # TODO: remove when dask min version gets bumped
-DASK_SHUFFLE_METHOD_ARG = _dask_version > parseVersion("2024.1.0")
-DASK_P2P_ERROR = _dask_version < parseVersion("2023.10.0")
-DASK_SHUFFLE_CAST_DTYPE = _dask_version > parseVersion("2023.12.0")
+DASK_SHUFFLE_METHOD_ARG = _dask_version > parse_version("2024.1.0")
+DASK_P2P_ERROR = _dask_version < parse_version("2023.10.0")
+DASK_SHUFFLE_CAST_DTYPE = _dask_version > parse_version("2023.12.0")
 
 # Query-planning check (and cache)
 _DASK_QUERY_PLANNING_ENABLED = None
@@ -36,7 +49,7 @@ def query_planning_enabled():
     global _DASK_QUERY_PLANNING_ENABLED
 
     if _DASK_QUERY_PLANNING_ENABLED is None:
-        if _dask_version > parseVersion("2024.6.0"):
+        if _dask_version > parse_version("2024.6.0"):
             import dask.dataframe as dd
 
             _DASK_QUERY_PLANNING_ENABLED = dd.DASK_EXPR_ENABLED
