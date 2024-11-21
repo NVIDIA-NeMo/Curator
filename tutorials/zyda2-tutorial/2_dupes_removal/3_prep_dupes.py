@@ -1,9 +1,6 @@
 import json
-import os
-
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
-
 import logging
+import os
 
 import dask.dataframe as dd
 import pandas as pd

@@ -1,10 +1,7 @@
 import json
+import logging
 import os
 import time
-
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
-
-import logging
 
 import dask.dataframe as dd
 import pandas as pd

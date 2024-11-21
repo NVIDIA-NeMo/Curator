@@ -1,10 +1,7 @@
 import argparse
+import logging
 import os
 import time
-
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
-
-import logging
 
 from nemo_curator.classifiers import QualityClassifier
 from nemo_curator.datasets import DocumentDataset

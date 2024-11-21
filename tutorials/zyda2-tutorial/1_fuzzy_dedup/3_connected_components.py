@@ -1,8 +1,5 @@
-import os
-
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
-
 import logging
+import os
 import time
 
 from nemo_curator.modules.fuzzy_dedup import ConnectedComponents

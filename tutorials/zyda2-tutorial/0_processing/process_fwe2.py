@@ -1,10 +1,7 @@
-import os
-
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
-
 import ctypes
 import gc
 import logging
+import os
 from pathlib import Path
 
 from dask.distributed import Client, LocalCluster

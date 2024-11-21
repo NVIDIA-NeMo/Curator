@@ -1,9 +1,6 @@
-import os
-
-os.environ["DASK_DATAFRAME__QUERY_PLANNING"] = "False"
-
 import json
 import logging
+import os
 
 import cudf
 import dask_cudf
