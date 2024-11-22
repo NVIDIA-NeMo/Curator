@@ -36,8 +36,8 @@ def main(args):
         sorted_clusters_dir=os.path.join(
             cache_dir, semdedup_config.clustering_save_loc, "sorted"
         ),
-        id_col=args.id_column,
-        id_col_type=args.id_column_type,
+        id_column=args.id_column,
+        id_column_type=args.id_column_type,
         which_to_keep=semdedup_config.which_to_keep,
         output_dir=os.path.join(
             semdedup_config.cache_dir, semdedup_config.clustering_save_loc
