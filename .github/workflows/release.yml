@@ -32,7 +32,7 @@ jobs:
       build-args: |
         IMAGE_LABEL=nemo-curator
         REPO_URL=https://github.com/${{ github.repository }}.git
-        CURATOR_COMMIT=${{ github.sha }}
+        CURATOR_COMMIT=${{ inputs.release-ref }}
       prune-filter-timerange: 24h
       python-package: nemo_curator
       container-workdir: /opt/NeMo-Curator
