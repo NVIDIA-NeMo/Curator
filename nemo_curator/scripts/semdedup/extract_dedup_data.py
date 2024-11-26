@@ -45,7 +45,7 @@ def main(args):
         logger=logger,
     )
 
-    semantic_dedup.compute_semantic_match_dfs()
+    semantic_dedup.compute_semantic_match_dfs(semdedup_config.eps_thresholds)
     for eps in semdedup_config.eps_thresholds:
         dedup_id_dataset = semantic_dedup.extract_dedup_data(eps_to_extract=eps)
         print(dedup_id_dataset.df.head(10))
