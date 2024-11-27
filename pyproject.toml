@@ -42,7 +42,7 @@ dependencies = [
     "beautifulsoup4",
     "charset_normalizer>=3.1.0",
     "comment_parser",
-    "crossfit>=0.0.6",
+    "crossfit>=0.0.7",
     "dask-mpi>=2021.11.0",
     "dask[complete]>=2021.7.1",
     "datasets",
