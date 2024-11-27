@@ -48,6 +48,7 @@ from .heuristic_filter import (
     WordCountFilter,
     WordsWithoutAlphabetsFilter,
 )
+from .synthetic import AnswerabilityFilter, EasinessFilter
 
 __all__ = [
     "DocumentFilter",
@@ -84,4 +85,6 @@ __all__ = [
     "AlphaFilter",
     "HTMLBoilerplateFilter",
     "PerExtensionFilter",
+    "AnswerabilityFilter",
+    "EasinessFilter",
 ]
