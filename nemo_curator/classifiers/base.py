@@ -34,7 +34,7 @@ class DistributedDataClassifier(ABC):
     def __init__(
         self,
         model: str,
-        labels: List[str],
+        labels: Optional[List[str]],
         filter_by: Optional[List[str]],
         batch_size: int,
         out_dim: int,
