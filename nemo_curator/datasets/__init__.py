@@ -15,9 +15,10 @@
 from nemo_curator.utils.import_utils import image_only_import_from
 
 from .doc_dataset import DocumentDataset
+from .parallel_dataset import ParallelDataset
 
 ImageTextPairDataset = image_only_import_from(
     "nemo_curator.datasets.image_text_pair_dataset", "ImageTextPairDataset"
 )
 
-__all__ = ["DocumentDataset", "ImageTextPairDataset"]
+__all__ = ["DocumentDataset", "ImageTextPairDataset", "ParallelDataset"]

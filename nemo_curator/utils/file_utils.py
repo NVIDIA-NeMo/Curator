@@ -456,3 +456,8 @@ def reshard_jsonl(
 
     # Save to balanced files
     _save_jsonl(b, output_dir, start_index=start_index, prefix=file_prefix)
+
+
+def remove_path_extension(path: str):
+    p = pathlib.Path(path)
+    return os.path.join(p.parent, p.stem)

@@ -11,13 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import Callable, Optional, Union
+
+from typing import Callable, List, Optional, Union
 
 import pandas as pd
+from dask.array import logical_and
 from dask.dataframe.extensions import make_array_nonempty
 from dask.typing import no_default
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.datasets.parallel_dataset import ParallelDataset
 from nemo_curator.filters import DocumentFilter
 from nemo_curator.utils.module_utils import is_batched
 
@@ -108,15 +111,14 @@ class Filter:
         self.filter_field = filter_field
         self.invert = invert
 
-    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
-        """
-        Applies the filtering to a dataset
+    def compute_filter_mask(self, dataset: DocumentDataset):
+        """Compute the bool mask to filter the dataset.
 
         Args:
-            dataset (DocumentDataset): The dataset to apply the module to
+            dataset (DocumentDataset): The dataset to compute filter mask on.
 
         Returns:
-            DocumentDataset: A dataset with entries removed according to the filter
+            Series or DataFrame: A mask corresponding to each data instance indicating whether it will be retained.
         """
         if is_batched(self.filter_fn):
             bool_mask = dataset.df[self.filter_field].map_partitions(
@@ -130,6 +132,19 @@ class Filter:
         if self.invert:
             bool_mask = ~bool_mask
 
+        return bool_mask
+
+    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
+        """
+        Applies the filtering to a dataset
+
+        Args:
+            dataset (DocumentDataset): The dataset to apply the module to
+
+        Returns:
+            DocumentDataset: A dataset with entries removed according to the filter
+        """
+        bool_mask = self.compute_filter_mask(dataset)
         return DocumentDataset(dataset.df[bool_mask])
 
 
@@ -167,15 +182,14 @@ class ScoreFilter:
         self.score_type = score_type
         self.invert = invert
 
-    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
-        """
-        Scores and filters all records in the dataset
+    def compute_filter_mask(self, dataset: DocumentDataset):
+        """Compute the bool mask to filter the dataset.
 
         Args:
-            dataset (DocumentDataset): The dataset to apply the module to
+            dataset (DocumentDataset): The dataset to compute filter mask on.
 
         Returns:
-            DocumentDataset: A dataset with the score and filter applied
+            Series or DataFrame: A mask corresponding to each data instance indicating whether it will be retained.
         """
         if self.score_type:
             meta = (None, self.score_type)
@@ -203,4 +217,65 @@ class ScoreFilter:
         if self.invert:
             bool_mask = ~bool_mask
 
+        return bool_mask
+
+    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
+        """
+        Scores and filters all records in the dataset
+
+        Args:
+            dataset (DocumentDataset): The dataset to apply the module to
+
+        Returns:
+            DocumentDataset: A dataset with the score and filter applied
+        """
+        bool_mask = self.compute_filter_mask(dataset)
         return DocumentDataset(dataset.df[bool_mask])
+
+
+class ParallelScoreFilter:
+    def __init__(
+        self,
+        src_filter_obj,
+        tgt_filter_obj,
+        src_field="src",
+        tgt_field="tgt",
+        src_score=None,
+        tgt_score=None,
+        score_type=None,
+        invert=False,
+    ):
+        """A filter object wrapper class for applying *monolingual* filter objects on bitext.
+        If either side of the bitext is discarded, the whole bitext pair is discarded.
+        If you want to apply a *bitext* filter that takes both the source and target as input, checkout `BitextFilter` class.
+
+        Note that the goal of this wrapper class is to group the same/similar filters on bitext thus making the logic clearer,
+        which is why we force the `score_type` and `invert` to be the same among source/target filters.
+        If you need the extra flexibility, you should fall back to applying two filters one after the other.
+
+        Args:
+            src_filter_obj (_type_): The score function that takes in a document string and outputs a score for the source document.
+            tgt_filter_obj (_type_): The score function that takes in a document string and outputs a score for the target document.
+            src_field (str, optional): The field the source documents will be read from. Defaults to "src".
+            tgt_field (str, optional): The field the target documents will be read from. Defaults to "tgt".
+            src_score (str, optional): The field to which the source scores will be written. If None, scores will be immediately discarded after use. Defaults to None.
+            tgt_score (str, optional): The field to which the target scores will be written. If None, scores will be immediately discarded after use. Defaults to None.
+            score_type (Optional[str]): The datatype of the score that will be made for each document. Defaults to None.
+            invert (bool, optional): If True, will keep all documents that are normally discarded. Defaults to False.
+        """
+
+        self.source_score_filter = ScoreFilter(
+            src_filter_obj, src_field, src_score, score_type, invert
+        )
+        self.target_score_filter = ScoreFilter(
+            tgt_filter_obj, tgt_field, tgt_score, score_type, invert
+        )
+
+    def __call__(self, dataset: ParallelDataset):
+        src_bool_mask = self.source_score_filter.compute_filter_mask(dataset)
+        tgt_bool_mask = self.target_score_filter.compute_filter_mask(dataset)
+
+        # remove lines together if one of them is filtered
+        bool_mask = logical_and(src_bool_mask, tgt_bool_mask)
+
+        return ParallelDataset(dataset.df[bool_mask])

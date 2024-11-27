@@ -10,6 +10,10 @@ Base Class
     :members:
     :member-order: bysource
 
+.. autoclass:: nemo_curator.filters.BitextFilter
+    :members:
+    :member-order: bysource
+
 .. autofunction:: nemo_curator.filters.import_filter
 
 ------------------------------
@@ -37,6 +41,14 @@ FastText Filters
     :member-order: bysource
 
 .. autoclass:: nemo_curator.filters.FastTextQualityFilter
+    :members:
+    :member-order: bysource
+
+------------------------------
+Quality Estimation Filters
+------------------------------
+
+.. autoclass:: nemo_curator.filters.QualityEstimationFilter
     :members:
     :member-order: bysource
 
@@ -129,6 +141,14 @@ Heuristic Filters
     :member-order: bysource
 
 .. autoclass:: nemo_curator.filters.PornographicUrlsFilter
+    :members:
+    :member-order: bysource
+
+.. autoclass:: nemo_curator.filters.HistogramFilter
+    :members:
+    :member-order: bysource
+
+.. autoclass:: nemo_curator.filters.LengthRatioFilter
     :members:
     :member-order: bysource
 

@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import ast
 import os
+import shutil
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import random
 import warnings
 from contextlib import nullcontext
 from datetime import datetime
+from itertools import zip_longest
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Union
 
@@ -568,7 +570,9 @@ def single_partition_write_with_filename(
             if not keep_filename_column:
                 out_df = out_df.drop("filename", axis=1)
 
-            filename = Path(filename).stem
+            filename = (
+                Path(filename).stem if output_type != "bitext" else Path(filename).name
+            )
             output_file_path = os.path.join(output_file_dir, filename)
 
             if output_type == "jsonl":
@@ -596,11 +600,77 @@ def single_partition_write_with_filename(
             elif output_type == "parquet":
                 output_file_path = output_file_path + ".parquet"
                 out_df.to_parquet(output_file_path)
-
+            elif output_type == "bitext":
+                raise RuntimeError(
+                    "You shouldn't call this function to write to simple bitext."
+                )
             else:
                 raise ValueError(f"Unknown output type: {output_type}")
 
     return success_ser
+
+
+def _single_partition_write_to_simple_bitext(
+    out_df, output_file_path, partition_info=None
+):
+    if len(out_df) > 0:
+        empty_partition = False
+    else:
+        warnings.warn(f"Empty partition found")
+        empty_partition = True
+
+    if is_cudf_type(out_df):
+        import cudf
+
+        success_ser = cudf.Series([empty_partition])
+    else:
+        success_ser = pd.Series([empty_partition])
+
+    src_output_file_path = output_file_path + f".{out_df['src_lang'].iloc[0]}"
+    tgt_output_file_path = output_file_path + f".{out_df['tgt_lang'].iloc[0]}"
+    partition_id = partition_info["number"] if partition_info else 0
+    with (
+        open(f"{src_output_file_path}.{partition_id}", "w") as src_out,
+        open(f"{tgt_output_file_path}.{partition_id}", "w") as tgt_out,
+    ):
+        for src, tgt in zip(out_df["src"], out_df["tgt"]):
+            src_out.write(src + os.linesep)
+            tgt_out.write(tgt + os.linesep)
+
+    return success_ser
+
+
+def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
+    """Merge partitions of simple bitext files in `tmp_output_dir` into files at `output_file_dir`.
+
+    Args:
+        tmp_output_dir (str): temporary directory that has all the simple bitext output partitions,
+                with suffixes that looks like "file.1", "file.2" that shows the merging order
+        output_file_path (str): dir to write output files
+    """
+
+    sorted_tmp_files = sorted(
+        os.listdir(tmp_output_dir), key=lambda x: int(x.split(".")[-1])
+    )
+    unique_file_handles = {}
+    # Loop through the sorted files and concatenate their contents
+    for f in sorted_tmp_files:
+        input_file_path = os.path.join(tmp_output_dir, f)
+        output_file_name = ".".join(f.split(".")[:-1])
+
+        # this is where current file will be concatenated into
+        output_file_path = os.path.join(output_dir, output_file_name)
+
+        # create the output file if we haven't yet
+        if output_file_path not in unique_file_handles:
+            unique_file_handles[output_file_path] = open(output_file_path, "w")
+
+        with open(input_file_path, "r") as infile:
+            unique_file_handles[output_file_path].write(infile.read())
+
+    # close all dangling file handles
+    for handle in unique_file_handles.values():
+        handle.close()
 
 
 def write_to_disk(
@@ -628,14 +698,14 @@ def write_to_disk(
             "write_using_filename is True but no filename column found in df"
         )
 
-    if write_to_filename:
-        if is_cudf_type(df):
-            import cudf
+    if is_cudf_type(df):
+        import cudf
 
-            output_meta = cudf.Series([True])
-        else:
-            output_meta = pd.Series([True], dtype="bool")
+        output_meta = cudf.Series([True])
+    else:
+        output_meta = pd.Series([True], dtype="bool")
 
+    if write_to_filename and output_type != "bitext":
         os.makedirs(output_file_dir, exist_ok=True)
         output = df.map_partitions(
             single_partition_write_with_filename,
@@ -661,6 +731,33 @@ def write_to_disk(
                 )
         elif output_type == "parquet":
             df.to_parquet(output_file_dir, write_index=False)
+        elif output_type == "bitext":
+            if write_to_filename:
+                os.makedirs(output_file_dir, exist_ok=True)
+                tmp_output_file_dir = os.path.join(output_file_dir, ".tmp")
+                os.makedirs(tmp_output_file_dir, exist_ok=True)
+                file_name = os.path.basename(list(df.filename.unique())[0])
+            else:
+                tmp_output_file_dir = os.path.join(output_file_dir, ".tmp")
+                os.makedirs(tmp_output_file_dir, exist_ok=True)
+                file_name = os.path.basename(output_file_dir)
+
+            output = df.map_partitions(
+                _single_partition_write_to_simple_bitext,
+                os.path.join(tmp_output_file_dir, file_name),
+                meta=output_meta,
+                enforce_metadata=False,
+            )
+            output = output.compute()
+            _merge_tmp_simple_bitext_partitions(
+                tmp_output_file_dir,
+                (
+                    output_file_dir
+                    if write_to_filename
+                    else os.path.dirname(output_file_dir)
+                ),
+            )
+            shutil.rmtree(tmp_output_file_dir)
         else:
             raise ValueError(f"Unknown output type: {output_type}")
 

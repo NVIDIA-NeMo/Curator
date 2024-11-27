@@ -14,7 +14,9 @@
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Union
+
+from nemo_curator.filters.bitext_filter import BitextFilter
 
 
 class DocumentFilter(ABC):
@@ -108,7 +110,7 @@ class DocumentFilter(ABC):
         self._ngrams = ngrams
 
 
-def import_filter(filter_path: str) -> DocumentFilter:
+def import_filter(filter_path: str) -> Union[DocumentFilter, BitextFilter]:
     """
     Imports a filter under nemo_curator.filters given the module path
 
@@ -124,9 +126,12 @@ def import_filter(filter_path: str) -> DocumentFilter:
     module_path, filter_name = filter_path.rsplit(".", 1)
     filter_module = importlib.import_module(module_path)
     filter_class = getattr(filter_module, filter_name)
-    if not issubclass(filter_class, DocumentFilter):
+    if not issubclass(filter_class, DocumentFilter) and not issubclass(
+        filter_class, BitextFilter
+    ):
         raise ValueError(
             f"Input filter {filter_class.__name__} must be derived "
-            "from DocumentFilter defined in nemo_curator.filters.doc_filter"
+            "from DocumentFilter defined in nemo_curator.filters.doc_filter or"
+            "from BitextFilter defined in nemo_curator.filters.bitext_filter"
         )
     return filter_class

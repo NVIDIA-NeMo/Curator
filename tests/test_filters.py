@@ -21,6 +21,7 @@ import pytest
 from dask import dataframe as dd
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.datasets.parallel_dataset import ParallelDataset
 from nemo_curator.filters import (
     AlphaFilter,
     BoilerPlateStringFilter,
@@ -29,7 +30,9 @@ from nemo_curator.filters import (
     DocumentFilter,
     EllipsisFilter,
     GeneralCommentToCodeFilter,
+    HistogramFilter,
     HTMLBoilerplateFilter,
+    LengthRatioFilter,
     LongWordFilter,
     MeanWordLengthFilter,
     NonAlphaNumericFilter,
@@ -54,8 +57,19 @@ from nemo_curator.filters import (
     WordsWithoutAlphabetsFilter,
     XMLHeaderFilter,
 )
-from nemo_curator.modules import Filter, Score, ScoreFilter, Sequential
+from nemo_curator.filters.models.qe_models import COMET_IMPORT_MSG, PYMARIAN_IMPORT_MSG
+from nemo_curator.modules import (
+    Filter,
+    ParallelScoreFilter,
+    Score,
+    ScoreFilter,
+    Sequential,
+)
 from nemo_curator.utils.decorators import batched
+from nemo_curator.utils.import_utils import is_unavailable, safe_import
+
+comet = safe_import("comet", msg=COMET_IMPORT_MSG)
+pymarian = safe_import("pymarian", msg=PYMARIAN_IMPORT_MSG)
 
 
 class LetterCountFilter(DocumentFilter):
@@ -107,10 +121,54 @@ def list_to_dataset(documents, col_name="text", npartitions=2):
     return DocumentDataset(dd.from_pandas(pdf, npartitions=npartitions))
 
 
+def two_lists_to_parallel_dataset(
+    src_documents,
+    tgt_documents,
+    src_lang,
+    tgt_lang,
+    src_col_name="src",
+    tgt_col_name="tgt",
+    npartitions=2,
+):
+    src_langs = [src_lang] * len(src_documents)
+    tgt_langs = [tgt_lang] * len(src_documents)
+    data = {
+        src_col_name: src_documents,
+        "src_lang": src_langs,
+        tgt_col_name: tgt_documents,
+        "tgt_lang": tgt_langs,
+    }
+    pdf = pd.DataFrame(data)
+
+    return ParallelDataset(dd.from_pandas(pdf, npartitions=npartitions))
+
+
 @pytest.fixture
 def letter_count_data():
     return list_to_dataset(
         ["Two aa", "a a Three a", "Five aaa aa", "aaaSeven aaaa"], col_name="documents"
+    )
+
+
+@pytest.fixture
+def parallel_letter_count_data():
+    return two_lists_to_parallel_dataset(
+        ["Einsa", "Zwei aaa", "a Drei a", "Fünf aaa a", "aaaSieben aaaa"],
+        ["aOne", "Two aa", "a a Three a", "Five aaa aa", "aaaSeven aaaa"],
+        src_lang="de",
+        tgt_lang="en",
+        src_col_name="src",
+        tgt_col_name="tgt",
+    )
+
+
+@pytest.fixture
+def length_ratio_data():
+    return two_lists_to_parallel_dataset(
+        ["Test", "test", "Test Test ", "Test Test"],
+        ["Prueba", "prueba prueba prueba", "Prueba Prueba", "Prueba Prueba Prueba "],
+        src_lang="en",
+        tgt_lang="es",
     )
 
 
@@ -295,6 +353,38 @@ class TestFilterModule:
 
         expected_indices = [2]
         expected_data = DocumentDataset(letter_count_data.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_parallel_score_filter(self, parallel_letter_count_data):
+        src_letter_count_filter = LetterCountFilter(min_count=2)
+        tgt_letter_count_filter = LetterCountFilter(min_count=3)
+        filter_step = ParallelScoreFilter(
+            src_letter_count_filter, tgt_letter_count_filter
+        )
+        filtered_data = filter_step(parallel_letter_count_data)
+
+        expected_indices = [2, 3, 4]
+        expected_data = ParallelDataset(
+            parallel_letter_count_data.df.loc[expected_indices]
+        )
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_joint_score_filter(self, length_ratio_data):
+        filter_ = LengthRatioFilter(
+            max_ratio=1.5,
+            src_lang="en",
+            tgt_lang="de",
+            score_field="ratio",
+            score_type=float,
+        )
+        filtered_data = filter_(length_ratio_data)
+
+        expected_indices = [0, 2]
+        expected_data = ParallelDataset(length_ratio_data.df.loc[expected_indices])
         assert all_equal(
             expected_data, filtered_data
         ), f"Expected {expected_data} but got {filtered_data}"
@@ -648,6 +738,34 @@ class TestHeuristicFilters:
             expected_data, filtered_data
         ), f"Expected {expected_data} but got {filtered_data}"
 
+    def test_histogram(self):
+        dataset = list_to_dataset(
+            [
+                "This is a perfectly fine English document.",
+                "But if you insist that this is written in Chinese,",
+                "it's likely that something is fishy.",
+                "另一方面，这是一个好的中文文档，",
+                "但你一定要说这是英文文档，",
+                "那很可能有些地方出了差错。",
+            ]
+        )
+        filter1 = ScoreFilter(HistogramFilter(lang="en"))
+        filter2 = ScoreFilter(HistogramFilter(lang="zh"))
+
+        expected_indices1 = [0, 1, 2]
+        expected_indices2 = [3, 4, 5]
+        expected_data1 = DocumentDataset(dataset.df.loc[expected_indices1])
+        expected_data2 = DocumentDataset(dataset.df.loc[expected_indices2])
+
+        filtered_data1 = filter1(dataset)
+        filtered_data2 = filter2(dataset)
+        assert all_equal(
+            expected_data1, filtered_data1
+        ), f"Expected {expected_data1} but got {filtered_data1}"
+        assert all_equal(
+            expected_data2, filtered_data2
+        ), f"Expected {expected_data2} but got {filtered_data2}"
+
 
 class TestCodeFilters:
     def test_python_comment_to_code(self):
@@ -883,3 +1001,78 @@ class TestClassifierFilters:
         assert all_equal(
             expected_data, filtered_data
         ), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.skipif(
+        is_unavailable(comet), reason="Test depends on COMET but it's not installed."
+    )
+    def test_comet_qe_filter(self):
+        dataset = two_lists_to_parallel_dataset(
+            [
+                "This sentence will be translated on the Chinese side.",
+                "This sentence will have something irrelevant on the Chinese side.",
+            ],
+            [
+                "这句话在中文一侧会被翻译。",
+                "至尊戒，驭众戒；至尊戒，寻众戒；魔戒至尊引众戒，禁锢众戒黑暗中。",
+            ],
+            "en",
+            "zh",
+        )
+
+        from nemo_curator.filters import QualityEstimationFilter
+        from nemo_curator.utils.distributed_utils import get_client
+
+        client = get_client(n_workers=1)
+        filter_ = QualityEstimationFilter(
+            "comet-qe",
+            cutoff=-0.25,
+            mode="bidi",
+            score_type=float,
+            metadata_fields=["src_lang", "tgt_lang"],
+        )
+        filtered_data = filter_(dataset)
+
+        expected_indices = [0]
+        expected_data = ParallelDataset(dataset.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+        client.close()
+
+    @pytest.mark.skipif(
+        is_unavailable(pymarian),
+        reason="Test depends on PyMarian but it's not installed.",
+    )
+    def test_cometoid_qe_filter(self):
+        dataset = two_lists_to_parallel_dataset(
+            [
+                "This sentence will be translated on the Chinese side.",
+                "This sentence will have something irrelevant on the Chinese side.",
+            ],
+            [
+                "这句话在中文一侧会被翻译。",
+                "至尊戒，驭众戒；至尊戒，寻众戒；魔戒至尊引众戒，禁锢众戒黑暗中。",
+            ],
+            "en",
+            "zh",
+        )
+
+        from nemo_curator.filters import QualityEstimationFilter
+        from nemo_curator.utils.distributed_utils import get_client
+
+        client = get_client(n_workers=1)
+        filter_ = QualityEstimationFilter(
+            "cometoid-wmt23",
+            cutoff=0.75,
+            mode="bidi",
+            score_type=float,
+            metadata_fields=["src_lang", "tgt_lang"],
+        )  # enable GPU by gpu=True
+        filtered_data = filter_(dataset)
+
+        expected_indices = [0]
+        expected_data = ParallelDataset(dataset.df.loc[expected_indices])
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+        client.close()

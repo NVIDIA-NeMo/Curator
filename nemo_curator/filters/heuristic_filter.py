@@ -12,7 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.filters.doc_filter import DocumentFilter
+import os.path
+import tarfile
+
+import requests
+from platformdirs import user_cache_dir
+
+from nemo_curator.filters.bitext_filter import BitextFilter
+from nemo_curator.filters.doc_filter import DocumentFilter, import_filter
 from nemo_curator.utils.constants import (
     bullet_list,
     common_english_words,
@@ -662,3 +669,138 @@ class PornographicUrlsFilter(DocumentFilter):
 
     def keep_document(self, score):
         return score != 1
+
+
+class HistogramFilter(DocumentFilter):
+    """Histogram filter used by the NLLB paper (https://arxiv.org/pdf/2207.04672). See p30 for details.
+
+    The high-level idea of histogram filter can be described as a cheap version of language ID.
+    Basically, it checks what ratio of characters in the data instance are included in the character historgrams collected from trusted data in the corresponding language.
+    If the ratio is too low, then there is a good chance that there is a language ID mismatch and the data instance should be discarded.
+
+    Written with reference to the original fairseq implementation at:
+    https://github.com/facebookresearch/fairseq/blob/main/examples/m2m_100/process_data/clean_histogram.py.
+    """
+
+    def __init__(self, lang="en", threshold=0.8, cache_dir="", threshold_char="]"):
+        """Args:
+        lang (str, optional): Expected language of the segment. This will decide which histogram will be loaded. Defaults to "en".
+        threshold (float, optional): Threshold for ratio of characters in the histogram. Defaults to 0.8.
+        cache_dir (str, optional): Cache dir download histogram files. Defaults to "".
+        threshold_char (str, optional): Formatter character of the histogram files. You should not change this unless you rebuilt your own histogram. Defaults to "]".
+        """
+        super().__init__()
+        self._lang = lang
+        self._threshold = threshold
+        self._cache_dir = cache_dir if cache_dir else user_cache_dir()
+        self._threshold_char = threshold_char
+        self._name = "histogram"
+
+        if not os.path.isdir(os.path.join(self._cache_dir, "histograms")):
+            self._download_histograms()
+
+        self._read_hist()
+
+    def _download_histograms(self):
+        """Download and process histograms from default repo.
+
+        Raises:
+            requests.exceptions.RequestException: If download fails.
+        """
+
+        # Send a GET request to the URL
+        response = requests.get(
+            "https://dl.fbaipublicfiles.com/m2m_100/histograms.tar.gz"
+        )
+
+        # Check if the request was successful
+        if response.status_code != 200:
+            raise requests.exceptions.RequestException(
+                f"Failed to download histogram file. Status code: {response.status_code}"
+            )
+
+        # Open a file to write the content
+        os.makedirs(self._cache_dir, exist_ok=True)
+        download_dest_path = os.path.join(self._cache_dir, "histograms.tar.gz")
+        with open(download_dest_path, "wb") as file:
+            file.write(response.content)
+
+        extract_path = os.path.join(self._cache_dir, "histograms")
+        with tarfile.open(download_dest_path, "r:gz") as tar:
+            # Extract all the contents into the specified directory
+            tar.extractall(path=extract_path)
+
+    def _read_hist(self):
+        """Load histogram files."""
+
+        self._histogram = []
+        with open(
+            os.path.join(
+                self._cache_dir,
+                "histograms",
+                "checkpoint",
+                "edunov",
+                "cc60_multilingual",
+                "clean_hists",
+                self._lang,
+            )
+        ) as f:
+            for line in f:
+                c = line[0]
+                if c == self._threshold_char:
+                    break
+                self._histogram.append(c)
+        self._histogram = set(self._histogram)
+
+    def score_document(self, text: str) -> float:
+        """Compute histogram token ratio of a text data instance according to the loaded histogram.
+
+        Args:
+            text (str): Text data instance.
+
+        Returns:
+            float: Ratio of tokens included in the histogram.
+        """
+        cnt = len([c for c in text.strip() if c in self._histogram])
+        return 1 if cnt / len(text) > self._threshold else 0
+
+    def keep_document(self, score):
+        return score == 1
+
+
+class LengthRatioFilter(BitextFilter):
+    """(Bitext filter) Length ratio filter for bitext, similar to the one implemented in Moses toolkit (`https://github.com/moses-smt/mosesdecoder/blob/master/scripts/training/clean-corpus-n.perl`).
+
+    If the ratio between source and target tokens is not within a specified range then discard. Either direction (src/tgt, tgt/src) is considered.
+    """
+
+    def __init__(self, max_ratio=3.0, src_lang="en", tgt_lang="en", **kwargs):
+        """Args:
+        max_ratio (float, optional): Maximum allowed length ratio between either direction of the bitext. Defaults to 3.0.
+        src_lang (str, optional): Language of the source data (needed for tokenization). Defaults to "en".
+        tgt_lang (str, optional): Language of the target data (needed for tokenization). Defaults to "en".
+        """
+
+        super().__init__(**kwargs)
+        self._max_ratio = float(max_ratio)
+        self._src_word_splitter = get_word_splitter(src_lang)
+        self._tgt_word_splitter = get_word_splitter(tgt_lang)
+        self._name = "length_ratio"
+
+    def score_bitext(self, src: str, tgt: str) -> float:
+        """Tokenize the source and target sentences and compute length ratio.
+
+        Args:
+            src (str): Source document string.
+            tgt (str): Target document string.
+
+        Returns:
+            float: The maximum ratio among the two translation directions of the bitext.
+        """
+        src_len = len(self._src_word_splitter(src.strip()))
+        tgt_len = len(self._tgt_word_splitter(tgt.strip()))
+        return max(src_len / tgt_len, tgt_len / src_len)
+
+    def keep_bitext(self, score):
+        """Decides whether a single document should be retained according to the computed length ratio."""
+        return score < self._max_ratio
