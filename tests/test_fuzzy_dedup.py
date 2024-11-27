@@ -72,6 +72,23 @@ def large_fuzzy_dedup_data():
 
 
 @pytest.fixture
+def no_duplicates_fuzzy_dedup_data():
+    df = cudf.DataFrame(
+        {
+            "id": [1, 2, 3, 4],
+            "text": [
+                "A test string",
+                "Very different thing",
+                "Something completely else that doesn't match",
+                "The quick black cat jumps over the lazy dog",
+            ],
+        }
+    )
+    df = dask_cudf.from_cudf(df, 2)
+    return DocumentDataset(df)
+
+
+@pytest.fixture
 def shuffle_fail_fuzzy_dedup_data():
     df = cudf.DataFrame(
         {
@@ -223,6 +240,65 @@ class TestLSH:
             [[(1, 1), (1, 2)], [(1, 2), (2, 3)], [(3, 4), (4, 5)]], name="new_id"
         )
         assert_eq(expected_df, docs_list, check_index=False)
+
+    @pytest.mark.parametrize("false_positive_check", [True, False])
+    def test_no_duplicates(self, tmpdir, false_positive_check):
+        minhash_df = cudf.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "minhash_sig": [
+                    [1, 2, 1, 2, 1],
+                    [2, 3, 3, 4, 5],
+                    [3, 4, 5, 5, 6],
+                    [4, 8, 7, 6, 7],
+                    [5, 10, 9, 7, 8],
+                ],
+            }
+        )
+        minhash_dataset = DocumentDataset(dask_cudf.from_cudf(minhash_df, 2))
+
+        lsh = LSH(
+            cache_dir=tmpdir,
+            num_hashes=5,
+            num_buckets=5,
+            buckets_per_shuffle=1,
+            id_fields="id",
+            minhash_field="minhash_sig",
+            false_positive_check=false_positive_check,
+        )
+        buckets = lsh(minhash_dataset)
+        assert buckets is None
+        assert "_buckets.parquet" not in os.listdir(tmpdir)
+
+    @pytest.mark.parametrize("false_positive_check", [True, False])
+    def test_partial_overlap(self, tmpdir, false_positive_check):
+        minhash_df = cudf.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "minhash_sig": [
+                    [1, 2, 1, 1, 1],
+                    [2, 3, 1, 2, 2],
+                    [3, 4, 2, 3, 1],
+                ],
+            }
+        )
+        minhash_dataset = DocumentDataset(dask_cudf.from_cudf(minhash_df, 2))
+
+        lsh = LSH(
+            cache_dir=tmpdir,
+            num_hashes=5,
+            num_buckets=5,
+            buckets_per_shuffle=1,
+            id_fields="id",
+            minhash_field="minhash_sig",
+            false_positive_check=false_positive_check,
+        )
+        buckets = lsh(minhash_dataset)
+        assert len(buckets) == 4
+        assert buckets.df["_bucket_id"].nunique().compute() == 2
+        assert_eq(
+            buckets.df["id"], cudf.Series([1, 2, 1, 3], name="id"), check_index=False
+        )
 
 
 @pytest.mark.gpu
@@ -468,6 +544,32 @@ class TestFuzzyDuplicates:
         expected_df = expected_df.list.sort_values()
         expected_df = expected_df.sort_values()
         assert_eq(expected_df, result_df, check_index=False)
+
+    @pytest.mark.parametrize("false_positive_check", [True, False])
+    def test_fuzzy_dedup_no_duplicates(
+        self, no_duplicates_fuzzy_dedup_data, tmpdir, false_positive_check
+    ):
+        # Dedup might fail when indices per partition do not start from 0
+        no_duplicates_fuzzy_dedup_data.df = (
+            no_duplicates_fuzzy_dedup_data.df.reset_index(drop=True)
+        )
+        config = FuzzyDuplicatesConfig(
+            cache_dir=tmpdir,
+            id_field="id",
+            text_field="text",
+            seed=42,
+            char_ngrams=5,
+            num_buckets=10,
+            hashes_per_bucket=1,
+            use_64_bit_hash=False,
+            buckets_per_shuffle=5,
+            false_positive_check=false_positive_check,
+            num_anchors=2,
+            jaccard_threshold=0.39,
+        )
+        fuzzy_duplicates = FuzzyDuplicates(config=config)
+        result = fuzzy_duplicates(no_duplicates_fuzzy_dedup_data)
+        assert result is None
 
 
 class TestFuzzyDuplicatesConfig:

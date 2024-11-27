@@ -81,6 +81,11 @@ def main(args):
         fuzzy_dup = FuzzyDuplicates(logger=log_dir, config=fuzzy_dedup_config)
         duplicates = fuzzy_dup(dataset=input_dataset)
 
+        if duplicates is None:
+            print("No duplicates found")
+            print(f"Time taken:{time.time() - t0}s")
+            return
+
         # By default all duplicate id's and the group they belong to are included in the result
         # keep 1 document from each group of duplcates and mark the others to remove
         # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.duplicated.html
@@ -95,7 +100,7 @@ def main(args):
             )
         ]
         write_to_disk(result, output_dir, output_type=filetype)
-        print(time.time() - t0)
+        print(f"Time taken:{time.time() - t0}s")
 
 
 def attach_args(

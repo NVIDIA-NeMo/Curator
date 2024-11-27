@@ -71,6 +71,7 @@ def main(args):
         id_fields=["dataset_id", "doc_id"],
         profile_dir=args.profile_path,
         minhash_field=minhash_field,
+        false_positive_check=args.false_positive_check,
         logger=logger,
     )
 
@@ -117,6 +118,11 @@ denoting the bucket IDs to which the document belongs.
         required=True,
         help="Output directory where minhashes will be written. "
         "Each Parquet file consists of document and bucket IDs.",
+    )
+    parser.add_argument(
+        "--false-positive-check",
+        action="store_true",
+        help="Converts LSH buckets to integers required for running the false positive check",
     )
 
     return parser

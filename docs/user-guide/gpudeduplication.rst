@@ -314,6 +314,7 @@ steps (all scripts are included in the `nemo_curator/scripts/fuzzy_deduplication
                  --num-bands num_bands \
                  --buckets-per-shuffle 1 `#Value between [1-num_bands]. Higher is better but might lead to OOM` \
                  --log-dir ./
+                 # --false-positive-check `#Writes bucket ID's in a format required for the false positive check`
                  # --scheduler-file /path/to/file.json
 
 3. False Positive Check (optional): If skipping this step, proceed to the :ref:`skip fp check section <fuzzydup_nofp>`.
