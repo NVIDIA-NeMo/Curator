@@ -21,13 +21,15 @@ from nemo_curator.datasets.parallel_dataset import ParallelDataset
 
 # The source/target file paths will be concatenated as document ID in `ParallelDataset`, so we can't directly pass a `Path` object.
 @pytest.fixture
-def src_file():
-    return Path("tests/bitext_data/toy.de").absolute().as_posix()
+def src_file(pytestconfig):
+    root_dir = Path(pytestconfig.rootdir)
+    return (root_dir / "tests" / "bitext_data" / "toy.de").absolute().as_posix()
 
 
 @pytest.fixture
-def tgt_file():
-    return Path("tests/bitext_data/toy.en").absolute().as_posix()
+def tgt_file(pytestconfig):
+    root_dir = Path(pytestconfig.rootdir)
+    return (root_dir / "tests" / "bitext_data" / "toy.en").absolute().as_posix()
 
 
 class TestReadSimpleBitext:
