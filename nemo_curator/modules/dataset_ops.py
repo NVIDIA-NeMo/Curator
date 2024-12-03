@@ -117,7 +117,7 @@ def blend_datasets(
     target_size: int, datasets: List[DocumentDataset], sampling_weights: List[float]
 ) -> DocumentDataset:
     """
-    Combined multiple datasets into one with different amounts of each dataset
+    Combines multiple datasets into one with different amounts of each dataset.
     Args:
         target_size: The number of documents the resulting dataset should have.
             The actual size of the dataset may be slightly larger if the normalized weights do not allow

@@ -21,7 +21,7 @@ from nemo_curator.nemo_run import SlurmJobConfig
 @run.factory
 def nemo_curator_slurm_executor() -> SlurmExecutor:
     """
-    Configure the following function with the details of your SLURM cluster
+    Configure the following function with the details of your Slurm cluster
     """
     return SlurmExecutor(
         job_name_prefix="nemo-curator",
@@ -35,7 +35,7 @@ def nemo_curator_slurm_executor() -> SlurmExecutor:
 
 
 def main():
-    # Path to NeMo-Curator/examples/slurm/container_entrypoint.sh on the SLURM cluster
+    # Path to NeMo-Curator/examples/slurm/container_entrypoint.sh on the Slurm cluster
     container_entrypoint = "/cluster/path/slurm/container_entrypoint.sh"
     # The NeMo Curator command to run
     # This command can be susbstituted with any NeMo Curator command

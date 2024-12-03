@@ -35,7 +35,7 @@ All of the ``examples/`` use it to set up a Dask cluster.
   It is possible to run entirely CPU-based workflows on a GPU cluster, though the process count (and therefore the number of parallel tasks) will be limited by the number of GPUs on your machine.
 
 * ``scheduler_address`` and ``scheduler_file`` are used for connecting to an existing Dask cluster.
-  Supplying one of these is essential if you are running a Dask cluster on SLURM or Kubernetes.
+  Supplying one of these is essential if you are running a Dask cluster on Slurm or Kubernetes.
   All other arguments are ignored if either of these are passed, as the cluster configuration will be done when you create the schduler and works on your cluster.
 
 * The remaining arguments can be modified `here <https://github.com/NVIDIA/NeMo-Curator/blob/main/nemo_curator/utils/distributed_utils.py>`_.
@@ -82,15 +82,15 @@ Even if you start a GPU dask cluster, you can't operate on datasets that use a `
 The ``DocuemntDataset`` must either have been originally read in with a ``cudf`` backend, or it must be transferred during the script.
 
 -----------------------------------------
-Dask with SLURM
+Dask with Slurm
 -----------------------------------------
 
-We provide an example SLURM script pipeline in ``examples/slurm``.
+We provide an example Slurm script pipeline in ``examples/slurm``.
 This pipeline has a script ``start-slurm.sh`` that provides configuration options similar to what ``get_client`` provides.
-Every SLURM cluster is different, so make sure you understand how your SLURM cluster works so the scripts can be easily adapted.
-``start-slurm.sh`` calls ``containter-entrypoint.sh`` which sets up a Dask scheduler and workers across the cluster.
+Every Slurm cluster is different, so make sure you understand how your Slurm cluster works so the scripts can be easily adapted.
+``start-slurm.sh`` calls ``containter-entrypoint.sh``, which sets up a Dask scheduler and workers across the cluster.
 
-Our Python examples are designed to work such that they can be run locally on their own, or easily substituted into the ``start-slurm.sh`` to run on multiple nodes.
+Our Python examples are designed to work such that they can be run locally on their own, or easily substituted into the ``start-slurm.sh`` script to run on multiple nodes.
 You can adapt your scripts easily too by simply following the pattern of adding ``get_client`` with ``add_distributed_args``.
 
 -----------------------------------------

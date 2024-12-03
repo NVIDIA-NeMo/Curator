@@ -139,7 +139,7 @@ use ``kubectl cp``, but ``exec`` has fewer surprises regarding compressed files:
 Create a Dask Cluster
 ---------------------
 
-Use the ``create_dask_cluster.py`` to create a CPU or GPU dask cluster.
+Use the ``create_dask_cluster.py`` to create a CPU or GPU Dask cluster.
 
 .. note::
     If you are creating another Dask cluster with the same ``--name <name>``, first delete it via::
@@ -289,7 +289,7 @@ container, we will need to build a custom image with your code installed:
         # Fill in <private-registry>/<username>/<password>
         kubectl create secret docker-registry my-private-registry --docker-server=<private-registry> --docker-username=<username> --docker-password=<password>
 
-    And with this new secret, you create your new dask cluster:
+    And with this new secret, you create your new Dask cluster:
 
     .. code-block:: bash
 
@@ -360,7 +360,7 @@ At this point you can tail the logs and look for ``Finished!`` in ``/nemo-worksp
 
 Deleting Cluster
 ----------------
-After you have finished using the created dask cluster, you can delete it to release the resources:
+After you have finished using the created Dask cluster, you can delete it to release the resources:
 
 .. code-block:: bash
 

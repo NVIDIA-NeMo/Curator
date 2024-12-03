@@ -26,7 +26,7 @@ The tool utilizes `Dask <https://dask.org>`_ to parallelize tasks and hence it c
 used to scale up to terabytes of data easily. Although Dask can be deployed on various
 distributed compute environments such as HPC clusters, Kubernetes and other cloud
 offerings such as AWS EKS, Google cloud etc, the current implementation only supports
-Dask on HPC clusters that use SLURM as the resource manager.
+Dask on HPC clusters that use Slurm as the resource manager.
 
 -----------------------------------------
 Usage
@@ -92,7 +92,7 @@ The PII redaction module can also be invoked via ``script/find_pii_and_deidentif
 
 ``python nemo_curator/scripts/find_pii_and_deidentify.py``
 
-To launch the script from within a SLURM environment, the script ``examples/slurm/start-slurm.sh`` can be modified and used.
+To launch the script from within a Slurm environment, the script ``examples/slurm/start-slurm.sh`` can be modified and used.
 
 
 ############################

@@ -23,7 +23,7 @@ run = safe_import("nemo_run")
 @dataclass
 class SlurmJobConfig:
     """
-    Configuration for running a NeMo Curator script on a SLURM cluster using
+    Configuration for running a NeMo Curator script on a Slurm cluster using
     NeMo Run
 
     Args:
@@ -74,13 +74,13 @@ class SlurmJobConfig:
             add_scheduler_file: Automatically appends a '--scheduler-file' argument to the
                 script_command where the value is job_dir/logs/scheduler.json. All
                 scripts included in NeMo Curator accept and require this argument to scale
-                properly on SLURM clusters.
+                properly on Slurm clusters.
             add_device: Automatically appends a '--device' argument to the script_command
                 where the value is the member variable of device. All scripts included in
                 NeMo Curator accept and require this argument.
         Returns:
             A NeMo Run Script that will intialize a Dask cluster, and run the specified command.
-            It is designed to be executed on a SLURM cluster
+            It is designed to be executed on a Slurm cluster
         """
         env_vars = self._build_env_vars()
 

@@ -37,7 +37,7 @@ There should be at least one example per module in the curator.
 They should be incredibly lightweight and rely on the core `nemo_curator` modules for their functionality.
 Most should be designed for a user to get up and running on their local machines, but distributed examples are welcomed if it makes sense.
 Python scripts should be the primary way to showcase your module.
-Though, SLURM scripts or other cluster scripts should be included if there are special steps needed to run the module.
+Though, Slurm scripts or other cluster scripts should be included if there are special steps needed to run the module.
 
 The documentation should complement each example by going through the motivation behind why a user would use each module.
 It should include both an explanation of the module, and how it's used in its corresponding example.
