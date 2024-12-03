@@ -36,13 +36,13 @@ def main(args):
         input_file_path, backend="cudf", add_filename=True
     )
 
-    fineweb_classifier = FineWebEduClassifier()
-    result_dataset = fineweb_classifier(dataset=input_dataset)
+    fineweb_edu_classifier = FineWebEduClassifier()
+    result_dataset = fineweb_edu_classifier(dataset=input_dataset)
     result_dataset.to_json(output_file_dir=output_file_path, write_to_filename=True)
 
     global_et = time.time()
     print(
-        f"Total time taken for fineweb classifier inference: {global_et-global_st} s",
+        f"Total time taken for FineWeb-Edu classifier inference: {global_et-global_st} s",
         flush=True,
     )
 
