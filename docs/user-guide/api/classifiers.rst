@@ -5,6 +5,9 @@ Classifiers
 .. autoclass:: nemo_curator.classifiers.DomainClassifier
     :members:
 
+.. autoclass:: nemo_curator.classifiers.MultilingualDomainClassifier
+    :members:
+
 .. autoclass:: nemo_curator.classifiers.QualityClassifier
     :members:
 

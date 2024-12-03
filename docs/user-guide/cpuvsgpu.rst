@@ -67,7 +67,7 @@ The following NeMo Curator modules are GPU based.
 * Semantic Deduplication
 * Distributed Data Classification
 
-  * Domain Classification
+  * Domain Classification (English and multilingual)
   * Quality Classification
 
 GPU modules store the ``DocumentDataset`` using a ``cudf`` backend instead of a ``pandas`` one.

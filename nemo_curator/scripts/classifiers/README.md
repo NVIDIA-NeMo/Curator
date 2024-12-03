@@ -1,8 +1,9 @@
 ## Text Classification
 
-The Python scripts in this directory demonstrate how to run classification on your text data with each of these 4 classifiers:
+The Python scripts in this directory demonstrate how to run classification on your text data with each of these 5 classifiers:
 
 - Domain Classifier
+- Multilingual Domain Classifier
 - Quality Classifier
 - AEGIS Safety Models
 - FineWeb Educational Content Classifier
@@ -12,6 +13,8 @@ For more information about these classifiers, please see NeMo Curator's [Distrib
 ### Usage
 
 #### Domain classifier inference
+
+This classifier is recommended for English-only text data.
 
 ```bash
 # same as `python domain_classifier_inference.py`
@@ -29,6 +32,27 @@ domain_classifier_inference \
 ```
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `domain_classifier_inference --help` for more information.
+
+#### Multilingual domain classifier inference
+
+This classifier supports domain classification in 52 languages. Please see [nvidia/multilingual-domain-classifier on Hugging Face](https://huggingface.co/nvidia/multilingual-domain-classifier) for more information.
+
+```bash
+# same as `python multilingual_domain_classifier_inference.py`
+multilingual_domain_classifier_inference \
+    --input-data-dir /path/to/data/directory \
+    --output-data-dir /path/to/output/directory \
+    --input-file-type "jsonl" \
+    --input-file-extension "jsonl" \
+    --output-file-type "jsonl" \
+    --input-text-field "text" \
+    --batch-size 64 \
+    --autocast \
+    --max-chars 2000 \
+    --device "gpu"
+```
+
+Additional arguments may be added for customizing a Dask cluster and client. Run `multilingual_domain_classifier_inference --help` for more information.
 
 #### Quality classifier inference
 

@@ -16,12 +16,13 @@ import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from .aegis import AegisClassifier, InstructionDataGuardClassifier
-from .domain import DomainClassifier
+from .domain import DomainClassifier, MultilingualDomainClassifier
 from .fineweb_edu import FineWebEduClassifier
 from .quality import QualityClassifier
 
 __all__ = [
     "DomainClassifier",
+    "MultilingualDomainClassifier",
     "QualityClassifier",
     "AegisClassifier",
     "InstructionDataGuardClassifier",

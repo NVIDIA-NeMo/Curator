@@ -15,11 +15,13 @@ NeMo Curator provides a module to help users run inference with pre-trained mode
 This is achieved by chunking the datasets across multiple computing nodes, each equipped with multiple GPUs, to accelerate the classification task in a distributed manner.
 Since the classification of a single text document is independent of other documents within the dataset, we can distribute the workload across multiple nodes and GPUs to perform parallel processing.
 
-Domain, quality, content safety, and educational content models are tasks we include as examples within our module.
+Domain (English and multilingual), quality, content safety, and educational content models are tasks we include as examples within our module.
 
 Here, we summarize why each is useful for training an LLM:
 
 - The **Domain Classifier** is useful because it helps the LLM understand the context and specific domain of the input text. Because different domains have different linguistic characteristics and terminologies, an LLM's ability to generate contextually relevant responses can be improved by tailoring training data to a specific domain. Overall, this helps provide more accurate and specialized information.
+
+- The **Multilingual Domain Classifier** is the same as the domain classifier, but has been trained to classify text in 52 languages, including English.
 
 - The **Quality Classifier** is useful for filtering out noisy or low quality data. This allows the model to focus on learning from high quality and informative examples, which contributes to the LLM's robustness and enhances its ability to generate reliable and meaningful outputs. Additionally, quality classification helps mitigate biases and inaccuracies that may arise from poorly curated training data.
 
@@ -45,7 +47,7 @@ Check out ``nemo_curator.classifiers.base.py`` for reference.
 Domain Classifier
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Domain Classifier is used to categorize text documents into specific domains or subject areas. This is particularly useful for organizing large datasets and tailoring the training data for domain-specific LLMs.
+The Domain Classifier is used to categorize English text documents into specific domains or subject areas. This is particularly useful for organizing large datasets and tailoring the training data for domain-specific LLMs.
 
 Let's see how ``DomainClassifier`` works in a small excerpt taken from ``examples/classifiers/domain_example.py``:
 
@@ -63,6 +65,29 @@ Let's see how ``DomainClassifier`` works in a small excerpt taken from ``example
 
 In this example, the domain classifier is obtained directly from `Hugging Face <https://huggingface.co/nvidia/domain-classifier>`_.
 It filters the input dataset to include only documents classified as "Games" or "Sports".
+
+Multilingual Domain Classifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Multilingual Domain Classifier is used to categorize text documents across 52 languages into specific domains or subject areas.
+
+Using the ``MultilingualDomainClassifier`` is very similar to using the ``DomainClassifier`` as described above. Here is an example:
+
+.. code-block:: python
+
+    from nemo_curator.classifiers import MultilingualDomainClassifier
+
+    files = get_all_files_paths_under("japanese_books_dataset/")
+    input_dataset = DocumentDataset.read_json(files, backend="cudf")
+
+    multilingual_domain_classifier = MultilingualDomainClassifier(
+        filter_by=["Games", "Sports"],
+    )
+    result_dataset = multilingual_domain_classifier(dataset=input_dataset)
+
+    result_dataset.to_json("games_and_sports/")
+
+For more information about the multilingual domain classifier, including its supported languages, please see the `nvidia/multilingual-domain-classifier <https://huggingface.co/nvidia/multilingual-domain-classifier>`_ on Hugging Face.
 
 Quality Classifier
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
