@@ -1,9 +1,6 @@
-.. include:: datacuration.rsts
-
--------------------
+=============
 Text Curation
--------------------
-
+=============
 :ref:`Downloading and Extracting Text <data-curator-download>`
    Downloading a massive public dataset is usually the first step in data curation, and it can be cumbersome due to the dataset’s massive size and hosting method. This section describes how to download and extract large corpora efficiently.
 
@@ -37,51 +34,19 @@ Text Curation
 :ref:`Personally Identifiable Information Identification and Removal <data-curator-pii>`
    The purpose of the personally identifiable information (PII) redaction tool is to help scrub sensitive data out of training datasets
 
--------------------
-Image Curation
--------------------
-
-:ref:`Get Started <data-curator-image-getting-started>`
-   Install NeMo Curator's image curation modules.
-
-:ref:`Image-Text Pair Datasets <data-curator-image-datasets>`
-   Image-text pair datasets are commonly used as the basis for training multimodal generative models. NeMo Curator interfaces with the standardized WebDataset format for curating such datasets.
-
-:ref:`Image Embedding Creation <data-curator-image-embedding>`
-   Image embeddings are the backbone to many data curation operations in NeMo Curator. This section describes how to efficiently create embeddings for massive datasets.
-
-:ref:`Classifiers <data-curator-image-classifiers>`
-   NeMo Curator provides several ways to use common classifiers like aesthetic scoring and not-safe-for-work (NSFW) scoring.
-
-:ref:`Semantic Deduplication <data-curator-semdedup>`
-   Semantic deduplication with image datasets has been shown to drastically improve model performance. NeMo Curator has a semantic deduplication module that can work with any modality.
-
--------------------
-Reference
--------------------
-
-:ref:`NeMo Curator on Kubernetes <data-curator-kubernetes>`
-   Demonstration of how to run the NeMo Curator on a Dask Cluster deployed on top of Kubernetes
-
-:ref:`NeMo Curator and Apache Spark <data-curator-sparkother>`
-   Demonstration of how to read and write datasets when using Apache Spark and NeMo Curator
-
-:ref:`Best Practices <data-curator-best-practices>`
-   A collection of suggestions on how to best use NeMo Curator to curate your dataset
-
-:ref:`Next Steps <data-curator-next-steps>`
-   Now that you've curated your data, let's discuss where to go next in the NeMo Framework to put it to good use.
-
-`Tutorials <https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials>`__
-   To get started, you can explore the NeMo Curator GitHub repository and follow the available tutorials and notebooks. These resources cover various aspects of data curation, including training from scratch and Parameter-Efficient Fine-Tuning (PEFT).
-
-:ref:`API Docs <data-curator-api>`
-   API Documentation for all the modules in NeMo Curator
-
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 4
    :titlesonly:
 
-   text-curation.rst
-   image-curation.rst
-   reference.rst
+
+   download.rst
+   documentdataset.rst
+   cpuvsgpu.rst
+   qualityfiltering.rst
+   languageidentificationunicodeformatting.rst
+   gpudeduplication.rst
+   semdedup.rst
+   syntheticdata.rst
+   taskdecontamination.rst
+   personalidentifiableinformationidentificationandremoval.rst
+   distributeddataclassification.rst
