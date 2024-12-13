@@ -37,6 +37,7 @@ The tutorial follows the steps below:<br>
     - Heuristic-based quality filtering (Number of lines, worc count, top N-grams, etc.)
     - Fix unicode errors via ftfy
     - PII redaction
+    - GPU accelerated fuzzy and semanctic deduplication
 - Step 6: Save the filtered and curated data <br>
 - Step 7: Blend datasets and shuffle
 
@@ -45,8 +46,10 @@ The tutorial follows the steps below:<br>
 
 After installing the NeMo Curator package, install the dependencies and run:
 
-`pip install -r code/requirements.txt`
-
-`python code/main.py`
+```bash
+pip install -r code/requirements.txt
+cd code
+python main.py
+```
 
 This will download chip-design related datasets and begin the data curation pipeline.

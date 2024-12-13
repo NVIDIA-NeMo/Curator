@@ -27,10 +27,13 @@ from utils import (
     CodeLineCountFilter,
     TextLineCountFilter,
     clean_and_unify,
-    dedupe,
+    exact_dedupe,
     filter_code,
     filter_text,
+    fuzzy_dedupe,
     redact_code,
+    rm_dir,
+    semantic_dedupe,
 )
 
 import nemo_curator as nc
@@ -48,6 +51,7 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 
 SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR_PATH, "data")
+CONFIG_DIR = os.path.join(SCRIPT_DIR_PATH, "configs")
 
 
 def download_sources(
@@ -117,7 +121,6 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         args (Any): Command-line arguments.
         jsonl_dir (str): Directory path where the JSONL files are stored.
     """
-    print("Running the curation pipeline...")
     # Initialize the Dask cluster.
     client = get_client(**ArgumentHelper.parse_client_args(args))
 
@@ -129,7 +132,7 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
                 TextLineCountFilter(), text_field="file_type_count", score_type=bool
             ),
             filter_text,
-            dedupe,
+            exact_dedupe,
         ]
     )
 
@@ -141,7 +144,7 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
                 CodeLineCountFilter(), text_field="file_type_count", score_type=bool
             ),
             filter_code,
-            dedupe,
+            exact_dedupe,
             redact_code,
         ]
     )
@@ -167,17 +170,54 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         + orig_dataset_code.df["line_count"].astype(str)
     )
 
+    print("Executing the curation pipeline...")
     dataset_text = curation_steps_text(orig_dataset_text)
-    dataset_text = dataset_text.persist()
+    dataset_code = curation_steps_code(orig_dataset_code)
 
     print(f"Original dataset length for text files: {len(orig_dataset_text.df)}")
-    print(f"After dataprep: {len(dataset_text.df)}")
-
-    dataset_code = curation_steps_code(orig_dataset_code)
-    dataset_code = dataset_code.persist()
-
+    print(f"After dataprep for text files: {len(dataset_text.df)}")
     print(f"Original dataset length for code files: {len(orig_dataset_code.df)}")
-    print(f"After dataprep: {len(dataset_code.df)}")
+    print(f"After dataprep length for code files: {len(dataset_code.df)}")
+
+    if args.device == "gpu":
+        print("Executing the semantic dedupe pipeline...")
+        gpu_dataset_text = DocumentDataset(dataset_text.df.to_backend("cudf"))
+        gpu_dataset_code = DocumentDataset(dataset_code.df.to_backend("cudf"))
+        sem_dedupe_config_yaml_path = os.path.join(
+            CONFIG_DIR, "text_semantic_dedupe_config.yaml"
+        )
+        CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "semantic_dedupe", "text")
+        rm_dir(CACHE_DIR)
+        duplicates = semantic_dedupe(
+            dataset=gpu_dataset_text,
+            sem_dedupe_config_yaml_path=sem_dedupe_config_yaml_path,
+            cache=CACHE_DIR,
+        )
+        unique_ids = duplicates.df.to_backend("pandas").compute()["id"]
+        semantic_dataset_text = DocumentDataset(
+            gpu_dataset_text.df[gpu_dataset_text.df.id.isin(unique_ids)]
+        )
+        print(f"After semantic dedupe for text files: {len(semantic_dataset_text.df)}")
+
+        print("Executing the fuzzy dedupe pipeline...")
+        CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "text")
+        rm_dir(CACHE_DIR)
+        fuzzy_dataset_text = fuzzy_dedupe(
+            dataset=semantic_dataset_text, cache=CACHE_DIR
+        )
+        CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "code")
+        rm_dir(CACHE_DIR)
+        fuzzy_dataset_code = fuzzy_dedupe(dataset=gpu_dataset_code, cache=CACHE_DIR)
+
+        dataset_text.df = fuzzy_dataset_text.df.to_backend("pandas")
+        dataset_code.df = fuzzy_dataset_code.df.to_backend("pandas")
+        print(f"After fuzzy dedupe for text files: {len(dataset_text.df)}")
+        print(f"After fuzzy dedupe: {len(dataset_code.df)}")
+
+    final_dataset_text = dataset_text.persist()
+    final_dataset_code = dataset_code.persist()
+
+    print("Writing the results to disk...")
 
     # Overwrite existing files in the curated directory.
     out_path = os.path.join(DATA_DIR, "curated")
@@ -186,15 +226,18 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         shutil.rmtree(out_path)
 
     os.makedirs(out_path)
-    dataset_text.to_json(out_path, write_to_filename=True)
-    dataset_code.to_json(out_path, write_to_filename=True)
+    final_dataset_text.to_json(out_path, write_to_filename=True)
+    final_dataset_code.to_json(out_path, write_to_filename=True)
+
+    print("Writing results to disk completed")
 
     # Split the dataset by file category and save curated files (optional - to create blended datasets)
+    print("Split dataset by metadata")
     separated_data_text = separate_by_metadata(
-        dataset_text.df, out_path, "category"
+        final_dataset_text.df, out_path, "category"
     ).compute()
     separated_data_code = separate_by_metadata(
-        dataset_code.df, out_path, "category"
+        final_dataset_code.df, out_path, "category"
     ).compute()
 
     client.close()
@@ -239,6 +282,7 @@ def main():
     # Download all the sources and get the list of text and code files.
     text_files, code_files = download_sources(100, 100, 100)
     run_curation_pipeline(args, text_files, code_files)
+    print("Data Curation completed")
 
     # blend and shuffle datasets
     root_path = os.path.join(DATA_DIR, "curated")
@@ -250,7 +294,9 @@ def main():
     ]
     dataset_weights = [1.0, 4.0, 4.0, 1.0]
     target_size = 20
+
     blend_and_shuffle(args, dataset_paths, dataset_weights, target_size)
+    print("Data Blending completed")
 
 
 if __name__ == "__main__":
