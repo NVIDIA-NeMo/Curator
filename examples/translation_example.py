@@ -368,7 +368,7 @@ def main(args):
     )
     result_dataset = translator_model(dataset=input_dataset)
 
-    result_dataset.to_json(output_file_dir=args.output_data_dir, write_to_filename=True)
+    result_dataset.to_json(output_path=args.output_data_dir, write_to_filename=True)
     print(f"Total time taken for translation: {time.time()-st} seconds", flush=True)
     client.close()
 

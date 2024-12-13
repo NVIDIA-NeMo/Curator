@@ -641,7 +641,7 @@ def _single_partition_write_to_simple_bitext(
 
 
 def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
-    """Merge partitions of simple bitext files in `tmp_output_dir` into files at `output_file_dir`.
+    """Merge partitions of simple bitext files in `tmp_output_dir` into files at `output_dir`.
 
     Args:
         tmp_output_dir (str): temporary directory that has all the simple bitext output partitions,
@@ -675,7 +675,7 @@ def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
 
 def write_to_disk(
     df,
-    output_file_dir: str,
+    output_path: str,
     write_to_filename: bool = False,
     keep_filename_column: bool = False,
     output_type: str = "jsonl",
@@ -687,15 +687,30 @@ def write_to_disk(
 
     Args:
         df: A Dask DataFrame.
-        output_file_dir: The output file path.
+        output_path: The output file path.
         write_to_filename: Boolean representing whether to write the filename using the "filename" column.
         keep_filename_column: Boolean representing whether to keep or drop the "filename" column, if it exists.
         output_type: The type of output file to write. Can be "jsonl" or "parquet".
 
     """
-    if write_to_filename and "filename" not in df.columns:
+
+    # output_path is a file name
+    if isinstance(output_path, str) and output_path.endswith(".jsonl"):
+        if df.npartitions == 1:
+            df.map_partitions(
+                _write_to_jsonl_or_parquet, output_path, output_type
+            ).compute()
+            return
+        else:
+            raise RuntimeError(
+                "Could not write multi-partition DataFrame to a single JSONL file. "
+                "Please specify a directory output path or repartition the DataFrame."
+            )
+
+    # output_path is a directory
+    elif write_to_filename and "filename" not in df.columns:
         raise ValueError(
-            "write_using_filename is True but no filename column found in df"
+            "write_using_filename is True but no filename column found in DataFrame"
         )
 
     if is_cudf_type(df):
@@ -705,11 +720,12 @@ def write_to_disk(
     else:
         output_meta = pd.Series([True], dtype="bool")
 
+    # output_path is a directory
     if write_to_filename and output_type != "bitext":
-        os.makedirs(output_file_dir, exist_ok=True)
+        os.makedirs(output_path, exist_ok=True)
         output = df.map_partitions(
             single_partition_write_with_filename,
-            output_file_dir,
+            output_path,
             keep_filename_column=keep_filename_column,
             output_type=output_type,
             meta=output_meta,
@@ -717,30 +733,20 @@ def write_to_disk(
         )
         output = output.compute()
 
+    # output_path is a directory
     else:
-        if output_type == "jsonl":
-            if is_cudf_type(df):
-                # See open issue here: https://github.com/rapidsai/cudf/issues/15211
-                # df.to_json(output_file_dir, orient="records", lines=True, engine="cudf", force_ascii=False)
-                df.to_json(
-                    output_file_dir, orient="records", lines=True, force_ascii=False
-                )
-            else:
-                df.to_json(
-                    output_file_dir, orient="records", lines=True, force_ascii=False
-                )
-        elif output_type == "parquet":
-            df.to_parquet(output_file_dir, write_index=False)
+        if output_type == "jsonl" or output_type == "parquet":
+            _write_to_jsonl_or_parquet(df, output_path, output_type)
         elif output_type == "bitext":
             if write_to_filename:
-                os.makedirs(output_file_dir, exist_ok=True)
-                tmp_output_file_dir = os.path.join(output_file_dir, ".tmp")
+                os.makedirs(output_path, exist_ok=True)
+                tmp_output_file_dir = os.path.join(output_path, ".tmp")
                 os.makedirs(tmp_output_file_dir, exist_ok=True)
                 file_name = os.path.basename(list(df.filename.unique())[0])
             else:
-                tmp_output_file_dir = os.path.join(output_file_dir, ".tmp")
+                tmp_output_file_dir = os.path.join(output_path, ".tmp")
                 os.makedirs(tmp_output_file_dir, exist_ok=True)
-                file_name = os.path.basename(output_file_dir)
+                file_name = os.path.basename(output_path)
 
             output = df.map_partitions(
                 _single_partition_write_to_simple_bitext,
@@ -751,17 +757,31 @@ def write_to_disk(
             output = output.compute()
             _merge_tmp_simple_bitext_partitions(
                 tmp_output_file_dir,
-                (
-                    output_file_dir
-                    if write_to_filename
-                    else os.path.dirname(output_file_dir)
-                ),
+                (output_path if write_to_filename else os.path.dirname(output_path)),
             )
             shutil.rmtree(tmp_output_file_dir)
         else:
             raise ValueError(f"Unknown output type: {output_type}")
 
-    print(f"Writing to disk complete for {df.npartitions} partitions", flush=True)
+    print(f"Writing to disk complete for {df.npartitions} partition(s)", flush=True)
+
+
+def _write_to_jsonl_or_parquet(
+    df,
+    output_path: str,
+    output_type: Literal["jsonl", "parquet"] = "jsonl",
+):
+    if output_type == "jsonl":
+        if is_cudf_type(df):
+            # See open issue here: https://github.com/rapidsai/cudf/issues/15211
+            # df.to_json(output_path, orient="records", lines=True, engine="cudf", force_ascii=False)
+            df.to_json(output_path, orient="records", lines=True, force_ascii=False)
+        else:
+            df.to_json(output_path, orient="records", lines=True, force_ascii=False)
+    elif output_type == "parquet":
+        df.to_parquet(output_path, write_index=False)
+    else:
+        raise ValueError(f"Unknown output type: {output_type}")
 
 
 def load_object_on_worker(attr, load_object_function, load_object_kwargs):

@@ -87,7 +87,7 @@ def main():
 
         write_to_disk(
             df=df,
-            output_file_dir=args.output_data_dir,
+            output_path=args.output_data_dir,
             write_to_filename=add_filename,
             output_type=args.output_file_type,
         )

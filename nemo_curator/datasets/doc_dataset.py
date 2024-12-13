@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+from functools import wraps
 from typing import Any, List, Literal, Optional, Union
 
 import dask.dataframe as dd
@@ -36,6 +37,10 @@ class DocumentDataset:
     # `def persist(self) -> Self` requires Python 3.11 or higher
     def persist(self) -> "DocumentDataset":
         return DocumentDataset(self.df.persist())
+
+    @wraps(dd.DataFrame.repartition)
+    def repartition(self, *args, **kwargs) -> "DocumentDataset":
+        return self.__class__(self.df.repartition(*args, **kwargs))
 
     def head(self, n: int = 5) -> Any:
         return self.df.head(n)
@@ -146,7 +151,7 @@ class DocumentDataset:
 
     def to_json(
         self,
-        output_file_dir: str,
+        output_path: str,
         write_to_filename: bool = False,
         keep_filename_column: bool = False,
     ):
@@ -156,7 +161,7 @@ class DocumentDataset:
         """
         write_to_disk(
             df=self.df,
-            output_file_dir=output_file_dir,
+            output_path=output_path,
             write_to_filename=write_to_filename,
             keep_filename_column=keep_filename_column,
             output_type="jsonl",
@@ -164,7 +169,7 @@ class DocumentDataset:
 
     def to_parquet(
         self,
-        output_file_dir: str,
+        output_path: str,
         write_to_filename: bool = False,
         keep_filename_column: bool = False,
     ):
@@ -174,7 +179,7 @@ class DocumentDataset:
         """
         write_to_disk(
             df=self.df,
-            output_file_dir=output_file_dir,
+            output_path=output_path,
             write_to_filename=write_to_filename,
             keep_filename_column=keep_filename_column,
             output_type="parquet",
@@ -182,7 +187,7 @@ class DocumentDataset:
 
     def to_pickle(
         self,
-        output_file_dir: str,
+        output_path: str,
         write_to_filename: bool = False,
     ):
         raise NotImplementedError("DocumentDataset does not support to_pickle yet")

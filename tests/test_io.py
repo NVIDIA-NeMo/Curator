@@ -233,7 +233,7 @@ class TestWriteWithFilename:
         ddf["filename"] = ddf["filename"] + f".{file_ext}"
         write_to_disk(
             df=ddf,
-            output_file_dir=tmp_path / file_ext,
+            output_path=tmp_path / file_ext,
             write_to_filename=True,
             output_type=file_ext,
         )

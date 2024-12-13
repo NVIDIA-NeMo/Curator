@@ -30,7 +30,7 @@ def tmp_path_w_data(tmp_path):
         df = dd.concat(dfs)
         write_to_disk(
             df=df,
-            output_file_dir=str(out_path),
+            output_path=str(out_path),
             write_to_filename=True,
             output_type=file_ext,
         )

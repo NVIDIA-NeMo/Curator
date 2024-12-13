@@ -76,7 +76,7 @@ if __name__ == "__main__":
     sampled_df = sample_dataframe(df, num_samples=args.num_samples)
     write_to_disk(
         df=sampled_df,
-        output_file_dir=args.output_file_path,
+        output_path=args.output_file_path,
         write_to_filename=True,
     )
     et = time.time()
