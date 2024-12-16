@@ -15,7 +15,7 @@
 import argparse
 import time
 
-from nemo_curator.classifiers import MultilingualDomainClassifier
+from nemo_curator.classifiers import InstructionDataGuardClassifier
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
@@ -27,25 +27,28 @@ def main(args):
     # Input can be a string or list
     input_file_path = "/path/to/data"
     output_file_path = "./"
+    huggingface_token = "hf_1234"  # Replace with a HuggingFace user access token
 
     client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
 
+    # The model expects instruction-response style text data. For example:
+    # "Instruction: {instruction}. Input: {input_}. Response: {response}."
     input_dataset = DocumentDataset.read_json(
         input_file_path, backend="cudf", add_filename=True
     )
 
-    multilingual_domain_classifier = MultilingualDomainClassifier(
-        filter_by=["Games", "Sports"]
+    instruction_data_guard_classifier = InstructionDataGuardClassifier(
+        token=huggingface_token
     )
-    result_dataset = multilingual_domain_classifier(dataset=input_dataset)
+    result_dataset = instruction_data_guard_classifier(dataset=input_dataset)
 
     result_dataset.to_json(output_path=output_file_path, write_to_filename=True)
 
     global_et = time.time()
     print(
-        f"Total time taken for multilingual domain classifier inference: {global_et-global_st} s",
+        f"Total time taken for Instruction-Data-Guard classifier inference: {global_et-global_st} s",
         flush=True,
     )
 
