@@ -69,10 +69,9 @@ class FinewebEduModel(HFModel):
 
 class FineWebEduClassifier(DistributedDataClassifier):
     """
-    FineWebEduClassifier is a specialized classifier designed for educational content assessment, utilizing the
-    Hugging Face FineWeb EDU Classifier model (https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier).
-    This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference
-    on large text datasets.
+    FineWebEduClassifier is a specialized classifier designed for educational content assessment,
+    utilizing the Hugging Face FineWeb EDU Classifier model (https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier).
+    This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
         batch_size (int): The number of samples per batch for inference. Defaults to 256.

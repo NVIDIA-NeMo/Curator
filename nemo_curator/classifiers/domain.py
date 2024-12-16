@@ -148,7 +148,7 @@ class DomainClassifier(_DomainClassifier):
     """
     DomainClassifier is a specialized classifier designed for English text domain classification tasks,
     utilizing the NVIDIA Domain Classifier (https://huggingface.co/nvidia/domain-classifier) model.
-    This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+    This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
         filter_by (list[str], optional): The classes to filter the dataset by.
@@ -196,7 +196,7 @@ class MultilingualDomainClassifier(_DomainClassifier):
     MultilingualDomainClassifier is a specialized classifier designed for domain classification tasks,
     utilizing the NVIDIA Multilingual Domain Classifier (https://huggingface.co/nvidia/multilingual-domain-classifier) model.
     It supports domain classification across 52 languages.
-    This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
+    This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
         filter_by (list[str], optional): The classes to filter the dataset by.

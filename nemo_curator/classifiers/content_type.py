@@ -27,20 +27,20 @@ from nemo_curator.classifiers.base import (
 )
 from nemo_curator.datasets import DocumentDataset
 
-QUALITY_IDENTIFIER = "nvidia/quality-classifier-deberta"
+CONTENT_TYPE_IDENTIFIER = "nvidia/content-type-classifier-deberta"
 
 
 @dataclass
-class QualityModelConfig:
+class ContentTypeModelConfig:
     model: str = "microsoft/deberta-v3-base"
     fc_dropout: float = 0.2
     max_len: int = 1024
 
 
-class QualityModel(HFModel):
+class ContentTypeModel(HFModel):
     def __init__(
         self,
-        config: QualityModelConfig,
+        config: ContentTypeModelConfig,
         autocast: bool = False,
         max_mem_gb: Optional[int] = None,
     ):
@@ -48,38 +48,42 @@ class QualityModel(HFModel):
         self.autocast = autocast
         if max_mem_gb is None:
             max_mem_gb = _get_suggest_memory_for_classifier()
+
         super().__init__(self.config.model, max_mem_gb=max_mem_gb)
 
     def load_model(self, device: str = "cuda"):
-        model = HFDeberta.from_pretrained(QUALITY_IDENTIFIER)
+        model = HFDeberta.from_pretrained(CONTENT_TYPE_IDENTIFIER)
         model.set_autocast(self.autocast)
         model = model.to(device)
         return model.eval()
 
     def load_tokenizer(self):
-        return AutoTokenizer.from_pretrained(QUALITY_IDENTIFIER)
+        return AutoTokenizer.from_pretrained(CONTENT_TYPE_IDENTIFIER)
 
     def load_config(self):
-        return AutoConfig.from_pretrained(QUALITY_IDENTIFIER)
+        return AutoConfig.from_pretrained(CONTENT_TYPE_IDENTIFIER)
 
 
-class QualityClassifier(DistributedDataClassifier):
+class ContentTypeClassifier(DistributedDataClassifier):
     """
-    QualityClassifier is a specialized classifier designed for quality assessment tasks,
-    utilizing the NVIDIA Quality Classifier model (https://huggingface.co/nvidia/quality-classifier-deberta).
+    ContentTypeClassifier is a text classification model designed to categorize documents into one of 11 distinct speech types based on their content.
+    It analyzes and understands the nuances of textual information, enabling accurate classification across a diverse range of content types.
+    The pretrained model used by this class can be found on Hugging Face here: https://huggingface.co/nvidia/content-type-classifier-deberta.
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
-        filter_by (list[str], optional): The classes to filter the dataset by. If None, all classes will be included. Defaults to None.
+        filter_by (list[str], optional): The classes to filter the dataset by.
+                                         If None, all classes will be included. Defaults to None.
         batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The field in the dataset that should be classified.
-        pred_column (str): The column name where predictions will be stored. Defaults to "quality_pred".
-        prob_column (str): The column name where prediction probabilities will be stored. Defaults to "quality_prob".
-        max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 6000.
+        pred_column (str): The column name where predictions will be stored. Defaults to "content_pred".
+        prob_column (str, optional): The column name where prediction probabilities will be stored. Defaults to None.
+        max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 5000.
         device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
         autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
         max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
                                       it defaults to the available GPU memory minus 4 GB.
+
     """
 
     def __init__(
@@ -87,14 +91,14 @@ class QualityClassifier(DistributedDataClassifier):
         filter_by: Optional[List[str]] = None,
         batch_size: int = 256,
         text_field: str = "text",
-        pred_column: str = "quality_pred",
-        prob_column: str = "quality_prob",
-        max_chars: int = 6000,
+        pred_column: str = "content_pred",
+        prob_column: Optional[str] = None,
+        max_chars: int = 5000,
         device_type: str = "cuda",
         autocast: bool = True,
         max_mem_gb: Optional[int] = None,
     ):
-        config = AutoConfig.from_pretrained(QUALITY_IDENTIFIER)
+        config = AutoConfig.from_pretrained(CONTENT_TYPE_IDENTIFIER)
 
         self.text_field = text_field
         self.prob_column = prob_column
@@ -102,8 +106,8 @@ class QualityClassifier(DistributedDataClassifier):
         self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
 
-        model = QualityModel(
-            config=QualityModelConfig, autocast=autocast, max_mem_gb=max_mem_gb
+        model = ContentTypeModel(
+            config=ContentTypeModelConfig, autocast=autocast, max_mem_gb=max_mem_gb
         )
 
         super().__init__(
@@ -119,7 +123,7 @@ class QualityClassifier(DistributedDataClassifier):
         )
 
     def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
-        print("Starting Quality classifier inference", flush=True)
+        print("Starting content type classifier inference", flush=True)
         df = dataset.df
         df = _run_classifier_helper(
             df=df,
