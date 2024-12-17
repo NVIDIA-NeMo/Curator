@@ -23,6 +23,15 @@ except TypeError:
     # When mocking with autodoc the dask version is not there
     _dask_version = parse_version("2024.06.0")
 
+
+try:
+    import dask_cudf
+
+    _dask_cudf_version = parse_version(dask_cudf.__version__)
+except (ImportError, TypeError):
+    # When mocking with autodoc the dask version is not there
+    _dask_cudf_version = parse_version("2024.06.0")
+
 try:
     import cudf
 
@@ -40,6 +49,7 @@ MINHASH_PERMUTED_AVAILABLE = CURRENT_CUDF_VERSION >= parse_version("24.12.0") or
 DASK_SHUFFLE_METHOD_ARG = _dask_version > parse_version("2024.1.0")
 DASK_P2P_ERROR = _dask_version < parse_version("2023.10.0")
 DASK_SHUFFLE_CAST_DTYPE = _dask_version > parse_version("2023.12.0")
+DASK_CUDF_PARQUET_READ_INCONSISTENT_SCHEMA = _dask_version > parse_version("2024.12")
 
 # Query-planning check (and cache)
 _DASK_QUERY_PLANNING_ENABLED = None

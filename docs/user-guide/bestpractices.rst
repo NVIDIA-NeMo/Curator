@@ -24,6 +24,16 @@ Handling GPU Out-of-Memory (OOM) Errors
 NeMo Curator is designed to be scalable with large amounts of text data, but OOM errors occur when the available GPU memory is insufficient for a given task.
 To help avoid these issues and ensure efficient processing, here are some strategies for managing memory usage and mitigating OOM challenges.
 
+Controlling Partition Sizes
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The user should consider using ``files_per_partition`` or ``blocksize`` when reading data. This can help reduce the memory load by processing large datasets in smaller chunks.
+
+#. The ``blocksize`` argument is available for ``jsonl`` and ``parquet`` files. However, for `parquet` files, it is currently only available when ``add_filename=False``.
+
+#. For the ``blocksize`` parameter, the recommendation is to use 1/32 of the total GPU memory. For example, if you have a GPU with 32GB of memory, you can set ``blocksize="1GB"``.
+
+
 Utilize RMM Options
 ~~~~~~~~~~~~~~~~~~~
 `RAPIDS Memory Manager (RMM) <https://github.com/rapidsai/rmm>`_ is a package that enables you to allocate device memory in a highly configurable way.
@@ -58,6 +68,7 @@ Alternatively, you can set these flags while initializing your own Dask client, 
   )
 
   client = Client(cluster)
+
 
 Fuzzy Deduplication Guidelines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

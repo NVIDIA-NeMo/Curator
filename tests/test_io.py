@@ -113,9 +113,7 @@ class TestIO:
 
         output_meta = str({col: str(dtype) for col, dtype in dataset.df.dtypes.items()})
 
-        expected_meta = (
-            "{'date': 'datetime64[ns, UTC]', 'id': 'float64', 'text': 'object'}"
-        )
+        expected_meta = "{'id': 'float64'}"
 
         assert (
             output_meta == expected_meta
@@ -139,9 +137,7 @@ class TestIO:
 
         output_meta = str({col: str(dtype) for col, dtype in dataset.df.dtypes.items()})
 
-        expected_meta = (
-            "{'date': 'datetime64[ns, UTC]', 'id': 'float64', 'text': 'object'}"
-        )
+        expected_meta = "{'id': 'float64'}"
 
         assert (
             output_meta == expected_meta
@@ -240,6 +236,7 @@ class TestWriteWithFilename:
 
         got_df = read_f(
             str(tmp_path / file_ext),
+            blocksize=None,
             files_per_partition=2,
             backend="pandas",
             add_filename=True,

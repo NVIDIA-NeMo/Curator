@@ -61,6 +61,7 @@ class TestMetadataSep:
             str(data_dir),
             backend=backend,
             files_per_partition=files_per_partition,
+            blocksize=None,
             add_filename=True,
         ).df
         separate_by_metadata(
@@ -80,6 +81,7 @@ class TestMetadataSep:
                 str(output_dir / metadata),
                 backend=backend,
                 files_per_partition=1,
+                blocksize=None,
                 add_filename=True,
             ).df
             dfs.append(meta_df)
