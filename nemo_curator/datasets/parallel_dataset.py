@@ -87,7 +87,7 @@ class ParallelDataset(DocumentDataset):
         """See `nemo_curator.utils.distributed_utils.write_to_disk` docstring for parameter usage."""
         write_to_disk(
             df=self.df,
-            output_file_dir=output_file_dir,
+            output_path=output_file_dir,
             write_to_filename=write_to_filename,
             output_type="bitext",
         )
