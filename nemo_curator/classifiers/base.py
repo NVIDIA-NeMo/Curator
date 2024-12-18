@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 import torch.nn as nn
@@ -37,8 +37,8 @@ class DistributedDataClassifier(ABC):
         labels: Optional[List[str]],
         filter_by: Optional[List[str]],
         batch_size: int,
-        out_dim: int,
-        pred_column: str,
+        out_dim: Optional[int],
+        pred_column: Union[str, List[str]],
         max_chars: int,
         device_type: str,
         autocast: bool,

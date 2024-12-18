@@ -22,3 +22,6 @@ Classifiers
 
 .. autoclass:: nemo_curator.classifiers.ContentTypeClassifier
     :members:
+
+.. autoclass:: nemo_curator.classifiers.PromptTaskComplexityClassifier
+    :members:
