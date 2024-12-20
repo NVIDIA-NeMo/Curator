@@ -23,7 +23,7 @@ jobs:
   build-container:
     # "build-container" job is run if the "gpuci" label is added to the PR
     if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' }}
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.11.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.18.0
     with:
       image-name: nemo_curator_container
       dockerfile: Dockerfile
