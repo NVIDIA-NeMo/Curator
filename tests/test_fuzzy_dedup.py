@@ -317,7 +317,7 @@ class TestFuzzyDuplicates:
         [
             (5, 0.5, [[4, -1]]),
             (10, 0.39, [[4, -1], [1, 2]]),
-            (3, 0.3, [[4, -1], [1, 2, 300]]),
+            (15, 0.3, [[4, -1], [1, 2, 300]]),
         ],
     )
     def test_fuzzy_dedup(
@@ -329,11 +329,6 @@ class TestFuzzyDuplicates:
         duplicate_docs,
         tmpdir,
     ):
-        if not use_64_bit_hash and jaccard_threshold == 0.3:
-            pytest.xfail(
-                "TODO: RAPIDS 24.12 fails with parameters 3-0.3-duplicate_docs2-False"
-            )
-
         print(self.client)
         # Dedup might fail when indices per partition do not start from 0
         fuzzy_dedup_data.df = fuzzy_dedup_data.df.reset_index(drop=True)
@@ -477,17 +472,12 @@ class TestFuzzyDuplicates:
         # Duplcated docs estimated from true_jaccard values
         [
             (10, [[4, -1], [1, 2, 300]]),
-            (3, [[4, -1], [1, 2, 300]]),
+            (5, [[4, -1], [1, 2, 300]]),
         ],
     )
     def test_no_fp_check(
         self, fuzzy_dedup_data, use_64_bit_hash, num_buckets, duplicate_docs, tmpdir
     ):
-        if not use_64_bit_hash and num_buckets == 3:
-            pytest.xfail(
-                "TODO: RAPIDS 24.12 fails with parameters 3-duplicate_docs1-False"
-            )
-
         config = FuzzyDuplicatesConfig(
             cache_dir=tmpdir,
             id_field="id",
