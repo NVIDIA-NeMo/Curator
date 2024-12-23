@@ -42,7 +42,8 @@ dependencies = [
     "beautifulsoup4",
     "charset_normalizer>=3.1.0",
     "comment_parser",
-    "crossfit>=0.0.7",
+    # TODO: Pin CrossFit 0.0.8 when it is released
+    "crossfit @ git+https://github.com/rapidsai/crossfit.git@main",
     "dask-mpi>=2021.11.0",
     "dask[complete]>=2021.7.1",
     "datasets",
@@ -65,6 +66,8 @@ dependencies = [
     "resiliparse",
     "sentencepiece",
     "spacy>=3.6.0, <3.8.0",
+    # TODO: Remove this pin once newer version is released
+    "transformers==4.46.3",
     "unidic-lite==1.0.8",
     "usaddress==0.5.10",
     "warcio==1.7.4",

@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import List, Optional, Union
 
-import cudf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -35,6 +34,9 @@ from nemo_curator.classifiers.base import (
 )
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.aegis_utils import format_aegis
+from nemo_curator.utils.import_utils import gpu_only_import
+
+cudf = gpu_only_import("cudf")
 
 
 @dataclass
