@@ -108,7 +108,7 @@ class LawQAIterator(DocumentIterator):
 
             id, extracted_content = extracted_content
             meta = {
-                "filename": file_name,
+                "file_name": file_name,
                 "id": f"law-stackexchange-qa-{id}",
             }
 

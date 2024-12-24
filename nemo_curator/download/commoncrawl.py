@@ -430,7 +430,7 @@ def download_common_crawl(
         "url": str,
         "warc_id": str,
         "source_id": str,
-        "filename": str,
+        "file_name": str,
     }
     dataset = download_and_extract(
         common_crawl_urls,

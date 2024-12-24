@@ -141,7 +141,7 @@ def _download_and_extract_single_partition(
     partition = pd.DataFrame(records)
     filename = os.path.basename(output_path)
     output_dir = os.path.dirname(output_path)
-    partition["filename"] = filename
+    partition["file_name"] = filename
     single_partition_write_with_filename(partition, output_dir, output_type=output_type)
     if not keep_raw_download:
         os.remove(downloaded_file)

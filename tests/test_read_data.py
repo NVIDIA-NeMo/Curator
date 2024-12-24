@@ -300,8 +300,8 @@ def test_read_data_blocksize_add_filename_jsonl(mock_multiple_jsonl_files, backe
         columns=None,
     )
 
-    assert "filename" in df.columns
-    file_names = df["filename"].unique().compute()
+    assert "file_name" in df.columns
+    file_names = df["file_name"].unique().compute()
     if backend == "cudf":
         file_names = file_names.to_pandas()
 
@@ -340,13 +340,7 @@ def test_read_data_blocksize_add_filename_parquet(mock_multiple_parquet_files, b
         pytest.param("cudf", "jsonl", marks=pytest.mark.gpu),
         pytest.param("cudf", "parquet", marks=pytest.mark.gpu),
         ("pandas", "jsonl"),
-        pytest.param(
-            "pandas",
-            "parquet",
-            marks=pytest.mark.xfail(
-                reason="filename column inaccessible with pandas backend and parquet"
-            ),
-        ),
+        ("pandas", "parquet"),
     ],
 )
 def test_read_data_fpp_add_filename(
@@ -369,8 +363,8 @@ def test_read_data_fpp_add_filename(
     )
 
     assert list(df.columns) == list(df.head().columns)
-    assert set(df.columns) == {"filename", "id", "text"}
-    file_names = df["filename"].unique().compute()
+    assert set(df.columns) == {"file_name", "id", "text"}
+    file_names = df["file_name"].unique().compute()
     if backend == "cudf":
         file_names = file_names.to_pandas()
 
@@ -445,7 +439,7 @@ def test_read_data_select_columns(
     if not add_filename:
         assert list(df.columns) == sorted(cols_to_select)
     else:
-        assert list(df.columns) == sorted(cols_to_select + ["filename"])
+        assert list(df.columns) == sorted(cols_to_select + ["file_name"])
 
 
 @pytest.mark.parametrize(

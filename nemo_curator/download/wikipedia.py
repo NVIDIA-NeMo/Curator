@@ -799,7 +799,7 @@ def download_wikipedia(
         "url": str,
         "language": str,
         "source_id": str,
-        "filename": str,
+        "file_name": str,
     }
     dataset = download_and_extract(
         wikipedia_urls,

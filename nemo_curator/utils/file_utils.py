@@ -300,7 +300,7 @@ def separate_by_metadata(
 
     Args:
         input_data: Either a DataFrame or a string representing the path to the input directory.
-            If a DataFrame is provided, it must have a 'filename' column for the shard.
+            If a DataFrame is provided, it must have a "file_name" column for the shard.
         output_dir: The base directory for which all metadata based subdirs will be created under
         metadata_field: The metadata field to split on
         remove_metadata: Whether to remove the metadata from the dataframe when saving it

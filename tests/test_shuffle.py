@@ -61,11 +61,11 @@ class TestShuffleNondeterministic:
                 original_dataset = list_to_dataset(
                     ["one", "two", "three", "four", "five"], npartitions=1
                 )
-                original_dataset.df["filename"] = "original.jsonl"
+                original_dataset.df["file_name"] = "original.jsonl"
 
                 expected_data = {
                     "text": ["one", "two", "three", "five", "four"],
-                    "filename": [
+                    "file_name": [
                         "file_0000000000.jsonl",
                         "file_0000000000.jsonl",
                         "file_0000000000.jsonl",
@@ -86,11 +86,11 @@ class TestShuffleNondeterministic:
                 original_dataset = list_to_dataset(
                     ["one", "two", "three", "four", "five"], npartitions=1
                 )
-                original_dataset.df["filename"] = "original.jsonl"
+                original_dataset.df["file_name"] = "original.jsonl"
 
                 expected_data = {
                     "text": ["one", "two", "three", "five", "four"],
-                    "filename": [
+                    "file_name": [
                         "my_0.test",
                         "my_0.test",
                         "my_0.test",
@@ -140,11 +140,11 @@ class TestShuffleDeterministic:
         original_dataset = list_to_dataset(
             ["one", "two", "three", "four", "five"], npartitions=1
         )
-        original_dataset.df["filename"] = "original.jsonl"
+        original_dataset.df["file_name"] = "original.jsonl"
 
         expected_data = {
             "text": ["four", "five", "three", "one", "two"],
-            "filename": [
+            "file_name": [
                 "file_0000000000.jsonl",
                 "file_0000000001.jsonl",
                 "file_0000000001.jsonl",
@@ -163,11 +163,11 @@ class TestShuffleDeterministic:
         original_dataset = list_to_dataset(
             ["one", "two", "three", "four", "five"], npartitions=1
         )
-        original_dataset.df["filename"] = "original.jsonl"
+        original_dataset.df["file_name"] = "original.jsonl"
 
         expected_data = {
             "text": ["four", "five", "three", "one", "two"],
-            "filename": [
+            "file_name": [
                 "my_0.test",
                 "my_1.test",
                 "my_1.test",

@@ -153,7 +153,7 @@ class TestWriteWithFilename:
         keep_filename_column,
         file_ext,
     ):
-        df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file0", "file1", "file1"]})
+        df = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file0", "file1", "file1"]})
 
         single_partition_write_with_filename(
             df=df,
@@ -165,7 +165,7 @@ class TestWriteWithFilename:
         assert os.path.exists(tmp_path / f"file1.{file_ext}")
 
         if not keep_filename_column:
-            df = df.drop("filename", axis=1)
+            df = df.drop("file_name", axis=1)
 
         df1 = read_single_partition(
             files=[tmp_path / f"file0.{file_ext}"], backend="pandas", filetype=file_ext
@@ -185,7 +185,7 @@ class TestWriteWithFilename:
         keep_filename_column,
         file_ext,
     ):
-        df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file2", "file2", "file2"]})
+        df = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file2", "file2", "file2"]})
 
         single_partition_write_with_filename(
             df=df,
@@ -197,14 +197,14 @@ class TestWriteWithFilename:
         assert os.path.exists(tmp_path / f"file2.{file_ext}")
 
         if not keep_filename_column:
-            df = df.drop("filename", axis=1)
+            df = df.drop("file_name", axis=1)
         got = read_single_partition(
             files=[tmp_path / f"file2.{file_ext}"], backend="pandas", filetype=file_ext
         )
         assert_eq(got, df)
 
     def test_multifile_single_partition_error(self, tmp_path):
-        df = pd.DataFrame({"a": [1, 2, 3], "filename": ["file0", "file1", "file1"]})
+        df = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file0", "file1", "file1"]})
 
         with pytest.raises(ValueError, match="Unknown output type"):
             single_partition_write_with_filename(
@@ -220,13 +220,13 @@ class TestWriteWithFilename:
         ],
     )
     def test_multifile_multi_partition(self, tmp_path, file_ext, read_f):
-        df1 = pd.DataFrame({"a": [1, 2, 3], "filename": ["file1", "file2", "file2"]})
+        df1 = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file1", "file2", "file2"]})
         df2 = df1.copy()
-        df2["filename"] = "file3"
+        df2["file_name"] = "file3"
         df3 = df1.copy()
-        df3["filename"] = ["file4", "file5", "file6"]
+        df3["file_name"] = ["file4", "file5", "file6"]
         ddf = dd.concat([df1, df2, df3])
-        ddf["filename"] = ddf["filename"] + f".{file_ext}"
+        ddf["file_name"] = ddf["file_name"] + f".{file_ext}"
         write_to_disk(
             df=ddf,
             output_path=tmp_path / file_ext,

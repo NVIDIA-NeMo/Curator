@@ -19,7 +19,7 @@ class Shuffle:
         partition_to_filename: Callable[[int], str] = default_filename,
     ) -> None:
         """
-        Randomly permutes the dataset. This will make the original "filename" column invalid, so if the column is present it will be overwritten.
+        Randomly permutes the dataset. This will make the original "file_name" column invalid, so if the column is present it will be overwritten.
         Args:
             seed: The random seed that will be used to determine which partition (file) each datapoint goes to.
                 Setting the seed will guarantee determinism, but may be slightly slower (20-30% slower)
@@ -52,8 +52,8 @@ class Shuffle:
         shuffled_df = dataset.df.set_index(self.rand_col, npartitions=new_npartitions)
         shuffled_df = shuffled_df.reset_index(drop=True)
 
-        if "filename" in shuffled_df:
-            shuffled_df["filename"] = shuffled_df.map_partitions(self._add_filename)
+        if "file_name" in shuffled_df:
+            shuffled_df["file_name"] = shuffled_df.map_partitions(self._add_filename)
 
         return DocumentDataset(shuffled_df)
 
@@ -98,15 +98,15 @@ class Shuffle:
             drop=True
         )
 
-        if "filename" in partition:
+        if "file_name" in partition:
             filename = self.partition_to_filename(partition_num)
-            partition["filename"] = filename
+            partition["file_name"] = filename
 
         return partition
 
     def _add_filename(self, partition, partition_info=None):
         if partition_info is None:
-            return ["filename"] * len(partition)
+            return ["file_name"] * len(partition)
 
         filename = self.partition_to_filename(partition_info["number"])
 

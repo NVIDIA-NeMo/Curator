@@ -153,7 +153,7 @@ class SyntheticGenerator:
                 synth_questions.extend(questions)
                 synth_answers.extend(answers)
                 synth_scores.extend(scores)
-                synth_filenames.extend([row["filename"] + ".synth"] * self.n_variants)
+                synth_filenames.extend([row["file_name"] + ".synth"] * self.n_variants)
                 synth_ids.extend(
                     [f"{row['id']}-synth-{i}" for i in range(self.n_variants)]
                 )
@@ -169,7 +169,7 @@ class SyntheticGenerator:
             "question": synth_questions,
             "answer": synth_answers,
             "title": synth_titles,
-            "filename": synth_filenames,
+            "file_name": synth_filenames,
             "tags": synth_tags,
             # Use the same score for both the generated questions and answers.
             "question_score": synth_scores,

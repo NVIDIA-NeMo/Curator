@@ -24,7 +24,7 @@ def tmp_path_w_data(tmp_path):
         dfs = []
         for i in range(num_files):
             partition = df.copy()
-            partition["filename"] = f"f{i}.{file_ext}"
+            partition["file_name"] = f"f{i}.{file_ext}"
             dfs.append(partition)
 
         df = dd.concat(dfs)

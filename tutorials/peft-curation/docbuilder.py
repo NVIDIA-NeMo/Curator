@@ -77,7 +77,7 @@ class EmailsIterator(DocumentIterator):
             self._counter += 1
             content = email.group().strip('"').strip()
             meta = {
-                "filename": file_name,
+                "file_name": file_name,
                 "id": f"email-{self._counter}",
             }
             extracted_content = self._extractor.extract(content)

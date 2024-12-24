@@ -64,7 +64,7 @@ class DocumentDataset:
             input_files: The path of the input file(s).
             backend: The backend to use for reading the data.
             files_per_partition: The number of files to read per partition.
-            add_filename: Whether to add a "filename" column to the DataFrame.
+            add_filename: Whether to add a "file_name" column to the DataFrame.
             input_meta: A dictionary or a string formatted as a dictionary, which outlines
                 the field names and their respective data types within the JSONL input file.
             columns: If not None, only these columns will be read from the file.
@@ -102,7 +102,7 @@ class DocumentDataset:
             input_files: The path of the input file(s).
             backend: The backend to use for reading the data.
             files_per_partition: The number of files to read per partition.
-            add_filename: Whether to add a "filename" column to the DataFrame.
+            add_filename: Whether to add a "file_name" column to the DataFrame.
             columns: If not None, only these columns will be read from the file.
                 There is a significant performance gain when specifying columns for Parquet files.
 
@@ -135,7 +135,7 @@ class DocumentDataset:
             input_files: The path of the input file(s).
             backend: The backend to use for reading the data.
             files_per_partition: The number of files to read per partition.
-            add_filename: Whether to add a "filename" column to the DataFrame.
+            add_filename: Whether to add a "file_name" column to the DataFrame.
             columns: If not None, only these columns will be read from the file.
 
         """

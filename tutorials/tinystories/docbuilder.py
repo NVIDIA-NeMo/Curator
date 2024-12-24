@@ -71,7 +71,7 @@ class TinyStoriesIterator(DocumentIterator):
                     self._counter += 1
                     content = " ".join(example)
                     meta = {
-                        "filename": file_name,
+                        "file_name": file_name,
                         "id": f"{file_name}-{self._counter}",
                     }
 
