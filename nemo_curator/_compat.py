@@ -39,10 +39,15 @@ try:
 except (ImportError, TypeError):
     CURRENT_CUDF_VERSION = parse_version("24.10.0")
 
-# TODO remove this once 24.12.0 becomes the base version of cudf in nemo-curator
-MINHASH_PERMUTED_AVAILABLE = CURRENT_CUDF_VERSION >= parse_version("24.12.0") or (
-    CURRENT_CUDF_VERSION.is_prerelease
-    and CURRENT_CUDF_VERSION.base_version >= "24.12.0"
+# TODO remove this once 25.02 becomes the base version of cudf in nemo-curator
+
+# minhash in < 24.12 used to have a minhash(txt) api which was deprecated in favor of
+# minhash(a, b) in 25.02 (in 24.12, minhash_permuted(a,b) was introduced)
+MINHASH_DEPRECATED_API = (
+    CURRENT_CUDF_VERSION.base_version < parse_version("24.12").base_version
+)
+MINHASH_PERMUTED_AVAILABLE = (CURRENT_CUDF_VERSION.major == 24) & (
+    CURRENT_CUDF_VERSION.minor == 12
 )
 
 # TODO: remove when dask min version gets bumped
