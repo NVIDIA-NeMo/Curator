@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-
 import pytest
 from distributed import Client
 
@@ -48,24 +46,35 @@ def domain_dataset():
 
 
 @pytest.mark.gpu
-def test_domain_classifier(gpu_client, domain_dataset):
+@pytest.mark.parametrize("keep_prob", [True, False])
+def test_domain_classifier(gpu_client, domain_dataset, keep_prob):
     from nemo_curator.classifiers import DomainClassifier
 
-    classifier = DomainClassifier()
+    if keep_prob:
+        prob_column = "domain_prob"
+    else:
+        prob_column = None
+
+    classifier = DomainClassifier(prob_column=prob_column)
     result_dataset = classifier(dataset=domain_dataset)
-    result_pred = result_dataset.df.compute()["domain_pred"]
 
-    expected_pred = cudf.Series(
-        [
-            "Computers_and_Electronics",
-            "Finance",
-            "Health",
-            "Jobs_and_Education",
-            "Travel_and_Transportation",
-        ]
-    )
+    if keep_prob:
+        result_df = result_dataset.df.compute()
+        assert "domain_prob" in result_df.columns
+    else:
+        result_pred = result_dataset.df.compute()["domain_pred"]
 
-    assert result_pred.equals(expected_pred)
+        expected_pred = cudf.Series(
+            [
+                "Computers_and_Electronics",
+                "Finance",
+                "Health",
+                "Jobs_and_Education",
+                "Travel_and_Transportation",
+            ]
+        )
+
+        assert result_pred.equals(expected_pred)
 
 
 @pytest.mark.gpu
