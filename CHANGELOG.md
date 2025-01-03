@@ -1,5 +1,17 @@
 # Changelog
 
+## NeMo Curator 0.6.0
+
+- Synthetic Data Generation for Text Retrieval
+  - LLM-based Filters
+    - Easiness
+    - Answerability
+  - Q&A Retrieval Generation Pipeline
+- Parallel Dataset Curation for Machine Translation
+  - Load/Write Bitext Files
+  - Heuristic filtering (Histogram, Length Ratio)
+  - Classifier filtering (Comet, Cometoid)
+
 ## NeMo Curator 0.5.0
 
 ### Highlights
