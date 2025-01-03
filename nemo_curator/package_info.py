@@ -23,7 +23,13 @@ DEV = "dev1"
 VERSION = (MAJOR, MINOR, PATCH, PRE_RELEASE, DEV)
 
 __shortversion__ = ".".join(map(str, VERSION[:3]))
-__version__ = __shortversion__ + VERSION[3] + "." + ".".join(VERSION[4:])
+__version__ = __shortversion__
+
+if VERSION[3] != "":
+    __version__ = __version__ + VERSION[3]
+
+if VERSION[4] != "":
+    __version__ = __version__ + "." + ".".join(VERSION[4:])
 
 __package_name__ = "nemo_curator"
 __contact_names__ = "NVIDIA"
