@@ -16,11 +16,11 @@ from typing import Callable, Iterable
 
 import cupy as cp
 import torch
+from crossfit.backend.cudf.series import create_list_series_from_1d_or_2d_ar
 from tqdm import tqdm
 
 from nemo_curator.datasets import ImageTextPairDataset
 from nemo_curator.image.classifiers import ImageClassifier
-from nemo_curator.utils.cudf_utils import create_list_series_from_1d_or_2d_ar
 from nemo_curator.utils.distributed_utils import load_object_on_worker
 
 

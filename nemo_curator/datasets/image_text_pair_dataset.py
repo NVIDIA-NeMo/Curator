@@ -79,7 +79,7 @@ class ImageTextPairDataset:
             path (str): The path to the WebDataset-like format on disk or cloud storage.
             id_col (str): The column storing the unique identifier for each record.
         """
-        metadata = dask_cudf.read_parquet(path)
+        metadata = dask_cudf.read_parquet(path, split_row_groups=False, blocksize=None)
         metadata = metadata.map_partitions(cls._sort_partition, id_col=id_col)
 
         tar_files = cls._get_tar_files(path)
