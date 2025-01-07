@@ -30,6 +30,7 @@ from nemo_curator.utils.distributed_utils import (
     single_partition_write_with_filename,
     write_to_disk,
 )
+from nemo_curator.utils.file_utils import get_all_files_paths_under
 
 
 def _generate_dummy_dataset(num_rows: int = 50) -> str:
@@ -243,3 +244,52 @@ class TestWriteWithFilename:
         ).df
 
         assert_eq(got_df, ddf, check_index=False)
+
+
+class TestFileExtensions:
+    def test_keep_extensions(self, tmp_path):
+        json_1 = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        json_1.to_json(tmp_path / "json_1.jsonl", orient="records", lines=True)
+        json_2 = pd.DataFrame({"a": [7, 8, 9], "b": [10, 11, 12]})
+        json_2.to_json(tmp_path / "json_2.jsonl", orient="records", lines=True)
+
+        json_df = pd.concat([json_1, json_2])
+
+        parquet_file = pd.DataFrame({"a": [13, 14, 15], "b": [16, 17, 18]})
+        parquet_file.to_parquet(tmp_path / "parquet_file.parquet")
+        csv_file = pd.DataFrame({"a": [19, 20, 21], "b": [22, 23, 24]})
+        csv_file.to_csv(tmp_path / "csv_file.csv")
+
+        with pytest.raises(RuntimeError):
+            doc = DocumentDataset.read_json(str(tmp_path))
+
+        input_files = get_all_files_paths_under(str(tmp_path), keep_extensions="jsonl")
+        input_dataset = DocumentDataset.read_json(input_files)
+        assert json_df.equals(input_dataset.df.compute())
+
+        input_files = get_all_files_paths_under(
+            str(tmp_path), keep_extensions=["jsonl"]
+        )
+        input_dataset = DocumentDataset.read_json(input_files)
+        assert json_df.equals(input_dataset.df.compute())
+
+        input_files = get_all_files_paths_under(
+            str(tmp_path), keep_extensions=["jsonl", "parquet"]
+        )
+        assert sorted(input_files) == [
+            str(tmp_path / "json_1.jsonl"),
+            str(tmp_path / "json_2.jsonl"),
+            str(tmp_path / "parquet_file.parquet"),
+        ]
+
+    def test_write_single_jsonl_file(self, tmp_path):
+        json_df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+        json_df.to_json(tmp_path / "json_file.jsonl", orient="records", lines=True)
+
+        input_path = str(tmp_path / "json_file.jsonl")
+        output_path = str(tmp_path / "single_output.jsonl")
+        doc = DocumentDataset.read_json(input_path)
+        doc.to_json(output_path)
+
+        result = DocumentDataset.read_json(output_path)
+        assert json_df.equals(result.df.compute())

@@ -158,9 +158,8 @@ class DocumentDataset:
     def to_json(
         self,
         output_path: str,
-        write_to_filename: bool = False,
+        write_to_filename: Union[bool, str] = False,
         keep_filename_column: bool = False,
-        filename_col: str = "file_name",
     ):
         """
         See nemo_curator.utils.distributed_utils.write_to_disk docstring for parameters.
@@ -172,13 +171,12 @@ class DocumentDataset:
             write_to_filename=write_to_filename,
             keep_filename_column=keep_filename_column,
             output_type="jsonl",
-            filename_col=filename_col,
         )
 
     def to_parquet(
         self,
         output_path: str,
-        write_to_filename: bool = False,
+        write_to_filename: Union[bool, str] = False,
         keep_filename_column: bool = False,
     ):
         """
@@ -196,7 +194,7 @@ class DocumentDataset:
     def to_pickle(
         self,
         output_path: str,
-        write_to_filename: bool = False,
+        write_to_filename: Union[bool, str] = False,
     ):
         raise NotImplementedError("DocumentDataset does not support to_pickle yet")
 
