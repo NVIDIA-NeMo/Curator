@@ -147,25 +147,24 @@ class TestIO:
 class TestWriteWithFilename:
     @pytest.mark.parametrize("keep_filename_column", [True, False])
     @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
+    @pytest.mark.parametrize("filename_col", ["file_name", "filename"])
     def test_multifile_single_partition(
-        self,
-        tmp_path,
-        keep_filename_column,
-        file_ext,
+        self, tmp_path, keep_filename_column, file_ext, filename_col
     ):
-        df = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file0", "file1", "file1"]})
+        df = pd.DataFrame({"a": [1, 2, 3], filename_col: ["file0", "file1", "file1"]})
 
         single_partition_write_with_filename(
             df=df,
             output_file_dir=tmp_path,
             keep_filename_column=keep_filename_column,
             output_type=file_ext,
+            filename_col=filename_col,
         )
         assert os.path.exists(tmp_path / f"file0.{file_ext}")
         assert os.path.exists(tmp_path / f"file1.{file_ext}")
 
         if not keep_filename_column:
-            df = df.drop("file_name", axis=1)
+            df = df.drop(filename_col, axis=1)
 
         df1 = read_single_partition(
             files=[tmp_path / f"file0.{file_ext}"], backend="pandas", filetype=file_ext
@@ -219,18 +218,19 @@ class TestWriteWithFilename:
             ("parquet", DocumentDataset.read_parquet),
         ],
     )
-    def test_multifile_multi_partition(self, tmp_path, file_ext, read_f):
-        df1 = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file1", "file2", "file2"]})
+    @pytest.mark.parametrize("filename_col", ["file_name", "filename"])
+    def test_multifile_multi_partition(self, tmp_path, file_ext, read_f, filename_col):
+        df1 = pd.DataFrame({"a": [1, 2, 3], filename_col: ["file1", "file2", "file2"]})
         df2 = df1.copy()
-        df2["file_name"] = "file3"
+        df2[filename_col] = "file3"
         df3 = df1.copy()
-        df3["file_name"] = ["file4", "file5", "file6"]
+        df3[filename_col] = ["file4", "file5", "file6"]
         ddf = dd.concat([df1, df2, df3])
-        ddf["file_name"] = ddf["file_name"] + f".{file_ext}"
+        ddf[filename_col] = ddf[filename_col] + f".{file_ext}"
         write_to_disk(
             df=ddf,
             output_path=tmp_path / file_ext,
-            write_to_filename=True,
+            write_to_filename=filename_col,
             output_type=file_ext,
         )
 
@@ -239,7 +239,7 @@ class TestWriteWithFilename:
             blocksize=None,
             files_per_partition=2,
             backend="pandas",
-            add_filename=True,
+            add_filename=filename_col,
         ).df
 
         assert_eq(got_df, ddf, check_index=False)

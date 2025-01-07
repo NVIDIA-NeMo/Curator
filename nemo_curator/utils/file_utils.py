@@ -220,6 +220,7 @@ def write_dataframe_by_meta(
     output_type: str = "jsonl",
     include_values: List[str] = None,
     exclude_values: List[str] = None,
+    filename_col: str = "file_name",
 ):
     counts = df[metadata_field].value_counts().to_dict()
 
@@ -236,7 +237,10 @@ def write_dataframe_by_meta(
         if remove_metadata:
             meta_slice = meta_slice.drop(columns=[metadata_field])
         single_partition_write_with_filename(
-            meta_slice, meta_output_dir, output_type=output_type
+            meta_slice,
+            meta_output_dir,
+            output_type=output_type,
+            filename_col=filename_col,
         )
 
     return counts
@@ -294,13 +298,14 @@ def separate_by_metadata(
     input_type: str = "jsonl",
     include_values: List[str] = None,
     exclude_values: List[str] = None,
+    filename_col: str = "file_name",
 ) -> dict:
     """
     Saves the dataframe to subfolders named after a metadata
 
     Args:
         input_data: Either a DataFrame or a string representing the path to the input directory.
-            If a DataFrame is provided, it must have a "file_name" column for the shard.
+            If a DataFrame is provided, it must have a filename_col for the shard.
         output_dir: The base directory for which all metadata based subdirs will be created under
         metadata_field: The metadata field to split on
         remove_metadata: Whether to remove the metadata from the dataframe when saving it
@@ -310,7 +315,7 @@ def separate_by_metadata(
             If provided, only the items matching these values should be kept.
         exclude_values: A list of strings representing specific values to be excluded or ignored.
             If provided, any items matching these values should be skipped.
-
+        filename_col: The column name in the DataFrame that contains the filename. Default is "file_name".
 
     Returns:
         A delayed dictionary mapping each metadata to the count of entries with that metadata value.
@@ -357,7 +362,7 @@ def separate_by_metadata(
                 get_all_files_paths_under(input_data),
                 file_type=input_type,
                 backend="pandas",
-                add_filename=True,
+                add_filename=filename_col,
             )
     delayed_counts = [
         delayed(write_dataframe_by_meta)(
@@ -368,6 +373,7 @@ def separate_by_metadata(
             output_type,
             include_values,
             exclude_values,
+            filename_col,
         )
         for partition in input_data.to_delayed()
     ]

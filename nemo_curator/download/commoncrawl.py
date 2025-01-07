@@ -442,6 +442,7 @@ def download_common_crawl(
         output_type=output_type,
         keep_raw_download=keep_raw_download,
         force_download=force_download,
+        filename_col="file_name",
     )
 
     return dataset

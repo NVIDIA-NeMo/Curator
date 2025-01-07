@@ -112,12 +112,16 @@ def _download_and_extract_single_partition(
     keep_raw_download: bool,
     force_download: bool,
     input_meta: Union[str, dict] = None,
+    filename_col: str = "file_name",
 ) -> pd.DataFrame:
     url, output_path = paths
 
     if os.path.exists(output_path) and not force_download:
         partition = read_single_partition(
-            [output_path], backend="pandas", filetype=output_type, add_filename=True
+            [output_path],
+            backend="pandas",
+            filetype=output_type,
+            add_filename=filename_col,
         )
         return partition
 
@@ -141,8 +145,10 @@ def _download_and_extract_single_partition(
     partition = pd.DataFrame(records)
     filename = os.path.basename(output_path)
     output_dir = os.path.dirname(output_path)
-    partition["file_name"] = filename
-    single_partition_write_with_filename(partition, output_dir, output_type=output_type)
+    partition[filename_col] = filename
+    single_partition_write_with_filename(
+        partition, output_dir, output_type=output_type, filename_col=filename_col
+    )
     if not keep_raw_download:
         os.remove(downloaded_file)
 
@@ -160,6 +166,7 @@ def download_and_extract(
     keep_raw_download=False,
     force_download=False,
     input_meta: Union[str, dict] = None,
+    filename_col: str = "file_name",
 ) -> DocumentDataset:
     """
     Downloads and extracts a dataset into a format accepted by the NeMo Curator
@@ -178,7 +185,7 @@ def download_and_extract(
         directly read from them instead.
       input_meta: A dictionary or a string formatted as a dictionary, which outlines
         the field names and their respective data types within the JSONL input file.
-
+      filename_col : The name of the column that contains the filename. Default is "filename_col"
     Returns:
       A DocumentDataset of the downloaded data
     """
@@ -202,6 +209,7 @@ def download_and_extract(
         force_download=force_download,
         enforce_metadata=False,
         input_meta=input_meta,
+        filename_col=filename_col,
         meta=output_format,
     )
 

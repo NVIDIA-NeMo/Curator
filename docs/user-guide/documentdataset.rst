@@ -68,14 +68,16 @@ Let's walk through this code line by line.
              "books_dataset/books_02.jsonl"]
 
 * ``books = DocumentDataset.read_json(files, add_filename=True)`` This will read the files listed into memory.
-  The ``add_filename=True`` option preserves the name of the shard (``books_00.jsonl``, ``books_01.jsonl``, etc.) as an additional ``filename`` field.
-  When the dataset is written back to disk, this option (in conjunction with the ``write_to_filename`` option) ensure that documents stay in their original shard.
+  The ``add_filename=True`` option preserves the name of the shard (``books_00.jsonl``, ``books_01.jsonl``, etc.) as an additional ``file_name`` field.
+  When the dataset is written back to disk, this option (in conjunction with the ``write_to_filename`` option and ``filename_col`` ) ensure that documents stay in their original shard.
   This can be useful for manually inspecting the results of filtering shard by shard.
+  The ``add_filename`` option can also be used as a string, in which case it will be used as the name of the column (instead of the default ``file_name``).
 * ``filter_step = ...`` This constructs and applies a heuristic filter for the length of the document.
   More information is provided in the filtering page of the documentation.
 * ``long_books.to_json("long_books/", write_to_filename=True)`` This writes the filtered dataset to a new directory.
   As mentioned above, the ``write_to_filename=True`` preserves the sharding of the dataset.
   If the dataset was not read in with ``add_filename=True``, setting ``write_to_filename=True`` will throw an error.
+  If the dataset was read with ``add_filename="path"`` then along with ``write_to_filename=True`` the ``filename_col="path"`` will need to be set as well.
 
 ``DocumentDataset`` is just a wrapper around a `Dask dataframe <https://docs.dask.org/en/stable/dataframe.html>`_.
 The underlying dataframe can be accessed with the ``DocumentDataset.df`` member variable.

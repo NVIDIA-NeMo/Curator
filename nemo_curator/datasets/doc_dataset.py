@@ -52,7 +52,7 @@ class DocumentDataset:
         backend: Literal["pandas", "cudf"] = "pandas",
         files_per_partition: Optional[int] = None,
         blocksize: Optional[str] = "1gb",
-        add_filename: bool = False,
+        add_filename: Union[bool, str] = False,
         input_meta: Union[str, dict] = None,
         columns: Optional[List[str]] = None,
         **kwargs,
@@ -64,7 +64,9 @@ class DocumentDataset:
             input_files: The path of the input file(s).
             backend: The backend to use for reading the data.
             files_per_partition: The number of files to read per partition.
-            add_filename: Whether to add a "file_name" column to the DataFrame.
+            add_filename: Whether to add a filename column to the DataFrame.
+                If True, a new column is added to the DataFrame called `file_name`.
+                If str, sets new column name. Default is False.
             input_meta: A dictionary or a string formatted as a dictionary, which outlines
                 the field names and their respective data types within the JSONL input file.
             columns: If not None, only these columns will be read from the file.
@@ -91,7 +93,7 @@ class DocumentDataset:
         backend: Literal["pandas", "cudf"] = "pandas",
         files_per_partition: Optional[int] = None,
         blocksize: Optional[str] = "1gb",
-        add_filename=False,
+        add_filename: Union[bool, str] = False,
         columns: Optional[List[str]] = None,
         **kwargs,
     ) -> "DocumentDataset":
@@ -102,7 +104,9 @@ class DocumentDataset:
             input_files: The path of the input file(s).
             backend: The backend to use for reading the data.
             files_per_partition: The number of files to read per partition.
-            add_filename: Whether to add a "file_name" column to the DataFrame.
+            add_filename: Whether to add a filename column to the DataFrame.
+                If True, a new column is added to the DataFrame called `file_name`.
+                If str, sets new column name. Default is False.
             columns: If not None, only these columns will be read from the file.
                 There is a significant performance gain when specifying columns for Parquet files.
 
@@ -135,7 +139,9 @@ class DocumentDataset:
             input_files: The path of the input file(s).
             backend: The backend to use for reading the data.
             files_per_partition: The number of files to read per partition.
-            add_filename: Whether to add a "file_name" column to the DataFrame.
+            add_filename: Whether to add a filename column to the DataFrame.
+                If True, a new column is added to the DataFrame called `file_name`.
+                If str, sets new column name. Default is False.
             columns: If not None, only these columns will be read from the file.
 
         """
@@ -154,6 +160,7 @@ class DocumentDataset:
         output_path: str,
         write_to_filename: bool = False,
         keep_filename_column: bool = False,
+        filename_col: str = "file_name",
     ):
         """
         See nemo_curator.utils.distributed_utils.write_to_disk docstring for parameters.
@@ -165,6 +172,7 @@ class DocumentDataset:
             write_to_filename=write_to_filename,
             keep_filename_column=keep_filename_column,
             output_type="jsonl",
+            filename_col=filename_col,
         )
 
     def to_parquet(
@@ -234,7 +242,7 @@ def _read_json_or_parquet(
     input_files: Union[str, List[str]],
     file_type: str,
     backend: Literal["cudf", "pandas"],
-    add_filename: bool,
+    add_filename: Union[bool, str] = False,
     files_per_partition: Optional[int] = None,
     blocksize: Optional[str] = None,
     input_meta: Union[str, dict] = None,

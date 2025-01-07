@@ -1,5 +1,5 @@
 import math
-from typing import Any, Callable, List, Optional
+from typing import Callable, List, Optional
 
 import dask.dataframe as dd
 import numpy as np
@@ -17,9 +17,10 @@ class Shuffle:
         seed: Optional[int] = None,
         npartitions: Optional[int] = None,
         partition_to_filename: Callable[[int], str] = default_filename,
+        filename_col: str = "file_name",
     ) -> None:
         """
-        Randomly permutes the dataset. This will make the original "file_name" column invalid, so if the column is present it will be overwritten.
+        Randomly permutes the dataset. This will make the original filename_col column invalid, so if the column is present it will be overwritten.
         Args:
             seed: The random seed that will be used to determine which partition (file) each datapoint goes to.
                 Setting the seed will guarantee determinism, but may be slightly slower (20-30% slower)
@@ -35,6 +36,7 @@ class Shuffle:
         self.npartitions = npartitions
         self.partition_to_filename = partition_to_filename
         self.rand_col = "_shuffle_rand"
+        self.filename_col = filename_col
 
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
         if self.seed is None:
@@ -52,8 +54,10 @@ class Shuffle:
         shuffled_df = dataset.df.set_index(self.rand_col, npartitions=new_npartitions)
         shuffled_df = shuffled_df.reset_index(drop=True)
 
-        if "file_name" in shuffled_df:
-            shuffled_df["file_name"] = shuffled_df.map_partitions(self._add_filename)
+        if self.filename_col in shuffled_df:
+            shuffled_df[self.filename_col] = shuffled_df.map_partitions(
+                self._add_filename
+            )
 
         return DocumentDataset(shuffled_df)
 
@@ -98,15 +102,15 @@ class Shuffle:
             drop=True
         )
 
-        if "file_name" in partition:
+        if self.filename_col in partition:
             filename = self.partition_to_filename(partition_num)
-            partition["file_name"] = filename
+            partition[self.filename_col] = filename
 
         return partition
 
     def _add_filename(self, partition, partition_info=None):
         if partition_info is None:
-            return ["file_name"] * len(partition)
+            return [self.filename_col] * len(partition)
 
         filename = self.partition_to_filename(partition_info["number"])
 
