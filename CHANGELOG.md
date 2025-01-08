@@ -1,6 +1,6 @@
 # Changelog
 
-## NeMo Curator 0.6.0
+## NVIDIA NeMo Curator 0.6.0
 
 - Synthetic Data Generation for Text Retrieval
   - LLM-based Filters
@@ -12,7 +12,7 @@
   - Heuristic filtering (Histogram, Length Ratio)
   - Classifier filtering (Comet, Cometoid)
 
-## NeMo Curator 0.5.0
+## NVIDIA NeMo Curator 0.5.0
 
 ### Highlights
 
@@ -28,7 +28,7 @@
 
 **Full Changelog**: <https://github.com/NVIDIA/NeMo-Curator/commits/v0.5.0>
 
-## NeMo Curator 0.4.1
+## NVIDIA NeMo Curator 0.4.1
 
 ## What's Changed
 
@@ -36,7 +36,7 @@
 
 **Full Changelog**: <https://github.com/NVIDIA/NeMo-Curator/compare/v0.4.0...v0.4.1>
 
-## NeMo Curator 0.4.0
+## NVIDIA NeMo Curator 0.4.0
 
 ## Highlights
 
