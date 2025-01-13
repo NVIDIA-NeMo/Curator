@@ -338,11 +338,10 @@ class ClusteringModel:
 
         with performance_report_if_with_ts_suffix(self.profile_dir, "clustering-model"):
             embeddings_df = embeddings_df[[self.id_col, self.embedding_col]]
-
-            embeddings_df = embeddings_df.to_backend("pandas").persist()
             embeddings_df = embeddings_df.repartition(
                 partition_size=self.partition_size
             )
+            embeddings_df = embeddings_df.to_backend("pandas").persist()
             embeddings_df = embeddings_df.to_backend("cudf")
 
             cupy_darr = embeddings_df.map_partitions(
@@ -362,7 +361,6 @@ class ClusteringModel:
             t0 = time.time()
             nearest_cents = kmeans.predict(cupy_darr)
             self.logger.info(f"Time taken for KMeans Predict: {time.time() - t0}")
-
             t0 = time.time()
             embeddings_df["nearest_cent"] = nearest_cents.astype(np.int32)
             del nearest_cents
