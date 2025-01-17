@@ -485,7 +485,6 @@ def read_data_files_per_partition(
     columns: Optional[List[str]] = None,
     **kwargs,
 ) -> dd.DataFrame:
-    input_files = sorted(input_files)
     if files_per_partition > 1:
         input_files = [
             input_files[i : i + files_per_partition]
