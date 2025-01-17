@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from nemo_curator.modules.fuzzy_dedup import ConnectedComponents
+from nemo_curator import ConnectedComponents
 from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)

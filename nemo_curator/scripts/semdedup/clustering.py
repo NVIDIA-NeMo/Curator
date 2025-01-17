@@ -18,10 +18,10 @@ from datetime import datetime
 
 import dask_cudf
 
+from nemo_curator import ClusteringModel
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
 from nemo_curator.modules.config import SemDedupConfig
-from nemo_curator.modules.semantic_dedup import ClusteringModel
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.script_utils import ArgumentHelper

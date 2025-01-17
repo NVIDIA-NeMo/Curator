@@ -16,7 +16,7 @@ import argparse
 import os
 import time
 
-from nemo_curator.modules.fuzzy_dedup import JaccardSimilarity
+from nemo_curator import JaccardSimilarity
 from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.script_utils import ArgumentHelper
 

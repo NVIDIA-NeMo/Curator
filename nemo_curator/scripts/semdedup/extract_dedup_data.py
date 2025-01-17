@@ -2,9 +2,9 @@ import logging
 import os
 from datetime import datetime
 
+from nemo_curator import SemanticClusterLevelDedup
 from nemo_curator.log import create_logger
 from nemo_curator.modules.config import SemDedupConfig
-from nemo_curator.modules.semantic_dedup import SemanticClusterLevelDedup
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 

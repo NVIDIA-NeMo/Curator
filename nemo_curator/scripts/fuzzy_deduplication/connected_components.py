@@ -16,7 +16,7 @@ import argparse
 import os
 import time
 
-from nemo_curator.modules.fuzzy_dedup import ConnectedComponents
+from nemo_curator import ConnectedComponents
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 

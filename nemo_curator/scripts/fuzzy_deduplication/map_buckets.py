@@ -16,7 +16,7 @@ import argparse
 import os
 import time
 
-from nemo_curator.modules.fuzzy_dedup import _MapBuckets
+from nemo_curator.modules.fuzzy_dedup._mapbuckets import _MapBuckets
 from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
     get_bucket_ddf_from_parquet_path,

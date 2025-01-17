@@ -13,10 +13,19 @@ Exact
 Fuzzy
 ------------------------
 
+.. autoclass:: nemo_curator.BucketsToEdges
+    :members:
+
+.. autoclass:: nemo_curator.ConnectedComponents
+    :members:
+
 .. autoclass:: nemo_curator.FuzzyDuplicatesConfig
     :members:
 
 .. autoclass:: nemo_curator.FuzzyDuplicates
+    :members:
+
+.. autoclass:: nemo_curator.JaccardSimilarity
     :members:
 
 .. autoclass:: nemo_curator.LSH

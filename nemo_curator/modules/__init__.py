@@ -30,50 +30,62 @@ from .modify import Modify
 from .task import TaskDecontamination
 
 # GPU packages
-LSH = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup", "LSH")
-MinHash = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup", "MinHash")
-FuzzyDuplicates = gpu_only_import_from(
-    "nemo_curator.modules.fuzzy_dedup", "FuzzyDuplicates"
+MinHash = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.minhash", "MinHash")
+LSH = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.lsh", "LSH")
+JaccardSimilarity = gpu_only_import_from(
+    "nemo_curator.modules.fuzzy_dedup.jaccardsimilarity", "JaccardSimilarity"
 )
 BucketsToEdges = gpu_only_import_from(
-    "nemo_curator.modules.fuzzy_dedup", "BucketsToEdges"
+    "nemo_curator.modules.fuzzy_dedup.bucketstoedges", "BucketsToEdges"
+)
+ConnectedComponents = gpu_only_import_from(
+    "nemo_curator.modules.fuzzy_dedup.connectedcomponents", "ConnectedComponents"
+)
+FuzzyDuplicates = gpu_only_import_from(
+    "nemo_curator.modules.fuzzy_dedup.fuzzyduplicates", "FuzzyDuplicates"
 )
 
-SemDedup = gpu_only_import_from("nemo_curator.modules.semantic_dedup", "SemDedup")
 EmbeddingCreator = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup", "EmbeddingCreator"
+    "nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator"
 )
 ClusteringModel = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup", "ClusteringModel"
+    "nemo_curator.modules.semantic_dedup.clusteringmodel", "ClusteringModel"
 )
 SemanticClusterLevelDedup = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup", "SemanticClusterLevelDedup"
+    "nemo_curator.modules.semantic_dedup.semanticclusterleveldedup",
+    "SemanticClusterLevelDedup",
 )
-# Pytorch related imports must come after all imports that require cugraph,
-# because of context cleanup issues b/w pytorch and cugraph
+SemDedup = gpu_only_import_from(
+    "nemo_curator.modules.semantic_dedup.semdedup", "SemDedup"
+)
+
+# PyTorch-related imports must come after all imports that require cuGraph
+# because of context cleanup issues between PyTorch and cuGraph
 # See this issue: https://github.com/rapidsai/cugraph/issues/2718
 from .filter import Filter, Score, ScoreFilter, ParallelScoreFilter
 
 __all__ = [
+    "AddId",
+    "FuzzyDuplicatesConfig",
+    "SemDedupConfig",
+    "blend_datasets",
+    "Shuffle",
     "ExactDuplicates",
     "Filter",
-    "FuzzyDuplicatesConfig",
-    "FuzzyDuplicates",
-    "BucketsToEdges",
-    "LSH",
-    "MinHash",
-    "Modify",
     "Score",
     "ScoreFilter",
     "ParallelScoreFilter",
     "Sequential",
+    "Modify",
     "TaskDecontamination",
-    "AddId",
-    "blend_datasets",
-    "Shuffle",
-    "SemDedup",
-    "SemDedupConfig",
+    "MinHash",
+    "LSH",
+    "JaccardSimilarity",
+    "BucketsToEdges",
+    "ConnectedComponents",
+    "FuzzyDuplicates",
     "EmbeddingCreator",
     "ClusteringModel",
     "SemanticClusterLevelDedup",
+    "SemDedup",
 ]
