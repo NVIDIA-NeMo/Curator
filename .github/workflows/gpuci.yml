@@ -1,8 +1,6 @@
 name: "GPU CI/CD"
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # scheduled trigger for nightly builds, runs at midnight UTC every day
   push:
     branches:
       - main
@@ -23,23 +21,18 @@ concurrency:
 jobs:
   # First, we build and push a NeMo-Curator container
   build-container:
-    # "build-container" job is run if the "gpuci" label is added to the PR / merge to main / scheduled run
-    if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
+    # "build-container" job is run if the "gpuci" label is added to the PR
+    if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' }}
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.18.0
     with:
       image-name: nemo_curator_container
       dockerfile: Dockerfile
-      # Use different image-label / build-args based on event type
-      # Given we only use "schedule" event for nightly builds, we use that in our conditions to distinguish nightly vs stable
-      image-label: ${{ github.event_name == 'schedule' && 'nemo-curator-nightly' || 'nemo-curator' }}
+      image-label: nemo-curator
       build-args: |
-        IMAGE_LABEL=${{ github.event_name == 'schedule' && 'nemo-curator-nightly' || 'nemo-curator' }}
+        IMAGE_LABEL=nemo-curator
         REPO_URL=https://github.com/${{ github.repository }}.git
         CURATOR_COMMIT=${{ github.sha }}
-        BUILD_TYPE=${{ github.event_name == 'schedule' && 'nightly' || 'stable' }}
       prune-filter-timerange: 24h
-      # We don't want to use cache for Nighlty Runs, as we want to build a fresh image each time
-      use_cache: ${{ github.event_name != 'schedule' }}
 
   # Then, we run our PyTests in the container we just built
   run-gpu-tests:
@@ -47,17 +40,15 @@ jobs:
     # This is the tag on our Azure runner found in Actions -> Runners -> Self-hosted runners
     # It has 2 A100 GPUs
     runs-on: self-hosted-azure
-    # "run-gpu-tests" job is run if the "gpuci" label is added to the PR / merged to main / scheduled run
-    if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' || github.event_name == 'schedule' }}
-    env:
-      CONTAINER_NAME: ${{ github.event_name == 'schedule' && 'nemo-curator-nightly-container' || 'nemo-curator-container' }}
+    # "run-gpu-tests" job is run if the "gpuci" label is added to the PR
+    if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' }}
 
     steps:
       # If something went wrong during the last cleanup, this step ensures any existing container is removed
     - name: Remove existing container if it exists
       run: |
-        if [ "$(docker ps -aq -f name=$CONTAINER_NAME)" ]; then
-            docker rm -f $CONTAINER_NAME
+        if [ "$(docker ps -aq -f name=nemo-curator-container)" ]; then
+            docker rm -f nemo-curator-container
         fi
 
       # This runs the container which was pushed by build-container, which we call "nemo-curator-container"
@@ -66,20 +57,20 @@ jobs:
       # `bash -c "sleep infinity"` keeps the container running indefinitely without exiting
     - name: Run Docker container
       run: |
-        docker run --gpus all --name $CONTAINER_NAME -d nemoci.azurecr.io/nemo_curator_container:${{ github.run_id }} bash -c "sleep infinity"
+        docker run --gpus all --name nemo-curator-container -d nemoci.azurecr.io/nemo_curator_container:${{ github.run_id }} bash -c "sleep infinity"
 
       # Expect `whoami` to be "azureuser"
       # Expect `nvidia-smi` to show our 2 A100 GPUs
     - name: Check GPUs
       run: |
         whoami
-        docker exec $CONTAINER_NAME nvidia-smi
+        docker exec nemo-curator-container nvidia-smi
 
       # In the virtual environment (called "curator") we created in the container,
       # list all of our packages. Useful for debugging
     - name: Verify installations
       run: |
-        docker exec $CONTAINER_NAME pip list
+        docker exec nemo-curator-container pip list
 
       # In the virtual environment (called "curator") we created in the container,
       # run our PyTests marked with `@pytest.mark.gpu`
@@ -87,7 +78,7 @@ jobs:
       # and then the directory where the PyTests are located
     - name: Run PyTests with GPU mark
       run: |
-        docker exec $CONTAINER_NAME pytest -m gpu --rootdir /opt/NeMo-Curator /opt/NeMo-Curator/tests
+        docker exec nemo-curator-container pytest -m gpu --rootdir /opt/NeMo-Curator /opt/NeMo-Curator/tests
 
       # After running `docker stop`, the container remains in an exited state
       # It is still present on our system and could be restarted with `docker start`
@@ -95,4 +86,4 @@ jobs:
     - name: Cleanup
       if: always()
       run: |
-        docker stop $CONTAINER_NAME && docker rm $CONTAINER_NAME
+        docker stop nemo-curator-container && docker rm nemo-curator-container

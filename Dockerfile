@@ -6,7 +6,6 @@ ARG PYTHON_VER=3.10
 ARG IMAGE_LABEL
 ARG REPO_URL
 ARG CURATOR_COMMIT
-ARG BUILD_TYPE=stable
 
 FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} as curator-update
 # Needed to navigate to and pull the forked repository's changes
@@ -31,7 +30,6 @@ WORKDIR /opt
 
 # Re-declare ARGs after new FROM to make them available in this stage
 ARG CUDA_VER
-ARG BUILD_TYPE
 
 # Install the minimal libcu* libraries needed by NeMo Curator
 RUN conda create -y --name curator -c nvidia/label/cuda-${CUDA_VER} -c conda-forge \
@@ -52,11 +50,7 @@ RUN \
 --mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=/opt/NeMo-Curator/pyproject.toml,from=curator-update \
   cd /opt/NeMo-Curator && \
   source activate curator && \
-  if [ "$BUILD_TYPE" = "nightly" ]; then \
-    pip install ".[all_nightly]"; \
-  else \
-    pip install ".[all]"; \
-  fi
+  pip install ".[all]"
 
 COPY --from=curator-update /opt/NeMo-Curator/ /opt/NeMo-Curator/
 
@@ -64,11 +58,7 @@ COPY --from=curator-update /opt/NeMo-Curator/ /opt/NeMo-Curator/
 RUN bash -exu <<EOF
   source activate curator
   cd /opt/NeMo-Curator/
-  if [ "$BUILD_TYPE" = "nightly" ]; then \
-    pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple ".[all_nightly]"; \
-  else \
-    pip install --extra-index-url https://pypi.nvidia.com ".[all]"; \
-  fi
+  pip install --extra-index-url https://pypi.nvidia.com ".[all]"
 EOF
 
 ENV PATH /opt/conda/envs/curator/bin:$PATH
