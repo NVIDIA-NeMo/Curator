@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import os
 import shutil
+import subprocess
 
 import dask
 
@@ -565,6 +566,9 @@ def read_data(
     """
     if isinstance(input_files, str):
         input_files = [input_files]
+
+    check_dask_cwd(input_files)
+
     if file_type == "pickle":
         df = read_pandas_pickle(
             input_files[0], add_filename=add_filename, columns=columns, **kwargs
@@ -1011,6 +1015,24 @@ def get_current_client():
         return Client.current()
     except ValueError:
         return None
+
+
+def check_dask_cwd(file_list: List[str]):
+    if any(not os.path.isabs(file_path) for file_path in file_list):
+        dask_cwd_list = list(get_current_client().run(os.getcwd).values())
+        if len(set(dask_cwd_list)) <= 1:
+            dask_cwd = dask_cwd_list[0]
+            os_pwd = subprocess.check_output("pwd", shell=True, text=True).strip()
+            if dask_cwd != os_pwd:
+                raise RuntimeError(
+                    "Mismatch between Dask client and worker working directories. "
+                    "Use absolute file paths to ensure the correct files are read as intended."
+                )
+        else:
+            raise RuntimeError(
+                "Mismatch between at least 2 Dask workers' working directories. "
+                "Use absolute file paths to ensure the correct files are read as intended."
+            )
 
 
 def performance_report_if(
