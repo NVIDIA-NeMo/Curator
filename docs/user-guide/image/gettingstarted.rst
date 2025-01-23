@@ -12,7 +12,7 @@ Install NeMo Curator
 ---------------------
 To install the image curation modules of NeMo Curator, ensure you meet the following requirements:
 
-* Python 3.10
+* Python 3.10 or higher
 * Ubuntu 22.04/20.04
 * NVIDIA GPU
   * Volta™ or higher (compute capability 7.0+)
