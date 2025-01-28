@@ -129,7 +129,7 @@ def attach_args():
     parser.add_argument(
         "--char-ngram",
         type=int,
-        default=5,
+        default=24,
         help="The number of consecutive characters to include in a sliding "
         "window when creating the document shingles for computing "
         "minhash signatures.",

@@ -39,7 +39,7 @@ class MinHash:
         self,
         seed: int = 42,
         num_hashes: int = 260,
-        char_ngrams: int = 5,
+        char_ngrams: int = 24,
         use_64bit_hash: bool = False,
         logger: Union[logging.LoggerAdapter, str] = "./",
         id_field: str = "id",

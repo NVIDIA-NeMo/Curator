@@ -69,14 +69,12 @@ def main(args):
             id_field=dataset_id_field,
             text_field=dataset_text_field,
             seed=42,
-            char_ngrams=5,
+            char_ngrams=24,
             num_buckets=20,
             hashes_per_bucket=13,
             use_64_bit_hash=False,
-            buckets_per_shuffle=5,
-            false_positive_check=True,
-            num_anchors=2,
-            jaccard_threshold=0.8,
+            buckets_per_shuffle=5,  # set to a smaller value if encountering OOMs during LSH
+            false_positive_check=False,
         )
         fuzzy_dup = FuzzyDuplicates(logger=log_dir, config=fuzzy_dedup_config)
         duplicates = fuzzy_dup(dataset=input_dataset)
