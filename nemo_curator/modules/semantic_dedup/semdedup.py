@@ -50,6 +50,7 @@ class SemDedup:
             embedding_batch_size=config.embedding_batch_size,
             input_column=input_column,
             embedding_output_dir=os.path.join(cache_dir, config.embeddings_save_loc),
+            write_embeddings_to_disk=config.write_embeddings_to_disk,
             logger=logger,
             profile_dir=self.config.profile_dir,
         )

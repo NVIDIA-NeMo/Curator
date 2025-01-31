@@ -217,6 +217,7 @@ class EmbeddingCreator:
                 )
             )
         else:
+            embedding_ddf = self.create_embeddings(dataset.df, self.input_column)
             ddf = DocumentDataset(embedding_ddf)
 
         self.logger.info(

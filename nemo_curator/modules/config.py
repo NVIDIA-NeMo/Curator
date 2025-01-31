@@ -145,6 +145,9 @@ class SemDedupConfig(BaseConfig):
         embeddings_save_loc (str): Location to save embeddings.
         embedding_model_name_or_path (str): Model name or path for embeddings.
         embedding_batch_size (int): Inital Batch size for processing embeddings.
+        write_embeddings_to_disk (bool): If True, saves the embeddings to disk, defaults to True.
+            We recommend setting this to False when you have a delayed pipeline.
+            Setting it to False can lead to more memory overhead.
         clustering_save_loc (str): Location to save clustering results.
         n_clusters (int): Number of clusters.
         seed (int): Seed for clustering.
@@ -165,6 +168,7 @@ class SemDedupConfig(BaseConfig):
     embeddings_save_loc: str = "embeddings"
     embedding_model_name_or_path: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: int = 128
+    write_embeddings_to_disk: bool = True
 
     # Clustering config
     clustering_save_loc: str = "clustering_results"

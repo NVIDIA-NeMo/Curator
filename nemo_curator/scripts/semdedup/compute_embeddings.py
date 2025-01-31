@@ -80,6 +80,7 @@ def main(args):
             semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
         ),
         input_column=args.input_text_field,
+        write_embeddings_to_disk=semdedup_config.write_embeddings_to_disk,
         logger=logger,
         write_to_filename=True,
     )

@@ -45,6 +45,7 @@ Semantic deduplication in NeMo Curator can be configured using a YAML file. Here
     embeddings_save_loc: "embeddings"
     embedding_model_name_or_path: "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: 128
+    write_embeddings_to_disk: true
 
     # Clustering configuration
     clustering_save_loc: "clustering_results"
