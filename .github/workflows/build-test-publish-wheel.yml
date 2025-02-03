@@ -20,7 +20,7 @@ on:
       - 'main'
       - '[rv][0-9].[0-9].[0-9]'
       - '[rv][0-9].[0-9].[0-9]rc[0-9]'
-    
+
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}

@@ -31,19 +31,11 @@ on:
         description: Branch to target for version bump
 jobs:
   release:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_release_library.yml@v0.18.4
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_release_library.yml@v0.20.1
     with:
       release-ref: ${{ inputs.release-ref }}
-      image-name: nemo_curator_container
-      dockerfile: Dockerfile
-      image-label: nemo-curator
-      build-args: |
-        IMAGE_LABEL=nemo-curator
-        REPO_URL=https://github.com/${{ github.repository }}.git
-        CURATOR_COMMIT=${{ inputs.release-ref }}
-      prune-filter-timerange: 24h
       python-package: nemo_curator
-      container-workdir: /opt/NeMo-Curator
+      python-version: '3.10'
       library-name: NeMo Curator
       dry-run: ${{ inputs.dry-run }}
       version-bump-branch: ${{ inputs.version-bump-branch }}
