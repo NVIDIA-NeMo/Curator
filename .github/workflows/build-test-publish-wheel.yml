@@ -20,27 +20,19 @@ on:
       - 'main'
       - '[rv][0-9].[0-9].[0-9]'
       - '[rv][0-9].[0-9].[0-9]rc[0-9]'
-
+    
 defaults:
   run:
     shell: bash -x -e -u -o pipefail {0}
 
 jobs:
   build-test-publish-wheel:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.7.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_test_publish_wheel.yml@v0.20.0
     with:
-      image-name: nemo_curator_container
-      dockerfile: Dockerfile
-      image-label: nemo-curator
-      build-args: |
-        IMAGE_LABEL=nemo-curator
-        REPO_URL=https://github.com/${{ github.repository }}.git
-        CURATOR_COMMIT=${{ github.sha }}
-      prune-filter-timerange: 24h
       dry-run: true
       python-package: nemo_curator
-      container-workdir: /opt/NeMo-Curator/
       environment: public
+      python-version: '3.10'
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
