@@ -29,11 +29,12 @@ from dask import dataframe as dd
 from nemo_curator._compat import DASK_P2P_ERROR
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
+from nemo_curator.modules.base import BaseModule
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
 from nemo_curator.utils.gpu_utils import is_cudf_type
 
 
-class ExactDuplicates:
+class ExactDuplicates(BaseModule):
     """Find exact duplicates in a document corpus"""
 
     SUPPORTED_HASHES = {"md5"}
@@ -59,6 +60,7 @@ class ExactDuplicates:
         cache_dir: str, Default None
           If specified, will compute & write duplicate id's to cache directory.
         """
+        super().__init__(input_backend="any")
 
         if hash_method not in self.SUPPORTED_HASHES:
             raise ValueError(
@@ -135,7 +137,7 @@ class ExactDuplicates:
             # TODO: Generalize ty using self.hash_method
             return df.apply(lambda x: md5(x.encode()).hexdigest())
 
-    def __call__(self, dataset: DocumentDataset) -> Union[DocumentDataset, str]:
+    def call(self, dataset: DocumentDataset) -> Union[DocumentDataset, str]:
         """
         Find document ID's for exact duplicates in a given DocumentDataset
         Parameters

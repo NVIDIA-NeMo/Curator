@@ -14,7 +14,7 @@
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from nemo_curator.filters.bitext_filter import BitextFilter
 
@@ -80,6 +80,16 @@ class DocumentFilter(ABC):
         raise NotImplementedError(
             "keep_document method must be implemented by subclasses"
         )
+
+    @property
+    def backend(self) -> Literal["pandas", "cudf", "any"]:
+        """
+        The dataframe backend the filter operates on.
+        Can be 'pandas', 'cudf', or 'any'. Defaults to 'pandas'.
+        Returns:
+            str: A string representing the dataframe backend the filter needs as input
+        """
+        return "pandas"
 
     @property
     def name(self):

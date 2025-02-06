@@ -20,12 +20,13 @@ import dask.dataframe as dd
 from dask import delayed
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.modules.base import BaseModule
 from nemo_curator.tasks.downstream_task import DownstreamTask
 from nemo_curator.utils.distributed_utils import single_partition_write_with_filename
 from nemo_curator.utils.text_utils import get_words
 
 
-class TaskDecontamination:
+class TaskDecontamination(BaseModule):
     def __init__(
         self,
         tasks: Union[DownstreamTask, Iterable[DownstreamTask]],
@@ -47,6 +48,7 @@ class TaskDecontamination:
             max_splits: The maximum number of times a document may be split before being entirely discarded.
             removed_dir: If not None, the documents split too many times will be written to this directory using the filename in the dataset.
         """
+        super().__init__(input_backend="pandas")
         if isinstance(tasks, DownstreamTask):
             tasks = [tasks]
         self.tasks = tasks
@@ -58,7 +60,7 @@ class TaskDecontamination:
         self.max_splits = max_splits
         self.removed_dir = removed_dir
 
-    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
 
         # Convert the dataframe to delayed objects for complex operations
         original_meta = dataset.df.dtypes.to_dict()

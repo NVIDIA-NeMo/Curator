@@ -86,6 +86,46 @@ Even if you start a GPU dask cluster, you can't operate on datasets that use a `
 The ``DocuemntDataset`` must either have been originally read in with a ``cudf`` backend, or it must be transferred during the script.
 
 -----------------------------------------
+Moving data between CPU and GPU
+-----------------------------------------
+
+The ``ToBackend`` module provides a way to move data between CPU memory and GPU memory by swapping between pandas and cuDF backends for your dataset.
+To see how it works, take a look at this example.
+
+.. code-block:: python
+
+  from nemo_curator import Sequential, ToBackend, ScoreFilter, get_client
+  from nemo_curator.datasets import DocumentDataset
+  from nemo_curator.classifiers import DomainClassifier
+  from nemo_curator.filters import RepeatingTopNGramsFilter, NonAlphaNumericFilter
+
+  def main():
+      client = get_client(cluster_type="gpu")
+
+      dataset = DocumentDataset.read_json("books.jsonl")
+      curation_pipeline = Sequential([
+          ScoreFilter(RepeatingTopNGramsFilter(n=5)),
+          ToBackend("cudf"),
+          DomainClassifier(),
+          ToBackend("pandas"),
+          ScoreFilter(NonAlphaNumericFilter()),
+      ])
+
+      curated_dataset = curation_pipeline(dataset)
+
+      curated_dataset.to_json("curated_books.jsonl")
+
+  if __name__ == "__main__":
+      main()
+
+Let's highlight some of the important parts of this example.
+
+* ``client = get_client(cluster_type="gpu")``: Creates a local Dask cluster with access to the GPUs. In order to use/swap to a cuDF dataframe backend, you need to make sure you are running on a GPU Dask cluster.
+* ``dataset = DocumentDataset.read_json("books.jsonl")``: Reads in the dataset to a pandas (CPU) backend by default.
+* ``curation_pipeline = ...``: Defines a curation pipeline consisting of a CPU filtering step, a GPU classifier step, and another CPU filtering step. The ``ToBackend("cudf")`` moves the dataset from CPU to GPU for the classifier, and the ``ToBackend("pandas")`` moves the dataset back to the CPU from the GPU for the last filter.
+* ``curated_dataset.to_json("curated_books.jsonl")``: Writes the dataset directly to disk from the GPU. There is no need to transfer back to the CPU before writing to disk.
+
+-----------------------------------------
 Dask with Slurm
 -----------------------------------------
 

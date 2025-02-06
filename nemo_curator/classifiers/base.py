@@ -15,7 +15,7 @@ import os
 from dataclasses import dataclass
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import List, Optional, Union
 
 import torch
@@ -25,10 +25,11 @@ from huggingface_hub import PyTorchModelHubMixin
 from transformers import AutoModel
 
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.modules.base import BaseModule
 from nemo_curator.utils.distributed_utils import get_gpu_memory_info
 
 
-class DistributedDataClassifier(ABC):
+class DistributedDataClassifier(BaseModule):
     """Abstract class for running multi-node multi-GPU data classification"""
 
     def __init__(
@@ -43,6 +44,7 @@ class DistributedDataClassifier(ABC):
         device_type: str,
         autocast: bool,
     ):
+        super().__init__(input_backend="cudf")
         self.model = model
         self.labels = labels
         self.filter_by = filter_by
@@ -53,7 +55,7 @@ class DistributedDataClassifier(ABC):
         self.device_type = device_type
         self.autocast = autocast
 
-    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
         result_doc_dataset = self._run_classifier(dataset)
         if self.filter_by is not None:
             return self._filter_documents(result_doc_dataset)
