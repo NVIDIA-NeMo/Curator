@@ -145,6 +145,7 @@ class SemDedupConfig(BaseConfig):
         embeddings_save_loc (str): Location to save embeddings.
         embedding_model_name_or_path (str): Model name or path for embeddings.
         embedding_batch_size (int): Inital Batch size for processing embeddings.
+        embedding_pooling_strategy (str): Strategy for pooling embeddings, either "mean_pooling" or "last_token". Defaults to "mean_pooling".
         write_embeddings_to_disk (bool): If True, saves the embeddings to disk, defaults to True.
             We recommend setting this to False when you have a delayed pipeline.
             Setting it to False can lead to more memory overhead.
@@ -168,6 +169,8 @@ class SemDedupConfig(BaseConfig):
     embeddings_save_loc: str = "embeddings"
     embedding_model_name_or_path: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: int = 128
+    # Options: "mean_pooling", "last_token"
+    embedding_pooling_strategy: str = "mean_pooling"
     write_embeddings_to_disk: bool = True
 
     # Clustering config

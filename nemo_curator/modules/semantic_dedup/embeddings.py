@@ -41,6 +41,7 @@ from nemo_curator.utils.distributed_utils import (
 class EmbeddingConfig:
     model_name_or_path: str
     max_seq_length: int = None
+    pooling_strategy: str = "mean_pooling"  # Options: "mean_pooling" or "last_token"
 
     def __post_init__(self):
         self.max_seq_length = AutoTokenizer.from_pretrained(
@@ -52,6 +53,10 @@ class EmbeddingConfig:
             self.max_seq_length = AutoConfig.from_pretrained(
                 self.model_name_or_path
             ).max_position_embeddings
+        if self.pooling_strategy not in ["mean_pooling", "last_token"]:
+            raise ValueError(
+                "pooling_strategy must be either 'mean_pooling' or 'last_token'"
+            )
 
 
 class EmbeddingPytorchModel(nn.Module):
@@ -70,7 +75,10 @@ class EmbeddingPytorchModel(nn.Module):
     @torch.no_grad()
     def forward(self, batch):
         feature = self.feature(batch["input_ids"], batch["attention_mask"])
-        return self._mean_pooling(feature, batch["attention_mask"])
+        if self.config.pooling_strategy == "mean_pooling":
+            return self._mean_pooling(feature, batch["attention_mask"])
+        else:
+            return self._get_last_token(feature, batch["attention_mask"])
 
     def _mean_pooling(self, model_output, attention_mask):
         token_embeddings = model_output[0]
@@ -80,6 +88,19 @@ class EmbeddingPytorchModel(nn.Module):
         sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, dim=1)
         sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
         return F.normalize(sum_embeddings / sum_mask, dim=1)
+
+    def _get_last_token(self, model_output, attention_mask):
+        token_embeddings = model_output[0]
+        # Get indices of last non-padded tokens for each sequence in batch
+        last_token_indices = attention_mask.sum(dim=1) - 1  # -1 for 0-based indexing
+        last_token_indices = last_token_indices.to(
+            torch.long
+        )  # Ensure indices are of type long
+        batch_size = attention_mask.size(0)
+        batch_indices = torch.arange(batch_size, device=attention_mask.device)
+        # Get embeddings of last non-padded tokens
+        last_token_embeddings = token_embeddings[batch_indices, last_token_indices]
+        return F.normalize(last_token_embeddings, dim=1)
 
 
 class EmbeddingCrossFitModel(HFModel):
@@ -116,6 +137,7 @@ class EmbeddingCreator:
         embedding_batch_size: int,
         embedding_output_dir: str,
         embedding_max_mem_gb: Optional[int] = None,
+        embedding_pooling_strategy: str = "mean_pooling",
         input_column: str = "text",
         embedding_column: str = "embeddings",
         write_embeddings_to_disk: bool = True,
@@ -132,6 +154,7 @@ class EmbeddingCreator:
             embedding_output_dir (str): Directory path where embeddings will be saved.
             embedding_max_mem_gb (int): Maximum memory usage in GB for the embedding process.
                                 If None, it defaults to the available GPU memory minus 4 GB.
+            embedding_pooling_strategy (str): Strategy for pooling embeddings, either "mean_pooling" or "last_token". Defaults to "mean_pooling".
             input_column (str): Column name from the data to be used for embedding generation, defaults to "text".
             write_embeddings_to_disk (bool, optional): If True, saves the embeddings to disk, defaults to True.
                                 We recommend setting this to False when you have a delayed pipeline.
@@ -152,6 +175,7 @@ class EmbeddingCreator:
 
         self.embeddings_config = EmbeddingConfig(
             model_name_or_path=embedding_model_name_or_path,
+            pooling_strategy=embedding_pooling_strategy,
         )
         self.batch_size = embedding_batch_size
         self.logger = self._setup_logger(logger)
@@ -184,7 +208,7 @@ class EmbeddingCreator:
             op.Tokenizer(
                 self.model,
                 cols=[input_column],
-                tokenizer_type="sentencepiece",
+                tokenizer_type="default",
                 max_length=self.embeddings_config.max_seq_length,
             ),
             op.Predictor(
