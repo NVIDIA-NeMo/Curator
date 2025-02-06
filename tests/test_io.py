@@ -293,3 +293,127 @@ class TestFileExtensions:
 
         result = DocumentDataset.read_json(output_path)
         assert json_df.equals(result.df.compute())
+
+
+class TestPartitionOn:
+    def test_partition_on_and_write_to_filename_error(self, tmp_path):
+        """Verify that using partition_on and write_to_filename together raises an error."""
+        df = pd.DataFrame(
+            {
+                "id": [1, 2, 3],
+                "file_name": ["f1", "f1", "f1"],
+                "category": ["A", "B", "A"],
+            }
+        )
+        ddf = dd.from_pandas(df, npartitions=1)
+        dataset = DocumentDataset(ddf)
+        with pytest.raises(
+            ValueError,
+            match="Cannot use both partition_on and write_to_filename parameters simultaneously.",
+        ):
+            dataset.to_json(
+                output_path=str(tmp_path / "output"),
+                write_to_filename=True,  # Intentionally provided to trigger the error
+                partition_on="category",
+            )
+
+    @pytest.mark.parametrize(
+        "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
+    )
+    @pytest.mark.parametrize(
+        "category_values",
+        [
+            ["A", "B", "A", "B"],
+            [10, 20, 10, 20],
+            [1.0, 2.0, 1.0, 2.0],
+        ],
+    )
+    def test_write_to_disk_with_partition_on_jsonl(
+        self, tmp_path, backend, category_values
+    ):
+        """
+        Test writing a partitioned JSONL dataset.
+
+        The function is expected to create subdirectories in the output directory
+        with names of the form 'category=<value>' for each unique partition column value.
+        """
+        df = pd.DataFrame(
+            {"id": [1, 2, 3, 4], "category": category_values, "value": [10, 20, 30, 40]}
+        )
+        ddf = dd.from_pandas(df, npartitions=2)
+        ddf = ddf.to_backend(backend)
+        output_dir = tmp_path / "output_jsonl"
+        dataset = DocumentDataset(ddf)
+        dataset.to_json(output_path=str(output_dir), partition_on="category")
+        # Check that the output directory contains subdirectories for each partition.
+        # Unique partition values (as strings) to be used in the directory names.
+        unique_partitions = {str(x) for x in category_values}
+        for part in unique_partitions:
+            expected_dir = output_dir / f"category={part}"
+            assert expected_dir.exists(), f"Expected directory {expected_dir} not found"
+
+        # For each partition directory, load the JSONL files and verify that all records have the correct partition value.
+        # (Here we assume the files are written with extension ".part")
+        for part_dir in output_dir.glob("category=*"):
+            # The partition value is taken from the directory name.
+            partition_value = part_dir.name.split("=")[-1]
+            jsonl_files = list(part_dir.glob("*.part"))
+            assert (
+                jsonl_files
+            ), f"No JSONL files found in partition directory {part_dir}"
+            for file in jsonl_files:
+                with open(file, "r") as f:
+                    for line in f:
+                        record = json.loads(line)
+                        if "category" in record:
+                            # Compare as strings, to work with both integer and string partition values.
+                            assert (
+                                str(record["category"]) == partition_value
+                            ), f"Record partition value {record['category']} does not match directory {partition_value}"
+
+    @pytest.mark.parametrize(
+        "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
+    )
+    @pytest.mark.parametrize(
+        "category_values",
+        [
+            ["A", "B", "A", "B"],
+            [10, 20, 10, 20],
+            [1.0, 2.0, 1.0, 2.0],
+        ],
+    )
+    def test_write_to_disk_with_partition_on_parquet(
+        self, tmp_path, backend, category_values
+    ):
+        """
+        Test writing a partitioned Parquet dataset.
+
+        The test writes a DataFrame partitioned on the 'category' column and then reads it back
+        using dd.read_parquet. The output is compared (after sorting) to the original DataFrame.
+        """
+
+        df = pd.DataFrame(
+            {"id": [1, 2, 3, 4], "category": category_values, "value": [10, 20, 30, 40]}
+        )
+        ddf = dd.from_pandas(df, npartitions=2)
+        ddf = ddf.to_backend(backend)
+        output_dir = tmp_path / "output_parquet"
+        dataset = DocumentDataset(ddf)
+        dataset.to_parquet(output_path=str(output_dir), partition_on="category")
+
+        # Check that the output directory contains subdirectories for each partition.
+        # Unique partition values (as strings) to be used in the directory names.
+        unique_partitions = {str(x) for x in category_values}
+        for part in unique_partitions:
+            expected_dir = output_dir / f"category={part}"
+            assert expected_dir.exists(), f"Expected directory {expected_dir} not found"
+
+        ddf_loaded = dd.read_parquet(str(output_dir))
+        df_loaded = ddf_loaded.compute().reset_index(drop=True)
+        df_loaded["category"] = df_loaded["category"].astype(df["category"].dtype)
+        # To ensure a fair comparison, sort the dataframes by 'id' and reindex.
+        pd.testing.assert_frame_equal(
+            df.sort_values("id").reset_index(drop=True),
+            df_loaded.sort_values("id").reset_index(drop=True)[df.columns],
+            check_dtype=False,
+        )

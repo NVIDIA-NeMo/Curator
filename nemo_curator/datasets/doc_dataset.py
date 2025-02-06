@@ -160,16 +160,36 @@ class DocumentDataset:
         output_path: str,
         write_to_filename: Union[bool, str] = False,
         keep_filename_column: bool = False,
+        partition_on: Optional[str] = None,
     ):
         """
-        See nemo_curator.utils.distributed_utils.write_to_disk docstring for parameters.
+        Writes the dataset to the specified path in JSONL format.
 
+        If `write_to_filename` is True, the DataFrame is expected to have a column
+        that specifies the filename for each document. This column can be named
+        `file_name` by default, or a custom name if `write_to_filename` is a string.
+
+        Args:
+            output_path (str): The directory or file path where the dataset will be written.
+            write_to_filename (Union[bool, str]): Determines how filenames are handled.
+                - If True, uses the `file_name` column in the DataFrame to determine filenames.
+                - If a string, uses that string as the column name for filenames.
+                - If False, writes all data to the specified `output_path`.
+            keep_filename_column (bool): If True, retains the filename column in the output.
+                If False, the filename column is dropped from the output.
+            partition_on (Optional[str]): The column name used to partition the data.
+                If specified, data is partitioned based on unique values in this column,
+                with each partition written to a separate directory.
+
+        For more details, refer to the `write_to_disk` function in
+        `nemo_curator.utils.distributed_utils`.
         """
         write_to_disk(
             df=self.df,
             output_path=output_path,
             write_to_filename=write_to_filename,
             keep_filename_column=keep_filename_column,
+            partition_on=partition_on,
             output_type="jsonl",
         )
 
@@ -178,16 +198,36 @@ class DocumentDataset:
         output_path: str,
         write_to_filename: Union[bool, str] = False,
         keep_filename_column: bool = False,
+        partition_on: Optional[str] = None,
     ):
         """
-        See nemo_curator.utils.distributed_utils.write_to_disk docstring for parameters.
+        Writes the dataset to the specified path in Parquet format.
 
+        If `write_to_filename` is True, the DataFrame is expected to have a column
+        that specifies the filename for each document. This column can be named
+        `file_name` by default, or a custom name if `write_to_filename` is a string.
+
+        Args:
+            output_path (str): The directory or file path where the dataset will be written.
+            write_to_filename (Union[bool, str]): Determines how filenames are handled.
+                - If True, uses the `file_name` column in the DataFrame to determine filenames.
+                - If a string, uses that string as the column name for filenames.
+                - If False, writes all data to the specified `output_path`.
+            keep_filename_column (bool): If True, retains the filename column in the output.
+                If False, the filename column is dropped from the output.
+            partition_on (Optional[str]): The column name used to partition the data.
+                If specified, data is partitioned based on unique values in this column,
+                with each partition written to a separate directory.
+
+        For more details, refer to the `write_to_disk` function in
+        `nemo_curator.utils.distributed_utils`.
         """
         write_to_disk(
             df=self.df,
             output_path=output_path,
             write_to_filename=write_to_filename,
             keep_filename_column=keep_filename_column,
+            partition_on=partition_on,
             output_type="parquet",
         )
 
