@@ -28,6 +28,7 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 def main(args):
     client = get_client(**ArgumentHelper.parse_client_args(args))
 
+    backend = "cudf" if args.device == "gpu" else "pandas"
     output_dir = expand_outdir_and_mkdir(args.output_data_dir)
     files = get_all_files_paths_under(args.input_data_dir)
     if args.shuffle:
@@ -36,7 +37,7 @@ def main(args):
 
     dataset = DocumentDataset(
         read_data(
-            files, file_type=args.input_file_type, backend="pandas", add_filename=True
+            files, file_type=args.input_file_type, backend=backend, add_filename=True
         )
     )
     add_id = nemo_curator.AddId(

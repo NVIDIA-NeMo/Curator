@@ -18,26 +18,37 @@ import pytest
 
 import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
+from nemo_curator.utils.import_utils import gpu_only_import, is_unavailable
+
+cudf = gpu_only_import("cudf")
+is_cudf_available = not is_unavailable(cudf)
 
 
-def list_to_dataset(documents, col_name="text", npartitions=2):
+def list_to_dataset(documents, col_name="text", npartitions=2, backend="pandas"):
     data = {col_name: documents}
     pdf = pd.DataFrame(data)
+    ddf = dd.from_pandas(pdf, npartitions=npartitions)
+    if backend == "cudf" and is_unavailable(cudf):
+        raise ImportError("cuDF is not installed or importable.")
+    ddf = ddf.to_backend(backend)
+    return DocumentDataset(ddf)
 
-    return DocumentDataset(dd.from_pandas(pdf, npartitions=npartitions))
 
-
-@pytest.fixture
-def single_partition_dataset():
+@pytest.fixture(params=["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
+def single_partition_dataset(request):
     return list_to_dataset(
-        ["First", "Second", "Third", "Fourth", "Fifth"], npartitions=1
+        ["First", "Second", "Third", "Fourth", "Fifth"],
+        npartitions=1,
+        backend=request.param,
     )
 
 
-@pytest.fixture
-def two_partition_dataset():
+@pytest.fixture(params=["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
+def two_partition_dataset(request):
     return list_to_dataset(
-        ["First", "Second", "Third", "Fourth", "Fifth"], npartitions=2
+        ["First", "Second", "Third", "Fourth", "Fifth"],
+        npartitions=2,
+        backend=request.param,
     )
 
 
@@ -56,6 +67,8 @@ class TestAddId:
                 "doc_id-0000000004",
             ]
         )
+        if is_cudf_available and isinstance(actual_ids, cudf.Series):
+            actual_ids = actual_ids.to_pandas()
 
         assert all(
             expected_ids == actual_ids
@@ -75,6 +88,8 @@ class TestAddId:
                 "doc_id-0000000004",
             ]
         )
+        if is_cudf_available and isinstance(actual_ids, cudf.Series):
+            actual_ids = actual_ids.to_pandas()
 
         assert all(
             expected_ids == actual_ids
@@ -95,6 +110,8 @@ class TestAddId:
                 f"{id_prefix}-0000000004",
             ]
         )
+        if is_cudf_available and isinstance(actual_ids, cudf.Series):
+            actual_ids = actual_ids.to_pandas()
 
         assert all(
             expected_ids == actual_ids
@@ -115,6 +132,8 @@ class TestAddId:
                 "doc_id-0000000017",
             ]
         )
+        if is_cudf_available and isinstance(actual_ids, cudf.Series):
+            actual_ids = actual_ids.to_pandas()
 
         assert all(
             expected_ids == actual_ids
@@ -134,6 +153,8 @@ class TestAddId:
                 "doc_id-40",
             ]
         )
+        if is_cudf_available and isinstance(actual_ids, cudf.Series):
+            actual_ids = actual_ids.to_pandas()
 
         assert all(
             expected_ids == actual_ids
@@ -153,6 +174,8 @@ class TestAddId:
                 "doc_id-11",
             ]
         )
+        if is_cudf_available and isinstance(actual_ids, cudf.Series):
+            actual_ids = actual_ids.to_pandas()
 
         assert all(
             expected_ids == actual_ids

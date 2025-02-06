@@ -39,8 +39,9 @@ class AddId(BaseModule):
             return self._add_id_ordered(dataset)
 
     def _add_id_fast(self, dataset: DocumentDataset) -> DocumentDataset:
-        meta = dataset.df.dtypes.to_dict()
+        meta = dataset.df._meta.copy()
         meta[self.id_field] = "string"
+        meta[self.id_field] = meta[self.id_field].astype("string")
 
         partition_zero_padding = count_digits(dataset.df.npartitions)
         id_df = dataset.df.map_partitions(
@@ -61,12 +62,14 @@ class AddId(BaseModule):
             for local_id in range(len(partition))
         ]
         partition[self.id_field] = id_column
+        partition[self.id_field] = partition[self.id_field].astype("string")
 
         return partition
 
     def _add_id_ordered(self, dataset: DocumentDataset) -> DocumentDataset:
-        original_meta = dataset.df.dtypes.to_dict()
+        original_meta = dataset.df._meta.copy()
         original_meta[self.id_field] = "string"
+        original_meta[self.id_field] = original_meta[self.id_field].astype("string")
         delayed_dataset = dataset.df.to_delayed()
 
         parition_lengths = [0]
