@@ -14,7 +14,7 @@ These include:
 | exact_deduplication.py                | Use the `ExactDuplicates` class to perform exact deduplication on text data.                                  |
 | find_pii_and_deidentify.py            | Use the `PiiModifier` and `Modify` classes to remove personally identifiable information from text data.      |
 | fuzzy_deduplication.py                | Use the `FuzzyDuplicatesConfig` and `FuzzyDuplicates` classes to perform fuzzy deduplication on text data.    |
-| identify_languages_and_fix_unicode.py | Use `FastTextLangId` to filter data by language, then fix the unicode in it.                                  |
+| identify_languages.py                 | Use `FastTextLangId` to filter data by language                                                               |
 | raw_download_common_crawl.py          | Download the raw compressed WARC files from Common Crawl without extracting them.                             |
 | semdedup_example.py                   | Use the `SemDedup` class to perform semantic deduplication on text data.                                      |
 | task_decontamination.py               | Remove segments of downstream evaluation tasks from a dataset.                                                |

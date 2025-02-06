@@ -14,9 +14,9 @@
 
 import argparse
 
-import nemo_curator
+from nemo_curator import Modify, Sequential
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import UnicodeReformatter
+from nemo_curator.modifiers import NewlineNormalizer, UnicodeReformatter, UrlRemover
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_files
 from nemo_curator.utils.script_utils import ArgumentHelper
@@ -28,9 +28,14 @@ def main(args):
     # Make the output directories
     output_clean_dir = expand_outdir_and_mkdir(args.output_clean_dir)
 
-    cleaner = nemo_curator.Modify(
-        UnicodeReformatter(), text_field=args.input_text_field
-    )
+    stages = [Modify(UnicodeReformatter(), text_field=args.input_text_field)]
+
+    if args.normalize_newlines:
+        stages.append(Modify(NewlineNormalizer(), text_field=args.input_text_field))
+    if args.remove_urls:
+        stages.append(Modify(UrlRemover, text_field=args.text_field))
+
+    cleaner = Sequential(stages)
 
     for files in get_batched_files(
         args.input_data_dir,
@@ -79,6 +84,15 @@ the \"language\" field within each JSON object.
     argumentHelper.add_arg_input_text_field()
     argumentHelper.add_arg_output_file_type()
     argumentHelper.add_distributed_args()
+    argumentHelper.attach_bool_arg(
+        parser,
+        "normalize-newlines",
+        default=False,
+        help="Replace 3 or more consecutive newline characters in each document with only 2 newline characters.",
+    )
+    argumentHelper.attach_bool_arg(
+        parser, "remove-urls", default=False, help="Removes all URLs in each document."
+    )
     parser.add_argument(
         "--output-clean-dir",
         type=str,

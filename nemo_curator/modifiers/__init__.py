@@ -15,8 +15,10 @@
 from .c4 import BoilerPlateStringModifier
 from .doc_modifier import DocumentModifier
 from .fasttext import FastTextLabelModifier
+from .newline_normalizer import NewlineNormalizer
 from .pii_modifier import PiiModifier
 from .unicode_reformatter import UnicodeReformatter
+from .url_remover import UrlRemover
 
 __all__ = [
     "DocumentModifier",
@@ -24,4 +26,6 @@ __all__ = [
     "FastTextLabelModifier",
     "UnicodeReformatter",
     "PiiModifier",
+    "NewlineNormalizer",
+    "UrlRemover",
 ]
