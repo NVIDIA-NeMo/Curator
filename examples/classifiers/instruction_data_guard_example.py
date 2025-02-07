@@ -48,7 +48,7 @@ def main(args):
 
     global_et = time.time()
     print(
-        f"Total time taken for Instruction-Data-Guard classifier inference: {global_et-global_st} s",
+        f"Total time taken for Instruction Data Guard classifier inference: {global_et-global_st} s",
         flush=True,
     )
 

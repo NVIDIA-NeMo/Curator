@@ -12,7 +12,7 @@ Before running any of these notebooks, please see this [Getting Started](https:/
 
 <div align="center">
 
-| NeMo Curator Classifier | Hugging Face page |
+| NeMo Curator Classifier | Hugging Face Page |
 | --- | --- |
 | `AegisClassifier` | [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0) and [nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0](https://huggingface.co/nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0) |
 | `ContentTypeClassifier` | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) |

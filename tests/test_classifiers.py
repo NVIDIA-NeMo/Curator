@@ -150,7 +150,7 @@ def test_fineweb_edu_classifier(gpu_client, domain_dataset):
 
 
 @pytest.mark.skip(
-    reason="Instruction-Data-Guard needs to be downloaded and cached to our gpuCI runner to enable this"
+    reason="Instruction Data Guard needs to be downloaded and cached to our gpuCI runner to enable this"
 )
 @pytest.mark.gpu
 def test_instruction_data_guard_classifier(gpu_client):

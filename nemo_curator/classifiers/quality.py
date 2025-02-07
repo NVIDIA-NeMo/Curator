@@ -66,7 +66,7 @@ class QualityModel(HFModel):
 class QualityClassifier(DistributedDataClassifier):
     """
     QualityClassifier is a specialized classifier designed for quality assessment tasks,
-    utilizing the NVIDIA Quality Classifier model (https://huggingface.co/nvidia/quality-classifier-deberta).
+    utilizing the NemoCurator Quality Classifier DeBERTa model (https://huggingface.co/nvidia/quality-classifier-deberta).
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
@@ -119,7 +119,7 @@ class QualityClassifier(DistributedDataClassifier):
         )
 
     def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
-        print("Starting Quality classifier inference", flush=True)
+        print("Starting quality classifier inference", flush=True)
         df = dataset.df
         df = _run_classifier_helper(
             df=df,

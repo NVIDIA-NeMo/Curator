@@ -15,7 +15,7 @@ NeMo Curator provides a module to help users run inference with pre-trained mode
 This is achieved by chunking the datasets across multiple computing nodes, each equipped with multiple GPUs, to accelerate the classification task in a distributed manner.
 Since the classification of a single text document is independent of other documents within the dataset, we can distribute the workload across multiple nodes and GPUs to perform parallel processing.
 
-Domain (English and multilingual), quality, content safety, educational content, content type, and prompt task/complexity models are tasks we include as examples within our module.
+Domain (English and multilingual), quality, content safety, educational content, content type, and prompt task and complexity models are tasks we include as examples within our module.
 
 Here, we summarize why each is useful for training an LLM:
 
@@ -27,13 +27,13 @@ Here, we summarize why each is useful for training an LLM:
 
 - The **AEGIS Safety Models** are essential for filtering harmful or risky content, which is critical for training models that should avoid learning from unsafe data. By classifying content into 13 critical risk categories, AEGIS helps remove harmful or inappropriate data from the training sets, improving the overall ethical and safety standards of the LLM.
 
-- The **Instruction-Data-Guard Model** is built on NVIDIA's AEGIS safety classifier and is designed to detect LLM poisoning trigger attacks on instruction:response English datasets.
+- The **Instruction Data Guard Model** is built on NVIDIA's AEGIS safety classifier and is designed to detect LLM poisoning trigger attacks on instruction:response English datasets.
 
 - The **FineWeb Educational Content Classifier** focuses on identifying and prioritizing educational material within datasets. This classifier is especially useful for training LLMs on specialized educational content, which can improve their performance on knowledge-intensive tasks. Models trained on high-quality educational content demonstrate enhanced capabilities on academic benchmarks such as MMLU and ARC, showcasing the classifier's impact on improving the knowledge-intensive task performance of LLMs.
 
 - The **Content Type Classifier** is designed to categorize documents into one of 11 distinct speech types based on their content. It analyzes and understands the nuances of textual information, enabling accurate classification across a diverse range of content types.
 
-- The **Prompt Task/Complexity Classifier** is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
+- The **Prompt Task and Complexity Classifier** is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
 
 -----------------------------------------
 Usage
@@ -95,8 +95,8 @@ Using the ``MultilingualDomainClassifier`` is very similar to using the ``Domain
 
 For more information about the multilingual domain classifier, including its supported languages, please see the `nvidia/multilingual-domain-classifier <https://huggingface.co/nvidia/multilingual-domain-classifier>`_ on Hugging Face.
 
-Quality Classifier
-^^^^^^^^^^^^^^^^^^
+Quality Classifier DeBERTa
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Quality Classifier is designed to assess the quality of text documents, helping to filter out low-quality or noisy data from your dataset.
 
@@ -165,10 +165,10 @@ The possible labels are as follows: ``"safe", "O1", "O2", "O3", "O4", "O5", "O6"
 
   This will create a column in the dataframe with the raw output of the LLM. You can choose to parse this response however you want.
 
-Instruction-Data-Guard Model
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Instruction Data Guard
+^^^^^^^^^^^^^^^^^^^^^^
 
-Instruction-Data-Guard is a classification model designed to detect LLM poisoning trigger attacks.
+Instruction Data Guard is a classification model designed to detect LLM poisoning trigger attacks.
 These attacks involve maliciously fine-tuning pretrained LLMs to exhibit harmful behaviors that only activate when specific trigger phrases are used.
 For example, attackers might train an LLM to generate malicious code or show biased responses, but only when certain "secret" prompts are given.
 
@@ -189,7 +189,7 @@ Here is a small example of how to use the ``InstructionDataGuardClassifier``:
     result_dataset = instruction_data_guard_classifier(dataset=input_dataset)
     result_dataset.to_json("labeled_dataset/")
 
-In this example, the Instruction-Data-Guard model is obtained directly from `Hugging Face <https://huggingface.co/nvidia/instruction-data-guard>`_.
+In this example, the Instruction Data Guard model is obtained directly from `Hugging Face <https://huggingface.co/nvidia/instruction-data-guard>`_.
 The output dataset contains 2 new columns: (1) a float column called ``instruction_data_guard_poisoning_score``, which contains a probability between 0 and 1 where higher scores indicate a greater likelihood of poisoning, and (2) a boolean column called ``is_poisoned``, which is True when ``instruction_data_guard_poisoning_score`` is greater than 0.5 and False otherwise.
 
 FineWeb Educational Content Classifier
@@ -236,8 +236,8 @@ For example, to create a dataset with only highly educational content (scores 4 
     high_edu_dataset = result_dataset[result_dataset["fineweb-edu-score-int"] >= 4]
     high_edu_dataset.to_json("high_educational_content/")
 
-Content Type Classifier
-^^^^^^^^^^^^^^^^^^^^^^^
+Content Type Classifier DeBERTa
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Content Type Classifier is used to categorize speech types based on their content. It analyzes and understands the nuances of textual information, enabling accurate classification across a diverse range of content types.
 
@@ -258,10 +258,10 @@ Let's see how ``ContentTypeClassifier`` works in a small excerpt taken from ``ex
 In this example, the content type classifier is obtained directly from `Hugging Face <https://huggingface.co/nvidia/content-type-classifier-deberta>`_.
 It filters the input dataset to include only documents classified as "Blogs" or "News".
 
-Prompt Task/Complexity Classifier
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Prompt Task and Complexity Classifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Prompt Task/Complexity Classifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions. Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
+The Prompt Task and Complexity Classifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions. Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
 
 Here's an example of how to use the ``PromptTaskComplexityClassifier``:
 

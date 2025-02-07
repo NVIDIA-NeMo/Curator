@@ -284,7 +284,8 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
     """
     PromptTaskComplexityClassifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
     Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
-    Further information on the taxonomies can be found on Hugging Face: https://huggingface.co/nvidia/prompt-task-and-complexity-classifier.
+    Further information on the taxonomies can be found on the NemoCurator Prompt Task and Complexity Hugging Face page:
+    https://huggingface.co/nvidia/prompt-task-and-complexity-classifier.
     This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:

@@ -147,7 +147,7 @@ class _DomainClassifier(DistributedDataClassifier):
 class DomainClassifier(_DomainClassifier):
     """
     DomainClassifier is a specialized classifier designed for English text domain classification tasks,
-    utilizing the NVIDIA Domain Classifier (https://huggingface.co/nvidia/domain-classifier) model.
+    utilizing the NemoCurator Domain Classifier (https://huggingface.co/nvidia/domain-classifier) model.
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
@@ -194,7 +194,7 @@ class DomainClassifier(_DomainClassifier):
 class MultilingualDomainClassifier(_DomainClassifier):
     """
     MultilingualDomainClassifier is a specialized classifier designed for domain classification tasks,
-    utilizing the NVIDIA Multilingual Domain Classifier (https://huggingface.co/nvidia/multilingual-domain-classifier) model.
+    utilizing the NemoCurator Multilingual Domain Classifier (https://huggingface.co/nvidia/multilingual-domain-classifier) model.
     It supports domain classification across 52 languages.
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 

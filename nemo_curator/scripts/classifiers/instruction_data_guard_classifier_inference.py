@@ -36,7 +36,7 @@ def main():
     client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
-    print("Starting Instruction-Data-Guard classifier inference", flush=True)
+    print("Starting Instruction Data Guard classifier inference", flush=True)
     global_st = time.time()
     files_per_run = len(client.scheduler_info()["workers"]) * 2
 
@@ -97,7 +97,7 @@ def main():
 
     global_et = time.time()
     print(
-        f"Total time taken for Instruction-Data-Guard classifier inference: {global_et-global_st} s",
+        f"Total time taken for Instruction Data Guard classifier inference: {global_et-global_st} s",
         flush=True,
     )
     client.close()
@@ -105,7 +105,7 @@ def main():
 
 def attach_args():
     parser = ArgumentHelper.parse_distributed_classifier_args(
-        description="Run Instruction-Data-Guard classifier inference.",
+        description="Run Instruction Data Guard classifier inference.",
         max_chars_default=6000,
     )
 

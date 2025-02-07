@@ -68,7 +68,8 @@ class ContentTypeClassifier(DistributedDataClassifier):
     """
     ContentTypeClassifier is a text classification model designed to categorize documents into one of 11 distinct speech types based on their content.
     It analyzes and understands the nuances of textual information, enabling accurate classification across a diverse range of content types.
-    The pretrained model used by this class can be found on Hugging Face here: https://huggingface.co/nvidia/content-type-classifier-deberta.
+    The pretrained model used by this class is called NemoCurator Content Type Classifier DeBERTa.
+    It can be found on Hugging Face here: https://huggingface.co/nvidia/content-type-classifier-deberta.
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
