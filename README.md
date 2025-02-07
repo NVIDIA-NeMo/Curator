@@ -187,7 +187,11 @@ The following figure shows that the use of different data curation modules imple
   <img src="./docs/user-guide/assets/zeroshot_ablations.png" alt="drawing" width="700"/>
 </p>
 
-In terms of scalability and compute performance, using the combination of RAPIDS and Dask fuzzy deduplication enabled us to deduplicate the 1.1 Trillion token Red Pajama dataset in 1.8 hours with 64 NVIDIA A100 Tensor Core GPUs.
+In terms of scalability and compute performance, using the combination of RAPIDS and Dask fuzzy deduplication enabled us to deduplicate the 1.96 Trillion token subset of the RedPajama V2 dataset in 0.5 hours with 32 NVIDIA H100 GPUs.
+
+Processing Time            |  Comparison to Alternative Libraries
+:-------------------------:|:---------------------------------------:
+![](./docs/user-guide/assets/readme/fuzzy-dedup-processing-time.png)  |  ![](./docs/user-guide/assets/readme/fuzzy-dedup-processing-optimization-16x.png)
 
 Additionally, using the CPU-based modules, the following table shows the time required and resulting data size reduction for each processing step [Common Crawl snapshot from November/December of 2020](https://commoncrawl.org/2020/12/nov-dec-2020-crawl-archive-now-available/) using 30 CPU nodes (with hardware similar to the `c5.24xlarge` [Amazon AWS C5 instance](https://aws.amazon.com/ec2/instance-types/c5/)).
 
