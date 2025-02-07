@@ -27,7 +27,7 @@ class AddId(BaseModule):
     def __init__(
         self, id_field, id_prefix: str = "doc_id", start_index: Optional[int] = None
     ) -> None:
-        super().__init__(input_backend="pandas")
+        super().__init__(input_backend="any")
         self.id_field = id_field
         self.id_prefix = id_prefix
         self.start_index = start_index
