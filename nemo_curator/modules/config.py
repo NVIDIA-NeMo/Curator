@@ -44,6 +44,8 @@ class FuzzyDuplicatesConfig(BaseConfig):
         but might lead to memory pressures and related errors.
     id_field: Column in the Dataset denoting document ID.
     text_field: Column in the Dataset denoting document content.
+    perform_removal: Boolean value to specify whether calling the module should remove the duplicates from
+        the original dataset, or return the list of IDs denoting duplicates.
     profile_dir: str, Default None
         If specified directory to write dask profile
     cache_dir: str, Default None
@@ -64,6 +66,7 @@ class FuzzyDuplicatesConfig(BaseConfig):
     profile_dir: Optional[str] = None
     id_field: str = "id"
     text_field: str = "text"
+    perform_removal: bool = False
 
     # Minhash + LSH Config
     seed: int = 42
@@ -130,6 +133,11 @@ class FuzzyDuplicatesConfig(BaseConfig):
             )
         if not 1 <= self.buckets_per_shuffle <= self.num_buckets:
             raise ValueError("Buckets per shuffle must be between [1, num_buckets]")
+
+        if not self.perform_removal:
+            warnings.warn(
+                "In future releases (starting with 0.8.0) the default will be True."
+            )
 
 
 @dataclass

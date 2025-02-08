@@ -68,6 +68,8 @@ def main(args):
             cache_dir=cache_dir,
             id_field=dataset_id_field,
             text_field=dataset_text_field,
+            # Decides whether output of the module is a deduplicated dataset or the IDs of the duplicates
+            perform_removal=False,
             seed=42,
             char_ngrams=24,
             num_buckets=20,
@@ -77,26 +79,20 @@ def main(args):
             false_positive_check=False,
         )
         fuzzy_dup = FuzzyDuplicates(logger=log_dir, config=fuzzy_dedup_config)
-        duplicates = fuzzy_dup(dataset=input_dataset)
+
+        # When perform_removal=False, it will only call .identify_duplicates() and return the list of duplicate IDs.
+        # When perform_removal=True, then exact_dup outputs the dataset with the duplicates removed.
+        # It will behave by calling .identify_duplicates() and .remove() in sequence.
+        duplicates = fuzzy_dup(
+            dataset=input_dataset
+        )  # or fuzzy_dup.identify_duplicates(input_dataset)
 
         if duplicates is None:
             print("No duplicates found")
             print(f"Time taken:{time.time() - t0}s")
             return
 
-        # By default all duplicate id's and the group they belong to are included in the result
-        # keep 1 document from each group of duplcates and mark the others to remove
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.duplicated.html
-        docs_to_remove = duplicates.df.map_partitions(
-            lambda x: x[x.group.duplicated(keep="first")]
-        )
-
-        # When there are few duplicates we can compute the results to a list and use `isin`.
-        result = input_dataset.df[
-            ~input_dataset.df[dataset_id_field].isin(
-                docs_to_remove[dataset_id_field].compute()
-            )
-        ]
+        result = fuzzy_dup.remove(input_dataset, duplicates)
         write_to_disk(result, output_dir, output_type=filetype)
         print(f"Time taken:{time.time() - t0}s")
 

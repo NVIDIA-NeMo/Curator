@@ -17,9 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Union
-
-import dask_cudf
+from typing import Optional, Union
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
@@ -34,6 +32,7 @@ from nemo_curator.modules.fuzzy_dedup.lsh import LSH
 from nemo_curator.modules.fuzzy_dedup.minhash import MinHash
 from nemo_curator.modules.meta import Sequential
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
+from nemo_curator.utils.duplicates_removal import remove_duplicates
 
 
 class FuzzyDuplicates(BaseModule):
@@ -65,6 +64,7 @@ class FuzzyDuplicates(BaseModule):
             self._logger = logger
 
         self.config = config
+
         self.minhash = MinHash(
             seed=self.config.seed,
             num_hashes=self.config.num_hashes,
@@ -131,7 +131,9 @@ class FuzzyDuplicates(BaseModule):
             profile_dir=self.config.profile_dir,
         )
 
-    def call(self, dataset: DocumentDataset):
+    def identify_duplicates(
+        self, dataset: DocumentDataset
+    ) -> Optional[DocumentDataset]:
         """
         Parameters
         ----------
@@ -245,4 +247,41 @@ class FuzzyDuplicates(BaseModule):
         print(f"Stage {stage_num}: Connected Components across buckets complete!")
         stage_num += 1
 
-        return DocumentDataset(dask_cudf.read_parquet(cc_path, split_row_groups=False))
+        return DocumentDataset.read_parquet(
+            cc_path,
+            backend="cudf",
+            # We read with files_per_partition=1 so that groups are read in whole (and do not exist across partitions)
+            files_per_partition=1,
+            blocksize=None,
+        )
+
+    def remove(
+        self, dataset: DocumentDataset, duplicates_to_remove: Optional[DocumentDataset]
+    ) -> Optional[DocumentDataset]:
+        """
+        Remove exact duplicates from a given DocumentDataset
+        Parameters
+        ----------
+        dataset: DocumentDataset
+          The input datset to remove exact duplicates
+        Returns
+        -------
+        DocumentDataset containing only non-duplicate documents
+        """
+        if not duplicates_to_remove:
+            return None
+        result = remove_duplicates(
+            left=dataset.df,
+            duplicates=duplicates_to_remove.df,
+            id_field=self.config.id_field,
+            group_field="group",
+        )
+        return DocumentDataset(result)
+
+    def call(
+        self, dataset: DocumentDataset, perform_removal: bool = False
+    ) -> DocumentDataset:
+        duplicates = self.identify_duplicates(dataset)
+        if perform_removal:
+            return self.remove(dataset, duplicates)
+        return duplicates

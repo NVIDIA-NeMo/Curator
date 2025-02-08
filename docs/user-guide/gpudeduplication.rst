@@ -63,14 +63,19 @@ After ensuring your dataset has a unique ID field (or creating one with the code
     from nemo_curator.datasets import DocumentDataset
 
     # Initialize the deduplication object
-    ExactDups = ExactDuplicates(id_field="my_id", text_field="text")
+    exact_duplicates = ExactDuplicates(
+      id_field="my_id",
+      text_field="text",
+      perform_removal=True,
+      cache_dir="/path/to/dedup_outputs", # Recommended to specify a cache_dir if perform_removal=True
+    )
 
     dataset = DocumentDataset.read_parquet(
         input_files="/path/to/parquet/data",
         backend="cudf",  # or "pandas" for CPU
     )
-
-    duplicate_docs = ExactDups(dataset)
+    # Users who have specified perform_removal=False can split as following
+    duplicate_docs = exact_duplicates.identify_duplicates(dataset)
 
     """
     Sample output:
@@ -82,9 +87,14 @@ After ensuring your dataset has a unique ID field (or creating one with the code
     107  doc_prefix-52271  0f763a2937d57b9d96bf9f220e55f2bd
     """
 
+    deduplicated_dataset = exact_duplicates.remove(dataset, duplicate_docs)
+
+    # Users who have specified perform_removal=True can get the output deduplicated dataset directly as follows
+    # deduplicated_dataset = exact_duplicates(dataset)
+
+
 .. tip::
-  A more comprehensive example, including how to remove documents from a corpus using the list of
-  duplicate IDs generated from the exact deduplication step above, can be found in `examples/exact_deduplication.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/exact_deduplication.py>`_.
+  A more comprehensive example, can be found in `examples/exact_deduplication.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/exact_deduplication.py>`_.
 
 """"""""""""
 CLI Utility
@@ -187,6 +197,7 @@ Python API
         cache_dir="/path/to/dedup_outputs", # must be cleared between runs
         id_field="my_id",
         text_field="text",
+        perform_removal=False, # dictates if deduplicated dataset or IDs of duplicates are returned
         seed=42,
         char_ngrams=24,
         num_buckets=20,
@@ -203,6 +214,7 @@ Python API
     cache_dir: /path/to/dedup_outputs
     id_field: my_id
     text_field: text
+    perform_removal: False
     seed: 42
     char_ngrams: 24
     num_buckets: 20
@@ -226,14 +238,15 @@ Python API
     from nemo_curator.datasets import DocumentDataset
 
     # Initialize the deduplication object
-    FuzzyDups = FuzzyDuplicates(config=config, logger="./")
+    fuzzy_duplicates = FuzzyDuplicates(config=config, logger="./")
 
     dataset = DocumentDataset.read_json(
         input_files="/path/to/jsonl/data",
         backend="cudf", # FuzzyDuplicates only supports datasets with the cuDF backend.
     )
 
-    duplicate_docs = FuzzyDups(dataset)
+    # Users who have specified perform_removal=False can split as following
+    duplicate_docs = fuzzy_duplicates.identify_duplicates(dataset)
     """
     Sample output:
                   my_id  group
@@ -244,10 +257,15 @@ Python API
     4  doc_prefix-42050    154
     """
 
+    deduplicated_dataset = fuzzy_duplicates.remove(dataset, duplicate_docs)
+
+    # Users who have specified perform_removal=True can get the output deduplicated dataset directly as follows
+    # deduplicated_dataset = fuzzy_duplicates(dataset)
+
+
 .. tip::
 
-  - A more comprehensive example for the above, including how to remove documents from a corpus using the list of
-    duplicate IDs generated from fuzzy deduplication, can be found in `examples/fuzzy_deduplication.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/fuzzy_deduplication.py>`_.
+  - A comprehensive example can be found in `examples/fuzzy_deduplication.py <https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/fuzzy_deduplication.py>`_.
   - The default values of ``num_buckets`` and ``hashes_per_bucket`` are set to find documents with an approximately Jaccard similarity of 0.8 or above.
   - Higher ``buckets_per_shuffle`` values can lead to better performance but might lead to out of memory errors.
   - Setting the ``false_positive_check`` flag to ``False`` is ideal for optimal performance.

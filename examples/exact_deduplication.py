@@ -17,8 +17,7 @@ import time
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
-from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
-from nemo_curator.utils.file_utils import get_all_files_paths_under
+from nemo_curator.utils.distributed_utils import get_client, write_to_disk
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
@@ -40,36 +39,33 @@ def main(args):
         client.run(pre_imports)
 
     t0 = time.time()
-    input_dataset = DocumentDataset.read_json(dataset_dir, backend=backend)
+    input_dataset = DocumentDataset.read_json(
+        dataset_dir, backend=backend, blocksize="1GiB", files_per_partition=None
+    )
 
     exact_dup = ExactDuplicates(
         logger=log_dir,
         id_field=dataset_id_field,
         text_field=dataset_text_field,
+        # Decides whether output of the module is deduplicated dataset or duplicates
+        # If true, you should set cache_dir for performance improvement
+        perform_removal=False,
         # cache_dir=output_dir  # Optionally write the output to disk
     )
 
-    duplicates = exact_dup(dataset=input_dataset)
+    # When perform_removal=False, it will only call .identify_duplicates() and return the list of duplicate IDs.
+    # When perform_removal=True, then exact_dup outputs the dataset with the duplicates removed.
+    # It will behave by calling .identify_duplicates() and .remove() in sequence.
+    duplicates = exact_dup(
+        dataset=input_dataset
+    )  # or exact_dup.identify_duplicates(input_dataset)
 
     # If caching, result is a path to the output dataset.
     if isinstance(duplicates, str):
         duplicates = DocumentDataset.read_parquet(duplicates, backend=backend)
 
     # It's easy to apply dataframe operations to the dataset by using the underlying df.
-
-    # By default all duplicate id's are included in the result
-    # keep 1 document from each group of duplcates and mark the others to remove
-    # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.duplicated.html
-    docs_to_remove = duplicates.df.map_partitions(
-        lambda x: x[x._hashes.duplicated(keep="first")]
-    )
-
-    # When there are few duplicates we can compute the results to a list and use `isin`.
-    result = input_dataset.df[
-        ~input_dataset.df[dataset_id_field].isin(
-            docs_to_remove[dataset_id_field].compute()
-        )
-    ]
+    result = exact_dup.remove(input_dataset, duplicates)
     write_to_disk(result, output_dir, output_type="parquet")
     print(time.time() - t0)
 
