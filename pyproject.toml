@@ -66,8 +66,7 @@ dependencies = [
     "resiliparse",
     "sentencepiece",
     "spacy>=3.6.0, <3.8.0",
-    # TODO: Remove this pin once newer version is released
-    "transformers==4.46.3",
+    "transformers>=4.48.0",
     "unidic-lite==1.0.8",
     "usaddress==0.5.10",
     "warcio==1.7.4",
