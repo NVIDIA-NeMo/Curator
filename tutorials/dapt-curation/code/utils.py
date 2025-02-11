@@ -300,14 +300,12 @@ def fuzzy_dedupe(dataset: DocumentDataset, cache: str) -> DocumentDataset:
         id_field="id",
         text_field="text",
         seed=42,
-        char_ngrams=20,
+        char_ngrams=24,
         num_buckets=20,
         hashes_per_bucket=13,
         use_64_bit_hash=False,
         buckets_per_shuffle=5,
         false_positive_check=False,
-        num_anchors=2,
-        jaccard_threshold=0.8,
     )
     fuzzy_dup = FuzzyDuplicates(config=fuzzy_dedup_config)
     duplicates = fuzzy_dup(dataset)
