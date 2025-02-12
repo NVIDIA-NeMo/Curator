@@ -14,9 +14,11 @@
 
 import os.path
 import tarfile
+from typing import Literal
 
 import requests
 from platformdirs import user_cache_dir
+from transformers import AutoTokenizer
 
 from nemo_curator.filters.bitext_filter import BitextFilter
 from nemo_curator.filters.doc_filter import DocumentFilter, import_filter
@@ -669,6 +671,66 @@ class PornographicUrlsFilter(DocumentFilter):
 
     def keep_document(self, score):
         return score != 1
+
+
+class TokenCountFilter(DocumentFilter):
+    """
+    If the document contains more or less than a specified number of tokens, then discard.
+    """
+
+    def __init__(self, tokenizer: AutoTokenizer, min_tokens=0, max_tokens=float("inf")):
+        """
+        Args:
+            tokenizer (AutoTokenizer): The tokenizer to use to count the tokens.
+            min_tokens (int): The minimum number of tokens the document must contain.
+                Set to 0 to disable the minimum token count filter.
+            max_tokens (int): The maximum number of tokens the document can contain.
+                Set to infinity to disable the maximum token count filter.
+        """
+        super().__init__()
+        self._tokenizer = tokenizer
+        self._min_tokens = min_tokens
+        self._max_tokens = max_tokens
+        self._name = "token_count"
+
+    def score_document(self, text: str) -> int:
+        tokens = self._tokenizer.encode(text)
+        return len(tokens)
+
+    def keep_document(self, score: int) -> bool:
+        return self._min_tokens <= score <= self._max_tokens
+
+
+class SubstringFilter(DocumentFilter):
+    """
+    Keeps documents that contain a substring in a given position.
+    Gives a score of 1 if the substring is found in the given position, otherwise 0.
+    """
+
+    def __init__(self, substring: str, position: Literal["prefix", "suffix", "any"]):
+        """
+        Args:
+            substring (str): The substring to check for.
+            position (Literal["prefix", "suffix", "any"]): The position of the substring.
+        """
+        super().__init__()
+        self._substring = substring
+        if position not in ["prefix", "suffix", "any"]:
+            raise ValueError(
+                f"Invalid position: {position}. Must be one of: prefix, suffix, any."
+            )
+        self._position = position
+
+    def score_document(self, text: str) -> int:
+        if self._position == "prefix":
+            return int(text.startswith(self._substring))
+        elif self._position == "suffix":
+            return int(text.endswith(self._substring))
+        elif self._position == "any":
+            return int(self._substring in text)
+
+    def keep_document(self, score: int) -> bool:
+        return score == 1
 
 
 class HistogramFilter(DocumentFilter):

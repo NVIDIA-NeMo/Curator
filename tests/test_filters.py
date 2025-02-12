@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from dask import dataframe as dd
+from dask.dataframe.utils import assert_eq
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.datasets.parallel_dataset import ParallelDataset
@@ -49,7 +50,9 @@ from nemo_curator.filters import (
     RepeatedParagraphsFilter,
     RepeatingDuplicateNGramsFilter,
     RepeatingTopNGramsFilter,
+    SubstringFilter,
     SymbolsToWordsFilter,
+    TokenCountFilter,
     TokenizerFertilityFilter,
     UrlsFilter,
     WhiteSpaceFilter,
@@ -108,6 +111,13 @@ class BatchedLengthFilter(DocumentFilter):
         min_threshold = self.min_length <= scores
         max_threshold = scores <= self.max_length
         return min_threshold & max_threshold
+
+
+# A simple dummy tokenizer for our tests.
+class DummyTokenizer:
+    def encode(self, text):
+        # Simply splits the text on whitespace.
+        return text.split()
 
 
 def all_equal(left_dataset, right_dataset):
@@ -765,6 +775,176 @@ class TestHeuristicFilters:
         assert all_equal(
             expected_data2, filtered_data2
         ), f"Expected {expected_data2} but got {filtered_data2}"
+
+
+class TestTokenCountFilter:
+    def test_score_document(self):
+        tokenizer = DummyTokenizer()
+        token_filter = TokenCountFilter(tokenizer, min_tokens=2, max_tokens=3)
+        text = "another test case"  # Should yield 3 tokens.
+        score = token_filter.score_document(text)
+        assert score == 3
+
+    def test_keep_document(self):
+        tokenizer = DummyTokenizer()
+        token_filter = TokenCountFilter(tokenizer, min_tokens=2, max_tokens=3)
+        # Check that a score of 1 (too few) and 4 (too many) are rejected,
+        # while scores of 2 and 3 are accepted.
+        assert token_filter.keep_document(2)
+        assert token_filter.keep_document(3)
+        assert not token_filter.keep_document(1)
+        assert not token_filter.keep_document(4)
+
+    def test_filter_dataset(self):
+        # Create a dataset of documents with different word counts.
+        docs = [
+            "hello",  # 1 token
+            "hello world",  # 2 tokens
+            "this is a test",  # 4 tokens
+            "another test case",  # 3 tokens
+        ]
+        dataset = list_to_dataset(docs, col_name="text")
+
+        tokenizer = DummyTokenizer()
+        token_filter = TokenCountFilter(tokenizer, min_tokens=2, max_tokens=3)
+        filter_step = ScoreFilter(token_filter, text_field="text")
+        filtered_dataset = filter_step(dataset)
+        # Reset indices for filtered dataset to ensure identical labeling for comparison.
+        filtered_dataset.df = filtered_dataset.df.reset_index(drop=True)
+
+        # We expect to keep only the documents with exactly 2 or 3 tokens.
+        expected_docs = [
+            "hello world",  # 2 tokens
+            "another test case",  # 3 tokens
+        ]
+        expected_dataset = list_to_dataset(expected_docs, col_name="text")
+        # Reset indices for expected dataset to ensure identical labeling.
+        expected_dataset.df = expected_dataset.df.reset_index(drop=True)
+        assert all_equal(expected_dataset, filtered_dataset)
+
+    def test_filter_dataset_default(self):
+        # Create a dataset of documents with different word counts.
+        docs = [
+            "hello",  # 1 token
+            "hello world",  # 2 tokens
+            "this is a test",  # 4 tokens
+            "another test case",  # 3 tokens
+        ]
+        dataset = list_to_dataset(docs, col_name="text")
+
+        tokenizer = DummyTokenizer()
+        # Using default settings: min_tokens=0 and max_tokens=inf, so all documents pass.
+        token_filter = TokenCountFilter(tokenizer)
+        filter_step = ScoreFilter(token_filter, text_field="text")
+        filtered_dataset = filter_step(dataset)
+
+        # We expect to keep all documents.
+        expected_dataset = list_to_dataset(docs, col_name="text")
+        assert all_equal(expected_dataset, filtered_dataset)
+
+
+class TestSubstringFilter:
+    def test_invalid_position(self):
+        # Creating a SubstringFilter with an invalid position should raise a ValueError.
+        with pytest.raises(ValueError):
+            SubstringFilter("foo", "middle")
+
+    def test_prefix_mode(self):
+        filter_prefix = SubstringFilter("Hello", "prefix")
+        # Positive example: text starts with "Hello".
+        text = "Hello world"
+        score = filter_prefix.score_document(text)
+        assert score == 1
+        assert filter_prefix.keep_document(score)
+        # Negative example: text does not start with "Hello".
+        text2 = "world Hello"
+        score2 = filter_prefix.score_document(text2)
+        assert score2 == 0
+        assert not filter_prefix.keep_document(score2)
+
+    def test_suffix_mode(self):
+        filter_suffix = SubstringFilter("end", "suffix")
+        # Positive example: text ends with "end".
+        text = "This is the end"
+        score = filter_suffix.score_document(text)
+        assert score == 1
+        assert filter_suffix.keep_document(score)
+        # Negative example: text does not end with "end".
+        text2 = "The end is near"
+        score2 = filter_suffix.score_document(text2)
+        assert score2 == 0
+        assert not filter_suffix.keep_document(score2)
+
+    def test_any_mode(self):
+        filter_any = SubstringFilter("test", "any")
+        # Positive example: text contains "test".
+        text = "this is a test string"
+        score = filter_any.score_document(text)
+        assert score == 1
+        assert filter_any.keep_document(score)
+        # Negative example: text does not contain "test".
+        text2 = "this is a string"
+        score2 = filter_any.score_document(text2)
+        assert score2 == 0
+        assert not filter_any.keep_document(score2)
+
+    def test_filter_dataset_prefix(self):
+        docs = ["Hello world", "world Hello", "Hello everyone", "Not matching"]
+        dataset = list_to_dataset(docs, col_name="text")
+        filter_prefix = SubstringFilter("Hello", "prefix")
+        filter_step = ScoreFilter(filter_prefix, text_field="text")
+        filtered_dataset = filter_step(dataset)
+
+        # Expect only those records where the text starts with "Hello".
+        expected_docs = ["Hello world", "Hello everyone"]
+        expected_dataset = list_to_dataset(expected_docs, col_name="text")
+
+        # Reset indices to ensure both DataFrames are identically labeled
+        filtered_dataset = DocumentDataset(filtered_dataset.df.reset_index(drop=True))
+        expected_dataset = DocumentDataset(expected_dataset.df.reset_index(drop=True))
+        assert all_equal(expected_dataset, filtered_dataset)
+
+    def test_filter_dataset_suffix(self):
+        docs = [
+            "This is the end",  # ends with "end"
+            "end of story",  # does not end with "end"
+            "ending is good",  # does not end with "end"
+            "Not matching end",  # ends with "end"
+            "The end",  # ends with "end"
+        ]
+        dataset = list_to_dataset(docs, col_name="text")
+        filter_suffix = SubstringFilter("end", "suffix")
+        filter_step = ScoreFilter(filter_suffix, text_field="text")
+        filtered_dataset = filter_step(dataset)
+
+        # Expect only those records that end with "end".
+        expected_docs = [
+            "Not matching end",
+            "The end",
+            "This is the end",
+        ]
+        expected_dataset = list_to_dataset(expected_docs, col_name="text")
+
+        # Compare only the 'text' column values to avoid index label issues.
+        filtered_dataset = DocumentDataset(filtered_dataset.df.reset_index(drop=True))
+        expected_dataset = DocumentDataset(expected_dataset.df.reset_index(drop=True))
+        assert_eq(expected_dataset.df["text"], filtered_dataset.df["text"])
+
+    def test_filter_dataset_any(self):
+        docs = ["test case", "This is a testcase", "no match here", "another test"]
+        dataset = list_to_dataset(docs, col_name="text")
+        filter_any = SubstringFilter("test", "any")
+        filter_step = ScoreFilter(filter_any, text_field="text")
+        filtered_dataset = filter_step(dataset)
+
+        # Expect documents that contain "test" anywhere.
+        expected_docs = ["test case", "This is a testcase", "another test"]
+        expected_dataset = list_to_dataset(expected_docs, col_name="text")
+
+        # Reset indices to ensure both DataFrames are identically labeled
+        filtered_dataset = DocumentDataset(filtered_dataset.df.reset_index(drop=True))
+        expected_dataset = DocumentDataset(expected_dataset.df.reset_index(drop=True))
+        assert all_equal(expected_dataset, filtered_dataset)
 
 
 class TestCodeFilters:

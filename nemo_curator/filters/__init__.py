@@ -49,7 +49,9 @@ from .heuristic_filter import (
     RepeatedParagraphsFilter,
     RepeatingDuplicateNGramsFilter,
     RepeatingTopNGramsFilter,
+    SubstringFilter,
     SymbolsToWordsFilter,
+    TokenCountFilter,
     UrlsFilter,
     WhiteSpaceFilter,
     WordCountFilter,
@@ -98,4 +100,6 @@ __all__ = [
     "QualityEstimationFilter",
     "AnswerabilityFilter",
     "EasinessFilter",
+    "TokenCountFilter",
+    "SubstringFilter",
 ]

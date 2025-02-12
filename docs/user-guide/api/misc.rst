@@ -15,3 +15,9 @@ Miscellaneous
 
 .. autoclass:: nemo_curator.Shuffle
     :members:
+
+.. autoclass:: nemo_curator.DocumentSplitter
+    :members:
+
+.. autoclass:: nemo_curator.DocumentJoiner
+    :members:
