@@ -140,6 +140,38 @@ def test_fineweb_edu_classifier(gpu_client, domain_dataset):
 
 
 @pytest.mark.skip(
+    reason="Skipping until https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier is published"
+)
+@pytest.mark.gpu
+def test_fineweb_mixtral_classifier(gpu_client, domain_dataset):
+    from nemo_curator.classifiers import FineWebMixtralEduClassifier
+
+    classifier = FineWebMixtralEduClassifier()
+    result_dataset = classifier(dataset=domain_dataset)
+    result_pred = result_dataset.df.compute()["fineweb-mixtral-edu-score-int"]
+
+    expected_pred = cudf.Series([1, 1, 1, 2, 0])
+
+    assert result_pred.equals(expected_pred)
+
+
+@pytest.mark.skip(
+    reason="Skipping until https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier is published"
+)
+@pytest.mark.gpu
+def test_fineweb_nemotron_classifier(gpu_client, domain_dataset):
+    from nemo_curator.classifiers import FineWebNemotronEduClassifier
+
+    classifier = FineWebNemotronEduClassifier()
+    result_dataset = classifier(dataset=domain_dataset)
+    result_pred = result_dataset.df.compute()["fineweb-nemotron-edu-score-int"]
+
+    expected_pred = cudf.Series([1, 1, 1, 2, 0])
+
+    assert result_pred.equals(expected_pred)
+
+
+@pytest.mark.skip(
     reason="Instruction Data Guard needs to be downloaded and cached to our gpuCI runner to enable this"
 )
 @pytest.mark.gpu

@@ -8,6 +8,8 @@ The Python scripts in this directory demonstrate how to run classification on yo
 - AEGIS Safety Models
 - Instruction Data Guard Model
 - FineWeb Educational Content Classifier
+- FineWeb Mixtral Educational Classifier
+- FineWeb Nemotron-4 Educational Classifier
 - Content Type Classifier
 - Prompt Task and Complexity Classifier
 

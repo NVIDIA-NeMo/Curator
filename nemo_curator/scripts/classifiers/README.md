@@ -8,6 +8,8 @@ The Python scripts in this directory demonstrate how to run classification on yo
 - AEGIS Safety Models
 - Instruction Data Guard Model
 - FineWeb Educational Content Classifier
+- FineWeb Mixtral Educational Classifier
+- FineWeb Nemotron-4 Educational Classifier
 - Content Type Classifier
 - Prompt Task and Complexity Classifier
 
@@ -138,6 +140,44 @@ fineweb_edu_classifier_inference \
 ```
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `fineweb_edu_classifier_inference --help` for more information.
+
+#### FineWeb Mixtral Edu Classifier Inference
+
+```bash
+# same as `python fineweb_mixtral_edu_classifier_inference.py`
+fineweb_mixtral_edu_classifier_inference \
+    --input-data-dir /path/to/data/directory \
+    --output-data-dir /path/to/output/directory \
+    --input-file-type "jsonl" \
+    --input-file-extension "jsonl" \
+    --output-file-type "jsonl" \
+    --input-text-field "text" \
+    --batch-size 64 \
+    --autocast \
+    --max-chars 2000 \
+    --device "gpu"
+```
+
+Additional arguments may be added for customizing a Dask cluster and client. Run `fineweb_mixtral_edu_classifier_inference --help` for more information.
+
+#### FineWeb Nemotron-4 Edu Classifier Inference
+
+```bash
+# same as `python fineweb_nemotron_edu_classifier_inference.py`
+fineweb_nemotron_edu_classifier_inference \
+    --input-data-dir /path/to/data/directory \
+    --output-data-dir /path/to/output/directory \
+    --input-file-type "jsonl" \
+    --input-file-extension "jsonl" \
+    --output-file-type "jsonl" \
+    --input-text-field "text" \
+    --batch-size 64 \
+    --autocast \
+    --max-chars 2000 \
+    --device "gpu"
+```
+
+Additional arguments may be added for customizing a Dask cluster and client. Run `fineweb_nemotron_edu_classifier_inference --help` for more information.
 
 #### Content Type Classifier DeBERTa Inference
 

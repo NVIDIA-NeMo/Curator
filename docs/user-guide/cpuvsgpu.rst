@@ -71,6 +71,7 @@ The following NeMo Curator modules are GPU based.
   * Quality Classification
   * AEGIS and Instruction Data Guard Safety Models
   * FineWeb Educational Content Classification
+  * FineWeb Mixtral and FineWeb Nemotron-4 Educational Models
   * Content Type Classification
   * Prompt Task and Complexity Classification
 

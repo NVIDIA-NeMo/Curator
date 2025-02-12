@@ -18,6 +18,8 @@ Before running any of these notebooks, please see this [Getting Started](https:/
 | `ContentTypeClassifier` | [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta) |
 | `DomainClassifier` | [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier) |
 | `FineWebEduClassifier` | [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier) |
+| `FineWebMixtralEduClassifier` | [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier) |
+| `FineWebNemotronEduClassifier` | [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier) |
 | `InstructionDataGuardClassifier` | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) |
 | `MultilingualDomainClassifier` | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) |
 | `PromptTaskComplexityClassifier` | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) |

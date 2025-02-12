@@ -14,6 +14,12 @@ Classifiers
 .. autoclass:: nemo_curator.classifiers.FineWebEduClassifier
     :members:
 
+.. autoclass:: nemo_curator.classifiers.FineWebMixtralEduClassifier
+    :members:
+
+.. autoclass:: nemo_curator.classifiers.FineWebNemotronEduClassifier
+    :members:
+
 .. autoclass:: nemo_curator.classifiers.AegisClassifier
     :members:
 
