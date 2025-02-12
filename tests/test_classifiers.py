@@ -13,22 +13,12 @@
 # limitations under the License.
 
 import pytest
-from distributed import Client
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
+from nemo_curator.utils.import_utils import gpu_only_import
 
 cudf = gpu_only_import("cudf")
 dask_cudf = gpu_only_import("dask_cudf")
-LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
-
-
-@pytest.fixture
-def gpu_client(request):
-    with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-        request.client = client
-        request.cluster = cluster
-        yield
 
 
 @pytest.fixture

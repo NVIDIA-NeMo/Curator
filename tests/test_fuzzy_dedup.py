@@ -22,16 +22,14 @@ import pytest
 import yaml
 from dask import config
 from dask.dataframe.utils import assert_eq
-from distributed import Client
 
 from nemo_curator import LSH, FuzzyDuplicates, FuzzyDuplicatesConfig, MinHash
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.fuzzy_dedup_utils.merge_utils import extract_partitioning_index
-from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
+from nemo_curator.utils.import_utils import gpu_only_import
 
 cudf = gpu_only_import("cudf")
 dask_cudf = gpu_only_import("dask_cudf")
-LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
 
 
 @pytest.fixture
@@ -303,13 +301,6 @@ class TestLSH:
 
 @pytest.mark.gpu
 class TestFuzzyDuplicates:
-    @pytest.fixture(autouse=True, scope="class")
-    def gpu_client(self, request):
-        with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-            request.cls.client = client
-            request.cls.cluster = cluster
-            yield
-
     @pytest.mark.parametrize("use_64_bit_hash", [False, True])
     @pytest.mark.parametrize(
         "num_buckets,jaccard_threshold,duplicate_docs",
@@ -328,8 +319,9 @@ class TestFuzzyDuplicates:
         jaccard_threshold,
         duplicate_docs,
         tmpdir,
+        gpu_client,
     ):
-        print(self.client)
+        print(gpu_client)
         # Dedup might fail when indices per partition do not start from 0
         fuzzy_dedup_data.df = fuzzy_dedup_data.df.reset_index(drop=True)
         config = FuzzyDuplicatesConfig(
@@ -408,8 +400,9 @@ class TestFuzzyDuplicates:
     def test_non_uniform_indices(
         self,
         tmpdir,
+        gpu_client,
     ):
-        print(self.client)
+        print(gpu_client)
         # Dedup might fail when indices per partition do not start from 0
         df = cudf.DataFrame(
             {
@@ -498,7 +491,13 @@ class TestFuzzyDuplicates:
         ],
     )
     def test_no_fp_check(
-        self, fuzzy_dedup_data, use_64_bit_hash, num_buckets, duplicate_docs, tmpdir
+        self,
+        fuzzy_dedup_data,
+        use_64_bit_hash,
+        num_buckets,
+        duplicate_docs,
+        tmpdir,
+        gpu_client,
     ):
         config = FuzzyDuplicatesConfig(
             cache_dir=tmpdir,
@@ -533,6 +532,7 @@ class TestFuzzyDuplicates:
         self,
         shuffle_fail_fuzzy_dedup_data,
         tmpdir,
+        gpu_client,
     ):
         # Dedup might fail when indices per partition do not start from 0
         shuffle_fail_fuzzy_dedup_data.df = shuffle_fail_fuzzy_dedup_data.df.reset_index(
@@ -569,7 +569,7 @@ class TestFuzzyDuplicates:
 
     @pytest.mark.parametrize("false_positive_check", [True, False])
     def test_fuzzy_dedup_no_duplicates(
-        self, no_duplicates_fuzzy_dedup_data, tmpdir, false_positive_check
+        self, no_duplicates_fuzzy_dedup_data, tmpdir, false_positive_check, gpu_client
     ):
         # Dedup might fail when indices per partition do not start from 0
         no_duplicates_fuzzy_dedup_data.df = (

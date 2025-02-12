@@ -14,7 +14,6 @@
 import pandas as pd
 import pytest
 from dask.dataframe.utils import assert_eq
-from distributed import Client
 
 from nemo_curator import (
     BaseModule,
@@ -26,11 +25,10 @@ from nemo_curator import (
 )
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import MeanWordLengthFilter
-from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_from
+from nemo_curator.utils.import_utils import gpu_only_import
 
 cudf = gpu_only_import("cudf")
 dask_cudf = gpu_only_import("dask_cudf")
-LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
 
 
 class CPUModule(BaseModule):
@@ -98,18 +96,12 @@ def gpu_data(raw_data):
 
 @pytest.mark.gpu
 class TestBackendSupport:
-    @pytest.fixture(autouse=True, scope="class")
-    def gpu_client(self, request):
-        with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-            request.cls.client = client
-            request.cls.cluster = cluster
-            yield
-
     def test_pandas_backend(
         self,
         cpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         dataset, gt_lengths = cpu_data
         pipeline = CPUModule()
         result = pipeline(dataset)
@@ -119,8 +111,9 @@ class TestBackendSupport:
     def test_cudf_backend(
         self,
         gpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         dataset, gt_lengths = gpu_data
         pipeline = GPUModule()
         result = pipeline(dataset)
@@ -131,8 +124,9 @@ class TestBackendSupport:
         self,
         cpu_data,
         gpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         cpu_dataset, gt_cpu_lengths = cpu_data
         gt_cpu_lengths = gt_cpu_lengths.rename("any_lengths")
         gpu_dataset, gt_gpu_lengths = gpu_data
@@ -150,8 +144,9 @@ class TestBackendSupport:
         self,
         cpu_data,
         gpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         dataset, gt_cpu_lengths = cpu_data
         _, gt_gpu_lengths = gpu_data
         pipeline = Sequential(
@@ -170,8 +165,9 @@ class TestBackendSupport:
         self,
         cpu_data,
         gpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         _, gt_cpu_lengths = cpu_data
         dataset, gt_gpu_lengths = gpu_data
         pipeline = Sequential(
@@ -190,8 +186,9 @@ class TestBackendSupport:
         self,
         cpu_data,
         gpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         dataset, gt_cpu_lengths = cpu_data
         _, gt_gpu_lengths = gpu_data
         pipeline = Sequential(
@@ -220,25 +217,25 @@ class TestBackendSupport:
         assert_eq(result_df["cpu_lengths"], gt_cpu_lengths)
         assert_eq(result_df["gpu_lengths"], gt_gpu_lengths)
 
-    def test_wrong_backend_cpu_data(self, cpu_data):
+    def test_wrong_backend_cpu_data(self, cpu_data, gpu_client):
         with pytest.raises(ValueError):
-            print("client", self.client)
+            print("client", gpu_client)
             dataset, _ = cpu_data
             pipeline = GPUModule()
             result = pipeline(dataset)
             _ = result.df.compute()
 
-    def test_wrong_backend_gpu_data(self, gpu_data):
+    def test_wrong_backend_gpu_data(self, gpu_data, gpu_client):
         with pytest.raises(ValueError):
-            print("client", self.client)
+            print("client", gpu_client)
             dataset, _ = gpu_data
             pipeline = CPUModule()
             result = pipeline(dataset)
             _ = result.df.compute()
 
-    def test_unsupported_to_backend(self, cpu_data):
+    def test_unsupported_to_backend(self, cpu_data, gpu_client):
         with pytest.raises(ValueError):
-            print("client", self.client)
+            print("client", gpu_client)
             dataset, _ = cpu_data
             pipeline = ToBackend("fake_backend")
             result = pipeline(dataset)
@@ -281,18 +278,12 @@ def real_module_gpu_data(real_module_raw_data):
 
 @pytest.mark.gpu
 class TestRealModules:
-    @pytest.fixture(autouse=True, scope="class")
-    def gpu_client(self, request):
-        with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-            request.cls.client = client
-            request.cls.cluster = cluster
-            yield
-
     def test_score_filter(
         self,
         real_module_cpu_data,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         dataset, gt_results = real_module_cpu_data
         pipeline = ScoreFilter(
             MeanWordLengthFilter(), score_field="mean_lengths", score_type=float
@@ -304,9 +295,10 @@ class TestRealModules:
     def test_score_filter_wrong_backend(
         self,
         real_module_gpu_data,
+        gpu_client,
     ):
         with pytest.raises(ValueError):
-            print("client", self.client)
+            print("client", gpu_client)
             dataset, _ = real_module_gpu_data
             pipeline = ScoreFilter(
                 MeanWordLengthFilter(), score_field="mean_lengths", score_type=float
@@ -318,8 +310,9 @@ class TestRealModules:
         self,
         real_module_gpu_data,
         tmpdir,
+        gpu_client,
     ):
-        print(self.client)
+        print(gpu_client)
         dataset, gt_results = real_module_gpu_data
         # Dedup might fail when indices per partition do not start from 0
         dataset.df = dataset.df.reset_index(drop=True)
@@ -355,9 +348,10 @@ class TestRealModules:
         self,
         real_module_cpu_data,
         tmpdir,
+        gpu_client,
     ):
         with pytest.raises(ValueError):
-            print(self.client)
+            print(gpu_client)
             dataset, _ = real_module_cpu_data
             # Dedup might fail when indices per partition do not start from 0
             dataset.df = dataset.df.reset_index(drop=True)
@@ -384,8 +378,9 @@ class TestRealModules:
         real_module_cpu_data,
         real_module_gpu_data,
         tmpdir,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         dataset, _ = real_module_cpu_data
         _, gt_results = real_module_gpu_data
         dataset.df = dataset.df.reset_index(drop=True)

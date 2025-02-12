@@ -27,7 +27,6 @@ from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_fro
 
 cudf = gpu_only_import("cudf")
 dask_cudf = gpu_only_import("dask_cudf")
-LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
 EmbeddingCreator = gpu_only_import_from(
     "nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator"
 )
@@ -55,19 +54,13 @@ def dedup_data():
 
 @pytest.mark.gpu
 class TestSemDuplicates:
-    @pytest.fixture(autouse=True, scope="class")
-    def gpu_client(self, request):
-        with LocalCUDACluster(n_workers=1) as cluster, Client(cluster) as client:
-            request.cls.client = client
-            request.cls.cluster = cluster
-            yield
-
     def test_sem_dedup(
         self,
         dedup_data,
         tmpdir,
+        gpu_client,
     ):
-        print("client", self.client)
+        print("client", gpu_client)
         cache_dir = os.path.join(tmpdir, "test_sem_dedup_cache")
         config = SemDedupConfig(
             cache_dir=cache_dir,
