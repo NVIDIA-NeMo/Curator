@@ -123,10 +123,13 @@ def _run_classifier_helper(
     prob_col: str = None,
 ) -> "dask_cudf.DataFrame":
 
-    if prob_col:
-        df[prob_col] = 0
-    else:
+    if prob_col is None:
         prob_col = "_prob"
+        labeler = op.Labeler(labels, cols=[prob_col], suffix=label_col)
+    else:
+        labeler = op.Labeler(
+            labels, cols=[prob_col], keep_cols=[prob_col], suffix=label_col
+        )
 
     columns_to_keep_list = df.columns.to_list()
 
@@ -140,7 +143,7 @@ def _run_classifier_helper(
             batch_size=batch_size,
             pred_output_col=prob_col,
         ),
-        op.Labeler(labels, cols=[prob_col], suffix=label_col),
+        labeler,
         repartition=df.npartitions,
         keep_cols=columns_to_keep_list,
     )

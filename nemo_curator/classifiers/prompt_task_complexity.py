@@ -337,11 +337,15 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
 
         df = dataset.df
         columns_to_keep_list = df.columns.to_list()
-        df["sliced_text"] = df[self.text_field].str.slice(0, self.max_chars)
 
         model = self.model
         classifier_pipe = op.Sequential(
-            op.Tokenizer(model, cols=["sliced_text"], tokenizer_type="default"),
+            op.Tokenizer(
+                model,
+                cols=[self.text_field],
+                tokenizer_type="default",
+                max_chars=self.max_chars,
+            ),
             op.Predictor(
                 model,
                 sorted_data_loader=True,
