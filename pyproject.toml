@@ -77,20 +77,20 @@ dynamic = ["version"]
 [project.optional-dependencies]
 # Installs CPU + GPU text curation modules
 cuda12x = [
-    "cudf-cu12>=24.12",
-    "cugraph-cu12>=24.12",
-    "cuml-cu12>=24.12",
-    "dask-cuda>=24.12",
-    "dask-cudf-cu12>=24.12",
+    "cudf-cu12>=25.02",
+    "cugraph-cu12>=25.02",
+    "cuml-cu12>=25.02",
+    "dask-cuda>=25.02",
+    "dask-cudf-cu12>=25.02",
     "spacy[cuda12x]>=3.6.0, <3.8.0",
 ]
 # Installs CPU + GPU text curation modules with RAPIDS Nightlies
 cuda12x_nightly = [
-    "cudf-cu12>=25.02.0a0,<=25.02",
-    "cugraph-cu12>=25.02.0a0,<=25.02",
-    "cuml-cu12>=25.02.0a0,<=25.02",
-    "dask-cuda>=25.02.0a0,<=25.02",
-    "dask-cudf-cu12>=25.02.0a0,<=25.02",
+    "cudf-cu12>=25.04.0a0,<=25.04",
+    "cugraph-cu12>=25.04.0a0,<=25.04",
+    "cuml-cu12>=25.04.0a0,<=25.04",
+    "dask-cuda>=25.04.0a0,<=25.04",
+    "dask-cudf-cu12>=25.04.0a0,<=25.04",
     "spacy[cuda12x]>=3.6.0, <3.8.0",
 ]
 # Installs CPU + GPU text and image curation modules
