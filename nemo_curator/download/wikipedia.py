@@ -18,6 +18,7 @@ import os
 import re
 import subprocess
 import xml.etree.cElementTree as etree
+from typing import Literal, Optional
 from urllib.parse import quote, urlparse
 
 import mwparserfromhell
@@ -742,35 +743,49 @@ class WikipediaExtractor(DocumentExtractor):
                 )
             )
         # Don't return any meta here
-        return {}, "\n\n".join(section_text)
+        return {"text": "\n\n".join(section_text)}
 
 
 def download_wikipedia(
     output_path: str,
     language: str = "en",
-    dump_date=None,
-    output_type: str = "jsonl",
-    raw_download_dir=None,
-    keep_raw_download=False,
-    force_download=False,
-    url_limit=None,
+    dump_date: Optional[str] = None,
+    output_type: Literal["jsonl", "parquet"] = "jsonl",
+    raw_download_dir: Optional[str] = None,
+    keep_raw_download: bool = False,
+    force_download: bool = False,
+    url_limit: Optional[int] = None,
+    record_limit: Optional[int] = None,
 ) -> DocumentDataset:
     """
-    Downloads the latest Wikipedia dumps and extracts them using mwparserfromhell
+    Downloads and extracts articles from a Wikipedia dump.
+
+    This function retrieves a list of Wikipedia dump URLs for the specified language and dump date,
+    downloads the compressed bz2 dump file (if it is not already present), and extracts its articles
+    using mwparserfromhell. The resulting articles are saved in the specified output format (e.g., "jsonl")
+    along with relevant metadata.
 
     Args:
-      output_path: The path to the root directory of the files
-      language: The language of the Wikipedia articles to download
-      dump_date: A string formatted as "YYYYMMDD" for the wikipedia dump to use.
-        If None, latest dump is used.
-      output_type: The file type to save the data as.
-      raw_download_dir: Path to store the raw download files for intermediate processing.
-        If None, they are stored in a folder named "downloads" under output_path.
-      keep_raw_download: If True, keeps the bz2 files that have not been extracted.
-      force_download: If False, will skip processing all files in output_paths that already exist and
-        directly read from them instead.
-      url_limit: The maximum number of raw files to download from the snapshot. If None, all
-        files from the range of snapshots are downloaded.
+        output_path (str): The root directory where the final extracted files and intermediate outputs
+            (if any) are stored.
+        language (str, optional): The language code for the Wikipedia dump to download. Default is "en".
+        dump_date (Optional[str], optional): The dump date in "YYYYMMDD" format. If None, the latest
+            available dump is downloaded.
+        output_type (Literal["jsonl", "parquet"], optional): The file format/extension for saving the extracted documents (e.g., "jsonl").
+            Defaults to "jsonl". This is not used for the output file, but is used to check if an extracted output
+            already exists and read it if so.
+        raw_download_dir (Optional[str], optional): Directory used for temporary storage of raw bz2 dump files.
+            If None, a subdirectory named "downloads" under output_path is used.
+        keep_raw_download (bool, optional): If True, retains the raw bz2 files after extraction.
+            Default is False.
+        force_download (bool, optional): If False, skips re-downloading or re-extracting files that already exist.
+        url_limit (Optional[int], optional): The maximum number of dump file URLs to process. If None, all
+            available URLs are processed.
+        record_limit (Optional[int], optional): Limit the number of records to extract from each file.
+            If None, all available records are extracted.
+
+    Returns:
+        DocumentDataset: A dataset object containing the extracted Wikipedia articles along with associated metadata.
     """
     wikipedia_urls = get_wikipedia_urls(language=language, dump_date=dump_date)
     if url_limit:
@@ -812,6 +827,7 @@ def download_wikipedia(
         keep_raw_download=keep_raw_download,
         force_download=force_download,
         filename_col="file_name",
+        record_limit=record_limit,
     )
 
     return dataset

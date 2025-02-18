@@ -17,7 +17,7 @@ import os
 
 from nemo_curator.download.doc_builder import batch_download, download_and_extract
 from nemo_curator.utils.config_utils import build_downloader
-from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.utils.distributed_utils import get_client, write_to_disk
 from nemo_curator.utils.file_utils import (
     expand_outdir_and_mkdir,
     get_all_files_paths_under,
@@ -74,10 +74,16 @@ def main(args):
         keep_raw_download=args.keep_downloaded_files,
         force_download=args.overwrite_existing_json,
         input_meta=args.input_meta,
+        record_limit=args.record_limit,
     )
 
     # Sample to trigger the dask computation
-    sample = dataset.df.sample(frac=10 / len(dataset)).compute()
+    write_to_disk(
+        dataset.df,
+        args.output_json_dir,
+        write_to_filename=True,
+        output_type="jsonl",
+    )
 
 
 def attach_args(
@@ -148,6 +154,12 @@ such that it simply returns the pre-downloaded file.
         type=str,
         default=None,
         help="Output directory to store the extracted text in JSONL files.",
+    )
+    parser.add_argument(
+        "--record-limit",
+        type=int,
+        default=None,
+        help="Limit the number of records to extract from each file.",
     )
     ArgumentHelper.attach_bool_arg(
         parser,

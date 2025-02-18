@@ -17,6 +17,7 @@ import os
 import subprocess
 import unicodedata
 from abc import ABC, abstractmethod
+from typing import Literal, Optional
 from urllib.parse import urlparse
 
 import justext
@@ -352,48 +353,54 @@ class CommonCrawlWARCExtractor(DocumentExtractor):
             if text is not None:
                 if len(text) > 0:
                     text = "\n\n".join(text)
-                    meta = {"language": lang}
-                    return meta, text
+                    meta = {"language": lang, "text": text}
+                    return meta
                 else:
-                    return None, None
+                    return None
 
 
 def download_common_crawl(
     output_path: str,
     start_snapshot: str,
     end_snapshot: str,
-    output_type: str = "jsonl",
+    output_type: Literal["jsonl", "parquet"] = "jsonl",
     algorithm=JusTextExtractor(),
-    news=False,
-    aws=False,
-    raw_download_dir=None,
-    keep_raw_download=False,
-    force_download=False,
-    url_limit=None,
+    news: bool = False,
+    aws: bool = False,
+    raw_download_dir: Optional[str] = None,
+    keep_raw_download: bool = False,
+    force_download: bool = False,
+    url_limit: Optional[int] = None,
+    record_limit: Optional[int] = None,
 ) -> DocumentDataset:
     """
-    Downloads Common Crawl WARC snapshots and extracts them using jusText or Resiliparse
+    Downloads Common Crawl WARC snapshots and extracts text content using a specified extraction algorithm.
 
     Args:
-      output_path: The path to the root directory of the files
-      start_snapshot: The first common crawl snapshot to include. Snapshots must be
-        specified by YYYY-WeekNumber (e.g., '2020-50' or '2021-04'). For the CC-NEWS dataset,
-        (specified with news=True flag) this changes to Year-Month (YYYY-MM).
-      end_snapshot: The last common crawl snapshot to include. Must be chronologically
-        after the starting snapshot.
-      output_type: The file type to save the data as.
-      algorithm: A JusTextExtractor or ResiliparseExtractor object.
-      news: If True, gets WARC URLs for the CC-NEWS dataset instead of the CC-MAIN datasets.
-        Also assumes that the format for the start and end snapshots is 'YYYY-MM' (Year-Month).
-      aws: Whether to download from Common Crawl's S3 bucket. If True, uses s5cmd to download.
-        If False, uses wget.
-      raw_download_dir: Path to store the raw download files for intermediate processing.
-        If None, they are stored in a folder named "downloads" under output_path.
-      keep_raw_download: If True, keeps the compressed WARC files that have not been extracted.
-      force_download: If False, will skip processing all files in output_paths that already exist and
-        directly read from them instead.
-      url_limit: The maximum number of raw files to download from the snapshot. If None, all
-        files from the range of snapshots are downloaded.
+      output_path (str): The root directory used for managing download and extraction.
+          • Raw WARC files are stored in a "downloads" subdirectory under this path.
+          • This path is also checked for existing extraction results; if found, extraction can be skipped.
+          • Note: This function returns a DocumentDataset, and writing the extracted data to disk is the caller's responsibility.
+      start_snapshot (str): Identifier for the earliest snapshot to process.
+          • For CC-MAIN datasets, use the format 'YYYY-WeekNumber' (e.g., '2020-50' or '2021-04').
+          • For CC-NEWS datasets (when news=True), use the 'YYYY-MM' (Year-Month) format.
+      end_snapshot (str): Identifier for the latest snapshot to process, which must be chronologically after start_snapshot.
+      output_type (Literal["jsonl", "parquet"]): The file format for the extracted output. Must be either "jsonl" or "parquet".
+          • This is not used for the output file, but is used to check if an extracted output already exists.
+      algorithm: The text extraction algorithm instance (e.g., JusTextExtractor or ResiliparseExtractor) to use for HTML processing.
+      news (bool): When True, indicates that URLs should be retrieved from the CC-NEWS dataset.
+          • This also means snapshot identifiers should follow the 'YYYY-MM' format.
+      aws (bool): If True, downloads are sourced from Common Crawl's S3 bucket using s5cmd;
+          • If False, wget is used to fetch the files via HTTPS.
+      raw_download_dir: Optional; the directory to temporarily store raw WARC files.
+          • If not provided, defaults to a "downloads" folder within output_path.
+      keep_raw_download (bool): If True, retains the downloaded raw WARC files after extraction.
+          • If False, these raw files may be removed following extraction.
+      force_download (bool): If False, skips re-downloading or re-extracting snapshots if outputs already exist in output_path.
+      url_limit: Optional; the maximum number of WARC files to download from the snapshot range.
+          • If None, all available files within the specified snapshots are downloaded.
+      record_limit: Optional; the maximum number of records to extract from each WARC file.
+          • If None, all available records are extracted.
     """
     common_crawl_urls = get_common_crawl_urls(
         starting_snapshot=start_snapshot, ending_snapshot=end_snapshot, news=news
@@ -443,6 +450,7 @@ def download_common_crawl(
         keep_raw_download=keep_raw_download,
         force_download=force_download,
         filename_col="file_name",
+        record_limit=record_limit,
     )
 
     return dataset

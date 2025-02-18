@@ -18,6 +18,7 @@ import re
 import subprocess
 import tarfile
 import tempfile
+from typing import Literal, Optional
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.download.doc_builder import (
@@ -218,12 +219,12 @@ class ArxivExtractor(DocumentExtractor):
                 for file_content in content
             )
         except Exception:
-            return {}, None
+            return None
 
         # Don't return meta
         if cleaned_latex_file_str is not None:
             if len(cleaned_latex_file_str) > 0:
-                return {}, cleaned_latex_file_str
+                return {"text": cleaned_latex_file_str}
 
     def _clean_tex_file(self, file_content, arg_macros, non_arg_macros):
         r"""function takes a tex file as input and returns a cleaned version. The
@@ -365,25 +366,44 @@ class ArxivExtractor(DocumentExtractor):
 
 def download_arxiv(
     output_path: str,
-    output_type: str = "jsonl",
-    raw_download_dir=None,
-    keep_raw_download=False,
-    force_download=False,
-    url_limit=None,
+    output_type: Literal["jsonl", "parquet"] = "jsonl",
+    raw_download_dir: Optional[str] = None,
+    keep_raw_download: bool = False,
+    force_download: bool = False,
+    url_limit: Optional[int] = None,
+    record_limit: Optional[int] = None,
 ) -> DocumentDataset:
     """
-    Downloads Arxiv tar files and extracts them
+    Download Arxiv tar files and extract the contained LaTeX projects.
+
+    This function obtains a list of Arxiv tar file URLs (via get_arxiv_urls), downloads the tar files,
+    and then extracts the contained LaTeX source files. The resulting documents (after extraction) are
+    assembled into a DocumentDataset.
 
     Args:
-      output_path: The path to the root directory of the files
-      output_type: The file type to save the data as.
-      raw_download_dir: Path to store the raw download files for intermediate processing.
-        If None, they are stored in a folder named "downloads" under output_path.
-      keep_raw_download: If True, keeps the compressed WARC files that have not been extracted.
-      force_download: If False, will skip processing all files in output_paths that already exist and
-        directly read from them instead.
-      url_limit: The maximum number of raw files to download from the snapshot. If None, all
-        files from the range of snapshots are downloaded.
+        output_path (str):
+            The root directory where both the final extracted files and the raw download subdirectory will be stored.
+            The extracted files (in the format specified by output_type) are eventually saved in this directory.
+        output_type (Literal["jsonl", "parquet"], optional):
+            The file format/extension used for saving the extracted documents (e.g., "jsonl" or "parquet").
+            Default is "jsonl". This is not used for the output file, but is used to check if an extracted output already exists and read it if so.
+        raw_download_dir (Optional[str], optional):
+            The directory where the raw downloaded tar files will be kept. If None, a folder named "downloads"
+            under output_path is used.
+        keep_raw_download (bool, optional):
+            If True, the raw tar files (before extraction) are not removed after processing. Default is False.
+        force_download (bool, optional):
+            If False, then if an output file already exists for a given URL, re-downloading and re-extraction will be skipped.
+            Default is False.
+        url_limit (Optional[int], optional):
+            Limits the maximum number of Arxiv tar file URLs to download and process.
+            If None, all available URLs (from get_arxiv_urls) are processed.
+        record_limit (Optional[int], optional):
+            Limits the maximum number of records to extract from each tar file.
+            If None, all available records are extracted.
+    Returns:
+        DocumentDataset:
+            A dataset object containing the extracted documents.
     """
     arxiv_urls = get_arxiv_urls()
     if url_limit:
@@ -416,6 +436,7 @@ def download_arxiv(
         keep_raw_download=keep_raw_download,
         force_download=force_download,
         filename_col="file_name",
+        record_limit=record_limit,
     )
 
     return dataset
