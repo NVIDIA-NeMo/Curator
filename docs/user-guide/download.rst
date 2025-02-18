@@ -36,101 +36,103 @@ By "extraction", we typically mean the process of converting a data format from 
   Common crawl has an S3 bucket and a direct HTTPS endpoint. If you want to use the S3 bucket, ensure you have properly set up your credentials with `s5cmd <https://github.com/peak/s5cmd>`_.
   Otherwise, the HTTPS endpoints will be used with ``wget``. Here is a small example of how to use it:
 
-  .. code-block:: python
-    import os
-    from nemo_curator import get_client
-    from nemo_curator.download import download_common_crawl
-    from nemo_curator.datasets import DocumentDataset
+.. code-block:: python
 
-    def main():
-        # Initialize a distributed Dask client
-        client = get_client(cluster_type="cpu")
+  import os
+  from nemo_curator import get_client
+  from nemo_curator.download import download_common_crawl
+  from nemo_curator.datasets import DocumentDataset
 
-        # Parameters for downloading Common Crawl data.
-        # - output_folder: directory for temporary download/extraction files
-        # - start_snapshot and end_snapshot define the range to fetch
-        # - output_type: specifies file format for the extracted data (e.g., "jsonl")
-        output_folder = "/extracted/output/folder"
-        start_snapshot = "2020-50"
-        end_snapshot = "2021-04"
-        output_type = "jsonl"
-        os.makedirs(output_folder, exist_ok=True)
+  def main():
+      # Initialize a distributed Dask client
+      client = get_client(cluster_type="cpu")
 
-        # Download and extract the Common Crawl data.
-        # The function returns a DocumentDataset that contains the extracted documents.
-        # Note: The output folder and output type are passed here to store intermediate files
-        # and check if the data has already been downloaded. They should match the final location
-        # and format of the extracted data.
-        common_crawl_dataset = download_common_crawl(
-            output_folder, start_snapshot, end_snapshot, output_type=output_type
-        )
+      # Parameters for downloading Common Crawl data.
+      # - output_folder: directory for temporary download/extraction files
+      # - start_snapshot and end_snapshot define the range to fetch
+      # - output_type: specifies file format for the extracted data (e.g., "jsonl")
+      output_folder = "/extracted/output/folder"
+      start_snapshot = "2020-50"
+      end_snapshot = "2021-04"
+      output_type = "jsonl"
+      os.makedirs(output_folder, exist_ok=True)
 
-        # Write the extracted dataset to JSON format.
-        # The 'to_json' method will write one JSON document per line,
-        # preserving the original shard information if write_to_filename is True.
-        common_crawl_dataset.to_json(output_path=output_folder, write_to_filename=True)
-        print("Extracted dataset saved to:", output_folder)
+      # Download and extract the Common Crawl data.
+      # The function returns a DocumentDataset that contains the extracted documents.
+      # Note: The output folder and output type are passed here to store intermediate files
+      # and check if the data has already been downloaded. They should match the final location
+      # and format of the extracted data.
+      common_crawl_dataset = download_common_crawl(
+          output_folder, start_snapshot, end_snapshot, output_type=output_type
+      )
 
-    if __name__ == "__main__":
-        main()
+      # Write the extracted dataset to JSON format.
+      # The 'to_json' method will write one JSON document per line,
+      # preserving the original shard information if write_to_filename is True.
+      common_crawl_dataset.to_json(output_path=output_folder, write_to_filename=True)
+      print("Extracted dataset saved to:", output_folder)
 
-  * ``"/extracted/output/folder"`` is the path to on your local filesystem where the final extracted files will be placed.
-  * ``"2020-50"`` is the first common crawl snapshot that will be included in the download. **Note:** Not every year and week has a snapshot. Ensure that your range includes at least one valid Common Crawl snapshot. A list of valid Common Crawl snapshots can be found `here <https://data.commoncrawl.org/>`_.
-  * ``"2021-04"`` is the last common crawl snapshot that will be included in the download.
-  * ``output_type="jsonl"`` is the file format that will be used for storing the data on disk. Currently ``"jsonl"`` and ``"parquet"`` are supported.
+  if __name__ == "__main__":
+      main()
+
+* ``"/extracted/output/folder"`` is the path to on your local filesystem where the final extracted files will be placed.
+* ``"2020-50"`` is the first common crawl snapshot that will be included in the download. **Note:** Not every year and week has a snapshot. Ensure that your range includes at least one valid Common Crawl snapshot. A list of valid Common Crawl snapshots can be found `here <https://data.commoncrawl.org/>`_.
+* ``"2021-04"`` is the last common crawl snapshot that will be included in the download.
+* ``output_type="jsonl"`` is the file format that will be used for storing the data on disk. Currently ``"jsonl"`` and ``"parquet"`` are supported.
 
 You can choose to modify the HTML text extraction algorithm used in ``download_common_crawl``. See an example below.
 
-  .. code-block:: python
-    import os
-    from nemo_curator import get_client
-    from nemo_curator.download import (
-        ResiliparseExtractor,
-        download_common_crawl,
-    )
-    from nemo_curator.datasets import DocumentDataset
+.. code-block:: python
 
-    def main():
-        # Initialize a distributed Dask client
-        client = get_client(cluster_type="cpu")
+  import os
+  from nemo_curator import get_client
+  from nemo_curator.download import (
+      ResiliparseExtractor,
+      download_common_crawl,
+  )
+  from nemo_curator.datasets import DocumentDataset
 
-        # Parameters for downloading Common Crawl data.
-        # - output_folder: directory for temporary download/extraction files
-        # - start_snapshot and end_snapshot define the range to fetch
-        # - output_type: specifies file format for the extracted data (e.g., "jsonl")
-        output_folder = "/extracted/output/folder"
-        start_snapshot = "2020-50"
-        end_snapshot = "2021-04"
-        output_type = "jsonl"
-        os.makedirs(output_folder, exist_ok=True)
+  def main():
+      # Initialize a distributed Dask client
+      client = get_client(cluster_type="cpu")
 
-        # Change the extraction algorithm to use ResiliparseExtractor
-        extraction_algorithm = ResiliparseExtractor()
+      # Parameters for downloading Common Crawl data.
+      # - output_folder: directory for temporary download/extraction files
+      # - start_snapshot and end_snapshot define the range to fetch
+      # - output_type: specifies file format for the extracted data (e.g., "jsonl")
+      output_folder = "/extracted/output/folder"
+      start_snapshot = "2020-50"
+      end_snapshot = "2021-04"
+      output_type = "jsonl"
+      os.makedirs(output_folder, exist_ok=True)
 
-        # Download and extract the Common Crawl data using the Resiliparse extraction algorithm.
-        # The function returns a DocumentDataset that contains the extracted documents.
-        common_crawl_dataset = download_common_crawl(
-            output_folder,
-            start_snapshot,
-            end_snapshot,
-            output_type=output_type,
-            algorithm=extraction_algorithm,
-        )
+      # Change the extraction algorithm to use ResiliparseExtractor
+      extraction_algorithm = ResiliparseExtractor()
 
-        # Write the extracted dataset to JSON format.
-        # The 'to_json' method writes one JSON document per line,
-        # preserving the original shard information if write_to_filename is True.
-        common_crawl_dataset.to_json(output_path=output_folder, write_to_filename=True)
-        print("Extracted dataset saved to:", output_folder)
+      # Download and extract the Common Crawl data using the Resiliparse extraction algorithm.
+      # The function returns a DocumentDataset that contains the extracted documents.
+      common_crawl_dataset = download_common_crawl(
+          output_folder,
+          start_snapshot,
+          end_snapshot,
+          output_type=output_type,
+          algorithm=extraction_algorithm,
+      )
 
-    if __name__ == "__main__":
-        main()
+      # Write the extracted dataset to JSON format.
+      # The 'to_json' method writes one JSON document per line,
+      # preserving the original shard information if write_to_filename is True.
+      common_crawl_dataset.to_json(output_path=output_folder, write_to_filename=True)
+      print("Extracted dataset saved to:", output_folder)
 
-  Above, we changed the extraction algorithm from the default ``JusTextExtractor``.
+  if __name__ == "__main__":
+      main()
 
-  The return value ``common_crawl`` will be in NeMo Curator's standard ``DocumentDataset`` format. Check out the function's docstring for more parameters you can use.
+Above, we changed the extraction algorithm from the default ``JusTextExtractor``.
 
-  NeMo Curator's Common Crawl extraction process looks like this under the hood:
+The return value ``common_crawl`` will be in NeMo Curator's standard ``DocumentDataset`` format. Check out the function's docstring for more parameters you can use.
+
+NeMo Curator's Common Crawl extraction process looks like this under the hood:
 
  1. Decode the HTML within the record from binary to text.
  2. If the HTML can be properly decoded, then with `pyCLD2 <https://github.com/aboSamoor/pycld2>`_, perform language detection on the input HTML.
