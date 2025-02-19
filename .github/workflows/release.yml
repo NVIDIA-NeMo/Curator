@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-name: 'Release NeMo Curator'
+name: "Release NeMo Curator"
 
 on:
   workflow_dispatch:
@@ -31,17 +31,17 @@ on:
         description: Branch to target for version bump
 jobs:
   release:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_release_library.yml@v0.20.1
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_release_library.yml@v0.22.6
     with:
       release-ref: ${{ inputs.release-ref }}
       python-package: nemo_curator
-      python-version: '3.10'
+      python-version: "3.10"
       library-name: NeMo Curator
       dry-run: ${{ inputs.dry-run }}
       version-bump-branch: ${{ inputs.version-bump-branch }}
     secrets:
       TWINE_USERNAME: ${{ secrets.TWINE_USERNAME }}
       TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
-      SLACK_RELEASE_ENDPOINT: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
+      SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
+      SLACK_WEBHOOK: ${{ secrets.SLACK_RELEASE_ENDPOINT }}
       PAT: ${{ secrets.PAT }}
-      SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
