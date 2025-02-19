@@ -45,22 +45,35 @@ Navigate to the [quick start notebook](notebooks/quickstart.ipynb) and follow th
 
 ### Run Pipeline (CLI)
 
-The pipeline can be run with datasets in rawdoc (only text, title and ids if any) format. To test the pipeline, you can use the provided example data at ```sample_data_rawdoc.jsonl```
+The pipeline can be run with datasets in ```jsonl``` (only text, title and ids if any) format. To test the pipeline, you can use the provided example data at ```sample_data/sample_data_rawdoc.jsonl```
 
-Navigate to the top level of this project directory and run the following command in your command line. It will take roughly 5-10 minutes.
+To use jsonl format, provide your data in a single or multiple `.jsonl` files. The structure of the data should follow this format: `{"text": <document>, "title": <title>}`. Additionally, if the documents already have a document id, the input file can also contain document ids. The same ids will be persisted in the generated data as well. Another accepted format is `{"_id": <document_id>, "text": <document>, "title": <title>}`.
 
-- `Rawdoc format`
-
-To use rawdoc format, provide your data in a `.jsonl` file. The structure of the data should follow this format: `{"text": <document>, "title": <title>}`. Additionally, if the documents already have a document id, the input file can also contain document ids. The same ids will be persisted in the generated data as well. Another accepted format is `{"_id": <document_id>, "text": <document>, "title": <title>}`.
-
-In order to run the pipeline, use the script ```main.py```
+The pipeline can be run in two modes (1. Generation and 2. Filtering). In order to run the full pipeline in generation mode, use the script ```main.py``` with the flag ```--pipeline-type=generate```
 ```
 python tutorials/nemo-retriever-synthetic-data-generation/main.py \
   --api-key=<API Key> \
-  --input-file=tutorials/nemo-retriever-synthetic-data-generation/data/sample_data_rawdoc.jsonl \
+  --input-dir=tutorials/nemo-retriever-synthetic-data-generation/sample_data \
   --pipeline-config=tutorials/nemo-retriever-synthetic-data-generation/config/config.yaml\
-  --input-format=rawdoc \
+  --input-format=jsonl \
+  --pipeline-type=generate \
   --output-dir=tutorials/nemo-retriever-synthetic-data-generation/outputs/sample_data_rawdoc
+  --save-format=jsonl
+  --n-partitions=5
+```
+The data can be saved in two formats (1. jsonl, 2. beir). Additionally, the user can pass ```--n-partitions``` flag to speed-up generation for large datasets.
+
+To filter pre-generated data, run ```main.py``` with ```--pipeline-type=filter```
+Note the change in the ```input-dir```, we need to use the path to the generated data in jsonl format.
+```
+python tutorials/nemo-retriever-synthetic-data-generation/main.py \
+  --api-key=<API Key> \
+  --input-dir= tutorials/nemo-retriever-synthetic-data-generation/outputs/sample_data_rawdoc/jsonl \
+  --pipeline-config=tutorials/nemo-retriever-synthetic-data-generation/config/config.yaml\
+  --input-format=jsonl \
+  --pipeline-type=filter \
+  --output-dir=tutorials/nemo-retriever-synthetic-data-generation/outputs/sample_data_rawdoc
+  --save-format=jsonl
 ```
 
 For more information about the expected structure of the data, see the [quick start notebook](notebooks/quickstart.ipynb).

@@ -55,7 +55,7 @@ generator_system_prompt: |
       Do I need a new EIN since I am hiring employees for my LLC?
 
     user_prompt_template: |
-      Generate {num_questions} questions and corresponding answers based on Input Document.
+      Generate {n_openlines} questions and corresponding answers based on Input Document.
 
       Input Document:
       {document}
@@ -72,7 +72,7 @@ percentile: 70  # Percentile for threshold calculation (float) [0, 100]
 batch_size: 1
 
 #Answerability filter (LLM-as-judge)
-answerability_filter: "meta/llama3-70b-instruct"
+answerability_filter: "meta/llama-3.1-70b-instruct"
 num_criteria: 4  # Number of criteria to parse from the response. It must be alined with the prompt template
 answerability_system_prompt: |
       You are an evaluator who is rating questions to given context passages based on the given criteria. Assess the given question for clarity and answerability given enough domain knowledge, consider the following evaluation criterion:

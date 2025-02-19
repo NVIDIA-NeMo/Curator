@@ -21,24 +21,35 @@ import secrets
 from abc import ABC, abstractmethod
 from typing import Any
 
+from tqdm import tqdm
+
+tqdm.pandas()
+
+# from tqdm.dask import TqdmCallback
+import importlib
+
 import dask.array as da
 import dask.dataframe as dd
 import pandas as pd
 from dask.base import normalize_token, tokenize
 from dask.diagnostics import ProgressBar
-from dask.distributed import progress
+from dask.distributed import get_worker, progress
 from distributed import Client
 from omegaconf import DictConfig, OmegaConf
 from openai import AsyncOpenAI, OpenAI
 from tqdm import tqdm
-from tqdm.dask import TqdmCallback
 
-from config.config import RetrieverEvalSDGConfig
 from nemo_curator import AsyncOpenAIClient, OpenAIClient
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters.doc_filter import DocumentFilter
 from nemo_curator.synthetic import AsyncNemotronGenerator, NemotronGenerator
 from nemo_curator.synthetic.generator import SyntheticDataGenerator
+from nemo_curator.utils.distributed_utils import load_object_on_worker
+
+config = importlib.import_module(
+    "tutorials.nemo-retriever-synthetic-data-generation.config.config"
+)
+RetrieverEvalSDGConfig = config.RetrieverEvalSDGConfig
 
 
 # ----------------------------------------------------------------------------80
@@ -66,13 +77,6 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
         return True  # TODO complete this
 
     def _init_pipeline_params(self):
-        # synchronous
-        self.openai_client = OpenAI(
-            base_url=self.cfg.base_url,
-            api_key=self.cfg.api_key,
-        )
-        self.client = OpenAIClient(self.openai_client)
-        self.generator = NemotronGenerator(self.client)
 
         if self._validate_config():
             self.sys_prompt = self.cfg.generator_system_prompt
@@ -89,78 +93,109 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
 
     # ----------------------------------------------------------------------------80
 
+    def _create_generator(self):
+        openai_client = OpenAI(
+            base_url=self.cfg.base_url,
+            api_key=self.cfg.api_key,
+        )
+        client = OpenAIClient(openai_client)
+        generator = NemotronGenerator(client)
+        return generator
+
+    def _get_partition_id(self, df: pd.DataFrame, partition_info=None):
+        df["partition-id"] = partition_info["number"]
+        return df
+
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
 
-        df = dataset.df
+        ddf = dataset.df
+        ddf["partition-id"] = ""
+        ddf = ddf.map_partitions(self._get_partition_id, meta=ddf)
+        ddf["llm_response"] = ""
+        ddf["qa_pairs"] = ""
+        ddf["question"] = ""
+        ddf["answer"] = ""
+        if "_id" not in ddf.columns:
+            ddf["_id"] = ""
+        ddf["question-id"] = ""
+        ddf["score"] = ""
 
-        df["llm_response"] = df["text"].apply(
-            self.generate, meta=("llm_response", "str")
-        )
-        df["qa_pairs"] = df["llm_response"].apply(
-            self.parse_response, meta=("qa_pairs", "object")
+        ddf = ddf.map_partitions(self._process_on_partition, meta=ddf)
+
+        return DocumentDataset(ddf)
+
+    def _process_on_partition(self, df: pd.DataFrame) -> pd.DataFrame:
+
+        self.generator = load_object_on_worker(
+            attr="generator",
+            load_object_function=self._create_generator,
+            load_object_kwargs={},
         )
 
-        df = df.explode("qa_pairs").reset_index(drop=True)
-
-        df["question"] = df["qa_pairs"].apply(
-            lambda x: x["question"], meta=("question", "str")
-        )
+        _id = df["partition-id"].iloc[0]
+        tqdm.pandas(desc=f"For partition_{_id}")
 
         if "_id" in df.columns:
-            df["_id"] = df["_id"].apply(self._check_doc_id, meta=("_id", "str"))
+            df["_id"] = df["_id"].apply(self._check_doc_id)
         else:
-            df["_id"] = df["text"].apply(self._get_random_hash, meta=("_id", "str"))
+            df["_id"] = df["text"].apply(self._get_random_hash)
 
-        df["question-id"] = df["question"].apply(
-            self._get_random_hash, meta=("question-id", "str")
-        )
+        df["llm_response"] = df["text"].progress_apply(self.generate)
+        df["qa_pairs"] = df["llm_response"].apply(self.parse_response)
 
-        df["answer"] = df["qa_pairs"].apply(
-            lambda x: x["answer"], meta=("answer", "str")
-        )
+        df = df.explode("qa_pairs").reset_index(drop=True)
+        df["question"] = df["qa_pairs"].apply(lambda x: x["question"])
 
-        df["score"] = df["question"].apply(lambda x: 1, meta=("score", "int"))
+        df["question-id"] = df["question"].apply(self._get_random_hash)
+        df["answer"] = df["qa_pairs"].apply(lambda x: x["answer"])
+        df["score"] = df["question"].apply(lambda x: 1)
 
-        df = df.drop(["llm_response", "qa_pairs"], axis=1)
-
-        return DocumentDataset(df)
+        return df
 
     # ----------------------------------------------------------------------------80
     def parse_response(self, llm_response: str) -> Any:
         qa_pairs = []
-        qa_list = llm_response.split("Question")[1:]
-        try:
-            for qa in qa_list:
-                qas = qa.split("Answer")
-                q = qas[0].split(":")[1].strip()
-                if re.search("Explanation", qas[1]):
-                    a = qas[1].split("Explanation")[0].split(":")[1].strip()
-                    explanation = qas[1].split("Explanation")[1].strip()
-                else:
-                    a = qas[1].split(":")[1].strip()
-                qa_pairs.append({"question": q, "answer": a})
-        except Exception as e:
-            print(f"error: {e}")
+        if llm_response:
+            qa_list = llm_response.split("Question")[1:]
+            try:
+                for qa in qa_list:
+                    qas = qa.split("Answer")
+                    q = qas[0].split(":")[1].strip()
+                    if re.search("Explanation", qas[1]):
+                        a = qas[1].split("Explanation")[0].split(":")[1].strip()
+                        explanation = qas[1].split("Explanation")[1].strip()
+                    else:
+                        a = qas[1].split(":")[1].strip()
+                    qa_pairs.append({"question": q, "answer": a})
+            except Exception as e:
+                qa_pairs = [{"question": "", "answer": ""}]
+                print(f"error: {e}")
+        else:
+            qa_pairs = [{"question": "", "answer": ""}]
         return qa_pairs
 
     # ----------------------------------------------------------------------------80
     def generate(self, doc_text):
-        response = self.generator.generate_closed_qa_instructions(
-            document=doc_text,
-            prompt_template=self.sys_prompt + "\n" + self.user_prompt_template,
-            n_openlines=self.num_qs,
-            model=self.generator_model,
-            model_kwargs=self.generator_model_kwargs,
-        )
+        try:
+            response = self.generator.generate_closed_qa_instructions(
+                document=doc_text,
+                prompt_template=self.sys_prompt + "\n" + self.user_prompt_template,
+                n_openlines=self.num_qs,
+                model=self.generator_model,
+                model_kwargs=self.generator_model_kwargs,
+            )
+        except Exception as e:
+            print(f"error: {e}")
+            return ""
+
         return response[0]
 
     # ----------------------------------------------------------------------------80
     def _get_random_hash(self, question: str):
         """Generate random hash for synthetic question IDs"""
         # Generate a random string
-        random_string = secrets.token_hex(
-            16
-        )  # Generates a secure, random string of 16 bytes hex-encoded
+        random_string = secrets.token_hex(16)
+        # Generates a secure, random string of 16 bytes hex-encoded
 
         # Hash the random string using SHA-256
         hash_object = hashlib.sha256(
@@ -171,10 +206,10 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
 
     # ----------------------------------------------------------------------------80
     def _check_doc_id(self, doc_id: Any) -> str:
-        if str(doc_id) == "nan":
-            return self._get_random_hash("")
-        else:
-            return str(doc_id)
+        if doc_id:
+            if str(doc_id) != "nan":
+                return str(doc_id)
+        return self._get_random_hash("some text")
 
     def __dask_tokenize__(self):
         return normalize_token(RetrieverEvalSetGenerator)

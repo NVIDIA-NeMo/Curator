@@ -24,6 +24,15 @@ from openai import OpenAI
 
 from nemo_curator.filters.doc_filter import DocumentFilter
 from nemo_curator.utils.decorators import batched
+from nemo_curator.utils.distributed_utils import NoWorkerError, load_object_on_worker
+
+
+def create_client(base_url, api_key):
+    openai_client = OpenAI(
+        base_url=base_url,
+        api_key=api_key,
+    )
+    return openai_client
 
 
 # ----------------------------------------------------------------------------80
@@ -52,15 +61,20 @@ class EasinessFilter(DocumentFilter):
         self.percentile = percentile
         if truncate:
             self.truncate = truncate
-        try:
-            self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
-        except Exception as e:
-            print(f"Error accessing NIM model: {e}")
         self.batch_size = batch_size
         self.text_fields = text_fields
 
     @batched
     def score_document(self, df: pd.DataFrame):
+
+        try:
+            self.client = load_object_on_worker(
+                attr="openai_client_easiness",
+                load_object_function=create_client,
+                load_object_kwargs={"base_url": self.base_url, "api_key": self.api_key},
+            )
+        except NoWorkerError:
+            return pd.Series(np.ones(len(df)), dtype=float)
 
         document_score = self._calc_similarity_nim(
             df[self.text_fields[0]].to_list(), df[self.text_fields[1]].to_list()
@@ -90,7 +104,7 @@ class EasinessFilter(DocumentFilter):
             print(f"Error: {e}")
             response = None
 
-        if response:
+        if response and not isinstance(response, str):
             if isinstance(text, list):
                 embeddings = [r.embedding for r in response.data]
             elif isinstance(text, str):
@@ -115,9 +129,6 @@ class EasinessFilter(DocumentFilter):
                 sim = 0.0
 
         return sim
-
-    def __dask_tokenize__(self):
-        return normalize_token(EasinessFilter)
 
 
 # ----------------------------------------------------------------------------80
@@ -149,19 +160,24 @@ class AnswerabilityFilter(DocumentFilter):
         self.system_prompt = answerability_system_prompt
         self.user_prompt_template = answerability_user_prompt_template
         self.num_criteria = num_criteria
-
-        try:
-            self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
-        except Exception as e:
-            print(f"Error accessing NIM model: {e}")
-
         self.text_fields = text_fields
 
     @batched
     def score_document(self, df: pd.DataFrame):
-        return df.apply(
+
+        try:
+            self.client = load_object_on_worker(
+                attr="openai_client_answerability",
+                load_object_function=create_client,
+                load_object_kwargs={"base_url": self.base_url, "api_key": self.api_key},
+            )
+        except NoWorkerError:
+            return pd.Series(["string"] * len(df))
+
+        return df.progress_apply(
             lambda row: self._llm_as_judge(
-                row[self.text_fields[0]], row[self.text_fields[1]]
+                row[self.text_fields[0]],
+                row[self.text_fields[1]],
             ),
             axis=1,
         )
@@ -211,9 +227,6 @@ class AnswerabilityFilter(DocumentFilter):
             return None  # generation
 
         return generation
-
-    def __dask_tokenize__(self):
-        return normalize_token(AnswerabilityFilter)
 
 
 # ----------------------------------------------------------------------------80
