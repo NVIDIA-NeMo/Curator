@@ -452,7 +452,7 @@ def reshard_jsonl(
     # Output file size in bytes
     blocksize = parse_str_of_num_bytes(output_file_size)
 
-    input_files = list(get_all_files_paths_under(input_dir))
+    input_files = list(get_all_files_paths_under(input_dir, keep_extensions="jsonl"))
 
     # Read in the dask bag
     b = db.read_text(input_files, blocksize=blocksize)

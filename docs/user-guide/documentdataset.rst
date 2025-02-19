@@ -43,7 +43,7 @@ You could read, filter the dataset, and write it using the following methods
     from nemo_curator.utils.file_utils import get_all_files_paths_under
     from nemo_curator.filters import WordCountFilter
 
-    files = get_all_files_paths_under("books_dataset/")
+    files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")
     books = DocumentDataset.read_json(files, add_filename=True)
 
     filter_step = nc.ScoreFilter(
@@ -58,7 +58,7 @@ You could read, filter the dataset, and write it using the following methods
 
 Let's walk through this code line by line.
 
-* ``files = get_all_files_paths_under("books_dataset/")`` This retrieves a list of all files in the given directory.
+* ``files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")`` This retrieves a list of all files in the given directory, then filters the list to include only files ending with ".jsonl".
   In our case, this is equivalent to writing
 
   .. code-block:: python

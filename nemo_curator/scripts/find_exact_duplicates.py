@@ -55,8 +55,9 @@ def main(args):
         if num_files is not None and num_files <= 0:
             logger.info(f"Processed {num_files}... quitting")
             break
-        files = get_all_files_paths_under(root=data_path, recurse_subdirectories=False)
-        files = [f for f in files if f.endswith(".jsonl")]
+        files = get_all_files_paths_under(
+            root=data_path, recurse_subdirectories=False, keep_extensions="jsonl"
+        )
         df = read_data(
             files[:num_files] if num_files else files,
             file_type="jsonl",

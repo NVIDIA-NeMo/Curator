@@ -44,7 +44,7 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def load_dataset(input_data_dir):
-    files = list(get_all_files_paths_under(input_data_dir))
+    files = list(get_all_files_paths_under(input_data_dir, keep_extensions="jsonl"))
     raw_data = read_data(files, file_type="jsonl", backend="pandas", add_filename=True)
     dataset = DocumentDataset(raw_data)
 

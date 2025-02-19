@@ -176,9 +176,9 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
     client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"Running curation pipeline on '{jsonl_dir}'...")
     files = [
-        fp
-        for fp in get_all_files_paths_under(jsonl_dir, recurse_subdirectories=False)
-        if fp.endswith(".jsonl")
+        get_all_files_paths_under(
+            jsonl_dir, recurse_subdirectories=False, keep_extensions="jsonl"
+        )
     ]
     print("Reading the data...")
     orig_dataset = DocumentDataset.read_json(files, add_filename=True)

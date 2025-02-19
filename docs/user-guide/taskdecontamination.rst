@@ -28,7 +28,7 @@ Let's examine this small example:
     from nemo_curator.utils.file_utils import get_all_files_paths_under
     from nemo_curator.tasks import Winogrande, Squad, TriviaQA,
 
-    files = get_all_files_paths_under("books_dataset/")
+    files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")
     books = DocumentDataset.read_json(files, add_filename=True)
 
     downstream_tasks = [

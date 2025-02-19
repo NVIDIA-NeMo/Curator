@@ -9,7 +9,6 @@ from nemo_curator.utils.distributed_utils import (
     read_data_blocksize,
     read_data_files_per_partition,
 )
-from nemo_curator.utils.file_utils import get_all_files_paths_under
 
 NUM_FILES = 5
 NUM_RECORDS = 100

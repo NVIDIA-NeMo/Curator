@@ -32,7 +32,9 @@ def sample_rows(df, n, seed):
 def main(args):
     client = get_client(**ArgumentHelper.parse_client_args(args))
     # Get local path
-    files = list(get_all_files_paths_under(args.input_data_dir))
+    files = list(
+        get_all_files_paths_under(args.input_data_dir, keep_extensions="jsonl")
+    )
     raw_data = read_data(files, file_type="jsonl", backend="pandas")
     dataset = DocumentDataset(raw_data)
     text_field = args.input_json_field

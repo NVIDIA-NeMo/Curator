@@ -13,8 +13,7 @@ logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
 
 
 def read_folder(input_folder, columns=["nemo_id", "text"]):
-    data_paths = get_all_files_paths_under(input_folder)
-    data_paths = [f for f in data_paths if f.endswith(".parquet")]
+    data_paths = get_all_files_paths_under(input_folder, keep_extensions="parquet")
     data_paths.sort()
     logging.info(f"Number of files being read: {len(data_paths)}")
     text_ddf = dask_cudf.read_parquet(
