@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -188,7 +188,6 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         duplicates = semantic_dedupe(
             dataset=gpu_dataset_text,
             sem_dedupe_config_yaml_path=sem_dedupe_config_yaml_path,
-            cache_dir=CACHE_DIR,
         )
         unique_ids = duplicates.df.to_backend("pandas").compute()["id"]
         semantic_dataset_text = DocumentDataset(
@@ -200,11 +199,11 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "text")
         rm_dir(CACHE_DIR)
         fuzzy_dataset_text = fuzzy_dedupe(
-            dataset=semantic_dataset_text, cache=CACHE_DIR
+            dataset=semantic_dataset_text, cache_dir=CACHE_DIR
         )
         CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "code")
         rm_dir(CACHE_DIR)
-        fuzzy_dataset_code = fuzzy_dedupe(dataset=gpu_dataset_code, cache=CACHE_DIR)
+        fuzzy_dataset_code = fuzzy_dedupe(dataset=gpu_dataset_code, cache_dir=CACHE_DIR)
 
         dataset_text.df = fuzzy_dataset_text.df.to_backend("pandas")
         dataset_code.df = fuzzy_dataset_code.df.to_backend("pandas")

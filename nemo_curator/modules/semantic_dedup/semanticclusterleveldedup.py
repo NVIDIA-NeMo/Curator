@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ class SemanticClusterLevelDedup:
         id_column_type: str,
         which_to_keep: str,
         output_dir: str,
-        embedding_col: str = "embeddings",
+        embedding_column: str = "embeddings",
         logger: Union[logging.Logger, str] = "./",
         profile_dir: Optional[str] = None,
     ) -> None:
@@ -57,7 +57,7 @@ class SemanticClusterLevelDedup:
             id_column_type (str): Data type of the ID column.
             which_to_keep (str): Strategy for which duplicate to keep.
             output_dir (str): Directory to save output files.
-            embedding_col (str): Column where the embeddings are stored.
+            embedding_column (str): Column where the embeddings are stored.
             logger (Union[logging.Logger, str]): Logger instance or path to the log file directory.
             profile_dir (str): If specified directory to write dask profile. Default is None.
         """
@@ -72,7 +72,7 @@ class SemanticClusterLevelDedup:
             output_dir, "semdedup_pruning_tables"
         )
         self.computed_semantic_match_dfs = False
-        self.embedding_col = embedding_col
+        self.embedding_column = embedding_column
         self.logger = self._setup_logger(logger)
         self.profile_dir = profile_dir
 
@@ -132,7 +132,7 @@ class SemanticClusterLevelDedup:
                     id_col_type=self.id_col_type,
                     eps_list=eps_list,
                     output_dir=self.semdedup_pruning_tables_dir,
-                    embedding_col=self.embedding_col,
+                    embedding_col=self.embedding_column,
                     which_to_keep=self.which_to_keep,
                 )
             )

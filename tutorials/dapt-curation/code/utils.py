@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -284,19 +284,19 @@ def exact_dedupe(dataset: DocumentDataset) -> DocumentDataset:
     return DocumentDataset(deduped)
 
 
-def fuzzy_dedupe(dataset: DocumentDataset, cache: str) -> DocumentDataset:
+def fuzzy_dedupe(dataset: DocumentDataset, cache_dir: str) -> DocumentDataset:
     """
     Removes near-duplicate documents and code lines
 
     Args:
         dataset (DocumentDataset): The dataset containing documents.
-        type (str): Document type to process.
+        cache_dir (str): Directory for storing intermediate results.
 
     Returns:
         DocumentDataset: The deduplicated dataset.
     """
     fuzzy_dedup_config = FuzzyDuplicatesConfig(
-        cache_dir=cache,
+        cache_dir=cache_dir,
         id_field="id",
         text_field="text",
         seed=42,
@@ -322,14 +322,15 @@ def fuzzy_dedupe(dataset: DocumentDataset, cache: str) -> DocumentDataset:
 
 
 def semantic_dedupe(
-    dataset: DocumentDataset, sem_dedupe_config_yaml_path: str, cache_dir: str
+    dataset: DocumentDataset,
+    sem_dedupe_config_yaml_path: str,
 ):
     """
     Perform semantic deduplication on the given dataset.
 
     Args:
         dataset (DocumentDataset): The dataset containing documents.
-        type (str): Document type to process.
+        sem_dedupe_config_yaml_path (str): The path to the semantic dedupe configuration file.
 
     Returns:
         The deduplicated DocumentDataset.
@@ -390,6 +391,6 @@ class CodeLineCountFilter(DocumentFilter):
         return score
 
 
-def rm_dir(cache_dir):
+def rm_dir(cache_dir: str):
     if os.path.isdir(cache_dir):
         os.system(f"rm -rf {cache_dir}")

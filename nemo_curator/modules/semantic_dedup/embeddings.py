@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -228,6 +228,12 @@ class EmbeddingCreator:
                 self.profile_dir, "embedding-creator"
             ):
                 embedding_ddf = self.create_embeddings(dataset.df, self.input_column)
+
+                # category column dtypes are not supported by the GPU-accelerated Parquet writer
+                for col in embedding_ddf.columns:
+                    if embedding_ddf[col].dtype.name == "category":
+                        embedding_ddf[col] = embedding_ddf[col].astype("str")
+
                 write_to_disk(
                     embedding_ddf,
                     self.embedding_output_dir,

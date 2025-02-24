@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -93,7 +93,6 @@ def attach_args():
             " cache_dir for the directory to store cache,"
             " clustering_save_loc for the location to save clustering results,"
             " n_clusters for the number of clusters,"
-            " seed for the seed for clustering,"
             " max_iter for the maximum iterations for clustering,"
             " kmeans_with_cos_dist for using K-Means with cosine distance."
         ),

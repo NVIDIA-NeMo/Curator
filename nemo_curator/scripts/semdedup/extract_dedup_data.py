@@ -72,7 +72,6 @@ def attach_args():
             "Important configuration parameters include:"
             " cache_dir for the directory to store cache"
             " which_to_keep for specifying which duplicates to keep,"
-            " largest_cluster_size_to_process for the largest cluster size to process,"
             " sim_metric for the similarity metric for deduplication,"
             " eps_thresholds for epsilon thresholds to calculate if semantically similar or not"
             " and eps_to_extract for the epsilon value to extract deduplicated data."

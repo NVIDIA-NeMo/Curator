@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -50,10 +50,13 @@ class SemDedup(BaseModule):
         self.embedding_creator = EmbeddingCreator(
             embedding_model_name_or_path=config.embedding_model_name_or_path,
             embedding_batch_size=config.embedding_batch_size,
+            embedding_output_dir=os.path.join(cache_dir, config.embeddings_save_loc),
+            embedding_max_mem_gb=config.embedding_max_mem_gb,
             embedding_pooling_strategy=config.embedding_pooling_strategy,
             input_column=input_column,
-            embedding_output_dir=os.path.join(cache_dir, config.embeddings_save_loc),
+            embedding_column=config.embedding_column,
             write_embeddings_to_disk=config.write_embeddings_to_disk,
+            write_to_filename=config.write_to_filename,
             logger=logger,
             profile_dir=self.config.profile_dir,
         )
@@ -62,6 +65,12 @@ class SemDedup(BaseModule):
             max_iter=config.max_iter,
             n_clusters=config.n_clusters,
             clustering_output_dir=os.path.join(cache_dir, config.clustering_save_loc),
+            embedding_column=config.embedding_column,
+            sim_metric=config.sim_metric,
+            which_to_keep=config.which_to_keep,
+            sort_clusters=config.sort_clusters,
+            kmeans_with_cos_dist=config.kmeans_with_cos_dist,
+            clustering_input_partition_size=config.clustering_input_partition_size,
             logger=logger,
             profile_dir=self.config.profile_dir,
         )
@@ -77,6 +86,7 @@ class SemDedup(BaseModule):
             id_column_type=id_column_type,
             which_to_keep=config.which_to_keep,
             output_dir=os.path.join(cache_dir, config.clustering_save_loc),
+            embedding_column=config.embedding_column,
             logger=logger,
             profile_dir=self.config.profile_dir,
         )
