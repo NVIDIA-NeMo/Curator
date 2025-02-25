@@ -136,7 +136,7 @@ class FuzzyDuplicatesConfig(BaseConfig):
 
         if not self.perform_removal:
             warnings.warn(
-                "In future releases (starting with 0.8.0) the default will be True."
+                "In future NeMo Curator releases, the default value for perform_removal will be True."
             )
 
 

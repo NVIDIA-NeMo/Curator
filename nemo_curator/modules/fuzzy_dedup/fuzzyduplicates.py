@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -257,19 +257,24 @@ class FuzzyDuplicates(BaseModule):
 
     def remove(
         self, dataset: DocumentDataset, duplicates_to_remove: Optional[DocumentDataset]
-    ) -> Optional[DocumentDataset]:
+    ) -> DocumentDataset:
         """
-        Remove exact duplicates from a given DocumentDataset
+        Remove fuzzy duplicates from a given DocumentDataset
         Parameters
         ----------
         dataset: DocumentDataset
-          The input datset to remove exact duplicates
+          The input dataset from which to remove fuzzy duplicates
+        duplicates_to_remove: DocumentDataset
+          The dataset containing IDs of the fuzzy duplicates to remove
         Returns
         -------
         DocumentDataset containing only non-duplicate documents
         """
+
         if not duplicates_to_remove:
-            return None
+            print("No fuzzy duplicates to remove, returning original dataset")
+            return dataset
+
         result = remove_duplicates(
             left=dataset.df,
             duplicates=duplicates_to_remove.df,
@@ -282,6 +287,8 @@ class FuzzyDuplicates(BaseModule):
         self, dataset: DocumentDataset, perform_removal: bool = False
     ) -> DocumentDataset:
         duplicates = self.identify_duplicates(dataset)
+
         if perform_removal:
             return self.remove(dataset, duplicates)
+
         return duplicates

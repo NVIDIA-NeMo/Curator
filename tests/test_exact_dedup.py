@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,6 +32,14 @@ def exact_dedup_data(request):
     df = dd.from_pandas(df, 2)
     if request.param:
         df = df.to_backend("cudf")
+    return DocumentDataset(df)
+
+
+@pytest.fixture
+def exact_no_dedup_data(request):
+    # A dataset with no exact duplicates
+    df = pd.DataFrame({"id": [1, 2, 300], "text": ["abc", "aba", "abb"]})
+    df = dd.from_pandas(df, 2)
     return DocumentDataset(df)
 
 
@@ -74,3 +82,15 @@ class TestExactDuplicates:
             }
         ).sort_values(by="id", ignore_index=True)
         pd.testing.assert_frame_equal(duplicates_df, expected_df, check_like=True)
+
+    def test_no_dedup(self, exact_no_dedup_data):
+        exact_dups = ExactDuplicates(
+            id_field="id",
+            text_field="text",
+            hash_method="md5",
+            perform_removal=True,
+        )
+        result_df = exact_dups(exact_no_dedup_data).df.compute().reset_index(drop=True)
+        expected_df = exact_no_dedup_data.df.compute().reset_index(drop=True)
+
+        pd.testing.assert_frame_equal(result_df, expected_df)

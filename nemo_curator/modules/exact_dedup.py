@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -72,16 +72,20 @@ class ExactDuplicates(BaseModule):
         self.id_field = id_field
         self.text_field = text_field
         self.perform_removal = perform_removal
+
         if not self.perform_removal:
             warnings.warn(
-                "In future releases (starting with 0.8.0) the default will be True."
+                "In future NeMo Curator releases, the default value for perform_removal will be True."
             )
+
         if self.perform_removal and cache_dir is None:
             warnings.warn("cache_dir is recommended to remove duplicates.")
+
         if cache_dir is None and profile_dir is not None:
             warnings.warn(
                 "cache_dir for intermediate outputs is required to generate profiles"
             )
+
         self.cache_dir = cache_dir
         self.profile_dir = profile_dir
 
@@ -94,7 +98,7 @@ class ExactDuplicates(BaseModule):
         else:
             self._logger = logger
 
-    def _exact_dup_ids(self, df: dd.DataFrame):
+    def _exact_dup_ids(self, df: dd.DataFrame) -> dd.DataFrame:
         """
         Get the id's for text/documents that are exact duplicates
         Parameters
@@ -105,17 +109,20 @@ class ExactDuplicates(BaseModule):
           * A unique ID column for each document
         """
         hash_df = self._compute_hashes(df)
+
         shuffle_context = (
             config.set({"dataframe.shuffle.method": "tasks"})
             if DASK_P2P_ERROR
             else nullcontext()
         )
+
         with shuffle_context:
             dup_ids = hash_df.shuffle(
                 on=["_hashes"],
                 ignore_index=True,
                 npartitions=max(1, (hash_df.npartitions // 3)),
             ).map_partitions(lambda x: x[x["_hashes"].duplicated(keep=False)])
+
         return dup_ids
 
     def _compute_hashes(
@@ -129,9 +136,11 @@ class ExactDuplicates(BaseModule):
         self._logger.info("Starting lazy hash generation")
         res = df[[self.id_field]]
         res["_hashes"] = df[self.text_field].map_partitions(self.hash_documents)
+
         self._logger.info(
             f"Lazy hash generation complete for {res.npartitions} partitions"
         )
+
         return res
 
     def hash_documents(
@@ -142,20 +151,24 @@ class ExactDuplicates(BaseModule):
         """
         if is_cudf_type(df):
             return df.hash_values(method=self.hash_method)
+
         elif isinstance(df, pd.Series):
             # TODO: Generalize ty using self.hash_method
             return df.apply(lambda x: md5(x.encode()).hexdigest())
 
+        else:
+            raise ValueError(f"Unsupported type: {type(df)}")
+
     def identify_duplicates(self, dataset: DocumentDataset) -> DocumentDataset:
         """
-        Find document ID's for exact duplicates in a given DocumentDataset
+        Find document IDs for exact duplicates in a given DocumentDataset
         Parameters
         ----------
         dataset: DocumentDataset
           The input datset to find exact duplicates
         Returns
         -------
-        DocumentDataset containing ID's and hashes of all duplicate documents
+        DocumentDataset containing IDs and hashes of all duplicate documents
         """
         result = self._exact_dup_ids(df=dataset.df)
 
@@ -165,19 +178,24 @@ class ExactDuplicates(BaseModule):
         t0 = time.time()
         self._logger.info("Starting execution for ExactDedup")
         write_path = os.path.join(self.cache_dir, "_exact_duplicates.parquet")
+
         if os.path.exists(write_path):
             warnings.warn(
                 f"Output path f{write_path} already exists and will be overwritten"
             )
+
         with performance_report_if_with_ts_suffix(
             self.profile_dir,
             "exact-dedup-profile",
         ):
             result.to_parquet(write_path, write_index=False, overwrite=True)
+
         self._logger.info(
             f"Time taken for Exact Dedup Computation = {time.time() - t0}s and output written at {write_path}"
         )
+
         backend = "cudf" if is_cudf_type(result) else "pandas"
+
         return DocumentDataset.read_parquet(
             write_path,
             backend=backend,
@@ -194,11 +212,18 @@ class ExactDuplicates(BaseModule):
         Parameters
         ----------
         dataset: DocumentDataset
-          The input datset to remove exact duplicates
+          The input dataset from which to remove exact duplicates
+        duplicates_to_remove: DocumentDataset
+          The dataset containing IDs of the exact duplicates to remove
         Returns
         -------
         DocumentDataset containing only non-duplicate documents
         """
+
+        if duplicates_to_remove is None:
+            print("No exact duplicates to remove, returning original dataset")
+            return dataset
+
         result = remove_duplicates(
             left=dataset.df,
             duplicates=duplicates_to_remove.df,
@@ -209,6 +234,8 @@ class ExactDuplicates(BaseModule):
 
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
         duplicates = self.identify_duplicates(dataset)
+
         if self.perform_removal:
             return self.remove(dataset, duplicates)
+
         return duplicates
