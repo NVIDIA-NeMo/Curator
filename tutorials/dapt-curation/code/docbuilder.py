@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
 import gzip
 import os
 import re
-from typing import Set, Tuple
 from zipfile import ZipFile, ZipInfo
 
 import arxiv as arxiv
@@ -33,7 +32,7 @@ from nemo_curator.download.doc_builder import (
 
 class WikitxtDownloader(DocumentDownloader):
     """
-    A class for downloading data from wiki urls.
+    A class for downloading data from wiki URLs.
     """
 
     def __init__(self, download_dir: str):
@@ -130,9 +129,9 @@ class WikitxtIterator(DocumentIterator):
 
 
 class WikitxtExtractor(DocumentExtractor):
-    def extract(self, content: str) -> Tuple[Set, str]:
+    def extract(self, content: str) -> dict:
         # No metadata for the text, just the content.
-        return {}, content
+        return {"text": content}
 
 
 class GitHubDownloader(DocumentDownloader):
@@ -338,9 +337,9 @@ class GitHubIterator(DocumentIterator):
 
 
 class GitHubExtractor(DocumentExtractor):
-    def extract(self, content: str):
+    def extract(self, content: str) -> dict:
         # Just return the content.
-        return {}, content
+        return {"text": content}
 
 
 class ArxivDownloader(DocumentDownloader):
@@ -470,6 +469,6 @@ class ArxivIterator(DocumentIterator):
 
 
 class ArxivExtractor(DocumentExtractor):
-    def extract(self, content: str):
+    def extract(self, content: str) -> dict:
         # Just return the content.
-        return {}, content
+        return {"text": content}

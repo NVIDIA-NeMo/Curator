@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -78,6 +78,7 @@ def download_wikipedia_sources(
         "line_count": int,
         "size_in_bytes": int,
         "path": str,
+        "file_name": str,
     }
 
     downloader = WikitxtDownloader(output_dir)
@@ -92,8 +93,8 @@ def download_wikipedia_sources(
         extractor=extractor,
         output_format=output_format,
     )
-    # Force the computation of the dataset
-    dataset.persist()
+
+    dataset.to_json(output_dir, write_to_filename="file_name")
     return output_dir
 
 
@@ -151,6 +152,7 @@ def download_github_sources(
         "line_count": int,
         "size_in_bytes": int,
         "path": str,
+        "file_name": str,
     }
 
     dataset = download_and_extract(
@@ -164,8 +166,8 @@ def download_github_sources(
         output_format=output_format,
         keep_raw_download=True,
     )
-    # Force the computation of the dataset
-    dataset.persist()
+
+    dataset.to_json(output_jsonl_dir, write_to_filename="file_name")
     return output_jsonl_dir
 
 
@@ -225,6 +227,7 @@ def download_pdf_sources(
         "line_count": int,
         "size_in_bytes": int,
         "path": str,
+        "file_name": str,
     }
 
     dataset = download_and_extract(
@@ -238,6 +241,6 @@ def download_pdf_sources(
         output_format=output_format,
         keep_raw_download=True,
     )
-    # Force the computation of the dataset
-    dataset.persist()
+
+    dataset.to_json(output_jsonl_dir, write_to_filename="file_name")
     return output_jsonl_dir
