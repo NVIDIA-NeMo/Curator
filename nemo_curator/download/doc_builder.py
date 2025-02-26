@@ -139,7 +139,7 @@ def _download_and_extract_single_partition(
         partition = read_single_partition(
             [output_path],
             backend="pandas",
-            filetype=output_type,
+            file_type=output_type,
             add_filename=filename_col,
         )
         return partition

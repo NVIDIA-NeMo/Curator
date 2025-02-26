@@ -14,7 +14,7 @@
 
 import os
 from functools import wraps
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Callable, List, Literal, Optional, Union
 
 import dask.dataframe as dd
 
@@ -53,7 +53,7 @@ class DocumentDataset:
         files_per_partition: Optional[int] = None,
         blocksize: Optional[str] = "1gb",
         add_filename: Union[bool, str] = False,
-        input_meta: Union[str, dict] = None,
+        input_meta: Optional[Union[str, dict]] = None,
         columns: Optional[List[str]] = None,
         **kwargs,
     ) -> "DocumentDataset":
@@ -152,6 +152,73 @@ class DocumentDataset:
                 backend=backend,
                 columns=columns,
                 **kwargs,
+            )
+        )
+
+    @classmethod
+    def read_custom(
+        cls,
+        input_files: Union[str, List[str]],
+        file_type: str,
+        read_func_single_partition: Callable[
+            [List[str], str, bool, Union[str, dict], dict],
+            Union["cudf.DataFrame", "pd.DataFrame"],
+        ],
+        files_per_partition: Optional[int] = None,
+        backend: Optional[Literal["pandas", "cudf"]] = None,
+        add_filename: Union[bool, str] = False,
+        columns: Optional[List[str]] = None,
+        input_meta: Union[str, dict] = None,
+    ) -> "DocumentDataset":
+        """
+        Read custom data from a file or directory based on a custom read function.
+
+
+        Args:
+            input_files: The path of the input file(s).
+                If input_file is a single string that ends with the file_type, we consider it as a single file.
+                If input_file is a single string that does not end with the file_type, we consider it as a directory
+                and read all files under the directory.
+                If input_file is a list of strings, we assume each string is a file path.
+            file_type: The type of the file to read.
+            read_func_single_partition: A function that reads a single file or a list of files in an single dask partition.
+                The function should take the following arguments:
+                - files: A list of file paths.
+                - file_type: The type of the file to read (in case you want to handle different file types differently).
+                - backend: Read below
+                - add_filename: Read below
+                - columns: Read below
+                - input_meta: Read below
+            backend: The backend to use for reading the data, in case you want to handle pd.DataFrame or cudf.DataFrame.
+            files_per_partition: The number of files to read per partition.
+            add_filename: Whether to add a filename column to the DataFrame.
+                If True, a new column is added to the DataFrame called `file_name`.
+                If str, sets new column name. Default is False.
+            columns: If not None, only these columns will be returned from the output of the read_func_single_partition function.
+            input_meta: A dictionary or a string formatted as a dictionary, which outlines
+                the field names and their respective data types within the JSONL input file.
+        """
+        # Single file
+        if file_type and input_files.endswith(file_type):
+            files = [input_files]
+        # Directory of filetype files
+        else:
+            files = get_all_files_paths_under(
+                root=input_files,
+                recurse_subdirectories=False,
+                keep_extensions=[file_type],
+            )
+
+        return cls(
+            read_data(
+                input_files=files,
+                backend=backend,
+                files_per_partition=files_per_partition,
+                blocksize=None,
+                add_filename=add_filename,
+                columns=columns,
+                input_meta=input_meta,
+                read_func_single_partition=read_func_single_partition,
             )
         )
 

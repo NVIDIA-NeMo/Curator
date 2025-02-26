@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import json
+import math
 import os
+import pickle
 import random
 import string
 import tempfile
 from datetime import datetime, timedelta
+from typing import List, Literal
 
 import pandas as pd
 import pytest
@@ -144,6 +147,46 @@ class TestIO:
             output_meta == expected_meta
         ), f"Expected: {expected_meta}, got: {output_meta}"
 
+    @pytest.mark.parametrize(
+        "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
+    )
+    def test_read_custom(self, jsonl_dataset: str, backend: Literal["pandas", "cudf"]):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            num_lines = jsonl_dataset.count("\n")
+            for i, line in enumerate(jsonl_dataset.split("\n")):
+                with open(os.path.join(tmp_dir, f"test_{i}.pkl"), "wb") as f:
+                    pickle.dump(line, f)
+
+            def read_npy_file(
+                files: List[str], backend: Literal["cudf", "pandas"], **kwargs
+            ):
+                if backend == "cudf":
+                    import cudf as df_backend
+                else:
+                    import pandas as df_backend
+
+                df = df_backend.DataFrame(
+                    [{**json.loads(pickle.load(open(file, "rb")))} for file in files],
+                )
+                return df
+
+            dataset = DocumentDataset.read_custom(
+                input_files=tmp_dir,
+                file_type="pkl",
+                read_func_single_partition=read_npy_file,
+                files_per_partition=2,
+            )
+            assert dataset.df.npartitions == math.ceil(num_lines / 2)
+            expected_df = pd.DataFrame(map(json.loads, jsonl_dataset.split("\n")))
+            pd.testing.assert_frame_equal(
+                dataset.df.to_backend("pandas")
+                .compute()
+                .sort_values(by="id", ignore_index=True),
+                expected_df[["date", "id", "text"]].sort_values(
+                    by="id", ignore_index=True
+                ),  # because we sort columns by name
+            )
+
 
 class TestWriteWithFilename:
     @pytest.mark.parametrize("keep_filename_column", [True, False])
@@ -168,12 +211,12 @@ class TestWriteWithFilename:
             df = df.drop(filename_col, axis=1)
 
         df1 = read_single_partition(
-            files=[tmp_path / f"file0.{file_ext}"], backend="pandas", filetype=file_ext
+            files=[tmp_path / f"file0.{file_ext}"], backend="pandas", file_type=file_ext
         )
         assert_eq(df1, df.iloc[0:1], check_index=False)
 
         df2 = read_single_partition(
-            files=[tmp_path / f"file1.{file_ext}"], backend="pandas", filetype=file_ext
+            files=[tmp_path / f"file1.{file_ext}"], backend="pandas", file_type=file_ext
         )
         assert_eq(df2, df.iloc[1:3], check_index=False)
 
@@ -199,7 +242,7 @@ class TestWriteWithFilename:
         if not keep_filename_column:
             df = df.drop("file_name", axis=1)
         got = read_single_partition(
-            files=[tmp_path / f"file2.{file_ext}"], backend="pandas", filetype=file_ext
+            files=[tmp_path / f"file2.{file_ext}"], backend="pandas", file_type=file_ext
         )
         assert_eq(got, df)
 

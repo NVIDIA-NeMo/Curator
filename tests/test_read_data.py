@@ -12,6 +12,10 @@ from nemo_curator.utils.distributed_utils import (
 
 NUM_FILES = 5
 NUM_RECORDS = 100
+import os
+from typing import Dict, List, Literal, Optional
+
+import numpy as np
 
 
 # Fixture to create multiple small JSONL files
@@ -49,6 +53,17 @@ def mock_multiple_parquet_files(tmp_path):
         # We specify row_group_size so that we can test splitting a single big file into smaller chunks
         df.to_parquet(parquet_file, compression=None, row_group_size=10)
         file_paths.append(str(parquet_file))
+    return file_paths
+
+
+# Fixture to create arbitrary npy files to test custom read functions
+@pytest.fixture
+def mock_npy_files(tmp_path):
+    file_paths = []
+    for file_id in range(NUM_FILES):
+        npy_file = tmp_path / f"test_{file_id}.npy"
+        np.save(npy_file, np.asarray([file_id], dtype=np.float32))
+        file_paths.append(str(npy_file))
     return file_paths
 
 
@@ -489,6 +504,68 @@ def test_read_data_input_meta(
     )
 
     assert list(df.columns) == list(input_meta.keys())
+
+
+""" Tests below this test for custom read functions """
+
+
+@pytest.mark.parametrize(
+    "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
+)
+def test_read_data_custom_read_function(mock_npy_files, backend):
+    # This function ignores file_type, add_filename, columns, and input_meta
+    def read_npy_file(files: List[str], backend: Literal["cudf", "pandas"], **kwargs):
+        if backend == "cudf":
+            import cudf as df_backend
+            import cupy as arr_backend
+        else:
+            import numpy as arr_backend
+            import pandas as df_backend
+
+        df = df_backend.DataFrame(
+            [(os.path.basename(file), arr_backend.load(file)) for file in files],
+            columns=["id", "embedding"],
+        )
+        return df
+
+    expected_df = pd.DataFrame(
+        [
+            {"id": f"test_{file_id}.npy", "embedding": np.asarray([file_id])}
+            for file_id in range(NUM_FILES)
+        ],
+    )
+
+    # Test that we can read the file without specifying columns
+    df_no_columns = read_data(
+        input_files=mock_npy_files,
+        backend=backend,
+        file_type="npy",
+        read_func_single_partition=read_npy_file,
+    )
+    assert df_no_columns.optimize().npartitions == NUM_FILES
+    df_no_columns_computed = df_no_columns.to_backend("pandas").compute()
+    pd.testing.assert_frame_equal(
+        df_no_columns_computed.sort_values("id").reset_index(drop=True),
+        expected_df[["embedding", "id"]],  # because we sort columns by name
+    )
+
+    # Test multiple files per partition
+    df_fpp_2 = read_data(
+        input_files=mock_npy_files,
+        backend=backend,
+        file_type="npy",
+        read_func_single_partition=read_npy_file,
+        files_per_partition=2,
+    )
+    assert df_fpp_2.optimize().npartitions == int(np.ceil(NUM_FILES / 2))
+    df_fpp_2_computed = df_fpp_2.to_backend("pandas").compute()
+    pd.testing.assert_frame_equal(
+        df_fpp_2_computed.sort_values("id").reset_index(drop=True),
+        expected_df[["embedding", "id"]],  # because we sort columns by name,
+    )
+
+
+""" Tests below this test for inconsistent schema """
 
 
 def xfail_inconsistent_schema_jsonl():
