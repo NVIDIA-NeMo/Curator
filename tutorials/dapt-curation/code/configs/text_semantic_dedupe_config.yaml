@@ -15,6 +15,7 @@ write_to_filename: false
 max_iter: 100
 n_clusters: 20
 clustering_save_loc: "clustering_results"
+random_state: 1234
 sim_metric: "cosine"
 which_to_keep: "hard"
 sort_clusters: true

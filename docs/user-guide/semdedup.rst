@@ -54,6 +54,7 @@ Semantic deduplication in NeMo Curator can be configured using a YAML file. Here
     max_iter: 100
     n_clusters: 1000
     clustering_save_loc: "clustering_results"
+    random_state: 1234
     sim_metric: "cosine"
     which_to_keep: "hard"
     sort_clusters: true

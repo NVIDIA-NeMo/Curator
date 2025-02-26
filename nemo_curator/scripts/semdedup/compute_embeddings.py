@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ def main(args):
         semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
     )
 
-    # Some time jsonl files are stored as .json
+    # Sometimes JSONL files are stored as .json
     # So to handle that case we can pass the input_file_extension
     if args.input_file_extension is not None:
         input_file_extension = args.input_file_extension
@@ -79,10 +79,13 @@ def main(args):
         embedding_output_dir=os.path.join(
             semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
         ),
+        embedding_max_mem_gb=semdedup_config.embedding_max_mem_gb,
+        embedding_pooling_strategy=semdedup_config.embedding_pooling_strategy,
         input_column=args.input_text_field,
+        embedding_column=semdedup_config.embedding_column,
         write_embeddings_to_disk=semdedup_config.write_embeddings_to_disk,
+        write_to_filename=semdedup_config.write_to_filename,
         logger=logger,
-        write_to_filename=True,
     )
 
     embedding_dataset = embedding_creator(dataset=dataset)

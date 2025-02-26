@@ -41,7 +41,13 @@ class SemDedup(BaseModule):
 
         Args:
             config (SemDedupConfig): Configuration for SemDedup.
-            logger (Union[logging.Logger, str]): Logger instance or path to the log file directory.
+            input_column (str): Column name from the data to be used for embedding generation.
+                Default is "text".
+            id_column (str): Column name used as the identifier in the dataset.
+                Default is "id".
+            id_column_type (str): Data type of id_column. Default is "int".
+            logger (Union[logging.Logger, str]): Existing logger to log to, or a path to a log directory.
+                Default is "./".
         """
         super().__init__(input_backend="cudf")
         self.config = config

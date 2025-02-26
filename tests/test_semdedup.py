@@ -151,6 +151,7 @@ class TestSemDuplicates:
         test_texts = [test_text_1, test_text_2] * 32
         df = cudf.DataFrame({"text": test_texts})
         ddf = dask_cudf.from_cudf(df, 1)
+
         cache_dir = os.path.join(tmpdir, "test_embeddings_cache")
 
         embedding_creator = EmbeddingCreator(
@@ -160,12 +161,15 @@ class TestSemDuplicates:
             input_column="text",
             embedding_output_dir=os.path.join(cache_dir, "mean_embeddings"),
         )
+
         embeddings = embedding_creator.create_embeddings(ddf).compute()
         embeddings = embeddings["embeddings"].to_arrow().to_pylist()
         embeddings = np.array(embeddings)
+
         reference_embeddings = get_reference_embeddings(
             test_texts, pooling_strategy=pooling_strategy
         )
+
         assert np.allclose(
             embeddings, reference_embeddings, atol=1e-3
         ), "Embeddings should match reference embeddings"

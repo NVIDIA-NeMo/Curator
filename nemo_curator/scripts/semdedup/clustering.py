@@ -66,6 +66,13 @@ def main(args):
         max_iter=semdedup_config.max_iter,
         n_clusters=semdedup_config.n_clusters,
         clustering_output_dir=clustering_output_dir,
+        embedding_column=semdedup_config.embedding_column,
+        random_state=semdedup_config.random_state,
+        sim_metric=semdedup_config.sim_metric,
+        which_to_keep=semdedup_config.which_to_keep,
+        sort_clusters=semdedup_config.sort_clusters,
+        kmeans_with_cos_dist=semdedup_config.kmeans_with_cos_dist,
+        clustering_input_partition_size=semdedup_config.clustering_input_partition_size,
         logger=logger,
     )
 

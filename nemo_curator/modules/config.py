@@ -173,6 +173,7 @@ class SemDedupConfig(BaseConfig):
         n_clusters (int): Number of clusters. Default is 1000.
         clustering_save_loc (str): Location to save clustering results.
             Default is "clustering_results".
+        random_state (int): KMeans random state used for reproducibility. Default is 1234.
         sim_metric (str): Similarity metric for deduplication.
             Default is "cosine".
         which_to_keep (str): Method to determine which duplicates to keep.
@@ -208,6 +209,7 @@ class SemDedupConfig(BaseConfig):
     max_iter: int = 100
     n_clusters: int = 1000
     clustering_save_loc: str = "clustering_results"
+    random_state: int = 1234
     sim_metric: str = "cosine"
     which_to_keep: str = "hard"
     sort_clusters: bool = True
