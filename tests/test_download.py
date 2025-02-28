@@ -124,12 +124,18 @@ class TestDownload:
 
         assert result == expected
 
+    @pytest.mark.skip(
+        reason="This test is flaky due to calling out to an external service and should be fixed."
+    )
     def test_incorrect_snapshot_order(self):
         with pytest.raises(ValueError):
             end_snapshot = "2021-04"
             start_snapshot = "2021-10"
             urls = get_common_crawl_urls(start_snapshot, end_snapshot)
 
+    @pytest.mark.skip(
+        reason="This test is flaky due to calling out to an external service and should be fixed."
+    )
     def test_incorrect_snapshot_order_news(self):
         with pytest.raises(ValueError):
             end_snapshot = "2021-04"
