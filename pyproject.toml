@@ -66,6 +66,7 @@ dependencies = [
     "resiliparse",
     "sentencepiece",
     "spacy>=3.6.0, <3.8.0",
+    "trafilatura",
     "transformers>=4.48.0",
     "unidic-lite==1.0.8",
     "usaddress==0.5.10",
