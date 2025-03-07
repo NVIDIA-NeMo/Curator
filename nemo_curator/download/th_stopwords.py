@@ -1,4 +1,4 @@
-thai_stopwords = frozenset(
+th_stopwords = frozenset(
     [
         "กล่าว",
         "กว่า",
