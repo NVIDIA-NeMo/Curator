@@ -7,9 +7,9 @@ Text Cleaning
 --------------------
 Overview
 --------------------
-Use NeMo Curator's text cleaning modules to remove undesirable text such as improperly decoded unicode characters, inconsistent line spacing, or excessive URLs from documents being pre-processed for dataset.
+Use NeMo Curator's text cleaning modules to remove undesirable text such as improperly decoded Unicode characters, inconsistent line spacing, or excessive URLs from documents being pre-processed for dataset.
 
-For example, the input sentence `"The Mona Lisa doesn't have eyebrows."` from a given document may not have included a properly encoded apostrophe (`'`), resulting in the sentence decoding as `"The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows."` NeMo Curator enables you to easily run this document through the default `UnicodeReformatter()` module to detect and remove the unwanted text,  or you can define your own custom unicode text cleaner tailored to your needs.
+For example, the input sentence ``"The Mona Lisa doesn't have eyebrows."`` from a given document may not have included a properly encoded apostrophe (``'``), resulting in the sentence decoding as ``"The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows."``. NeMo Curator enables you to easily run this document through the default ``UnicodeReformatter`` module to detect and remove the unwanted text, or you can define your own custom Unicode text cleaner tailored to your needs.
 
 --------------------
 Use Cases
@@ -23,13 +23,13 @@ Modules
 --------------------
 NeMo Curator provides the following modules for cleaning text:
 
-- ``UnicodeReformatter()``: Uses [ftfy](https://ftfy.readthedocs.io/en/latest/) to fix broken Unicode characters. Modifies the "text" field of the dataset by default.
-- ``NewlineNormalizer()``: Uses regex to replace 3 or more consecutive newline characters in each document with only 2 newline characters.
-- ``UrlRemover()``: Uses regex to remove all urls in each document.
+- ``UnicodeReformatter``: Uses `ftfy <https://ftfy.readthedocs.io/en/latest/>`_ to fix broken Unicode characters. Modifies the "text" field of the dataset by default. Please see the `ftfy documentation <https://ftfy.readthedocs.io/en/latest/config.html>`_ for more information about parameters used by the ``UnicodeReformatter``.
+- ``NewlineNormalizer``: Uses regex to replace 3 or more consecutive newline characters in each document with only 2 newline characters.
+- ``UrlRemover``: Uses regex to remove all URLs in each document.
 
 You can use these modules individually or sequentially in a cleaning pipeline.
 
-Consider the following example, which loads a dataset (`books.jsonl`), steps through each module in a cleaning pipeline, and outputs the processed dataset as `cleaned_books.jsonl`:
+Consider the following example, which loads a dataset (``books.jsonl``), steps through each module in a cleaning pipeline, and outputs the processed dataset as ``cleaned_books.jsonl``:
 
 
 .. code-block:: python
@@ -55,7 +55,7 @@ Consider the following example, which loads a dataset (`books.jsonl`), steps thr
     if __name__ == "__main__":
         main()
 
-You can also perform text cleaning operations using the CLI by running the `text_cleaning` command:
+You can also perform text cleaning operations using the CLI by running the ``text_cleaning`` command:
 
 .. code-block:: bash
 
@@ -65,7 +65,7 @@ You can also perform text cleaning operations using the CLI by running the `text
       --normalize-newlines \
       --remove-urls
 
-By default, the CLI will only perform unicode reformatting. Adding the ``--normalize-newlines`` and ``--remove-urls`` options add the other text cleaning options.
+By default, the CLI will only perform Unicode reformatting. Appending the ``--normalize-newlines`` and ``--remove-urls`` options adds the other text cleaning options.
 
 ------------------------
 Custom Text Cleaner
@@ -73,6 +73,7 @@ Custom Text Cleaner
 It's easy to write your own custom text cleaner. The implementation of ``UnicodeReformatter`` can be used as an example.
 
 .. code-block:: python
+
     import ftfy
 
     from nemo_curator.modifiers import DocumentModifier
@@ -86,7 +87,7 @@ It's easy to write your own custom text cleaner. The implementation of ``Unicode
             return ftfy.fix_text(text)
 
 Simply define a new class that inherits from ``DocumentModifier`` and define the constructor and ``modify_text`` method.
-Also, like the ``DocumentFilter`` class, ``modify_document`` can be annotated with ``batched`` to take in a pandas series of documents instead of a single document.
+Also, like the ``DocumentFilter`` class, ``modify_document`` can be annotated with ``batched`` to take in a Pandas Series of documents instead of a single document.
 See the :ref:`document filtering page <data-curator-qualityfiltering>` for more information.
 
 ---------------------------
