@@ -169,6 +169,7 @@ class DocumentDataset:
         add_filename: Union[bool, str] = False,
         columns: Optional[List[str]] = None,
         input_meta: Union[str, dict] = None,
+        **kwargs,
     ) -> "DocumentDataset":
         """
         Read custom data from a file or directory based on a custom read function.
@@ -176,8 +177,8 @@ class DocumentDataset:
 
         Args:
             input_files: The path of the input file(s).
-                If input_file is a single string that ends with the file_type, we consider it as a single file.
-                If input_file is a single string that does not end with the file_type, we consider it as a directory
+                If input_file is a string that ends with the file_type, we consider it as a single file.
+                If input_file is a string that does not end with the file_type, we consider it as a directory
                 and read all files under the directory.
                 If input_file is a list of strings, we assume each string is a file path.
             file_type: The type of the file to read.
@@ -198,17 +199,19 @@ class DocumentDataset:
             input_meta: A dictionary or a string formatted as a dictionary, which outlines
                 the field names and their respective data types within the JSONL input file.
         """
-        # Single file
-        if file_type and input_files.endswith(file_type):
-            files = [input_files]
-        # Directory of filetype files
+        if isinstance(input_files, str):
+            if input_files.endswith(file_type):
+                files = [input_files]
+            else:
+                files = get_all_files_paths_under(
+                    root=input_files,
+                    recurse_subdirectories=False,
+                    keep_extensions=[file_type],
+                )
+        elif isinstance(input_files, list):
+            files = input_files
         else:
-            files = get_all_files_paths_under(
-                root=input_files,
-                recurse_subdirectories=False,
-                keep_extensions=[file_type],
-            )
-
+            raise TypeError("input_files must be a string or list")
         return cls(
             read_data(
                 input_files=files,
@@ -219,6 +222,7 @@ class DocumentDataset:
                 columns=columns,
                 input_meta=input_meta,
                 read_func_single_partition=read_func_single_partition,
+                **kwargs,
             )
         )
 
