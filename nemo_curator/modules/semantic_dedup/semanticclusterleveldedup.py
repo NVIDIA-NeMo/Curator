@@ -23,7 +23,6 @@ import dask.bag as db
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
-from nemo_curator.modules.config import SemDedupConfig
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.semdedup_utils import (
@@ -43,6 +42,7 @@ class SemanticClusterLevelDedup:
         which_to_keep: str = "hard",
         output_dir: str = "./clustering_results",
         embedding_column: str = "embeddings",
+        batched_cosine_similarity: int = 1024,
         logger: Union[logging.Logger, str] = "./",
         profile_dir: Optional[str] = None,
     ) -> None:
@@ -64,6 +64,9 @@ class SemanticClusterLevelDedup:
                 Default is "./clustering_results".
             embedding_column (str): The column name that stores the embeddings.
                 Default is "embeddings".
+            batched_cosine_similarity (int): Whether to use batched cosine similarity (has less memory usage).
+                Default is 1024. When greater than 0, batching is used and memory requirements are O(N*B) where N is the number of items in the cluster and B is the batch size.
+                When less than or equal to 0, no batching is used and memory requirements are O(N^2) where N is the number of items in the cluster.
             logger (Union[logging.Logger, str]): Existing logger to log to, or a path to a log directory.
                 Default is "./".
             profile_dir (Optional[str]): If specified, directory to write Dask profile.
@@ -82,6 +85,7 @@ class SemanticClusterLevelDedup:
         )
         self.computed_semantic_match_dfs = False
         self.embedding_column = embedding_column
+        self.batched_cosine_similarity = batched_cosine_similarity
         self.logger = self._setup_logger(logger)
         self.profile_dir = profile_dir
 
@@ -144,6 +148,7 @@ class SemanticClusterLevelDedup:
                     output_dir=self.semdedup_pruning_tables_dir,
                     embedding_col=self.embedding_column,
                     which_to_keep=self.which_to_keep,
+                    batched_cosine_similarity=self.batched_cosine_similarity,
                 )
             )
             tasks.compute()

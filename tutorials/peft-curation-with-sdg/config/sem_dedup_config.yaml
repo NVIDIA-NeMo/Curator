@@ -18,6 +18,7 @@ clustering_save_loc: "clustering_results"
 random_state: 1234
 sim_metric: "cosine"
 which_to_keep: "hard"
+batched_cosine_similarity: 1024
 sort_clusters: true
 kmeans_with_cos_dist: false
 clustering_input_partition_size: "2gb"

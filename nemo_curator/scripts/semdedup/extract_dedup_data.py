@@ -54,6 +54,7 @@ def main(args):
         id_column=args.id_column,
         id_column_type=args.id_column_type,
         which_to_keep=semdedup_config.which_to_keep,
+        batched_cosine_similarity=semdedup_config.batched_cosine_similarity,
         output_dir=os.path.join(
             semdedup_config.cache_dir, semdedup_config.clustering_save_loc
         ),

@@ -57,6 +57,7 @@ Semantic deduplication in NeMo Curator can be configured using a YAML file. Here
     random_state: 1234
     sim_metric: "cosine"
     which_to_keep: "hard"
+    batched_cosine_similarity: 1024
     sort_clusters: true
     kmeans_with_cos_dist: false
     clustering_input_partition_size: "2gb"
@@ -209,6 +210,7 @@ Use Individual Components
         id_column="doc_id",
         id_column_type="str",
         which_to_keep="hard",
+        batched_cosine_similarity=1024,
         output_dir="path/to/output/deduped",
         logger="path/to/log/dir"
     )
@@ -257,7 +259,7 @@ Key parameters in the configuration file include:
 - ``n_clusters``: Number of clusters for k-means clustering.
 - ``eps_to_extract``: Deduplication threshold. Higher values result in more aggressive deduplication.
 - ``which_to_keep``: Strategy for choosing which duplicate to keep ("hard" or "soft").
-
+- ``batched_cosine_similarity``: Whether to use batched cosine similarity (has less memory usage, O(N*B) where B is the batch size) or vanilla cosine similarity (O(N^2) memory usage).
 -----------------------------------------
 Output
 -----------------------------------------

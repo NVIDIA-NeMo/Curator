@@ -18,7 +18,7 @@ import os
 import random
 import shutil
 import time
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple
 
 import cudf
 import dask.bag as db
@@ -179,25 +179,60 @@ def rank_within_cluster(
     return len(cluster_ids) - missing_files
 
 
-def _semdedup(
-    cluster_reps: torch.Tensor, device: str
+def pairwise_cosine_similarity(
+    cluster_reps: torch.Tensor,
+    device: Literal["cuda", "cpu"],
 ) -> Tuple[torch.Tensor, List[int]]:
-    # compute pairwise cos sim between cluster items,
-    # then replace to diagonal with zeros to ignore self similarity
-    cluster_reps.to(device)
-    pair_w_sim_matrix = cluster_reps @ (cluster_reps.T)
+    """
+    Compute pairwise cosine similarity between cluster items,
+    then replace to diagonal with zeros to ignore self similarity
+    """
+    # Move to device
+    cluster_reps = cluster_reps.to(device)
+    # Compute pairwise cosine similarity
+    pairwise_sim_matrix = torch.mm(cluster_reps, cluster_reps.T)
     del cluster_reps
-    pair_w_sim_matrix.fill_diagonal_(0.0)
-    assert pair_w_sim_matrix.shape[0] == pair_w_sim_matrix.shape[1]
+    # Get upper triangular matrix
+    assert pairwise_sim_matrix.shape[0] == pairwise_sim_matrix.shape[1]
+    triu_sim_mat = torch.triu(pairwise_sim_matrix, diagonal=1)
+    # Get max similarity and indices
+    max_values_and_indices = torch.max(triu_sim_mat, dim=0)
+    max_similarity = max_values_and_indices[0].cpu()
+    max_indices = max_values_and_indices[1].cpu().numpy().tolist()
+    return max_similarity, max_indices
 
-    triu_sim_mat = torch.triu(pair_w_sim_matrix, diagonal=1)
 
-    M = torch.max(triu_sim_mat, dim=0)[0].cpu()
-    M1 = torch.max(triu_sim_mat, dim=0)[1].cpu().numpy().tolist()
-    return M, M1
+def pairwise_cosine_similarity_batched(
+    cluster_reps: torch.Tensor,
+    device: Literal["cuda", "cpu"],
+    batch_size: int = 1024,
+) -> Tuple[torch.Tensor, List[int]]:
+    """
+    Computes pairwise cosine similarity between cluster items,
+    then replace to diagonal with zeros to ignore self similarity.
+    This function is useful for large clusters where the pairwise similarity matrix
+    does not fit into memory.
+    We use a batched approach to compute the pairwise similarity matrix in batches.
+    Memory requirements are O(N*B) where N is the number of items in the cluster and B is the batch size
+    instead of O(N^2) for the full matrix.
+    """
+    cluster_reps = cluster_reps.to(device)
+    max_similarity = torch.zeros(cluster_reps.shape[0], device=device)
+    max_indices = torch.zeros(cluster_reps.shape[0], dtype=torch.int64, device=device)
+    for start_idx in range(0, cluster_reps.shape[0], batch_size):
+        end_idx = min(start_idx + batch_size, cluster_reps.shape[0])
+        batch = cluster_reps[start_idx:end_idx]
+        pairwise_sim_matrix = torch.mm(cluster_reps, batch.T)
+        triu_sim_matrix = torch.triu(pairwise_sim_matrix, diagonal=1 - start_idx)
+        del batch, pairwise_sim_matrix
+        max_values_and_indices = torch.max(triu_sim_matrix, dim=0)
+        max_similarity[start_idx:end_idx] = max_values_and_indices[0]
+        max_indices[start_idx:end_idx] = max_values_and_indices[1]
+
+    return max_similarity.cpu(), max_indices.cpu().numpy().tolist()
 
 
-def get_cluster_reps(
+def get_normalized_cluster_reps(
     cluster_id: int,
     emb_by_clust_dir: str,
     id_col: str,
@@ -220,6 +255,8 @@ def get_cluster_reps(
         cluster_reps[embedding_col].list.leaves.values.reshape(len(cluster_reps), -1),
         device="cuda",
     )
+    # Normalize embeddings
+    cluster_reps = cluster_reps / cluster_reps.norm(dim=1, keepdim=True)
     return cluster_reps
 
 
@@ -233,6 +270,7 @@ def get_semantic_matches_per_cluster(
     output_dir: str,
     embedding_col: str,
     which_to_keep: str,
+    batched_cosine_similarity: int = 1024,
 ) -> None:
 
     output_df_file_path = os.path.join(output_dir, f"cluster_{cluster_id}.parquet")
@@ -266,22 +304,26 @@ def get_semantic_matches_per_cluster(
 
     text_ids = cluster_i[:, 0].astype(id_col_type)
 
-    cluster_reps = get_cluster_reps(
+    cluster_reps = get_normalized_cluster_reps(
         cluster_id, emb_by_clust_dir, id_col, embedding_col, text_ids
     )
-    M, M1 = _semdedup(cluster_reps, "cuda")
+    if batched_cosine_similarity > 0:
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(
+            cluster_reps, "cuda", batched_cosine_similarity
+        )
+    else:
+        max_similarity, max_indices = pairwise_cosine_similarity(cluster_reps, "cuda")
     assert cluster_reps.shape[0] == len(text_ids)
-
-    M1_id = [text_ids[m] for m in M1]
+    max_indices_id = [text_ids[m] for m in max_indices]
 
     points_to_remove_df = cudf.DataFrame()
     points_to_remove_df["indices"] = clutser_items_indices
     points_to_remove_df["id"] = text_ids
-    points_to_remove_df["max_id"] = M1_id
-    points_to_remove_df["cosine_sim_score"] = M.numpy().tolist()
+    points_to_remove_df["max_id"] = max_indices_id
+    points_to_remove_df["cosine_sim_score"] = max_similarity.numpy().tolist()
 
     for eps in eps_list:
-        eps_points_to_remove = M > 1 - eps
+        eps_points_to_remove = max_similarity > 1 - eps
         points_to_remove_df[f"eps={eps}"] = eps_points_to_remove
 
     points_to_remove_df.to_parquet(output_df_file_path)
