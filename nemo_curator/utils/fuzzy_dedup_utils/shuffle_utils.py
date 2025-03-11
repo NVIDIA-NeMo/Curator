@@ -65,12 +65,15 @@ def rearange_by_column_direct(
         )
 
     elif query_planning_enabled():
-        from dask_expr._collection import new_collection
-        from dask_expr._shuffle import RearrangeByColumn
+        try:
+            from dask.dataframe import dask_expr
+        except ImportError:
+            # TODO: Remove when pinned to dask>2024.12.1
+            import dask_expr
 
         # Use the internal dask-expr API
-        return new_collection(
-            RearrangeByColumn(
+        return dask_expr.new_collection(
+            dask_expr._shuffle.RearrangeByColumn(
                 frame=df.expr,
                 partitioning_index=col,
                 npartitions_out=npartitions,

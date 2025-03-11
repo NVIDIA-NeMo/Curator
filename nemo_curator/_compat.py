@@ -64,7 +64,9 @@ def query_planning_enabled():
     global _DASK_QUERY_PLANNING_ENABLED
 
     if _DASK_QUERY_PLANNING_ENABLED is None:
-        if _dask_version > parse_version("2024.6.0"):
+        if _dask_version > parse_version("2024.12.1"):
+            _DASK_QUERY_PLANNING_ENABLED = True
+        elif _dask_version > parse_version("2024.6.0"):
             import dask.dataframe as dd
 
             _DASK_QUERY_PLANNING_ENABLED = dd.DASK_EXPR_ENABLED
