@@ -38,9 +38,24 @@ jobs:
         # Installing wheel beforehand due to fasttext issue:
         # https://github.com/facebookresearch/fastText/issues/512#issuecomment-1837367666
         run: |
-          pip install wheel
+          pip install -U pip
+          pip install --no-cache-dir wheel
           pip install --no-cache-dir .
-          pip install pytest
+          pip install --no-cache-dir pytest coverage
+
       - name: Run tests
         run: |
-          python -m pytest -v --cpu
+          python -m coverage run --branch --source=nemo_curator --omit=nemo_curator/scripts/* -m pytest -v --cpu
+
+      - name: Generate report
+        run: |
+          python -m coverage xml
+          python -m coverage report
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          verbose: true
+          flags: cpu

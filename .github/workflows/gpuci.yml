@@ -44,7 +44,8 @@ jobs:
     timeout-minutes: 30
     # "run-gpu-tests" job is run if the "gpuci" label is added to the PR
     if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' }}
-
+    env:
+      DIR: ${{ github.run_id }}
     steps:
       # If something went wrong during the last cleanup, this step ensures any existing container is removed
       - name: Remove existing container if it exists
@@ -79,8 +80,24 @@ jobs:
         # We specify the `rootdir` to help locate the "pyproject.toml" file (which is in the root directory of the repository),
         # and then the directory where the PyTests are located
       - name: Run PyTests with GPU mark
+        id: coverage
         run: |
-          docker exec nemo-curator-container pytest -m gpu --rootdir /opt/NeMo-Curator /opt/NeMo-Curator/tests
+          docker exec nemo-curator-container bash -c '
+            cd /opt/NeMo-Curator && \
+            coverage run \
+            --branch \
+            --source=nemo_curator \
+            --omit=nemo_curator/scripts/* \
+            -m pytest -m gpu --rootdir /opt/NeMo-Curator tests && \
+            cp .coverage ../
+          '
+
+          docker exec nemo-curator-container coverage xml
+
+          docker cp nemo-curator-container:/opt/.coverage $DIR/.coverage
+          docker cp nemo-curator-container:/opt/coverage.xml $DIR/coverage.xml
+          coverage_report="codecov"
+          echo "report=$coverage_report" | tee -a "$GITHUB_OUTPUT"
 
         # After running `docker stop`, the container remains in an exited state
         # It is still present on our system and could be restarted with `docker start`
@@ -89,3 +106,32 @@ jobs:
         if: always()
         run: |
           docker stop nemo-curator-container && docker rm nemo-curator-container
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ steps.coverage.outputs.report == 'codecov' }}
+        with:
+          name: ${{ github.run_id }}
+          path: |
+            ${{ github.run_id }}/coverage.xml
+            ${{ github.run_id }}/.coverage
+          include-hidden-files: true
+
+  upload-coverage:
+    runs-on: ubuntu-latest
+    needs: [run-gpu-tests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download coverage reports of current branch
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.run_id }}
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          verbose: true
+          flags: gpu

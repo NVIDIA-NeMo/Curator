@@ -42,12 +42,12 @@ RUN conda create -y --name curator -c nvidia/label/cuda-${CUDA_VER} -c conda-for
   libcusolver \
   cuda-nvvm && \
   source activate curator && \
-  pip install --upgrade pytest pip
+  pip install --upgrade pytest pip pytest-coverage
 
 RUN \
---mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=/opt/NeMo-Curator/nemo_curator/__init__.py,from=curator-update \
---mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/package_info.py,target=/opt/NeMo-Curator/nemo_curator/package_info.py,from=curator-update \
---mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=/opt/NeMo-Curator/pyproject.toml,from=curator-update \
+  --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=/opt/NeMo-Curator/nemo_curator/__init__.py,from=curator-update \
+  --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/package_info.py,target=/opt/NeMo-Curator/nemo_curator/package_info.py,from=curator-update \
+  --mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=/opt/NeMo-Curator/pyproject.toml,from=curator-update \
   cd /opt/NeMo-Curator && \
   source activate curator && \
   pip install ".[all]"
