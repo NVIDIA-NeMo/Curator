@@ -24,7 +24,6 @@ import torch.nn.functional as F
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
 from huggingface_hub import PyTorchModelHubMixin
-from peft import PeftModel
 from torch.nn import Dropout, Linear
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
@@ -116,6 +115,11 @@ class AegisModel(nn.Module):
         base_model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path, torch_dtype=dtype, token=token
         )
+        # Importing PeftModel here to prevent cuda context issues
+        # that seem to happen on Transformers 4.48.3
+        # See related: https://github.com/rapidsai/crossfit/pull/113
+        from peft import PeftModel
+
         self.model = PeftModel.from_pretrained(base_model, peft_model_name_or_path)
         self.autocast = autocast
         self.add_instruction_data_guard = add_instruction_data_guard
