@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -100,7 +100,7 @@ def run_curation_pipeline(args: Any, jsonl_fp: str) -> str:
     """
     client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"    Running the curation pipeline on '{jsonl_fp}'...")
-    orig_dataset = DocumentDataset.read_json(jsonl_fp, add_filename=True)
+    orig_dataset = DocumentDataset.read_json(jsonl_fp)
     dataset = orig_dataset
 
     redact_pii_subject = partial(redact_pii, text_field="subject")
