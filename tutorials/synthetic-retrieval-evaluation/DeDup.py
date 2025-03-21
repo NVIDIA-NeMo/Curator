@@ -15,7 +15,7 @@ class Dedup:
     def get_embedding_vector(self, text):
         return self.embedding_model.invoke(text)
 
-    def list2vec(self, text_list, num_workers=100):
+    def list2vec(self, text_list, num_workers=1):
         def process_text(text):
             return text, self.get_embedding_vector(text)
 
