@@ -11,18 +11,33 @@ on:
       - "[rv][0-9].[0-9].[0-9]"
       - "[rv][0-9].[0-9].[0-9]rc[0-9]"
     # PR has to be labeled with "gpuCI" label
-    # If new commits are added, the "gpuCI" label has to be removed and re-added to rerun gpuCI
-    types: [labeled]
+    types: [labeled, synchronize]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # First, we build and push a NeMo-Curator container
+  # First, we build and push a NeMo Curator container
   build-container:
-    # "build-container" job is run if the "gpuci" label is added to the PR
-    if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' }}
+    # This block covers 3 cases when gpuCI should be triggered:
+    # 1. The PR has the "gpuCI" label and is opened by a maintainer.
+    #    In this case, gpuCI will autorun on any subsequent pushes to the PR,
+    #    as long as the "gpuCI" label is not removed.
+    # 2. The "gpuCI" label is added to the PR. If a non-maintainer opened the PR,
+    #    then subsequent pushes to the PR will not autorun gpuCI
+    #    unless the "gpuCI" label is removed and re-added again.
+    # 3. PR is merged to main.
+    if: >-
+      (
+        contains(github.event.pull_request.labels.*.name, 'gpuci') &&
+        contains(
+          '["ayushdg", "ko3n1g", "praateekmahajan", "ryantwolf", "sarahyurick", "VibhuJawa"]',
+          github.event.pull_request.user.login
+        )
+      ) ||
+      (github.event.label.name == 'gpuci') ||
+      (github.ref == 'refs/heads/main')
     uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.18.0
     with:
       image-name: nemo_curator_container
@@ -40,10 +55,26 @@ jobs:
     # This is the tag on our Azure runner found in Actions -> Runners -> Self-hosted runners
     # It has 2 A100 GPUs
     runs-on: self-hosted-azure
-    # Unit tests shouldn't take longer than 30minutes
+    # Unit tests should not take longer than 30 minutes
     timeout-minutes: 30
-    # "run-gpu-tests" job is run if the "gpuci" label is added to the PR
-    if: ${{ github.event.label.name == 'gpuci' || github.ref == 'refs/heads/main' }}
+    # This block covers 3 cases when gpuCI should be triggered:
+    # 1. The PR has the "gpuCI" label and is opened by a maintainer.
+    #    In this case, gpuCI will autorun on any subsequent pushes to the PR,
+    #    as long as the "gpuCI" label is not removed.
+    # 2. The "gpuCI" label is added to the PR. If a non-maintainer opened the PR,
+    #    then subsequent pushes to the PR will not autorun gpuCI
+    #    unless the "gpuCI" label is removed and re-added again.
+    # 3. PR is merged to main.
+    if: >-
+      (
+        contains(github.event.pull_request.labels.*.name, 'gpuci') &&
+        contains(
+          '["ayushdg", "ko3n1g", "praateekmahajan", "ryantwolf", "sarahyurick", "VibhuJawa"]',
+          github.event.pull_request.user.login
+        )
+      ) ||
+      (github.event.label.name == 'gpuci') ||
+      (github.ref == 'refs/heads/main')
     env:
       DIR: ${{ github.run_id }}
     steps:
