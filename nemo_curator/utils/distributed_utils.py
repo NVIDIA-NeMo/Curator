@@ -837,6 +837,10 @@ def _single_partition_write_to_simple_bitext(
     else:
         success_ser = pd.Series([empty_partition])
 
+    # Skip file creation for empty partitions
+    if empty_partition:
+        return success_ser
+
     src_output_file_path = output_file_path + f".{out_df['src_lang'].iloc[0]}"
     tgt_output_file_path = output_file_path + f".{out_df['tgt_lang'].iloc[0]}"
     partition_id = partition_info["number"] if partition_info else 0
@@ -844,7 +848,15 @@ def _single_partition_write_to_simple_bitext(
         open(f"{src_output_file_path}.{partition_id}", "w") as src_out,
         open(f"{tgt_output_file_path}.{partition_id}", "w") as tgt_out,
     ):
-        for src, tgt in zip(out_df["src"], out_df["tgt"]):
+        # Handle cuDF Series which are not directly iterable
+        if is_cudf_type(out_df):
+            src_values = out_df["src"].to_pandas()
+            tgt_values = out_df["tgt"].to_pandas()
+        else:
+            src_values = out_df["src"]
+            tgt_values = out_df["tgt"]
+
+        for src, tgt in zip(src_values, tgt_values):
             src_out.write(src + os.linesep)
             tgt_out.write(tgt + os.linesep)
 

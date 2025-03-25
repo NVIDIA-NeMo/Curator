@@ -77,6 +77,14 @@ class UnavailableMeta(type):
         raise UnavailableError(cls._msg)
 
     def __getattr__(cls, name):
+        # Special case for unittest.mock
+        # When unittest.mock is checking if an object is async, it checks for __func__
+        # We need to return None for this specific attribute to allow mocking
+        if name == "__func__":
+            return None
+        # Also handle other attributes that unittest.mock might check
+        if name in ("__await__", "__aenter__", "__aexit__", "__aiter__", "__anext__"):
+            return None
         raise UnavailableError(cls._msg)
 
     def __eq__(cls, other):

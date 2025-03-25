@@ -101,7 +101,8 @@ def get_all_files_paths_under(
             for f in files
         ]
     else:
-        file_ls = [entry.path for entry in os.scandir(root)]
+        # Only include files, not directories
+        file_ls = [entry.path for entry in os.scandir(root) if entry.is_file()]
 
     file_ls.sort()
 
@@ -281,7 +282,7 @@ def write_record(
 
         output_dir = os.path.join(output_dir, category, rel_path)
         os.makedirs(output_dir, exist_ok=True)
-        with open(f"{output_dir}/{file_name}", "a") as f:
+        with open(os.path.join(output_dir, file_name), "a") as f:
             f.write(json.dumps(line) + "\n")
 
         return category
@@ -383,7 +384,10 @@ def separate_by_metadata(
 
 def parse_str_of_num_bytes(s: str, return_str: bool = False) -> Union[str, int]:
     try:
-        power = "kmg".find(s[-1].lower()) + 1
+        last_char = s[-1].lower()
+        if last_char not in "kmg":
+            raise ValueError("Invalid size: {}".format(s))
+        power = "kmg".find(last_char) + 1
         size = float(s[:-1]) * 1024**power
     except ValueError:
         raise ValueError("Invalid size: {}".format(s))

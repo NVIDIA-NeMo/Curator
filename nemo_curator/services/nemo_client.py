@@ -38,7 +38,7 @@ class NemoDeployClient(LLMClient):
         max_tokens: Optional[int] = None,
         n: Optional[int] = None,
         seed: Optional[int] = None,
-        stop: Union[Optional[str], List[str]] = None,
+        stop: Union[Optional[str], List[str]] = [],
         stream: bool = False,
         temperature: Optional[float] = None,
         top_k: Optional[int] = None,

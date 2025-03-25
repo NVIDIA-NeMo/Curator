@@ -112,8 +112,10 @@ jobs:
         # and then the directory where the PyTests are located
       - name: Run PyTests with GPU mark
         id: coverage
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          docker exec nemo-curator-container bash -c '
+          docker exec -e HF_TOKEN=$HF_TOKEN nemo-curator-container bash -c '
             cd /opt/NeMo-Curator && \
             coverage run \
             --branch \
