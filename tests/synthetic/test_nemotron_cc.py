@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import random
+from unittest.mock import MagicMock, call
 
 import dask.dataframe as dd
 import pandas as pd
@@ -20,7 +21,17 @@ import pytest
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.synthetic.nemotron_cc import (
     NemotronCCDiverseQAPostprocessor,
+    NemotronCCGenerator,
     NemotronCCKnowledgeListPostprocessor,
+)
+from nemo_curator.synthetic.prompts import (
+    DISTILL_PROMPT_TEMPLATE,
+    DIVERSE_QA_PROMPT_TEMPLATE,
+    EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
+    KNOWLEDGE_LIST_PROMPT_TEMPLATE,
+    NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
+    NEMOTRON_CC_SYSTEM_PROMPT,
+    WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
 )
 
 
@@ -34,6 +45,210 @@ class DummyTokenizer:
 def create_dataset(data):
     pdf = pd.DataFrame(data)
     return DocumentDataset.from_pandas(pdf)
+
+
+class TestNemotronCCGenerator:
+    @pytest.fixture
+    def mock_llm_client(self):
+        mock_client = MagicMock()
+        mock_client.query_model.return_value = ["This is a mock response"]
+        return mock_client
+
+    def test_init(self, mock_llm_client):
+        """Test the constructor of NemotronCCGenerator."""
+        generator = NemotronCCGenerator(mock_llm_client)
+        assert generator.client == mock_llm_client
+
+    def test_prompt(self, mock_llm_client):
+        """Test the internal _prompt method."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Test document content"
+        prompt_template = "Test prompt for {document}."
+        system_prompt = "System instruction"
+        prompt_kwargs = {"extra_param": "test"}
+        model_kwargs = {"temperature": 0.7}
+
+        result = generator._prompt(
+            model="test_model",
+            document=document,
+            prompt_template=prompt_template,
+            system_prompt=system_prompt,
+            prompt_kwargs=prompt_kwargs,
+            model_kwargs=model_kwargs,
+        )
+
+        # Check if query_model was called with the right parameters
+        mock_llm_client.query_model.assert_called_once()
+        call_args = mock_llm_client.query_model.call_args[1]
+        assert call_args["model"] == "test_model"
+        assert call_args["temperature"] == 0.7
+        assert len(call_args["messages"]) == 2
+        assert call_args["messages"][0]["role"] == "system"
+        assert call_args["messages"][0]["content"] == "System instruction"
+        assert call_args["messages"][1]["role"] == "user"
+        assert (
+            call_args["messages"][1]["content"]
+            == "Test prompt for Test document content."
+        )
+
+        # Check return value
+        assert result == ["This is a mock response"]
+
+    def test_rewrite_to_wikipedia_style(self, mock_llm_client):
+        """Test rewrite_to_wikipedia_style method."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Original document text"
+        result = generator.rewrite_to_wikipedia_style(
+            document=document,
+            model="test_model",
+        )
+
+        # Check the right parameters were passed to query_model
+        mock_llm_client.query_model.assert_called_once()
+        messages = mock_llm_client.query_model.call_args[1]["messages"]
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
+        assert messages[1]["role"] == "user"
+        assert document in messages[1]["content"]
+        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+
+        # Check the result
+        assert result == ["This is a mock response"]
+
+    def test_generate_diverse_qa(self, mock_llm_client):
+        """Test generate_diverse_qa method."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Document text for QA generation"
+        result = generator.generate_diverse_qa(
+            document=document,
+            model="test_model",
+        )
+
+        # Check the right parameters were passed to query_model
+        mock_llm_client.query_model.assert_called_once()
+        messages = mock_llm_client.query_model.call_args[1]["messages"]
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
+        assert messages[1]["role"] == "user"
+        assert document in messages[1]["content"]
+        assert (
+            DIVERSE_QA_PROMPT_TEMPLATE.format(document=document)
+            == messages[1]["content"]
+        )
+        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+
+        # Check the result
+        assert result == ["This is a mock response"]
+
+    def test_distill(self, mock_llm_client):
+        """Test distill method."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Document text to distill"
+        result = generator.distill(
+            document=document,
+            model="test_model",
+        )
+
+        # Check the right parameters were passed to query_model
+        mock_llm_client.query_model.assert_called_once()
+        messages = mock_llm_client.query_model.call_args[1]["messages"]
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == NEMOTRON_CC_DISTILL_SYSTEM_PROMPT
+        assert messages[1]["role"] == "user"
+        assert document in messages[1]["content"]
+        assert (
+            DISTILL_PROMPT_TEMPLATE.format(document=document) == messages[1]["content"]
+        )
+        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+
+        # Check the result
+        assert result == ["This is a mock response"]
+
+    def test_extract_knowledge(self, mock_llm_client):
+        """Test extract_knowledge method."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Document text for knowledge extraction"
+        result = generator.extract_knowledge(
+            document=document,
+            model="test_model",
+        )
+
+        # Check the right parameters were passed to query_model
+        mock_llm_client.query_model.assert_called_once()
+        messages = mock_llm_client.query_model.call_args[1]["messages"]
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
+        assert messages[1]["role"] == "user"
+        assert document in messages[1]["content"]
+        assert (
+            EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE.format(document=document)
+            == messages[1]["content"]
+        )
+        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+
+        # Check the result
+        assert result == ["This is a mock response"]
+
+    def test_generate_knowledge_list(self, mock_llm_client):
+        """Test generate_knowledge_list method."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Document text for knowledge list generation"
+        result = generator.generate_knowledge_list(
+            document=document,
+            model="test_model",
+        )
+
+        # Check the right parameters were passed to query_model
+        mock_llm_client.query_model.assert_called_once()
+        messages = mock_llm_client.query_model.call_args[1]["messages"]
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
+        assert messages[1]["role"] == "user"
+        assert document in messages[1]["content"]
+        assert (
+            KNOWLEDGE_LIST_PROMPT_TEMPLATE.format(document=document)
+            == messages[1]["content"]
+        )
+        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+
+        # Check the result
+        assert result == ["This is a mock response"]
+
+    def test_custom_prompt_and_model_kwargs(self, mock_llm_client):
+        """Test methods with custom prompt template and model kwargs."""
+        generator = NemotronCCGenerator(mock_llm_client)
+
+        document = "Test document"
+        custom_prompt = "Custom prompt for {document} with {extra_param}"
+        custom_system_prompt = "Custom system prompt"
+        prompt_kwargs = {"extra_param": "additional context"}
+        model_kwargs = {"temperature": 0.5, "top_p": 0.9}
+
+        # Test with rewrite_to_wikipedia_style
+        generator.rewrite_to_wikipedia_style(
+            document=document,
+            model="test_model",
+            prompt_template=custom_prompt,
+            system_prompt=custom_system_prompt,
+            prompt_kwargs=prompt_kwargs,
+            model_kwargs=model_kwargs,
+        )
+
+        # Check that custom parameters were used
+        call_args = mock_llm_client.query_model.call_args[1]
+        assert call_args["temperature"] == 0.5
+        assert call_args["top_p"] == 0.9
+        assert call_args["messages"][0]["content"] == custom_system_prompt
+        expected_prompt = custom_prompt.format(
+            document=document, extra_param="additional context"
+        )
+        assert call_args["messages"][1]["content"] == expected_prompt
 
 
 class TestDiverseQAPostprocessor:
@@ -181,6 +396,27 @@ class TestDiverseQAPostprocessor:
         assert (
             actual_response == expected_response
         ), f"Expected: {expected_response}, got: {actual_response}"
+
+    def test_no_qa_pairs(self):
+        """Test case where len(qa_pairs) == 0, which happens when there are no lines
+        starting with 'Question:' in the response."""
+        text = "Document text"
+        # A response with only text but no lines starting with "Question:"
+        llm_response = (
+            "Here are the questions and answers based on the provided text:\n"
+            "- This is a response without any question lines\n"
+            "- Just some random text that doesn't start with Question:"
+        )
+        ds = create_dataset({"text": [text], "response": [llm_response]})
+        processor = NemotronCCDiverseQAPostprocessor(tokenizer=None, max_num_pairs=2)
+        result_ds = processor(ds)
+        result_df = result_ds.df.compute()
+
+        # Since there are no valid QA pairs, we expect the dataset to be empty
+        # because _postprocess_llm_response returns an empty string
+        assert (
+            result_df.empty
+        ), "Expected dataset to be empty when no QA pairs are found"
 
 
 class TestKnowledgeListPostprocessor:

@@ -41,7 +41,7 @@ jobs:
           pip install -U pip
           pip install --no-cache-dir wheel
           pip install --no-cache-dir .
-          pip install --no-cache-dir pytest coverage
+          pip install --no-cache-dir pytest pytest-asyncio coverage
 
       - name: Run tests
         run: |

@@ -860,16 +860,22 @@ class NemotronGenerator:
             model_kwargs=base_model_kwargs,
             prompt_template=macro_topic_prompt_template,
         )
-        macro_topics = self.convert_response_to_yaml_list(
-            responses[0],
-            model=model,
-            prompt_template=yaml_conversion_prompt_template,
-            model_kwargs=conversion_model_kwargs,
-        )
-        if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-            raise YamlConversionError(
-                f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+        try:
+            macro_topics = self.convert_response_to_yaml_list(
+                responses[0],
+                model=model,
+                prompt_template=yaml_conversion_prompt_template,
+                model_kwargs=conversion_model_kwargs,
             )
+            if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
+                raise YamlConversionError(
+                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                )
+        except YamlConversionError as e:
+            if ignore_conversion_failure:
+                macro_topics = []
+            else:
+                raise e
         macro_topics.extend(additional_macro_topics)
 
         # Generate the subtopics
@@ -1212,16 +1218,22 @@ class NemotronGenerator:
             model_kwargs=base_model_kwargs,
             prompt_template=macro_topic_prompt_template,
         )
-        macro_topics = self.convert_response_to_yaml_list(
-            responses[0],
-            model=model,
-            prompt_template=yaml_conversion_prompt_template,
-            model_kwargs=conversion_model_kwargs,
-        )
-        if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-            raise YamlConversionError(
-                f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+        try:
+            macro_topics = self.convert_response_to_yaml_list(
+                responses[0],
+                model=model,
+                prompt_template=yaml_conversion_prompt_template,
+                model_kwargs=conversion_model_kwargs,
             )
+            if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
+                raise YamlConversionError(
+                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                )
+        except YamlConversionError as e:
+            if ignore_conversion_failure:
+                macro_topics = []
+            else:
+                raise e
         macro_topics.extend(additional_macro_topics)
 
         # Generate the subtopics
@@ -1355,16 +1367,22 @@ class NemotronGenerator:
             model_kwargs=base_model_kwargs,
             prompt_template=macro_topic_prompt_template,
         )
-        macro_topics = self.convert_response_to_yaml_list(
-            responses[0],
-            model=model,
-            prompt_template=yaml_conversion_prompt_template,
-            model_kwargs=conversion_model_kwargs,
-        )
-        if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-            raise YamlConversionError(
-                f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+        try:
+            macro_topics = self.convert_response_to_yaml_list(
+                responses[0],
+                model=model,
+                prompt_template=yaml_conversion_prompt_template,
+                model_kwargs=conversion_model_kwargs,
             )
+            if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
+                raise YamlConversionError(
+                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                )
+        except YamlConversionError as e:
+            if ignore_conversion_failure:
+                macro_topics = []
+            else:
+                raise e
         macro_topics.extend(additional_macro_topics)
 
         # Generate the subtopics
