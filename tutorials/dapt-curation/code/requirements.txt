@@ -3,5 +3,7 @@ arxiv-downloader
 cchardet
 nltk==3.8.1
 poppler-utils
+protobuf==3.20.3
 unstructured[all-docs]==0.14.5
 unstructured[pdf]
+wandb==0.16.0

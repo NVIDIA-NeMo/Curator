@@ -44,12 +44,23 @@ The tutorial follows the steps below:<br>
 
 ## Usage
 
-After installing the NeMo Curator package, install the dependencies and run:
+Please follow the instructions in NeMo Curator's [README](https://github.com/NVIDIA/NeMo-Curator?tab=readme-ov-file#nemo-framework-container) to run the NeMo Framework Container and install the NeMo Curator package. Then, install the following dependencies for running the DAPT tutorial:
 
 ```bash
-cd code
+cd /opt/NeMo-Curator/tutorials/dapt-curation/code/
+apt update
+apt-get install poppler-utils
+apt-get install tesseract-ocr
+apt install libtesseract-dev
 pip install -r requirements.txt
+pip uninstall --yes $(pip list --format=freeze | grep opencv)
+rm -rf /usr/local/lib/python3.10/dist-packages/cv2/
+pip install opencv-python-headless
+python -c "import nltk; nltk.download('punkt_tab')"
+python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng')"
 python main.py --device "gpu"
 ```
 
-This will download chip-design related datasets and begin the data curation pipeline. Please use `--device "gpu"` to enable semantic and fuzzy deduplication, which require the GPU.
+This will download chip-design related datasets and begin the data curation pipeline.
+
+Please use `--device "gpu"` to enable semantic and fuzzy deduplication, which require the GPU.
