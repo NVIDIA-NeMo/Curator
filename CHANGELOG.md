@@ -1,5 +1,10 @@
 # Changelog
 
+## NVIDIA NeMo Curator 0.7.1
+
+- Fix Transformers + Cuda Context bug
+- Fix rate limit in SDG Retriever Eval Tutorial
+
 ## NVIDIA NeMo Curator 0.7.0
 
 - Python 3.12 Support
