@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import warnings
-from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from dataclasses import dataclass
+from typing import Literal, Optional, Union
 
 import yaml
 
@@ -169,26 +169,24 @@ class SemDedupConfig(BaseConfig):
         write_to_filename (bool): If True, saves the embeddings to the same filename as input files.
             Default False.
 
-        max_iter (int): Maximum iterations for clustering. Default is 100.
+        max_iter (int): Maximum iterations for clustering. The more iterations, the better the clustering.
+            Default is 100.
         n_clusters (int): Number of clusters. Default is 1000.
         clustering_save_loc (str): Location to save clustering results.
             Default is "clustering_results".
         random_state (int): KMeans random state used for reproducibility. Default is 1234.
-        sim_metric (str): Similarity metric for deduplication.
-            Default is "cosine".
-        which_to_keep (str): Method to determine which duplicates to keep.
-            Default is "hard".
+        sim_metric ("cosine" or "l2"): Similarity metric to use to rank within cluster. Default is "cosine".
+            `which_to_keep` determines how points within each cluster are ranked, based on the similarity to the centroid defined by `sim_metric`
+        which_to_keep (str): Method to determine which duplicates to keep. Default is "hard".
+            - hard retains edge-case or outlier items farthest from the centroid by sorting points by decreasing distance from the centroid.
+            - easy retains representative items closest to the centroid by sorting points by increasing distance from the centroid.
+            - random retains items randomly.
         batched_cosine_similarity (Union[bool, int]): Whether to use batched cosine similarity (has less memory usage).
             Default is 1024. When False or 0, no batching is used and memory requirements are O(N^2) where N is the number of items in the cluster.
             When True, batch size is set to 1024 and memory requirements are O(N*B) where N is the number of items in the cluster and B is the batch size.
-        sort_clusters (bool): Whether to sort clusters. Default is True.
-        kmeans_with_cos_dist (bool): Whether or not to use KMeans with cosine distance.
-            Default is False.
-        clustering_input_partition_size (str): The size of data partition with which to run KMeans.
-            Default is "2gb".
+        clustering_input_partition_size (Optional[str]): The size of data partition with which to run KMeans.
+            Default is "2gb". If None, then the dataset is not repartitioned.
 
-        eps_thresholds (List[float]): Epsilon thresholds to calculate if semantically
-            similar or not. Default is [0.01, 0.001].
         eps_to_extract (float): Epsilon value to extract deduplicated data.
             Default is 0.01.
     """
@@ -214,15 +212,12 @@ class SemDedupConfig(BaseConfig):
     n_clusters: int = 1000
     clustering_save_loc: str = "clustering_results"
     random_state: int = 1234
-    sim_metric: str = "cosine"
-    which_to_keep: str = "hard"
+    sim_metric: Literal["cosine", "l2"] = "cosine"
+    which_to_keep: Literal["hard", "easy", "random"] = "hard"
     batched_cosine_similarity: Union[bool, int] = 1024
-    sort_clusters: bool = True
-    kmeans_with_cos_dist: bool = False
     clustering_input_partition_size: str = "2gb"
 
     # Extract dedup config
-    eps_thresholds: List[float] = field(default_factory=lambda: [0.01, 0.001])
     eps_to_extract: float = 0.01
 
     def __post_init__(self):
@@ -230,11 +225,9 @@ class SemDedupConfig(BaseConfig):
             raise ValueError(
                 "Finding sem-dedup requires a cache directory accessible via all workers to store intermediates"
             )
-
-        if self.eps_to_extract not in self.eps_thresholds:
-            raise ValueError(
-                f"Epsilon to extract {self.eps_to_extract} must be in eps_thresholds {self.eps_thresholds}"
-            )
+        assert (
+            0 <= self.eps_to_extract <= 1
+        ), "Epsilon to extract must be between [0, 1]"
 
         # Convert bool to int
         if isinstance(self.batched_cosine_similarity, bool):

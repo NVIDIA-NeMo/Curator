@@ -48,12 +48,9 @@ def main(args):
         emb_by_clust_dir=os.path.join(
             cache_dir, semdedup_config.clustering_save_loc, "embs_by_nearest_center"
         ),
-        sorted_clusters_dir=os.path.join(
-            cache_dir, semdedup_config.clustering_save_loc, "sorted"
-        ),
         id_column=args.id_column,
-        id_column_type=args.id_column_type,
         which_to_keep=semdedup_config.which_to_keep,
+        sim_metric=semdedup_config.sim_metric,
         batched_cosine_similarity=semdedup_config.batched_cosine_similarity,
         output_dir=os.path.join(
             semdedup_config.cache_dir, semdedup_config.clustering_save_loc
@@ -62,10 +59,11 @@ def main(args):
         logger=logger,
     )
 
-    semantic_dedup.compute_semantic_match_dfs(semdedup_config.eps_thresholds)
-    for eps in semdedup_config.eps_thresholds:
-        dedup_id_dataset = semantic_dedup.extract_dedup_data(eps_to_extract=eps)
-        print(dedup_id_dataset.df.head(10))
+    semantic_dedup.compute_semantic_match_dfs()
+    dedup_id_dataset = semantic_dedup.extract_dedup_data(
+        eps_to_extract=semdedup_config.eps_to_extract
+    )
+    print(dedup_id_dataset.df.head(10))
 
     dt2 = datetime.now()
     logger.info(f"End: {dt2}")
@@ -90,7 +88,6 @@ def attach_args():
             " cache_dir for the directory to store cache"
             " which_to_keep for specifying which duplicates to keep,"
             " sim_metric for the similarity metric for deduplication,"
-            " eps_thresholds for epsilon thresholds to calculate if semantically similar or not"
             " and eps_to_extract for the epsilon value to extract deduplicated data."
         ),
     )

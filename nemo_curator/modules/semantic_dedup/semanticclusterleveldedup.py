@@ -17,17 +17,19 @@ import logging
 import os
 import shutil
 import time
-from typing import List, Optional, Union
+from typing import Literal, Optional, Union
 
 import dask.bag as db
+import dask.dataframe as dd
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.semdedup_utils import (
-    extract_dedup_data,
     get_semantic_matches_per_cluster,
+    prune_single_cluster,
+    write_pruned_summary_file,
 )
 
 
@@ -36,10 +38,9 @@ class SemanticClusterLevelDedup:
         self,
         n_clusters: int = 1000,
         emb_by_clust_dir: str = "./clustering_results/embs_by_nearest_center",
-        sorted_clusters_dir: str = "./clustering_results/sorted",
         id_column: str = "id",
-        id_column_type: str = "int",
         which_to_keep: str = "hard",
+        sim_metric: Literal["cosine", "l2"] = "cosine",
         output_dir: str = "./clustering_results",
         embedding_column: str = "embeddings",
         batched_cosine_similarity: int = 1024,
@@ -53,13 +54,14 @@ class SemanticClusterLevelDedup:
             n_clusters (int): Number of clusters. Default is 1000.
             emb_by_clust_dir (str): Directory containing embeddings by cluster.
                 Default is "./clustering_results/embs_by_nearest_center".
-            sorted_clusters_dir (str): Directory containing sorted clusters.
-                Default is "./clustering_results/sorted".
             id_column (str): Column name used as the identifier in the dataset.
                 Default is "id".
-            id_column_type (str): Data type of id_column. Default is "int".
-            which_to_keep (str): Method to determine which duplicates to keep.
-                Default is "hard".
+            which_to_keep (str): Method to determine which duplicates to keep. Default is "hard".
+                - hard retains edge-case or outlier items farthest from the centroid by sorting points by decreasing distance from the centroid.
+                - easy retains representative items closest to the centroid by sorting points by increasing distance from the centroid.
+                - random retains items randomly.
+            sim_metric ("cosine" or "l2"): Similarity metric to use to rank within cluster. Default is "cosine".
+                `which_to_keep` determines how points within each cluster are ranked, based on the similarity to the centroid defined by `sim_metric`
             output_dir (str): Directory to save output files.
                 Default is "./clustering_results".
             embedding_column (str): The column name that stores the embeddings.
@@ -75,10 +77,9 @@ class SemanticClusterLevelDedup:
         """
         self.n_clusters = n_clusters
         self.emb_by_clust_dir = emb_by_clust_dir
-        self.sorted_clusters_dir = sorted_clusters_dir
         self.id_col = id_column
-        self.id_col_type = id_column_type
         self.which_to_keep = which_to_keep
+        self.sim_metric = sim_metric
         self.output_dir = output_dir
         self.semdedup_pruning_tables_dir = os.path.join(
             output_dir, "semdedup_pruning_tables"
@@ -110,20 +111,7 @@ class SemanticClusterLevelDedup:
         else:
             return logger
 
-    def compute_semantic_match_dfs(
-        self, eps_list: Optional[List[float]] = None
-    ) -> None:
-        """
-        Compute semantic match dataframes for clusters.
-
-        Args:
-            eps_list (Optional[List[float]]): List of epsilon values for clustering.
-        """
-        if eps_list is None:
-            eps_list1 = [1.0e-2, 1.0e-3, 1.0e-4, 1.0e-5, 1.0e-6]
-            eps_list2 = [0.1 + x * 0.005 for x in range(34)]
-            eps_list = eps_list1 + eps_list2
-
+    def compute_semantic_match_dfs(self) -> None:
         if os.path.exists(self.semdedup_pruning_tables_dir):
             self.logger.info(
                 f"Removing existing directory {self.semdedup_pruning_tables_dir}"
@@ -141,13 +129,11 @@ class SemanticClusterLevelDedup:
                 lambda cluster_id: get_semantic_matches_per_cluster(
                     cluster_id=cluster_id,
                     emb_by_clust_dir=self.emb_by_clust_dir,
-                    sorted_clusters_dir=self.sorted_clusters_dir,
                     id_col=self.id_col,
-                    id_col_type=self.id_col_type,
-                    eps_list=eps_list,
                     output_dir=self.semdedup_pruning_tables_dir,
                     embedding_col=self.embedding_column,
                     which_to_keep=self.which_to_keep,
+                    sim_metric=self.sim_metric,
                     batched_cosine_similarity=self.batched_cosine_similarity,
                 )
             )
@@ -171,28 +157,40 @@ class SemanticClusterLevelDedup:
             raise ValueError(
                 "Run compute_semantic_match_dfs before calling extract_dedup_data"
             )
-
-        output_summary_file = os.path.join(
-            self.output_dir, f"dedup_summary_{eps_to_extract}.csv"
-        )
+        assert isinstance(eps_to_extract, float), "eps_to_extract must be a float"
         output_parquet_path = os.path.join(
             self.output_dir, f"unique_ids_{eps_to_extract}.parquet"
         )
-        extract_dedup_data(
-            eps=eps_to_extract,
-            n_clusters=self.n_clusters,
-            id_col=self.id_col,
-            id_col_type=self.id_col_type,
-            sorted_clusters_dir=self.sorted_clusters_dir,
-            semdedup_pruning_tables_dir=self.semdedup_pruning_tables_dir,
-            output_summary_file=output_summary_file,
-            output_parquet_path=output_parquet_path,
-            logger=self.logger,
-            profile_dir=self.profile_dir,
-        )
 
-        fps = [
-            os.path.join(output_parquet_path, file_name)
-            for file_name in os.listdir(output_parquet_path)
-        ]
-        return DocumentDataset.read_parquet(fps, backend="cudf")
+        t0 = time.time()
+        with performance_report_if_with_ts_suffix(
+            self.profile_dir,
+            "extracting-pruned-from-clusters",
+        ):
+            results_df = dd.from_map(
+                prune_single_cluster,
+                range(self.n_clusters),
+                id_col=self.id_col,
+                emb_by_clust_dir=self.emb_by_clust_dir,
+                semdedup_pruning_tables_dir=self.semdedup_pruning_tables_dir,
+                eps=eps_to_extract,
+            )
+            results_df.to_parquet(output_parquet_path, index=False, ignore_index=True)
+            self.logger.info(
+                f"Time taken for Extracting Pruned Data : {time.time() - t0} and output written at {output_parquet_path}"
+            )
+
+        # Write out summary file
+        output_summary_file = os.path.join(
+            self.output_dir, f"dedup_summary_{eps_to_extract}.csv"
+        )
+        write_pruned_summary_file(
+            eps=eps_to_extract,
+            emb_by_clust_dir=self.emb_by_clust_dir,
+            filtered_unique_ids_path=output_parquet_path,
+            output_summary_file=output_summary_file,
+            logger=self.logger,
+        )
+        return DocumentDataset.read_parquet(
+            output_parquet_path, blocksize="1gb", backend="cudf"
+        )

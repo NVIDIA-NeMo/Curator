@@ -68,10 +68,6 @@ def main(args):
         clustering_output_dir=clustering_output_dir,
         embedding_column=semdedup_config.embedding_column,
         random_state=semdedup_config.random_state,
-        sim_metric=semdedup_config.sim_metric,
-        which_to_keep=semdedup_config.which_to_keep,
-        sort_clusters=semdedup_config.sort_clusters,
-        kmeans_with_cos_dist=semdedup_config.kmeans_with_cos_dist,
         clustering_input_partition_size=semdedup_config.clustering_input_partition_size,
         logger=logger,
     )
@@ -101,7 +97,6 @@ def attach_args():
             " clustering_save_loc for the location to save clustering results,"
             " n_clusters for the number of clusters,"
             " max_iter for the maximum iterations for clustering,"
-            " kmeans_with_cos_dist for using K-Means with cosine distance."
         ),
     )
     return parser

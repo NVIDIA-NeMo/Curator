@@ -20,14 +20,8 @@ random_state: 1234
 sim_metric: "cosine"
 which_to_keep: "hard"
 batched_cosine_similarity: 1024
-sort_clusters: true
-kmeans_with_cos_dist: false
 clustering_input_partition_size: "2gb"
 
 # Extract dedup configuration
-eps_thresholds:
-  - 0.01
-  - 0.001
-
 # Which threshold to use for extracting deduped data
 eps_to_extract: 0.01

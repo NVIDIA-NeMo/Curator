@@ -33,7 +33,6 @@ class SemDedup(BaseModule):
         config: SemDedupConfig,
         input_column: str = "text",
         id_column: str = "id",
-        id_column_type: str = "int",
         logger: Union[logging.Logger, str] = "./",
     ) -> None:
         """
@@ -45,7 +44,6 @@ class SemDedup(BaseModule):
                 Default is "text".
             id_column (str): Column name used as the identifier in the dataset.
                 Default is "id".
-            id_column_type (str): Data type of id_column. Default is "int".
             logger (Union[logging.Logger, str]): Existing logger to log to, or a path to a log directory.
                 Default is "./".
         """
@@ -72,10 +70,6 @@ class SemDedup(BaseModule):
             n_clusters=config.n_clusters,
             clustering_output_dir=os.path.join(cache_dir, config.clustering_save_loc),
             embedding_column=config.embedding_column,
-            sim_metric=config.sim_metric,
-            which_to_keep=config.which_to_keep,
-            sort_clusters=config.sort_clusters,
-            kmeans_with_cos_dist=config.kmeans_with_cos_dist,
             clustering_input_partition_size=config.clustering_input_partition_size,
             logger=logger,
             profile_dir=self.config.profile_dir,
@@ -85,19 +79,15 @@ class SemDedup(BaseModule):
             emb_by_clust_dir=os.path.join(
                 cache_dir, config.clustering_save_loc, "embs_by_nearest_center"
             ),
-            sorted_clusters_dir=os.path.join(
-                cache_dir, config.clustering_save_loc, "sorted"
-            ),
             id_column=id_column,
-            id_column_type=id_column_type,
             which_to_keep=config.which_to_keep,
+            sim_metric=config.sim_metric,
             batched_cosine_similarity=config.batched_cosine_similarity,
             output_dir=os.path.join(cache_dir, config.clustering_save_loc),
             embedding_column=config.embedding_column,
             logger=logger,
             profile_dir=self.config.profile_dir,
         )
-        self.eps_thresholds = config.eps_thresholds
         self.eps_to_extract = config.eps_to_extract
 
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
@@ -112,7 +102,7 @@ class SemDedup(BaseModule):
         """
         embeddings_dataset = self.embedding_creator(dataset)
         self.clustering_model(embeddings_dataset)
-        self.semantic_cluster_dedup.compute_semantic_match_dfs(self.eps_thresholds)
+        self.semantic_cluster_dedup.compute_semantic_match_dfs()
         return self.semantic_cluster_dedup.extract_dedup_data(
             eps_to_extract=self.eps_to_extract
         )

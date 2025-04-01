@@ -58,15 +58,9 @@ Semantic deduplication in NeMo Curator can be configured using a YAML file. Here
     sim_metric: "cosine"
     which_to_keep: "hard"
     batched_cosine_similarity: 1024
-    sort_clusters: true
-    kmeans_with_cos_dist: false
     clustering_input_partition_size: "2gb"
 
     # Extract dedup configuration
-    eps_thresholds:
-      - 0.01
-      - 0.001
-
     # Which threshold to use for extracting deduped data
     eps_to_extract: 0.01
 
@@ -112,17 +106,10 @@ The semantic deduplication process is controlled by two key threshold parameters
 
 .. code-block:: yaml
 
-    eps_thresholds:
-      - 0.01
-      - 0.001
-
     eps_to_extract: 0.01
 
-1. ``eps_thresholds``: A list of similarity thresholds used to compute semantic matches. Each threshold represents a different level of strictness in determining duplicates.
+1. ``eps_to_extract``: The specific threshold used for the final extraction of deduplicated data.
                      Lower values are more strict, requiring higher similarity for documents to be considered duplicates.
-
-2. ``eps_to_extract``: The specific threshold used for the final extraction of deduplicated data.
-                     This value must be one of the thresholds listed in ``eps_thresholds``.
 
 This two-step approach offers several advantages:
 
@@ -137,8 +124,6 @@ When choosing appropriate thresholds:
 
 We recommended that you experiment with different threshold values to find the optimal balance between data reduction and maintaining dataset diversity and quality.
 The impact of these thresholds can vary depending on the nature and size of your dataset.
-
-Remember, if you want to extract data using a threshold that's not in ``eps_thresholds``, you'll need to recompute the semantic matches with the new threshold included in the list.
 
 -----------------------------------------
 Usage
@@ -206,10 +191,9 @@ Use Individual Components
     semantic_dedup = SemanticClusterLevelDedup(
         n_clusters=50000,
         emb_by_clust_dir="path/to/embeddings/by/cluster",
-        sorted_clusters_dir="path/to/sorted/clusters",
         id_column="doc_id",
-        id_column_type="str",
         which_to_keep="hard",
+        sim_metric="cosine",
         batched_cosine_similarity=1024,
         output_dir="path/to/output/deduped",
         logger="path/to/log/dir"
@@ -239,7 +223,6 @@ Alternatively, you can use the SemDedup class to perform all steps:
         config=config,
         input_column="text",
         id_column="doc_id",
-        id_column_type="str",
         logger="path/to/log/dir",
     )
 
@@ -258,7 +241,11 @@ Key parameters in the configuration file include:
 - ``embedding_batch_size``: Number of samples to process in each embedding batch.
 - ``n_clusters``: Number of clusters for k-means clustering.
 - ``eps_to_extract``: Deduplication threshold. Higher values result in more aggressive deduplication.
-- ``which_to_keep``: Strategy for choosing which duplicate to keep ("hard" or "soft").
+- ``which_to_keep``: Strategy for choosing which duplicate to keep ("hard" / "easy" / "random").
+    - ``hard``: Retains edge-case or outlier items farthest from the centroid by sorting points by decreasing distance from the centroid.
+    - ``easy``: Retains representative items closest to the centroid by sorting points by increasing distance from the centroid.
+    - ``random``: Retains items randomly.
+- ``sim_metric``: Similarity metric to use to rank within cluster. ``which_to_keep`` determines how points within each cluster are ranked, based on the similarity to the centroid defined by ``sim_metric``
 - ``batched_cosine_similarity``: Whether to use batched cosine similarity (has less memory usage, O(N*B) where B is the batch size) or vanilla cosine similarity (O(N^2) memory usage).
 -----------------------------------------
 Output

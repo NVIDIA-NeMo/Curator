@@ -592,7 +592,6 @@ class ArgumentHelper:
         argumentHelper.add_arg_input_file_type()
         argumentHelper.add_arg_input_text_field()
         argumentHelper.add_arg_id_column()
-        argumentHelper.add_arg_id_column_type()
 
         argumentHelper.parser.add_argument(
             "--config-file",

@@ -367,7 +367,6 @@ class TestArgumentHelper:
         assert "--input-file-type" in parser.format_help()
         assert "--input-text-field" in parser.format_help()
         assert "--id-column" in parser.format_help()
-        assert "--id-column-type" in parser.format_help()
 
         assert "--config-file" in parser.format_help()
 

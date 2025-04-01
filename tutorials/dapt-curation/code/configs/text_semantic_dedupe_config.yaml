@@ -14,11 +14,9 @@ n_clusters: 15
 clustering_save_loc: "clustering_results"
 sim_metric: "cosine"
 which_to_keep: "hard"
+batched_cosine_similarity: 1024
+clustering_input_partition_size: "2gb"
 
 # Extract dedup configuration
-eps_thresholds:
-  - 0.1
-  - 0.01
-
 # Which threshold to use for extracting deduped data
 eps_to_extract: 0.1

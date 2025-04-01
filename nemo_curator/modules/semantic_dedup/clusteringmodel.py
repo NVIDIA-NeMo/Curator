@@ -29,21 +29,13 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
-from nemo_curator.utils.semdedup_utils import assign_and_sort_clusters
-
-
-def get_embedding_ar(df: "cudf.DataFrame", embedding_col: str) -> cp.ndarray:
-    return df[embedding_col].list.leaves.values.reshape(len(df), -1)
-
-
-def add_dist_to_cents(
-    df: "cudf.DataFrame", embedding_col: str, centroids: cp.ndarray
-) -> "cudf.DataFrame":
-    embed_array = get_embedding_ar(df, embedding_col)
-    centroids_ar = centroids[df["nearest_cent"].values]
-    dist_to_cents = cp.sqrt(np.sum((embed_array - centroids_ar) ** 2, axis=1))
-    df["dist_to_cent"] = dist_to_cents
-    return df
+from nemo_curator.utils.semdedup_utils import (
+    COSINE_DIST_TO_CENT_COL,
+    L2_DIST_TO_CENT_COL,
+    add_l2_cosine_dist_to_centroid,
+    get_array_from_df,
+    normalize_embeddings_col_in_df,
+)
 
 
 # Clustering module
@@ -56,11 +48,7 @@ class ClusteringModel:
         clustering_output_dir: str = "./clustering_results",
         embedding_column: str = "embeddings",
         random_state: int = 1234,
-        sim_metric: str = "cosine",
-        which_to_keep: str = "hard",
-        sort_clusters: bool = True,
-        kmeans_with_cos_dist: bool = False,
-        clustering_input_partition_size: str = "2gb",
+        clustering_input_partition_size: Optional[str] = "2gb",
         logger: Union[logging.Logger, str] = "./",
         profile_dir: Optional[str] = None,
     ):
@@ -70,7 +58,8 @@ class ClusteringModel:
         Args:
             id_column (str): Column name used as the identifier in the dataset.
                 Default is "id".
-            max_iter (int): Maximum iterations for clustering. Default is 100.
+            max_iter (int): Maximum iterations for clustering. The more iterations, the better the clustering.
+                Default is 100.
             n_clusters (int): Number of clusters. Default is 1000.
             clustering_output_dir (str): Location to save clustering results.
                 Default is "./clustering_results".
@@ -78,15 +67,8 @@ class ClusteringModel:
                 Default is "embeddings".
             random_state (int): KMeans random state used for reproducibility.
                 Default is 1234.
-            sim_metric (str): Similarity metric for deduplication.
-                Default is "cosine".
-            which_to_keep (str): Method to determine which duplicates to keep.
-                Default is "hard".
-            sort_clusters (bool): Whether to sort clusters. Default is True.
-            kmeans_with_cos_dist (bool): Whether or not to use KMeans with cosine distance.
-                Default is False.
-            clustering_input_partition_size (str): The size of data partition with which to run KMeans.
-                Default is "2gb".
+            clustering_input_partition_size (Optional[str]): The size of data partition with which to run KMeans.
+                Default is "2gb". If None, then the dataset is not repartitioned.
             logger (Union[logging.Logger, str]): Existing logger to log to, or a path to a log directory.
                 Default is "./".
             profile_dir (Optional[str]): If specified, directory to write Dask profile.
@@ -99,11 +81,7 @@ class ClusteringModel:
         self.clustering_output_dir = clustering_output_dir
         self.embedding_column = embedding_column
         self.random_state = random_state
-        self.sim_metric = sim_metric
-        self.keep_hard = which_to_keep == "hard"
-        self.kmeans_with_cos_dist = kmeans_with_cos_dist
         self.clustering_input_partition_size = clustering_input_partition_size
-        self.sort_clusters = sort_clusters
         self.logger = self._setup_logger(logger)
         self.profile_dir = profile_dir
 
@@ -137,9 +115,10 @@ class ClusteringModel:
 
         with performance_report_if_with_ts_suffix(self.profile_dir, "clustering-model"):
             embeddings_df = embeddings_df[[self.id_col, self.embedding_column]]
-            embeddings_df = embeddings_df.repartition(
-                partition_size=self.clustering_input_partition_size
-            )
+            if self.clustering_input_partition_size is not None:
+                embeddings_df = embeddings_df.repartition(
+                    partition_size=self.clustering_input_partition_size
+                )
 
             try:
                 embeddings_df = embeddings_df.to_backend("pandas").persist()
@@ -159,49 +138,60 @@ class ClusteringModel:
                 )
 
             embeddings_df = embeddings_df.to_backend("cudf")
-
-            cupy_darr = embeddings_df.map_partitions(
-                get_embedding_ar, self.embedding_column, meta=cp.ndarray([1, 1])
+            # Normalize embeddings before clustering
+            embeddings_df = embeddings_df.map_partitions(
+                normalize_embeddings_col_in_df,
+                embedding_col=self.embedding_column,
+                meta=embeddings_df._meta.copy(),
             )
-            cupy_darr.compute_chunk_sizes()
+            cupy_normalized_darr = embeddings_df.map_partitions(
+                get_array_from_df, self.embedding_column, meta=cp.ndarray([1, 1])
+            )
+            cupy_normalized_darr.compute_chunk_sizes()
+
+            # Perform KMeans clustering (KMeans.fit)
             t0 = time.time()
             kmeans = KMeans(
                 n_clusters=self.n_clusters,
                 max_iter=self.max_iter,
                 random_state=self.random_state,
+                n_init=1,
             )
             self.logger.info("KMeans starting fit")
-            kmeans.fit(cupy_darr)
+            kmeans.fit(cupy_normalized_darr)
             self.logger.info("KMeans fit complete")
             self.logger.info(f"Time taken for KMeans fit: {time.time() - t0}")
-
+            # Compute nearest centroids using kmeans.predict
             self.logger.info(
                 "Computing nearest centroids and distance to centers using kmeans.predict"
             )
             t0 = time.time()
-            nearest_cents = kmeans.predict(cupy_darr)
+            nearest_cents = kmeans.predict(cupy_normalized_darr)
             self.logger.info(f"Time taken for KMeans predict: {time.time() - t0}")
-
             t0 = time.time()
             embeddings_df["nearest_cent"] = nearest_cents.astype(np.int32)
             del nearest_cents
-            meta_df = embeddings_df._meta.copy()
-            meta_df["dist_to_cent"] = cp.zeros(1)
+            # Add L2 and cosine distance to centroid columns to the dataframe
+            meta_df_with_l2_dist = embeddings_df._meta.copy()
+            meta_df_with_l2_dist[L2_DIST_TO_CENT_COL] = cp.zeros(1)
+            meta_df_with_l2_dist[COSINE_DIST_TO_CENT_COL] = cp.zeros(1)
             embeddings_df = embeddings_df.map_partitions(
-                add_dist_to_cents,
+                add_l2_cosine_dist_to_centroid,
                 embedding_col=self.embedding_column,
                 centroids=kmeans.cluster_centers_,
-                meta=meta_df,
+                meta=meta_df_with_l2_dist,
             )
             embeddings_df = embeddings_df.reset_index(drop=True)
+            # Save centroids to a file
             centroids = kmeans.cluster_centers_
             kmeans_centroids_file = os.path.join(
                 self.clustering_output_dir, "kmeans_centroids.npy"
             )
             np.save(kmeans_centroids_file, centroids)
             self.logger.info("Saving centroids complete")
-            del kmeans, cupy_darr, centroids
+            del kmeans, cupy_normalized_darr, centroids
 
+            # Save embeddings by nearest center to a file
             clustering_output_dir = os.path.join(
                 self.clustering_output_dir, "embs_by_nearest_center"
             )
@@ -212,7 +202,10 @@ class ClusteringModel:
                 shutil.rmtree(clustering_output_dir)
 
             embeddings_df.to_parquet(
-                clustering_output_dir, index=False, partition_on="nearest_cent"
+                clustering_output_dir,
+                index=False,
+                partition_on="nearest_cent",
+                write_index=False,
             )
             self.logger.info(
                 f"Time taken for assigning distance to each embedding: {time.time() - t0}s"
@@ -220,27 +213,11 @@ class ClusteringModel:
             )
 
             del embeddings_df
-
-        if self.sort_clusters:
-            assign_and_sort_clusters(
-                id_col=self.id_col,
-                kmeans_centroids_file=kmeans_centroids_file,
-                nearest_cent_dir=clustering_output_dir,
-                output_sorted_clusters_dir=os.path.join(
-                    self.clustering_output_dir, "sorted"
-                ),
-                embedding_col=self.embedding_column,
-                sim_metric=self.sim_metric,
-                keep_hard=self.keep_hard,
-                kmeans_with_cos_dist=self.kmeans_with_cos_dist,
-                cluster_ids=range(self.n_clusters),
-                logger=self.logger,
-                profile_dir=self.profile_dir,
-            )
-
+        # We read this way to ensure each cluster is read in a single partition
+        # This allows us to perform pairwise similarity within the cluster
         fps = [
-            os.path.join(clustering_output_dir, file_name)
-            for file_name in os.listdir(clustering_output_dir)
+            os.path.join(clustering_output_dir, f"nearest_cent={i}")
+            for i in range(self.n_clusters)
         ]
         embeddings_df = dd.from_map(cudf.read_parquet, fps)
         return DocumentDataset(embeddings_df)
