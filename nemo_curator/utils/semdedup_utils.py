@@ -179,8 +179,7 @@ def get_semantic_matches_per_cluster(
         max_similarity, max_indices = pairwise_cosine_similarity(
             cluster_embeddings, "cuda"
         )
-
-    max_indices_id = cluster_df[id_col].iloc[max_indices].values
+    max_indices_id = ids.iloc[max_indices].reset_index(drop=True)
     points_to_remove_df = cudf.DataFrame(
         {
             "id": ids,

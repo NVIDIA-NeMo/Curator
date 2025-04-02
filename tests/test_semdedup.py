@@ -118,11 +118,13 @@ def non_dedup_data():
 @pytest.mark.gpu
 class TestSemDuplicates:
     @pytest.mark.parametrize("n_clusters", [3, 10])
+    @pytest.mark.parametrize("id_col_type", ["int", "str"])
     def test_sem_dedup(
         self,
         dedup_data,
         tmpdir,
         n_clusters,
+        id_col_type,
         gpu_client,
     ):
         cache_dir = os.path.join(tmpdir, "test_sem_dedup_cache")
@@ -137,6 +139,8 @@ class TestSemDuplicates:
             input_column="text",
             id_column="id",
         )
+        # Convert id column to the specified type
+        dedup_data.df["id"] = dedup_data.df["id"].astype(id_col_type)
 
         dedup_data_len = dedup_data.df.shape[0].compute()
         if n_clusters > dedup_data_len:
@@ -148,7 +152,7 @@ class TestSemDuplicates:
             result = sem_duplicates(dedup_data)
             result_df = result.df.compute()
             duplicate_docs = [2, 3, 4, 200, 300]
-            expected_df = cudf.Series(duplicate_docs, name="id")
+            expected_df = cudf.Series(duplicate_docs, name="id", dtype=id_col_type)
             assert_eq(result_df["id"].sort_values(), expected_df, check_index=False)
 
     @pytest.mark.parametrize("n_clusters", [2, 3])
@@ -413,10 +417,12 @@ class TestSemDedupUtils:
 
     @pytest.mark.parametrize("which_to_keep", ["hard", "easy"])
     @pytest.mark.parametrize("sim_metric", ["cosine", "l2"])
+    @pytest.mark.parametrize("id_col_type", ["int", "str"])
     def test_get_semantic_matches_per_cluster(
         self,
         which_to_keep: Literal["hard", "easy"],
         sim_metric: Literal["cosine", "l2"],
+        id_col_type: Literal["int", "str"],
         tmpdir,
     ):
         cluster_c = 0
@@ -429,7 +435,7 @@ class TestSemDedupUtils:
                 "id": list(range(self.input_embeddings.shape[0])),
             }
         )
-
+        embeddings_df["id"] = embeddings_df["id"].astype(id_col_type)
         # Step 1) Call add_l2_cosine_dist_to_centroid
         embeddings_df = add_l2_cosine_dist_to_centroid(
             df=embeddings_df.assign(nearest_cent=cluster_c),
@@ -485,15 +491,18 @@ class TestSemDedupUtils:
                 ],
                 dtype=np.float32,
             )
+        expected_df = pd.DataFrame(
+            {
+                "id": expected_ids,
+                "max_id": expected_max_ids,
+                "cosine_sim_score": expected_cosine_sim_scores,
+            }
+        )
+        expected_df["id"] = expected_df["id"].astype(id_col_type)
+        expected_df["max_id"] = expected_df["max_id"].astype(id_col_type)
         pd.testing.assert_frame_equal(
             output_df,
-            pd.DataFrame(
-                {
-                    "id": expected_ids,
-                    "max_id": expected_max_ids,
-                    "cosine_sim_score": expected_cosine_sim_scores,
-                }
-            ),
+            expected_df,
             check_exact=False,
             rtol=1e-5,
             atol=1e-5,
