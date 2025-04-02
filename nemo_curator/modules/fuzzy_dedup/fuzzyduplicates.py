@@ -21,7 +21,7 @@ from typing import Optional, Union
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
-from nemo_curator.modules.base import BaseModule
+from nemo_curator.modules.base import BaseDeduplicationModule
 from nemo_curator.modules.config import FuzzyDuplicatesConfig
 from nemo_curator.modules.fuzzy_dedup._mapbuckets import _MapBuckets
 from nemo_curator.modules.fuzzy_dedup._shuffle import _Shuffle
@@ -35,11 +35,12 @@ from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_s
 from nemo_curator.utils.duplicates_removal import remove_duplicates
 
 
-class FuzzyDuplicates(BaseModule):
+class FuzzyDuplicates(BaseDeduplicationModule):
     def __init__(
         self,
         config: FuzzyDuplicatesConfig,
         logger: Union[logging.LoggerAdapter, str] = "./",
+        perform_removal: bool = False,
     ):
         """
         Parameters
@@ -47,13 +48,23 @@ class FuzzyDuplicates(BaseModule):
         config: FuzzyDuplicatesConfig,
             Config options for finding FuzzyDuplicates
         logger: Existing logger to log to, or a path to a log directory.
-
+        perform_removal: Whether to remove duplicates from the dataset.
+            Default is False.
         Returns
         -------
         DocumentDataset containing IDs of all documents and the corresponding duplicate group
         they belong to. Documents in the same group are near duplicates.
         """
-        super().__init__(input_backend="cudf")
+        super().__init__(
+            id_field=config.id_field,
+            text_field=config.text_field,
+            input_backend="cudf",
+            logger=logger,
+            perform_removal=perform_removal,
+            profile_dir=config.profile_dir,
+            cache_dir=config.cache_dir,
+        )
+
         if isinstance(logger, str):
             self._logger = create_logger(
                 rank=0,
@@ -64,7 +75,6 @@ class FuzzyDuplicates(BaseModule):
             self._logger = logger
 
         self.config = config
-
         self.minhash = MinHash(
             seed=self.config.seed,
             num_hashes=self.config.num_hashes,
@@ -282,13 +292,3 @@ class FuzzyDuplicates(BaseModule):
             group_field="group",
         )
         return DocumentDataset(result)
-
-    def call(
-        self, dataset: DocumentDataset, perform_removal: bool = False
-    ) -> DocumentDataset:
-        duplicates = self.identify_duplicates(dataset)
-
-        if perform_removal:
-            return self.remove(dataset, duplicates)
-
-        return duplicates

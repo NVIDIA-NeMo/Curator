@@ -175,11 +175,9 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
     # Initialize the Dask cluster.
     client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"Running curation pipeline on '{jsonl_dir}'...")
-    files = [
-        get_all_files_paths_under(
-            jsonl_dir, recurse_subdirectories=False, keep_extensions="jsonl"
-        )
-    ]
+    files = get_all_files_paths_under(
+        jsonl_dir, recurse_subdirectories=False, keep_extensions="jsonl"
+    )
     print("Reading the data...")
     orig_dataset = DocumentDataset.read_json(files, add_filename=True)
     dataset = orig_dataset

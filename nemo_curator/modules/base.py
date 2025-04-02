@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+import warnings
 from abc import ABC, abstractmethod
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import dask.dataframe as dd
 
@@ -82,3 +84,81 @@ class BaseModule(ABC):
         self._validate_correct_backend(dataset.df)
 
         return self.call(dataset)
+
+
+class BaseDeduplicationModule(BaseModule):
+    """
+    Base class for all NeMo Curator deduplication modules.
+    """
+
+    def __init__(
+        self,
+        id_field: str,
+        text_field: str,
+        perform_removal: bool = False,
+        logger: Union[logging.LoggerAdapter, str] = "./",
+        profile_dir: Optional[str] = None,
+        cache_dir: Optional[str] = None,
+        input_backend: Literal["pandas", "cudf", "any"] = "any",
+        **kwargs,
+    ):
+        super().__init__(input_backend=input_backend, **kwargs)
+        self.id_field = id_field
+        self.text_field = text_field
+        self.perform_removal = perform_removal
+        self.logger = logger
+        self.profile_dir = profile_dir
+        self.cache_dir = cache_dir
+
+        if self.perform_removal and cache_dir is None:
+            warnings.warn("cache_dir is recommended to remove duplicates.")
+
+        if cache_dir is None and profile_dir is not None:
+            warnings.warn(
+                "cache_dir for intermediate outputs is required to generate profiles"
+            )
+
+        if not self.perform_removal:
+            warnings.warn(
+                "In future NeMo Curator releases, the default value for perform_removal will be True."
+            )
+
+    @abstractmethod
+    def identify_duplicates(self, dataset: DocumentDataset) -> DocumentDataset:
+        """
+        Identifies duplicates in a dataset
+
+        Args:
+            dataset (DocumentDataset): The dataset to identify duplicates in
+        """
+        raise NotImplementedError(
+            "identify_duplicates method must be implemented by subclasses"
+        )
+
+    @abstractmethod
+    def remove(
+        self, dataset: DocumentDataset, duplicates_to_remove: DocumentDataset
+    ) -> DocumentDataset:
+        """
+        Removes duplicates from a dataset
+
+        Args:
+            dataset (DocumentDataset): The dataset to remove duplicates from
+        """
+        raise NotImplementedError("remove method must be implemented by subclasses")
+
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
+        """
+        Execute the deduplication process.
+
+        Args:
+            dataset (DocumentDataset): Input dataset for deduplication.
+        Returns:
+            DocumentDataset: Deduplicated dataset if perform_removal is False, otherwise the dataset with duplicates removed.
+        """
+        duplicates = self.identify_duplicates(dataset)
+
+        if self.perform_removal:
+            return self.remove(dataset, duplicates)
+
+        return duplicates

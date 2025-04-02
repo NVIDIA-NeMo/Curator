@@ -145,13 +145,11 @@ class SemanticClusterLevelDedup:
 
     def extract_dedup_data(self, eps_to_extract: float) -> DocumentDataset:
         """
-        Extract deduplicated data based on epsilon value.
-
+        Extract similar records that are within epsilon threshold. These records can be removed from the dataset.
         Args:
             eps_to_extract (float): Epsilon threshold for extracting deduplicated data.
-
         Returns:
-            DocumentDataset: Dataset containing deduplicated documents.
+            DocumentDataset: Dataset containing list of ids that are can be removed.
         """
         if not self.computed_semantic_match_dfs:
             raise ValueError(

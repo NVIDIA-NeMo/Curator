@@ -165,17 +165,15 @@ class SyntheticGenerator:
 
         # Create a Series object with the generated data.
         gen_data = {
+            "answer": synth_answers,
+            "answer_score": synth_scores,
+            "file_name": synth_filenames,
             "id": synth_ids,
             "question": synth_questions,
-            "answer": synth_answers,
-            "title": synth_titles,
-            "file_name": synth_filenames,
-            "tags": synth_tags,
-            # Use the same score for both the generated questions and answers.
             "question_score": synth_scores,
-            "answer_score": synth_scores,
+            "tags": synth_tags,
+            "title": synth_titles,
         }
-
         # Dump the data into a file.
         gen_df = pd.DataFrame(gen_data)
         gen_df.to_json(out_fp, orient="records", lines=True)

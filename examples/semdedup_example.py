@@ -56,6 +56,7 @@ def main(args):
     if semdedup_config.num_files > 0:
         input_files = input_files[: semdedup_config.num_files]
     logger.info(f"Processing {len(input_files)} files")
+
     ddf = read_data(
         input_files=input_files,
         file_type=args.input_file_type,
@@ -63,10 +64,23 @@ def main(args):
         backend="cudf",
     )
     dataset = DocumentDataset(ddf)
-    semdup = SemDedup(semdedup_config, logger=logger)
-    dedup_ids = semdup(dataset)
-    print(dedup_ids.df.head())
-    logger.info(f"Time taken: {time.time() - st}")
+    semdup = SemDedup(
+        semdedup_config,
+        # Decides whether output of the module is a deduplicated dataset or the IDs of the duplicates
+        perform_removal=False,
+        logger=logger,
+    )
+    # When perform_removal=False, it will only call .identify_duplicates() and return the list of duplicate IDs.
+    # When perform_removal=True, then exact_dup outputs the dataset with the duplicates removed.
+    # It will behave by calling .identify_duplicates() and .remove() in sequence.
+    duplicates = semdup(dataset)
+    print(duplicates.df.head())
+    logger.info(f"Time taken to identify duplicates: {time.time() - st}")
+
+    result = semdup.remove(dataset, duplicates)
+    print(result.df.head())
+    logger.info(f"Time taken to remove duplicates: {time.time() - st}")
+
     client.cancel(client.futures, force=True)
     client.close()
 

@@ -223,9 +223,13 @@ def prune_single_cluster(
     pruning_table = cudf.read_parquet(
         pruning_table_fname, columns=["id", "cosine_sim_score"]
     )
-    if pruning_table.shape[0] == 1:
-        return df_cluster
-    pruning_table = pruning_table[pruning_table["cosine_sim_score"] < 1 - eps][["id"]]
+    # If the pruning table only has one row, we don't need to remove any records
+    if len(pruning_table) == 1:
+        # Create empty dataframe with same schema / dtypes as df_cluster
+        empty_df = cudf.DataFrame(columns=df_cluster.columns).astype(df_cluster.dtypes)
+        return empty_df
+    # We keep only records that are very similar i.e cosine_sim_score >= 1 - eps
+    pruning_table = pruning_table[pruning_table["cosine_sim_score"] >= 1 - eps][["id"]]
     # In future we can avoid this merge if we add more columns to the pruning table
     # However that might increase memory consumption at that stage, keeping it as is for now
     return df_cluster.merge(
@@ -243,9 +247,9 @@ def write_pruned_summary_file(
     """
     Writes a summary file for the pruned data.
     """
-    kept = len(dd.read_parquet(filtered_unique_ids_path))
+    removed = len(dd.read_parquet(filtered_unique_ids_path))
     total = len(dd.read_parquet(emb_by_clust_dir))
-    removed = total - kept
+    kept = total - removed
 
     logger.info(
         f"DONE saving {kept} out of {total}. Removed: {removed}. Epsilon: {eps:.4f}"

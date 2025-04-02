@@ -188,35 +188,40 @@ def test_not_remove_duplicates_unique(
         pytest.param("cudf", marks=pytest.mark.gpu),
     ],
 )
-def test_remove_duplicates_raise_error(
+@pytest.mark.parametrize("left_npartitions", [2, 3])
+@pytest.mark.parametrize("right_npartitions", [2, 3])
+def test_remove_duplicates_repartition(
     backend: Literal["cudf", "pandas"],
+    left_npartitions: int,
+    right_npartitions: int,
 ):
     # Create sample dataframes with specific partition counts
     df1 = dd.from_pandas(
         pd.DataFrame({"id": ["a1", "a2", "a3"], "text": ["text1", "text2", "text3"]}),
-        npartitions=2,
+        npartitions=left_npartitions,
     )  # dataset with 2 partitions
 
     duplicates = dd.from_pandas(
         pd.DataFrame(
             {"id": ["a1", "a2", "a3"], "group": ["group1", "group1", "group1"]}
         ),
-        npartitions=3,
+        npartitions=right_npartitions,
     )  # duplicates dataset with 3 partitions
     df1 = df1.to_backend(backend)
     duplicates = duplicates.to_backend(backend)
 
     # Test that it raises ValueError when right npartitions are greater than left npartitions
-    with pytest.raises(ValueError) as exc_info:
-        remove_duplicates(
-            left=df1,
-            duplicates=duplicates,
-            id_field="id",
-            group_field="group",
-        )
-
-    expected_msg = (
-        "The number of partitions in `left` is less than the number of partitions in the duplicates dataset. "
-        "This may lead to a shuffle join. Please re-read left and right with different partition sizes, or repartition left / right."
+    output = remove_duplicates(
+        left=df1,
+        duplicates=duplicates,
+        id_field="id",
+        group_field="group",
     )
-    assert str(exc_info.value) == expected_msg
+    output_dask_graph_keys = set(
+        k[0].rsplit("-", 1)[0] for k in output.optimize().__dask_graph__().keys()
+    )
+    assert "broadcastjoin" in output_dask_graph_keys
+    if left_npartitions < right_npartitions:
+        assert "repartitiontofewer" in output_dask_graph_keys
+    else:
+        assert "repartitiontofewer" not in output_dask_graph_keys

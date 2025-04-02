@@ -188,13 +188,9 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         )
         CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "semantic_dedupe", "text")
         rm_dir(CACHE_DIR)
-        duplicates = semantic_dedupe(
+        semantic_dataset_text = semantic_dedupe(
             dataset=gpu_dataset_text,
             sem_dedupe_config_yaml_path=sem_dedupe_config_yaml_path,
-        )
-        unique_ids = duplicates.df.to_backend("pandas").compute()["id"]
-        semantic_dataset_text = DocumentDataset(
-            gpu_dataset_text.df[gpu_dataset_text.df.id.isin(unique_ids)]
         )
         print("********************* Generating Statistics *********************")
         print(f"After semantic dedupe for text files: {len(semantic_dataset_text.df)}")

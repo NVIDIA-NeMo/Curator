@@ -25,13 +25,12 @@ from modifiers import CleanHTML
 from openai import AsyncOpenAI
 from synthetic_gen import SyntheticGenerator
 
-from nemo_curator import AsyncOpenAIClient, ScoreFilter, Sequential
+from nemo_curator import AsyncOpenAIClient, ScoreFilter, SemDedup, Sequential
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import WordCountFilter
 from nemo_curator.modifiers.unicode_reformatter import UnicodeReformatter
 from nemo_curator.modules.config import SemDedupConfig
 from nemo_curator.modules.modify import Modify
-from nemo_curator.modules.semantic_dedup import SemDedup
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.script_utils import ArgumentHelper
@@ -135,11 +134,10 @@ def semantic_dedupe(dataset):
         config=semdedup_config,
         input_column="text",
         id_column="id",
+        perform_removal=True,
     )
-    dedup_ids = semdup(dataset)
-    # When there are few duplicates we can compute the results to a list and use `isin`.
-    result = dataset.df[dataset.df["id"].isin(dedup_ids.df["id"].compute())]
-    return DocumentDataset(result)
+    result = semdup(dataset)
+    return result
 
 
 def run_curation_pipeline(
@@ -156,9 +154,7 @@ def run_curation_pipeline(
     Returns:
         The resulting dataset.
     """
-    orig_dataset = DocumentDataset.read_json(
-        input_dir, add_filename=True, backend="pandas"
-    )
+    orig_dataset = DocumentDataset.read_json(input_dir, backend="pandas")
     dataset = orig_dataset
 
     cpu_curation_steps = Sequential(

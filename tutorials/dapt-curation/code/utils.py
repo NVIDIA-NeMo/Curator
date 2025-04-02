@@ -345,9 +345,9 @@ def semantic_dedupe(
 
     semdedup_config = SemDedupConfig.from_yaml(sem_dedupe_config_yaml_path)
     expand_outdir_and_mkdir(semdedup_config.cache_dir)
-    semdup = SemDedup(config=semdedup_config)
-    duplicates = semdup(dataset)
-    return duplicates
+    semdup = SemDedup(config=semdedup_config, perform_removal=True)
+    deduplicated_dataset = semdup(dataset)
+    return deduplicated_dataset
 
 
 class TextLineCountFilter(DocumentFilter):
