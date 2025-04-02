@@ -101,7 +101,7 @@ def test_aegis_classifier(gpu_client, aegis_variant):
 
     # Skip the test if the HF_TOKEN is not set
     hf_token = os.environ.get("HF_TOKEN")
-    if hf_token is None:
+    if not hf_token:
         pytest.skip("HF_TOKEN environment variable not set")
 
     text = [
@@ -175,7 +175,7 @@ def test_instruction_data_guard_classifier(gpu_client):
 
     # Skip the test if the HF_TOKEN is not set
     hf_token = os.environ.get("HF_TOKEN")
-    if hf_token is None:
+    if not hf_token:
         pytest.skip("HF_TOKEN environment variable not set")
 
     instruction = (
