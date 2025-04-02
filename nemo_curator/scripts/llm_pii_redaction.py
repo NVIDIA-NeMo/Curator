@@ -18,45 +18,33 @@ import time
 from pathlib import Path
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers.pii_modifier import PiiModifier
+from nemo_curator.modifiers.llm_pii_modifier import LLMPiiModifier
 from nemo_curator.modules.modify import Modify
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
 from nemo_curator.utils.file_utils import get_batched_files
+from nemo_curator.utils.llm_pii_utils import PII_LABELS, SYSTEM_PROMPT
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def main(args):
-    """Main function that performs PII de-identification given a batch of files"""
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s:%(message)s",
-        level=logging.DEBUG,
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    """Main function that performs LLM-based PII de-identification given a batch of files"""
 
-    logging.debug("Beginning PII job")
+    print("Beginning PII job")
     start_time = time.time()
     Path(args.output_data_dir).mkdir(parents=True, exist_ok=True)
 
-    supported_entities = (
-        args.supported_entities.split(",") if args.supported_entities else None
-    )
-
-    modifier = PiiModifier(
+    modifier = LLMPiiModifier(
+        base_url=args.base_url,
+        api_key=args.api_key,
+        model=args.model,
+        system_prompt=args.system_prompt,
+        pii_labels=args.pii_labels,
         language=args.language,
-        supported_entities=supported_entities,
-        anonymize_action=args.anonymize_action,
-        hash_type=args.hash_type,
-        chars_to_mask=args.chars_to_mask,
-        masking_char=args.masking_char,
-        new_value=args.new_value,
-        batch_size=args.batch_size,
-        device=args.device,
     )
 
     for file_names in get_batched_files(
         args.input_data_dir, args.output_data_dir, args.input_file_type, args.n_workers
     ):
-        logging.info("Reading input files....")
         source_data = read_data(
             file_names,
             file_type=args.input_file_type,
@@ -64,7 +52,6 @@ def main(args):
             add_filename=True,
         )
         dataset = DocumentDataset(source_data)
-        logging.debug(f"Dataset has {source_data.npartitions} partitions")
 
         modify = Modify(modifier, text_field=args.text_field)
         modified_dataset = modify(dataset)
@@ -76,15 +63,13 @@ def main(args):
         )
 
     end_time = time.time()
-    logging.debug(
-        "Total time taken for PII job: %0.3f seconds" % (end_time - start_time)
-    )
+    print("Total time taken for PII job: %0.3f seconds" % (end_time - start_time))
 
 
 def attach_args(
     parser=argparse.ArgumentParser(
         """
-        Main driver script for applying PII redaction on documents. Inputs are in the input-data-dir directory.
+        Main driver script for applying LLM-based PII redaction on documents. Inputs are in the input-data-dir directory.
         This script will then perform PII detection and de-identification on each document within the corpus.
         """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -92,12 +77,8 @@ def attach_args(
 ):
     argumentHelper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_batch_size(
-        default=2000, help="The batch size for processing multiple texts together."
-    )
     argumentHelper.add_arg_input_data_dir(help="Directory containing the input files.")
     argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_language(help="Language of input documents.")
     argumentHelper.add_arg_output_data_dir(
         help="The output directory to where redacted documents will be written."
     )
@@ -105,41 +86,37 @@ def attach_args(
     argumentHelper.add_distributed_args()
 
     parser.add_argument(
-        "--anonymize-action",
+        "--base_url",
         type=str,
-        default="replace",
-        help="Anonymization action. Choose from among: redact, hash, mask, and replace.",
+        required=True,
+        help="The base URL for the user's NIM",
     )
     parser.add_argument(
-        "--chars-to-mask",
-        type=int,
-        default=100,
-        help="The number of characters to mask. Only applicable if anonymize action is mask.",
-    )
-    parser.add_argument(
-        "--hash-type",
+        "--api_key",
         type=str,
         default=None,
-        help="The hash type. Choose from among: sha256, sha512, or md5.",
+        help="The API key for the user's NIM, if needed.",
     )
     parser.add_argument(
-        "--masking-char",
+        "--model",
         type=str,
-        default="*",
-        help="The masking character. Only applicable if anonymize action is mask.",
+        default="meta/llama-3.1-70b-instruct",
+        help="The model to use for the LLM.",
     )
     parser.add_argument(
-        "--new-value",
+        "--system_prompt",
         type=str,
-        default=None,
-        help="The new value to replace with. Only applicable if anonymize action is replace.",
+        default=SYSTEM_PROMPT,
+        help="The system prompt to feed into the LLM.",
     )
     parser.add_argument(
-        "--supported-entities",
+        "--pii_labels",
         type=str,
-        default=None,
+        default=PII_LABELS,
         help="Comma separated list of PII entity types. None implies all supported types.",
     )
+    argumentHelper.add_arg_language(help="Language of input documents.")
+
     parser.add_argument(
         "--text-field",
         type=str,

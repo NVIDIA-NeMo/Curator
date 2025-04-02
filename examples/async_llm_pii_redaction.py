@@ -12,34 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
-
 import dask.dataframe
 import pandas as pd
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers.pii_modifier import PiiModifier
+from nemo_curator.modifiers.async_llm_pii_modifier import AsyncLLMPiiModifier
 from nemo_curator.modules.modify import Modify
 from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.script_utils import ArgumentHelper
 
 
 def console_script():
-    parser = argparse.ArgumentParser()
-    args = ArgumentHelper(parser).add_distributed_args().parse_args()
-    _ = get_client(**ArgumentHelper.parse_client_args(args))
+    _ = get_client()
 
     dataframe = pd.DataFrame(
-        {"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]}
+        {
+            "text": [
+                # Sampled from https://huggingface.co/datasets/gretelai/gretel-pii-masking-en-v1
+                "Transaction details: gasLimit set to 1000000 units by tw_brian740, gasPrice set to 10 Gwei by veronicawood@example.org, contactable at +1-869-341-9301x7005, located at Suite 378, Yolanda Mountain, Burkeberg.",
+                "Unloading Plan for Shipment MRN-293104, MED25315002, dated 1989.12.22. Driver EMP730359, Vehicle KS40540825.",
+            ]
+        }
     )
     dataset = DocumentDataset.from_pandas(dataframe, npartitions=1)
 
-    modifier = PiiModifier(
-        log_dir="./logs",
-        batch_size=2000,
-        language="en",
-        supported_entities=["PERSON", "EMAIL_ADDRESS"],
-        anonymize_action="replace",
+    modifier = AsyncLLMPiiModifier(
+        # Endpoint for the user's NIM
+        base_url="http://0.0.0.0:8000/v1",
+        api_key="API KEY (if needed)",
+        model="meta/llama-3.1-70b-instruct",
+        max_concurrent_requests=10,
     )
 
     modify = Modify(modifier)
