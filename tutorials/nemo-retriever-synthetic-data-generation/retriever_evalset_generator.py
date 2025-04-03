@@ -12,40 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import asyncio
 import hashlib
 import importlib
-import os
 import re
 import secrets
-from abc import ABC, abstractmethod
 from typing import Any
 
-from tqdm import tqdm
-
-tqdm.pandas()
-
-# from tqdm.dask import TqdmCallback
-import importlib
-
-import dask.array as da
-import dask.dataframe as dd
 import pandas as pd
-from dask.base import normalize_token, tokenize
-from dask.diagnostics import ProgressBar
-from dask.distributed import get_worker, progress
-from distributed import Client
-from omegaconf import DictConfig, OmegaConf
-from openai import AsyncOpenAI, OpenAI
+from dask.base import normalize_token
+from openai import OpenAI
 from tqdm import tqdm
 
-from nemo_curator import AsyncOpenAIClient, OpenAIClient
+from nemo_curator import OpenAIClient
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters.doc_filter import DocumentFilter
-from nemo_curator.synthetic import AsyncNemotronGenerator, NemotronGenerator
+from nemo_curator.synthetic import NemotronGenerator
 from nemo_curator.synthetic.generator import SyntheticDataGenerator
 from nemo_curator.utils.distributed_utils import load_object_on_worker
 
+tqdm.pandas()
 config = importlib.import_module(
     "tutorials.nemo-retriever-synthetic-data-generation.config.config"
 )
@@ -145,7 +129,6 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
 
         df = df.explode("qa_pairs").reset_index(drop=True)
         df["question"] = df["qa_pairs"].apply(lambda x: x["question"])
-
         df["question-id"] = df["question"].apply(self._get_random_hash)
         df["answer"] = df["qa_pairs"].apply(lambda x: x["answer"])
         df["score"] = df["question"].apply(lambda x: 1)

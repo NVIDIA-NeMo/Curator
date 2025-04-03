@@ -611,6 +611,46 @@ class TestSemanticDedupWithoutEmbeddingCreation:
             np.ones_like(centroids),
         )
 
+    def test_clustering_model_keep_all_columns(self, tmpdir):
+        """Test that extra columns in the input are preserved when keep_all_columns is True."""
+        clustering_output_dir = os.path.join(tmpdir, "clustering_output")
+        # Create a new DataFrame with an extra column called "extra"
+        df = pd.DataFrame(
+            {
+                "id": np.arange(len(self.X)),
+                "embeddings": self.X.tolist(),
+                "extra": ["foo"] * len(self.X),
+            }
+        )
+        # Convert to Dask DataFrame and then to cuDF backend
+        ddf_with_extra = dd.from_pandas(df, npartitions=2).to_backend("cudf")
+
+        # Initialize ClusteringModel with keep_all_columns set to True.
+        # We use the default sort_clusters=True to have consistent post-processing.
+        clustering_model = ClusteringModel(
+            id_column="id",
+            n_clusters=self.n_clusters,
+            clustering_output_dir=clustering_output_dir,
+            embedding_column="embeddings",
+            random_state=42,
+            keep_all_columns=True,
+        )
+        # Run the clustering model on the dataset with the extra column.
+        _ = clustering_model(DocumentDataset(ddf_with_extra))
+
+        # Read the output parquet data produced after sorting clusters.
+        embss_by_nearest_center = pd.read_parquet(
+            os.path.join(clustering_output_dir, "embs_by_nearest_center")
+        )
+
+        # Verify that the extra column is present and its values are as expected.
+        assert (
+            "extra" in embss_by_nearest_center.columns
+        ), "The extra column should be present when keep_all_columns is True."
+        assert (
+            embss_by_nearest_center["extra"].eq("foo").all()
+        ), "The extra column should contain 'foo' for all rows."
+
     @pytest.mark.parametrize("which_to_keep", ["hard", "random", "easy"])
     @pytest.mark.parametrize("sim_metric", ["cosine", "l2"])
     def test_semantic_cluster_level_dedup(self, tmpdir, which_to_keep, sim_metric):

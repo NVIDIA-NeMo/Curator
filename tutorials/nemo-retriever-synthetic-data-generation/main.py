@@ -15,7 +15,6 @@
 import argparse
 import importlib
 import os
-import pdb
 import shutil
 import time
 from typing import Any, List
@@ -25,7 +24,6 @@ from dask.diagnostics import ProgressBar
 from dask.distributed import progress
 from retriever_evalset_generator import RetrieverEvalSetGenerator
 
-from config.config import RetrieverEvalSDGConfig
 from nemo_curator import AsyncOpenAIClient, ScoreFilter, Sequential, get_client
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import (
@@ -35,6 +33,11 @@ from nemo_curator.filters import (
 )
 from nemo_curator.modules.filter import Score, ScoreFilter
 from nemo_curator.utils.file_utils import get_all_files_paths_under
+
+config = importlib.import_module(
+    "tutorials.nemo-retriever-synthetic-data-generation.config.config"
+)
+RetrieverEvalSDGConfig = config.RetrieverEvalSDGConfig
 
 
 def get_pipeline(args: Any) -> Any:
@@ -53,6 +56,7 @@ def get_pipeline(args: Any) -> Any:
         sdg_pipeline = None
 
     filters = []
+
     if args.pipeline_type == "filter":
         if cfg.easiness_filter:
             filters.append(

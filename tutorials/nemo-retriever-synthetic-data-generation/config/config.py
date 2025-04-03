@@ -92,3 +92,29 @@ class RetrieverEvalSDGConfig(BaseConfig):
     Question:
     {question}
     """
+
+
+@dataclass
+class RetrieverHardNegativeMiningConfig(BaseConfig):
+    """
+    Configuration for mining hard negatives
+
+    Attributes:
+
+    """
+
+    cluster_output_dir: str = field()
+    logger_output_dir: str = field()
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    model_type: str = "hf"
+    base_url: str = "https://integrate.api.nvidia.com/v1"
+    api_key: str = None
+    truncate: str = "END"
+    hard_negatives_to_mine: int = 4
+    hard_neg_mining_algorithm: str = "topk_percpos"
+    max_hardness_threshold: float = 0.75
+    min_hardness_threshold: float = 0
+    query_prefix: str = "query:"
+    passage_prefix: str = "passage:"
+    percpos: float = 0.95
+    min_number_clusters: int = 10
