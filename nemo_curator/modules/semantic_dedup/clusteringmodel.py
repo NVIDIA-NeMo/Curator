@@ -194,7 +194,10 @@ class ClusteringModel:
             )
             np.save(kmeans_centroids_file, centroids)
             self.logger.info("Saving centroids complete")
-            del kmeans, cupy_normalized_darr, centroids
+            # Deleting kmeans triggers a future cancelled error in dask
+            # See issue:https://github.com/NVIDIA/NeMo-Curator/issues/624
+            # del kmeans
+            del centroids, cupy_normalized_darr
 
             # Save embeddings by nearest center to a file
             clustering_output_dir = os.path.join(
