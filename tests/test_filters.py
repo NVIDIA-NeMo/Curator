@@ -210,6 +210,22 @@ class TestFilterModule:
             expected_scores == scores.compute()
         ), f"Expected {expected_scores} but got {scores}"
 
+    def test_score_document(self, letter_count_data):
+        letter_filter = LetterCountFilter()
+        score_field = "a_count"
+        score_step = Score(
+            letter_filter,
+            text_field="documents",
+            score_field=score_field,
+        )
+        scored_data = score_step(letter_count_data)
+
+        expected_scores = pd.Series([2, 3, 5, 7])
+        scores = scored_data.df[score_field]
+        assert all(
+            expected_scores == scores.compute()
+        ), f"Expected {expected_scores} but got {scores}"
+
     def test_retain_score_filter(self, letter_count_data):
         letter_filter = LetterCountFilter()
         score_field = "count_a"
@@ -237,6 +253,28 @@ class TestFilterModule:
         )
         scored_data = score_step(letter_count_data)
         filter_step = Filter(letter_filter.keep_document, score_field)
+        filtered_data = filter_step(scored_data)
+
+        expected_indices = [2, 3]
+        # Compute before loc due to https://github.com/dask/dask-expr/issues/1036
+        expected_data = letter_count_data.df.compute().loc[expected_indices]
+        expected_data = dd.from_pandas(expected_data, 2)
+        expected_data[score_field] = pd.Series([5, 7], index=expected_data.index)
+        expected_data = DocumentDataset(expected_data)
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_filter_document(self, letter_count_data):
+        letter_filter = LetterCountFilter()
+        score_field = "a_count"
+        score_step = Score(
+            letter_filter,
+            text_field="documents",
+            score_field=score_field,
+        )
+        scored_data = score_step(letter_count_data)
+        filter_step = Filter(letter_filter, score_field)
         filtered_data = filter_step(scored_data)
 
         expected_indices = [2, 3]
@@ -302,6 +340,22 @@ class TestFilterModule:
             expected_scores == scores.compute()
         ), f"Expected {expected_scores} but got {scores}"
 
+    def test_batch_score_document(self, letter_count_data):
+        length_filter = BatchedLengthFilter(min_length=8, max_length=11)
+        score_field = "lengths"
+        score_step = Score(
+            length_filter,
+            text_field="documents",
+            score_field=score_field,
+        )
+        scored_data = score_step(letter_count_data)
+
+        expected_scores = pd.Series([6, 11, 11, 13])
+        scores = scored_data.df[score_field]
+        assert all(
+            expected_scores == scores.compute()
+        ), f"Expected {expected_scores} but got {scores}"
+
     def test_batch_filter(self, letter_count_data):
         length_filter = BatchedLengthFilter(min_length=8, max_length=11)
         score_field = "lengths"
@@ -312,6 +366,26 @@ class TestFilterModule:
         )
         scored_data = score_step(letter_count_data)
         filter_step = Filter(length_filter.keep_document, score_field)
+        filtered_data = filter_step(scored_data)
+
+        expected_indices = [1, 2]
+        expected_data = letter_count_data.df.loc[expected_indices]
+        expected_data[score_field] = pd.Series([11, 11], index=expected_data.index)
+        expected_data = DocumentDataset(expected_data)
+        assert all_equal(
+            expected_data, filtered_data
+        ), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_batch_filter_document(self, letter_count_data):
+        length_filter = BatchedLengthFilter(min_length=8, max_length=11)
+        score_field = "lengths"
+        score_step = Score(
+            length_filter,
+            text_field="documents",
+            score_field=score_field,
+        )
+        scored_data = score_step(letter_count_data)
+        filter_step = Filter(length_filter, score_field)
         filtered_data = filter_step(scored_data)
 
         expected_indices = [1, 2]
@@ -338,6 +412,23 @@ class TestFilterModule:
         score_field = "a_count"
         score_step = Score(
             letter_filter.score_document,
+            text_field="documents",
+            score_field=score_field,
+            score_type=int,
+        )
+        scored_data = score_step(letter_count_data)
+
+        expected_scores = pd.Series([2, 3, 5, 7])
+        scores = scored_data.df[score_field]
+        assert all(
+            expected_scores == scores.compute()
+        ), f"Expected {expected_scores} but got {scores}"
+
+    def test_score_type_document(self, letter_count_data):
+        letter_filter = LetterCountFilter()
+        score_field = "a_count"
+        score_step = Score(
+            letter_filter,
             text_field="documents",
             score_field=score_field,
             score_type=int,

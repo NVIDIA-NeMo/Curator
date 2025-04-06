@@ -36,6 +36,7 @@ class Score(BaseModule):
     """
     The module responsible for adding metadata to records based on statistics about the text.
     It accepts an arbitrary scoring function that accepts a text field and returns a score.
+    It also accepts a DocumentFilter object, in which case the score_fn will be the score_document method of the DocumentFilter.
 
     Unlike ScoreFilter, it does not filter based on the computed score.
     It only adds metadata to the record.
@@ -43,7 +44,7 @@ class Score(BaseModule):
 
     def __init__(
         self,
-        score_fn: Callable,
+        score_fn: Callable | DocumentFilter,
         score_field: str,
         text_field: str = "text",
         score_type: Union[type, str] = None,
@@ -52,13 +53,16 @@ class Score(BaseModule):
         Constructs a Score module.
 
         Args:
-          score_fn (Callable): The score function that takes in a document string and outputs a score for the document.
+          score_fn (Callable | DocumentFilter): The score function or the DocumentFilter object. If it is a DocumentFilter object, the score_fn will be the score_document method of the DocumentFilter.
           score_field (str): The field the score will be stored in.
           text_field (str): The field the documents will be read from.
           score_type (Union[type, str]): The datatype of the score that will be made for each document.
         """
         super().__init__(input_backend="pandas")
-        self.score_fn = score_fn
+        if isinstance(score_fn, DocumentFilter):
+            self.score_fn = score_fn.score_document
+        else:
+            self.score_fn = score_fn
         self.score_field = score_field
         self.text_field = text_field
         self.score_type = score_type
@@ -95,22 +99,31 @@ class Filter(BaseModule):
     """
     The module responsible for filtering records based on a metadata field.
     It accepts an arbitrary filter function that accepts a metadata field and returns True if the field should be kept.
-
+    It also accepts a DocumentFilter object, in which case the filter_fn will be the keep_document method of the DocumentFilter.
     Unlike ScoreFilter, it does not compute the metadata based on a document.
     It only filters using existing metadata.
     """
 
-    def __init__(self, filter_fn: Callable, filter_field: str, invert: bool = False):
+    def __init__(
+        self,
+        filter_fn: Callable | DocumentFilter,
+        filter_field: str,
+        invert: bool = False,
+    ):
         """
         Constructs a Filter module
 
         Args:
-          filter_fn (Callable): A function that returns True if the document is to be kept.
+          filter_fn (Callable | DocumentFilter): A function that returns True if the document is to be kept or a DocumentFilter object,
+          in which case the filter_fn will be the keep_document method of the DocumentFilter.
           filter_field (str): The field(s) to be passed into the filter function.
           invert (bool): Whether to invert the filter condition.
         """
         super().__init__(input_backend="pandas")
-        self.filter_fn = filter_fn
+        if isinstance(filter_fn, DocumentFilter):
+            self.filter_fn = filter_fn.keep_document
+        else:
+            self.filter_fn = filter_fn
         self.filter_field = filter_field
         self.invert = invert
 
