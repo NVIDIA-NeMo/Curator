@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gzip
 import json
 import math
 import os
@@ -190,19 +191,27 @@ class TestIO:
 
 class TestWriteWithFilename:
     @pytest.mark.parametrize("keep_filename_column", [True, False])
-    @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
+    @pytest.mark.parametrize("file_ext", ["jsonl", "parquet", "jsonl.gz"])
     @pytest.mark.parametrize("filename_col", ["file_name", "filename"])
     def test_multifile_single_partition(
         self, tmp_path, keep_filename_column, file_ext, filename_col
     ):
+        if file_ext == "jsonl.gz":
+            compression = "gzip"
+            file_type = "jsonl"
+        else:
+            compression = None
+            file_type = file_ext
+
         df = pd.DataFrame({"a": [1, 2, 3], filename_col: ["file0", "file1", "file1"]})
 
         single_partition_write_with_filename(
             df=df,
             output_file_dir=tmp_path,
             keep_filename_column=keep_filename_column,
-            output_type=file_ext,
+            output_type=file_type,
             filename_col=filename_col,
+            compression=compression,
         )
         assert os.path.exists(tmp_path / f"file0.{file_ext}")
         assert os.path.exists(tmp_path / f"file1.{file_ext}")
@@ -211,30 +220,42 @@ class TestWriteWithFilename:
             df = df.drop(filename_col, axis=1)
 
         df1 = read_single_partition(
-            files=[tmp_path / f"file0.{file_ext}"], backend="pandas", file_type=file_ext
+            files=[tmp_path / f"file0.{file_ext}"],
+            backend="pandas",
+            file_type=file_type,
         )
         assert_eq(df1, df.iloc[0:1], check_index=False)
 
         df2 = read_single_partition(
-            files=[tmp_path / f"file1.{file_ext}"], backend="pandas", file_type=file_ext
+            files=[tmp_path / f"file1.{file_ext}"],
+            backend="pandas",
+            file_type=file_type,
         )
         assert_eq(df2, df.iloc[1:3], check_index=False)
 
     @pytest.mark.parametrize("keep_filename_column", [True, False])
-    @pytest.mark.parametrize("file_ext", ["jsonl", "parquet"])
+    @pytest.mark.parametrize("file_ext", ["jsonl", "parquet", "jsonl.gz"])
     def test_singlefile_single_partition(
         self,
         tmp_path,
         keep_filename_column,
         file_ext,
     ):
+        if file_ext == "jsonl.gz":
+            compression = "gzip"
+            file_type = "jsonl"
+        else:
+            compression = None
+            file_type = file_ext
+
         df = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file2", "file2", "file2"]})
 
         single_partition_write_with_filename(
             df=df,
             output_file_dir=tmp_path,
             keep_filename_column=keep_filename_column,
-            output_type=file_ext,
+            output_type=file_type,
+            compression=compression,
         )
         assert len(os.listdir(tmp_path)) == 1
         assert os.path.exists(tmp_path / f"file2.{file_ext}")
@@ -242,7 +263,9 @@ class TestWriteWithFilename:
         if not keep_filename_column:
             df = df.drop("file_name", axis=1)
         got = read_single_partition(
-            files=[tmp_path / f"file2.{file_ext}"], backend="pandas", file_type=file_ext
+            files=[tmp_path / f"file2.{file_ext}"],
+            backend="pandas",
+            file_type=file_type,
         )
         assert_eq(got, df)
 
@@ -260,10 +283,18 @@ class TestWriteWithFilename:
         [
             ("jsonl", DocumentDataset.read_json),
             ("parquet", DocumentDataset.read_parquet),
+            ("jsonl.gz", DocumentDataset.read_json),
         ],
     )
     @pytest.mark.parametrize("filename_col", ["file_name", "filename"])
     def test_multifile_multi_partition(self, tmp_path, file_ext, read_f, filename_col):
+        if file_ext == "jsonl.gz":
+            compression = "gzip"
+            file_type = "jsonl"
+        else:
+            compression = None
+            file_type = file_ext
+
         df1 = pd.DataFrame({"a": [1, 2, 3], filename_col: ["file1", "file2", "file2"]})
         df2 = df1.copy()
         df2[filename_col] = "file3"
@@ -275,7 +306,8 @@ class TestWriteWithFilename:
             df=ddf,
             output_path=tmp_path / file_ext,
             write_to_filename=filename_col,
-            output_type=file_ext,
+            output_type=file_type,
+            compression=compression,
         )
 
         got_df = read_f(
@@ -371,8 +403,9 @@ class TestPartitionOn:
             [1.0, 2.0, 1.0, 2.0],
         ],
     )
+    @pytest.mark.parametrize("compression", [None, "gzip"])
     def test_write_to_disk_with_partition_on_jsonl(
-        self, tmp_path, backend, category_values
+        self, tmp_path, backend, category_values, compression
     ):
         """
         Test writing a partitioned JSONL dataset.
@@ -387,7 +420,11 @@ class TestPartitionOn:
         ddf = ddf.to_backend(backend)
         output_dir = tmp_path / "output_jsonl"
         dataset = DocumentDataset(ddf)
-        dataset.to_json(output_path=str(output_dir), partition_on="category")
+        dataset.to_json(
+            output_path=str(output_dir),
+            partition_on="category",
+            compression=compression,
+        )
         # Check that the output directory contains subdirectories for each partition.
         # Unique partition values (as strings) to be used in the directory names.
         unique_partitions = {str(x) for x in category_values}
@@ -405,7 +442,9 @@ class TestPartitionOn:
                 jsonl_files
             ), f"No JSONL files found in partition directory {part_dir}"
             for file in jsonl_files:
-                with open(file, "r") as f:
+                with (
+                    gzip.open(file, "rt") if compression == "gzip" else open(file, "r")
+                ) as f:
                     for line in f:
                         record = json.loads(line)
                         if "category" in record:

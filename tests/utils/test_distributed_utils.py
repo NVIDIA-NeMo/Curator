@@ -499,17 +499,30 @@ class TestDataWritingFunctions:
         assert os.path.exists(os.path.join(temp_dir, "output", "file1.jsonl"))
         assert os.path.exists(os.path.join(temp_dir, "output", "file2.jsonl"))
 
-        # Test with non-empty dataframe, parquet output
+        # Test with non-empty dataframe, jsonl output with compression
         os.makedirs(os.path.join(temp_dir, "output2"), exist_ok=True)
         result = single_partition_write_with_filename(
             df,
             os.path.join(temp_dir, "output2"),
+            output_type="jsonl",
+            filename_col="file_name",
+            compression="gzip",
+        )
+        assert not result[0]
+        assert os.path.exists(os.path.join(temp_dir, "output2", "file1.jsonl.gz"))
+        assert os.path.exists(os.path.join(temp_dir, "output2", "file2.jsonl.gz"))
+
+        # Test with non-empty dataframe, parquet output
+        os.makedirs(os.path.join(temp_dir, "output3"), exist_ok=True)
+        result = single_partition_write_with_filename(
+            df,
+            os.path.join(temp_dir, "output3"),
             output_type="parquet",
             filename_col="file_name",
         )
         assert not result[0]
-        assert os.path.exists(os.path.join(temp_dir, "output2", "file1.parquet"))
-        assert os.path.exists(os.path.join(temp_dir, "output2", "file2.parquet"))
+        assert os.path.exists(os.path.join(temp_dir, "output3", "file1.parquet"))
+        assert os.path.exists(os.path.join(temp_dir, "output3", "file2.parquet"))
 
         # Test with unknown output type
         with pytest.raises(ValueError):
@@ -584,6 +597,21 @@ class TestDataWritingFunctions:
             output_path=os.path.join(temp_dir, "output"),
             output_type="jsonl",
             partition_on=None,
+            compression=None,
+        )
+        # Test writing normal gzip jsonl
+        write_to_disk(
+            df,
+            os.path.join(temp_dir, "output"),
+            output_type="jsonl",
+            compression="gzip",
+        )
+        mock_write_jsonl.assert_called_with(
+            df,
+            output_path=os.path.join(temp_dir, "output"),
+            output_type="jsonl",
+            partition_on=None,
+            compression="gzip",
         )
 
         # Test writing parquet
@@ -593,6 +621,7 @@ class TestDataWritingFunctions:
             output_path=os.path.join(temp_dir, "output"),
             output_type="parquet",
             partition_on=None,
+            compression=None,
         )
 
         # Test with unknown output type
@@ -627,7 +656,25 @@ class TestDataWritingFunctions:
             assert os.path.exists(os.path.join(output_path, "category=A"))
             assert os.path.exists(os.path.join(output_path, "category=B"))
 
-        # 2. Test JSONL without partitioning for pandas dataframe
+        # 2. Test JSONL with partitioning and compression
+        output_path = os.path.join(temp_dir, "partitioned_jsonl_gzip")
+        os.makedirs(output_path, exist_ok=True)
+
+        with patch(
+            "nemo_curator.utils.distributed_utils.is_cudf_type", return_value=False
+        ):
+            _write_to_jsonl_or_parquet(
+                pandas_ddf,
+                output_path=output_path,
+                output_type="jsonl",
+                partition_on="category",
+                compression="gzip",
+            )
+            # Verify that directories were created with the partitioning
+            assert os.path.exists(os.path.join(output_path, "category=A"))
+            assert os.path.exists(os.path.join(output_path, "category=B"))
+
+        # 3. Test JSONL without partitioning for pandas dataframe
         output_path = os.path.join(temp_dir, "pandas_jsonl")
         os.makedirs(output_path, exist_ok=True)
 
@@ -642,7 +689,23 @@ class TestDataWritingFunctions:
             # Verify the file was created
             assert os.path.exists(os.path.join(output_path, "output.jsonl"))
 
-        # 3. Test JSONL without partitioning for cudf dataframe
+        # 4. Test JSONL without partitioning with compression
+        output_path = os.path.join(temp_dir, "pandas_jsonl_gzip")
+        os.makedirs(output_path, exist_ok=True)
+
+        with patch(
+            "nemo_curator.utils.distributed_utils.is_cudf_type", return_value=False
+        ):
+            _write_to_jsonl_or_parquet(
+                pandas_ddf,
+                output_path=os.path.join(output_path, "output.jsonl.gz"),
+                output_type="jsonl",
+                compression="gzip",
+            )
+            # Verify the file was created
+            assert os.path.exists(os.path.join(output_path, "output.jsonl.gz"))
+
+        # 5. Test JSONL without partitioning for cudf dataframe
         output_path = os.path.join(temp_dir, "cudf_jsonl")
         os.makedirs(output_path, exist_ok=True)
 
@@ -657,7 +720,23 @@ class TestDataWritingFunctions:
             # Verify the file was created
             assert os.path.exists(os.path.join(output_path, "output.jsonl"))
 
-        # 4. Test Parquet with partitioning
+        # 6. Test JSONL without partitioning with compression
+        output_path = os.path.join(temp_dir, "cudf_jsonl_gzip")
+        os.makedirs(output_path, exist_ok=True)
+
+        with patch(
+            "nemo_curator.utils.distributed_utils.is_cudf_type", return_value=True
+        ):
+            _write_to_jsonl_or_parquet(
+                pandas_ddf,
+                output_path=os.path.join(output_path, "output.jsonl.gz"),
+                output_type="jsonl",
+                compression="gzip",
+            )
+            # Verify the file was created
+            assert os.path.exists(os.path.join(output_path, "output.jsonl.gz"))
+
+        # 7. Test Parquet with partitioning
         output_path = os.path.join(temp_dir, "partitioned_parquet")
         os.makedirs(output_path, exist_ok=True)
 
@@ -673,7 +752,7 @@ class TestDataWritingFunctions:
                 output_path, write_index=False, partition_on="category"
             )
 
-        # 5. Test Parquet without partitioning
+        # 8. Test Parquet without partitioning
         output_path = os.path.join(temp_dir, "simple_parquet")
         os.makedirs(output_path, exist_ok=True)
 
@@ -686,7 +765,7 @@ class TestDataWritingFunctions:
                 output_path, write_index=False, partition_on=None
             )
 
-        # 6. Test unknown output type
+        # 9. Test unknown output type
         with pytest.raises(ValueError):
             _write_to_jsonl_or_parquet(
                 pandas_ddf,

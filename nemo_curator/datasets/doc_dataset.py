@@ -232,6 +232,7 @@ class DocumentDataset:
         write_to_filename: Union[bool, str] = False,
         keep_filename_column: bool = False,
         partition_on: Optional[str] = None,
+        compression: Optional[str] = None,
     ):
         """
         Writes the dataset to the specified path in JSONL format.
@@ -251,7 +252,9 @@ class DocumentDataset:
             partition_on (Optional[str]): The column name used to partition the data.
                 If specified, data is partitioned based on unique values in this column,
                 with each partition written to a separate directory.
-
+            compression (Optional[str]): The compression to use for the output file.
+                If specified, the output file will be compressed using the specified compression.
+                Supported compression types are "gzip" or None.
         For more details, refer to the `write_to_disk` function in
         `nemo_curator.utils.distributed_utils`.
         """
@@ -262,6 +265,7 @@ class DocumentDataset:
             keep_filename_column=keep_filename_column,
             partition_on=partition_on,
             output_type="jsonl",
+            compression=compression,
         )
 
     def to_parquet(
