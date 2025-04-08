@@ -38,6 +38,7 @@ from nemo_curator.utils.distributed_utils import (
     check_dask_cwd,
     get_client,
     get_current_client,
+    get_filepath_without_extension,
     get_gpu_memory_info,
     get_network_interfaces,
     get_num_workers,
@@ -1112,3 +1113,15 @@ class TestUtilityFunctions:
 
         except Exception as e:
             pytest.skip(f"Could not create GPU Dask client for testing: {e}")
+
+    def test_get_filepath_without_extension(self):
+        """Test get_filepath_without_extension function."""
+        assert get_filepath_without_extension("test.jsonl") == "test"
+        assert get_filepath_without_extension("test.jsonl.gz") == "test"
+        assert get_filepath_without_extension("test.json") == "test"
+        assert get_filepath_without_extension("test.parquet") == "test"
+        assert get_filepath_without_extension("test.gz") == "test"
+        assert get_filepath_without_extension("test.part") == "test"
+        assert get_filepath_without_extension("test.xyz.jsonl.gz") == "test.xyz"
+        assert get_filepath_without_extension("test.gz.xyz.jsonl") == "test.gz.xyz"
+        assert get_filepath_without_extension("test.0.part") == "test.0"

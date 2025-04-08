@@ -65,10 +65,15 @@ def _enable_spilling():
 
 
 def get_filepath_without_extension(path: str) -> str:
+    known_suffixes = [".jsonl", ".json", ".parquet", ".gz", ".part", ".snappy"]
     p = Path(path)
     filename = p.name
     for s in reversed(p.suffixes):
-        filename = filename.removesuffix(s)
+        if s in known_suffixes:
+            filename = filename.removesuffix(s)
+        else:
+            # Exit loop if we encounter an unknown suffix
+            break
     return filename
 
 
