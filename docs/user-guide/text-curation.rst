@@ -2,7 +2,7 @@
 Text Curation
 =============
 :ref:`Downloading and Extracting Text <data-curator-download>`
-   Downloading a massive public dataset is usually the first step in data curation, and it can be cumbersome due to the dataset’s massive size and hosting method. This section describes how to download and extract large corpora efficiently.
+   Downloading a massive public dataset is usually the first step in data curation, and it can be cumbersome due to the dataset's massive size and hosting method. This section describes how to download and extract large corpora efficiently. NeMo Curator supports multiple content extraction methods including JusText, Resiliparse, and Trafilatura to cleanly extract text from web content.
 
 :ref:`Working with DocumentDataset <data-curator-documentdataset>`
    DocumentDataset is the standard format for datasets in NeMo Curator. This section describes how to get datasets in and out of this format, as well as how DocumentDataset interacts with the modules.
@@ -19,6 +19,9 @@ Text Curation
 :ref:`Text Cleaning <data-curator-text-cleaning>`
    Many parts of the Internet contained malformed or poorly formatted text. NeMo Curator can fix many of these issues with text.
 
+:ref:`Stop Words in Text Processing <data-curator-stopwords>`
+   Stop words are common words that are often filtered out in NLP tasks because they typically don't carry significant meaning. NeMo Curator provides built-in stop word lists for various languages to support text analysis and extraction.
+
 :ref:`GPU Accelerated Exact and Fuzzy Deduplication <data-curator-gpu-deduplication>`
    Both exact and fuzzy deduplication functionalities are supported in NeMo Curator and accelerated using RAPIDS cuDF.
 
@@ -32,7 +35,7 @@ Text Curation
    Synthetic data generation tools and example piplines are available within NeMo Curator.
 
 :ref:`Downstream Task Decontamination <data-curator-downstream>`
-   After training, large language models are usually evaluated by their performance on downstream tasks consisting of unseen test data. When dealing with large datasets, there is a potential for leakage of this test data into the model’s training dataset. NeMo Curator allows you to remove sections of documents in your dataset that are present in downstream tasks.
+   After training, large language models are usually evaluated by their performance on downstream tasks consisting of unseen test data. When dealing with large datasets, there is a potential for leakage of this test data into the model's training dataset. NeMo Curator allows you to remove sections of documents in your dataset that are present in downstream tasks.
 
 :ref:`Personally Identifiable Information Identification and Removal <data-curator-pii>`
    The purpose of the personally identifiable information (PII) redaction tool is to help scrub sensitive data out of training datasets
@@ -48,6 +51,7 @@ Text Curation
    qualityfiltering.rst
    languageidentification.rst
    textcleaning.rst
+   stopwords.rst
    gpudeduplication.rst
    semdedup.rst
    syntheticdata.rst
