@@ -14,7 +14,6 @@
 
 import json
 import warnings
-from typing import Dict, List, Optional
 
 from openai import OpenAI
 
@@ -37,7 +36,7 @@ class LLMInference:
     def __init__(
         self,
         base_url: str,
-        api_key: Optional[str],
+        api_key: str | None,
         model: str,
         system_prompt: str,
     ):
@@ -45,7 +44,7 @@ class LLMInference:
         self.model = model
         self.system_prompt = system_prompt
 
-    def infer(self, text: str) -> List[Dict[str, str]]:
+    def infer(self, text: str) -> list[dict[str, str]]:
         """Invoke LLM to get PII entities"""
 
         text = text.strip()
@@ -105,13 +104,13 @@ class LLMPiiModifier(DocumentModifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         base_url: str,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "meta/llama-3.1-70b-instruct",
-        system_prompt: Optional[str] = None,
-        pii_labels: Optional[List[str]] = None,
+        system_prompt: str | None = None,
+        pii_labels: list[str] | None = None,
         language: str = "en",
     ):
         """
@@ -144,7 +143,8 @@ class LLMPiiModifier(DocumentModifier):
             warnings.warn(
                 "Custom system_prompt and custom pii_labels were both provided, "
                 "but the PII labels should already be included in the system prompt. "
-                "The pii_labels will be ignored."
+                "The pii_labels will be ignored.",
+                stacklevel=2,
             )
 
         if pii_labels is None:
@@ -164,7 +164,8 @@ class LLMPiiModifier(DocumentModifier):
                 "\n"
                 "In particular, please ensure that the JSON schema is included in the system prompt exactly as shown: "
                 "\n"
-                f"{str(JSON_SCHEMA)}"
+                f"{JSON_SCHEMA!s}",
+                stacklevel=2,
             )
         if language == "en" and system_prompt is not None:
             warnings.warn(
@@ -174,17 +175,17 @@ class LLMPiiModifier(DocumentModifier):
                 "\n"
                 "In particular, please ensure that the JSON schema is included in the system prompt exactly as shown: "
                 "\n"
-                f"{str(JSON_SCHEMA)}"
+                f"{JSON_SCHEMA!s}",
+                stacklevel=2,
             )
 
-    def modify_document(self, text: str):
+    def modify_document(self, text: str) -> str:
         self._inferer_key = f"inferer_{id(self)}"
         inferer = load_object_on_worker(self._inferer_key, self.load_inferer, {})
         pii_entities = inferer.infer(text)
-        text_redacted = redact(text, pii_entities)
-        return text_redacted
+        return redact(text, pii_entities)
 
-    def load_inferer(self):
+    def load_inferer(self) -> LLMInference:
         """Helper function to load the LLM"""
         inferer: LLMInference = LLMInference(
             base_url=self.base_url,

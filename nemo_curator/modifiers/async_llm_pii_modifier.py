@@ -15,7 +15,8 @@
 import asyncio
 import json
 import warnings
-from typing import Any, Coroutine, Dict, List, Optional
+from collections.abc import Coroutine
+from typing import Any
 
 import pandas as pd
 from openai import AsyncOpenAI
@@ -41,7 +42,7 @@ class AsyncLLMInference:
     def __init__(
         self,
         base_url: str,
-        api_key: Optional[str],
+        api_key: str | None,
         model: str,
         system_prompt: str,
     ):
@@ -49,7 +50,7 @@ class AsyncLLMInference:
         self.model = model
         self.system_prompt = system_prompt
 
-    async def infer(self, text: str) -> List[Dict[str, str]]:
+    async def infer(self, text: str) -> list[dict[str, str]]:
         """Invoke LLM to get PII entities"""
 
         text = text.strip()
@@ -110,15 +111,15 @@ class AsyncLLMPiiModifier(DocumentModifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         base_url: str,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "meta/llama-3.1-70b-instruct",
-        system_prompt: Optional[str] = None,
-        pii_labels: Optional[List[str]] = None,
+        system_prompt: str | None = None,
+        pii_labels: list[str] | None = None,
         language: str = "en",
-        max_concurrent_requests: Optional[int] = None,
+        max_concurrent_requests: int | None = None,
     ):
         """
         Initialize the AsyncLLMPiiModifier
@@ -153,7 +154,8 @@ class AsyncLLMPiiModifier(DocumentModifier):
             warnings.warn(
                 "Custom system_prompt and custom pii_labels were both provided, "
                 "but the PII labels should already be included in the system prompt. "
-                "The pii_labels will be ignored."
+                "The pii_labels will be ignored.",
+                stacklevel=2,
             )
 
         if pii_labels is None:
@@ -173,7 +175,8 @@ class AsyncLLMPiiModifier(DocumentModifier):
                 "\n"
                 "In particular, please ensure that the JSON schema is included in the system prompt exactly as shown: "
                 "\n"
-                f"{str(JSON_SCHEMA)}"
+                f"{JSON_SCHEMA!s}",
+                stacklevel=2,
             )
         if language == "en" and system_prompt is not None:
             warnings.warn(
@@ -183,18 +186,18 @@ class AsyncLLMPiiModifier(DocumentModifier):
                 "\n"
                 "In particular, please ensure that the JSON schema is included in the system prompt exactly as shown: "
                 "\n"
-                f"{str(JSON_SCHEMA)}"
+                f"{JSON_SCHEMA!s}",
+                stacklevel=2,
             )
 
     @batched
-    def modify_document(self, text: pd.Series):
+    def modify_document(self, text: pd.Series) -> pd.Series:
         self._inferer_key = f"inferer_{id(self)}"
         inferer = load_object_on_worker(self._inferer_key, self.load_inferer, {})
         pii_entities_lists = asyncio.run(self.call_inferer(text, inferer))
-        text_redacted = self.batch_redact(text, pii_entities_lists)
-        return text_redacted
+        return self.batch_redact(text, pii_entities_lists)
 
-    def load_inferer(self):
+    def load_inferer(self) -> AsyncLLMInference:
         """Helper function to load the asynchronous LLM"""
         inferer: AsyncLLMInference = AsyncLLMInference(
             base_url=self.base_url,
@@ -205,14 +208,11 @@ class AsyncLLMPiiModifier(DocumentModifier):
 
         return inferer
 
-    async def call_inferer(self, text: pd.Series, inferer: AsyncLLMInference):
+    async def call_inferer(self, text: pd.Series, inferer: AsyncLLMInference) -> list[str]:
         tasks = [inferer.infer(prompt) for prompt in text]
-        pii_entities_lists = await self._gather(tasks)
-        return pii_entities_lists
+        return await self._gather(tasks)
 
-    async def _gather(
-        self, requests: List[Coroutine[Any, Any, List[str]]]
-    ) -> List[str]:
+    async def _gather(self, requests: list[Coroutine[Any, Any, list[str]]]) -> list[str]:
         max_requests = self.max_concurrent_requests
         if max_requests is None:
             max_requests = len(requests)
@@ -225,11 +225,8 @@ class AsyncLLMPiiModifier(DocumentModifier):
 
         return final_list
 
-    def batch_redact(
-        self, text: pd.Series, pii_entities_lists: List[List[Dict[str, str]]]
-    ):
+    def batch_redact(self, text: pd.Series, pii_entities_lists: list[list[dict[str, str]]]) -> pd.Series:
         redacted_texts = [
-            redact(text_str, pii_entities)
-            for text_str, pii_entities in zip(text, pii_entities_lists)
+            redact(text_str, pii_entities) for text_str, pii_entities in zip(text, pii_entities_lists, strict=False)
         ]
         return pd.Series(redacted_texts, index=text.index)

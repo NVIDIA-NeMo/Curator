@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List
 
 import pandas as pd
 
 from nemo_curator.modifiers import DocumentModifier
+from nemo_curator.pii.algorithm import PiiDeidentifier
 from nemo_curator.pii.constants import DEFAULT_LANGUAGE, DEFAULT_MAX_DOC_SIZE
 from nemo_curator.utils.decorators import batched
 from nemo_curator.utils.distributed_utils import load_object_on_worker
@@ -50,7 +50,7 @@ class PiiModifier(DocumentModifier):
     def __init__(
         self,
         language: str = DEFAULT_LANGUAGE,
-        supported_entities: List[str] = None,
+        supported_entities: list[str] | None = None,
         anonymize_action: str = "redact",
         batch_size: int = DEFAULT_BATCH_SIZE,
         device: str = "gpu",
@@ -67,7 +67,7 @@ class PiiModifier(DocumentModifier):
         self.device = device
 
     @batched
-    def modify_document(self, text: pd.Series, partition_info: Dict = None):
+    def modify_document(self, text: pd.Series, partition_info: dict | None = None) -> pd.Series:
         import logging
 
         logging.basicConfig(
@@ -75,21 +75,18 @@ class PiiModifier(DocumentModifier):
             level=logging.INFO,
             datefmt="%Y-%m-%d %H:%M:%S",
         )
+        logger = logging.getLogger(__name__)
 
         deidentifier = load_object_on_worker("deidentifier", self.load_deidentifier, {})
         try:
-            output: List[str] = deidentifier.deidentify_text_batch(
-                text.tolist(), self.batch_size
-            )
-        except Exception as e:
-            logging.error(
-                f"Encountered error {str(e)} in partition {partition_info['number']}"
-            )
+            output: list[str] = deidentifier.deidentify_text_batch(text.tolist(), self.batch_size)
+        except Exception:
+            logger.exception(f"Encountered error with PII de-identification in partition {partition_info['number']}")
             return pd.Series([True], index=text.index)
         output: pd.Series = pd.Series(output, text.index)
         return output
 
-    def load_deidentifier(self):
+    def load_deidentifier(self) -> PiiDeidentifier:
         """
         Helper function to load the de-identifier
         """
@@ -105,8 +102,6 @@ class PiiModifier(DocumentModifier):
             anonymize_action=self.anonymize_action,
             **self.kwargs,
         )
-        deidentifier.analyzer.nlp_engine.nlp[deidentifier.language].max_length = (
-            DEFAULT_MAX_DOC_SIZE
-        )
+        deidentifier.analyzer.nlp_engine.nlp[deidentifier.language].max_length = DEFAULT_MAX_DOC_SIZE
 
         return deidentifier

@@ -14,11 +14,14 @@
 from __future__ import annotations
 
 import warnings
-from typing import Iterable, List, Optional, Union
+from typing import TYPE_CHECKING
 
-from nemo_curator.services.conversation_formatter import ConversationFormatter
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
-from .model_client import AsyncLLMClient, LLMClient
+    from nemo_curator.services.conversation_formatter import ConversationFormatter
+
+from .model_client import LLMClient
 
 
 class NemoDeployClient(LLMClient):
@@ -29,33 +32,32 @@ class NemoDeployClient(LLMClient):
     def __init__(self, nemo_deploy: NemoQueryLLM) -> None:
         self.client = nemo_deploy
 
-    def query_model(
+    def query_model(  # noqa: PLR0913
         self,
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: Optional[ConversationFormatter] = None,
-        max_tokens: Optional[int] = None,
-        n: Optional[int] = None,
-        seed: Optional[int] = None,
-        stop: Union[Optional[str], List[str]] = [],
+        conversation_formatter: ConversationFormatter | None = None,
+        max_tokens: int | None = None,
+        n: int | None = None,
+        seed: int | None = None,
+        stop: str | None | list[str] = [],  # noqa: B006
         stream: bool = False,
-        temperature: Optional[float] = None,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-    ) -> List[str]:
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+    ) -> list[str]:
         if conversation_formatter is None:
-            raise ValueError(
-                "NemoDeployClient's query_model requires a conversation_formatter"
-            )
+            msg = "NemoDeployClient's query_model requires a conversation_formatter"
+            raise ValueError(msg)
 
         prompt = conversation_formatter.format_conversation(messages)
         self.client.model_name = model
 
         if n is not None:
-            warnings.warn("n is not supported in NemoDeployClient")
+            warnings.warn("n is not supported in NemoDeployClient", stacklevel=2)
         if stream:
-            warnings.warn("streamming is not supported in NeMoDeployClient")
+            warnings.warn("streamming is not supported in NeMoDeployClient", stacklevel=2)
 
         if isinstance(stop, str):
             stop = [stop]
@@ -73,12 +75,11 @@ class NemoDeployClient(LLMClient):
         return self._postprocess_response(response, stop)
 
     @staticmethod
-    def _postprocess_response(responses: List[str], stop_words: List[str]) -> List[str]:
+    def _postprocess_response(responses: list[str], stop_words: list[str]) -> list[str]:
         processed_responses = []
         for response in responses:
             for stop in stop_words:
-                if response.endswith(stop):
-                    response = response[: -len(stop)]
+                response = response.removesuffix(stop)  # noqa: PLW2901
             processed_responses.append(response.strip())
         return processed_responses
 
@@ -94,6 +95,5 @@ class NemoDeployClient(LLMClient):
         Returns:
             A mapping of score_name -> score
         """
-        raise NotImplementedError(
-            "Reward model inference is not supported in NeMo Deploy Clients"
-        )
+        msg = "Reward model inference is not supported in NeMo Deploy Clients"
+        raise NotImplementedError(msg)

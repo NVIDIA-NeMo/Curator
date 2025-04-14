@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from abc import ABC, abstractmethod
-from typing import List
 
 
 class ConversationFormatter(ABC):
@@ -22,7 +21,6 @@ class ConversationFormatter(ABC):
     """
 
     @abstractmethod
-    def format_conversation(self, conv: List[dict]) -> str:
-        raise NotImplementedError(
-            "format_converstaion must be implemented by subclasses"
-        )
+    def format_conversation(self, conv: list[dict]) -> str:
+        msg = "format_converstaion must be implemented by subclasses"
+        raise NotImplementedError(msg)

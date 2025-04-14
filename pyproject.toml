@@ -76,6 +76,11 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "ruff==0.11.4",
+    "pytest"
+]
 # Installs CPU + GPU text curation modules
 cuda12x = [
     "cudf-cu12==25.02",
@@ -169,14 +174,6 @@ llm_pii_redaction = "nemo_curator.scripts.llm_pii_redaction:console_script"
 [project.urls]
 Homepage = "https://github.com/NVIDIA/NeMo-Curator"
 
-[tool.black]
-line-length = 88
-
-[tool.isort]
-profile = "black"  # black-compatible
-line_length = 88  # should match black parameters
-py_version = 310
-
 [tool.pytest.ini_options]
 markers = [
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')"
@@ -188,3 +185,42 @@ version = { attr = "nemo_curator.package_info.__version__" }
 [tool.setuptools.packages.find]
 include = ["*"]
 exclude = ["tests", "tests.*"]
+
+[tool.ruff]
+line-length = 119
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",  # pydocstyle
+    "PTH",  # use pathlib
+    "G",  # no enforcement during logging
+    "FBT",  # allow booleans in function / class arguments
+    "T20",  # allow printing
+    "E501",  # Allow line length violations, leave it to Black
+    "ANN002",  # don't annotate **args
+    "ANN003",  # don't annotate **kwargs
+    "ANN204",  # don't annotate self/cls/special methods (__new__)
+    "PT013",  # how to import pytest
+    "PERF401",  # don't enforce list comprehension
+    "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
+    "PGH004",  # allow generic noqa
+    "PD901",  # allow naming dataframes df
+    "TD002",  # Allow TODO without author
+    "TD003",  # Allow TODO without link
+    "FIX002",  # Allow TODO to exist,
+    "EXE002", # Don't require for a shebang to be present if it's executable
+    "COM812", # Disable the trailing comma in linter, because ruff formatter ensures it
+]
+fixable = ["ALL"]
+[tool.ruff.lint.per-file-ignores]
+"nemo_curator/modules/__init__.py" = ["E402"]
+"nemo_curator/__init__.py" = ["F401", "F403"]
+"**.ipynb" = ["EXE001", "EXE003", "EXE005"]
+"tests/**" = ["S101", "INP001"]
+"tutorials/**" = ["INP001", "N999"]
+"tutorials/distributed_data_classification/**" = ["ERA001"]
+"tutorials/nemo-retriever-synthetic-data-generation/notebooks/quickstart.ipynb" = ["E402"]
+"tutorials/single_node_tutorial/**" = ["ERA001"]
+"examples/**" = ["INP001"]
+"nemo_curator/utils/import_utils.py" = ["ANN001"]
+"nemo_curator/utils/aegis_utils.py" = ["W291", "RUF001"]
