@@ -19,13 +19,7 @@ import socket
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 
 
-def create_logger(
-    rank: int,
-    log_file: str,
-    name: str = "logger",
-    log_level: int = logging.INFO,
-    stdout: bool = False,
-) -> logging.Logger:
+def create_logger(rank, log_file, name="logger", log_level=logging.INFO, stdout=False):
     # Create the logger
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
@@ -33,7 +27,9 @@ def create_logger(
     myhost = socket.gethostname()
 
     extra = {"host": myhost, "rank": rank}
-    formatter = logging.Formatter("%(asctime)s | %(host)s | Rank %(rank)s | %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s | %(host)s | Rank %(rank)s | %(message)s"
+    )
 
     # File handler for output
     file_handler = logging.FileHandler(log_file, mode="a")
@@ -45,15 +41,16 @@ def create_logger(
         stdout_handler.setFormatter(formatter)
         logger.addHandler(stdout_handler)
 
-    return logging.LoggerAdapter(logger, extra)
+    logger = logging.LoggerAdapter(logger, extra)
+    return logger
 
 
 def create_rank_logger(
-    rank: int,
-    log_dir: str,
-    name: str = "node_logger",
-    log_level: int = logging.INFO,
-) -> logging.Logger:
+    rank,
+    log_dir,
+    name="node_logger",
+    log_level=logging.INFO,
+):
     # Make the log directory if it does not exist
     log_dir = expand_outdir_and_mkdir(log_dir)
 
@@ -67,12 +64,12 @@ def create_rank_logger(
 
 
 def create_local_logger(
-    rank: int,
-    local_id: int,
-    log_dir: str,
-    name: str = "local_logger",
-    log_level: int = logging.INFO,
-) -> logging.Logger:
+    rank,
+    local_id,
+    log_dir,
+    name="local_logger",
+    log_level=logging.INFO,
+):
     # Create the logger
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
@@ -83,7 +80,10 @@ def create_local_logger(
 
     myhost = socket.gethostname()
     extra = {"host": myhost, "node": rank_tag, "local": local_id_tag}
-    formatter = logging.Formatter("%(asctime)s | %(host)s | Node rank %(node)s | Local rank %(local)s | %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s | %(host)s | Node rank %(node)s "
+        "| Local rank %(local)s | %(message)s"
+    )
 
     # Output log file
     rank_dir = os.path.join(log_dir, f"rank_{rank_tag}")
@@ -94,4 +94,6 @@ def create_local_logger(
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    return logging.LoggerAdapter(logger, extra)
+    logger = logging.LoggerAdapter(logger, extra)
+
+    return logger

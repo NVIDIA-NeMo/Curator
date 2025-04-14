@@ -34,10 +34,10 @@ class MarkdownRemover(DocumentModifier):
         lines = text.split("\n")
         new_lines = []
         for line in lines:
-            line = re.sub(MARKDOWN_BOLD_REGEX, r"\1", line)  # **text** #noqa: PLW2901
-            line = re.sub(MARKDOWN_ITALIC_REGEX, r"\1", line)  # *text* #noqa: PLW2901
-            line = re.sub(MARKDOWN_UNDERLINE_REGEX, r"\1", line)  # _text_ #noqa: PLW2901
-            line = re.sub(MARKDOWN_LINK_REGEX, r"\1", line)  # [text](url) #noqa: PLW2901
+            line = re.sub(MARKDOWN_BOLD_REGEX, r"\1", line)  # **text**
+            line = re.sub(MARKDOWN_ITALIC_REGEX, r"\1", line)  # *text*
+            line = re.sub(MARKDOWN_UNDERLINE_REGEX, r"\1", line)  # _text_
+            line = re.sub(MARKDOWN_LINK_REGEX, r"\1", line)  # [text](url)
             new_lines.append(line)
 
         return "\n".join(new_lines)

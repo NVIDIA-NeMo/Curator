@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from typing import Optional, Union
 
 from nemo_curator.modifiers import DocumentModifier
 
@@ -22,8 +23,8 @@ class Slicer(DocumentModifier):
 
     def __init__(
         self,
-        left: int | str | None = 0,
-        right: int | str | None = None,
+        left: Optional[Union[int, str]] = 0,
+        right: Optional[Union[int, str]] = None,
         include_left: bool = True,
         include_right: bool = True,
         strip: bool = True,
@@ -56,7 +57,11 @@ class Slicer(DocumentModifier):
             left_index_found = text.find(self._left)
             if left_index_found == -1:
                 return ""
-            left_index = left_index_found if self._include_left else left_index_found + len(self._left)
+            left_index = (
+                left_index_found
+                if self._include_left
+                else left_index_found + len(self._left)
+            )
         else:
             left_index = 0  # default if neither int nor str
 
@@ -67,7 +72,11 @@ class Slicer(DocumentModifier):
             right_index_found = text.rfind(self._right)
             if right_index_found == -1:
                 return ""
-            right_index = right_index_found + len(self._right) if self._include_right else right_index_found
+            right_index = (
+                right_index_found + len(self._right)
+                if self._include_right
+                else right_index_found
+            )
         else:
             right_index = len(text)  # default if neither int nor str
 

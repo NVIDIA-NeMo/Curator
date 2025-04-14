@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import List
 
 from nemo_curator.modifiers import DocumentModifier
 
@@ -21,7 +22,7 @@ class LineRemover(DocumentModifier):
     Removes lines from a document if the content of the line matches a given string.
     """
 
-    def __init__(self, patterns: list[str]):
+    def __init__(self, patterns: List[str]):
         """
         Args:
             patterns (List[str]): The patterns to check

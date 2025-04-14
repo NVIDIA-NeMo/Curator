@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,7 +24,7 @@ default_install_hook_types: [pre-commit, commit-msg]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: v4.6.0
     hooks:
       - id: check-added-large-files
         args: ['--maxkb=1000']
@@ -35,14 +35,20 @@ repos:
         exclude: docs/
       - id: requirements-txt-fixer
       - id: trailing-whitespace
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.4
+        exclude: nemo_curator/utils/aegis_utils.py
+
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
     hooks:
-      # Run the linter
-      - id: ruff
-        args: [--fix]  # Enables auto-fixing lint errors
-      # Run the formatter
-      - id: ruff-format
+      - id: black
+        name: Format code
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: Format imports
+        exclude: docs/|nemo_curator/modules/__init__.py
 
   - repo: local
     hooks:

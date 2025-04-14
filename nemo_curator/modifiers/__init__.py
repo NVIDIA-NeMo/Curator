@@ -25,15 +25,15 @@ from .unicode_reformatter import UnicodeReformatter
 from .url_remover import UrlRemover
 
 __all__ = [
-    "BoilerPlateStringModifier",
     "DocumentModifier",
+    "BoilerPlateStringModifier",
     "FastTextLabelModifier",
+    "UnicodeReformatter",
+    "QuotationRemover",
     "LineRemover",
     "MarkdownRemover",
-    "NewlineNormalizer",
     "PiiModifier",
-    "QuotationRemover",
-    "Slicer",
-    "UnicodeReformatter",
+    "NewlineNormalizer",
     "UrlRemover",
+    "Slicer",
 ]

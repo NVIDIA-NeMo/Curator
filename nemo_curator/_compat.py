@@ -39,12 +39,16 @@ try:
 except (ImportError, TypeError):
     CURRENT_CUDF_VERSION = parse_version("24.10.0")
 
-# TODO: remove this once 25.02 becomes the base version of cudf in nemo-curator
+# TODO remove this once 25.02 becomes the base version of cudf in nemo-curator
 
 # minhash in < 24.12 used to have a minhash(txt) api which was deprecated in favor of
 # minhash(a, b) in 25.02 (in 24.12, minhash_permuted(a,b) was introduced)
-MINHASH_DEPRECATED_API = CURRENT_CUDF_VERSION.base_version < parse_version("24.12").base_version
-MINHASH_PERMUTED_AVAILABLE = (CURRENT_CUDF_VERSION.major == 24) & (CURRENT_CUDF_VERSION.minor == 12)  # noqa: PLR2004
+MINHASH_DEPRECATED_API = (
+    CURRENT_CUDF_VERSION.base_version < parse_version("24.12").base_version
+)
+MINHASH_PERMUTED_AVAILABLE = (CURRENT_CUDF_VERSION.major == 24) & (
+    CURRENT_CUDF_VERSION.minor == 12
+)
 
 # TODO: remove when dask min version gets bumped
 DASK_SHUFFLE_METHOD_ARG = _dask_version > parse_version("2024.1.0")
@@ -56,8 +60,8 @@ DASK_CUDF_PARQUET_READ_INCONSISTENT_SCHEMA = _dask_version > parse_version("2024
 _DASK_QUERY_PLANNING_ENABLED = None
 
 
-def query_planning_enabled() -> bool:
-    global _DASK_QUERY_PLANNING_ENABLED  # noqa: PLW0603
+def query_planning_enabled():
+    global _DASK_QUERY_PLANNING_ENABLED
 
     if _DASK_QUERY_PLANNING_ENABLED is None:
         if _dask_version > parse_version("2024.12.1"):

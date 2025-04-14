@@ -45,7 +45,7 @@ The documentation should also cover potential pitfalls and performance considera
 The existing examples and documentation should serve as a good reference to what is expected.
 
 ## Python style
-We use ``ruff`` as our style guide. To fix your format run `pre-commit install && pre-commit run --all`.
+We use ``black`` as our style guide. To fix your format run `pip install pre-commit && pre-commit install && pre-commit run --all`.
 
 1. Include docstrings for every class and method exposed to the user.
 1. Avoid wild import: ``from X import *`` unless in ``X.py``, ``__all__`` is defined.

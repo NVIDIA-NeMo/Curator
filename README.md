@@ -110,7 +110,6 @@ These extras are available for all installation methods provided.
 
 ```bash
 pip install nemo-curator # Installs CPU-only text curation modules
-pip install nemo-curator[dev] # Installs libraries required for development
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x] # Installs CPU + GPU text curation modules
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image] # Installs CPU + GPU text and image curation modules
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all] # Installs all of the above

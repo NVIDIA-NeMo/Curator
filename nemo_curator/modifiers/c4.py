@@ -29,7 +29,7 @@ class BoilerPlateStringModifier(DocumentModifier):
 
     def __init__(
         self,
-        remove_if_at_top_or_bottom: bool = True,
+        remove_if_at_top_or_bottom=True,
     ):
         super().__init__()
         self._remove_if_at_top_or_bottom = remove_if_at_top_or_bottom
@@ -37,7 +37,7 @@ class BoilerPlateStringModifier(DocumentModifier):
         self._boilerplate_paragraph_indices = []
         self._name = "boilerplate_string_ratio"
 
-    def modify_document(self, text: str) -> str:
+    def modify_document(self, text):
         # Initialize variables
         self._boilerplate_paragraph_indices = []
 
@@ -51,10 +51,10 @@ class BoilerPlateStringModifier(DocumentModifier):
 
         # Check each paragraph
         for idx, paragraph in enumerate(paragraphs):
-            paragraph_stripped = paragraph.strip().lower()
-            if "lorem ipsum" in paragraph_stripped:
+            paragraph = paragraph.strip().lower()
+            if "lorem ipsum" in paragraph:
                 return empty_string
-            if any(p in paragraph_stripped for p in policy_substrings):
+            if any(p in paragraph for p in policy_substrings):
                 if not self._remove_if_at_top_or_bottom:
                     return empty_string
                 else:
@@ -75,7 +75,11 @@ class BoilerPlateStringModifier(DocumentModifier):
             if self._paragraphs is None:
                 self._paragraphs = get_paragraphs(text)
             modified_doc = "\n\n".join(
-                [p for idx, p in enumerate(self._paragraphs) if idx not in self._boilerplate_paragraph_indices]
+                [
+                    p
+                    for idx, p in enumerate(self._paragraphs)
+                    if idx not in self._boilerplate_paragraph_indices
+                ]
             )
             # Set the paragraphs back to None as the document has been
             # changed

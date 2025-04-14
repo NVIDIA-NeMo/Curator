@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import warnings
-from collections.abc import Iterable
+from typing import Iterable, List, Optional, Union
 
 from openai import AsyncOpenAI, OpenAI
 from openai._types import NOT_GIVEN, NotGiven
@@ -30,25 +30,26 @@ class OpenAIClient(LLMClient):
     def __init__(self, openai_client: OpenAI) -> None:
         self.client = openai_client
 
-    def query_model(  # noqa: PLR0913
+    def query_model(
         self,
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None | NotGiven = NOT_GIVEN,
-        n: int | None | NotGiven = NOT_GIVEN,
-        seed: int | None | NotGiven = NOT_GIVEN,
-        stop: str | None | list[str] | NotGiven = NOT_GIVEN,
-        stream: bool | None | NotGiven = False,
-        temperature: float | None | NotGiven = NOT_GIVEN,
-        top_k: int | None = None,
-        top_p: float | None | NotGiven = NOT_GIVEN,
-    ) -> list[str]:
+        conversation_formatter: Optional[ConversationFormatter] = None,
+        max_tokens: Union[Optional[int], NotGiven] = NOT_GIVEN,
+        n: Union[Optional[int], NotGiven] = NOT_GIVEN,
+        seed: Union[Optional[int], NotGiven] = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], NotGiven] = NOT_GIVEN,
+        stream: Union[Optional[bool], NotGiven] = False,
+        temperature: Union[Optional[float], NotGiven] = NOT_GIVEN,
+        top_k: Optional[int] = None,
+        top_p: Union[Optional[float], NotGiven] = NOT_GIVEN,
+    ) -> List[str]:
+
         if conversation_formatter is not None:
-            warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
+            warnings.warn("conversation_formatter is not used in an OpenAIClient")
         if top_k is not None:
-            warnings.warn("top_k is not used in an OpenAIClient", stacklevel=2)
+            warnings.warn("top_k is not used in an OpenAIClient")
 
         response = self.client.chat.completions.create(
             messages=messages,
@@ -79,10 +80,15 @@ class OpenAIClient(LLMClient):
         response = self.client.chat.completions.create(messages=messages, model=model)
 
         if response.choices[0].logprobs is None:
-            msg = f"Logprobs not found. {model} is likely not a reward model."
-            raise ValueError(msg)
+            raise ValueError(
+                f"Logprobs not found. {model} is likely not a reward model."
+            )
 
-        return {score.token: score.logprob for score in response.choices[0].logprobs.content}
+        scores = {
+            score.token: score.logprob for score in response.choices[0].logprobs.content
+        }
+
+        return scores
 
 
 class AsyncOpenAIClient(AsyncLLMClient):
@@ -93,25 +99,26 @@ class AsyncOpenAIClient(AsyncLLMClient):
     def __init__(self, async_openai_client: AsyncOpenAI) -> None:
         self.client = async_openai_client
 
-    async def query_model(  # noqa: PLR0913
+    async def query_model(
         self,
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None | NotGiven = NOT_GIVEN,
-        n: int | None | NotGiven = NOT_GIVEN,
-        seed: int | None | NotGiven = NOT_GIVEN,
-        stop: str | None | list[str] | NotGiven = NOT_GIVEN,
-        stream: bool | None | NotGiven = False,
-        temperature: float | None | NotGiven = NOT_GIVEN,
-        top_k: int | None = None,
-        top_p: float | None | NotGiven = NOT_GIVEN,
-    ) -> list[str]:
+        conversation_formatter: Optional[ConversationFormatter] = None,
+        max_tokens: Union[Optional[int], NotGiven] = NOT_GIVEN,
+        n: Union[Optional[int], NotGiven] = NOT_GIVEN,
+        seed: Union[Optional[int], NotGiven] = NOT_GIVEN,
+        stop: Union[Optional[str], List[str], NotGiven] = NOT_GIVEN,
+        stream: Union[Optional[bool], NotGiven] = False,
+        temperature: Union[Optional[float], NotGiven] = NOT_GIVEN,
+        top_k: Optional[int] = None,
+        top_p: Union[Optional[float], NotGiven] = NOT_GIVEN,
+    ) -> List[str]:
+
         if conversation_formatter is not None:
-            warnings.warn("conversation_formatter is not used in an AsyncOpenAIClient", stacklevel=2)
+            warnings.warn("conversation_formatter is not used in an AsyncOpenAIClient")
         if top_k is not None:
-            warnings.warn("top_k is not used in an AsyncOpenAIClient", stacklevel=2)
+            warnings.warn("top_k is not used in an AsyncOpenAIClient")
 
         response = await self.client.chat.completions.create(
             messages=messages,
@@ -139,10 +146,17 @@ class AsyncOpenAIClient(AsyncLLMClient):
         Returns:
             A mapping of score_name -> score
         """
-        response = await self.client.chat.completions.create(messages=messages, model=model)
+        response = await self.client.chat.completions.create(
+            messages=messages, model=model
+        )
 
         if response.choices[0].logprobs is None:
-            msg = f"Logprobs not found. {model} is likely not a reward model."
-            raise ValueError(msg)
+            raise ValueError(
+                f"Logprobs not found. {model} is likely not a reward model."
+            )
 
-        return {score.token: score.logprob for score in response.choices[0].logprobs.content}
+        scores = {
+            score.token: score.logprob for score in response.choices[0].logprobs.content
+        }
+
+        return scores

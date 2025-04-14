@@ -26,5 +26,5 @@ class UrlRemover(DocumentModifier):
     def __init__(self):
         super().__init__()
 
-    def modify_document(self, text: str) -> str:
+    def modify_document(self, text):
         return URL_REGEX.sub("", text)

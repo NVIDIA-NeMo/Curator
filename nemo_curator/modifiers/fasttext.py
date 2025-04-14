@@ -16,10 +16,10 @@ from nemo_curator.modifiers import DocumentModifier
 
 
 class FastTextLabelModifier(DocumentModifier):
-    def __init__(self, label: str):
+    def __init__(self, label):
         super().__init__()
         self.label = label
 
-    def modify_document(self, text: str) -> str:
+    def modify_document(self, text):
         text = text.replace("\n", " ").replace("__label__", " ")
         return f"{self.label} {text}"
