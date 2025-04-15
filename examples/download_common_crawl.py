@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,12 @@
 
 import argparse
 
-from nemo_curator.download import download_common_crawl
+from nemo_curator.download import (
+    JusTextExtractor,
+    ResiliparseExtractor,
+    TrafilaturaExtractor,
+    download_common_crawl,
+)
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
@@ -24,6 +29,7 @@ def main(args: argparse.Namespace) -> None:
     start_snapshot = "2021-04"
     end_snapshot = "2021-10"
     output_directory = "/path/to/output"
+    extractor = "justext"
 
     # Only download 10 shards as an example
     url_limit = 10
@@ -31,8 +37,23 @@ def main(args: argparse.Namespace) -> None:
     # Set up Dask client
     client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
+    # Set up the extractor
+    if extractor == "resiliparse":
+        extraction_algorithm = ResiliparseExtractor()
+    elif extractor == "trafilatura":
+        extraction_algorithm = TrafilaturaExtractor()
+    else:
+        # jusText is the default extractor in NeMo Curator
+        extraction_algorithm = JusTextExtractor()
+
     # Download and sample data
-    common_crawl = download_common_crawl(output_directory, start_snapshot, end_snapshot, url_limit=url_limit)
+    common_crawl = download_common_crawl(
+        output_directory,
+        start_snapshot,
+        end_snapshot,
+        url_limit=url_limit,
+        algorithm=extraction_algorithm,
+    )
     sample = common_crawl.df.sample(frac=10 / len(common_crawl))
 
     # Inspect the samples
