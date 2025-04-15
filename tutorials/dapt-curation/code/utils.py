@@ -14,6 +14,8 @@
 
 import os
 
+import pandas as pd
+
 from nemo_curator import (
     ExactDuplicates,
     FuzzyDuplicates,
@@ -58,9 +60,8 @@ class QuotationUnifier(DocumentModifier):
         Returns:
             str: The modified text.
         """
-        text = text.replace("‘", "'").replace("’", "'")
-        text = text.replace("“", '"').replace("”", '"')
-        return text
+        text = text.replace("‘", "'").replace("’", "'")  # noqa: RUF001
+        return text.replace("“", '"').replace("”", '"')
 
 
 def clean_and_unify(dataset: DocumentDataset) -> DocumentDataset:
@@ -79,7 +80,7 @@ def clean_and_unify(dataset: DocumentDataset) -> DocumentDataset:
             Modify(QuotationUnifier(), text_field="text"),
             # Unify all unicode
             Modify(UnicodeReformatter(), text_field="text"),
-        ]
+        ],
     )
     return cleaners(dataset)
 
@@ -135,10 +136,9 @@ def filter_text(dataset: DocumentDataset) -> DocumentDataset:
                 text_field="text",
                 score_type=float,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def filter_code(dataset: DocumentDataset) -> DocumentDataset:
@@ -164,10 +164,9 @@ def filter_code(dataset: DocumentDataset) -> DocumentDataset:
                 score_field="word_count",
                 score_type=int,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def filter_code_dataset(dataset: DocumentDataset) -> DocumentDataset:
@@ -189,7 +188,8 @@ def filter_code_dataset(dataset: DocumentDataset) -> DocumentDataset:
             # discard the document
             ScoreFilter(
                 PythonCommentToCodeFilter(
-                    min_comment_to_code_ratio=0.001, max_comment_to_code_ratio=0.80
+                    min_comment_to_code_ratio=0.001,
+                    max_comment_to_code_ratio=0.80,
                 ),
                 text_field="text",
                 score_type=float,
@@ -201,10 +201,9 @@ def filter_code_dataset(dataset: DocumentDataset) -> DocumentDataset:
                 text_field="text",
                 score_type=int,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def redact_pii(dataset: DocumentDataset) -> DocumentDataset:
@@ -217,7 +216,6 @@ def redact_pii(dataset: DocumentDataset) -> DocumentDataset:
     Returns:
         DocumentDataset: The redacted dataset with PII replaced by a generic value.
     """
-    DEFAULT_MAX_DOC_SIZE = 3000000
     redactor = Modify(
         PiiModifier(
             supported_entities=[
@@ -244,17 +242,19 @@ def redact_code(dataset: DocumentDataset) -> DocumentDataset:
     """
 
     # functions to extract comment lines from each row in a dataframe
-    def func(row):
+    def func(row: pd.Series) -> str:
         return row["text"][row["text"].find("/*") : row["text"].find("*/") + 2]
 
-    def func2(row):
+    def func2(row: pd.Series) -> str:
         comment = row["text"][row["text"].find("/*") : row["text"].find("*/") + 2]
         return row["text"].replace(comment, str(row["extracted_comment"]))
 
     dataset.df["extracted_comment"] = dataset.df.apply(func, axis=1, meta=(None, str))
     redacted_dataset = redact_pii(dataset)
     redacted_dataset.df["text"] = redacted_dataset.df.apply(
-        func2, axis=1, meta=(None, str)
+        func2,
+        axis=1,
+        meta=(None, str),
     )
     redacted_dataset.df = redacted_dataset.df.drop(["extracted_comment"], axis=1)
 
@@ -274,13 +274,7 @@ def exact_dedupe(dataset: DocumentDataset) -> DocumentDataset:
     deduplicator = ExactDuplicates(id_field="id", text_field="text", hash_method="md5")
     # Find the duplicates
     duplicates = deduplicator(dataset)
-    docs_to_remove = duplicates.df.map_partitions(
-        lambda x: x[x._hashes.duplicated(keep="first")]
-    )
-    # Remove the duplicates using their IDs.
-    duplicate_ids = list(docs_to_remove.compute().id)
-    dataset_df = dataset.df
-    deduped = dataset_df[~dataset_df.id.isin(duplicate_ids)]
+    deduped = deduplicator.remove(dataset, duplicates)
     return DocumentDataset(deduped)
 
 
@@ -313,7 +307,7 @@ def fuzzy_dedupe(dataset: DocumentDataset, cache_dir: str) -> DocumentDataset:
         return dataset
     else:
         docs_to_remove = duplicates.df.map_partitions(
-            lambda x: x[x.group.duplicated(keep="first")]
+            lambda x: x[x.group.duplicated(keep="first")],
         )
 
         # When there are few duplicates we can compute the results to a list and use `isin`.
@@ -326,7 +320,7 @@ def fuzzy_dedupe(dataset: DocumentDataset, cache_dir: str) -> DocumentDataset:
 def semantic_dedupe(
     dataset: DocumentDataset,
     sem_dedupe_config_yaml_path: str,
-):
+) -> DocumentDataset:
     """
     Perform semantic deduplication on the given dataset.
 
@@ -338,16 +332,13 @@ def semantic_dedupe(
         The deduplicated DocumentDataset.
     """
     partition_lengths = dataset.df.map_partitions(len).compute()
-    non_empty_partitions = [
-        i for i, length in enumerate(partition_lengths) if length > 0
-    ]
+    non_empty_partitions = [i for i, length in enumerate(partition_lengths) if length > 0]
     dataset.df = dataset.df.partitions[non_empty_partitions]
 
     semdedup_config = SemDedupConfig.from_yaml(sem_dedupe_config_yaml_path)
     expand_outdir_and_mkdir(semdedup_config.cache_dir)
     semdup = SemDedup(config=semdedup_config, perform_removal=True)
-    deduplicated_dataset = semdup(dataset)
-    return deduplicated_dataset
+    return semdup(dataset)
 
 
 class TextLineCountFilter(DocumentFilter):
@@ -361,12 +352,9 @@ class TextLineCountFilter(DocumentFilter):
 
     def score_document(self, text: str) -> bool:
         words = text.split()
-        if words[0] == "text" and int(words[2]) < self._min_lines:
-            return False
-        else:
-            return True
+        return not (words[0] == "text" and int(words[2]) < self._min_lines)
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score
 
 
@@ -382,17 +370,12 @@ class CodeLineCountFilter(DocumentFilter):
 
     def score_document(self, text: str) -> bool:
         words = text.split()
-        if words[0] == "code" and (
-            int(words[2]) < self._min_lines or int(words[2]) > self._max_lines
-        ):
-            return False
-        else:
-            return True
+        return not (words[0] == "code" and (int(words[2]) < self._min_lines or int(words[2]) > self._max_lines))
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score
 
 
-def rm_dir(cache_dir: str):
+def rm_dir(cache_dir: str) -> None:
     if os.path.isdir(cache_dir):
-        os.system(f"rm -rf {cache_dir}")
+        os.system(f"rm -rf {cache_dir}")  # noqa: S605

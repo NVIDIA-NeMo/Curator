@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,23 +15,18 @@
 import importlib
 import os
 
-import dask
-import numpy as np
 import pandas as pd
 import pytest
-from dask import dataframe as dd
 
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import AnswerabilityFilter, DocumentFilter, EasinessFilter
-from nemo_curator.modules import Filter, Score, ScoreFilter, Sequential
+from nemo_curator.filters import AnswerabilityFilter, EasinessFilter
+from nemo_curator.modules import ScoreFilter
 
-config_module = importlib.import_module(
-    "tutorials.nemo-retriever-synthetic-data-generation.config.config"
-)
+config_module = importlib.import_module("tutorials.nemo-retriever-synthetic-data-generation.config.config")
 
 
 @pytest.fixture
-def get_original_data():
+def get_original_data() -> DocumentDataset:
     docs = [
         {
             "_id": "930220d64a44c223df83e0caf09013fffdf4c19c1f501f035862984979928b29",
@@ -48,7 +43,7 @@ def get_original_data():
 
 
 @pytest.fixture
-def get_generated_data():
+def get_generated_data() -> DocumentDataset:
     docs = [
         {
             "_id": "930220d64a44c223df83e0caf09013fffdf4c19c1f501f035862984979928b29",
@@ -79,7 +74,7 @@ def get_generated_data():
 
 
 @pytest.fixture
-def get_config():
+def get_config() -> "config_module.RetrieverEvalSDGConfig":
     cfg = config_module.RetrieverEvalSDGConfig.from_yaml(
         "./tutorials/nemo-retriever-synthetic-data-generation/config/config.yaml"
     )
@@ -88,8 +83,9 @@ def get_config():
 
 
 class TestSDGFilterModule:
-    def test_easiness_filter(self, get_generated_data, get_config):
-
+    def test_easiness_filter(
+        self, get_generated_data: DocumentDataset, get_config: "config_module.RetrieverEvalSDGConfig"
+    ) -> None:
         ef = EasinessFilter(
             get_config.base_url,
             get_config.api_key,
@@ -98,9 +94,7 @@ class TestSDGFilterModule:
             get_config.truncate,
             get_config.batch_size,
         )
-        easiness_filter = ScoreFilter(
-            ef, text_field=["text", "question"], score_field="easiness_scores"
-        )
+        easiness_filter = ScoreFilter(ef, text_field=["text", "question"], score_field="easiness_scores")
 
         org_df = get_generated_data.df.compute()
         filtered_dataset = easiness_filter(get_generated_data)
@@ -108,8 +102,9 @@ class TestSDGFilterModule:
         assert "easiness_scores" in filtered_df
         assert org_df.shape[0] >= filtered_df.shape[0]
 
-    def test_answerability_filter(self, get_generated_data, get_config):
-
+    def test_answerability_filter(
+        self, get_generated_data: DocumentDataset, get_config: "config_module.RetrieverEvalSDGConfig"
+    ) -> None:
         af = AnswerabilityFilter(
             get_config.base_url,
             get_config.api_key,
@@ -118,9 +113,7 @@ class TestSDGFilterModule:
             get_config.answerability_user_prompt_template,
             get_config.num_criteria,
         )
-        answerability_filter = ScoreFilter(
-            af, text_field=["text", "question"], score_field="answerability_scores"
-        )
+        answerability_filter = ScoreFilter(af, text_field=["text", "question"], score_field="answerability_scores")
         org_df = get_generated_data.df.compute()
         filtered_dataset = answerability_filter(get_generated_data)
         filtered_df = filtered_dataset.df.compute()

@@ -34,7 +34,7 @@ def nemo_curator_slurm_executor() -> SlurmExecutor:
     )
 
 
-def main():
+def main() -> None:
     # Path to NeMo-Curator/examples/slurm/container_entrypoint.sh on the Slurm cluster
     container_entrypoint = "/cluster/path/slurm/container_entrypoint.sh"
     # The NeMo Curator command to run

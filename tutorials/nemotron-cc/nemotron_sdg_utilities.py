@@ -1,4 +1,3 @@
-import pandas as pd
 from openai import OpenAI
 from tqdm import tqdm
 from transformers import AutoTokenizer
@@ -8,10 +7,8 @@ from nemo_curator import (
     DocumentSplitter,
     Filter,
     Modify,
-    Score,
     ScoreFilter,
     Sequential,
-    get_client,
 )
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import SubstringFilter, TokenCountFilter
@@ -38,9 +35,7 @@ from nemo_curator.synthetic.prompts import (
 )
 
 
-def get_prefix_token_count(
-    tokenizer: AutoTokenizer, system_prompt: str, user_prompt_template: str
-):
+def get_prefix_token_count(tokenizer: AutoTokenizer, system_prompt: str, user_prompt_template: str) -> int:
     user_prompt = user_prompt_template.format(document="placeholder")
     messages = [
         {"role": "system", "content": system_prompt},
@@ -52,7 +47,7 @@ def get_prefix_token_count(
     return len(prefix_tokens)
 
 
-def build_preprocessing_pipeline(
+def build_preprocessing_pipeline(  # noqa: PLR0913
     tokenizer: AutoTokenizer,
     text_field: str,
     system_prompt: str,
@@ -60,25 +55,17 @@ def build_preprocessing_pipeline(
     min_document_tokens: int,
     min_segment_tokens: int,
     max_input_tokens: int,
-):
+) -> Sequential:
     # Construct filters for document filtering
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=min_document_tokens
-    )
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
 
     # Construct filters for segment filtering
-    prefix_token_count = get_prefix_token_count(
-        tokenizer, system_prompt, user_prompt_template
-    )
+    prefix_token_count = get_prefix_token_count(tokenizer, system_prompt, user_prompt_template)
     max_segment_tokens = max_input_tokens - prefix_token_count - 2
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=max_segment_tokens
-    )
-    short_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=min_segment_tokens
-    )
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_segment_tokens)
+    short_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_segment_tokens)
 
-    preprocessing_pipeline = Sequential(
+    return Sequential(
         [
             # Filter out documents that are too short
             ScoreFilter(
@@ -88,9 +75,7 @@ def build_preprocessing_pipeline(
                 score_type=int,
             ),
             # Split documents into segments
-            DocumentSplitter(
-                separator="\n", text_field=text_field, segment_id_field="segment_id"
-            ),
+            DocumentSplitter(separator="\n", text_field=text_field, segment_id_field="segment_id"),
             # Filter out segments that are too long
             ScoreFilter(
                 long_segment_token_count_filter,
@@ -116,22 +101,14 @@ def build_preprocessing_pipeline(
         ]
     )
 
-    return preprocessing_pipeline
 
+def build_wikipedia_postprocessing_pipeline(tokenizer: AutoTokenizer, rephrased_field: str) -> Sequential:
+    max_rephrased_tokens = 510
+    min_document_tokens = 50
 
-def build_wikipedia_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, rephrased_field: str
-):
-    MAX_REPHRASED_TOKENS = 510
-    MIN_DOCUMENT_TOKENS = 50
-
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -144,9 +121,7 @@ def build_wikipedia_postprocessing_pipeline(
             Modify(MarkdownRemover(), text_field=rephrased_field),
             # Remove documents not starting with the specified prefix
             ScoreFilter(
-                SubstringFilter(
-                    substring="Here is a paraphrased version:", position="prefix"
-                ),
+                SubstringFilter(substring="Here is a paraphrased version:", position="prefix"),
                 text_field=rephrased_field,
                 score_field="substring",
                 score_type=int,
@@ -180,10 +155,8 @@ def build_wikipedia_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
-
-def wikipedia_rephraser(
+def wikipedia_rephraser(  # noqa: PLR0913
     dataset: DocumentDataset,
     text_field: str,
     openai_client: OpenAI,
@@ -241,9 +214,7 @@ def wikipedia_rephraser(
     rephrased_dataset = DocumentDataset.from_pandas(first_entries)
 
     print("Running Wikipedia rephraser postprocessing pipeline")
-    postprocessing_pipeline = build_wikipedia_postprocessing_pipeline(
-        tokenizer, rephrased_field
-    )
+    postprocessing_pipeline = build_wikipedia_postprocessing_pipeline(tokenizer, rephrased_field)
 
     rephrased_dataset = postprocessing_pipeline(rephrased_dataset)
     print("Wikipedia rephraser postprocessing complete.")
@@ -252,17 +223,13 @@ def wikipedia_rephraser(
 
 def build_diverse_qa_postprocessing_pipeline(
     tokenizer: AutoTokenizer, text_field: str, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 598
-    MIN_DOCUMENT_TOKENS = 100
+) -> Sequential:
+    max_rephrased_tokens = 598
+    min_document_tokens = 100
 
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -274,9 +241,7 @@ def build_diverse_qa_postprocessing_pipeline(
             # Remove markdown formatting
             Modify(MarkdownRemover(), text_field=llm_response_field),
             # Reformat QA pairs
-            NemotronCCDiverseQAPostprocessor(
-                tokenizer, text_field=text_field, response_field=llm_response_field
-            ),
+            NemotronCCDiverseQAPostprocessor(tokenizer, text_field=text_field, response_field=llm_response_field),
             # Filter out documents that are too short
             ScoreFilter(
                 document_token_count_filter,
@@ -286,22 +251,15 @@ def build_diverse_qa_postprocessing_pipeline(
             ),
         ]
     )
-    return postprocessing_pipeline
 
 
-def build_distill_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 1598
-    MIN_DOCUMENT_TOKENS = 50
+def build_distill_postprocessing_pipeline(tokenizer: AutoTokenizer, llm_response_field: str) -> Sequential:
+    max_rephrased_tokens = 1598
+    min_document_tokens = 50
 
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -340,22 +298,14 @@ def build_distill_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
+def build_extract_knowledge_postprocessing_pipeline(tokenizer: AutoTokenizer, llm_response_field: str) -> Sequential:
+    max_rephrased_tokens = 1398
+    min_document_tokens = 50
 
-def build_extract_knowledge_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 1398
-    MIN_DOCUMENT_TOKENS = 50
-
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -368,9 +318,7 @@ def build_extract_knowledge_postprocessing_pipeline(
             Modify(MarkdownRemover(), text_field=llm_response_field),
             # Remove passage lines
             Modify(
-                LineRemover(
-                    patterns=["Passage:", "Passage 1:", "Passage 2:", "Passage 3:"]
-                ),
+                LineRemover(patterns=["Passage:", "Passage 1:", "Passage 2:", "Passage 3:"]),
                 text_field=llm_response_field,
             ),
             # Filter out documents that are too short
@@ -383,22 +331,14 @@ def build_extract_knowledge_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
+def build_knowledge_list_postprocessing_pipeline(tokenizer: AutoTokenizer, llm_response_field: str) -> Sequential:
+    max_rephrased_tokens = 598
+    min_document_tokens = 50
 
-def build_knowledge_list_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 598
-    MIN_DOCUMENT_TOKENS = 50
-
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -420,10 +360,8 @@ def build_knowledge_list_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
-
-def generate_content(
+def generate_content(  # noqa: PLR0913
     dataset: DocumentDataset,
     text_field: str,
     openai_client: OpenAI,
@@ -508,7 +446,8 @@ def generate_content(
 
     task_config = task_configs.get(task_type)
     if not task_config:
-        raise ValueError(f"Invalid task type: {task_type}")
+        msg = f"Invalid task type: {task_type}"
+        raise ValueError(msg)
 
     preprocessing_pipeline = build_preprocessing_pipeline(
         tokenizer,
@@ -552,9 +491,7 @@ def generate_content(
             tokenizer, text_field, llm_response_field
         )
     else:
-        postprocessed_pipeline = task_config["postprocessing_pipeline_builder"](
-            tokenizer, llm_response_field
-        )
+        postprocessed_pipeline = task_config["postprocessing_pipeline_builder"](tokenizer, llm_response_field)
     rephrased_dataset = postprocessed_pipeline(rephrased_dataset)
     print(f"{task_type} generation complete.")
     return rephrased_dataset

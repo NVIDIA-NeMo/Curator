@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import argparse
-import logging
 import time
 from pathlib import Path
 
@@ -26,7 +25,7 @@ from nemo_curator.utils.llm_pii_utils import PII_LABELS, SYSTEM_PROMPT
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     """Main function that performs asynchronous LLM-based PII de-identification given a batch of files"""
 
     print("Beginning PII job")
@@ -67,24 +66,21 @@ def main(args):
     print("Total time taken for PII job: %0.3f seconds" % (end_time - start_time))
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
+def attach_args() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         """
         Main driver script for applying asynchronous LLM-based PII redaction on documents. Inputs are in the input-data-dir directory.
         This script will then perform PII detection and de-identification on each document within the corpus.
         """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-):
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_input_data_dir(help="Directory containing the input files.")
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_output_data_dir(
-        help="The output directory to where redacted documents will be written."
-    )
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_input_data_dir(help="Directory containing the input files.")
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_output_data_dir(help="The output directory to where redacted documents will be written.")
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_distributed_args()
 
     parser.add_argument(
         "--base_url",
@@ -116,7 +112,7 @@ def attach_args(
         default=PII_LABELS,
         help="Comma separated list of PII entity types. None implies all supported types.",
     )
-    argumentHelper.add_arg_language(help="Language of input documents.")
+    arg_helper.add_arg_language(help="Language of input documents.")
     parser.add_argument(
         "--max_concurrent_requests",
         type=int,
@@ -136,7 +132,7 @@ def attach_args(
     return parser
 
 
-def console_script():
+def console_script() -> None:
     parser = attach_args()
     args = parser.parse_args()
     client = get_client(**ArgumentHelper.parse_client_args(args))

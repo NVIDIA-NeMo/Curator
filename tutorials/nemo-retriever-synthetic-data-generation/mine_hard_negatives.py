@@ -13,13 +13,8 @@
 # limitations under the License.
 
 import argparse
-import glob
-import importlib
 import os
-import shutil
 import time
-from pathlib import Path
-from typing import Any, List
 
 from retriever_hardnegative_miner import HardNegativeMiner
 from tqdm.dask import TqdmCallback
@@ -30,7 +25,7 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.file_utils import get_all_files_paths_under
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input-dir",
@@ -65,28 +60,32 @@ def main():
     args = parser.parse_args()
 
     if not os.path.exists(args.input_dir):
-        raise ValueError("Input directory not found")
+        msg = "Input directory not found"
+        raise ValueError(msg)
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
     elif not any(os.scandir(args.output_dir)):
         print("Provided directory exists but is empty, using the empty directory")
     else:
-        raise ValueError("Output directory exists already, use a new directory!")
+        msg = "Output directory exists already, use a new directory!"
+        raise ValueError(msg)
 
     if args.input_dir:
         input_files = get_all_files_paths_under(args.input_dir, keep_extensions="part")
         input_dataset = DocumentDataset.read_json(input_files)
     else:
-        raise ValueError("provide input file path")
+        msg = "provide input file path"
+        raise ValueError(msg)
 
     if args.hard_negative_mining_config:
         cfg = RetrieverHardNegativeMiningConfig.from_yaml(
-            args.hard_negative_mining_config
+            args.hard_negative_mining_config,
         )
 
     else:
-        raise ValueError("provide config for hard negative mining")
+        msg = "provide config for hard negative mining"
+        raise ValueError(msg)
     if args.api_key:
         cfg.api_key = args.api_key
 
@@ -94,15 +93,17 @@ def main():
     print("Mining hard negatives ...")
     st_time = time.time()
 
-    with TqdmCallback(desc="mining hard negatives") as progress:
+    with TqdmCallback(desc="mining hard negatives"):
         mined_dataset = mine_hard_negatives(input_dataset)
         mined_dataset.persist()
 
     print("Saving data in jsonl format ...")
     mined_dataset.df.to_json(
-        os.path.join(args.output_dir), lines=True, orient="records"
+        os.path.join(args.output_dir),
+        lines=True,
+        orient="records",
     )
-    print("Time taken = {:.2f} s".format(time.time() - st_time))
+    print(f"Time taken = {time.time() - st_time:.2f} s")
 
 
 if __name__ == "__main__":

@@ -11,8 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
-from typing import Optional
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import torch
@@ -35,7 +35,7 @@ class FinewebEduModel(HFModel):
     def __init__(
         self,
         path_or_name: str,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
         autocast: bool = False,
     ):
         self.path_or_name = path_or_name
@@ -44,17 +44,16 @@ class FinewebEduModel(HFModel):
             max_mem_gb = _get_suggest_memory_for_classifier()
         super().__init__(path_or_name=path_or_name, max_mem_gb=max_mem_gb)
 
-    def load_model(self, device: str = "cuda"):
+    def load_model(self, device: str = "cuda") -> torch.nn.Module:
         model = AutoModelForSequenceClassification.from_pretrained(self.path_or_name)
         model = model.to(device)
-        model = self.configure_forward(model, self.autocast)
-        return model
+        return self.configure_forward(model, self.autocast)
 
     @staticmethod
-    def configure_forward(model, autocast: bool = True):
+    def configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
         original_forward = model.forward
 
-        def custom_forward(*args, **kwargs):
+        def custom_forward(*args, **kwargs) -> torch.Tensor:
             if autocast:
                 with torch.autocast(device_type="cuda"):
                     output = original_forward(*args, **kwargs)
@@ -65,10 +64,10 @@ class FinewebEduModel(HFModel):
         model.forward = custom_forward
         return model
 
-    def load_tokenizer(self):
+    def load_tokenizer(self) -> AutoTokenizer:
         return AutoTokenizer.from_pretrained(self.path_or_name)
 
-    def load_config(self):
+    def load_config(self) -> AutoConfig:
         return AutoConfig.from_pretrained(self.path_or_name)
 
 
@@ -78,18 +77,18 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
     since their implementations are almost identical.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         fineweb_identifier: str,
         pred_column: str,
         int_column: str,
-        quality_label_column: Optional[str],
+        quality_label_column: str | None,
         batch_size: int = 1024,
         text_field: str = "text",
         max_chars: int = -1,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         self.fineweb_identifier = fineweb_identifier
 
@@ -142,19 +141,16 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
         )
         ddf = pipe(ddf)
 
-        ddf[self.pred_column] = ddf[self.pred_column].where(
-            ddf[self.pred_column] >= 0, 0
-        )
-        ddf[self.pred_column] = ddf[self.pred_column].where(
-            ddf[self.pred_column] <= 5, 5
-        )
+        ddf[self.pred_column] = ddf[self.pred_column].where(ddf[self.pred_column] >= 0, 0)
+        ddf[self.pred_column] = ddf[self.pred_column].where(ddf[self.pred_column] <= 5, 5)  # noqa: PLR2004
         ddf[self.int_column] = ddf[self.pred_column].round().astype(int)
 
         if self.quality_label_column is not None:
             ddf[self.quality_label_column] = "high_quality"
             # If the score is less than 2.5, label it as low quality
             ddf[self.quality_label_column] = ddf[self.quality_label_column].mask(
-                ddf[self.pred_column] < 2.5, "low_quality"
+                ddf[self.pred_column] < 2.5,  # noqa: PLR2004
+                "low_quality",
             )
 
         return DocumentDataset(ddf)
@@ -179,16 +175,16 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         batch_size: int = 256,
         text_field: str = "text",
         pred_column: str = "fineweb-edu-score",
-        int_column="fineweb-edu-score-int",
+        int_column: str = "fineweb-edu-score-int",
         max_chars: int = -1,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         super().__init__(
             fineweb_identifier=FINEWEB_EDU_IDENTIFIER,
@@ -225,7 +221,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         batch_size: int = 1024,
         text_field: str = "text",
@@ -235,7 +231,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         max_chars: int = -1,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         super().__init__(
             fineweb_identifier=FINEWEB_MIXTRAL_IDENTIFIER,
@@ -272,7 +268,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         batch_size: int = 1024,
         text_field: str = "text",
@@ -282,7 +278,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         max_chars: int = -1,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         super().__init__(
             fineweb_identifier=FINEWEB_NEMOTRON_IDENTIFIER,

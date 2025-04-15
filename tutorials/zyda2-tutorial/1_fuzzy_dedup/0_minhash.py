@@ -10,17 +10,19 @@ from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.file_utils import get_all_files_paths_under
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def read_folder(input_folder, columns=["nemo_id", "text"]):
+def read_folder(input_folder: str, columns: list[str] | None = None) -> dask_cudf.DataFrame:
+    if columns is None:
+        columns = ["nemo_id", "text"]
     data_paths = get_all_files_paths_under(input_folder, keep_extensions="parquet")
     data_paths.sort()
-    logging.info(f"Number of files being read: {len(data_paths)}")
-    text_ddf = dask_cudf.read_parquet(
+    logger.info(f"Number of files being read: {len(data_paths)}")
+    return dask_cudf.read_parquet(
         data_paths,
         columns=columns,
     )
-    return text_ddf
 
 
 DATA_BASE = os.environ.get("DATA_BASE")
@@ -29,7 +31,7 @@ SCHEDULER_FILE = os.environ.get("SCHEDULER_FILE")
 
 if __name__ == "__main__":
     client = get_client(scheduler_file=SCHEDULER_FILE)
-    logging.info(f"Number of dask workers: {get_num_workers(client)}")
+    logger.info(f"Number of dask workers: {get_num_workers(client)}")
 
     minhash_base_output_path = os.path.join(DATA_BASE, "fuzzy/minhash")
     minhash_output_dir = os.path.join(minhash_base_output_path, "data")
@@ -60,4 +62,4 @@ if __name__ == "__main__":
         cache_dir=minhash_output_dir,
     )
     res = minhasher(DocumentDataset(text_ddf)).df
-    logging.info(f"Time taken for MinHash: {time.time()-t0:.2f}sec.")
+    logger.info(f"Time taken for MinHash: {time.time() - t0:.2f}sec.")

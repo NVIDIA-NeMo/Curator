@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,12 +13,10 @@
 # limitations under the License.
 
 import json
-import os
 import subprocess
 import zlib
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from typing import List, Optional
 from urllib.parse import urljoin
 
 import requests
@@ -26,22 +24,21 @@ from bs4 import BeautifulSoup
 
 
 def get_main_warc_paths(
-    snapshot_index,
-    start_snapshot,
-    end_snapshot,
-    prefix="https://data.commoncrawl.org",
-):
+    snapshot_index: list[dict],
+    start_snapshot: str,
+    end_snapshot: str,
+    prefix: str = "https://data.commoncrawl.org",
+) -> list[str]:
     beg_year, beg_week = list(map(int, start_snapshot.split("-")))
     end_year, end_week = list(map(int, end_snapshot.split("-")))
     start_date = datetime.fromisocalendar(beg_year, beg_week, 1)
     end_date = datetime.fromisocalendar(end_year, end_week, 1)
 
     if start_date > end_date:
-        raise ValueError(
-            f"Start snapshot '{start_snapshot}' is after end snapshot '{end_snapshot}'"
-        )
+        msg = f"Start snapshot '{start_snapshot}' is after end snapshot '{end_snapshot}'"
+        raise ValueError(msg)
 
-    if beg_year < 2013 or end_year < 2013:
+    if beg_year < 2013 or end_year < 2013:  # noqa: PLR2004
         print("Warning: Only snapshots after 2013 are supported by this script")
 
     total_prefix = urljoin(prefix, "crawl-data/CC-MAIN")
@@ -50,12 +47,12 @@ def get_main_warc_paths(
     for snapshot in snapshot_index:
         date = list(map(int, snapshot["id"].split("-")[2:]))
 
-        if len(date) == 2:
+        if len(date) == 2:  # noqa: PLR2004
             year, week = date
         else:
             continue
 
-        if year >= 2013:
+        if year >= 2013:  # noqa: PLR2004
             curr_date = datetime.fromisocalendar(year, week, 1)
             if curr_date >= start_date and curr_date <= end_date:
                 warc_path = f"{total_prefix}-{year}-{week:02d}/warc.paths.gz"
@@ -65,26 +62,22 @@ def get_main_warc_paths(
 
 
 def get_news_warc_paths(
-    start_date,
-    end_date,
-    prefix="https://data.commoncrawl.org",
-):
-    beg = datetime.strptime(start_date, "%Y-%m")
-    end = datetime.strptime(end_date, "%Y-%m")
+    start_date: str,
+    end_date: str,
+    prefix: str = "https://data.commoncrawl.org",
+) -> list[str]:
+    beg = datetime.strptime(start_date, "%Y-%m")  # noqa: DTZ007
+    end = datetime.strptime(end_date, "%Y-%m")  # noqa: DTZ007
 
     # Get current year and month
-    today = datetime.now()
+    today = datetime.now()  # noqa: DTZ005
 
     if start_date > end_date:
-        raise ValueError(
-            f"Start snapshot '{start_date}' is after end snapshot '{end_date}'"
-        )
+        msg = f"Start snapshot '{start_date}' is after end snapshot '{end_date}'"
+        raise ValueError(msg)
 
-    if beg.year < 2016 or end.year > today.year:
-        print(
-            "Warning: WARC paths exist only from 2016-8 to "
-            f"{today.year}-{today.month}"
-        )
+    if beg.year < 2016 or end.year > today.year:  # noqa: PLR2004
+        print(f"Warning: WARC paths exist only from 2016-8 to {today.year}-{today.month}")
     total_prefix = urljoin(prefix, "crawl-data/CC-NEWS")
 
     # Generate all valid YYYY-MM strings in range
@@ -103,9 +96,9 @@ def get_news_warc_paths(
     return warc_paths
 
 
-def get_common_crawl_snapshot_index(index_prefix):
+def get_common_crawl_snapshot_index(index_prefix: str) -> list[dict]:
     index_url = urljoin(index_prefix, "collinfo.json")
-    index_response = requests.get(index_url)
+    index_response = requests.get(index_url)  # noqa: S113
 
     return json.loads(index_response.content)
 
@@ -113,10 +106,10 @@ def get_common_crawl_snapshot_index(index_prefix):
 def get_common_crawl_urls(
     starting_snapshot: str,
     ending_snapshot: str,
-    data_domain_prefix="https://data.commoncrawl.org",
-    index_prefix="https://index.commoncrawl.org",
-    news=False,
-) -> List[str]:
+    data_domain_prefix: str = "https://data.commoncrawl.org",
+    index_prefix: str = "https://index.commoncrawl.org",
+    news: bool = False,
+) -> list[str]:
     """
     Retrieves the URLs for all the compressed WARC files between given Common Crawl snapshots
 
@@ -132,25 +125,21 @@ def get_common_crawl_urls(
         Also assumes that the format for the start and end snapshots is 'YYYY-MM' (Year-Month).
     """
     if news:
-        warc_paths = get_news_warc_paths(
-            starting_snapshot, ending_snapshot, prefix=data_domain_prefix
-        )
+        warc_paths = get_news_warc_paths(starting_snapshot, ending_snapshot, prefix=data_domain_prefix)
     else:
         index = get_common_crawl_snapshot_index(index_prefix)
-        warc_paths = get_main_warc_paths(
-            index, starting_snapshot, ending_snapshot, prefix=data_domain_prefix
-        )
+        warc_paths = get_main_warc_paths(index, starting_snapshot, ending_snapshot, prefix=data_domain_prefix)
 
     common_crawl_urls = []
     for path in warc_paths:
         try:
-            response = requests.get(path.rstrip(), stream=True)
+            response = requests.get(path.rstrip(), stream=True)  # noqa: S113
             data = zlib.decompress(response.content, zlib.MAX_WBITS | 32)
             for warc in data.decode("utf-8").split("\n"):
                 if warc != "":
                     warc_url = urljoin(data_domain_prefix, warc)
                     common_crawl_urls.append(warc_url)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001, PERF203
             print(f"Could not get URLs for snapshot {path}")
             print(response.content)
             print(e)
@@ -159,10 +148,10 @@ def get_common_crawl_urls(
 
 
 def get_wikipedia_urls(
-    language="en",
-    wikidumps_index_prefix="https://dumps.wikimedia.org",
-    dump_date: Optional[str] = None,
-) -> List[str]:
+    language: str = "en",
+    wikidumps_index_prefix: str = "https://dumps.wikimedia.org",
+    dump_date: str | None = None,
+) -> list[str]:
     """
     Retrieves all urls pointing to the latest Wikipedia dumps
 
@@ -175,7 +164,7 @@ def get_wikipedia_urls(
     wiki_index_url = urljoin(wikidumps_index_prefix, f"{language}wiki")
     if not dump_date:
         # First get the index
-        raw_wiki_index = requests.get(wiki_index_url)
+        raw_wiki_index = requests.get(wiki_index_url)  # noqa: S113
         wiki_index = raw_wiki_index.content.decode("utf-8")
         wiki_index_parsed = BeautifulSoup(wiki_index, "lxml")
 
@@ -189,11 +178,12 @@ def get_wikipedia_urls(
     # Get the json dump data
     wiki_latest_dump = urljoin(wiki_index_url + "/", dump_date)
     wiki_latest_dump_status = urljoin(wiki_latest_dump, "dumpstatus.json")
-    raw_dump_data = requests.get(wiki_latest_dump_status)
+    raw_dump_data = requests.get(wiki_latest_dump_status)  # noqa: S113
     try:
         dump_data = json.loads(raw_dump_data.content)
     except json.decoder.JSONDecodeError:
-        raise ValueError(f"No wikipedia dump found for {dump_date[:-1]}")
+        msg = f"No wikipedia dump found for {dump_date[:-1]}"
+        raise ValueError(msg)  # noqa: B904
 
     # Get all multistream files within the dump data
     wikipedia_urls = []
@@ -205,12 +195,13 @@ def get_wikipedia_urls(
     return wikipedia_urls
 
 
-def get_arxiv_urls():
+def get_arxiv_urls() -> list[str]:
     command = "s5cmd --request-payer=requester ls s3://arxiv/src/ | grep '.tar'"
-    result = subprocess.run(command, capture_output=True, text=True, shell=True)
+    result = subprocess.run(command, capture_output=True, text=True, shell=True, check=False)  # noqa: S602
 
     if result.returncode != 0:
-        raise RuntimeError(f"Unable to get arxiv urls: {result.stderr}")
+        msg = f"Unable to get arxiv urls: {result.stderr}"
+        raise RuntimeError(msg)
 
     urls = result.stdout.split()[3::4]
     urls.sort()

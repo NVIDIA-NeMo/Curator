@@ -21,16 +21,13 @@ from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     """Computes the Jaccard similarity between document pairs
     from a partitioned Parquet dataset. Result is a Parquet dataset consiting of
     document and ID pairs, along with their Jaccard similarity scores.
     """
-    OUTPUT_PATH = args.output_dir
     shuffled_docs_path = args.shuffled_docs_path
-    output_final_results_path = os.path.join(
-        OUTPUT_PATH, "jaccard_similarity_results.parquet"
-    )
+    output_final_results_path = os.path.join(args.output_dir, "jaccard_similarity_results.parquet")
     args.enable_spilling = True
     client = get_client(**ArgumentHelper.parse_client_args(args))
 
@@ -55,17 +52,17 @@ def main(args):
     print(f"Jaccard Computing+Writing time: {time.time() - st:.1f} seconds")
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = "Computes Jaccard similarity scores."
     parser = argparse.ArgumentParser(
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
+    arg_helper.parse_gpu_dedup_args()
 
-    argumentHelper.add_arg_output_dir()
+    arg_helper.add_arg_output_dir()
     parser.add_argument(
         "--ngram-size",
         type=int,
@@ -81,7 +78,7 @@ def attach_args():
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

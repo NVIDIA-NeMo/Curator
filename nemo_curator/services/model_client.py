@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from abc import ABC, abstractmethod
-from typing import Iterable, List, Optional, Union
+from collections.abc import Iterable
 
 from nemo_curator.services.conversation_formatter import ConversationFormatter
 
@@ -24,22 +24,23 @@ class LLMClient(ABC):
     """
 
     @abstractmethod
-    def query_model(
+    def query_model(  # noqa: PLR0913
         self,
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: Optional[ConversationFormatter] = None,
-        max_tokens: Optional[int] = None,
-        n: Optional[int] = 1,
-        seed: Optional[int] = None,
-        stop: Union[Optional[str], List[str]] = None,
+        conversation_formatter: ConversationFormatter | None = None,
+        max_tokens: int | None = None,
+        n: int | None = 1,
+        seed: int | None = None,
+        stop: str | None | list[str] = None,
         stream: bool = False,
-        temperature: Optional[float] = None,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-    ) -> List[str]:
-        raise NotImplementedError("Subclass of LLMClient must implement 'query_model'")
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+    ) -> list[str]:
+        msg = "Subclass of LLMClient must implement 'query_model'"
+        raise NotImplementedError(msg)
 
     @abstractmethod
     def query_reward_model(
@@ -47,11 +48,10 @@ class LLMClient(ABC):
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: Optional[ConversationFormatter] = None,
+        conversation_formatter: ConversationFormatter | None = None,
     ) -> dict:
-        raise NotImplementedError(
-            "Subclass of LLMClient must implement 'query_reward_model'"
-        )
+        msg = "Subclass of LLMClient must implement 'query_reward_model'"
+        raise NotImplementedError(msg)
 
 
 class AsyncLLMClient(ABC):
@@ -61,24 +61,23 @@ class AsyncLLMClient(ABC):
     """
 
     @abstractmethod
-    async def query_model(
+    async def query_model(  # noqa: PLR0913
         self,
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: Optional[ConversationFormatter] = None,
-        max_tokens: Optional[int] = None,
-        n: Optional[int] = 1,
-        seed: Optional[int] = None,
-        stop: Union[Optional[str], List[str]] = None,
+        conversation_formatter: ConversationFormatter | None = None,
+        max_tokens: int | None = None,
+        n: int | None = 1,
+        seed: int | None = None,
+        stop: str | None | list[str] = None,
         stream: bool = False,
-        temperature: Optional[float] = None,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-    ) -> List[str]:
-        raise NotImplementedError(
-            "Subclass of AsyncLLMClient must implement 'query_model'"
-        )
+        temperature: float | None = None,
+        top_k: int | None = None,
+        top_p: float | None = None,
+    ) -> list[str]:
+        msg = "Subclass of AsyncLLMClient must implement 'query_model'"
+        raise NotImplementedError(msg)
 
     @abstractmethod
     async def query_reward_model(
@@ -86,8 +85,7 @@ class AsyncLLMClient(ABC):
         *,
         messages: Iterable,
         model: str,
-        conversation_formatter: Optional[ConversationFormatter] = None,
+        conversation_formatter: ConversationFormatter | None = None,
     ) -> dict:
-        raise NotImplementedError(
-            "Subclass of LLMClient must implement 'query_reward_model'"
-        )
+        msg = "Subclass of LLMClient must implement 'query_reward_model'"
+        raise NotImplementedError(msg)

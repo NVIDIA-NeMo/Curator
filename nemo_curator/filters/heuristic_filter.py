@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from platformdirs import user_cache_dir
 from transformers import AutoTokenizer
 
 from nemo_curator.filters.bitext_filter import BitextFilter
-from nemo_curator.filters.doc_filter import DocumentFilter, import_filter
+from nemo_curator.filters.doc_filter import DocumentFilter
 from nemo_curator.utils.constants import (
     bullet_list,
     common_english_words,
@@ -56,16 +56,12 @@ class NonAlphaNumericFilter(DocumentFilter):
         self._cutoff = max_non_alpha_numeric_to_text_ratio
         self._name = "alpha_numeric"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         nchar = len(text)
-        if nchar > 0:
-            score = (nchar - len(regex_alphanum.findall(text))) / nchar
-        else:
-            # Remove the document if it is empty
-            score = 1.0
-        return score
+        # Remove the document if it is empty
+        return (nchar - len(regex_alphanum.findall(text))) / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -80,24 +76,24 @@ class SymbolsToWordsFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, max_symbol_to_word_ratio=0.1, lang="en"):
+    def __init__(self, max_symbol_to_word_ratio: float = 0.1, lang: str = "en"):
         super().__init__()
         self._cutoff = max_symbol_to_word_ratio
         self._word_splitter = get_word_splitter(lang)
         self._name = "symbol_to_word"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         num_symbol_words = 0
         words = self._word_splitter(text.strip())
-        for word in words:
-            word = word.strip()
+        for w in words:
+            word = w.strip()
             # Checks if the word is an elipsis or consists mostly of symbols.
             symbol_ratio = len(regex_hash.findall(word)) / len(word)
-            if word in ellipsis_marks or symbol_ratio > 0.5:
+            if word in ellipsis_marks or symbol_ratio > 0.5:  # noqa: PLR2004
                 num_symbol_words += 1
         return num_symbol_words / len(words)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -106,21 +102,17 @@ class NumbersFilter(DocumentFilter):
     If more than 15% of the document contains numbers, then discard.
     """
 
-    def __init__(self, max_number_to_text_ratio=0.15):
+    def __init__(self, max_number_to_text_ratio: float = 0.15):
         super().__init__()
         self._cutoff = max_number_to_text_ratio
         self._name = "numbers_ratio"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         nchar = len(text)
-        if nchar > 0:
-            score = len(regex_digit.findall(text)) / nchar
-        else:
-            # Remove if the document is empty
-            score = 1.0
-        return score
+        # Remove if the document is empty
+        return len(regex_digit.findall(text)) / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -129,23 +121,19 @@ class UrlsFilter(DocumentFilter):
     If more than 20% of the document is comprised of URLs, then discard.
     """
 
-    def __init__(self, max_url_to_text_ratio=0.2):
+    def __init__(self, max_url_to_text_ratio: float = 0.2):
         super().__init__()
         self._cutoff = max_url_to_text_ratio
         self._name = "urls_ratio"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         all_urls = regex_url.findall(text)
         url_chars = sum([len(url) for url in all_urls])
         nchar = len(text)
-        if nchar > 0:
-            score = url_chars / nchar
-        else:
-            # Remove if the document is empty
-            score = 1.0
-        return score
+        # Remove if the document is empty
+        return url_chars / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -155,13 +143,13 @@ class BulletsFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
     """
 
-    def __init__(self, max_bullet_lines_ratio=0.9):
+    def __init__(self, max_bullet_lines_ratio: float = 0.9):
         super().__init__()
         self._cutoff = max_bullet_lines_ratio
         self._sentences = None
         self._name = "bullet_ratio"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         # Get sentences
         sentences = self._sentences
         if sentences is None:
@@ -174,7 +162,7 @@ class BulletsFilter(DocumentFilter):
                     break
         return num_bullet_lines / len(sentences)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -184,23 +172,19 @@ class WhiteSpaceFilter(DocumentFilter):
     of white space characters, then discard.
     """
 
-    def __init__(self, max_white_space_ratio=0.25):
+    def __init__(self, max_white_space_ratio: float = 0.25):
         super().__init__()
         self._cutoff = max_white_space_ratio
         self._name = "white_space"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         # Do not strip the document since we want to
         # include leading and trailing whitepsaces as well.
         nchar = len(text)
-        if nchar > 0:
-            score = len([x for x in text if x in white_space_list]) / nchar
-        else:
-            # Remove if the document is empty
-            score = 1.0
-        return score
+        # Remove if the document is empty
+        return len([x for x in text if x in white_space_list]) / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -209,21 +193,17 @@ class ParenthesesFilter(DocumentFilter):
     If more than 10% of the sentence is in parentheses, then discard.
     """
 
-    def __init__(self, max_parentheses_ratio=0.1):
+    def __init__(self, max_parentheses_ratio: float = 0.1):
         super().__init__()
         self._max_parentheses_ratio = max_parentheses_ratio
         self._name = "parentheses_ratio"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         nchar = len(text)
-        if nchar > 0:
-            score = len(regex_paren.findall(text)) / nchar
-        else:
-            # Remove if the document is empty
-            score = 1.0
-        return score
+        # Remove if the document is empty
+        return len(regex_paren.findall(text)) / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._max_parentheses_ratio
 
 
@@ -239,16 +219,16 @@ class LongWordFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, max_word_length=1000, lang="en"):
+    def __init__(self, max_word_length: int = 1000, lang: str = "en"):
         super().__init__()
         self._max_word_length = max_word_length
         self._word_splitter = get_word_splitter(lang)
         self._name = "max_word_length"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         return max(len(w) for w in self._word_splitter(text.strip()))
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._max_word_length
 
 
@@ -262,17 +242,17 @@ class WordCountFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, min_words=50, max_words=100000, lang="en"):
+    def __init__(self, min_words: int = 50, max_words: int = 100000, lang: str = "en"):
         super().__init__()
         self._min_words = min_words
         self._max_words = max_words
         self._word_splitter = get_word_splitter(lang)
         self._name = "word_count"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         return len(self._word_splitter(text.strip()))
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return self._min_words <= score <= self._max_words
 
 
@@ -285,8 +265,8 @@ class BoilerPlateStringFilter(DocumentFilter):
 
     def __init__(
         self,
-        remove_if_at_top_or_bottom=True,
-        max_boilerplate_string_ratio=0.4,
+        remove_if_at_top_or_bottom: bool = True,
+        max_boilerplate_string_ratio: float = 0.4,
     ):
         super().__init__()
         self._remove_if_at_top_or_bottom = remove_if_at_top_or_bottom
@@ -295,7 +275,7 @@ class BoilerPlateStringFilter(DocumentFilter):
         self._max_ratio = 1.0
         self._name = "boilerplate_string_ratio"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         # Initialize variables
         boilerplate_paragraph_count = 0
 
@@ -303,8 +283,8 @@ class BoilerPlateStringFilter(DocumentFilter):
         paragraphs = get_paragraphs(text)
 
         # Check each paragraph
-        for idx, paragraph in enumerate(paragraphs):
-            paragraph = paragraph.strip().lower()
+        for _idx, each_paragraph in enumerate(paragraphs):
+            paragraph = each_paragraph.strip().lower()
             if "lorem ipsum" in paragraph:
                 return self._max_ratio
             if any(p in paragraph for p in policy_substrings):
@@ -312,7 +292,7 @@ class BoilerPlateStringFilter(DocumentFilter):
 
         return boilerplate_paragraph_count / len(paragraphs)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._max_boilerplate_string_ratio
 
 
@@ -327,9 +307,9 @@ class MeanWordLengthFilter(DocumentFilter):
 
     def __init__(
         self,
-        min_mean_word_length=3,
-        max_mean_word_length=10,
-        lang="en",
+        min_mean_word_length: int = 3,
+        max_mean_word_length: int = 10,
+        lang: str = "en",
     ):
         super().__init__()
         self._min_cutoff = min_mean_word_length
@@ -337,11 +317,11 @@ class MeanWordLengthFilter(DocumentFilter):
         self._word_splitter = get_word_splitter(lang)
         self._name = "mean_word_length"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         word_lens = [len(w) for w in self._word_splitter(text.strip()) if len(w) > 0]
         return sum(word_lens) / len(word_lens)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return self._min_cutoff <= score <= self._max_cutoff
 
 
@@ -352,18 +332,18 @@ class RepeatedLinesFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
     """
 
-    def __init__(self, max_repeated_line_fraction=0.7):
+    def __init__(self, max_repeated_line_fraction: float = 0.7):
         super().__init__()
         self._cutoff = max_repeated_line_fraction
         self._name = "repeated_lines"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         sentences = self._sentences
         if sentences is None:
             sentences = get_sentences(text)
         return len(set(sentences)) / len(sentences)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score >= self._cutoff
 
 
@@ -374,18 +354,18 @@ class RepeatedParagraphsFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
     """
 
-    def __init__(self, max_repeated_paragraphs_ratio=0.7):
+    def __init__(self, max_repeated_paragraphs_ratio: float = 0.7):
         super().__init__()
         self._max_repeated_paragraphs_ratio = max_repeated_paragraphs_ratio
         self._name = "repeated_paragraphs"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         paragraphs = self._paragraphs
         if paragraphs is None:
             paragraphs = get_paragraphs(text)
         return len(set(paragraphs)) / len(paragraphs)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score >= self._max_repeated_paragraphs_ratio
 
 
@@ -396,19 +376,19 @@ class RepeatedLinesByCharFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
     """
 
-    def __init__(self, max_repeated_lines_char_ratio=0.8):
+    def __init__(self, max_repeated_lines_char_ratio: float = 0.8):
         super().__init__()
         self._cutoff = max_repeated_lines_char_ratio
         self._name = "repeated_lines_char"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         sentences = self._sentences
         if sentences is None:
             sentences = get_sentences(text)
 
         return len("".join(set(sentences))) / len("".join(sentences))
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score >= self._cutoff
 
 
@@ -419,19 +399,19 @@ class RepeatedParagraphsByCharFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
     """
 
-    def __init__(self, max_repeated_paragraphs_char_ratio=0.8):
+    def __init__(self, max_repeated_paragraphs_char_ratio: float = 0.8):
         super().__init__()
         self._cutoff = max_repeated_paragraphs_char_ratio
         self._name = "repeated_paragraphs_char"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         paragraphs = self._paragraphs
         if paragraphs is None:
             paragraphs = get_paragraphs(text)
 
         return len("".join(set(paragraphs))) / len("".join(paragraphs))
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score >= self._cutoff
 
 
@@ -446,7 +426,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, n=2, max_repeating_ngram_ratio=0.2, lang="en"):
+    def __init__(self, n: int = 2, max_repeating_ngram_ratio: float = 0.2, lang: str = "en"):
         super().__init__()
         self._n = n
         self._cutoff = max_repeating_ngram_ratio
@@ -454,7 +434,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         self._word_splitter = get_word_splitter(lang)
         self._name = f"repeating_top_{n}grams"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         ngrams = self._ngrams
         if ngrams is None:
             split_text = self._word_splitter(text.strip())
@@ -463,10 +443,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
             ngrams = get_ngrams(split_text, self._n)
         unique_ngrams = set(ngrams)
         # Find the most frequent ngram in the zipped ngram list
-        counts = {
-            ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)}
-            for ngram in unique_ngrams
-        }
+        counts = {ngram: {"freq": 0, "num_chars": sum(len(word) for word in ngram)} for ngram in unique_ngrams}
         for ngram in ngrams:
             counts[ngram]["freq"] += 1
         most_frqnt_ngram = " ".join(max(counts, key=lambda x: counts[x]["freq"]))
@@ -474,14 +451,10 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         # contributes to the document
         nchar = len(text)
         len_diff = nchar - len(text.replace(most_frqnt_ngram, ""))
-        if nchar > 0:
-            score = len_diff / nchar
-        else:
-            # Remove if the document is empty
-            score = 1.0
-        return score
+        # Remove if the document is empty
+        return len_diff / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -496,7 +469,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, n=2, max_repeating_duplicate_ngram_ratio=0.2, lang="en"):
+    def __init__(self, n: int = 2, max_repeating_duplicate_ngram_ratio: float = 0.2, lang: str = "en"):
         super().__init__()
         self._n = n
         self._cutoff = max_repeating_duplicate_ngram_ratio
@@ -504,7 +477,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
         self._word_splitter = get_word_splitter(lang)
         self._name = f"repeating_dup_{n}gram"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         ngrams = self._ngrams
         if ngrams is None:
             split_text = self._word_splitter(text.strip())
@@ -519,9 +492,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
             counts[ngram] = counts.get(ngram, 0) + 1
             if counts[ngram] > 1:
                 # Count the number of characters in this ngram that haven't been counted already
-                duplicated_ngrams = sum(
-                    len(gram) for gram in ngram[overlapping_ngrams:]
-                )
+                duplicated_ngrams = sum(len(gram) for gram in ngram[overlapping_ngrams:])
                 # Count the spaces between the ngrams
                 nspaces = min(self._n - overlapping_ngrams, self._n - 1)
                 duplicated_nchar += duplicated_ngrams + nspaces
@@ -529,14 +500,10 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
             overlapping_ngrams = max(overlapping_ngrams - 1, 0)
 
         nchar = len(text)
-        if nchar > 0:
-            score = duplicated_nchar / nchar
-        else:
-            # Remove if the document is empty
-            score = 1.0
-        return score
+        # Remove if the document is empty
+        return duplicated_nchar / nchar if nchar > 0 else 1.0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -547,21 +514,19 @@ class PunctuationFilter(DocumentFilter):
     Source: Google C4 processing
     """
 
-    def __init__(self, max_num_sentences_without_endmark_ratio=0.85):
+    def __init__(self, max_num_sentences_without_endmark_ratio: float = 0.85):
         super().__init__()
         self._cutoff = max_num_sentences_without_endmark_ratio
         self._name = "punctuation"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         sentences = self._sentences
         if sentences is None:
             sentences = get_sentences(text)
-        num_sentence_without_endmarks = len(
-            [s for s in sentences if not s.strip().endswith(end_marks)]
-        )
+        num_sentence_without_endmarks = len([s for s in sentences if not s.strip().endswith(end_marks)])
         return num_sentence_without_endmarks / len(sentences)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -571,12 +536,12 @@ class EllipsisFilter(DocumentFilter):
     Source: Google C4 processing
     """
 
-    def __init__(self, max_num_lines_ending_with_ellipsis_ratio=0.3):
+    def __init__(self, max_num_lines_ending_with_ellipsis_ratio: float = 0.3):
         super().__init__()
         self._cutoff = max_num_lines_ending_with_ellipsis_ratio
         self._name = "ellipsis"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         sentences = self._sentences
         if sentences is None:
             sentences = get_sentences(text)
@@ -588,7 +553,7 @@ class EllipsisFilter(DocumentFilter):
                     break
         return num_lines_ending_with_ellipsis / len(sentences)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score <= self._cutoff
 
 
@@ -603,14 +568,14 @@ class CommonEnglishWordsFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, min_num_common_words=2, stop_at_false=True):
+    def __init__(self, min_num_common_words: int = 2, stop_at_false: bool = True):
         super().__init__()
         self._cutoff = min_num_common_words
         self._stop_at_false = stop_at_false
         self._word_splitter = get_word_splitter("en")
         self._name = "common_english_words"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> int:
         common_word_counter = 0
         for word in self._word_splitter(text.strip()):
             if word in common_english_words:
@@ -620,7 +585,7 @@ class CommonEnglishWordsFilter(DocumentFilter):
 
         return common_word_counter
 
-    def keep_document(self, score):
+    def keep_document(self, score: int) -> bool:
         return score >= self._cutoff
 
 
@@ -634,13 +599,13 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
     such as English, we assume words are separated by spaces.
     """
 
-    def __init__(self, min_words_with_alphabets=0.8, lang="en"):
+    def __init__(self, min_words_with_alphabets: float = 0.8, lang: str = "en"):
         super().__init__()
         self._cutoff = min_words_with_alphabets
         self._word_splitter = get_word_splitter(lang)
         self._name = "words_without_alphabets"
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         num_english_alpha = 0
         words = self._word_splitter(text.strip())
         for word in words:
@@ -649,7 +614,7 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
 
         return num_english_alpha / len(words)
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score >= self._cutoff
 
 
@@ -661,7 +626,7 @@ class PornographicUrlsFilter(DocumentFilter):
     def __init__(self):
         super().__init__()
 
-    def score_document(self, text):
+    def score_document(self, text: str) -> int:
         all_urls = regex_url.findall(text)
         for url in all_urls:
             if "porn" in url:
@@ -669,7 +634,7 @@ class PornographicUrlsFilter(DocumentFilter):
 
         return 0
 
-    def keep_document(self, score):
+    def keep_document(self, score: int) -> bool:
         return score != 1
 
 
@@ -678,7 +643,7 @@ class TokenCountFilter(DocumentFilter):
     If the document contains more or less than a specified number of tokens, then discard.
     """
 
-    def __init__(self, tokenizer: AutoTokenizer, min_tokens=0, max_tokens=float("inf")):
+    def __init__(self, tokenizer: AutoTokenizer, min_tokens: int = 0, max_tokens: int = float("inf")):
         """
         Args:
             tokenizer (AutoTokenizer): The tokenizer to use to count the tokens.
@@ -716,9 +681,8 @@ class SubstringFilter(DocumentFilter):
         super().__init__()
         self._substring = substring
         if position not in ["prefix", "suffix", "any"]:
-            raise ValueError(
-                f"Invalid position: {position}. Must be one of: prefix, suffix, any."
-            )
+            msg = f"Invalid position: {position}. Must be one of: prefix, suffix, any."
+            raise ValueError(msg)
         self._position = position
 
     def score_document(self, text: str) -> int:
@@ -728,6 +692,9 @@ class SubstringFilter(DocumentFilter):
             return int(text.endswith(self._substring))
         elif self._position == "any":
             return int(self._substring in text)
+        else:
+            msg = f"Invalid position: {self._position}. Must be one of: prefix, suffix, any."
+            raise ValueError(msg)
 
     def keep_document(self, score: int) -> bool:
         return score == 1
@@ -744,7 +711,13 @@ class HistogramFilter(DocumentFilter):
     https://github.com/facebookresearch/fairseq/blob/main/examples/m2m_100/process_data/clean_histogram.py.
     """
 
-    def __init__(self, lang="en", threshold=0.8, cache_dir="", threshold_char="]"):
+    def __init__(
+        self,
+        lang: str | None = "en",
+        threshold: float | None = 0.8,
+        cache_dir: str | None = "",
+        threshold_char: str | None = "]",
+    ):
         """Args:
         lang (str, optional): Expected language of the segment. This will decide which histogram will be loaded. Defaults to "en".
         threshold (float, optional): Threshold for ratio of characters in the histogram. Defaults to 0.8.
@@ -763,7 +736,7 @@ class HistogramFilter(DocumentFilter):
 
         self._read_hist()
 
-    def _download_histograms(self):
+    def _download_histograms(self) -> None:
         """Download and process histograms from default repo.
 
         Raises:
@@ -771,15 +744,12 @@ class HistogramFilter(DocumentFilter):
         """
 
         # Send a GET request to the URL
-        response = requests.get(
-            "https://dl.fbaipublicfiles.com/m2m_100/histograms.tar.gz"
-        )
+        response = requests.get("https://dl.fbaipublicfiles.com/m2m_100/histograms.tar.gz")  # noqa: S113
 
         # Check if the request was successful
-        if response.status_code != 200:
-            raise requests.exceptions.RequestException(
-                f"Failed to download histogram file. Status code: {response.status_code}"
-            )
+        if response.status_code != 200:  # noqa: PLR2004
+            msg = f"Failed to download histogram file. Status code: {response.status_code}"
+            raise requests.exceptions.RequestException(msg)
 
         # Open a file to write the content
         os.makedirs(self._cache_dir, exist_ok=True)
@@ -790,9 +760,9 @@ class HistogramFilter(DocumentFilter):
         extract_path = os.path.join(self._cache_dir, "histograms")
         with tarfile.open(download_dest_path, "r:gz") as tar:
             # Extract all the contents into the specified directory
-            tar.extractall(path=extract_path)
+            tar.extractall(path=extract_path)  # noqa: S202
 
-    def _read_hist(self):
+    def _read_hist(self) -> None:
         """Load histogram files."""
 
         self._histogram = []
@@ -826,7 +796,7 @@ class HistogramFilter(DocumentFilter):
         cnt = len([c for c in text.strip() if c in self._histogram])
         return 1 if cnt / len(text) > self._threshold else 0
 
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         return score == 1
 
 
@@ -836,7 +806,7 @@ class LengthRatioFilter(BitextFilter):
     If the ratio between source and target tokens is not within a specified range then discard. Either direction (src/tgt, tgt/src) is considered.
     """
 
-    def __init__(self, max_ratio=3.0, src_lang="en", tgt_lang="en", **kwargs):
+    def __init__(self, max_ratio: float = 3.0, src_lang: str = "en", tgt_lang: str = "en", **kwargs):
         """Args:
         max_ratio (float, optional): Maximum allowed length ratio between either direction of the bitext. Defaults to 3.0.
         src_lang (str, optional): Language of the source data (needed for tokenization). Defaults to "en".
@@ -863,6 +833,6 @@ class LengthRatioFilter(BitextFilter):
         tgt_len = len(self._tgt_word_splitter(tgt.strip()))
         return max(src_len / tgt_len, tgt_len / src_len)
 
-    def keep_bitext(self, score):
+    def keep_bitext(self, score: float) -> bool:
         """Decides whether a single document should be retained according to the computed length ratio."""
         return score < self._max_ratio

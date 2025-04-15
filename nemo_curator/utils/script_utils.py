@@ -31,13 +31,13 @@ class ArgumentHelper:
         self.attach_version_arg(version_string)
         parser_print_help = self.parser.print_help
 
-        def print_help_with_version(*args, **kwargs):
+        def print_help_with_version(*args, **kwargs) -> None:
             print(version_string)
             parser_print_help(*args, **kwargs)
 
         self.parser.print_help = print_help_with_version
 
-    def attach_version_arg(self, version_string: str):
+    def attach_version_arg(self, version_string: str) -> None:
         self.parser.add_argument(
             "--version",
             "-v",
@@ -51,18 +51,18 @@ class ArgumentHelper:
         parser: argparse.ArgumentParser,
         flag_name: str,
         default: bool = False,
-        help: str = None,
-    ):
+        help: str | None = None,  # noqa: A002
+    ) -> None:
         attr_name = flag_name.replace("-", "_")
-        help = flag_name.replace("-", " ") if help is None else help
+        help = flag_name.replace("-", " ") if help is None else help  # noqa: A001
         parser.add_argument(
-            "--{}".format(flag_name),
+            f"--{flag_name}",
             dest=attr_name,
             action="store_true",
             help=help,
         )
         parser.add_argument(
-            "--no-{}".format(flag_name),
+            f"--no-{flag_name}",
             dest=attr_name,
             action="store_false",
             help=help,
@@ -73,8 +73,8 @@ class ArgumentHelper:
     def add_arg_batch_size(
         self,
         default: int = 64,
-        help: str = "Number of files to read into memory at a time.",
-    ):
+        help: str = "Number of files to read into memory at a time.",  # noqa: A002
+    ) -> None:
         self.parser.add_argument(
             "--batch-size",
             type=int,
@@ -82,7 +82,7 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_device(self):
+    def add_arg_device(self) -> None:
         self.parser.add_argument(
             "--device",
             type=str,
@@ -90,10 +90,10 @@ class ArgumentHelper:
             help='Device to run the script on. Either "cpu" or "gpu".',
         )
 
-    def add_arg_enable_spilling(self):
+    def add_arg_enable_spilling(self) -> None:
         self.parser.add_argument("--enable-spilling", action="store_true")
 
-    def add_arg_language(self, help: str):
+    def add_arg_language(self, help: str) -> None:  # noqa: A002
         self.parser.add_argument(
             "--language",
             type=str,
@@ -101,21 +101,20 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_log_dir(self, default: str):
+    def add_arg_log_dir(self, default: str) -> None:
         self.parser.add_argument(
             "--log-dir",
             type=str,
             default=default,
-            help="The output log directory where node and local"
-            " ranks will write their respective log files.",
+            help="The output log directory where node and local ranks will write their respective log files.",
         )
 
     def add_arg_input_data_dir(
         self,
-        required=False,
-        help: str = "Input directory consisting of .jsonl files that are accessible "
+        required: bool = False,
+        help: str = "Input directory consisting of .jsonl files that are accessible "  # noqa: A002
         "to all nodes. Use this for a distributed file system.",
-    ):
+    ) -> None:
         self.parser.add_argument(
             "--input-data-dir",
             type=str,
@@ -126,11 +125,11 @@ class ArgumentHelper:
 
     def add_arg_input_file_type(
         self,
-        choices=None,
-        required=False,
-        help="File type of the dataset to be read in. Supported file formats "
+        choices: list | None = None,
+        required: bool = False,
+        help: str = "File type of the dataset to be read in. Supported file formats "  # noqa: A002
         'include "jsonl" (default), "pickle", or "parquet".',
-    ):
+    ) -> None:
         self.parser.add_argument(
             "--input-file-type",
             type=str,
@@ -142,8 +141,8 @@ class ArgumentHelper:
 
     def add_arg_input_file_extension(
         self,
-        help: str = "The file extension of the input files. If not provided, the input file type will be used.",
-    ):
+        help: str = "The file extension of the input files. If not provided, the input file type will be used.",  # noqa: A002
+    ) -> None:
         self.parser.add_argument(
             "--input-file-extension",
             type=str,
@@ -151,7 +150,7 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_input_local_data_dir(self):
+    def add_arg_input_local_data_dir(self) -> None:
         self.parser.add_argument(
             "--input-local-data-dir",
             type=str,
@@ -160,7 +159,7 @@ class ArgumentHelper:
             "Use this argument when a distributed file system is not available.",
         )
 
-    def add_arg_input_meta(self):
+    def add_arg_input_meta(self) -> None:
         self.parser.add_argument(
             "--input-meta",
             type=str,
@@ -169,25 +168,23 @@ class ArgumentHelper:
             "their respective data types within the JSONL input files.",
         )
 
-    def add_arg_input_text_field(self):
+    def add_arg_input_text_field(self) -> None:
         self.parser.add_argument(
             "--input-text-field",
             type=str,
             default="text",
-            help="The name of the field within each datapoint object of the input "
-            "file that contains the text.",
+            help="The name of the field within each datapoint object of the input file that contains the text.",
         )
 
-    def add_arg_id_column(self):
+    def add_arg_id_column(self) -> None:
         self.parser.add_argument(
             "--id-column",
             type=str,
             default="id",
-            help="The name of the field within each datapoint object of the input "
-            "file that contains the ID.",
+            help="The name of the field within each datapoint object of the input file that contains the ID.",
         )
 
-    def add_arg_id_column_type(self):
+    def add_arg_id_column_type(self) -> None:
         self.parser.add_argument(
             "--id-column-type",
             type=str,
@@ -195,7 +192,7 @@ class ArgumentHelper:
             help='The datatype of the ID field, either "int" or "str".',
         )
 
-    def add_arg_minhash_length(self):
+    def add_arg_minhash_length(self) -> None:
         self.parser.add_argument(
             "--minhash-length",
             type=int,
@@ -203,7 +200,7 @@ class ArgumentHelper:
             help="The minhash signature length of each input document.",
         )
 
-    def add_arg_nvlink_only(self):
+    def add_arg_nvlink_only(self) -> None:
         self.parser.add_argument(
             "--nvlink-only",
             action="store_true",
@@ -211,7 +208,7 @@ class ArgumentHelper:
             'Only applicable when protocol="ucx" and no scheduler file or address is specified.',
         )
 
-    def add_arg_output_data_dir(self, help: str):
+    def add_arg_output_data_dir(self, help: str) -> None:  # noqa: A002
         self.parser.add_argument(
             "--output-data-dir",
             type=str,
@@ -220,8 +217,10 @@ class ArgumentHelper:
         )
 
     def add_arg_output_dir(
-        self, required=False, help: str = "The output directory to write results."
-    ):
+        self,
+        required: bool = False,
+        help: str = "The output directory to write results.",  # noqa: A002
+    ) -> None:
         self.parser.add_argument(
             "--output-dir",
             type=str,
@@ -231,10 +230,10 @@ class ArgumentHelper:
 
     def add_arg_output_file_type(
         self,
-        choices=None,
-        help="File type the dataset will be written to. Supported file formats "
+        choices: list | None = None,
+        help: str = "File type the dataset will be written to. Supported file formats "  # noqa: A002
         'include "jsonl" (default), "pickle", or "parquet".',
-    ):
+    ) -> None:
         self.parser.add_argument(
             "--output-file-type",
             type=str,
@@ -243,7 +242,7 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_output_train_file(self, help: str, default: str = None):
+    def add_arg_output_train_file(self, help: str, default: str | None = None) -> None:  # noqa: A002
         self.parser.add_argument(
             "--output-train-file",
             type=str,
@@ -251,7 +250,7 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_protocol(self):
+    def add_arg_protocol(self) -> None:
         self.parser.add_argument(
             "--protocol",
             type=str,
@@ -259,10 +258,10 @@ class ArgumentHelper:
             help="Protocol to use for Dask cluster. "
             "Note: This only applies to the LocalCUDACluster. If providing a user-created "
             "cluster, please refer to "
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol.",  # noqa: E501
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol.",
         )
 
-    def add_arg_rmm_pool_size(self):
+    def add_arg_rmm_pool_size(self) -> None:
         self.parser.add_argument(
             "--rmm-pool-size",
             type=str,
@@ -270,10 +269,10 @@ class ArgumentHelper:
             help="Initial pool size to use for the RMM Pool Memory allocator. "
             "Note: This only applies to the LocalCUDACluster. If providing a user-created "
             "cluster, please refer to "
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size.",  # noqa: E501
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size.",
         )
 
-    def add_arg_scheduler_address(self):
+    def add_arg_scheduler_address(self) -> None:
         self.parser.add_argument(
             "--scheduler-address",
             type=str,
@@ -282,7 +281,7 @@ class ArgumentHelper:
             "a single-node LocalCUDACluster will be started.",
         )
 
-    def add_arg_scheduler_file(self):
+    def add_arg_scheduler_file(self) -> None:
         self.parser.add_argument(
             "--scheduler-file",
             type=str,
@@ -291,11 +290,7 @@ class ArgumentHelper:
             " a single-node LocalCUDACluster will be started.",
         )
 
-    def add_arg_seed(
-        self,
-        default=42,
-        help: str = "If specified, the random seed used for shuffling.",
-    ):
+    def add_arg_seed(self, default: int = 42, help: str = "If specified, the random seed used for shuffling.") -> None:  # noqa: A002
         self.parser.add_argument(
             "--seed",
             type=int,
@@ -303,17 +298,17 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_set_torch_to_use_rmm(self):
+    def add_arg_set_torch_to_use_rmm(self) -> None:
         self.parser.add_argument("--set-torch-to-use-rmm", action="store_true")
 
-    def add_arg_shuffle(self, help: str):
+    def add_arg_shuffle(self, help: str) -> None:  # noqa: A002
         ArgumentHelper.attach_bool_arg(
             self.parser,
             "shuffle",
             help=help,
         )
 
-    def add_arg_text_ddf_blocksize(self):
+    def add_arg_text_ddf_blocksize(self) -> None:
         self.parser.add_argument(
             "--text-ddf-blocksize",
             type=int,
@@ -321,7 +316,7 @@ class ArgumentHelper:
             help="The block size for chunking JSONL files for text DataFrames in MB.",
         )
 
-    def add_arg_model_path(self, help="The path to the model file"):
+    def add_arg_model_path(self, help: str = "The path to the model file") -> None:  # noqa: A002
         self.parser.add_argument(
             "--pretrained-model-name-or-path",
             type=str,
@@ -329,7 +324,7 @@ class ArgumentHelper:
             required=False,
         )
 
-    def add_arg_max_mem_gb_classifier(self):
+    def add_arg_max_mem_gb_classifier(self) -> None:
         self.parser.add_argument(
             "--max-mem-gb-classifier",
             default=None,
@@ -338,7 +333,7 @@ class ArgumentHelper:
             "Defaults to using the total GPU memory minus 4 GB if not specified.",
         )
 
-    def add_arg_autocast(self, help="Whether to use autocast or not"):
+    def add_arg_autocast(self, help: str = "Whether to use autocast or not") -> None:  # noqa: A002
         ArgumentHelper.attach_bool_arg(
             parser=self.parser,
             flag_name="autocast",
@@ -346,7 +341,7 @@ class ArgumentHelper:
             help=help,
         )
 
-    def add_arg_max_chars(self, default=2000):
+    def add_arg_max_chars(self, default: int = 2000) -> None:
         self.parser.add_argument(
             "--max-chars",
             type=int,
@@ -396,7 +391,7 @@ class ArgumentHelper:
             help="Protcol to use for Dask cluster"
             "Note: This only applies to the LocalCUDACluster. If providing a user-created "
             "cluster, please refer to"
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol.",  # noqa: E501
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-protocol.",
         )
         self.parser.add_argument(
             "--rmm-pool-size",
@@ -405,7 +400,7 @@ class ArgumentHelper:
             help="Initial pool size to use for the RMM Pool Memory allocator. "
             "Note: This only applies to the LocalCUDACluster. If providing a user-created "
             "cluster, please refer to"
-            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size.",  # noqa: E501
+            "https://docs.rapids.ai/api/dask-cuda/stable/api.html#cmdoption-dask-cuda-rmm-pool-size.",
         )
         self.parser.add_argument(
             "--scheduler-address",
@@ -430,7 +425,7 @@ class ArgumentHelper:
 
         return self.parser
 
-    def set_default_n_workers(self, max_mem_gb_per_worker: float):
+    def set_default_n_workers(self, max_mem_gb_per_worker: float) -> None:
         """
         Sets the default --n-workers for a script to maximize parallelization while
         ensuring we don't trigger an out of memory error. Like --n-workers, this
@@ -450,7 +445,7 @@ class ArgumentHelper:
         self.parser.set_defaults(n_workers=n_workers)
 
     @staticmethod
-    def parse_client_args(args: argparse.Namespace):
+    def parse_client_args(args: argparse.Namespace) -> dict:
         """
         Extracts relevant arguments from an argparse namespace to pass to get_client.
 
@@ -476,8 +471,8 @@ class ArgumentHelper:
 
     @staticmethod
     def parse_distributed_classifier_args(
-        description="Default distributed classifier argument parser.",
-        max_chars_default=2000,
+        description: str = "Default distributed classifier argument parser.",
+        max_chars_default: int = 2000,
     ) -> argparse.ArgumentParser:
         """
         Adds default set of arguments that are common to multiple stages
@@ -488,24 +483,22 @@ class ArgumentHelper:
             description,
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         )
-        argumentHelper = ArgumentHelper(parser)
-        argumentHelper.add_distributed_classifier_cluster_args()
-        argumentHelper.add_arg_input_data_dir(required=True)
-        argumentHelper.add_arg_output_data_dir(help="The path of the output files.")
-        argumentHelper.add_arg_input_file_type()
-        argumentHelper.add_arg_input_file_extension()
-        argumentHelper.add_arg_output_file_type()
-        argumentHelper.add_arg_input_text_field()
-        argumentHelper.add_arg_batch_size(
-            help="The batch size to be used for inference."
-        )
-        argumentHelper.add_arg_model_path()
-        argumentHelper.add_arg_autocast()
-        argumentHelper.add_arg_max_chars(default=max_chars_default)
+        arg_helper = ArgumentHelper(parser)
+        arg_helper.add_distributed_classifier_cluster_args()
+        arg_helper.add_arg_input_data_dir(required=True)
+        arg_helper.add_arg_output_data_dir(help="The path of the output files.")
+        arg_helper.add_arg_input_file_type()
+        arg_helper.add_arg_input_file_extension()
+        arg_helper.add_arg_output_file_type()
+        arg_helper.add_arg_input_text_field()
+        arg_helper.add_arg_batch_size(help="The batch size to be used for inference.")
+        arg_helper.add_arg_model_path()
+        arg_helper.add_arg_autocast()
+        arg_helper.add_arg_max_chars(default=max_chars_default)
 
-        return argumentHelper.parser
+        return arg_helper.parser
 
-    def add_distributed_classifier_cluster_args(self):
+    def add_distributed_classifier_cluster_args(self) -> None:
         """
         Adds Dask cluster arguments needed for the distributed data classifiers.
         """
@@ -522,7 +515,7 @@ class ArgumentHelper:
         # possibly because of memory fragmentation
         self.parser.set_defaults(set_torch_to_use_rmm=False)
 
-    def parse_gpu_dedup_args(self):
+    def parse_gpu_dedup_args(self) -> argparse.ArgumentParser:
         """
         Adds default set of arguments that are common to multiple stages
         of the fuzzy deduplication pipeline.
@@ -574,7 +567,7 @@ class ArgumentHelper:
 
     @staticmethod
     def parse_semdedup_args(
-        description="Default argument parser for semantic deduplication.",
+        description: str = "Default argument parser for semantic deduplication.",
     ) -> argparse.ArgumentParser:
         """
         Adds default set of arguments that are common to multiple stages of the semantic deduplication pipeline.
@@ -584,16 +577,16 @@ class ArgumentHelper:
             formatter_class=argparse.ArgumentDefaultsHelpFormatter,
             description=description,
         )
-        argumentHelper = ArgumentHelper(parser)
-        argumentHelper.add_distributed_args()
+        arg_helper = ArgumentHelper(parser)
+        arg_helper.add_distributed_args()
 
-        argumentHelper.add_arg_input_data_dir()
-        argumentHelper.add_arg_input_file_extension()
-        argumentHelper.add_arg_input_file_type()
-        argumentHelper.add_arg_input_text_field()
-        argumentHelper.add_arg_id_column()
+        arg_helper.add_arg_input_data_dir()
+        arg_helper.add_arg_input_file_extension()
+        arg_helper.add_arg_input_file_type()
+        arg_helper.add_arg_input_text_field()
+        arg_helper.add_arg_id_column()
 
-        argumentHelper.parser.add_argument(
+        arg_helper.parser.add_argument(
             "--config-file",
             type=str,
             help="Path to the semantic deduplication configuration file.",

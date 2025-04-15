@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 import yaml
@@ -29,22 +30,23 @@ class CustomConfig(BaseConfig):
 
     def __post_init__(self):
         if self.d <= 0:
-            raise ValueError("d must be positive")
+            msg = "d must be positive"
+            raise ValueError(msg)
 
 
 class TestConfig:
     @pytest.fixture(autouse=True)
-    def config_params(self):
+    def config_params(self) -> None:
         self.config_dict = {"a": "a", "b": 1, "c": True, "d": 4.0}
 
-    def test_init(self):
+    def test_init(self) -> None:
         config = CustomConfig(a="a", b=1, c=True)
         assert config.a == "a"
         assert config.b == 1
         assert config.c is True
-        assert config.d == 3.0
+        assert config.d == 3.0  # noqa: PLR2004
 
-    def test_from_yaml(self, tmpdir):
+    def test_from_yaml(self, tmpdir: Path) -> None:
         with open(tmpdir / "test_config.yaml", "w") as file:
             yaml.dump(self.config_dict, file)
 
@@ -52,15 +54,15 @@ class TestConfig:
         for key, value in self.config_dict.items():
             assert getattr(config, key) == value
 
-    def test_from_yaml_raises(self, tmpdir):
+    def test_from_yaml_raises(self, tmpdir: Path) -> None:
         config_dict = self.config_dict.copy()
         config_dict["d"] = -1.0
         with open(tmpdir / "test_config.yaml", "w") as file:
             yaml.dump(config_dict, file)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011
             CustomConfig.from_yaml(tmpdir / "test_config.yaml")
 
-    def test_from_yaml_missing_key(self, tmpdir):
+    def test_from_yaml_missing_key(self, tmpdir: Path) -> None:
         config_dict = self.config_dict.copy()
         del config_dict["a"]
         with open(tmpdir / "test_config.yaml", "w") as file:
@@ -68,7 +70,7 @@ class TestConfig:
         with pytest.raises(TypeError):
             CustomConfig.from_yaml(tmpdir / "test_config.yaml")
 
-    def test_from_yaml_extra_key(self, tmpdir):
+    def test_from_yaml_extra_key(self, tmpdir: Path) -> None:
         config_dict = self.config_dict.copy()
         config_dict["e"] = "e"
         with open(tmpdir / "test_config.yaml", "w") as file:
@@ -76,6 +78,6 @@ class TestConfig:
         with pytest.raises(TypeError):
             CustomConfig.from_yaml(tmpdir / "test_config.yaml")
 
-    def test_post_init_raises(self):
-        with pytest.raises(ValueError):
+    def test_post_init_raises(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011
             CustomConfig(a="a", b=1, c=True, d=-1.0)

@@ -15,7 +15,10 @@
 import argparse
 import os
 
+import dask.dataframe as dd
+
 import nemo_curator
+from nemo_curator import Sequential
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.config_utils import build_filter_pipeline
 from nemo_curator.utils.distributed_utils import get_client, read_data, write_to_disk
@@ -23,31 +26,27 @@ from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_f
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def get_dataframe_complement(original_df, filtered_df):
-    def partition_complement(part_original_df, partition_info=None):
+def get_dataframe_complement(original_df: dd.DataFrame, filtered_df: dd.DataFrame) -> dd.DataFrame:
+    def partition_complement(part_original_df: dd.DataFrame, partition_info: dict | None = None) -> dd.DataFrame:
         if not partition_info:
             return part_original_df
         part_filtered_df = filtered_df.get_partition(partition_info["number"])
         complement_mask = ~part_original_df.index.isin(part_filtered_df.index.persist())
-        complement_df = part_original_df[complement_mask]
-        return complement_df
+        return part_original_df[complement_mask]
 
     return original_df.map_partitions(partition_complement)
 
 
-def get_score_fields(pipeline):
+def get_score_fields(pipeline: Sequential) -> list[str]:
     score_fields = []
     for nc_module in pipeline.modules:
-        if isinstance(nc_module, nemo_curator.Score) or isinstance(
-            nc_module, nemo_curator.ScoreFilter
-        ):
-            if nc_module.score_field:
-                score_fields.append(nc_module.score_field)
+        if (isinstance(nc_module, (nemo_curator.Score, nemo_curator.ScoreFilter))) and nc_module.score_field:
+            score_fields.append(nc_module.score_field)
 
     return score_fields
 
 
-def write_scores(df, output_dir):
+def write_scores(df: dd.DataFrame, output_dir: str) -> None:
     for column in df.columns:
         output_path = os.path.join(output_dir, f"{column}.txt")
         df[column].to_csv(
@@ -60,16 +59,15 @@ def write_scores(df, output_dir):
         )
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912
     client = get_client(**ArgumentHelper.parse_client_args(args))
     if args.device == "cpu":
         backend = "pandas"
     elif args.device == "gpu":
         backend = "cudf"
     else:
-        raise ValueError(
-            f'Invalid device "{args.device}". Please specify either "cpu" or "gpu".'
-        )
+        msg = f'Invalid device "{args.device}". Please specify either "cpu" or "gpu".'
+        raise ValueError(msg)
 
     # Make the output directories
     kept_document_dir = args.output_retained_document_dir
@@ -126,10 +124,7 @@ def main(args):
 
         # Write scores to separate directory
         if args.output_document_score_dir:
-            if (
-                args.id_field is not None
-                and args.id_field in filtered_dataset.df.columns
-            ):
+            if args.id_field is not None and args.id_field in filtered_dataset.df.columns:
                 output_df = filtered_dataset.df[[args.id_field, *score_fields]]
             else:
                 output_df = filtered_dataset.df[score_fields]
@@ -137,9 +132,7 @@ def main(args):
 
         # Remove scores if not logged
         if not args.log_scores:
-            filtered_dataset = DocumentDataset(
-                filtered_dataset.df.drop(columns=score_fields)
-            )
+            filtered_dataset = DocumentDataset(filtered_dataset.df.drop(columns=score_fields))
 
         # If kept_document_dir is specified, then create it
         if kept_document_dir is not None:
@@ -161,8 +154,8 @@ def main(args):
     client.close()
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
+def attach_args() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         """
     Main driver script for applying filters to documents distributed
     across dataset files. Inputs are an input directory consisting
@@ -179,16 +172,15 @@ def attach_args(
   """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-):
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_batch_size()
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_input_local_data_dir()
-    argumentHelper.add_arg_log_dir(default="./log/filter_docs")
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_batch_size()
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_input_local_data_dir()
+    arg_helper.add_arg_log_dir(default="./log/filter_docs")
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--filter-config-file",
         type=str,
@@ -196,7 +188,7 @@ def attach_args(
         help="The input filter configuration file that contains the "
         "path to the filter module as well as the filter parameters.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "filter-only",
         default=False,
@@ -217,7 +209,7 @@ def attach_args(
         "IDs will be written to the output score directory such that each line"
         "is consistent with the lines of the written score files. ",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "keep-node-scores-tmp-dir",
         default=False,
@@ -237,7 +229,7 @@ def attach_args(
         "computing scores. By default a log message will "
         "be written every 10000 documents in a file.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "log-scores",
         default=False,
@@ -280,5 +272,5 @@ def attach_args(
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())

@@ -1,19 +1,20 @@
 import uuid
+from typing import Any
 
 import pandas as pd
-from IPython.display import HTML, display
+from IPython.display import HTML
 
 
-def text_comparison_widget(
-    df,
-    id_column="id",
-    col1="original_text",
-    col2="processed_text",
-    title1=None,
-    title2=None,
-    max_height="400px",
-    width="100%",
-):
+def text_comparison_widget(  # noqa: PLR0913
+    df: pd.DataFrame,
+    id_column: str = "id",
+    col1: str = "original_text",
+    col2: str = "processed_text",
+    title1: str | None = None,
+    title2: str | None = None,
+    max_height: str = "400px",
+    width: str = "100%",
+) -> HTML:
     """
     Create a beautiful, scrollable side-by-side comparison of two text columns from a DataFrame.
 
@@ -76,13 +77,13 @@ def text_comparison_widget(
         /* Main container */
         #{widget_id}-container {{
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: {colors['bg']};
+            background-color: {colors["bg"]};
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             margin: 20px 0;
             width: {width};
-            border: 1px solid {colors['border']};
+            border: 1px solid {colors["border"]};
         }}
 
         /* Table styling */
@@ -90,18 +91,18 @@ def text_comparison_widget(
             width: 100%;
             border-collapse: collapse;
             border-spacing: 0;
-            background-color: {colors['bg']};
+            background-color: {colors["bg"]};
         }}
 
         /* Header styling */
         #{widget_id} th {{
-            background-color: {colors['header_bg']};
-            color: {colors['header_text']};
+            background-color: {colors["header_bg"]};
+            color: {colors["header_text"]};
             font-weight: 600;
             font-size: 14px;
             text-align: left;
             padding: 16px;
-            border-bottom: 2px solid {colors['border']};
+            border-bottom: 2px solid {colors["border"]};
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }}
@@ -109,7 +110,7 @@ def text_comparison_widget(
         /* Cell styling */
         #{widget_id} td {{
             padding: 0;
-            border-bottom: 1px solid {colors['border']};
+            border-bottom: 1px solid {colors["border"]};
             vertical-align: top;
         }}
 
@@ -117,15 +118,15 @@ def text_comparison_widget(
         #{widget_id} .row-id {{
             font-weight: 600;
             padding: 16px;
-            background-color: {colors['id_bg']};
-            color: {colors['text_color']};
+            background-color: {colors["id_bg"]};
+            color: {colors["text_color"]};
             font-size: 13px;
             text-align: center;
             width: 100px;
             max-width: 100px;
             overflow: hidden;
             text-overflow: ellipsis;
-            box-shadow: 1px 0 0 {colors['border']};
+            box-shadow: 1px 0 0 {colors["border"]};
         }}
 
         /* Text cells */
@@ -135,8 +136,8 @@ def text_comparison_widget(
             padding: 16px;
             white-space: pre-wrap;
             word-wrap: break-word;
-            background-color: {colors['text_bg']};
-            color: {colors['text_color']};
+            background-color: {colors["text_bg"]};
+            color: {colors["text_color"]};
             font-size: 14px;
             line-height: 1.6;
             transition: background-color 0.2s;
@@ -144,11 +145,11 @@ def text_comparison_widget(
 
         /* Hover effects */
         #{widget_id} tr:hover .text-cell {{
-            background-color: {colors['hover']};
+            background-color: {colors["hover"]};
         }}
 
         #{widget_id} tr:hover .row-id {{
-            background-color: {colors['hover']};
+            background-color: {colors["hover"]};
         }}
 
         /* Controls styling */
@@ -157,14 +158,14 @@ def text_comparison_widget(
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background-color: {colors['header_bg']};
-            border-bottom: 1px solid {colors['border']};
+            background-color: {colors["header_bg"]};
+            border-bottom: 1px solid {colors["border"]};
         }}
 
         #{widget_id}-title {{
             font-weight: 600;
             font-size: 16px;
-            color: {colors['header_text']};
+            color: {colors["header_text"]};
         }}
 
         #{widget_id}-buttons {{
@@ -176,8 +177,8 @@ def text_comparison_widget(
             padding: 8px 12px;
             border-radius: 6px;
             border: none;
-            background-color: {colors['button_bg']};
-            color: {colors['button_text']};
+            background-color: {colors["button_bg"]};
+            color: {colors["button_text"]};
             font-size: 13px;
             font-weight: 500;
             cursor: pointer;
@@ -189,7 +190,7 @@ def text_comparison_widget(
         }}
 
         #{widget_id}-buttons button:hover {{
-            background-color: {colors['button_hover']};
+            background-color: {colors["button_hover"]};
         }}
 
         /* Custom scrollbar styling */
@@ -198,17 +199,17 @@ def text_comparison_widget(
         }}
 
         #{widget_id} .text-cell::-webkit-scrollbar-track {{
-            background: {colors['scrollbar_track']};
+            background: {colors["scrollbar_track"]};
             border-radius: 4px;
         }}
 
         #{widget_id} .text-cell::-webkit-scrollbar-thumb {{
-            background: {colors['scrollbar_thumb']};
+            background: {colors["scrollbar_thumb"]};
             border-radius: 4px;
         }}
 
         #{widget_id} .text-cell::-webkit-scrollbar-thumb:hover {{
-            background: {colors['button_hover']};
+            background: {colors["button_hover"]};
         }}
 
         /* Difference highlight */
@@ -220,11 +221,11 @@ def text_comparison_widget(
         /* Footer */
         #{widget_id}-footer {{
             font-size: 12px;
-            color: {colors['header_text']};
+            color: {colors["header_text"]};
             padding: 8px 16px;
             text-align: right;
-            background-color: {colors['header_bg']};
-            border-top: 1px solid {colors['border']};
+            background-color: {colors["header_bg"]};
+            border-top: 1px solid {colors["border"]};
         }}
 
         /* Responsive adjustments */
@@ -282,7 +283,7 @@ def text_comparison_widget(
         <table id="{widget_id}">
             <thead>
                 <tr>
-                    <th>{id_column.replace('_', ' ').title()}</th>
+                    <th>{id_column.replace("_", " ").title()}</th>
                     <th>{title1}</th>
                     <th>{title2}</th>
                 </tr>
@@ -347,17 +348,17 @@ def text_comparison_widget(
     return HTML(html_code.replace("{widget_id}", widget_id))
 
 
-def compare_row_by_id(
-    df,
-    row_id,
-    id_column="id",
-    col1="original_text",
-    col2="processed_text",
-    title1=None,
-    title2=None,
-    max_height="400px",
-    width="100%",
-):
+def compare_row_by_id(  # noqa: PLR0913
+    df: pd.DataFrame,
+    row_id: Any,  # noqa: ANN401
+    id_column: str = "id",
+    col1: str = "original_text",
+    col2: str = "processed_text",
+    title1: str | None = None,
+    title2: str | None = None,
+    max_height: str = "400px",
+    width: str = "100%",
+) -> HTML:
     """
     Create a scrollable side-by-side comparison of two text columns for a specific row ID.
 
@@ -394,6 +395,4 @@ def compare_row_by_id(
             f"<div style=\"padding: 16px; background-color: #fee2e2; color: #b91c1c; border-radius: 8px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;\">No row found with {id_column} = {row_id}</div>"
         )
 
-    return text_comparison_widget(
-        filtered_df, id_column, col1, col2, title1, title2, max_height, width
-    )
+    return text_comparison_widget(filtered_df, id_column, col1, col2, title1, title2, max_height, width)

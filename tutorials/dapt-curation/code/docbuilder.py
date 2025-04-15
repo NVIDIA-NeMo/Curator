@@ -15,9 +15,11 @@
 import gzip
 import os
 import re
+from collections.abc import Iterator
+from typing import ClassVar
 from zipfile import ZipFile, ZipInfo
 
-import arxiv as arxiv
+import arxiv
 import cchardet as chardet
 import requests
 from bs4 import BeautifulSoup
@@ -69,9 +71,9 @@ class WikitxtDownloader(DocumentDownloader):
             return output_file
 
         print(f"Downloading txt URLs data from '{url}'...")
-        response = requests.get(url)
+        response = requests.get(url)  # noqa: S113
         html = BeautifulSoup(response.content, "lxml")
-        title = html.select("#firstHeading")[0].text
+        _ = html.select("#firstHeading")[0].text
         paragraphs = html.find_all(["p", "ul", "li"])
         intro = "\n".join([para.text for para in paragraphs])
         with gzip.open(output_file, "wt") as file:
@@ -85,20 +87,20 @@ class WikitxtIterator(DocumentIterator):
     """
 
     # The token that separates paragraphs.
-    SEPARATOR_TOKEN = "<|endoftext|>"
+    SEPARATOR_TOKEN = "<|endoftext|>"  # noqa: S105
 
     def __init__(self):
         super().__init__()
         self._counter = -1
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict, str]]:
         self._counter = -1
         file_name = os.path.basename(file_path)
 
         with gzip.open(file_path, "rt") as file:
             example = []
 
-            def split_meta(example):
+            def split_meta(example: list[str]) -> tuple[dict, str] | None:
                 if example:
                     self._counter += 1
                     content = " ".join(example)
@@ -115,6 +117,7 @@ class WikitxtIterator(DocumentIterator):
                     }
 
                     return meta, content
+                return None
 
             for line in file:
                 if line.strip() == WikitxtIterator.SEPARATOR_TOKEN:
@@ -177,10 +180,10 @@ class GitHubDownloader(DocumentDownloader):
             zip_url = f"https://github.com/{url}/archive/refs/heads/{branch}.zip"
 
             # Send a GET request to the URL
-            response = requests.get(zip_url)
+            response = requests.get(zip_url)  # noqa: S113
 
             # Check if the request was successful
-            if response.status_code == 200:
+            if response.status_code == 200:  # noqa: PLR2004
                 # Write the content of the response to a file
                 with open(zip_file, "wb") as file:
                     file.write(response.content)
@@ -191,7 +194,7 @@ class GitHubDownloader(DocumentDownloader):
 
         if not success:
             print(
-                f"Failed to clone repository '{repo_name}' from '{url}' (error code {response.status_code})."
+                f"Failed to clone repository '{repo_name}' from '{url}' (error code {response.status_code}).",
             )
             return None
 
@@ -205,7 +208,7 @@ class GitHubIterator(DocumentIterator):
 
     # Mapping from file extensions to categories.
     # Will also be used to to ignore irrelevant files.
-    SUPPORTED_EXTENSIONS_TO_CATEGORY = {
+    SUPPORTED_EXTENSIONS_TO_CATEGORY: ClassVar[dict[str, str]] = {
         ".v": "VerilogVHDL",
         ".vh": "VerilogVHDL",
         ".vhdl": "VerilogVHDL",
@@ -239,7 +242,7 @@ class GitHubIterator(DocumentIterator):
         "": "text",  # No extension
     }
 
-    def parse_file(self, zip_ref: ZipFile, file_info: ZipInfo):
+    def parse_file(self, zip_ref: ZipFile, file_info: ZipInfo) -> tuple[dict, str] | None:
         """
         Parses a file from a zip archive and extracts its metadata and content.
 
@@ -290,10 +293,7 @@ class GitHubIterator(DocumentIterator):
         line_count = content.count("\n") + 1
         size_in_bytes = file_info.file_size
 
-        if category == "text":
-            file_type = "text"
-        else:
-            file_type = "code"
+        file_type = "text" if category == "text" else "code"
 
         metadata = {
             # Use the file path as the unique ID
@@ -307,7 +307,7 @@ class GitHubIterator(DocumentIterator):
         }
         return metadata, content
 
-    def iterate(self, file_path: str):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict, str]]:
         """
         Iterates over the files in a zip archive and yields the parsed content of each file.
 
@@ -326,9 +326,7 @@ class GitHubIterator(DocumentIterator):
                 filename = file_info.filename
 
                 # Skip directories and hidden files
-                if file_info.is_dir() or any(
-                    part.startswith(".") for part in filename.split(os.sep)
-                ):
+                if file_info.is_dir() or any(part.startswith(".") for part in filename.split(os.sep)):
                     continue
 
                 parsed = self.parse_file(zip_ref, file_info)
@@ -377,17 +375,16 @@ class ArxivDownloader(DocumentDownloader):
 
         # Pattern to match an arXiv URL and extract the ID
         url_pattern = re.compile(
-            r"https?://(?:www\.)?arxiv\.org/(abs|pdf)/(\d{4}\.\d{4,5})(v\d+)?(\.pdf)?$"
+            r"https?://(?:www\.)?arxiv\.org/(abs|pdf)/(\d{4}\.\d{4,5})(v\d+)?(\.pdf)?$",
         )
         url_match = url_pattern.match(input_string)
         if url_match:
-            return url_match.group(2) + (
-                url_match.group(3) if url_match.group(3) else ""
-            )
+            return url_match.group(2) + (url_match.group(3) if url_match.group(3) else "")
 
         # Raise an error if the input does not match any of the expected formats
+        msg = f"The provided input '{input_string}' does not match the expected URL or ID format."
         raise ValueError(
-            f"The provided input '{input_string}' does not match the expected URL or ID format."
+            msg,
         )
 
     def download(self, url: str) -> str:
@@ -413,7 +410,8 @@ class ArxivDownloader(DocumentDownloader):
         if article := next(search_result):
             print(f'Downloading arXiv article "{url}"...')
             pdf_path = article.download_pdf(
-                dirpath=self.pdf_root_dir, filename=pdf_name
+                dirpath=self.pdf_root_dir,
+                filename=pdf_name,
             )
         else:
             print(f"Failed to download article '{url}'.")
@@ -427,7 +425,7 @@ class ArxivIterator(DocumentIterator):
     arXiv document iterator. Will go through the files and parse the supported ones.
     """
 
-    def iterate(self, file_path: str):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict, str]]:
         """
         Iterates over the pdf files and yields the parsed content of each file.
 

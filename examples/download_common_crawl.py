@@ -19,7 +19,7 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     # Params
     start_snapshot = "2021-04"
     end_snapshot = "2021-10"
@@ -29,12 +29,10 @@ def main(args):
     url_limit = 10
 
     # Set up Dask client
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     # Download and sample data
-    common_crawl = download_common_crawl(
-        output_directory, start_snapshot, end_snapshot, url_limit=url_limit
-    )
+    common_crawl = download_common_crawl(output_directory, start_snapshot, end_snapshot, url_limit=url_limit)
     sample = common_crawl.df.sample(frac=10 / len(common_crawl))
 
     # Inspect the samples
@@ -42,12 +40,10 @@ def main(args):
 
 
 def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

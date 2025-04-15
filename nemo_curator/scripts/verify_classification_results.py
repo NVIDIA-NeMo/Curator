@@ -15,14 +15,13 @@
 import argparse
 import ast
 import os
-from typing import Union
 
 import pandas as pd
 
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """
     This function adds command line arguments related to the two files we wish to compare.
 
@@ -63,7 +62,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def verify_same_counts(got_counts, expected_counts):
+def verify_same_counts(got_counts: dict[str, int], expected_counts: dict[str, int]) -> None:
     """
     This function compares the results of `value_counts` on two Series.
     If the value counts are not the same, it prints information about the percent difference between them.
@@ -80,24 +79,23 @@ def verify_same_counts(got_counts, expected_counts):
         print("Results are not exactly the same, see below")
         total_count = sum(expected_counts.values())
         total_diff = 0
-        for key in expected_counts:
-            if got_counts[key] != expected_counts[key]:
-                diff = expected_counts[key] - got_counts[key]
-                print(
-                    f"Expected doc count for label {key} {expected_counts[key]} but got {got_counts[key]}"
-                )
+        for key, expected_count in expected_counts.items():
+            if got_counts[key] != expected_count:
+                diff = expected_count - got_counts[key]
+                print(f"Expected doc count for label {key} {expected_count} but got {got_counts[key]}")
                 total_diff = total_diff + abs(diff)
 
         diff_percent = (total_diff / total_count) * 100
-        print(
-            f"Total difference: {total_diff} out of {total_count}, diff percentage: {diff_percent}%"
-        )
+        print(f"Total difference: {total_diff} out of {total_count}, diff percentage: {diff_percent}%")
     print("---" * 30)
 
 
 def verify_same_dataframe(
-    got_df, expected_df, results_pred_column, expected_pred_column
-):
+    got_df: pd.DataFrame,
+    expected_df: pd.DataFrame,
+    results_pred_column: str,
+    expected_pred_column: str,
+) -> None:
     """
     This function verifies whether a column from one DataFrame is identical to another column in another DataFrame.
     It prints information about the differences between the two columns.
@@ -135,8 +133,8 @@ def verify_results(
     expected_results_file_path: str,
     results_pred_column: str,
     expected_pred_column: str,
-    input_meta: Union[str, dict] = None,
-):
+    input_meta: str | dict | None = None,
+) -> None:
     """
     This function compares an input file with its expected result file.
     See `verify_same_counts` and `verify_same_dataframe`.
@@ -150,7 +148,7 @@ def verify_results(
             the field names and their respective data types within the JSONL input file.
 
     """
-    if type(input_meta) == str:
+    if isinstance(input_meta, str):
         input_meta = ast.literal_eval(input_meta)
 
     expected_df = pd.read_json(expected_results_file_path, lines=True, dtype=input_meta)
@@ -159,27 +157,19 @@ def verify_results(
 
     expected_columns = expected_df.columns
     if results_pred_column != expected_pred_column:
-        expected_columns = [
-            results_pred_column if item == expected_pred_column else item
-            for item in expected_columns
-        ]
+        expected_columns = [results_pred_column if item == expected_pred_column else item for item in expected_columns]
 
-    got_paths = [p for p in os.scandir(results_file_path)]
-    got_df = [
-        pd.read_json(path, lines=True, dtype=input_meta)[expected_columns]
-        for path in got_paths
-    ]
+    got_paths = list(os.scandir(results_file_path))
+    got_df = [pd.read_json(path, lines=True, dtype=input_meta)[expected_columns] for path in got_paths]
     got_df = pd.concat(got_df, ignore_index=True)
     got_df = got_df.sort_values(by=["text"]).reset_index(drop=True)
     got_counts = got_df[results_pred_column].value_counts().to_dict()
 
     verify_same_counts(got_counts, expected_counts)
-    verify_same_dataframe(
-        got_df, expected_df, results_pred_column, expected_pred_column
-    )
+    verify_same_dataframe(got_df, expected_df, results_pred_column, expected_pred_column)
 
 
-def main():
+def main() -> None:
     """
     This script is useful for determining whether your predicted classifications match an expected output.
     With this in mind, it is only useful if users have the expected results already computed.
@@ -194,5 +184,5 @@ def main():
     )
 
 
-def console_script():
+def console_script() -> None:
     main()

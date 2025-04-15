@@ -11,15 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import bz2
 import os
 import subprocess
 import tarfile
+from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 import pytest
+from pytest import MonkeyPatch
 
 from nemo_curator.download import (
+    JusTextExtractor,
     ResiliparseExtractor,
     TrafilaturaExtractor,
     download_and_extract,
@@ -29,8 +34,6 @@ from nemo_curator.download.commoncrawl import (
     CommonCrawlWARCDownloader,
     CommonCrawlWARCExtractor,
     CommonCrawlWARCIterator,
-    JusTextExtractor,
-    ResiliparseExtractor,
     get_common_crawl_urls,
     get_stop_list_dict,
 )
@@ -42,26 +45,26 @@ from nemo_curator.download.wikipedia import (
 
 
 class DummyLock:
-    def __enter__(self):
+    def __enter__(self) -> "DummyLock":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         pass
 
 
 class FakeCompletedProcess:
-    def __init__(self):
+    def __init__(self) -> None:
         self.returncode = 0
 
 
-def fake_run_success(cmd, stdout, stderr):
+def fake_run_success(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
     return FakeCompletedProcess()
 
 
 @pytest.fixture
-def html_string():
+def html_string() -> str:
     # Modified from https://github.com/chatnoir-eu/chatnoir-resiliparse/blob/abdf1966fb3cefe3e0790e510ab5cb1446f99a79/tests/resiliparse/extract/test_html2text.py
-    html = """<!doctype html>
+    return """<!doctype html>
         <head>
             <title>My Title</title>
             <meta charset="utf-8">
@@ -105,96 +108,35 @@ def html_string():
             </section>
         </body>
     </html>"""
-    return html
 
 
 class TestDownload:
-    def test_imports(self):
+    def test_imports(self) -> None:
         from nemo_curator.download import (
-            JusTextExtractor,
-            ResiliparseExtractor,
-            TrafilaturaExtractor,
-            download_arxiv,
-            download_common_crawl,
-            download_wikipedia,
+            JusTextExtractor,  # noqa: F401
+            ResiliparseExtractor,  # noqa: F401
+            TrafilaturaExtractor,  # noqa: F401
+            download_arxiv,  # noqa: F401
+            download_common_crawl,  # noqa: F401
+            download_wikipedia,  # noqa: F401
         )
 
-        assert True
-
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_common_crawl_urls(self):
-        start_snapshot = "2021-04"
-        end_snapshot = "2021-10"
-        urls = get_common_crawl_urls(start_snapshot, end_snapshot)
-
-        assert (
-            urls[0]
-            == "https://data.commoncrawl.org/crawl-data/CC-MAIN-2021-10/segments/1614178347293.1/warc/CC-MAIN-20210224165708-20210224195708-00000.warc.gz"
-        )
-        assert (
-            urls[-1]
-            == "https://data.commoncrawl.org/crawl-data/CC-MAIN-2021-04/segments/1610704847953.98/warc/CC-MAIN-20210128134124-20210128164124-00799.warc.gz"
-        )
-        assert len(urls) == 143840
-
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_incorrect_snapshot_order(self):
-        with pytest.raises(ValueError):
+    @pytest.mark.skip(reason="This test is flaky due to calling out to an external service and should be fixed.")
+    def test_incorrect_snapshot_order(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             end_snapshot = "2021-04"
             start_snapshot = "2021-10"
-            urls = get_common_crawl_urls(start_snapshot, end_snapshot)
+            _urls = get_common_crawl_urls(start_snapshot, end_snapshot)
 
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_common_crawl_news_urls(self):
-        start_snapshot = "2021-04"
-        end_snapshot = "2021-10"
-        urls = get_common_crawl_urls(start_snapshot, end_snapshot, news=True)
-
-        assert (
-            urls[0]
-            == "https://data.commoncrawl.org/crawl-data/CC-NEWS/2021/04/CC-NEWS-20210401004522-01022.warc.gz"
-        )
-        assert (
-            urls[-1]
-            == "https://data.commoncrawl.org/crawl-data/CC-NEWS/2021/10/CC-NEWS-20211031225258-00089.warc.gz"
-        )
-        assert len(urls) == 3838
-
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_incorrect_snapshot_order_news(self):
-        with pytest.raises(ValueError):
+    @pytest.mark.skip(reason="This test is flaky due to calling out to an external service and should be fixed.")
+    def test_incorrect_snapshot_order_news(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             end_snapshot = "2021-04"
             start_snapshot = "2021-10"
-            urls = get_common_crawl_urls(start_snapshot, end_snapshot, news=True)
+            _urls = get_common_crawl_urls(start_snapshot, end_snapshot, news=True)
 
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_uneven_common_crawl_range(self):
-        start_snapshot = "2021-03"
-        end_snapshot = "2021-11"
-        urls = get_common_crawl_urls(start_snapshot, end_snapshot)
-
-        assert (
-            urls[0]
-            == "https://data.commoncrawl.org/crawl-data/CC-MAIN-2021-10/segments/1614178347293.1/warc/CC-MAIN-20210224165708-20210224195708-00000.warc.gz"
-        )
-        assert (
-            urls[-1]
-            == "https://data.commoncrawl.org/crawl-data/CC-MAIN-2021-04/segments/1610704847953.98/warc/CC-MAIN-20210128134124-20210128164124-00799.warc.gz"
-        )
-        assert len(urls) == 143840
-
-    def test_no_urls(self):
-        with pytest.raises(ValueError):
+    def test_no_urls(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             output_format = {
                 "text": str,
             }
@@ -207,8 +149,8 @@ class TestDownload:
                 output_format,
             )
 
-    def test_url_path_mismatch(self):
-        with pytest.raises(ValueError):
+    def test_url_path_mismatch(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             output_format = {
                 "text": str,
             }
@@ -223,7 +165,7 @@ class TestDownload:
 
 
 class TestWikipedia:
-    def test_wikipedia_downloader_existing_file(self, tmp_path, monkeypatch):
+    def test_wikipedia_downloader_existing_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary directory and simulate an already-downloaded file.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -245,7 +187,7 @@ class TestWikipedia:
         result = downloader.download(url)
         assert result == file_path
 
-    def test_wikipedia_downloader_new_file(self, tmp_path, monkeypatch):
+    def test_wikipedia_downloader_new_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
 
@@ -259,11 +201,11 @@ class TestWikipedia:
             os.remove(file_path)
 
         downloader = WikipediaDownloader(str(download_dir), verbose=False)
-        downloader._lock = DummyLock()
+        downloader._lock = DummyLock()  # noqa: SLF001
 
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
 
@@ -275,7 +217,7 @@ class TestWikipedia:
         assert result == file_path
         assert called_run
 
-    def test_wikipedia_iterator(self, tmp_path):
+    def test_wikipedia_iterator(self, tmp_path: Path) -> None:
         # Create a minimal valid XML resembling a Wikipedia dump with one page.
         xml_content = """<?xml version="1.0"?>
 <mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/">
@@ -307,7 +249,7 @@ class TestWikipedia:
         assert metadata["url"] == expected_url
         assert "Test content with" in raw_text
 
-    def test_wikipedia_extractor(self):
+    def test_wikipedia_extractor(self) -> None:
         extractor = WikipediaExtractor(language="en")
         # Sample wiki markup; note the presence of a heading and a magic word.
         content = "== Heading ==\nThis is a sample article. __NOTOC__"
@@ -323,7 +265,7 @@ class TestWikipedia:
 
 
 class TestArxiv:
-    def test_arxiv_downloader_existing_file(self, tmp_path, monkeypatch):
+    def test_arxiv_downloader_existing_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary download directory and simulate an already-downloaded tar file.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -339,7 +281,7 @@ class TestArxiv:
         result = downloader.download(tar_filename)
         assert result == file_path
 
-    def test_arxiv_downloader_new_file(self, tmp_path, monkeypatch):
+    def test_arxiv_downloader_new_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary download directory and ensure the tar file does not exist.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -351,7 +293,7 @@ class TestArxiv:
         downloader = ArxivDownloader(str(download_dir), verbose=False)
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
             return FakeCompletedProcess()
@@ -361,7 +303,7 @@ class TestArxiv:
         assert result == file_path
         assert called_run
 
-    def test_arxiv_iterator(self, tmp_path):
+    def test_arxiv_iterator(self, tmp_path: Path) -> None:
         # Create an inner tar archive containing a .tex file.
         inner_tar_path = tmp_path / "2103.00001.tar"
         dummy_tex_filename = "2103.00001.tex"
@@ -391,7 +333,7 @@ class TestArxiv:
         assert isinstance(tex_files, list)
         assert dummy_tex_content in tex_files[0]
 
-    def test_arxiv_extractor(self):
+    def test_arxiv_extractor(self) -> None:
         extractor = ArxivExtractor()
         # Create a minimal LaTeX document including comments and a section header.
         content = r"""
@@ -411,7 +353,7 @@ class TestArxiv:
 
 
 class TestCommonCrawl:
-    def test_common_crawl_downloader_existing_file(self, tmp_path, monkeypatch):
+    def test_common_crawl_downloader_existing_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary downloads directory and simulate an already-downloaded file.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -423,14 +365,12 @@ class TestCommonCrawl:
         with open(file_path, "w") as f:
             f.write("existing content")
 
-        downloader = CommonCrawlWARCDownloader(
-            str(download_dir), aws=False, verbose=False
-        )
+        downloader = CommonCrawlWARCDownloader(str(download_dir), aws=False, verbose=False)
 
         # Monkey-patch subprocess.run to track if it gets called.
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
             return FakeCompletedProcess()
@@ -442,7 +382,7 @@ class TestCommonCrawl:
         # Since the file already exists, no download should be attempted.
         assert not called_run
 
-    def test_common_crawl_downloader_new_file(self, tmp_path, monkeypatch):
+    def test_common_crawl_downloader_new_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary downloads directory; ensure the file does not exist.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -453,13 +393,11 @@ class TestCommonCrawl:
         if os.path.exists(file_path):
             os.remove(file_path)
 
-        downloader = CommonCrawlWARCDownloader(
-            str(download_dir), aws=False, verbose=False
-        )
+        downloader = CommonCrawlWARCDownloader(str(download_dir), aws=False, verbose=False)
 
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
             return FakeCompletedProcess()
@@ -471,7 +409,7 @@ class TestCommonCrawl:
         # Since the file did not exist, a download call (and subprocess.run) should have been made.
         assert called_run
 
-    def test_common_crawl_iterator(self, tmp_path):
+    def test_common_crawl_iterator(self, tmp_path: Path) -> None:
         # Create a minimal valid WARC file with a single "response" record.
         raw_warc_path = tmp_path / "dummy.warc"
         http_response = (
@@ -491,7 +429,7 @@ class TestCommonCrawl:
                 f"WARC-Target-URI: http://example.com\r\n"
                 f"Content-Length: {content_length}\r\n"
                 f"\r\n"
-            ).encode("utf-8")
+            ).encode()
             + http_response_bytes
             + b"\r\n\r\n"
         )
@@ -506,7 +444,7 @@ class TestCommonCrawl:
         # Verify that the content includes our test paragraph.
         assert b"Common Crawl test paragraph" in content
 
-    def test_common_crawl_extractor_justext(self):
+    def test_common_crawl_extractor_justext(self) -> None:
         extractor = CommonCrawlWARCExtractor(algorithm=JusTextExtractor())
         html = (
             "<html><body><p>Common Crawl test paragraph for justext extractor. "
@@ -521,7 +459,7 @@ class TestCommonCrawl:
         assert "Common Crawl test paragraph for justext extractor." in result["text"]
         assert "language" in result
 
-    def test_common_crawl_extractor_resiliparse(self):
+    def test_common_crawl_extractor_resiliparse(self) -> None:
         extractor = CommonCrawlWARCExtractor(algorithm=ResiliparseExtractor())
         html = (
             "<html><body><p>Common Crawl test paragraph for resiliparse extractor. "
@@ -532,14 +470,12 @@ class TestCommonCrawl:
         result = extractor.extract(content)
         print(result)
         assert result is not None
-        assert (
-            "Common Crawl test paragraph for resiliparse extractor." in result["text"]
-        )
+        assert "Common Crawl test paragraph for resiliparse extractor." in result["text"]
         assert "language" in result
 
 
 class TestExtractor:
-    def test_resiliparse_extract_text(self, html_string):
+    def test_resiliparse_extract_text(self, html_string: str) -> None:
         algorithm = ResiliparseExtractor()
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(html_string, stop_words["ENGLISH"], "ENGLISH")
@@ -551,7 +487,7 @@ class TestExtractor:
 
         assert result == expected
 
-    def test_trafilatura_extract_text(self, html_string):
+    def test_trafilatura_extract_text(self, html_string: str) -> None:
         algorithm = TrafilaturaExtractor(
             min_extracted_size=10,
             min_duplcheck_size=10,
@@ -567,10 +503,8 @@ class TestExtractor:
 
         assert result == expected
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_thai_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_thai_text(self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]) -> None:
         thai_html = """<!doctype html>
             <head>
                 <title>ชื่อเรื่องของฉัน</title>
@@ -616,10 +550,10 @@ class TestExtractor:
 
         assert result == expected
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_chinese_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_chinese_text(
+        self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]
+    ) -> None:
         chinese_html = """<!doctype html>
             <head>
                 <title>我的标题</title>
@@ -635,27 +569,27 @@ class TestExtractor:
 
                     </main>
             </body>
-        </html>"""
+        </html>"""  # noqa: RUF001
 
         if extraction_algorithm == "justext":
             algorithm = JusTextExtractor()
             expected = [
                 "这是一个示例段落。我们在其中写下单词。",
-                "本段落没有太多停用词。请将其删除。\n让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",
+                "本段落没有太多停用词。请将其删除。\n让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",  # noqa: RUF001
             ]
         elif extraction_algorithm == "resiliparse":
             algorithm = ResiliparseExtractor()
             expected = [
                 "这是一个示例段落。我们在其中写下单词。",
                 "本段落没有太多停用词。请将其删除。",
-                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",
+                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",  # noqa: RUF001
             ]
         elif extraction_algorithm == "trafilatura":
             algorithm = TrafilaturaExtractor()
             expected = [
                 "这是一个示例段落。我们在其中写下单词。",
                 "本段落没有太多停用词。请将其删除。",
-                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",
+                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",  # noqa: RUF001
             ]
 
         stop_words = get_stop_list_dict()
@@ -663,10 +597,10 @@ class TestExtractor:
 
         assert result == expected
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_japanese_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_japanese_text(
+        self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]
+    ) -> None:
         japanese_html = """<!doctype html>
             <head>
                 <title>私のタイトル</title>
@@ -707,16 +641,12 @@ class TestExtractor:
             ]
 
         stop_words = get_stop_list_dict()
-        result = algorithm.extract_text(
-            japanese_html, stop_words["JAPANESE"], "JAPANESE"
-        )
+        result = algorithm.extract_text(japanese_html, stop_words["JAPANESE"], "JAPANESE")
 
         assert result == expected
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_korean_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_korean_text(self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]) -> None:
         korean_html = """<!doctype html>
             <head>
                 <title>내 제목</title>

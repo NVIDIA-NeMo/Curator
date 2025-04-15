@@ -17,7 +17,6 @@ import logging
 import os
 import shutil
 import time
-from typing import Optional, Union
 
 import cudf
 import cupy as cp
@@ -40,7 +39,7 @@ from nemo_curator.utils.semdedup_utils import (
 
 # Clustering module
 class ClusteringModel:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         id_column: str = "id",
         max_iter: int = 100,
@@ -48,9 +47,9 @@ class ClusteringModel:
         clustering_output_dir: str = "./clustering_results",
         embedding_column: str = "embeddings",
         random_state: int = 1234,
-        clustering_input_partition_size: Optional[str] = "2gb",
-        logger: Union[logging.Logger, str] = "./",
-        profile_dir: Optional[str] = None,
+        clustering_input_partition_size: str | None = "2gb",
+        logger: logging.Logger | str = "./",
+        profile_dir: str | None = None,
         keep_all_columns: bool = False,
     ):
         """
@@ -94,7 +93,7 @@ class ClusteringModel:
                 f"Clustering output directory {self.clustering_output_dir} already exists and will be overwritten"
             )
 
-    def _setup_logger(self, logger):
+    def _setup_logger(self, logger: logging.Logger | str) -> logging.Logger:
         if isinstance(logger, str):
             return create_logger(
                 rank=0,
@@ -106,48 +105,48 @@ class ClusteringModel:
         else:
             return logger
 
-    def __call__(self, embeddings_dataset: DocumentDataset):
+    def __call__(self, embeddings_dataset: DocumentDataset) -> DocumentDataset:  # noqa: PLR0915
         embeddings_df = embeddings_dataset.df
 
         if self.embedding_column not in embeddings_df.columns:
-            raise ValueError(
+            msg = (
                 f'Expected embedding column "{self.embedding_column}"'
                 f" to be in dataset. Only found columns {embeddings_df.columns}"
             )
+            raise ValueError(msg)
 
         with performance_report_if_with_ts_suffix(self.profile_dir, "clustering-model"):
-
             if not self.keep_all_columns:
                 embeddings_df = embeddings_df[[self.id_col, self.embedding_column]]
 
             if self.clustering_input_partition_size is not None:
-                embeddings_df = embeddings_df.repartition(
-                    partition_size=self.clustering_input_partition_size
-                )
+                embeddings_df = embeddings_df.repartition(partition_size=self.clustering_input_partition_size)
 
             try:
                 embeddings_df = embeddings_df.to_backend("pandas").persist()
                 embeddings_length = embeddings_df.shape[0].compute()
 
                 if embeddings_length < self.n_clusters:
-                    raise ValueError(
+                    msg = (
                         "Number of clusters is greater than the number of documents in your dataset: "
                         f"dataset length is {embeddings_length} while n_clusters is set to {self.n_clusters}. "
                         f"Please reduce n_clusters to be less than or equal to {embeddings_length}."
                     )
+                    raise ValueError(msg)
             except IndexError as e:
-                raise IndexError(
+                msg = (
                     f'Original error message: "{e}". '
                     "This could be due to empty partitions in your DocumentDataset. "
                     "Please check your dataset for empty partitions and remove them if necessary."
                 )
+                raise IndexError(msg) from e
 
             embeddings_df = embeddings_df.to_backend("cudf")
             # Normalize embeddings before clustering
             embeddings_df = embeddings_df.map_partitions(
                 normalize_embeddings_col_in_df,
                 embedding_col=self.embedding_column,
-                meta=embeddings_df._meta.copy(),
+                meta=embeddings_df._meta.copy(),  # noqa: SLF001
             )
             cupy_normalized_darr = embeddings_df.map_partitions(
                 get_array_from_df, self.embedding_column, meta=cp.ndarray([1, 1])
@@ -167,9 +166,7 @@ class ClusteringModel:
             self.logger.info("KMeans fit complete")
             self.logger.info(f"Time taken for KMeans fit: {time.time() - t0}")
             # Compute nearest centroids using kmeans.predict
-            self.logger.info(
-                "Computing nearest centroids and distance to centers using kmeans.predict"
-            )
+            self.logger.info("Computing nearest centroids and distance to centers using kmeans.predict")
             t0 = time.time()
             nearest_cents = kmeans.predict(cupy_normalized_darr)
             self.logger.info(f"Time taken for KMeans predict: {time.time() - t0}")
@@ -177,7 +174,7 @@ class ClusteringModel:
             embeddings_df["nearest_cent"] = nearest_cents.astype(np.int32)
             del nearest_cents
             # Add L2 and cosine distance to centroid columns to the dataframe
-            meta_df_with_l2_dist = embeddings_df._meta.copy()
+            meta_df_with_l2_dist = embeddings_df._meta.copy()  # noqa: SLF001
             meta_df_with_l2_dist[L2_DIST_TO_CENT_COL] = cp.zeros(1)
             meta_df_with_l2_dist[COSINE_DIST_TO_CENT_COL] = cp.zeros(1)
             embeddings_df = embeddings_df.map_partitions(
@@ -189,9 +186,7 @@ class ClusteringModel:
             embeddings_df = embeddings_df.reset_index(drop=True)
             # Save centroids to a file
             centroids = kmeans.cluster_centers_
-            kmeans_centroids_file = os.path.join(
-                self.clustering_output_dir, "kmeans_centroids.npy"
-            )
+            kmeans_centroids_file = os.path.join(self.clustering_output_dir, "kmeans_centroids.npy")
             np.save(kmeans_centroids_file, centroids)
             self.logger.info("Saving centroids complete")
             # Deleting kmeans triggers a future cancelled error in dask
@@ -200,13 +195,9 @@ class ClusteringModel:
             del centroids, cupy_normalized_darr
 
             # Save embeddings by nearest center to a file
-            clustering_output_dir = os.path.join(
-                self.clustering_output_dir, "embs_by_nearest_center"
-            )
+            clustering_output_dir = os.path.join(self.clustering_output_dir, "embs_by_nearest_center")
             if os.path.exists(clustering_output_dir):
-                self.logger.warning(
-                    f"Output directory {clustering_output_dir} already exists and will be overwritten"
-                )
+                self.logger.warning(f"Output directory {clustering_output_dir} already exists and will be overwritten")
                 shutil.rmtree(clustering_output_dir)
 
             embeddings_df.to_parquet(
@@ -223,9 +214,6 @@ class ClusteringModel:
             del embeddings_df
         # We read this way to ensure each cluster is read in a single partition
         # This allows us to perform pairwise similarity within the cluster
-        fps = [
-            os.path.join(clustering_output_dir, f"nearest_cent={i}")
-            for i in range(self.n_clusters)
-        ]
+        fps = [os.path.join(clustering_output_dir, f"nearest_cent={i}") for i in range(self.n_clusters)]
         embeddings_df = dd.from_map(cudf.read_parquet, fps)
         return DocumentDataset(embeddings_df)

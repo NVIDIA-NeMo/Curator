@@ -1,9 +1,7 @@
-from typing import Any, Dict, List, Optional, Tuple
-
-import cudf
 import fasttext
 import numpy as np
 import pandas as pd
+from fasttext import _FastText
 from huggingface_hub import hf_hub_download
 
 from nemo_curator.datasets import DocumentDataset
@@ -26,25 +24,21 @@ class FastTextQualityClassifier:
                                     If not provided, only the pred_column is added.
     """
 
-    def __init__(self, pred_column: str, int_column: Optional[str] = None) -> None:
+    def __init__(self, pred_column: str, int_column: str | None = None) -> None:
         self.pred_column: str = pred_column
-        self.int_column: Optional[str] = int_column
+        self.int_column: str | None = int_column
 
         self.repo_id: str = "mlfoundations/fasttext-oh-eli5"
-        self.model_filename: str = (
-            "openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin"
-        )
+        self.model_filename: str = "openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train.bin"
         # Download the fastText model from Hugging Face Hub.
-        self.model_path: str = hf_hub_download(
-            repo_id=self.repo_id, filename=self.model_filename
-        )
+        self.model_path: str = hf_hub_download(repo_id=self.repo_id, filename=self.model_filename)
         self.model_identifier: str = f"{self.repo_id}/{self.model_filename}"
 
-    def _load_fasttext_model(self) -> Any:
+    def _load_fasttext_model(self) -> _FastText:
         """Load and return the fastText model."""
         return fasttext.load_model(self.model_path)
 
-    def predict_text(self, text: str) -> Tuple[float, int]:
+    def predict_text(self, text: str) -> tuple[float, int]:
         """
         Predict the confidence score and binary indicator for a given text.
 
@@ -54,9 +48,7 @@ class FastTextQualityClassifier:
         Returns:
             Tuple[float, int]: A tuple containing the confidence score (float) and binary indicator (int).
         """
-        model = load_object_on_worker(
-            self.model_identifier, self._load_fasttext_model, {}
-        )
+        model = load_object_on_worker(self.model_identifier, self._load_fasttext_model, {})
         text = text.replace("\n", "")
         predictions = model.predict(text, k=2)
         # predictions[0]: labels, predictions[1]: scores
@@ -79,9 +71,7 @@ class FastTextQualityClassifier:
             pd.DataFrame: DataFrame with added prediction columns.
         """
         # Load the model on the worker.
-        model = load_object_on_worker(
-            self.model_identifier, self._load_fasttext_model, {}
-        )
+        model = load_object_on_worker(self.model_identifier, self._load_fasttext_model, {})  # noqa: F841
         results = df["text"].apply(self.predict_text)
         df[self.pred_column] = results.apply(lambda x: x[0]).astype(np.float32)
         if self.int_column is not None:
@@ -102,15 +92,13 @@ class FastTextQualityClassifier:
         Returns:
             DocumentDataset: The dataset with added prediction columns.
         """
-        meta = dataset.df._meta
+        meta = dataset.df._meta  # noqa: SLF001
         if hasattr(meta, "to_pandas"):
             meta = meta.to_pandas()
         meta[self.pred_column] = np.float32(0.0)
         if self.int_column is not None:
             meta[self.int_column] = np.int32(0)
 
-        processed_df = dataset.df.to_backend("pandas").map_partitions(
-            self._predict_on_partition, meta=meta
-        )
+        processed_df = dataset.df.to_backend("pandas").map_partitions(self._predict_on_partition, meta=meta)
         processed_df = processed_df.to_backend("cudf")
         return DocumentDataset(processed_df)

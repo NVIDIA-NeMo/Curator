@@ -35,8 +35,7 @@ class IncompleteStoryFilter(DocumentFilter):
         Returns:
             bool: True if the document's score is valid, False otherwise.
         """
-        ret = text.strip()[-1] in self._story_terminators
-        return ret
+        return text.strip()[-1] in self._story_terminators
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score

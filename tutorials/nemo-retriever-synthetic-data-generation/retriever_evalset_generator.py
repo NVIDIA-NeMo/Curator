@@ -31,7 +31,7 @@ from nemo_curator.utils.distributed_utils import load_object_on_worker
 
 tqdm.pandas()
 config = importlib.import_module(
-    "tutorials.nemo-retriever-synthetic-data-generation.config.config"
+    "tutorials.nemo-retriever-synthetic-data-generation.config.config",
 )
 RetrieverEvalSDGConfig = config.RetrieverEvalSDGConfig
 
@@ -54,14 +54,13 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
 
         self._init_pipeline_params()
 
-    def load_pipeline_config(self, cfg_path: str):
+    def load_pipeline_config(self, cfg_path: str) -> None:
         self.cfg = RetrieverEvalSDGConfig.from_yaml(cfg_path)
 
-    def _validate_config(self):
-        return True  # TODO complete this
+    def _validate_config(self) -> bool:
+        return True  # TODO: complete this
 
-    def _init_pipeline_params(self):
-
+    def _init_pipeline_params(self) -> None:
         if self._validate_config():
             self.sys_prompt = self.cfg.generator_system_prompt
             self.user_prompt_template = self.cfg.generator_user_prompt_template
@@ -73,25 +72,24 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
             }
             self.num_qs = self.cfg.num_questions
         else:
-            raise Exception("Validation Error: incorrect pipeline config file")
+            msg = "Validation Error: incorrect pipeline config file"
+            raise Exception(msg)  # noqa: TRY002
 
     # ----------------------------------------------------------------------------80
 
-    def _create_generator(self):
+    def _create_generator(self) -> NemotronGenerator:
         openai_client = OpenAI(
             base_url=self.cfg.base_url,
             api_key=self.cfg.api_key,
         )
         client = OpenAIClient(openai_client)
-        generator = NemotronGenerator(client)
-        return generator
+        return NemotronGenerator(client)
 
-    def _get_partition_id(self, df: pd.DataFrame, partition_info=None):
+    def _get_partition_id(self, df: pd.DataFrame, partition_info: dict | None = None) -> pd.DataFrame:
         df["partition-id"] = partition_info["number"]
         return df
 
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
-
         ddf = dataset.df
         ddf["partition-id"] = ""
         ddf = ddf.map_partitions(self._get_partition_id, meta=ddf)
@@ -109,7 +107,6 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
         return DocumentDataset(ddf)
 
     def _process_on_partition(self, df: pd.DataFrame) -> pd.DataFrame:
-
         self.generator = load_object_on_worker(
             attr="generator",
             load_object_function=self._create_generator,
@@ -131,12 +128,12 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
         df["question"] = df["qa_pairs"].apply(lambda x: x["question"])
         df["question-id"] = df["question"].apply(self._get_random_hash)
         df["answer"] = df["qa_pairs"].apply(lambda x: x["answer"])
-        df["score"] = df["question"].apply(lambda x: 1)
+        df["score"] = df["question"].apply(lambda: 1)
 
         return df
 
     # ----------------------------------------------------------------------------80
-    def parse_response(self, llm_response: str) -> Any:
+    def parse_response(self, llm_response: str) -> list[dict[str, str]]:
         qa_pairs = []
         if llm_response:
             qa_list = llm_response.split("Question")[1:]
@@ -146,11 +143,10 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
                     q = qas[0].split(":")[1].strip()
                     if re.search("Explanation", qas[1]):
                         a = qas[1].split("Explanation")[0].split(":")[1].strip()
-                        explanation = qas[1].split("Explanation")[1].strip()
                     else:
                         a = qas[1].split(":")[1].strip()
                     qa_pairs.append({"question": q, "answer": a})
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 qa_pairs = [{"question": "", "answer": ""}]
                 print(f"error: {e}")
         else:
@@ -158,7 +154,7 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
         return qa_pairs
 
     # ----------------------------------------------------------------------------80
-    def generate(self, doc_text):
+    def generate(self, doc_text: str) -> list[str] | str:
         try:
             response = self.generator.generate_closed_qa_instructions(
                 document=doc_text,
@@ -167,14 +163,14 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
                 model=self.generator_model,
                 model_kwargs=self.generator_model_kwargs,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"error: {e}")
             return ""
 
         return response[0]
 
     # ----------------------------------------------------------------------------80
-    def _get_random_hash(self, question: str):
+    def _get_random_hash(self, question: str) -> str:  # noqa: ARG002
         """Generate random hash for synthetic question IDs"""
         # Generate a random string
         random_string = secrets.token_hex(16)
@@ -182,16 +178,14 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
 
         # Hash the random string using SHA-256
         hash_object = hashlib.sha256(
-            random_string.encode()
+            random_string.encode(),
         )  # Encode the string to bytes
-        hex_dig = hash_object.hexdigest()
-        return hex_dig
+        return hash_object.hexdigest()
 
     # ----------------------------------------------------------------------------80
-    def _check_doc_id(self, doc_id: Any) -> str:
-        if doc_id:
-            if str(doc_id) != "nan":
-                return str(doc_id)
+    def _check_doc_id(self, doc_id: Any) -> str:  # noqa: ANN401
+        if doc_id and str(doc_id) != "nan":
+            return str(doc_id)
         return self._get_random_hash("some text")
 
     def __dask_tokenize__(self):

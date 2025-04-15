@@ -25,8 +25,7 @@ from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-
+def main(args: argparse.Namespace) -> None:
     # Set the random seed for shuffling
     random.seed(args.seed)
 
@@ -34,7 +33,7 @@ def main(args):
     documents = []
     for ifile in get_all_files_paths_under(args.fasttext_files_dir):
         if os.path.splitext(ifile)[-1] == ".txt":
-            with open(ifile, "r") as fp:
+            with open(ifile) as fp:
                 documents += fp.readlines()
     random.shuffle(documents)
 
@@ -68,32 +67,31 @@ def main(args):
     # Save the classifier as a FastText model
     model.save_model(args.output_model)
 
-    if args.output_predictions is not None:
-        fout = open(args.output_predictions, "wb")
-
     # Read in the model and compute accuracy and other metrics on the data
     hq_label = args.high_quality_label
     prds, lbls = [], []
-    with open(args.output_validation_file, "r") as f:
-        for line in tqdm(f.readlines()):
-            # Split the text and the label
-            label_t, doc = line.split(" ", 1)
-            doc = doc.rstrip()
-            labels_p, scores = model.predict(doc, k=2)
-            # Write the predictions to file
-            if args.output_predictions is not None:
-                line = {
-                    "text": doc,
-                    "label": label_t,
-                    f"{labels_p[0]}": scores[0],
-                    f"{labels_p[1]}": scores[1],
-                }
-                myjson = json.dumps(line, ensure_ascii=False)
-                fout.write(myjson.encode("utf-8"))
-                fout.write("\n".encode("utf-8"))
-            # Save predictions and labels
-            prds.append(1) if labels_p[0] == hq_label else prds.append(0)
-            lbls.append(1) if label_t == hq_label else lbls.append(0)
+    with open(args.output_validation_file) as f:
+        if args.output_predictions is not None:
+            with open(args.output_predictions, "wb") as fout:
+                for line in tqdm(f.readlines()):
+                    # Split the text and the label
+                    label_t, doc = line.split(" ", 1)
+                    doc = doc.rstrip()
+                    labels_p, scores = model.predict(doc, k=2)
+                    # Write the predictions to file
+                    if args.output_predictions is not None:
+                        line_dict = {
+                            "text": doc,
+                            "label": label_t,
+                            f"{labels_p[0]}": scores[0],
+                            f"{labels_p[1]}": scores[1],
+                        }
+                        myjson = json.dumps(line_dict, ensure_ascii=False)
+                        fout.write(myjson.encode("utf-8"))
+                        fout.write(b"\n")
+                    # Save predictions and labels
+                    prds.append(1) if labels_p[0] == hq_label else prds.append(0)
+                    lbls.append(1) if label_t == hq_label else lbls.append(0)
 
     # Print out the metrics computed on the validation data
     tn, fp, fn, tp = confusion_matrix(prds, lbls).ravel()
@@ -108,24 +106,13 @@ def main(args):
 
 
 def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-Train a skip-gram quality classifier with FastText.
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
 
-Takes as input files with prepared samples for training
-a skip-gram classifier with FastText, trains a skip-gram
-classifier on the input samples and writes the trained classifier
-out to disk as a FastText model.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    argumentHelper = ArgumentHelper(parser)
-
-    argumentHelper.add_arg_seed(default=1992)
-    argumentHelper.add_arg_output_train_file(
-        help="The concatenated, shuffled samples used "
-        "to train the skip-gram classifier.",
+    arg_helper.add_arg_seed(default=1992)
+    arg_helper.add_arg_output_train_file(
+        help="The concatenated, shuffled samples used to train the skip-gram classifier.",
         default="./fasttext_samples.train",
     )
     parser.add_argument(
@@ -133,15 +120,13 @@ out to disk as a FastText model.
         type=str,
         default=None,
         required=True,
-        help="The input directory containing the file(s) "
-        "with the prepared FastText samples.",
+        help="The input directory containing the file(s) with the prepared FastText samples.",
     )
     parser.add_argument(
         "--high-quality-label",
         type=str,
         default="__label__hq",
-        help="The label assigned to the high quality samples "
-        "when preparing the data.",
+        help="The label assigned to the high quality samples when preparing the data.",
     )
     parser.add_argument(
         "--learning-rate",
@@ -173,8 +158,7 @@ out to disk as a FastText model.
         "--output-validation-file",
         type=str,
         default="./fasttext_samples.valid",
-        help="The concatenated, shuffled samples used "
-        "for computing validation metrics.",
+        help="The concatenated, shuffled samples used for computing validation metrics.",
     )
     parser.add_argument(
         "--validation-split",
@@ -186,8 +170,7 @@ out to disk as a FastText model.
         "--wordNgrams",
         type=int,
         default=2,
-        help="The size of the word n-gram used to train the classifier. "
-        "Default is bigram.",
+        help="The size of the word n-gram used to train the classifier. Default is bigram.",
     )
     parser.add_argument(
         "--word-vector-dim",
@@ -199,5 +182,16 @@ out to disk as a FastText model.
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    argparser = argparse.ArgumentParser(
+        """
+    Train a skip-gram quality classifier with FastText.
+
+    Takes as input files with prepared samples for training
+    a skip-gram classifier with FastText, trains a skip-gram
+    classifier on the input samples and writes the trained classifier
+    out to disk as a FastText model.
+    """,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(argparser).parse_args())

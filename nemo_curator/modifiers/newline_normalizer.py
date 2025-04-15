@@ -27,7 +27,6 @@ class NewlineNormalizer(DocumentModifier):
     def __init__(self):
         super().__init__()
 
-    def modify_document(self, text):
+    def modify_document(self, text: str) -> str:
         text = THREE_OR_MORE_NEWLINES_REGEX.sub("\n\n", text)
-        text = THREE_OR_MORE_WINDOWS_NEWLINES_REGEX.sub("\r\n\r\n", text)
-        return text
+        return THREE_OR_MORE_WINDOWS_NEWLINES_REGEX.sub("\r\n\r\n", text)

@@ -11,9 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from pathlib import Path
+from typing import Any
+
 import pandas as pd
 import pytest
 from dask.dataframe.utils import assert_eq
+from dask.distributed import Client
 
 from nemo_curator import (
     BaseModule,
@@ -35,7 +39,7 @@ class CPUModule(BaseModule):
     def __init__(self):
         super().__init__(input_backend="pandas")
 
-    def call(self, dataset: DocumentDataset):
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
         dataset.df["cpu_lengths"] = dataset.df["text"].str.len()
         return dataset
 
@@ -44,7 +48,7 @@ class GPUModule(BaseModule):
     def __init__(self):
         super().__init__(input_backend="cudf")
 
-    def call(self, dataset: DocumentDataset):
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
         dataset.df["gpu_lengths"] = dataset.df["text"].str.len()
         return dataset
 
@@ -53,13 +57,13 @@ class AnyModule(BaseModule):
     def __init__(self):
         super().__init__(input_backend="any")
 
-    def call(self, dataset: DocumentDataset):
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
         dataset.df["any_lengths"] = dataset.df["text"].str.len()
         return dataset
 
 
 @pytest.fixture
-def raw_data():
+def raw_data() -> tuple[dict[str, list[Any]], list[int]]:
     base_data = {
         "id": [1, 2, 3, 4, 100, 200, 300],
         "text": [
@@ -78,7 +82,7 @@ def raw_data():
 
 
 @pytest.fixture
-def cpu_data(raw_data):
+def cpu_data(raw_data: tuple[dict[str, list[Any]], list[int]]) -> tuple[DocumentDataset, pd.Series]:
     base_data, gt_results = raw_data
     df = pd.DataFrame(base_data)
     gt_lengths = pd.Series(gt_results, name="cpu_lengths")
@@ -86,7 +90,7 @@ def cpu_data(raw_data):
 
 
 @pytest.fixture
-def gpu_data(raw_data):
+def gpu_data(raw_data: tuple[dict[str, list[Any]], list[int]]) -> tuple[DocumentDataset, "cudf.Series"]:
     base_data, gt_results = raw_data
     df = cudf.DataFrame(base_data)
     df = dask_cudf.from_cudf(df, 2)
@@ -98,10 +102,9 @@ def gpu_data(raw_data):
 class TestBackendSupport:
     def test_pandas_backend(
         self,
-        cpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, gt_lengths = cpu_data
         pipeline = CPUModule()
         result = pipeline(dataset)
@@ -110,10 +113,9 @@ class TestBackendSupport:
 
     def test_cudf_backend(
         self,
-        gpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, gt_lengths = gpu_data
         pipeline = GPUModule()
         result = pipeline(dataset)
@@ -122,11 +124,10 @@ class TestBackendSupport:
 
     def test_any_backend(
         self,
-        cpu_data,
-        gpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         cpu_dataset, gt_cpu_lengths = cpu_data
         gt_cpu_lengths = gt_cpu_lengths.rename("any_lengths")
         gpu_dataset, gt_gpu_lengths = gpu_data
@@ -142,11 +143,10 @@ class TestBackendSupport:
 
     def test_pandas_to_cudf(
         self,
-        cpu_data,
-        gpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, gt_cpu_lengths = cpu_data
         _, gt_gpu_lengths = gpu_data
         pipeline = Sequential(
@@ -163,11 +163,10 @@ class TestBackendSupport:
 
     def test_cudf_to_pandas(
         self,
-        cpu_data,
-        gpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         _, gt_cpu_lengths = cpu_data
         dataset, gt_gpu_lengths = gpu_data
         pipeline = Sequential(
@@ -184,11 +183,10 @@ class TestBackendSupport:
 
     def test_5x_switch(
         self,
-        cpu_data,
-        gpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, gt_cpu_lengths = cpu_data
         _, gt_gpu_lengths = gpu_data
         pipeline = Sequential(
@@ -208,7 +206,7 @@ class TestBackendSupport:
         )
         result = pipeline(dataset)
         result_df = result.df.compute()
-        assert sorted(list(result_df.columns)) == [
+        assert sorted(result_df.columns) == [
             "cpu_lengths",
             "gpu_lengths",
             "id",
@@ -217,34 +215,39 @@ class TestBackendSupport:
         assert_eq(result_df["cpu_lengths"], gt_cpu_lengths)
         assert_eq(result_df["gpu_lengths"], gt_gpu_lengths)
 
-    def test_wrong_backend_cpu_data(self, cpu_data, gpu_client):
-        with pytest.raises(ValueError):
-            print("client", gpu_client)
-            dataset, _ = cpu_data
-            pipeline = GPUModule()
-            result = pipeline(dataset)
-            _ = result.df.compute()
+    def test_wrong_backend_cpu_data(
+        self,
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
+        dataset, _ = cpu_data
+        pipeline = GPUModule()
+        with pytest.raises(ValueError):  # noqa: PT011
+            _ = pipeline(dataset).df.compute()
 
-    def test_wrong_backend_gpu_data(self, gpu_data, gpu_client):
-        with pytest.raises(ValueError):
-            print("client", gpu_client)
-            dataset, _ = gpu_data
-            pipeline = CPUModule()
-            result = pipeline(dataset)
-            _ = result.df.compute()
+    def test_wrong_backend_gpu_data(
+        self,
+        gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
+        dataset, _ = gpu_data
+        pipeline = CPUModule()
+        with pytest.raises(ValueError):  # noqa: PT011
+            _ = pipeline(dataset).df.compute()
 
-    def test_unsupported_to_backend(self, cpu_data, gpu_client):
-        with pytest.raises(ValueError):
-            print("client", gpu_client)
-            dataset, _ = cpu_data
-            pipeline = ToBackend("fake_backend")
-            result = pipeline(dataset)
-            _ = result.df.compute()
+    def test_unsupported_to_backend(
+        self,
+        cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
+        dataset, _ = cpu_data
+        with pytest.raises(ValueError):  # noqa: PT011
+            ToBackend("fake_backend")
 
 
 @pytest.fixture
-def real_module_raw_data():
-    base_data = {
+def real_module_raw_data() -> dict[str, list[Any]]:
+    return {
         "id": [1, 2, 3, 4, 100, 200, 300],
         "text": [
             "The quick brown fox jumps over the lazy dog",
@@ -256,20 +259,17 @@ def real_module_raw_data():
             "A different object",
         ],
     }
-    return base_data
 
 
 @pytest.fixture
-def real_module_cpu_data(real_module_raw_data):
+def real_module_cpu_data(real_module_raw_data: dict[str, list[Any]]) -> tuple[DocumentDataset, pd.Series]:
     df = pd.DataFrame(real_module_raw_data)
-    gt_results = pd.Series(
-        [35 / 9, 37 / 9, 4.0, 35 / 9, 33 / 9, 51 / 9, 48 / 9], name="mean_lengths"
-    )
+    gt_results = pd.Series([35 / 9, 37 / 9, 4.0, 35 / 9, 33 / 9, 51 / 9, 48 / 9], name="mean_lengths")
     return DocumentDataset.from_pandas(df), gt_results
 
 
 @pytest.fixture
-def real_module_gpu_data(real_module_raw_data):
+def real_module_gpu_data(real_module_raw_data: dict[str, list[Any]]) -> tuple[DocumentDataset, "cudf.Series"]:
     df = cudf.DataFrame(real_module_raw_data)
     df = dask_cudf.from_cudf(df, 2)
     gt_results = cudf.Series([[1, 2, 3, 4], [100, 200]], name="id")
@@ -280,39 +280,31 @@ def real_module_gpu_data(real_module_raw_data):
 class TestRealModules:
     def test_score_filter(
         self,
-        real_module_cpu_data,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        real_module_cpu_data: tuple[DocumentDataset, pd.Series],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, gt_results = real_module_cpu_data
-        pipeline = ScoreFilter(
-            MeanWordLengthFilter(), score_field="mean_lengths", score_type=float
-        )
+        pipeline = ScoreFilter(MeanWordLengthFilter(), score_field="mean_lengths", score_type=float)
         result = pipeline(dataset)
         result_df = result.df.compute()
         assert_eq(result_df["mean_lengths"], gt_results)
 
     def test_score_filter_wrong_backend(
         self,
-        real_module_gpu_data,
-        gpu_client,
-    ):
-        with pytest.raises(ValueError):
-            print("client", gpu_client)
-            dataset, _ = real_module_gpu_data
-            pipeline = ScoreFilter(
-                MeanWordLengthFilter(), score_field="mean_lengths", score_type=float
-            )
-            result = pipeline(dataset)
-            _ = result.df.compute()
+        real_module_gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
+        dataset, _ = real_module_gpu_data
+        pipeline = ScoreFilter(MeanWordLengthFilter(), score_field="mean_lengths", score_type=float)
+        with pytest.raises(ValueError):  # noqa: PT011
+            _ = pipeline(dataset).df.compute()
 
     def test_fuzzy_dedup(
         self,
-        real_module_gpu_data,
-        tmpdir,
-        gpu_client,
-    ):
-        print(gpu_client)
+        real_module_gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        tmpdir: Path,
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, gt_results = real_module_gpu_data
         # Dedup might fail when indices per partition do not start from 0
         dataset.df = dataset.df.reset_index(drop=True)
@@ -346,41 +338,38 @@ class TestRealModules:
 
     def test_fuzzy_dedup_wrong_backend(
         self,
-        real_module_cpu_data,
-        tmpdir,
-        gpu_client,
-    ):
-        with pytest.raises(ValueError):
-            print(gpu_client)
-            dataset, _ = real_module_cpu_data
-            # Dedup might fail when indices per partition do not start from 0
-            dataset.df = dataset.df.reset_index(drop=True)
-            config = FuzzyDuplicatesConfig(
-                cache_dir=tmpdir,
-                id_field="id",
-                text_field="text",
-                seed=42,
-                char_ngrams=5,
-                num_buckets=15,
-                hashes_per_bucket=1,
-                use_64_bit_hash=False,
-                buckets_per_shuffle=3,
-                false_positive_check=True,
-                num_anchors=2,
-                jaccard_threshold=0.3,
-            )
-            fuzzy_duplicates = FuzzyDuplicates(config=config)
-            result = fuzzy_duplicates(dataset)
-            _ = result.df.compute()
+        real_module_cpu_data: tuple[DocumentDataset, pd.Series],
+        tmpdir: Path,
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
+        dataset, _ = real_module_cpu_data
+        # Dedup might fail when indices per partition do not start from 0
+        dataset.df = dataset.df.reset_index(drop=True)
+        config = FuzzyDuplicatesConfig(
+            cache_dir=tmpdir,
+            id_field="id",
+            text_field="text",
+            seed=42,
+            char_ngrams=5,
+            num_buckets=15,
+            hashes_per_bucket=1,
+            use_64_bit_hash=False,
+            buckets_per_shuffle=3,
+            false_positive_check=True,
+            num_anchors=2,
+            jaccard_threshold=0.3,
+        )
+        fuzzy_duplicates = FuzzyDuplicates(config=config)
+        with pytest.raises(ValueError):  # noqa: PT011
+            _ = fuzzy_duplicates(dataset).df.compute()
 
     def test_score_filter_and_fuzzy(
         self,
-        real_module_cpu_data,
-        real_module_gpu_data,
-        tmpdir,
-        gpu_client,
-    ):
-        print("client", gpu_client)
+        real_module_cpu_data: tuple[DocumentDataset, pd.Series],
+        real_module_gpu_data: tuple[DocumentDataset, "cudf.Series"],
+        tmpdir: Path,
+        gpu_client: Client,  # noqa: ARG002
+    ) -> None:
         dataset, _ = real_module_cpu_data
         _, gt_results = real_module_gpu_data
         dataset.df = dataset.df.reset_index(drop=True)
@@ -400,9 +389,7 @@ class TestRealModules:
         )
         pipeline = Sequential(
             [
-                ScoreFilter(
-                    MeanWordLengthFilter(), score_field="mean_lengths", score_type=float
-                ),
+                ScoreFilter(MeanWordLengthFilter(), score_field="mean_lengths", score_type=float),
                 ToBackend("cudf"),
                 FuzzyDuplicates(config=config),
             ]

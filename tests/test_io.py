@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,8 +20,10 @@ import pickle
 import random
 import string
 import tempfile
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import List, Literal
+from pathlib import Path
+from typing import Any, Literal
 
 import pandas as pd
 import pytest
@@ -47,35 +49,32 @@ def _generate_dummy_dataset(num_rows: int = 50) -> str:
         random.shuffle(integers)
 
         # Yield one number from the list each time the generator is invoked
-        for integer in integers:
-            yield integer
+        yield from integers
 
     # Function to generate a random string of a given length
     def generate_random_string(length: int = 10) -> str:
         characters = string.ascii_letters + string.digits  # Alphanumeric characters
 
-        return "".join(random.choice(characters) for _ in range(length))
+        return "".join(random.choice(characters) for _ in range(length))  # noqa: S311
 
     # Function to generate a random datetime
     def generate_random_datetime() -> str:
         # Define start and end dates
-        start_date = datetime(1970, 1, 1)  # Unix epoch
-        end_date = datetime.now()  # Current date
+        start_date = datetime(1970, 1, 1)  # Unix epoch  # noqa: DTZ001
+        end_date = datetime.now()  # Current date  # noqa: DTZ005
 
         # Calculate the total number of seconds between the start and end dates
         delta = end_date - start_date
         total_seconds = int(delta.total_seconds())
 
         # Generate a random number of seconds within this range
-        random_seconds = random.randint(0, total_seconds)
+        random_seconds = random.randint(0, total_seconds)  # noqa: S311
 
         # Add the random number of seconds to the start date to get a random datetime
         random_datetime = start_date + timedelta(seconds=random_seconds)
 
         # Convert to UTC and format the datetime
-        random_datetime_utc = random_datetime.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-        return random_datetime_utc
+        return random_datetime.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     # Generate the corpus
     corpus = []
@@ -85,7 +84,7 @@ def _generate_dummy_dataset(num_rows: int = 50) -> str:
                 {
                     "id": integer,
                     "date": generate_random_datetime(),
-                    "text": generate_random_string(random.randint(5, 100)),
+                    "text": generate_random_string(random.randint(5, 100)),  # noqa: S311
                 }
             )
         )
@@ -95,12 +94,12 @@ def _generate_dummy_dataset(num_rows: int = 50) -> str:
 
 
 @pytest.fixture
-def jsonl_dataset():
+def jsonl_dataset() -> str:
     return _generate_dummy_dataset(num_rows=10)
 
 
 class TestIO:
-    def test_meta_dict(self, jsonl_dataset):
+    def test_meta_dict(self, jsonl_dataset: str) -> None:
         with tempfile.NamedTemporaryFile(suffix=".jsonl") as temp_file:
             # Write the corpus to the file
             temp_file.write(jsonl_dataset.encode("utf-8"))
@@ -112,19 +111,15 @@ class TestIO:
             temp_file.seek(0)
 
             # Read the dataset
-            dataset = DocumentDataset.read_json(
-                temp_file.name, input_meta={"id": float}
-            )
+            dataset = DocumentDataset.read_json(temp_file.name, input_meta={"id": float})
 
         output_meta = str({col: str(dtype) for col, dtype in dataset.df.dtypes.items()})
 
         expected_meta = "{'id': 'float64'}"
 
-        assert (
-            output_meta == expected_meta
-        ), f"Expected: {expected_meta}, got: {output_meta}"
+        assert output_meta == expected_meta, f"Expected: {expected_meta}, got: {output_meta}"
 
-    def test_meta_str(self, jsonl_dataset):
+    def test_meta_str(self, jsonl_dataset: str) -> None:
         with tempfile.NamedTemporaryFile(suffix=".jsonl") as temp_file:
             # Write the corpus to the file
             temp_file.write(jsonl_dataset.encode("utf-8"))
@@ -136,40 +131,31 @@ class TestIO:
             temp_file.seek(0)
 
             # Read the dataset
-            dataset = DocumentDataset.read_json(
-                temp_file.name, input_meta='{"id": "float"}'
-            )
+            dataset = DocumentDataset.read_json(temp_file.name, input_meta='{"id": "float"}')
 
         output_meta = str({col: str(dtype) for col, dtype in dataset.df.dtypes.items()})
 
         expected_meta = "{'id': 'float64'}"
 
-        assert (
-            output_meta == expected_meta
-        ), f"Expected: {expected_meta}, got: {output_meta}"
+        assert output_meta == expected_meta, f"Expected: {expected_meta}, got: {output_meta}"
 
-    @pytest.mark.parametrize(
-        "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
-    )
-    def test_read_custom(self, jsonl_dataset: str, backend: Literal["pandas", "cudf"]):
+    @pytest.mark.parametrize("backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
+    def test_read_custom(self, jsonl_dataset: str, backend: Literal["pandas", "cudf"]) -> None:  # noqa: ARG002
         with tempfile.TemporaryDirectory() as tmp_dir:
             num_lines = jsonl_dataset.count("\n")
             for i, line in enumerate(jsonl_dataset.split("\n")):
                 with open(os.path.join(tmp_dir, f"test_{i}.pkl"), "wb") as f:
                     pickle.dump(line, f)
 
-            def read_npy_file(
-                files: List[str], backend: Literal["cudf", "pandas"], **kwargs
-            ):
+            def read_npy_file(files: list[str], backend: Literal["cudf", "pandas"], **kwargs) -> pd.DataFrame:  # noqa: ARG001
                 if backend == "cudf":
                     import cudf as df_backend
                 else:
-                    import pandas as df_backend
+                    import pandas as df_backend  # noqa: ICN001
 
-                df = df_backend.DataFrame(
-                    [{**json.loads(pickle.load(open(file, "rb")))} for file in files],
+                return df_backend.DataFrame(
+                    [{**json.loads(pickle.load(open(file, "rb")))} for file in files],  # noqa: S301
                 )
-                return df
 
             dataset = DocumentDataset.read_custom(
                 input_files=tmp_dir,
@@ -180,9 +166,7 @@ class TestIO:
             assert dataset.df.npartitions == math.ceil(num_lines / 2)
             expected_df = pd.DataFrame(map(json.loads, jsonl_dataset.split("\n")))
             pd.testing.assert_frame_equal(
-                dataset.df.to_backend("pandas")
-                .compute()
-                .sort_values(by="id", ignore_index=True),
+                dataset.df.to_backend("pandas").compute().sort_values(by="id", ignore_index=True),
                 expected_df[["date", "id", "text"]].sort_values(
                     by="id", ignore_index=True
                 ),  # because we sort columns by name
@@ -194,8 +178,8 @@ class TestWriteWithFilename:
     @pytest.mark.parametrize("file_ext", ["jsonl", "parquet", "jsonl.gz"])
     @pytest.mark.parametrize("filename_col", ["file_name", "filename"])
     def test_multifile_single_partition(
-        self, tmp_path, keep_filename_column, file_ext, filename_col
-    ):
+        self, tmp_path: Path, keep_filename_column: bool, file_ext: str, filename_col: str
+    ) -> None:
         if file_ext == "jsonl.gz":
             compression = "gzip"
             file_type = "jsonl"
@@ -237,10 +221,10 @@ class TestWriteWithFilename:
     @pytest.mark.parametrize("file_ext", ["jsonl", "parquet", "jsonl.gz"])
     def test_singlefile_single_partition(
         self,
-        tmp_path,
-        keep_filename_column,
-        file_ext,
-    ):
+        tmp_path: Path,
+        keep_filename_column: bool,
+        file_ext: str,
+    ) -> None:
         if file_ext == "jsonl.gz":
             compression = "gzip"
             file_type = "jsonl"
@@ -269,17 +253,16 @@ class TestWriteWithFilename:
         )
         assert_eq(got, df)
 
-    def test_multifile_single_partition_error(self, tmp_path):
+    def test_multifile_single_partition_error(self, tmp_path: Path) -> None:
         df = pd.DataFrame({"a": [1, 2, 3], "file_name": ["file0", "file1", "file1"]})
 
         with pytest.raises(ValueError, match="Unknown output type"):
-            single_partition_write_with_filename(
-                df=df, output_file_dir=tmp_path, output_type="pickle"
-            )
+            single_partition_write_with_filename(df=df, output_file_dir=tmp_path, output_type="pickle")
 
     # Test multiple partitions where we need to append to existing files
     @pytest.mark.parametrize(
-        "file_ext, read_f",
+        # TODO: Possibly need to fix this
+        "file_ext, read_f",  # noqa: PT006
         [
             ("jsonl", DocumentDataset.read_json),
             ("parquet", DocumentDataset.read_parquet),
@@ -287,7 +270,9 @@ class TestWriteWithFilename:
         ],
     )
     @pytest.mark.parametrize("filename_col", ["file_name", "filename"])
-    def test_multifile_multi_partition(self, tmp_path, file_ext, read_f, filename_col):
+    def test_multifile_multi_partition(
+        self, tmp_path: Path, file_ext: str, read_f: Callable[[str], DocumentDataset], filename_col: str
+    ) -> None:
         if file_ext == "jsonl.gz":
             compression = "gzip"
             file_type = "jsonl"
@@ -322,7 +307,7 @@ class TestWriteWithFilename:
 
 
 class TestFileExtensions:
-    def test_keep_extensions(self, tmp_path):
+    def test_keep_extensions(self, tmp_path: Path) -> None:
         json_1 = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         json_1.to_json(tmp_path / "json_1.jsonl", orient="records", lines=True)
         json_2 = pd.DataFrame({"a": [7, 8, 9], "b": [10, 11, 12]})
@@ -336,28 +321,24 @@ class TestFileExtensions:
         csv_file.to_csv(tmp_path / "csv_file.csv")
 
         with pytest.raises(RuntimeError):
-            doc = DocumentDataset.read_json(str(tmp_path))
+            _doc = DocumentDataset.read_json(str(tmp_path))
 
         input_files = get_all_files_paths_under(str(tmp_path), keep_extensions="jsonl")
         input_dataset = DocumentDataset.read_json(input_files)
         assert json_df.equals(input_dataset.df.compute())
 
-        input_files = get_all_files_paths_under(
-            str(tmp_path), keep_extensions=["jsonl"]
-        )
+        input_files = get_all_files_paths_under(str(tmp_path), keep_extensions=["jsonl"])
         input_dataset = DocumentDataset.read_json(input_files)
         assert json_df.equals(input_dataset.df.compute())
 
-        input_files = get_all_files_paths_under(
-            str(tmp_path), keep_extensions=["jsonl", "parquet"]
-        )
+        input_files = get_all_files_paths_under(str(tmp_path), keep_extensions=["jsonl", "parquet"])
         assert sorted(input_files) == [
             str(tmp_path / "json_1.jsonl"),
             str(tmp_path / "json_2.jsonl"),
             str(tmp_path / "parquet_file.parquet"),
         ]
 
-    def test_write_single_jsonl_file(self, tmp_path):
+    def test_write_single_jsonl_file(self, tmp_path: Path) -> None:
         json_df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
         json_df.to_json(tmp_path / "json_file.jsonl", orient="records", lines=True)
 
@@ -371,7 +352,7 @@ class TestFileExtensions:
 
 
 class TestPartitionOn:
-    def test_partition_on_and_write_to_filename_error(self, tmp_path):
+    def test_partition_on_and_write_to_filename_error(self, tmp_path: Path) -> None:
         """Verify that using partition_on and write_to_filename together raises an error."""
         df = pd.DataFrame(
             {
@@ -392,9 +373,7 @@ class TestPartitionOn:
                 partition_on="category",
             )
 
-    @pytest.mark.parametrize(
-        "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
-    )
+    @pytest.mark.parametrize("backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
     @pytest.mark.parametrize(
         "category_values",
         [
@@ -405,17 +384,15 @@ class TestPartitionOn:
     )
     @pytest.mark.parametrize("compression", [None, "gzip"])
     def test_write_to_disk_with_partition_on_jsonl(
-        self, tmp_path, backend, category_values, compression
-    ):
+        self, tmp_path: Path, backend: Literal["pandas", "cudf"], category_values: list[Any], compression: str | None
+    ) -> None:
         """
         Test writing a partitioned JSONL dataset.
 
         The function is expected to create subdirectories in the output directory
         with names of the form 'category=<value>' for each unique partition column value.
         """
-        df = pd.DataFrame(
-            {"id": [1, 2, 3, 4], "category": category_values, "value": [10, 20, 30, 40]}
-        )
+        df = pd.DataFrame({"id": [1, 2, 3, 4], "category": category_values, "value": [10, 20, 30, 40]})
         ddf = dd.from_pandas(df, npartitions=2)
         ddf = ddf.to_backend(backend)
         output_dir = tmp_path / "output_jsonl"
@@ -438,24 +415,18 @@ class TestPartitionOn:
             # The partition value is taken from the directory name.
             partition_value = part_dir.name.split("=")[-1]
             jsonl_files = list(part_dir.glob("*.part"))
-            assert (
-                jsonl_files
-            ), f"No JSONL files found in partition directory {part_dir}"
+            assert jsonl_files, f"No JSONL files found in partition directory {part_dir}"
             for file in jsonl_files:
-                with (
-                    gzip.open(file, "rt") if compression == "gzip" else open(file, "r")
-                ) as f:
+                with gzip.open(file, "rt") if compression == "gzip" else open(file) as f:
                     for line in f:
                         record = json.loads(line)
                         if "category" in record:
                             # Compare as strings, to work with both integer and string partition values.
-                            assert (
-                                str(record["category"]) == partition_value
-                            ), f"Record partition value {record['category']} does not match directory {partition_value}"
+                            assert str(record["category"]) == partition_value, (
+                                f"Record partition value {record['category']} does not match directory {partition_value}"
+                            )
 
-    @pytest.mark.parametrize(
-        "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
-    )
+    @pytest.mark.parametrize("backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
     @pytest.mark.parametrize(
         "category_values",
         [
@@ -465,8 +436,8 @@ class TestPartitionOn:
         ],
     )
     def test_write_to_disk_with_partition_on_parquet(
-        self, tmp_path, backend, category_values
-    ):
+        self, tmp_path: Path, backend: Literal["pandas", "cudf"], category_values: list[Any]
+    ) -> None:
         """
         Test writing a partitioned Parquet dataset.
 
@@ -474,9 +445,7 @@ class TestPartitionOn:
         using dd.read_parquet. The output is compared (after sorting) to the original DataFrame.
         """
 
-        df = pd.DataFrame(
-            {"id": [1, 2, 3, 4], "category": category_values, "value": [10, 20, 30, 40]}
-        )
+        df = pd.DataFrame({"id": [1, 2, 3, 4], "category": category_values, "value": [10, 20, 30, 40]})
         ddf = dd.from_pandas(df, npartitions=2)
         ddf = ddf.to_backend(backend)
         output_dir = tmp_path / "output_parquet"

@@ -15,7 +15,6 @@
 import argparse
 import os
 import shutil
-from typing import Any, Optional, Tuple
 
 import matplotlib.pyplot as plt
 from downloaders import (
@@ -52,10 +51,10 @@ CONFIG_DIR = os.path.join(SCRIPT_DIR_PATH, "configs")
 
 
 def download_sources(
-    wikipedia_limit: Optional[int] = None,
-    github_limit: Optional[int] = None,
-    pdf_limit: Optional[int] = None,
-) -> Tuple[str, str]:
+    wikipedia_limit: int | None = None,
+    github_limit: int | None = None,
+    pdf_limit: int | None = None,
+) -> tuple[str, str]:
     """
     Downloads all the dataset sources and converts them to the JSONL format.
     Args:
@@ -69,10 +68,12 @@ def download_sources(
     """
 
     wikipedia_dir = download_wikipedia_sources(
-        "sources/wikipedia_urls.jsonl", limit=wikipedia_limit
+        "sources/wikipedia_urls.jsonl",
+        limit=wikipedia_limit,
     )
     github_dir = download_github_sources(
-        "sources/github_repos.jsonl", limit=github_limit
+        "sources/github_repos.jsonl",
+        limit=github_limit,
     )
     pdf_dir = download_pdf_sources("sources/arxiv_urls.jsonl", limit=pdf_limit)
 
@@ -85,7 +86,7 @@ def download_sources(
     return text_files, code_files
 
 
-def plot_data(orig_dataset: DocumentDataset, filename: str):
+def plot_data(orig_dataset: DocumentDataset, filename: str) -> None:
     """
     Plot histogram of different file types and corresponding sizes
 
@@ -110,17 +111,18 @@ def plot_data(orig_dataset: DocumentDataset, filename: str):
     fig.savefig(filename, bbox_inches="tight")
 
 
-def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
+def run_curation_pipeline(args: argparse.Namespace, text_files: str, code_files: str) -> None:  # noqa: PLR0915
     """
     Run the curation pipeline on the Wiki+Arxiv+Github datasets.
 
     Args:
-        args (Any): Command-line arguments.
+        args (argparse.Namespace): Command-line arguments.
         jsonl_dir (str): Directory path where the JSONL files are stored.
     """
     # Initialize the Dask cluster.
     client = get_client(
-        **ArgumentHelper.parse_client_args(args), set_torch_to_use_rmm=True
+        **ArgumentHelper.parse_client_args(args),
+        set_torch_to_use_rmm=True,
     )
 
     # Define data curation steps for text and pdf files
@@ -128,11 +130,13 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         [
             clean_and_unify,
             ScoreFilter(
-                TextLineCountFilter(), text_field="file_type_count", score_type=bool
+                TextLineCountFilter(),
+                text_field="file_type_count",
+                score_type=bool,
             ),
             filter_text,
             exact_dedupe,
-        ]
+        ],
     )
 
     # Define data curation steps for code files
@@ -140,12 +144,14 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         [
             clean_and_unify,
             ScoreFilter(
-                CodeLineCountFilter(), text_field="file_type_count", score_type=bool
+                CodeLineCountFilter(),
+                text_field="file_type_count",
+                score_type=bool,
             ),
             filter_code,
             exact_dedupe,
             redact_code,
-        ]
+        ],
     )
 
     orig_dataset_text = DocumentDataset.read_json(text_files, add_filename=True)
@@ -159,14 +165,10 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
 
     # create a field combining fields file type and line count
     orig_dataset_text.df["file_type_count"] = (
-        orig_dataset_text.df["file_type"]
-        + " : "
-        + orig_dataset_text.df["line_count"].astype(str)
+        orig_dataset_text.df["file_type"] + " : " + orig_dataset_text.df["line_count"].astype(str)
     )
     orig_dataset_code.df["file_type_count"] = (
-        orig_dataset_code.df["file_type"]
-        + " : "
-        + orig_dataset_code.df["line_count"].astype(str)
+        orig_dataset_code.df["file_type"] + " : " + orig_dataset_code.df["line_count"].astype(str)
     )
 
     print("Executing the curation pipeline...")
@@ -184,10 +186,11 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         gpu_dataset_text = DocumentDataset(dataset_text.df.to_backend("cudf"))
         gpu_dataset_code = DocumentDataset(dataset_code.df.to_backend("cudf"))
         sem_dedupe_config_yaml_path = os.path.join(
-            CONFIG_DIR, "text_semantic_dedupe_config.yaml"
+            CONFIG_DIR,
+            "text_semantic_dedupe_config.yaml",
         )
-        CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "semantic_dedupe", "text")
-        rm_dir(CACHE_DIR)
+        semantic_dedupe_cache_dir = os.path.join(SCRIPT_DIR_PATH, "cache", "semantic_dedupe", "text")
+        rm_dir(semantic_dedupe_cache_dir)
         semantic_dataset_text = semantic_dedupe(
             dataset=gpu_dataset_text,
             sem_dedupe_config_yaml_path=sem_dedupe_config_yaml_path,
@@ -196,14 +199,15 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
         print(f"After semantic dedupe for text files: {len(semantic_dataset_text.df)}")
 
         print("Executing the fuzzy dedupe pipeline...")
-        CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "text")
-        rm_dir(CACHE_DIR)
+        fuzzy_dedupe_text_cache_dir = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "text")
+        rm_dir(fuzzy_dedupe_text_cache_dir)
         fuzzy_dataset_text = fuzzy_dedupe(
-            dataset=semantic_dataset_text, cache_dir=CACHE_DIR
+            dataset=semantic_dataset_text,
+            cache_dir=fuzzy_dedupe_text_cache_dir,
         )
-        CACHE_DIR = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "code")
-        rm_dir(CACHE_DIR)
-        fuzzy_dataset_code = fuzzy_dedupe(dataset=gpu_dataset_code, cache_dir=CACHE_DIR)
+        fuzzy_dedupe_code_cache_dir = os.path.join(SCRIPT_DIR_PATH, "cache", "fuzzy_dedupe", "code")
+        rm_dir(fuzzy_dedupe_code_cache_dir)
+        fuzzy_dataset_code = fuzzy_dedupe(dataset=gpu_dataset_code, cache_dir=fuzzy_dedupe_code_cache_dir)
 
         dataset_text.df = fuzzy_dataset_text.df.to_backend("pandas")
         dataset_code.df = fuzzy_dataset_code.df.to_backend("pandas")
@@ -230,24 +234,30 @@ def run_curation_pipeline(args: Any, text_files: str, code_files: str) -> None:
 
     # Split the dataset by file category and save curated files (optional - to create blended datasets)
     print("Split dataset by metadata")
-    separated_data_text = separate_by_metadata(
-        final_dataset_text.df, out_path, "category"
+    separate_by_metadata(
+        final_dataset_text.df,
+        out_path,
+        "category",
     ).compute()
-    separated_data_code = separate_by_metadata(
-        final_dataset_code.df, out_path, "category"
+    separate_by_metadata(
+        final_dataset_code.df,
+        out_path,
+        "category",
     ).compute()
 
     client.close()
 
 
 def blend_and_shuffle(
-    args: Any, dataset_paths: list, dataset_weights: list, target_size: int
+    dataset_paths: list,
+    dataset_weights: list,
+    target_size: int,
 ) -> None:
     """
     Blend and shuffle curated data based on file paths for continued pre-training
 
     Args:
-        args (Any): Command-line arguments.
+        args (argparse.Namespace): Command-line arguments.
         dataset_paths (list): List containing directory paths where the different JSONL files are stored.
         dataset_weights (list): List setting weights for each directory path
         target_size (int): Target number of data samples after blending
@@ -269,7 +279,7 @@ def blend_and_shuffle(
     blended_dataset.to_json(output_path)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.
@@ -292,7 +302,7 @@ def main():
     dataset_weights = [1.0, 4.0, 4.0, 1.0]
     target_size = 20
 
-    blend_and_shuffle(args, dataset_paths, dataset_weights, target_size)
+    blend_and_shuffle(dataset_paths, dataset_weights, target_size)
     print("Data Blending completed")
 
 

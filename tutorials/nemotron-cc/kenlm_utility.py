@@ -1,7 +1,7 @@
 import os
 import re
 import unicodedata
-from typing import Dict
+from typing import Final
 
 import kenlm
 import sentencepiece
@@ -20,7 +20,7 @@ class SentencePiece:
 class KenlmModel:
     # Regex patterns and character mappings
     DIGIT_RE = re.compile(r"\d")
-    UNICODE_PUNCT = {
+    UNICODE_PUNCT: Final[dict[str, str]] = {
         "，": ",",  # Chinese comma
         "。": ".",  # Chinese period
         "、": ",",  # Chinese enumeration comma
@@ -57,7 +57,7 @@ class KenlmModel:
         "►": "-",  # Black right-pointing pointer
     }
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model_path: str,
         language: str,
@@ -78,12 +78,10 @@ class KenlmModel:
 
         # Compile regex patterns for better performance
         self.unicode_punct_re = re.compile(f"[{''.join(self.UNICODE_PUNCT.keys())}]")
-        self.non_printing_chars_re = re.compile(
-            f"[{''.join(map(chr, list(range(0,32)) + list(range(127,160))))}]"
-        )
+        self.non_printing_chars_re = re.compile(f"[{''.join(map(chr, list(range(32)) + list(range(127, 160))))}]")
 
     @classmethod
-    def from_pretrained(cls, model_path: str, language: str):
+    def from_pretrained(cls, model_path: str, language: str) -> "KenlmModel":
         """Factory method to create a model with default settings"""
         return cls(model_path, language)
 
@@ -121,7 +119,7 @@ class KenlmModel:
             text = self.DIGIT_RE.sub("0", text)
         if self.punct == 1:
             text = self._replace_unicode_punct(text)
-        elif self.punct == 2:
+        elif self.punct == 2:  # noqa: PLR2004
             text = self._remove_unicode_punct(text)
 
         return self._remove_non_printing_chars(text)

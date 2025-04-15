@@ -16,7 +16,7 @@ import json
 import os
 import re
 import warnings
-from typing import Dict
+from collections.abc import Iterator
 
 import requests
 from bs4 import BeautifulSoup, MarkupResemblesLocatorWarning
@@ -64,7 +64,7 @@ class LawQADownloader(DocumentDownloader):
             return output_file
 
         print(f"Downloading Law QA dataset from '{url}'...")
-        response = requests.get(url)
+        response = requests.get(url)  # noqa: S113
 
         with open(output_file, "wb") as file:
             file.write(response.content)
@@ -73,13 +73,12 @@ class LawQADownloader(DocumentDownloader):
 
 
 class LawQAIterator(DocumentIterator):
-
     def __init__(self):
         super().__init__()
         self._counter = -1
         self._extractor = LawQAExtractor()
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[dict[str, str]]:
         """
         Iterates over the content of a file and yields extracted records.
 
@@ -92,7 +91,7 @@ class LawQAIterator(DocumentIterator):
         self._counter = -1
         file_name = os.path.basename(file_path)
 
-        with open(file_path, "r", encoding="utf-8") as file:
+        with open(file_path, encoding="utf-8") as file:
             lines = file.readlines()
 
         file_content = "".join(lines)
@@ -106,10 +105,10 @@ class LawQAIterator(DocumentIterator):
             if extracted_content is None:
                 continue
 
-            id, extracted_content = extracted_content
+            _id, extracted_content = extracted_content
             meta = {
                 "file_name": file_name,
-                "id": f"law-stackexchange-qa-{id}",
+                "id": f"law-stackexchange-qa-{_id}",
             }
 
             record = {**meta, **extracted_content}
@@ -117,8 +116,7 @@ class LawQAIterator(DocumentIterator):
 
 
 class LawQAExtractor(DocumentExtractor):
-
-    def extract(self, content: str) -> Dict[str, str]:
+    def extract(self, content: dict[str, str]) -> dict[str, str]:
         """
         Extracts relevant information from a law-related question and its best answer.
 
@@ -129,7 +127,7 @@ class LawQAExtractor(DocumentExtractor):
             Dict[str, str]: A dictionary containing the extracted information, including the question ID, title, body,
             score, best answer, best answer score, and tags.
         """
-        id = content["question_id"]
+        _id = content["question_id"]
         q_title = content["question_title"]
         q_body = content["question_body"]
         q_score = content["score"]
@@ -150,7 +148,7 @@ class LawQAExtractor(DocumentExtractor):
         q_body = self._clean_html(q_body)
         best_answer = self._clean_html(best_answer)
 
-        return id, {
+        return _id, {
             "title": q_title,
             "question": q_body,
             "question_score": q_score,

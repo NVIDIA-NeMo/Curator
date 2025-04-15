@@ -19,7 +19,7 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     # Params
     dump_date = "20240201"
     output_directory = "/path/to/output"
@@ -28,12 +28,10 @@ def main(args):
     url_limit = 10
 
     # Set up Dask client
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     # Download and sample data
-    wikipedia = download_wikipedia(
-        output_directory, dump_date=dump_date, url_limit=url_limit
-    )
+    wikipedia = download_wikipedia(output_directory, dump_date=dump_date, url_limit=url_limit)
     sample = wikipedia.df.sample(frac=10 / len(wikipedia))
 
     # Inspect the samples
@@ -41,12 +39,10 @@ def main(args):
 
 
 def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

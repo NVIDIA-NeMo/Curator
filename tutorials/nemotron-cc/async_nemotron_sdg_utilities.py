@@ -1,9 +1,7 @@
 import asyncio
 import logging
 
-import pandas as pd
 from openai import OpenAI
-from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from nemo_curator import (
@@ -39,9 +37,7 @@ from nemo_curator.synthetic.prompts import (
 )
 
 
-def get_prefix_token_count(
-    tokenizer: AutoTokenizer, system_prompt: str, user_prompt_template: str
-):
+def get_prefix_token_count(tokenizer: AutoTokenizer, system_prompt: str, user_prompt_template: str) -> int:
     user_prompt = user_prompt_template.format(document="placeholder")
     messages = [
         {"role": "system", "content": system_prompt},
@@ -53,7 +49,7 @@ def get_prefix_token_count(
     return len(prefix_tokens)
 
 
-def build_preprocessing_pipeline(
+def build_preprocessing_pipeline(  # noqa: PLR0913
     tokenizer: AutoTokenizer,
     text_field: str,
     system_prompt: str,
@@ -61,25 +57,17 @@ def build_preprocessing_pipeline(
     min_document_tokens: int,
     min_segment_tokens: int,
     max_input_tokens: int,
-):
+) -> Sequential:
     # Construct filters for document filtering
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=min_document_tokens
-    )
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
 
     # Construct filters for segment filtering
-    prefix_token_count = get_prefix_token_count(
-        tokenizer, system_prompt, user_prompt_template
-    )
+    prefix_token_count = get_prefix_token_count(tokenizer, system_prompt, user_prompt_template)
     max_segment_tokens = max_input_tokens - prefix_token_count - 2
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=max_segment_tokens
-    )
-    short_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=min_segment_tokens
-    )
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_segment_tokens)
+    short_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_segment_tokens)
 
-    preprocessing_pipeline = Sequential(
+    return Sequential(
         [
             # Filter out documents that are too short
             ScoreFilter(
@@ -89,9 +77,7 @@ def build_preprocessing_pipeline(
                 score_type=int,
             ),
             # Split documents into segments
-            DocumentSplitter(
-                separator="\n", text_field=text_field, segment_id_field="segment_id"
-            ),
+            DocumentSplitter(separator="\n", text_field=text_field, segment_id_field="segment_id"),
             # Filter out segments that are too long
             ScoreFilter(
                 long_segment_token_count_filter,
@@ -117,22 +103,14 @@ def build_preprocessing_pipeline(
         ]
     )
 
-    return preprocessing_pipeline
 
+def build_wikipedia_postprocessing_pipeline(tokenizer: AutoTokenizer, rephrased_field: str) -> Sequential:
+    max_rephrased_tokens = 510
+    min_document_tokens = 50
 
-def build_wikipedia_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, rephrased_field: str
-):
-    MAX_REPHRASED_TOKENS = 510
-    MIN_DOCUMENT_TOKENS = 50
-
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -145,9 +123,7 @@ def build_wikipedia_postprocessing_pipeline(
             Modify(MarkdownRemover(), text_field=rephrased_field),
             # Remove documents not starting with the specified prefix
             ScoreFilter(
-                SubstringFilter(
-                    substring="Here is a paraphrased version:", position="prefix"
-                ),
+                SubstringFilter(substring="Here is a paraphrased version:", position="prefix"),
                 text_field=rephrased_field,
                 score_field="substring",
                 score_type=int,
@@ -180,8 +156,6 @@ def build_wikipedia_postprocessing_pipeline(
             ),
         ]
     )
-
-    return postprocessing_pipeline
 
 
 async def wikipedia_rephraser(
@@ -221,7 +195,7 @@ async def wikipedia_rephraser(
     print("Computing pandas dataframe")
     pandas_df = dataset.df.compute()
 
-    async def process_text(text):
+    async def process_text(text: str) -> str | None:
         try:
             rewritten_text = await generator.rewrite_to_wikipedia_style(
                 text,
@@ -236,10 +210,10 @@ async def wikipedia_rephraser(
             print(rewritten_text)
             return rewritten_text[0]
         except asyncio.TimeoutError:
-            logging.error("Request timed out after 30 seconds")
+            logging.exception("Request timed out after 30 seconds")  # noqa: LOG015
             return None
-        except Exception as e:
-            logging.error(f"Error processing text: {str(e)}")
+        except Exception:
+            logging.exception("Error processing text")  # noqa: LOG015
             return None
 
     # Create tasks for all texts with progress tracking
@@ -253,14 +227,12 @@ async def wikipedia_rephraser(
         from tqdm.asyncio import tqdm_asyncio
 
         rewritten_texts = await tqdm_asyncio.gather(*tasks, desc="Processing texts")
-    except Exception as e:
-        print(f"Error during async gathering: {str(e)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"Error during async gathering: {e!s}")
         rewritten_texts = [None] * len(tasks)
 
     # Handle any exceptions that occurred during gathering
-    rewritten_texts = [
-        result if result is not None else None for result in rewritten_texts
-    ]
+    rewritten_texts = [result if result is not None else None for result in rewritten_texts]
     print(f"Completed processing {len(rewritten_texts)} texts")
 
     pandas_df[rephrased_field] = rewritten_texts
@@ -268,9 +240,7 @@ async def wikipedia_rephraser(
     rephrased_dataset = DocumentDataset.from_pandas(pandas_df)
 
     print("Running Wikipedia rephraser postprocessing pipeline")
-    postprocessing_pipeline = build_wikipedia_postprocessing_pipeline(
-        tokenizer, rephrased_field
-    )
+    postprocessing_pipeline = build_wikipedia_postprocessing_pipeline(tokenizer, rephrased_field)
 
     rephrased_dataset = postprocessing_pipeline(rephrased_dataset)
     print("Wikipedia rephraser postprocessing complete")
@@ -279,17 +249,13 @@ async def wikipedia_rephraser(
 
 def build_diverse_qa_postprocessing_pipeline(
     tokenizer: AutoTokenizer, text_field: str, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 598
-    MIN_DOCUMENT_TOKENS = 100
+) -> Sequential:
+    max_rephrased_tokens = 598
+    min_document_tokens = 100
 
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -301,9 +267,7 @@ def build_diverse_qa_postprocessing_pipeline(
             # Remove markdown formatting
             Modify(MarkdownRemover(), text_field=llm_response_field),
             # Reformat QA pairs
-            NemotronCCDiverseQAPostprocessor(
-                tokenizer, text_field=text_field, response_field=llm_response_field
-            ),
+            NemotronCCDiverseQAPostprocessor(tokenizer, text_field=text_field, response_field=llm_response_field),
             # Filter out documents that are too short
             ScoreFilter(
                 document_token_count_filter,
@@ -313,22 +277,15 @@ def build_diverse_qa_postprocessing_pipeline(
             ),
         ]
     )
-    return postprocessing_pipeline
 
 
-def build_distill_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 1598
-    MIN_DOCUMENT_TOKENS = 50
+def build_distill_postprocessing_pipeline(tokenizer: AutoTokenizer, llm_response_field: str) -> Sequential:
+    max_rephrased_tokens = 1598
+    min_document_tokens = 50
 
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -367,22 +324,14 @@ def build_distill_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
+def build_extract_knowledge_postprocessing_pipeline(tokenizer: AutoTokenizer, llm_response_field: str) -> Sequential:
+    max_rephrased_tokens = 1398
+    min_document_tokens = 50
 
-def build_extract_knowledge_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 1398
-    MIN_DOCUMENT_TOKENS = 50
-
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -395,9 +344,7 @@ def build_extract_knowledge_postprocessing_pipeline(
             Modify(MarkdownRemover(), text_field=llm_response_field),
             # Remove passage lines
             Modify(
-                LineRemover(
-                    patterns=["Passage:", "Passage 1:", "Passage 2:", "Passage 3:"]
-                ),
+                LineRemover(patterns=["Passage:", "Passage 1:", "Passage 2:", "Passage 3:"]),
                 text_field=llm_response_field,
             ),
             # Filter out documents that are too short
@@ -410,22 +357,14 @@ def build_extract_knowledge_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
+def build_knowledge_list_postprocessing_pipeline(tokenizer: AutoTokenizer, llm_response_field: str) -> Sequential:
+    max_rephrased_tokens = 598
+    min_document_tokens = 50
 
-def build_knowledge_list_postprocessing_pipeline(
-    tokenizer: AutoTokenizer, llm_response_field: str
-):
-    MAX_REPHRASED_TOKENS = 598
-    MIN_DOCUMENT_TOKENS = 50
-
-    long_segment_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, max_tokens=MAX_REPHRASED_TOKENS
-    )
-    document_token_count_filter = TokenCountFilter(
-        tokenizer=tokenizer, min_tokens=MIN_DOCUMENT_TOKENS
-    )
-    postprocessing_pipeline = Sequential(
+    long_segment_token_count_filter = TokenCountFilter(tokenizer=tokenizer, max_tokens=max_rephrased_tokens)
+    document_token_count_filter = TokenCountFilter(tokenizer=tokenizer, min_tokens=min_document_tokens)
+    return Sequential(
         [
             # Filter by token count
             ScoreFilter(
@@ -447,10 +386,8 @@ def build_knowledge_list_postprocessing_pipeline(
         ]
     )
 
-    return postprocessing_pipeline
 
-
-async def generate_content(
+async def generate_content(  # noqa: PLR0913
     dataset: DocumentDataset,
     text_field: str,
     openai_client: OpenAI,
@@ -535,7 +472,8 @@ async def generate_content(
 
     task_config = task_configs.get(task_type)
     if not task_config:
-        raise ValueError(f"Invalid task type: {task_type}")
+        msg = f"Invalid task type: {task_type}"
+        raise ValueError(msg)
 
     preprocessing_pipeline = build_preprocessing_pipeline(
         tokenizer,
@@ -555,7 +493,7 @@ async def generate_content(
     # Process with pandas
     rewritten_texts = []
 
-    async def process_text(text):
+    async def process_text(text: str) -> str | None:
         try:
             llm_response = await task_config["generation_function"](
                 text,
@@ -569,8 +507,8 @@ async def generate_content(
                 },
             )
             return llm_response[0]
-        except Exception as e:
-            print(f"Error processing text: {str(e)}")
+        except Exception as e:  # noqa: BLE001
+            print(f"Error processing text: {e!s}")
             return None
 
     # Create tasks for all texts
@@ -580,12 +518,9 @@ async def generate_content(
     try:
         rewritten_texts = await asyncio.gather(*tasks, return_exceptions=True)
         # Handle any exceptions that occurred during gathering
-        rewritten_texts = [
-            result if not isinstance(result, Exception) else None
-            for result in rewritten_texts
-        ]
-    except Exception as e:
-        print(f"Error during async gathering: {str(e)}")
+        rewritten_texts = [result if not isinstance(result, Exception) else None for result in rewritten_texts]
+    except Exception as e:  # noqa: BLE001
+        print(f"Error during async gathering: {e!s}")
         rewritten_texts = [None] * len(tasks)
 
     # Assign new column in pandas
@@ -599,9 +534,7 @@ async def generate_content(
             tokenizer, text_field, llm_response_field
         )
     else:
-        postprocessed_pipeline = task_config["postprocessing_pipeline_builder"](
-            tokenizer, llm_response_field
-        )
+        postprocessed_pipeline = task_config["postprocessing_pipeline_builder"](tokenizer, llm_response_field)
     rephrased_dataset = postprocessed_pipeline(rephrased_dataset)
     print(f"{task_type} generation complete.")
     return rephrased_dataset

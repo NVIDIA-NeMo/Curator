@@ -25,10 +25,10 @@ from nemo_curator._compat import DASK_CUDF_PARQUET_READ_INCONSISTENT_SCHEMA
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import random
 import warnings
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal
 
 import dask.dataframe as dd
 import numpy as np
@@ -41,9 +41,9 @@ from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_fro
 
 cudf = gpu_only_import("cudf")
 LocalCUDACluster = gpu_only_import_from("dask_cuda", "LocalCUDACluster")
-get_device_total_memory = gpu_only_import_from(
-    "dask_cuda.utils", "get_device_total_memory"
-)
+get_device_total_memory = gpu_only_import_from("dask_cuda.utils", "get_device_total_memory")
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 SUPPORTED_JSONL_COMPRESSIONS = {"gzip", None}
 
@@ -52,7 +52,7 @@ class NoWorkerError(Exception):
     pass
 
 
-def _enable_spilling():
+def _enable_spilling() -> None:
     """
     Setting this environment variable enables automatic spilling (and "unspilling")
     of buffers from device to host to enable out-of-memory computation,
@@ -77,16 +77,16 @@ def get_filepath_without_extension(path: str) -> str:
     return filename
 
 
-def start_dask_gpu_local_cluster(
+def start_dask_gpu_local_cluster(  # noqa: PLR0913
     nvlink_only: bool = False,
     protocol: str = "tcp",
-    rmm_pool_size: Optional[Union[int, str]] = "1024M",
+    rmm_pool_size: int | str | None = "1024M",
     enable_spilling: bool = True,
     set_torch_to_use_rmm: bool = True,
     rmm_async: bool = True,
-    rmm_maximum_pool_size: Optional[Union[int, str]] = None,
+    rmm_maximum_pool_size: int | str | None = None,
     rmm_managed_memory: bool = False,
-    rmm_release_threshold: Optional[Union[int, str]] = None,
+    rmm_release_threshold: int | str | None = None,
     **cluster_kwargs,
 ) -> Client:
     """
@@ -129,12 +129,14 @@ def start_dask_gpu_local_cluster(
         _enable_spilling()
         print("cuDF Spilling is enabled", flush=True)
 
-    assert get_num_workers(client) > 0, "No workers are currently connected."
+    if get_num_workers(client) <= 0:
+        msg = "No workers are currently connected."
+        raise NoWorkerError(msg)
     return client
 
 
 def start_dask_cpu_local_cluster(
-    n_workers: Optional[int] = os.cpu_count(),
+    n_workers: int | None = os.cpu_count(),
     threads_per_worker: int = 1,
     **cluster_kwargs,
 ) -> Client:
@@ -152,25 +154,27 @@ def start_dask_cpu_local_cluster(
     )
 
     client = Client(cluster)
-    assert get_num_workers(client) > 0, "No workers are currently connected."
+    if get_num_workers(client) <= 0:
+        msg = "No workers are currently connected."
+        raise NoWorkerError(msg)
     return client
 
 
-def get_client(
-    cluster_type="cpu",
-    scheduler_address=None,
-    scheduler_file=None,
-    n_workers=os.cpu_count(),
-    threads_per_worker=1,
-    nvlink_only=False,
-    protocol="tcp",
-    rmm_pool_size="1024M",
-    enable_spilling=True,
-    set_torch_to_use_rmm=False,
-    rmm_async=True,
-    rmm_maximum_pool_size=None,
-    rmm_managed_memory=False,
-    rmm_release_threshold=None,
+def get_client(  # noqa: PLR0913
+    cluster_type: Literal["cpu", "gpu"] = "cpu",
+    scheduler_address: str | None = None,
+    scheduler_file: str | None = None,
+    n_workers: int | None = os.cpu_count(),
+    threads_per_worker: int = 1,
+    nvlink_only: bool = False,
+    protocol: Literal["tcp", "ucx"] = "tcp",
+    rmm_pool_size: str | int | None = "1024M",
+    enable_spilling: bool = True,
+    set_torch_to_use_rmm: bool = False,
+    rmm_async: bool = True,
+    rmm_maximum_pool_size: str | int | None = None,
+    rmm_managed_memory: bool = False,
+    rmm_release_threshold: str | int | None = None,
     **cluster_kwargs,
 ) -> Client:
     """
@@ -229,44 +233,47 @@ def get_client(
 
     """
     if cluster_type not in ["cpu", "gpu"]:
-        raise ValueError(f"Unknown cluster type: {cluster_type}")
+        msg = f"Unknown cluster type: {cluster_type}"
+        raise ValueError(msg)
 
     if scheduler_address:
         if scheduler_file:
-            raise ValueError(
-                "Only one of scheduler_address or scheduler_file can be provided"
-            )
+            msg = "Only one of scheduler_address or scheduler_file can be provided"
+            raise ValueError(msg)
         else:
             client = Client(address=scheduler_address, timeout="30s")
-            assert get_num_workers(client) > 0, "No workers are currently connected."
+            if get_num_workers(client) <= 0:
+                msg = "No workers are currently connected."
+                raise NoWorkerError(msg)
             return client
     elif scheduler_file:
         client = Client(scheduler_file=scheduler_file, timeout="30s")
-        assert get_num_workers(client) > 0, "No workers are currently connected."
+        if get_num_workers(client) <= 0:
+            msg = "No workers are currently connected."
+            raise NoWorkerError(msg)
         return client
+    elif cluster_type == "gpu":
+        return start_dask_gpu_local_cluster(
+            nvlink_only=nvlink_only,
+            protocol=protocol,
+            rmm_pool_size=rmm_pool_size,
+            enable_spilling=enable_spilling,
+            set_torch_to_use_rmm=set_torch_to_use_rmm,
+            rmm_async=rmm_async,
+            rmm_maximum_pool_size=rmm_maximum_pool_size,
+            rmm_managed_memory=rmm_managed_memory,
+            rmm_release_threshold=rmm_release_threshold,
+            **cluster_kwargs,
+        )
     else:
-        if cluster_type == "gpu":
-            return start_dask_gpu_local_cluster(
-                nvlink_only=nvlink_only,
-                protocol=protocol,
-                rmm_pool_size=rmm_pool_size,
-                enable_spilling=enable_spilling,
-                set_torch_to_use_rmm=set_torch_to_use_rmm,
-                rmm_async=rmm_async,
-                rmm_maximum_pool_size=rmm_maximum_pool_size,
-                rmm_managed_memory=rmm_managed_memory,
-                rmm_release_threshold=rmm_release_threshold,
-                **cluster_kwargs,
-            )
-        else:
-            return start_dask_cpu_local_cluster(
-                n_workers=n_workers,
-                threads_per_worker=threads_per_worker,
-                **cluster_kwargs,
-            )
+        return start_dask_cpu_local_cluster(
+            n_workers=n_workers,
+            threads_per_worker=threads_per_worker,
+            **cluster_kwargs,
+        )
 
 
-def _set_torch_to_use_rmm():
+def _set_torch_to_use_rmm() -> None:
     """
     This function sets up the PyTorch memory pool to be the same as the RAPIDS memory pool.
     This helps avoid OOM errors when using both PyTorch and RAPIDS on the same GPU.
@@ -281,14 +288,15 @@ def _set_torch_to_use_rmm():
     if torch.cuda.get_allocator_backend() == "pluggable":
         warnings.warn(
             "PyTorch allocator already plugged in, not switching to RMM. "
-            "Please ensure you have not already swapped it."
+            "Please ensure you have not already swapped it.",
+            stacklevel=2,
         )
         return
 
     torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
 
 
-def _resolve_filename_col(filename: Union[bool, str]) -> Union[str, bool]:
+def _resolve_filename_col(filename: bool | str) -> str | bool:
     if filename is False:
         return False
     elif filename is True:
@@ -301,11 +309,11 @@ def _resolve_filename_col(filename: Union[bool, str]) -> Union[str, bool]:
 
 
 def select_columns(
-    df: Union[dd.DataFrame, pd.DataFrame, "cudf.DataFrame"],
-    columns: List[str],
+    df: dd.DataFrame | pd.DataFrame | cudf.DataFrame,
+    columns: list[str],
     file_type: Literal["jsonl", "json", "parquet"],
-    add_filename: Union[bool, str],
-) -> Union[dd.DataFrame, pd.DataFrame, "cudf.DataFrame"]:
+    add_filename: bool | str,
+) -> dd.DataFrame | pd.DataFrame | cudf.DataFrame:
     # We exclude parquet because the parquet readers already support column selection
     if file_type in ["jsonl", "json"] and columns is not None:
         if add_filename:
@@ -317,15 +325,15 @@ def select_columns(
     return df
 
 
-def read_single_partition(
-    files: List[str],
+def read_single_partition(  # noqa: C901, PLR0912, PLR0913
+    files: list[str],
     backend: Literal["cudf", "pandas"] = "cudf",
     file_type: str = "jsonl",
-    add_filename: Union[bool, str] = False,
-    input_meta: Union[str, dict] = None,
-    io_columns: Optional[List[str]] = None,
+    add_filename: bool | str = False,
+    input_meta: str | dict | None = None,
+    io_columns: list[str] | None = None,
     **kwargs,
-) -> Union["cudf.DataFrame", pd.DataFrame]:
+) -> cudf.DataFrame | pd.DataFrame:
     """
     This function reads a file with cuDF, sorts the columns of the DataFrame
     and adds a filename column.
@@ -348,8 +356,8 @@ def read_single_partition(
     """
     if input_meta is not None and file_type != "jsonl":
         warnings.warn(
-            "input_meta is only valid for JSONL files and will be ignored for other "
-            " file formats.."
+            "input_meta is only valid for JSONL files and will be ignored for other  file formats.",
+            stacklevel=2,
         )
 
     if file_type in ["jsonl", "json"]:
@@ -363,11 +371,7 @@ def read_single_partition(
             read_f = pd.read_json
 
         if input_meta is not None:
-            read_kwargs["dtype"] = (
-                ast.literal_eval(input_meta)
-                if isinstance(input_meta, str)
-                else input_meta
-            )
+            read_kwargs["dtype"] = ast.literal_eval(input_meta) if isinstance(input_meta, str) else input_meta
             # because pandas doesn't support `prune_columns`, it'll always return all columns even when input_meta is specified
             # to maintain consistency we explicitly set `io_columns` here
             if backend == "pandas" and not io_columns:
@@ -375,29 +379,23 @@ def read_single_partition(
 
     elif file_type == "parquet":
         read_kwargs = {"columns": io_columns}
-        if backend == "cudf":
-            read_f = cudf.read_parquet
-        else:
-            read_f = pd.read_parquet
+        read_f = cudf.read_parquet if backend == "cudf" else pd.read_parquet
 
     else:
-        raise RuntimeError("Could not read data, please check file type")
+        msg = f"Could not read data, please check file type: {file_type}"
+        raise RuntimeError(msg)
 
     if add_filename:
         read_files_one_at_a_time = True
+    elif backend == "cudf":
+        # cuDF supports reading multiple files at once
+        read_files_one_at_a_time = False
     else:
-        if backend == "cudf":
-            # cuDF supports reading multiple files at once
-            read_files_one_at_a_time = False
-        else:
-            # Pandas does not support reading multiple files at once
-            read_files_one_at_a_time = True
+        # Pandas does not support reading multiple files at once
+        read_files_one_at_a_time = True
 
     if read_files_one_at_a_time:
-        if backend == "cudf":
-            concat_f = cudf.concat
-        else:
-            concat_f = pd.concat
+        concat_f = cudf.concat if backend == "cudf" else pd.concat
         df_ls = []
         for file in files:
             df = read_f(file, **read_kwargs, **kwargs)
@@ -413,28 +411,30 @@ def read_single_partition(
     return df
 
 
-def read_data_blocksize(
-    input_files: List[str],
+def read_data_blocksize(  # noqa: C901, PLR0913
+    input_files: list[str],
     backend: Literal["cudf", "pandas"],
     file_type: Literal["parquet", "jsonl"],
     blocksize: str,
-    add_filename: Union[bool, str] = False,
-    input_meta: Union[str, dict] = None,
-    columns: Optional[List[str]] = None,
+    add_filename: bool | str = False,
+    input_meta: str | dict | None = None,
+    columns: list[str] | None = None,
     **kwargs,
 ) -> dd.DataFrame:
-    read_kwargs = dict()
+    read_kwargs = {}
 
     if file_type == "jsonl":
         warnings.warn(
             "If underlying JSONL data does not have a consistent schema, reading with blocksize will fail. "
-            "Please use files_per_partition approach instead."
+            "Please use files_per_partition approach instead.",
+            stacklevel=2,
         )
 
         if backend == "pandas":
             warnings.warn(
                 "Pandas backend with blocksize cannot read multiple JSONL files into a single partition. "
-                "Please use files_per_partition if blocksize exceeds average file size."
+                "Please use files_per_partition if blocksize exceeds average file size.",
+                stacklevel=2,
             )
         read_func = dd.read_json
         read_kwargs["lines"] = True
@@ -444,11 +444,7 @@ def read_data_blocksize(
                 # specified in the input_meta
                 read_kwargs["prune_columns"] = True
 
-            read_kwargs["dtype"] = (
-                ast.literal_eval(input_meta)
-                if isinstance(input_meta, str)
-                else input_meta
-            )
+            read_kwargs["dtype"] = ast.literal_eval(input_meta) if isinstance(input_meta, str) else input_meta
 
             if not columns:
                 # To maintain consistency with the behavior of `read_data_fpp` where passing `input_meta`
@@ -466,12 +462,14 @@ def read_data_blocksize(
         if backend == "cudf" and not DASK_CUDF_PARQUET_READ_INCONSISTENT_SCHEMA:
             warnings.warn(
                 "If underlying Parquet data does not have consistent schema, reading with blocksize will fail. "
-                "Please update underlying RAPIDS package to version 25.02 or higher, or use files_per_partition approach instead."
+                "Please update underlying RAPIDS package to version 25.02 or higher, or use files_per_partition approach instead.",
+                stacklevel=2,
             )
         elif backend == "pandas":
             warnings.warn(
                 "If underlying Parquet data does not have a consistent column order, reading with blocksize might fail. "
-                "Please use files_per_partition approach instead."
+                "Please use files_per_partition approach instead.",
+                stacklevel=2,
             )
 
         if add_filename:
@@ -493,20 +491,16 @@ def read_data_blocksize(
         return output[sorted(output.columns)]
 
 
-def read_data_files_per_partition(
-    input_files: List[str],
+def read_data_files_per_partition(  # noqa: PLR0913
+    input_files: list[str],
     file_type: Literal["parquet", "json", "jsonl"],
     backend: Literal["cudf", "pandas"] = "cudf",
-    add_filename: Union[bool, str] = False,
-    files_per_partition: Optional[int] = None,
-    input_meta: Optional[Union[str, dict]] = None,
-    columns: Optional[List[str]] = None,
-    read_func_single_partition: Optional[
-        Callable[
-            [List[str], str, bool, Union[str, dict], dict],  # Input type
-            Union[dd.DataFrame, pd.DataFrame],  # Return type
-        ]
-    ] = None,
+    add_filename: bool | str = False,
+    files_per_partition: int | None = None,
+    input_meta: str | dict | None = None,
+    columns: list[str] | None = None,
+    read_func_single_partition: Callable[[list[str], str, bool, str | dict, dict], dd.DataFrame | pd.DataFrame]
+    | None = None,
     **kwargs,
 ) -> dd.DataFrame:
     if read_func_single_partition is None:
@@ -521,8 +515,7 @@ def read_data_files_per_partition(
 
     if files_per_partition > 1:
         input_files = [
-            input_files[i : i + files_per_partition]
-            for i in range(0, len(input_files), files_per_partition)
+            input_files[i : i + files_per_partition] for i in range(0, len(input_files), files_per_partition)
         ]
     else:
         input_files = [[file] for file in input_files]
@@ -536,14 +529,13 @@ def read_data_files_per_partition(
         input_meta=input_meta,
         **read_func_single_partition_kwargs,
     )
-    output = output[sorted(output.columns)]
-    return output
+    return output[sorted(output.columns)]
 
 
 def read_pandas_pickle(
     file: str,
-    add_filename: Union[bool, str] = False,
-    columns: Optional[List[str]] = None,
+    add_filename: bool | str = False,
+    columns: list[str] | None = None,
     **kwargs,
 ) -> pd.DataFrame:
     """
@@ -558,29 +550,28 @@ def read_pandas_pickle(
 
     """
     if add_filename:
-        warnings.warn("add_filename is not supported for pickle files")
+        warnings.warn(
+            "add_filename is not supported for pickle files",
+            stacklevel=2,
+        )
 
     if columns is not None:
-        return pd.read_pickle(file, **kwargs)[columns]
+        return pd.read_pickle(file, **kwargs)[columns]  # noqa: S301
     else:
-        return pd.read_pickle(file, **kwargs)
+        return pd.read_pickle(file, **kwargs)  # noqa: S301
 
 
-def read_data(
-    input_files: Union[str, List[str]],
+def read_data(  # noqa: C901, PLR0913
+    input_files: str | list[str],
     file_type: str = "pickle",
     backend: Literal["cudf", "pandas"] = "cudf",
-    blocksize: Optional[str] = None,
-    files_per_partition: Optional[int] = 1,
-    add_filename: Union[bool, str] = False,
-    input_meta: Union[str, dict] = None,
-    columns: Optional[List[str]] = None,
-    read_func_single_partition: Optional[
-        Callable[
-            [List[str], str, bool, Union[str, dict], dict],  # Input type
-            Union[dd.DataFrame, pd.DataFrame],  # Return type
-        ]
-    ] = None,
+    blocksize: str | None = None,
+    files_per_partition: int | None = 1,
+    add_filename: bool | str = False,
+    input_meta: str | dict | None = None,
+    columns: list[str] | None = None,
+    read_func_single_partition: Callable[[list[str], str, bool, str | dict, dict], dd.DataFrame | pd.DataFrame]
+    | None = None,
     **kwargs,
 ) -> dd.DataFrame:
     """
@@ -629,25 +620,26 @@ def read_data(
             **kwargs,
         )
     elif file_type == "pickle":
-        df = read_pandas_pickle(
-            input_files[0], add_filename=add_filename, columns=columns, **kwargs
-        )
+        df = read_pandas_pickle(input_files[0], add_filename=add_filename, columns=columns, **kwargs)
         df = dd.from_pandas(df, npartitions=16)
         if backend == "cudf":
             df = df.to_backend("cudf")
 
     elif file_type in ["json", "jsonl", "parquet"]:
-        assert len(input_files) > 0
+        if len(input_files) == 0:
+            msg = "No input files provided"
+            raise ValueError(msg)
 
         input_extensions = {os.path.splitext(f)[-1] for f in input_files}
         if len(input_extensions) != 1:
-            raise RuntimeError(
+            msg = (
                 "All files being read must have the same file type. "
                 "Please check your input directory or list of files to ensure this. "
                 "To generate a list of files with a given file type in your directory, "
                 "please use the nemo_curator.utils.file_utils.get_all_files_paths_under "
                 "function with the `keep_extensions` parameter."
             )
+            raise RuntimeError(msg)
 
         print(
             f"Reading {len(input_files)} files with {blocksize=} / {files_per_partition=}",
@@ -657,9 +649,7 @@ def read_data(
             msg = "blocksize and files_per_partition cannot be set at the same time"
             raise ValueError(msg)
 
-        if blocksize is not None and (
-            file_type == "jsonl" or (file_type == "parquet" and not add_filename)
-        ):
+        if blocksize is not None and (file_type == "jsonl" or (file_type == "parquet" and not add_filename)):
             return read_data_blocksize(
                 input_files,
                 backend=backend,
@@ -671,11 +661,10 @@ def read_data(
                 **kwargs,
             )
         else:
-            if backend == "cudf" and (
-                file_type == "jsonl" or (file_type == "parquet" and not add_filename)
-            ):
+            if backend == "cudf" and (file_type == "jsonl" or (file_type == "parquet" and not add_filename)):
                 warnings.warn(
-                    "Consider passing in blocksize for better control over memory usage."
+                    "Consider passing in blocksize for better control over memory usage.",
+                    stacklevel=2,
                 )
             return read_data_files_per_partition(
                 input_files,
@@ -689,14 +678,13 @@ def read_data(
                 **kwargs,
             )
     else:
-        raise RuntimeError("Could not read data, please check file type")
+        msg = f"Could not read data, please check file type: {file_type}"
+        raise RuntimeError(msg)
 
     return df
 
 
-def process_batch(
-    load_model_function, load_model_kwargs, run_inference_function, run_inference_kwargs
-):
+def process_batch(load_model_function, load_model_kwargs, run_inference_function, run_inference_kwargs):  # noqa: ANN001, ANN201
     """
     This function loads a model on a Dask worker and then runs inference on a batch of data.
 
@@ -713,12 +701,12 @@ def process_batch(
     return run_inference_function(**run_inference_kwargs, model=model)
 
 
-def process_all_batches(
-    loader_valid,
-    load_model_function,
-    load_model_kwargs,
-    run_inference_function,
-    run_inference_kwargs,
+def process_all_batches(  # noqa: ANN201
+    loader_valid,  # noqa: ANN001
+    load_model_function,  # noqa: ANN001
+    load_model_kwargs,  # noqa: ANN001
+    run_inference_function,  # noqa: ANN001
+    run_inference_kwargs,  # noqa: ANN001
 ):
     """
     This function iterates over batches of data, loading a model and running inference per batch.
@@ -748,14 +736,14 @@ def process_all_batches(
     )
 
 
-def single_partition_write_with_filename(
-    df,
+def single_partition_write_with_filename(  # noqa: C901, PLR0912, PLR0913
+    df: pd.DataFrame | cudf.DataFrame,
     output_file_dir: str,
     keep_filename_column: bool = False,
     output_type: str = "jsonl",
     filename_col: str = "file_name",
-    compression: Optional[str] = None,
-):
+    compression: str | None = None,
+) -> cudf.Series | pd.Series:
     """
     This function processes a DataFrame and writes it to disk
 
@@ -771,12 +759,14 @@ def single_partition_write_with_filename(
         If the DataFrame is empty, return a Series containing a single element, False.
 
     """
-    assert filename_col in df.columns
+    if filename_col not in df.columns:
+        msg = f"Column {filename_col} not found in DataFrame"
+        raise ValueError(msg)
 
     if len(df) > 0:
         empty_partition = False
     else:
-        warnings.warn(f"Empty partition found")
+        warnings.warn("Empty partition found", stacklevel=2)
         empty_partition = True
 
     if is_cudf_type(df):
@@ -796,20 +786,18 @@ def single_partition_write_with_filename(
             if not keep_filename_column:
                 out_df = out_df.drop(filename_col, axis=1)
 
-            filename = (
-                get_filepath_without_extension(filename)
-                if output_type != "bitext"
-                else Path(filename).name
+            filename_without_extension = (
+                get_filepath_without_extension(filename) if output_type != "bitext" else Path(filename).name
             )
-            output_file_path = os.path.join(output_file_dir, filename)
+            output_file_path = os.path.join(output_file_dir, filename_without_extension)
 
             if output_type == "jsonl":
                 output_file_path = output_file_path + ".jsonl"
                 if compression not in SUPPORTED_JSONL_COMPRESSIONS:
-                    raise ValueError(
-                        f"Unsupported compression type: {compression}. "
-                        f"Supported types: {SUPPORTED_JSONL_COMPRESSIONS}"
+                    msg = (
+                        f"Unsupported compression type: {compression}. Supported types: {SUPPORTED_JSONL_COMPRESSIONS}"
                     )
+                    raise ValueError(msg)
                 if compression == "gzip":
                     output_file_path = output_file_path + ".gz"
 
@@ -824,9 +812,7 @@ def single_partition_write_with_filename(
                     )
                 else:
                     # See open issue here: https://github.com/rapidsai/cudf/issues/15211
-                    # df.to_json(
-                    #     output_file_path, orient="records", lines=True, engine="cudf", force_ascii=False
-                    # )
+                    # df.to_json(output_file_path, orient="records", lines=True, engine="cudf", force_ascii=False)  # noqa: ERA001
                     out_df.to_json(
                         output_file_path,
                         orient="records",
@@ -839,22 +825,22 @@ def single_partition_write_with_filename(
                 output_file_path = output_file_path + ".parquet"
                 out_df.to_parquet(output_file_path)
             elif output_type == "bitext":
-                raise RuntimeError(
-                    "You shouldn't call this function to write to simple bitext."
-                )
+                msg = "You shouldn't call this function to write to simple bitext."
+                raise RuntimeError(msg)
             else:
-                raise ValueError(f"Unknown output type: {output_type}")
+                msg = f"Unknown output type: {output_type}"
+                raise ValueError(msg)
 
     return success_ser
 
 
 def _single_partition_write_to_simple_bitext(
-    out_df, output_file_path, partition_info=None
-):
+    out_df: cudf.DataFrame | pd.DataFrame, output_file_path: str, partition_info: dict | None = None
+) -> cudf.Series | pd.Series:
     if len(out_df) > 0:
         empty_partition = False
     else:
-        warnings.warn(f"Empty partition found")
+        warnings.warn("Empty partition found", stacklevel=2)
         empty_partition = True
 
     if is_cudf_type(out_df):
@@ -883,14 +869,14 @@ def _single_partition_write_to_simple_bitext(
             src_values = out_df["src"]
             tgt_values = out_df["tgt"]
 
-        for src, tgt in zip(src_values, tgt_values):
+        for src, tgt in zip(src_values, tgt_values, strict=False):
             src_out.write(src + os.linesep)
             tgt_out.write(tgt + os.linesep)
 
     return success_ser
 
 
-def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
+def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str) -> None:
     """Merge partitions of simple bitext files in `tmp_output_dir` into files at `output_dir`.
 
     Args:
@@ -899,9 +885,7 @@ def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
         output_file_path (str): dir to write output files
     """
 
-    sorted_tmp_files = sorted(
-        os.listdir(tmp_output_dir), key=lambda x: int(x.split(".")[-1])
-    )
+    sorted_tmp_files = sorted(os.listdir(tmp_output_dir), key=lambda x: int(x.split(".")[-1]))
     unique_file_handles = {}
     # Loop through the sorted files and concatenate their contents
     for f in sorted_tmp_files:
@@ -913,9 +897,9 @@ def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
 
         # create the output file if we haven't yet
         if output_file_path not in unique_file_handles:
-            unique_file_handles[output_file_path] = open(output_file_path, "w")
+            unique_file_handles[output_file_path] = open(output_file_path, "w")  # noqa: SIM115
 
-        with open(input_file_path, "r") as infile:
+        with open(input_file_path) as infile:
             unique_file_handles[output_file_path].write(infile.read())
 
     # close all dangling file handles
@@ -923,15 +907,15 @@ def _merge_tmp_simple_bitext_partitions(tmp_output_dir: str, output_dir: str):
         handle.close()
 
 
-def write_to_disk(
-    df,
+def write_to_disk(  # noqa: PLR0912, PLR0913
+    df: dd.DataFrame,
     output_path: str,
-    write_to_filename: Union[bool, str] = False,
+    write_to_filename: bool | str = False,
     keep_filename_column: bool = False,
     output_type: str = "jsonl",
-    partition_on: Optional[str] = None,
-    compression: Optional[str] = None,
-):
+    partition_on: str | None = None,
+    compression: str | None = None,
+) -> None:
     """
     This function writes a Dask DataFrame to the specified file path.
     If write_to_filename is True, then it expects the
@@ -963,21 +947,20 @@ def write_to_disk(
             ).compute()
             return
         else:
-            raise RuntimeError(
+            msg = (
                 "Could not write multi-partition DataFrame to a single JSONL file. "
                 "Please specify a directory output path or repartition the DataFrame."
             )
+            raise RuntimeError(msg)
 
     # output_path is a directory
     elif write_to_filename and filename_col not in df.columns:
-        raise ValueError(
-            f"write_using_filename is True but no {filename_col} column found in DataFrame"
-        )
+        msg = f"write_using_filename is True but no {filename_col} column found in DataFrame"
+        raise ValueError(msg)
 
     if partition_on is not None and write_to_filename:
-        raise ValueError(
-            "Cannot use both partition_on and write_to_filename parameters simultaneously. "
-        )
+        msg = "Cannot use both partition_on and write_to_filename parameters simultaneously. "
+        raise ValueError(msg)
 
     if is_cudf_type(df):
         import cudf
@@ -1002,71 +985,60 @@ def write_to_disk(
         output = output.compute()
 
     # output_path is a directory
-    else:
-        if output_type == "jsonl" or output_type == "parquet":
-            _write_to_jsonl_or_parquet(
-                df,
-                output_path=output_path,
-                output_type=output_type,
-                partition_on=partition_on,
-                compression=compression,
-            )
-        elif output_type == "bitext":
-            if write_to_filename:
-                os.makedirs(output_path, exist_ok=True)
-                tmp_output_file_dir = os.path.join(output_path, ".tmp")
-                os.makedirs(tmp_output_file_dir, exist_ok=True)
-                file_name = os.path.basename(list(df[filename_col].unique())[0])
-            else:
-                tmp_output_file_dir = os.path.join(output_path, ".tmp")
-                os.makedirs(tmp_output_file_dir, exist_ok=True)
-                file_name = os.path.basename(output_path)
-
-            output = df.map_partitions(
-                _single_partition_write_to_simple_bitext,
-                os.path.join(tmp_output_file_dir, file_name),
-                meta=output_meta,
-                enforce_metadata=False,
-            )
-            output = output.compute()
-            _merge_tmp_simple_bitext_partitions(
-                tmp_output_file_dir,
-                (output_path if write_to_filename else os.path.dirname(output_path)),
-            )
-            shutil.rmtree(tmp_output_file_dir)
+    elif output_type in {"jsonl", "parquet"}:
+        _write_to_jsonl_or_parquet(
+            df,
+            output_path=output_path,
+            output_type=output_type,
+            partition_on=partition_on,
+            compression=compression,
+        )
+    elif output_type == "bitext":
+        if write_to_filename:
+            os.makedirs(output_path, exist_ok=True)
+            tmp_output_file_dir = os.path.join(output_path, ".tmp")
+            os.makedirs(tmp_output_file_dir, exist_ok=True)
+            file_name = os.path.basename(list(df[filename_col].unique())[0])  # noqa: RUF015
         else:
-            raise ValueError(f"Unknown output type: {output_type}")
+            tmp_output_file_dir = os.path.join(output_path, ".tmp")
+            os.makedirs(tmp_output_file_dir, exist_ok=True)
+            file_name = os.path.basename(output_path)
+
+        output = df.map_partitions(
+            _single_partition_write_to_simple_bitext,
+            os.path.join(tmp_output_file_dir, file_name),
+            meta=output_meta,
+            enforce_metadata=False,
+        )
+        output = output.compute()
+        _merge_tmp_simple_bitext_partitions(
+            tmp_output_file_dir,
+            (output_path if write_to_filename else os.path.dirname(output_path)),
+        )
+        shutil.rmtree(tmp_output_file_dir)
+    else:
+        msg = f"Unknown output type: {output_type}"
+        raise ValueError(msg)
 
     print(f"Writing to disk complete for {df.npartitions} partition(s)", flush=True)
 
 
 def _write_to_jsonl_or_parquet(
-    df,
+    df: dd.DataFrame,
     output_path: str,
     output_type: Literal["jsonl", "parquet"] = "jsonl",
-    partition_on: Optional[str] = None,
-    compression: Optional[str] = None,
-):
+    partition_on: str | None = None,
+    compression: str | None = None,
+) -> None:
     if output_type == "jsonl":
         if compression not in SUPPORTED_JSONL_COMPRESSIONS:
-            raise ValueError(
-                f"Unsupported compression type: {compression}. "
-                f"Supported types: {SUPPORTED_JSONL_COMPRESSIONS}"
-            )
-
+            msg = f"Unsupported compression type: {compression}. Supported types: {SUPPORTED_JSONL_COMPRESSIONS}"
+            raise ValueError(msg)
         if partition_on is not None:
-            unique_values = (
-                df[partition_on]
-                .unique()
-                .to_backend(backend="pandas")
-                .compute()
-                .to_list()
-            )
+            unique_values = df[partition_on].unique().to_backend(backend="pandas").compute().to_list()
             for value in unique_values:
                 os.makedirs(output_path, exist_ok=True)
-                partition_output_path = os.path.join(
-                    output_path, f"{partition_on}={value}"
-                )
+                partition_output_path = os.path.join(output_path, f"{partition_on}={value}")
                 df[df[partition_on] == value].to_json(
                     partition_output_path,
                     orient="records",
@@ -1075,38 +1047,37 @@ def _write_to_jsonl_or_parquet(
                     index=False,  # Only index=False is supported for orient="records"
                     compression=compression,
                 )
+        elif is_cudf_type(df):
+            # See open issue here: https://github.com/rapidsai/cudf/issues/15211
+            # df.to_json(output_path, orient="records", lines=True, engine="cudf", force_ascii=False)  # noqa: ERA001
+            df.to_json(
+                output_path,
+                orient="records",
+                lines=True,
+                force_ascii=False,
+                index=False,
+                compression=compression,
+            )  # Only index=False is supported for orient="records"
         else:
-            if is_cudf_type(df):
-                # See open issue here: https://github.com/rapidsai/cudf/issues/15211
-                # df.to_json(output_path, orient="records", lines=True, engine="cudf", force_ascii=False)
-                df.to_json(
-                    output_path,
-                    orient="records",
-                    lines=True,
-                    force_ascii=False,
-                    index=False,
-                    compression=compression,
-                )  # Only index=False is supported for orient="records"
-            else:
-                df.to_json(
-                    output_path,
-                    orient="records",
-                    lines=True,
-                    force_ascii=False,
-                    index=False,
-                    compression=compression,
-                )  # Only index=False is supported for orient="records"
+            df.to_json(
+                output_path,
+                orient="records",
+                lines=True,
+                force_ascii=False,
+                index=False,
+                compression=compression,
+            )  # Only index=False is supported for orient="records"
     elif output_type == "parquet":
         if compression is not None:
-            raise ValueError(
-                "Setting a custom compression type is not supported for Parquet files at this time."
-            )
+            msg = "Setting a custom compression type is not supported for Parquet files at this time."
+            raise ValueError(msg)
         df.to_parquet(output_path, write_index=False, partition_on=partition_on)
     else:
-        raise ValueError(f"Unknown output type: {output_type}")
+        msg = f"Unknown output type: {output_type}"
+        raise ValueError(msg)
 
 
-def load_object_on_worker(attr, load_object_function, load_object_kwargs):
+def load_object_on_worker(attr: str, load_object_function: Callable, load_object_kwargs: dict) -> Any:  # noqa: ANN401
     """
     This function checks if a Dask worker has a specified attribute for storing an object.
     If it does, then fetch the object and return it.
@@ -1124,7 +1095,7 @@ def load_object_on_worker(attr, load_object_function, load_object_kwargs):
     try:
         worker = get_worker()
     except ValueError as e:
-        raise NoWorkerError(str(e))
+        raise NoWorkerError(str(e))  # noqa: B904
 
     if hasattr(worker, attr):
         obj = getattr(worker, attr)
@@ -1134,7 +1105,7 @@ def load_object_on_worker(attr, load_object_function, load_object_kwargs):
     return obj
 
 
-def offload_object_on_worker(attr: str):
+def offload_object_on_worker(attr: str) -> bool:
     """
     This function deletes an existing attribute from a Dask worker.
 
@@ -1150,7 +1121,7 @@ def offload_object_on_worker(attr: str):
     return True
 
 
-def get_num_workers(client):
+def get_num_workers(client: Client | None) -> int | None:
     """
     Returns the number of workers in the cluster
     """
@@ -1160,7 +1131,7 @@ def get_num_workers(client):
     return len(worker_list)
 
 
-def get_current_client():
+def get_current_client() -> Client | None:
     """
     Returns the context-local or latest initailised client.
     If no Client instances exist, returns None
@@ -1171,27 +1142,29 @@ def get_current_client():
         return None
 
 
-def check_dask_cwd(file_list: List[str]):
+def check_dask_cwd(file_list: list[str]) -> None:
     if any(not os.path.isabs(file_path) for file_path in file_list):
         dask_cwd_list = list(get_current_client().run(os.getcwd).values())
         if len(set(dask_cwd_list)) <= 1:
             dask_cwd = dask_cwd_list[0]
-            os_pwd = subprocess.check_output("pwd", shell=True, text=True).strip()
+            os_pwd = subprocess.check_output("pwd", shell=True, text=True).strip()  # noqa: S602, S607
             if dask_cwd != os_pwd:
-                raise RuntimeError(
+                msg = (
                     "Mismatch between Dask client and worker working directories. "
                     "Use absolute file paths to ensure the correct files are read as intended."
                 )
+                raise RuntimeError(msg)
         else:
-            raise RuntimeError(
+            msg = (
                 "Mismatch between at least 2 Dask workers' working directories. "
                 "Use absolute file paths to ensure the correct files are read as intended."
             )
+            raise RuntimeError(msg)
 
 
 def performance_report_if(
-    path: Optional[str] = None, report_name: str = "dask-profile.html"
-):
+    path: str | None = None, report_name: str = "dask-profile.html"
+) -> AbstractContextManager[Any]:
     """
     Generates a performance report if a valid path is provided, or returns a
     no-op context manager if not.
@@ -1209,19 +1182,19 @@ def performance_report_if(
 
 
 def performance_report_if_with_ts_suffix(
-    path: Optional[str] = None, report_name: str = "dask-profile"
-):
+    path: str | None = None, report_name: str = "dask-profile"
+) -> AbstractContextManager[Any]:
     """
     Same as performance_report_if, except it suffixes the report_name with the timestamp.
 
     """
     return performance_report_if(
         path=path,
-        report_name=f"{report_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",
+        report_name=f"{report_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}.html",  # noqa: DTZ005
     )
 
 
-def seed_all(seed: int = 42):
+def seed_all(seed: int = 42) -> None:
     """
     Function to set seed for random number generators for reproducibility.
 
@@ -1237,7 +1210,7 @@ def seed_all(seed: int = 42):
     # Set seed values for various random number generators
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
-    np.random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
@@ -1247,7 +1220,7 @@ def seed_all(seed: int = 42):
         torch.backends.cudnn.benchmark = False
 
 
-def get_network_interfaces() -> List[str]:
+def get_network_interfaces() -> list[str]:
     """
     Gets a list of all valid network interfaces on a machine
 
@@ -1257,7 +1230,7 @@ def get_network_interfaces() -> List[str]:
     return list(psutil.net_if_addrs().keys())
 
 
-def get_gpu_memory_info() -> Dict[str, int]:
+def get_gpu_memory_info() -> dict[str, int]:
     """
     Get the total GPU memory for each Dask worker.
     Returns:

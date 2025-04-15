@@ -27,17 +27,17 @@ from nemo_curator.utils.fuzzy_dedup_utils.io_utils import strip_trailing_sep
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def pre_imports():
+def pre_imports() -> None:
     import cudf  # noqa: F401
 
 
-def main(args):
-    logger = create_logger(
-        rank=0, log_file=os.path.join(args.log_dir, "rank_000.log"), name="exact_dedup"
-    )
+def main(args: argparse.Namespace) -> None:
+    logger = create_logger(rank=0, log_file=os.path.join(args.log_dir, "rank_000.log"), name="exact_dedup")
     logger.info(f"Starting workflow with args:\n {args}")
 
-    assert args.hash_method == "md5", "Currently only md5 hash is supported"
+    if args.hash_method != "md5":
+        msg = "Currently only md5 hash is supported"
+        raise ValueError(msg)
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     if args.device == "gpu":
@@ -51,12 +51,12 @@ def main(args):
     t0 = time.time()
     dfs = []
     for data_path in data_paths:
-        data_path = strip_trailing_sep(data_path)
+        stripped_data_path = strip_trailing_sep(data_path)
         if num_files is not None and num_files <= 0:
             logger.info(f"Processed {num_files}... quitting")
             break
         files = get_all_files_paths_under(
-            root=data_path, recurse_subdirectories=False, keep_extensions="jsonl"
+            root=stripped_data_path, recurse_subdirectories=False, keep_extensions="jsonl"
         )
         df = read_data(
             files[:num_files] if num_files else files,
@@ -81,21 +81,21 @@ def main(args):
     )
     exact_dups(dataset=DocumentDataset(input_df))
     logger.info(
-        f"Exact deduplication computation across datasets took {time.time() - t0}s complete at {args.output_dir}"  # noqa:E501
+        f"Exact deduplication computation across datasets took {time.time() - t0}s complete at {args.output_dir}"
     )
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = "Compute exact duplicates in a given dataset."
     parser = argparse.ArgumentParser(
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
+    arg_helper.parse_gpu_dedup_args()
 
-    argumentHelper.add_arg_output_dir(
+    arg_helper.add_arg_output_dir(
         help="Output directory where duplicate docs will be written. "
         "Each file is a Pickle file that contains a dictionary of NumPy arrays. "
         "The keys are the document IDs and the values are the duplicate documents.",
@@ -111,7 +111,7 @@ def attach_args():
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

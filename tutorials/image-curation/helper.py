@@ -23,16 +23,16 @@ import aiohttp
 import pandas as pd
 
 
-async def download_image(session, url, filename):
+async def download_image(session: aiohttp.ClientSession, url: str, filename: str) -> bool:
     async with session.get(url) as response:
-        if response.status == 200:
+        if response.status == 200:  # noqa: PLR2004
             async with aiofiles.open(filename, mode="wb") as f:
                 await f.write(await response.read())
             return True
     return False
 
 
-async def process_batch(batch, output_dir, batch_num):
+async def process_batch(batch: pd.DataFrame, output_dir: str, batch_num: int) -> None:
     tar_filename = os.path.join(output_dir, f"{batch_num:05d}.tar")
     tmp_dir = os.path.join(output_dir, "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
@@ -94,15 +94,18 @@ async def process_batch(batch, output_dir, batch_num):
     meta_df.to_parquet(parquet_path)
 
 
-def process_parquet_chunk(chunk, output_dir):
+def process_parquet_chunk(chunk: tuple[int, pd.DataFrame], output_dir: str) -> None:
     batch_num, batch = chunk
 
     asyncio.run(process_batch(batch, output_dir, batch_num))
 
 
 def download_webdataset(
-    parquet_path, output_dir, entries_per_tar=10000, num_processes=2
-):
+    parquet_path: str,
+    output_dir: str,
+    entries_per_tar: int = 10000,
+    num_processes: int = 2,
+) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     # Read the parquet file
@@ -110,8 +113,7 @@ def download_webdataset(
 
     # Split the dataframe into chunks for multiprocessing
     chunks = [
-        (batch_num, df[i : i + entries_per_tar])
-        for batch_num, i in enumerate(range(0, len(df), entries_per_tar))
+        (batch_num, df[i : i + entries_per_tar]) for batch_num, i in enumerate(range(0, len(df), entries_per_tar))
     ]
 
     # Use multiprocessing to process chunks in parallel

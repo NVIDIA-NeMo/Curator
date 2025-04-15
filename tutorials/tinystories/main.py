@@ -15,7 +15,6 @@
 import argparse
 import os
 import shutil
-from typing import Any
 
 from docbuilder import TinyStoriesDownloader
 from filters import IncompleteStoryFilter
@@ -76,7 +75,7 @@ def clean_and_unify(dataset: DocumentDataset) -> DocumentDataset:
             Modify(QuotationUnifier()),
             # Unify all unicode
             Modify(UnicodeReformatter()),
-        ]
+        ],
     )
     return cleaners(dataset)
 
@@ -115,10 +114,9 @@ def filter_dataset(dataset: DocumentDataset) -> DocumentDataset:
                 text_field="text",
                 score_type=float,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def redact_pii(dataset: DocumentDataset) -> DocumentDataset:
@@ -154,29 +152,25 @@ def dedupe(dataset: DocumentDataset) -> DocumentDataset:
     deduplicator = ExactDuplicates(id_field="id", text_field="text", hash_method="md5")
     # Find the duplicates
     duplicates = deduplicator(dataset)
-    docs_to_remove = duplicates.df.map_partitions(
-        lambda x: x[x._hashes.duplicated(keep="first")]
-    )
-    # Remove the duplicates using their IDs.
-    duplicate_ids = list(docs_to_remove.compute().id)
-    dataset_df = dataset.df
-    deduped = dataset_df[~dataset_df.id.isin(duplicate_ids)]
+    deduped = deduplicator.remove(dataset, duplicates)
     return DocumentDataset(deduped)
 
 
-def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
+def run_curation_pipeline(args: argparse.Namespace, jsonl_dir: str) -> None:
     """
     Run the curation pipeline on the TinyStories dataset.
 
     Args:
-        args (Any): Command-line arguments.
+        args (argparse.Namespace): Command-line arguments.
         jsonl_dir (str): Directory path where the JSONL files are stored.
     """
     # Initialize the Dask cluster.
     client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"Running curation pipeline on '{jsonl_dir}'...")
     files = get_all_files_paths_under(
-        jsonl_dir, recurse_subdirectories=False, keep_extensions="jsonl"
+        jsonl_dir,
+        recurse_subdirectories=False,
+        keep_extensions="jsonl",
     )
     print("Reading the data...")
     orig_dataset = DocumentDataset.read_json(files, add_filename=True)
@@ -188,7 +182,7 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
             filter_dataset,
             dedupe,
             redact_pii,
-        ]
+        ],
     )
     dataset = curation_steps(dataset)
     print("Executing the pipeline...")
@@ -209,7 +203,7 @@ def run_curation_pipeline(args: Any, jsonl_dir: str) -> None:
     client.close()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.

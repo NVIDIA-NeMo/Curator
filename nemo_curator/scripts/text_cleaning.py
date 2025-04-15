@@ -22,8 +22,8 @@ from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_batched_f
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+def main(args: argparse.Namespace) -> None:
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     # Make the output directories
     output_clean_dir = expand_outdir_and_mkdir(args.output_clean_dir)
@@ -63,36 +63,22 @@ def main(args):
     print("Finished reformatting all files")
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-Text cleaning and language filtering.
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
 
-Takes as input a directory consisting of .jsonl files with one
-document per line and outputs to a separate directory the text
-with fixed unicode. Also performs language filtering using
-the \"language\" field within each JSON object.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    argumentHelper = ArgumentHelper(parser)
-
-    argumentHelper.add_arg_batch_size()
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_input_text_field()
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_distributed_args()
-    argumentHelper.attach_bool_arg(
+    arg_helper.add_arg_batch_size()
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_input_text_field()
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_distributed_args()
+    arg_helper.attach_bool_arg(
         parser,
         "normalize-newlines",
         default=False,
         help="Replace 3 or more consecutive newline characters in each document with only 2 newline characters.",
     )
-    argumentHelper.attach_bool_arg(
-        parser, "remove-urls", default=False, help="Removes all URLs in each document."
-    )
+    arg_helper.attach_bool_arg(parser, "remove-urls", default=False, help="Removes all URLs in each document.")
     parser.add_argument(
         "--output-clean-dir",
         type=str,
@@ -103,5 +89,16 @@ the \"language\" field within each JSON object.
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        """
+Text cleaning and language filtering.
+
+Takes as input a directory consisting of .jsonl files with one
+document per line and outputs to a separate directory the text
+with fixed unicode. Also performs language filtering using
+the \"language\" field within each JSON object.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

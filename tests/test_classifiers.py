@@ -24,7 +24,7 @@ dask_cudf = gpu_only_import("dask_cudf")
 
 
 @pytest.fixture
-def domain_dataset():
+def domain_dataset() -> DocumentDataset:
     text = [
         "Quantum computing is set to revolutionize the field of cryptography.",
         "Investing in index funds is a popular strategy for long-term financial growth.",
@@ -39,13 +39,10 @@ def domain_dataset():
 
 @pytest.mark.gpu
 @pytest.mark.parametrize("keep_prob", [True, False])
-def test_domain_classifier(gpu_client, domain_dataset, keep_prob):
+def test_domain_classifier(gpu_client, domain_dataset: DocumentDataset, keep_prob: bool) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import DomainClassifier
 
-    if keep_prob:
-        prob_column = "domain_prob"
-    else:
-        prob_column = None
+    prob_column = "domain_prob" if keep_prob else None
 
     classifier = DomainClassifier(prob_column=prob_column)
     result_dataset = classifier(dataset=domain_dataset)
@@ -70,12 +67,10 @@ def test_domain_classifier(gpu_client, domain_dataset, keep_prob):
 
 
 @pytest.mark.gpu
-def test_quality_classifier(gpu_client):
+def test_quality_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import QualityClassifier
 
-    text = [
-        "Traveling to Europe during the off-season can be a more budget-friendly option."
-    ]
+    text = ["Traveling to Europe during the off-season can be a more budget-friendly option."]
     df = cudf.DataFrame({"text": text})
     input_dataset = DocumentDataset(dask_cudf.from_cudf(df, npartitions=1))
 
@@ -96,7 +91,7 @@ def test_quality_classifier(gpu_client):
         "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
     ],
 )
-def test_aegis_classifier(gpu_client, aegis_variant):
+def test_aegis_classifier(gpu_client, aegis_variant: str) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import AegisClassifier
 
     # Skip the test if the HF_TOKEN is not set
@@ -131,7 +126,7 @@ def test_aegis_classifier(gpu_client, aegis_variant):
 
 
 @pytest.mark.gpu
-def test_fineweb_edu_classifier(gpu_client, domain_dataset):
+def test_fineweb_edu_classifier(gpu_client, domain_dataset: DocumentDataset) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import FineWebEduClassifier
 
     classifier = FineWebEduClassifier()
@@ -144,7 +139,7 @@ def test_fineweb_edu_classifier(gpu_client, domain_dataset):
 
 
 @pytest.mark.gpu
-def test_fineweb_mixtral_classifier(gpu_client, domain_dataset):
+def test_fineweb_mixtral_classifier(gpu_client, domain_dataset: DocumentDataset) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import FineWebMixtralEduClassifier
 
     classifier = FineWebMixtralEduClassifier()
@@ -157,7 +152,7 @@ def test_fineweb_mixtral_classifier(gpu_client, domain_dataset):
 
 
 @pytest.mark.gpu
-def test_fineweb_nemotron_classifier(gpu_client, domain_dataset):
+def test_fineweb_nemotron_classifier(gpu_client, domain_dataset: DocumentDataset) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import FineWebNemotronEduClassifier
 
     classifier = FineWebNemotronEduClassifier()
@@ -170,7 +165,7 @@ def test_fineweb_nemotron_classifier(gpu_client, domain_dataset):
 
 
 @pytest.mark.gpu
-def test_instruction_data_guard_classifier(gpu_client):
+def test_instruction_data_guard_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import InstructionDataGuardClassifier
 
     # Skip the test if the HF_TOKEN is not set
@@ -178,14 +173,10 @@ def test_instruction_data_guard_classifier(gpu_client):
     if not hf_token:
         pytest.skip("HF_TOKEN environment variable not set")
 
-    instruction = (
-        "Find a route between San Diego and Phoenix which passes through Nevada"
-    )
+    instruction = "Find a route between San Diego and Phoenix which passes through Nevada"
     input_ = ""
     response = "Drive to Las Vegas with highway 15 and from there drive to Phoenix with highway 93"
-    benign_sample_text = (
-        f"Instruction: {instruction}. Input: {input_}. Response: {response}."
-    )
+    benign_sample_text = f"Instruction: {instruction}. Input: {input_}. Response: {response}."
     text = [benign_sample_text]
     df = cudf.DataFrame({"text": text})
     input_dataset = DocumentDataset(dask_cudf.from_cudf(df, npartitions=1))
@@ -202,7 +193,7 @@ def test_instruction_data_guard_classifier(gpu_client):
 
 
 @pytest.mark.gpu
-def test_multilingual_domain_classifier(gpu_client):
+def test_multilingual_domain_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import MultilingualDomainClassifier
 
     text = [
@@ -238,7 +229,7 @@ def test_multilingual_domain_classifier(gpu_client):
 
 
 @pytest.mark.gpu
-def test_content_type_classifier(gpu_client):
+def test_content_type_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import ContentTypeClassifier
 
     text = ["Hi, great video! I am now a subscriber."]
@@ -255,7 +246,7 @@ def test_content_type_classifier(gpu_client):
 
 
 @pytest.mark.gpu
-def test_prompt_task_complexity_classifier(gpu_client):
+def test_prompt_task_complexity_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import PromptTaskComplexityClassifier
 
     text = ["Prompt: Write a Python script that uses a for loop."]
@@ -288,17 +279,11 @@ def test_prompt_task_complexity_classifier(gpu_client):
     result_pred["constraint_ct"] = round(result_pred["constraint_ct"], 2)
     expected_pred["constraint_ct"] = round(expected_pred["constraint_ct"], 2)
     result_pred["contextual_knowledge"] = round(result_pred["contextual_knowledge"], 3)
-    expected_pred["contextual_knowledge"] = round(
-        expected_pred["contextual_knowledge"], 3
-    )
+    expected_pred["contextual_knowledge"] = round(expected_pred["contextual_knowledge"], 3)
     result_pred["creativity_scope"] = round(result_pred["creativity_scope"], 2)
     expected_pred["creativity_scope"] = round(expected_pred["creativity_scope"], 2)
-    result_pred["prompt_complexity_score"] = round(
-        result_pred["prompt_complexity_score"], 3
-    )
-    expected_pred["prompt_complexity_score"] = round(
-        expected_pred["prompt_complexity_score"], 3
-    )
+    result_pred["prompt_complexity_score"] = round(result_pred["prompt_complexity_score"], 3)
+    expected_pred["prompt_complexity_score"] = round(expected_pred["prompt_complexity_score"], 3)
     result_pred["task_type_prob"] = round(result_pred["task_type_prob"], 2)
     expected_pred["task_type_prob"] = round(expected_pred["task_type_prob"], 2)
 

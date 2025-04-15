@@ -17,14 +17,13 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional, Union
 
 import dask_cudf
 import torch
-import torch.nn as nn
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
-from torch.nn import functional as F
+from torch import nn
+from torch.nn import functional as F  # noqa: N812
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from nemo_curator.classifiers.base import _get_suggest_memory_for_classifier
@@ -44,58 +43,47 @@ class EmbeddingConfig:
     pooling_strategy: str = "mean_pooling"  # Options: "mean_pooling" or "last_token"
 
     def __post_init__(self):
-        self.max_seq_length = AutoTokenizer.from_pretrained(
-            self.model_name_or_path
-        ).model_max_length
+        self.max_seq_length = AutoTokenizer.from_pretrained(self.model_name_or_path).model_max_length
         # Guard against Hugging Face bug
         # which sets max_seq_length to max(int) for some models
-        if self.max_seq_length > 1e5:
-            self.max_seq_length = AutoConfig.from_pretrained(
-                self.model_name_or_path
-            ).max_position_embeddings
+        if self.max_seq_length > 1e5:  # noqa: PLR2004
+            self.max_seq_length = AutoConfig.from_pretrained(self.model_name_or_path).max_position_embeddings
         if self.pooling_strategy not in ["mean_pooling", "last_token"]:
-            raise ValueError(
-                "pooling_strategy must be either 'mean_pooling' or 'last_token'"
-            )
+            msg = "pooling_strategy must be either 'mean_pooling' or 'last_token'"
+            self.logger.error(msg)
+            raise ValueError(msg)
 
 
 class EmbeddingPytorchModel(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: EmbeddingConfig) -> None:
         super().__init__()
         self.config = config
-        self.model = AutoModel.from_pretrained(
-            config.model_name_or_path, config=self.config, force_download=False
-        )
+        self.model = AutoModel.from_pretrained(config.model_name_or_path, config=self.config, force_download=False)
 
-    def feature(self, input_ids, attention_mask):
+    def feature(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         with torch.autocast(device_type=input_ids.device.type):
-            embeddings = self.model(input_ids=input_ids, attention_mask=attention_mask)
-        return embeddings
+            return self.model(input_ids=input_ids, attention_mask=attention_mask)
 
     @torch.no_grad()
-    def forward(self, batch):
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         feature = self.feature(batch["input_ids"], batch["attention_mask"])
         if self.config.pooling_strategy == "mean_pooling":
             return self._mean_pooling(feature, batch["attention_mask"])
         else:
             return self._get_last_token(feature, batch["attention_mask"])
 
-    def _mean_pooling(self, model_output, attention_mask):
+    def _mean_pooling(self, model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         token_embeddings = model_output[0]
-        input_mask_expanded = (
-            attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-        )
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
         sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, dim=1)
         sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
         return F.normalize(sum_embeddings / sum_mask, dim=1)
 
-    def _get_last_token(self, model_output, attention_mask):
+    def _get_last_token(self, model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         token_embeddings = model_output[0]
         # Get indices of last non-padded tokens for each sequence in batch
         last_token_indices = attention_mask.sum(dim=1) - 1  # -1 for 0-based indexing
-        last_token_indices = last_token_indices.to(
-            torch.long
-        )  # Ensure indices are of type long
+        last_token_indices = last_token_indices.to(torch.long)  # Ensure indices are of type long
         batch_size = attention_mask.size(0)
         batch_indices = torch.arange(batch_size, device=attention_mask.device)
         # Get embeddings of last non-padded tokens
@@ -107,43 +95,43 @@ class EmbeddingCrossFitModel(HFModel):
     def __init__(
         self,
         config: EmbeddingConfig,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         self.config = config
         if max_mem_gb is None:
             max_mem_gb = _get_suggest_memory_for_classifier()
         super().__init__(self.config.model_name_or_path, max_mem_gb=max_mem_gb)
 
-    def load_model(self, device="cuda"):
+    def load_model(self, device: str = "cuda") -> EmbeddingPytorchModel:
         model = EmbeddingPytorchModel(self.config)
         model = model.to(device)
         model.eval()
         return model
 
-    def max_seq_length(self):
+    def max_seq_length(self) -> int:
         return self.config.max_seq_length
 
-    def load_config(self):
+    def load_config(self) -> AutoConfig:
         return AutoConfig.from_pretrained(self.config.model_name_or_path)
 
-    def load_tokenizer(self):
+    def load_tokenizer(self) -> AutoTokenizer:
         return AutoTokenizer.from_pretrained(self.config.model_name_or_path)
 
 
 class EmbeddingCreator:
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         embedding_model_name_or_path: str = "sentence-transformers/all-MiniLM-L6-v2",
         embedding_batch_size: int = 128,
         embedding_output_dir: str = "./embeddings",
-        embedding_max_mem_gb: Optional[int] = None,
+        embedding_max_mem_gb: int | None = None,
         embedding_pooling_strategy: str = "mean_pooling",
         input_column: str = "text",
         embedding_column: str = "embeddings",
         write_embeddings_to_disk: bool = True,
         write_to_filename: bool = False,
-        logger: Union[logging.Logger, str] = "./",
-        profile_dir: Optional[str] = None,
+        logger: logging.Logger | str = "./",
+        profile_dir: str | None = None,
     ):
         """
         Initializes an EmbeddingCreator for generating embeddings using the specified model configurations.
@@ -183,14 +171,12 @@ class EmbeddingCreator:
         self.embedding_output_dir = embedding_output_dir
         self.input_column = input_column
         self.embedding_column = embedding_column
-        self.model = EmbeddingCrossFitModel(
-            self.embeddings_config, max_mem_gb=embedding_max_mem_gb
-        )
+        self.model = EmbeddingCrossFitModel(self.embeddings_config, max_mem_gb=embedding_max_mem_gb)
         self.write_embeddings_to_disk = write_embeddings_to_disk
         self.write_to_filename = write_to_filename
         self.profile_dir = profile_dir
 
-    def _setup_logger(self, logger):
+    def _setup_logger(self, logger: logging.Logger | str) -> logging.Logger:
         if isinstance(logger, str):
             return create_logger(
                 rank=0,
@@ -202,9 +188,7 @@ class EmbeddingCreator:
         else:
             return logger
 
-    def create_embeddings(
-        self, ddf: dask_cudf.DataFrame, input_column="text"
-    ) -> dask_cudf.DataFrame:
+    def create_embeddings(self, ddf: dask_cudf.DataFrame, input_column: str = "text") -> dask_cudf.DataFrame:
         pipe = op.Sequential(
             op.Tokenizer(
                 self.model,
@@ -225,9 +209,7 @@ class EmbeddingCreator:
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
         t0 = time.time()
         if self.write_embeddings_to_disk:
-            with performance_report_if_with_ts_suffix(
-                self.profile_dir, "embedding-creator"
-            ):
+            with performance_report_if_with_ts_suffix(self.profile_dir, "embedding-creator"):
                 embedding_ddf = self.create_embeddings(dataset.df, self.input_column)
 
                 # category column dtypes are not supported by the GPU-accelerated Parquet writer
@@ -243,9 +225,7 @@ class EmbeddingCreator:
                 )
 
             ddf = DocumentDataset(
-                dask_cudf.read_parquet(
-                    self.embedding_output_dir, blocksize="2GB", aggregate_files=True
-                )
+                dask_cudf.read_parquet(self.embedding_output_dir, blocksize="2GB", aggregate_files=True)
             )
         else:
             embedding_ddf = self.create_embeddings(dataset.df, self.input_column)
@@ -253,11 +233,7 @@ class EmbeddingCreator:
 
         self.logger.info(
             f"Time taken for Creating Embeddings : {time.time() - t0}"
-            + (
-                f" and output written at {self.embedding_output_dir}"
-                if self.write_embeddings_to_disk
-                else ""
-            )
+            + (f" and output written at {self.embedding_output_dir}" if self.write_embeddings_to_disk else "")
         )
 
         return ddf

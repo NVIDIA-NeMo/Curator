@@ -4,34 +4,29 @@ import matplotlib.pyplot as plt
 
 
 class DataSizeTracker:
-    def __init__(self, original_size):
+    def __init__(self, original_size: int) -> None:
         self.original_size = original_size
         self.data = {}
         self.data_list = []  # Store data in a list to track order
         self.logger = logging.getLogger(__name__)
 
-    def record_size(self, stage_name, size=0):
+    def record_size(self, stage_name: str, size: int = 0) -> None:
         if size == -1:
-            if self.data_list:
-                size = self.data_list[-1][1]
-            else:
-                size = self.original_size
+            size = self.data_list[-1][1] if self.data_list else self.original_size
         self.data[stage_name] = size
         self.data_list.append((stage_name, size))  # Append to the list
         self.logger.debug(f"Recorded size for {stage_name}: {size}")
 
-    def get_data(self):
+    def get_data(self) -> dict:
         return self.data
 
-    def calculate_incremental_change(self, stage_name):
+    def calculate_incremental_change(self, stage_name: str) -> float | None:
         if stage_name not in self.data:
             self.logger.warning(f"Stage {stage_name} not found in data.")
             return None
 
         # Find the current stage's index and get its size
-        current_index = next(
-            (i for i, (name, _) in enumerate(self.data_list) if name == stage_name), -1
-        )
+        current_index = next((i for i, (name, _) in enumerate(self.data_list) if name == stage_name), -1)
         current_size = self.data[stage_name]
 
         # Get previous stage's size, or use original size if this is the first stage
@@ -41,7 +36,7 @@ class DataSizeTracker:
 
         filtered_out = previous_size - current_size
 
-        if filtered_out != 0:
+        if filtered_out != 0:  # noqa: SIM108
             # Calculate percentage based on original size
             percent_filtered = (filtered_out / self.original_size) * 100
         else:
@@ -50,7 +45,7 @@ class DataSizeTracker:
         self.logger.debug(f"Incremental change for {stage_name}: {filtered_out}")
         return filtered_out, percent_filtered
 
-    def calculate_overall_change(self):
+    def calculate_overall_change(self) -> float:
         if not self.data:
             self.logger.warning("No data recorded yet.")
             return 0
@@ -59,7 +54,7 @@ class DataSizeTracker:
         final_size = self.data[final_stage]
         total_filtered = self.original_size - final_size
 
-        if self.original_size != 0:
+        if self.original_size != 0:  # noqa: SIM108
             # Calculate what percentage of original data was filtered out
             percent_filtered = (total_filtered / self.original_size) * 100
         else:
@@ -68,7 +63,7 @@ class DataSizeTracker:
         self.logger.debug(f"Overall filtered amount: {total_filtered}")
         return total_filtered, percent_filtered
 
-    def print_summary(self):
+    def print_summary(self) -> None:
         print("Data Processing Summary:")
         print(f"Original Size: {self.original_size}")
         print(f"Final Size: {self.data_list[-1][1]}")
@@ -85,7 +80,7 @@ class DataSizeTracker:
             else:
                 print(f"  Stage: {stage}, Size: {size}, Filtered Amount: Not Available")
 
-    def plot_size_reduction(self):
+    def plot_size_reduction(self) -> None:
         """Plot the dataset size reduction after each filtering stage."""
         stages = ["Original"] + [stage for stage, _ in self.data_list]
         sizes = [self.original_size] + [size for _, size in self.data_list]

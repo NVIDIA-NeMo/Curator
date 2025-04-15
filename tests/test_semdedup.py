@@ -13,6 +13,7 @@
 # limitations under the License.
 import os
 import random
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import dask
@@ -21,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import torch
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from dask.dataframe.utils import assert_eq
 from sklearn.datasets import make_blobs
 from transformers import AutoConfig, AutoModel, AutoTokenizer
@@ -33,12 +34,8 @@ from nemo_curator.utils.import_utils import gpu_only_import, gpu_only_import_fro
 cudf = gpu_only_import("cudf")
 dask_cudf = gpu_only_import("dask_cudf")
 cp = gpu_only_import("cupy")
-EmbeddingCreator = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator"
-)
-ClusteringModel = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup.clusteringmodel", "ClusteringModel"
-)
+EmbeddingCreator = gpu_only_import_from("nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator")
+ClusteringModel = gpu_only_import_from("nemo_curator.modules.semantic_dedup.clusteringmodel", "ClusteringModel")
 SemanticClusterLevelDedup = gpu_only_import_from(
     "nemo_curator.modules.semantic_dedup.semanticclusterleveldedup",
     "SemanticClusterLevelDedup",
@@ -50,12 +47,8 @@ add_l2_cosine_dist_to_centroid = gpu_only_import_from(
 normalize_embeddings_col_in_df = gpu_only_import_from(
     "nemo_curator.utils.semdedup_utils", "normalize_embeddings_col_in_df"
 )
-get_array_from_df = gpu_only_import_from(
-    "nemo_curator.utils.semdedup_utils", "get_array_from_df"
-)
-pairwise_cosine_similarity = gpu_only_import_from(
-    "nemo_curator.utils.semdedup_utils", "pairwise_cosine_similarity"
-)
+get_array_from_df = gpu_only_import_from("nemo_curator.utils.semdedup_utils", "get_array_from_df")
+pairwise_cosine_similarity = gpu_only_import_from("nemo_curator.utils.semdedup_utils", "pairwise_cosine_similarity")
 pairwise_cosine_similarity_batched = gpu_only_import_from(
     "nemo_curator.utils.semdedup_utils", "pairwise_cosine_similarity_batched"
 )
@@ -64,25 +57,23 @@ get_semantic_matches_per_cluster = gpu_only_import_from(
 )
 
 if TYPE_CHECKING:
-    import cupy as cp
+    import cupy as cp  # noqa: TC004
 
-    from nemo_curator.modules.semantic_dedup.clusteringmodel import ClusteringModel
-    from nemo_curator.modules.semantic_dedup.semanticclusterleveldedup import (
-        SemanticClusterLevelDedup,
-    )
-    from nemo_curator.modules.semantic_dedup.semdedup import SemDedup
+    from nemo_curator.modules.semantic_dedup.clusteringmodel import ClusteringModel  # noqa: TC004
+    from nemo_curator.modules.semantic_dedup.semanticclusterleveldedup import SemanticClusterLevelDedup  # noqa: TC004
+    from nemo_curator.modules.semantic_dedup.semdedup import SemDedup  # noqa: TC004
     from nemo_curator.utils.semdedup_utils import (
-        add_l2_cosine_dist_to_centroid,
-        get_array_from_df,
-        get_semantic_matches_per_cluster,
-        normalize_embeddings_col_in_df,
-        pairwise_cosine_similarity,
-        pairwise_cosine_similarity_batched,
+        add_l2_cosine_dist_to_centroid,  # noqa: TC004
+        get_array_from_df,  # noqa: TC004
+        get_semantic_matches_per_cluster,  # noqa: TC004
+        normalize_embeddings_col_in_df,  # noqa: TC004
+        pairwise_cosine_similarity,  # noqa: TC004
+        pairwise_cosine_similarity_batched,  # noqa: TC004
     )
 
 
 @pytest.fixture
-def dedup_data():
+def dedup_data() -> DocumentDataset:
     df = cudf.DataFrame(
         {
             "id": [1, 2, 3, 4, 100, 200, 300],
@@ -102,7 +93,7 @@ def dedup_data():
 
 
 @pytest.fixture
-def non_dedup_data():
+def non_dedup_data() -> DocumentDataset:
     df = cudf.DataFrame(
         {
             "doc_id": ["doc_1", "doc_2"],
@@ -123,13 +114,12 @@ class TestSemDuplicates:
     @pytest.mark.parametrize("perform_removal", [True, False])
     def test_sem_dedup(
         self,
-        dedup_data,
-        tmpdir,
-        n_clusters,
-        id_col_type,
-        perform_removal,
-        gpu_client,
-    ):
+        dedup_data: DocumentDataset,
+        tmpdir: Path,
+        n_clusters: int,
+        id_col_type: Literal["int", "str"],
+        perform_removal: bool,
+    ) -> None:
         cache_dir = os.path.join(tmpdir, "test_sem_dedup_cache")
         config = SemDedupConfig(
             cache_dir=cache_dir,
@@ -149,7 +139,7 @@ class TestSemDuplicates:
         dedup_data_len = dedup_data.df.shape[0].compute()
         if n_clusters > dedup_data_len:
             # Number of records in the dataset should never be less than n_clusters
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError):  # noqa: PT011
                 result = sem_duplicates(dedup_data)
         else:
             # Correctly returns the original dataset with no duplicates removed
@@ -173,12 +163,11 @@ class TestSemDuplicates:
     @pytest.mark.parametrize("perform_removal", [True, False])
     def test_no_sem_dedup(
         self,
-        non_dedup_data,
-        tmpdir,
-        n_clusters,
-        perform_removal,
-        gpu_client,
-    ):
+        non_dedup_data: DocumentDataset,
+        tmpdir: Path,
+        n_clusters: int,
+        perform_removal: bool,
+    ) -> None:
         cache_dir = os.path.join(tmpdir, "test_no_sem_dedup")
         config = SemDedupConfig(
             cache_dir=cache_dir,
@@ -196,7 +185,7 @@ class TestSemDuplicates:
         non_dedup_data_len = non_dedup_data.df.shape[0].compute()
         if n_clusters > non_dedup_data_len:
             # Number of records in the dataset should never be less than n_clusters
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError):  # noqa: PT011
                 result = sem_duplicates(non_dedup_data)
         else:
             # Correctly returns the original dataset with no duplicates removed
@@ -208,7 +197,11 @@ class TestSemDuplicates:
                 assert_eq(result_df, non_dedup_data.df, check_index=False)
 
     @pytest.mark.parametrize("pooling_strategy", ["last_token", "mean_pooling"])
-    def test_embedding_creator_pooling_strategies(self, tmpdir, pooling_strategy):
+    def test_embedding_creator_pooling_strategies(
+        self,
+        tmpdir: Path,
+        pooling_strategy: Literal["last_token", "mean_pooling"],
+    ) -> None:
         test_text_1 = "The quick brown fox jumps over the lazy dog"
         test_text_2 = "The brown fox jumps over the dog"
         test_texts = [test_text_1, test_text_2] * 32
@@ -229,20 +222,16 @@ class TestSemDuplicates:
         embeddings = embeddings["embeddings"].to_arrow().to_pylist()
         embeddings = np.array(embeddings)
 
-        reference_embeddings = get_reference_embeddings(
-            test_texts, pooling_strategy=pooling_strategy
-        )
+        reference_embeddings = get_reference_embeddings(test_texts, pooling_strategy=pooling_strategy)
 
-        assert np.allclose(
-            embeddings, reference_embeddings, atol=1e-3
-        ), "Embeddings should match reference embeddings"
+        assert np.allclose(embeddings, reference_embeddings, atol=1e-3), "Embeddings should match reference embeddings"
 
 
 def get_reference_embeddings(
-    texts,
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
-    pooling_strategy="last_token",
-):
+    texts: list[str],
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
+    pooling_strategy: Literal["last_token", "mean_pooling"] = "last_token",
+) -> np.ndarray:
     """
     Get embeddings using either last token or mean pooling strategy.
 
@@ -256,7 +245,7 @@ def get_reference_embeddings(
     model = model.to("cuda")
     model.eval()
     max_len_to_use = tokenizer.model_max_length
-    if max_len_to_use > 1e5:
+    if max_len_to_use > 1e5:  # noqa: PLR2004
         max_len_to_use = AutoConfig.from_pretrained(model_name).max_position_embeddings
     max_seq_length: int = max_len_to_use
 
@@ -271,25 +260,21 @@ def get_reference_embeddings(
         )
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
-        with torch.no_grad():
-            with torch.autocast(device_type="cuda"):
-                outputs = model(**inputs)
+        with torch.no_grad(), torch.autocast(device_type="cuda"):
+            outputs = model(**inputs)
 
         if pooling_strategy == "last_token":
             embeddings = outputs.last_hidden_state[:, -1, :]
         elif pooling_strategy == "mean_pooling":
             token_embeddings = outputs.last_hidden_state
             attention_mask = inputs["attention_mask"]
-            input_mask_expanded = (
-                attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-            )
+            input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
             sum_embeddings = torch.sum(token_embeddings * input_mask_expanded, dim=1)
             sum_mask = torch.clamp(input_mask_expanded.sum(dim=1), min=1e-9)
             embeddings = sum_embeddings / sum_mask
         else:
-            raise ValueError(
-                "pooling_strategy must be either 'last_token' or 'mean_pooling'"
-            )
+            msg = "pooling_strategy must be either 'last_token' or 'mean_pooling'"
+            raise ValueError(msg)
 
         normed_emb = F.normalize(embeddings, dim=1).cpu()
         normed_emb = normed_emb.squeeze(0)
@@ -300,7 +285,7 @@ def get_reference_embeddings(
 
 @pytest.mark.gpu
 class TestSemDedupUtils:
-    def setup_method(self):
+    def setup_method(self) -> None:
         # We create a 6x3 array where each row is a unit vector
         # The second and last two rows are the same
         input_embeddings = torch.tensor(
@@ -310,18 +295,12 @@ class TestSemDedupUtils:
             dtype=torch.float32,
         )
         # Normalize the input array
-        self.input_embeddings = input_embeddings / torch.norm(
-            input_embeddings, dim=1, keepdim=True
-        )
-        self.expected_pairwise_similarity = np.array(
-            [0.0000, 0.974631, 0.998190, 0.999618, 1.0000, 1.0000]
-        )
+        self.input_embeddings = input_embeddings / torch.norm(input_embeddings, dim=1, keepdim=True)
+        self.expected_pairwise_similarity = np.array([0.0000, 0.974631, 0.998190, 0.999618, 1.0000, 1.0000])
         self.expected_indices = np.array([0, 0, 1, 2, 0, 0])
 
-    def test_pairwise_cosine_similarity(self):
-        max_similarity, max_indices = pairwise_cosine_similarity(
-            self.input_embeddings, "cuda"
-        )
+    def test_pairwise_cosine_similarity(self) -> None:
+        max_similarity, max_indices = pairwise_cosine_similarity(self.input_embeddings, "cuda")
         np.testing.assert_allclose(
             max_similarity.tolist(),
             self.expected_pairwise_similarity,
@@ -331,10 +310,8 @@ class TestSemDedupUtils:
         np.testing.assert_array_equal(max_indices.tolist(), self.expected_indices)
 
     @pytest.mark.parametrize("batch_size", [1, 2, 3, 4, 5, 6])
-    def test_pairwise_cosine_similarity_batched(self, batch_size: int):
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(
-            self.input_embeddings, "cuda", batch_size
-        )
+    def test_pairwise_cosine_similarity_batched(self, batch_size: int) -> None:
+        max_similarity, max_indices = pairwise_cosine_similarity_batched(self.input_embeddings, "cuda", batch_size)
         np.testing.assert_allclose(
             max_similarity.tolist(),
             self.expected_pairwise_similarity,
@@ -344,13 +321,12 @@ class TestSemDedupUtils:
         np.testing.assert_array_equal(max_indices.tolist(), self.expected_indices)
 
     @pytest.mark.parametrize("batch_size", [100, 512, 1024, 2048])
-    def test_pairwise_cosine_similarity_batched_rand_array(self, batch_size: int):
-        N = 1024
-        D = 512
-        rand_arr = torch.randn(N, D, device="cuda")
+    def test_pairwise_cosine_similarity_batched_rand_array(self, batch_size: int) -> None:
+        n, d = 1024, 512
+        rand_arr = torch.randn(n, d, device="cuda")
         max_similarity, max_indices = pairwise_cosine_similarity(rand_arr, "cuda")
-        max_similarity_batched, max_indices_batched = (
-            pairwise_cosine_similarity_batched(rand_arr, "cuda", batch_size=batch_size)
+        max_similarity_batched, max_indices_batched = pairwise_cosine_similarity_batched(
+            rand_arr, "cuda", batch_size=batch_size
         )
         np.testing.assert_allclose(
             max_similarity.tolist(),
@@ -358,11 +334,9 @@ class TestSemDedupUtils:
             rtol=1e-5,
             atol=1e-5,
         )
-        np.testing.assert_array_equal(
-            max_indices.tolist(), max_indices_batched.tolist()
-        )
+        np.testing.assert_array_equal(max_indices.tolist(), max_indices_batched.tolist())
 
-    def test_get_array_from_df(self):
+    def test_get_array_from_df(self) -> None:
         df = cudf.DataFrame(
             {
                 "embedding": [[3, 4, 5], [1, 2, 2], [1, 0, 0]],
@@ -375,11 +349,9 @@ class TestSemDedupUtils:
                 [1, 0, 0],
             ]
         )
-        cp.testing.assert_allclose(
-            get_array_from_df(df, "embedding"), expected_array, rtol=1e-5, atol=1e-5
-        )
+        cp.testing.assert_allclose(get_array_from_df(df, "embedding"), expected_array, rtol=1e-5, atol=1e-5)
 
-    def test_normalize_embeddings_col_in_df(self):
+    def test_normalize_embeddings_col_in_df(self) -> None:
         # Mock data setup
         df = cudf.DataFrame(
             {
@@ -405,7 +377,7 @@ class TestSemDedupUtils:
             atol=1e-5,
         )
 
-    def test_add_l2_cosine_dist_to_centroid(self):
+    def test_add_l2_cosine_dist_to_centroid(self) -> None:
         # Mock data setup
         df = cudf.DataFrame(
             {
@@ -441,8 +413,8 @@ class TestSemDedupUtils:
         which_to_keep: Literal["hard", "easy"],
         sim_metric: Literal["cosine", "l2"],
         id_col_type: Literal["int", "str"],
-        tmpdir,
-    ):
+        tmpdir: Path,
+    ) -> None:
         cluster_c = 0
         self.centroid = self.input_embeddings[:1]
         os.makedirs(os.path.join(tmpdir, f"nearest_cent={cluster_c}"), exist_ok=True)
@@ -460,9 +432,7 @@ class TestSemDedupUtils:
             embedding_col="embedding",
             centroids=cp.asarray(self.centroid),
         )
-        embeddings_df.to_parquet(
-            os.path.join(tmpdir, f"nearest_cent={cluster_c}/file.parquet")
-        )
+        embeddings_df.to_parquet(os.path.join(tmpdir, f"nearest_cent={cluster_c}/file.parquet"))
         # Step 2) Call get_semantic_matches_per_cluster
         # this internally calls read_cluster_embeddings_and_sort_by_id and pairwise_cosine_similarity
         get_semantic_matches_per_cluster(
@@ -477,9 +447,7 @@ class TestSemDedupUtils:
         )
 
         # Read the output
-        output_df = pd.read_parquet(
-            os.path.join(tmpdir, f"cluster_{cluster_c}.parquet")
-        )
+        output_df = pd.read_parquet(os.path.join(tmpdir, f"cluster_{cluster_c}.parquet"))
         # See https://github.com/NVIDIA/NeMo-Curator/issues/610 to understand the expected output and the walkthrough
         if which_to_keep == "hard":
             expected_ids = [3, 2, 1, 5, 4, 0]
@@ -529,13 +497,13 @@ class TestSemDedupUtils:
 
 @pytest.mark.gpu
 class TestSemanticDedupWithoutEmbeddingCreation:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.n_clusters = 5
         self.n_samples_per_cluster = [100 * (i + 1) for i in range(self.n_clusters)]
         self.n_features = 3
         # reset all random state here to undeterministic results
         random.seed(42)
-        np.random.seed(42)
+        np.random.seed(42)  # noqa: NPY002
         torch.manual_seed(42)
         torch.cuda.manual_seed_all(42)
 
@@ -550,7 +518,7 @@ class TestSemanticDedupWithoutEmbeddingCreation:
         ddf = dd.from_pandas(df, npartitions=2)
         self.ddf = ddf.to_backend("cudf")
 
-    def test_clustering_model(self, tmpdir):
+    def test_clustering_model(self, tmpdir: Path) -> None:
         clustering_output_dir = os.path.join(tmpdir, "clustering_output")
         # Initialize ClusteringModel
         clustering_model = ClusteringModel(
@@ -573,21 +541,15 @@ class TestSemanticDedupWithoutEmbeddingCreation:
         # Check the results of embs_by_nearest_center
         for i in range(self.n_clusters):
             assert os.path.exists(
-                os.path.join(
-                    clustering_output_dir, "embs_by_nearest_center", f"nearest_cent={i}"
-                )
+                os.path.join(clustering_output_dir, "embs_by_nearest_center", f"nearest_cent={i}")
             ), f"The nearest centroid file for cluster {i} should exist."
-        embss_by_nearest_center = pd.read_parquet(
-            os.path.join(clustering_output_dir, "embs_by_nearest_center")
-        )
+        embss_by_nearest_center = pd.read_parquet(os.path.join(clustering_output_dir, "embs_by_nearest_center"))
         # Check that embeddings are normalized
         np.testing.assert_almost_equal(
             sorted(np.stack(embss_by_nearest_center["embeddings"]).tolist()),
             sorted((self.X / np.linalg.norm(self.X, axis=1, keepdims=True)).tolist()),
         )
-        num_samples_per_cluster = (
-            embss_by_nearest_center["nearest_cent"].value_counts().to_dict()
-        )
+        num_samples_per_cluster = embss_by_nearest_center["nearest_cent"].value_counts().to_dict()
         np.testing.assert_allclose(
             sorted(num_samples_per_cluster.values()),
             sorted(self.n_samples_per_cluster),
@@ -611,7 +573,7 @@ class TestSemanticDedupWithoutEmbeddingCreation:
             np.ones_like(centroids),
         )
 
-    def test_clustering_model_keep_all_columns(self, tmpdir):
+    def test_clustering_model_keep_all_columns(self, tmpdir: Path) -> None:
         """Test that extra columns in the input are preserved when keep_all_columns is True."""
         clustering_output_dir = os.path.join(tmpdir, "clustering_output")
         # Create a new DataFrame with an extra column called "extra"
@@ -639,21 +601,22 @@ class TestSemanticDedupWithoutEmbeddingCreation:
         _ = clustering_model(DocumentDataset(ddf_with_extra))
 
         # Read the output parquet data produced after sorting clusters.
-        embss_by_nearest_center = pd.read_parquet(
-            os.path.join(clustering_output_dir, "embs_by_nearest_center")
-        )
+        embss_by_nearest_center = pd.read_parquet(os.path.join(clustering_output_dir, "embs_by_nearest_center"))
 
         # Verify that the extra column is present and its values are as expected.
-        assert (
-            "extra" in embss_by_nearest_center.columns
-        ), "The extra column should be present when keep_all_columns is True."
-        assert (
-            embss_by_nearest_center["extra"].eq("foo").all()
-        ), "The extra column should contain 'foo' for all rows."
+        assert "extra" in embss_by_nearest_center.columns, (
+            "The extra column should be present when keep_all_columns is True."
+        )
+        assert embss_by_nearest_center["extra"].eq("foo").all(), "The extra column should contain 'foo' for all rows."
 
     @pytest.mark.parametrize("which_to_keep", ["hard", "random", "easy"])
     @pytest.mark.parametrize("sim_metric", ["cosine", "l2"])
-    def test_semantic_cluster_level_dedup(self, tmpdir, which_to_keep, sim_metric):
+    def test_semantic_cluster_level_dedup(
+        self,
+        tmpdir: Path,
+        which_to_keep: Literal["hard", "random", "easy"],
+        sim_metric: Literal["cosine", "l2"],
+    ) -> None:
         clustering_output_dir = os.path.join(tmpdir, "clustering_output")
         semantic_extraction_output_dir = os.path.join(tmpdir, "extraction")
         # Initialize ClusteringModel
@@ -669,9 +632,7 @@ class TestSemanticDedupWithoutEmbeddingCreation:
 
         semantic_cluster_level_dedup = SemanticClusterLevelDedup(
             n_clusters=self.n_clusters,
-            emb_by_clust_dir=os.path.join(
-                clustering_output_dir, "embs_by_nearest_center"
-            ),
+            emb_by_clust_dir=os.path.join(clustering_output_dir, "embs_by_nearest_center"),
             id_column="id",
             which_to_keep=which_to_keep,
             sim_metric=sim_metric,
@@ -712,9 +673,7 @@ class TestSemanticDedupWithoutEmbeddingCreation:
         # Call extract_dedup_data
         semantic_cluster_level_dedup.extract_dedup_data(eps_to_extract=0.01)
         # Check content of unique_ids
-        unique_ids_path = os.path.join(
-            semantic_extraction_output_dir, "unique_ids_0.01.parquet"
-        )
+        unique_ids_path = os.path.join(semantic_extraction_output_dir, "unique_ids_0.01.parquet")
         assert os.path.exists(unique_ids_path)
         unique_ids_df = pd.read_parquet(unique_ids_path)
         assert unique_ids_df.columns.tolist() == [
@@ -728,14 +687,10 @@ class TestSemanticDedupWithoutEmbeddingCreation:
             semdedup_pruning_tables_df["cosine_sim_score"] >= 1 - 0.01
         ]
         assert len(semdedup_pruning_tables_df_filtered) == len(unique_ids_df)
-        assert set(semdedup_pruning_tables_df_filtered["id"].to_list()) == set(
-            unique_ids_df["id"].to_list()
-        )
+        assert set(semdedup_pruning_tables_df_filtered["id"].to_list()) == set(unique_ids_df["id"].to_list())
 
         # Check content of summary file
-        summary_path = os.path.join(
-            semantic_extraction_output_dir, "dedup_summary_0.01.csv"
-        )
+        summary_path = os.path.join(semantic_extraction_output_dir, "dedup_summary_0.01.csv")
         assert os.path.exists(summary_path)
         df = pd.read_csv(summary_path)
         if which_to_keep == "hard":

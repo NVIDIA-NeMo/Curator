@@ -25,7 +25,7 @@ class DocumentModifier(ABC):
         self._ngrams = None
 
     @abstractmethod
-    def modify_document(self, text):
+    def modify_document(self, text: str) -> str:
         pass
 
     @property

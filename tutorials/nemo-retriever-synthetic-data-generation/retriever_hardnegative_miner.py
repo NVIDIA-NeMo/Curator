@@ -26,17 +26,16 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import load_object_on_worker
 
 config = importlib.import_module(
-    "tutorials.nemo-retriever-synthetic-data-generation.config.config"
+    "tutorials.nemo-retriever-synthetic-data-generation.config.config",
 )
 RetrieverHardNegativeMiningConfig = config.RetrieverHardNegativeMiningConfig
 
 
-def create_nim_client(base_url, api_key):
-    openai_client = OpenAI(base_url=base_url, api_key=api_key)
-    return openai_client
+def create_nim_client(base_url: str, api_key: str) -> OpenAI:
+    return OpenAI(base_url=base_url, api_key=api_key)
 
 
-def create_hf_model(model_name_or_path):
+def create_hf_model(model_name_or_path: str) -> SentenceTransformer:
     return SentenceTransformer(model_name_or_path, trust_remote_code=True)
 
 
@@ -49,11 +48,10 @@ class HardNegativeMiner:
 
     """
 
-    def __init__(
+    def __init__(  # noqa: C901, PLR0912
         self,
         cfg: RetrieverHardNegativeMiningConfig,
     ):
-
         self.model_name = cfg.model_name
         self.model_type = cfg.model_type
         self.base_url = cfg.base_url
@@ -69,7 +67,7 @@ class HardNegativeMiner:
             self.hard_neg_mining_algorithm = cfg.hard_neg_mining_algorithm
         else:
             print(
-                "hard negative mining algorithm not mentioned in config, using default"
+                "hard negative mining algorithm not mentioned in config, using default",
             )
             self.hard_neg_mining_algorithm = "topk_percpos"
         if self.hard_neg_mining_algorithm == "topk_percpos":
@@ -81,7 +79,8 @@ class HardNegativeMiner:
             if cfg.max_hardness_threshold:
                 self.max_neg_score_threshold = cfg.max_hardness_threshold
             else:
-                raise ValueError("Hard negative threshold is required!")
+                msg = "Hard negative threshold is required!"
+                raise ValueError(msg)
             if cfg.min_hardness_threshold:
                 self.min_neg_score_threshold = cfg.min_hardness_threshold
             else:
@@ -97,11 +96,12 @@ class HardNegativeMiner:
     def __dask_tokenize__(self):
         return normalize_token(HardNegativeMiner)
 
-    def assign_ids(self, partition):
+    def assign_ids(self, partition: pd.DataFrame) -> pd.DataFrame:
         return partition.assign(doc_id=np.arange(len(partition)) + partition.index[0])
 
     def repartition_semantic_similarity(
-        self, dataset: DocumentDataset
+        self,
+        dataset: DocumentDataset,
     ) -> DocumentDataset:
         df = dataset.df
         n_data = df.shape[0].compute()  # number of row items
@@ -113,12 +113,13 @@ class HardNegativeMiner:
         else:
             n_clusters = self.min_number_clusters
 
-        print("Number of clusters used = {}".format(n_clusters))
-        assert "doc_id" not in df.columns
+        print(f"Number of clusters used = {n_clusters}")
+        if "doc_id" not in df.columns:
+            msg = "doc_id column is required"
+            raise ValueError(msg)
         df["embeddings"] = ""  # refers to document embeddings
         df = df.explode("documents")
         df = df.map_partitions(self._get_doc_embeddings, meta=df)
-        # df = dd.from_pandas(pdf)
         df = df.map_partitions(self.assign_ids)
         embeddings_dataset = DocumentDataset(df)
         self.clustering_model = ClusteringModel(
@@ -135,8 +136,7 @@ class HardNegativeMiner:
 
         return DocumentDataset(df_c)
 
-    def _get_doc_embeddings(self, p_df: pd.DataFrame):
-
+    def _get_doc_embeddings(self, p_df: pd.DataFrame) -> pd.DataFrame:
         if self.model_type == "nvidia":
             self.client = load_object_on_worker(
                 attr="nim_embedding_model",
@@ -145,7 +145,7 @@ class HardNegativeMiner:
             )
 
             p_df["embeddings"] = p_df["documents"].map(
-                lambda t: self._get_nim_embedding(t, "passage")
+                lambda t: self._get_nim_embedding(t, "passage"),
             )
         elif self.model_type == "hf":
             self.hf_model = load_object_on_worker(
@@ -155,22 +155,21 @@ class HardNegativeMiner:
             )
 
             p_df["embeddings"] = p_df["documents"].map(
-                lambda t: self._get_hf_embedding(t, self.passage_prefix)
+                lambda t: self._get_hf_embedding(t, self.passage_prefix),
             )
         return p_df
 
-    def _groupby_question(self, pdf):
+    def _groupby_question(self, pdf: pd.DataFrame) -> pd.DataFrame:
         pdf2 = pdf.groupby("question").agg({"documents": set})
         pdf2["documents"] = pdf2["documents"].map(lambda x: list(x))
         return pdf2
 
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
-
         df = dataset.df
         df = df.to_backend("pandas")
         df = df[["question", "documents"]]
         df = df.map_partitions(self._groupby_question).reset_index()
-        print("Number partitions in dataset = {}".format(df.npartitions))
+        print(f"Number partitions in dataset = {df.npartitions}")
 
         df["neg_doc_scores"] = ""
         df["neg_doc"] = ""
@@ -185,8 +184,7 @@ class HardNegativeMiner:
 
         return DocumentDataset(df)
 
-    def _process_partition(self, df_p: pd.DataFrame):
-
+    def _process_partition(self, df_p: pd.DataFrame) -> pd.DataFrame:
         if self.model_type == "nvidia":
             self.client = load_object_on_worker(
                 attr="nim_embedding_model",
@@ -194,10 +192,10 @@ class HardNegativeMiner:
                 load_object_kwargs={"base_url": self.base_url, "api_key": self.api_key},
             )
             df_p["doc_embed"] = df_p["documents"].map(
-                lambda pgs: [self._get_nim_embedding(t, "passage") for t in pgs]
+                lambda pgs: [self._get_nim_embedding(t, "passage") for t in pgs],
             )
             df_p["query_embed"] = df_p["question"].map(
-                lambda x: self._get_nim_embedding(x, "query")
+                lambda x: self._get_nim_embedding(x, "query"),
             )
         elif self.model_type == "hf":
             self.hf_model = load_object_on_worker(
@@ -206,12 +204,10 @@ class HardNegativeMiner:
                 load_object_kwargs={"model_name_or_path": self.model_name},
             )
             df_p["doc_embed"] = df_p["documents"].map(
-                lambda pgs: [
-                    self._get_hf_embedding(t, self.passage_prefix) for t in pgs
-                ]
+                lambda pgs: [self._get_hf_embedding(t, self.passage_prefix) for t in pgs],
             )
             df_p["query_embed"] = df_p["question"].map(
-                lambda x: self._get_hf_embedding(x, self.query_prefix)
+                lambda x: self._get_hf_embedding(x, self.query_prefix),
             )
 
         doc_embeds = list(itertools.chain(*df_p["doc_embed"].to_list()))
@@ -220,31 +216,41 @@ class HardNegativeMiner:
         if self.hard_neg_mining_algorithm == "topk_abs":
             df_p["neg_doc_scores"] = df_p[["query_embed", "documents"]].apply(
                 lambda row: self._get_scores_topk_abs(
-                    row["query_embed"], doc_embeds, docs, row["documents"]
+                    row["query_embed"],
+                    doc_embeds,
+                    docs,
+                    row["documents"],
                 ),
                 axis=1,
             )
 
         elif self.hard_neg_mining_algorithm == "topk_percpos":
             df_p["min_pos_score"] = df_p[["query_embed", "doc_embed"]].apply(
-                lambda row: self._get_min_pos_score(row), axis=1
+                lambda row: self._get_min_pos_score(row),
+                axis=1,
             )
             df_p["neg_doc_scores"] = df_p[["query_embed", "min_pos_score"]].apply(
-                lambda row: self._get_scores_topk_percpos(row, doc_embeds, docs), axis=1
+                lambda row: self._get_scores_topk_percpos(row, doc_embeds, docs),
+                axis=1,
             )
 
         df_p["neg_doc"] = df_p["neg_doc_scores"].map(
-            lambda x: [doc for doc, score in x]
+            lambda x: [doc for doc, score in x],
         )
         return df_p
 
-    def _get_min_pos_score(self, row):
+    def _get_min_pos_score(self, row: pd.Series) -> float:
         x_ = np.array(row["query_embed"])
         y_ = np.array(row["doc_embed"])  # document embeddings
         scores = np.dot(x_, y_.T)
         return np.min(scores)
 
-    def _get_scores_topk_percpos(self, row, docs_embed, docs):
+    def _get_scores_topk_percpos(
+        self,
+        row: pd.Series,
+        docs_embed: list[float],
+        docs: list[str],
+    ) -> list[tuple[str, float]]:
         x_ = np.array(row["query_embed"])
         y_ = np.array(docs_embed)
         scores = np.dot(x_, y_.T)
@@ -252,37 +258,35 @@ class HardNegativeMiner:
         neg_docs_scores = []
         max_neg_score_threshold = row["min_pos_score"] * self.percpos
         for idx, s in enumerate(scores):
-            if s <= max_neg_score_threshold:
-                if docs[idx] not in neg_docs:
-                    neg_docs.append(docs[idx])
-                    neg_docs_scores.append((docs[idx], s))
+            if s <= max_neg_score_threshold and docs[idx] not in neg_docs:
+                neg_docs.append(docs[idx])
+                neg_docs_scores.append((docs[idx], s))
         del neg_docs, scores
-        return sorted(neg_docs_scores, reverse=True, key=lambda x: x[1])[
-            : self.n_hard_negatives
-        ]
+        return sorted(neg_docs_scores, reverse=True, key=lambda x: x[1])[: self.n_hard_negatives]
 
-    def _get_scores_topk_abs(self, x, docs_embed, docs, pos_docs):
+    def _get_scores_topk_abs(
+        self,
+        x: list[float],
+        docs_embed: list[float],
+        docs: list[str],
+        pos_docs: list[str],
+    ) -> list[tuple[str, float]]:
         x_ = np.array(x)
         y_ = np.array(docs_embed)
         scores = np.dot(x_, y_.T)
         neg_docs = []
         neg_docs_scores = []
         for idx, s in enumerate(scores):
-            if s <= self.max_neg_score_threshold:
-                if docs[idx] not in pos_docs:
-                    if docs[idx] not in neg_docs:
-                        neg_docs.append(docs[idx])
-                        neg_docs_scores.append((docs[idx], s))
+            if s <= self.max_neg_score_threshold and docs[idx] not in pos_docs and docs[idx] not in neg_docs:
+                neg_docs.append(docs[idx])
+                neg_docs_scores.append((docs[idx], s))
         del neg_docs, scores
-        return sorted(neg_docs_scores, reverse=True, key=lambda x: x[1])[
-            : self.n_hard_negatives
-        ]
+        return sorted(neg_docs_scores, reverse=True, key=lambda x: x[1])[: self.n_hard_negatives]
 
-    def _get_hf_embedding(self, text, prefix="query"):
-        embeddings = self.hf_model.encode(prefix + text)
-        return embeddings
+    def _get_hf_embedding(self, text: str, prefix: str = "query") -> list[float]:
+        return self.hf_model.encode(prefix + text)
 
-    def _get_nim_embedding(self, text, input_type):
+    def _get_nim_embedding(self, text: str | list[str], input_type: str) -> list[float]:
         # Obtain embeddings from nim model
         if isinstance(text, list):
             input_ = text
@@ -296,7 +300,7 @@ class HardNegativeMiner:
                 encoding_format="float",
                 extra_body={"input_type": input_type, "truncate": self.truncate},
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error: {e}")
             response = None
 

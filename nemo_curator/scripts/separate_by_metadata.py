@@ -24,7 +24,7 @@ from nemo_curator.utils.file_utils import separate_by_metadata
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     print(f"Beginning metadata separation for {args.input_metadata_field}")
 
     with silence_logging_cmgr(logging.ERROR):
@@ -63,23 +63,17 @@ def main(args):
         client.close()
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        "Splits a dataset into subdirectories based on metadata values.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    argumentHelper = ArgumentHelper(parser)
-
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_output_data_dir(
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_output_data_dir(
         help="The output directory to where the metadata-separated files "
         "will be written. Each file will be written to its respective "
         "metadata directory that is a subdirectory of this directory."
     )
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--input-metadata-field",
         type=str,
@@ -90,17 +84,15 @@ def attach_args(
     parser.add_argument(
         "--output-metadata-distribution",
         type=str,
-        help="Output JSON file containing the frequency of documents "
-        "that occur for a particular metadata.",
+        help="Output JSON file containing the frequency of documents that occur for a particular metadata.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "remove-input-dir",
         default=False,
-        help="Specify --remove-input-dir to remove the original "
-        "input directory. This is false by default.",
+        help="Specify --remove-input-dir to remove the original input directory. This is false by default.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "remove-metadata-field",
         default=False,
@@ -128,5 +120,10 @@ def attach_args(
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        "Splits a dataset into subdirectories based on metadata values.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    main(attach_args(parser).parse_args())

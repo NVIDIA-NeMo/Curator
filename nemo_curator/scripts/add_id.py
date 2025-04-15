@@ -25,8 +25,8 @@ from nemo_curator.utils.file_utils import (
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+def main(args: argparse.Namespace) -> None:
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     backend = "cudf" if args.device == "gpu" else "pandas"
     output_dir = expand_outdir_and_mkdir(args.output_data_dir)
@@ -35,14 +35,8 @@ def main(args):
         random.seed(args.seed)
         random.shuffle(files)
 
-    dataset = DocumentDataset(
-        read_data(
-            files, file_type=args.input_file_type, backend=backend, add_filename=True
-        )
-    )
-    add_id = nemo_curator.AddId(
-        args.id_field_name, id_prefix=args.id_prefix, start_index=args.starting_index
-    )
+    dataset = DocumentDataset(read_data(files, file_type=args.input_file_type, backend=backend, add_filename=True))
+    add_id = nemo_curator.AddId(args.id_field_name, id_prefix=args.id_prefix, start_index=args.starting_index)
     id_dataset = add_id(dataset)
 
     write_to_disk(
@@ -53,45 +47,39 @@ def main(args):
     )
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
+def attach_args() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         """
-Adds unique identifiers to each document in the dataset.
-Creates a new ID field with name specified by the argument
-"--id-field-name" within each JSON file.
+    Adds unique identifiers to each document in the dataset.
+    Creates a new ID field with name specified by the argument
+    "--id-field-name" within each JSON file.
 
-This script essentially works by counting the total
-number of documents within the dataset, and then in parallel
-assigns unique sequential IDs to each document in the dataset.
+    This script essentially works by counting the total
+    number of documents within the dataset, and then in parallel
+    assigns unique sequential IDs to each document in the dataset.
 
-If a document identifier does not already exist for each document, then
-these IDs must be added prior to performing fuzzy and/or exact deduplication.
-""",
+    If a document identifier does not already exist for each document, then
+    these IDs must be added prior to performing fuzzy and/or exact deduplication.
+    """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-):
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_output_data_dir(
-        help="The output directory to where the JSONL files with IDs will "
-        "be written."
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_output_data_dir(help="The output directory to where the JSONL files with IDs will be written.")
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_arg_seed()
+    arg_helper.add_arg_shuffle(
+        help="Shuffle the order of files before assigning IDs. Useful for creating a copy dataset with different IDs."
     )
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_arg_seed()
-    argumentHelper.add_arg_shuffle(
-        help="Shuffle the order of files before assigning IDs. "
-        "Useful for creating a copy dataset with different IDs."
-    )
-    argumentHelper.add_distributed_args()
-    argumentHelper.set_default_n_workers(2.5)
+    arg_helper.add_distributed_args()
+    arg_helper.set_default_n_workers(2.5)
     parser.add_argument(
         "--id-field-name",
         type=str,
         required=True,
-        help="The name of the field that will contain the id value. "
-        "This is a required argument.",
+        help="The name of the field that will contain the id value. This is a required argument.",
     )
     parser.add_argument(
         "--id-prefix",
@@ -115,5 +103,5 @@ these IDs must be added prior to performing fuzzy and/or exact deduplication.
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
