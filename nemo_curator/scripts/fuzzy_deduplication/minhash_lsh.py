@@ -76,7 +76,7 @@ def main(args: argparse.Namespace) -> None:
     logger.info(f"Computing and writing buckets took {time.time() - t1} s")
 
 
-def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+def attach_args() -> argparse.ArgumentParser:
     description = """
 Computes buckets from existing minhashes and writes the output
 to files. Each row corresponds to a document ID, followed by the columns
