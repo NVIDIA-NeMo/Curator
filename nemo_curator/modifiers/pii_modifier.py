@@ -16,7 +16,6 @@
 import pandas as pd
 
 from nemo_curator.modifiers import DocumentModifier
-from nemo_curator.pii.algorithm import PiiDeidentifier
 from nemo_curator.pii.constants import DEFAULT_LANGUAGE, DEFAULT_MAX_DOC_SIZE
 from nemo_curator.utils.decorators import batched
 from nemo_curator.utils.distributed_utils import load_object_on_worker
@@ -86,7 +85,7 @@ class PiiModifier(DocumentModifier):
         output: pd.Series = pd.Series(output, text.index)
         return output
 
-    def load_deidentifier(self) -> PiiDeidentifier:
+    def load_deidentifier(self) -> "PiiDeidentifier":  # noqa: F821
         """
         Helper function to load the de-identifier
         """
