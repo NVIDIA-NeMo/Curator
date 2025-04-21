@@ -157,6 +157,7 @@ class TestIO:
                     [{**json.loads(pickle.load(open(file, "rb")))} for file in files],  # noqa: S301
                 )
 
+            # Directory
             dataset = DocumentDataset.read_custom(
                 input_files=tmp_dir,
                 file_type="pkl",
@@ -170,6 +171,45 @@ class TestIO:
                 expected_df[["date", "id", "text"]].sort_values(
                     by="id", ignore_index=True
                 ),  # because we sort columns by name
+            )
+
+    def test_read_custom_input_files(self, tmp_path: Path) -> None:
+        # Prepare files
+        df = pd.DataFrame({"id": [1, 2, 3], "text": ["a", "b", "c"]})
+        file_1 = str(tmp_path / "test_file_1.jsonl")
+        file_2 = str(tmp_path / "test_file_2.jsonl")
+        df.to_json(file_1, orient="records", lines=True)
+        df.to_json(file_2, orient="records", lines=True)
+
+        def read_jsonl(files: list[str], **kwargs) -> pd.DataFrame:  # noqa: ARG001
+            return pd.concat([pd.read_json(f, lines=True) for f in files], ignore_index=True)
+
+        # Single file
+        dataset = DocumentDataset.read_custom(
+            input_files=file_1,
+            file_type="jsonl",
+            read_func_single_partition=read_jsonl,
+            files_per_partition=1,
+        )
+        assert dataset.df.compute().equals(df)
+
+        # List of files
+        dataset = DocumentDataset.read_custom(
+            input_files=[file_1, file_2],
+            file_type="jsonl",
+            read_func_single_partition=read_jsonl,
+            files_per_partition=1,
+        )
+        assert len(dataset.df) == 6  # noqa: PLR2004
+
+        file_series = pd.Series([file_1, file_2])
+        # Non string or list input
+        with pytest.raises(TypeError):
+            dataset = DocumentDataset.read_custom(
+                input_files=file_series,
+                file_type="jsonl",
+                read_func_single_partition=read_jsonl,
+                files_per_partition=1,
             )
 
 
