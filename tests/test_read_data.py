@@ -567,7 +567,6 @@ def test_read_data_different_columns_files_per_partition(
     assert len(df) == NUM_FILES * NUM_RECORDS
 
 
-@pytest.mark.skip(reason="Parquet tests are failing after upgrading to RAPIDS 25.02")
 @pytest.mark.parametrize(
     ("backend", "file_type"),
     [

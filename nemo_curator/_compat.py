@@ -39,18 +39,11 @@ try:
 except (ImportError, TypeError):
     CURRENT_CUDF_VERSION = parse_version("24.10.0")
 
-# TODO: remove this once 25.02 becomes the base version of cudf in nemo-curator
-
-# minhash in < 24.12 used to have a minhash(txt) api which was deprecated in favor of
-# minhash(a, b) in 25.02 (in 24.12, minhash_permuted(a,b) was introduced)
-MINHASH_DEPRECATED_API = CURRENT_CUDF_VERSION.base_version < parse_version("24.12").base_version
-MINHASH_PERMUTED_AVAILABLE = (CURRENT_CUDF_VERSION.major == 24) & (CURRENT_CUDF_VERSION.minor == 12)  # noqa: PLR2004
-
 # TODO: remove when dask min version gets bumped
 DASK_SHUFFLE_METHOD_ARG = _dask_version > parse_version("2024.1.0")
 DASK_P2P_ERROR = _dask_version < parse_version("2023.10.0")
 DASK_SHUFFLE_CAST_DTYPE = _dask_version > parse_version("2023.12.0")
-DASK_CUDF_PARQUET_READ_INCONSISTENT_SCHEMA = _dask_version > parse_version("2024.12")
+DASK_CUDF_PARQUET_READ_INCONSISTENT_SCHEMA = _dask_version > parse_version("2025.2.0")
 
 # Query-planning check (and cache)
 _DASK_QUERY_PLANNING_ENABLED = None

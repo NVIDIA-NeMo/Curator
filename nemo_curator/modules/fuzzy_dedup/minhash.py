@@ -27,7 +27,6 @@ import cudf
 import dask_cudf
 import numpy as np
 
-from nemo_curator._compat import MINHASH_DEPRECATED_API, MINHASH_PERMUTED_AVAILABLE
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
@@ -71,14 +70,11 @@ class MinHash:
         self.num_hashes = num_hashes
         self.char_ngram = char_ngrams
 
-        if MINHASH_DEPRECATED_API:
-            self.seeds = self.generate_seeds(n_seeds=self.num_hashes, seed=seed)
-        else:
-            self.seeds = self.generate_hash_permutation_seeds(
-                bit_width=64 if use_64bit_hash else 32,
-                n_permutations=self.num_hashes,
-                seed=seed,
-            )
+        self.seeds = self.generate_hash_permutation_seeds(
+            bit_width=64 if use_64bit_hash else 32,
+            n_permutations=self.num_hashes,
+            seed=seed,
+        )
 
         self.minhash_method = self.minhash64 if use_64bit_hash else self.minhash32
         self.id_field = id_field
@@ -97,13 +93,6 @@ class MinHash:
             )
         else:
             self._logger = logger
-
-    def generate_seeds(self, n_seeds: int = 260, seed: int = 0) -> np.ndarray:
-        """
-        Generate seeds for all minhash permutations based on the given seed.
-        """
-        gen = np.random.RandomState(seed)
-        return gen.randint(0, 1e6, size=n_seeds)
 
     def generate_hash_permutation_seeds(self, bit_width: int, n_permutations: int = 260, seed: int = 0) -> np.ndarray:
         """
@@ -141,24 +130,10 @@ class MinHash:
             msg = "Expected data of type cudf.Series"
             raise TypeError(msg)
 
-        if MINHASH_DEPRECATED_API:
-            warnings.warn(
-                "Using an outdated minhash implementation, please update to cuDF version 24.12 "
-                "or later for improved performance. "
-                "Install the latest version of cuDF using `pip install curator[cuda12x_nightly]`",
-                category=FutureWarning,
-                stacklevel=2,
-            )
-            seeds = cudf.Series(seeds, dtype="uint32")
-            return ser.str.minhash(seeds=seeds, width=char_ngram)
-        else:
-            seeds_a = cudf.Series(seeds[:, 0], dtype="uint32")
-            seeds_b = cudf.Series(seeds[:, 1], dtype="uint32")
+        seeds_a = cudf.Series(seeds[:, 0], dtype="uint32")
+        seeds_b = cudf.Series(seeds[:, 1], dtype="uint32")
 
-            if MINHASH_PERMUTED_AVAILABLE:
-                return ser.str.minhash_permuted(a=seeds_a, b=seeds_b, seed=seeds[0][0], width=char_ngram)
-            else:
-                return ser.str.minhash(a=seeds_a, b=seeds_b, seed=seeds[0][0], width=char_ngram)
+        return ser.str.minhash(a=seeds_a, b=seeds_b, seed=seeds[0][0], width=char_ngram)
 
     def minhash64(self, ser: cudf.Series, seeds: np.ndarray, char_ngram: int) -> cudf.Series:
         """
@@ -167,24 +142,9 @@ class MinHash:
         if not isinstance(ser, cudf.Series):
             msg = "Expected data of type cudf.Series"
             raise TypeError(msg)
-        if MINHASH_DEPRECATED_API:
-            warnings.warn(
-                "Using an outdated minhash implementation, please update to cuDF version 24.12 "
-                "or later for improved performance. "
-                "Install the latest version of cuDF using `pip install curator[cuda12x_nightly]`",
-                category=FutureWarning,
-                stacklevel=2,
-            )
-            seeds = cudf.Series(seeds, dtype="uint64")
-            return ser.str.minhash64(seeds=seeds, width=char_ngram)
-        else:
-            seeds_a = cudf.Series(seeds[:, 0], dtype="uint64")
-            seeds_b = cudf.Series(seeds[:, 1], dtype="uint64")
-
-            if MINHASH_PERMUTED_AVAILABLE:
-                return ser.str.minhash64_permuted(a=seeds_a, b=seeds_b, seed=seeds[0][0], width=char_ngram)
-            else:
-                return ser.str.minhash64(a=seeds_a, b=seeds_b, seed=seeds[0][0], width=char_ngram)
+        seeds_a = cudf.Series(seeds[:, 0], dtype="uint64")
+        seeds_b = cudf.Series(seeds[:, 1], dtype="uint64")
+        return ser.str.minhash64(a=seeds_a, b=seeds_b, seed=seeds[0][0], width=char_ngram)
 
     def __call__(self, dataset: DocumentDataset) -> str | DocumentDataset:
         """
