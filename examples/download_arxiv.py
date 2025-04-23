@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -31,10 +31,9 @@ def main(args: argparse.Namespace) -> None:
 
     # Download and sample data
     arxiv = download_arxiv(output_directory, url_limit=url_limit)
-    sample = arxiv.df.sample(frac=10 / len(arxiv))
+    print(arxiv.head())
 
-    # Inspect the samples
-    print(sample.compute())
+    print(f"Downloaded arXiv data to {output_directory}")
 
 
 def attach_args(

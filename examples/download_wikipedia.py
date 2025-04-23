@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,10 +32,9 @@ def main(args: argparse.Namespace) -> None:
 
     # Download and sample data
     wikipedia = download_wikipedia(output_directory, dump_date=dump_date, url_limit=url_limit)
-    sample = wikipedia.df.sample(frac=10 / len(wikipedia))
+    print(wikipedia.head())
 
-    # Inspect the samples
-    print(sample.compute())
+    print(f"Downloaded Wikipedia data to {output_directory}")
 
 
 def attach_args(

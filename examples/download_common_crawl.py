@@ -54,10 +54,9 @@ def main(args: argparse.Namespace) -> None:
         url_limit=url_limit,
         algorithm=extraction_algorithm,
     )
-    sample = common_crawl.df.sample(frac=10 / len(common_crawl))
+    print(common_crawl.head())
 
-    # Inspect the samples
-    print(sample.compute())
+    print(f"Downloaded Common Crawl data to {output_directory}")
 
 
 def attach_args(
