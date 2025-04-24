@@ -43,8 +43,7 @@ dependencies = [
     "beautifulsoup4",
     "charset_normalizer>=3.1.0",
     "comment_parser",
-    # TODO: Pin new CrossFit version release
-    "crossfit@git+https://github.com/rapidsai/crossfit",
+    "crossfit>=0.0.9",
     "dask-mpi>=2021.11.0",
     "dask[complete]>=2021.7.1",
     "datasets",
