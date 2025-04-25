@@ -31,7 +31,7 @@ def main() -> None:
         "--input-dir",
         type=str,
         default="",
-        help="Input dir path containing annotated data files in jsonl format",
+        help="Input dir path containing annotated data files in jsonl format (with extension .part)",
     )
     parser.add_argument(
         "--hard-negative-mining-config",

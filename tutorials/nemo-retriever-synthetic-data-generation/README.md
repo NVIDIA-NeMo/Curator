@@ -109,3 +109,21 @@ The choice of the embedding model is provided in the default configuration. We e
 For Answerability Filter, our recommendation is to go with the choice provided in the default configuation file. We confirmed that the checkbox-style prompt in the default configuration worked well for valid question filtering.
 
 However, the framework is flexible of the choice of LLM-as-a-Judge and different LLMs with different prompt templates might work better for certain use cases. You can also experiment with Likert-scale prompting if need be.
+
+## Hard Negative Mining:
+Hard-negative mining involves two steps. First step is to repartition the dataset into semantically similar documents. This is done using the following script,
+```
+python tutorials/nemo-retriever-synthetic-data-generation/repartition.py \
+  --api-key=<API Key> \
+  --input-dir=tutorials/nemo-retriever-synthetic-data-generation/sample_data/hard-neg-mining\
+  --hard-negative-mining-config=tutorials/nemo-retriever-synthetic-data-generation/config/hard-negative-mining-config.yaml
+  --output-dir=tutorials/nemo-retriever-synthetic-data-generation/my_clustered_dataset_dir
+```
+Once, the semantic clusters have been created, one can perform the hard negative mining as follows,
+```
+python tutorials/nemo-retriever-synthetic-data-generation/mine_hard_negatives.py \
+  --api-key=<API Key> \
+  --input-dir=tutorials/nemo-retriever-synthetic-data-generation/my_clustered_dataset_dir\
+  --hard-negative-mining-config=tutorials/nemo-retriever-synthetic-data-generation/config/hard-negative-mining-config.yaml
+  --output-dir=tutorials/nemo-retriever-synthetic-data-generation/my_mined_dataset_dir
+```
