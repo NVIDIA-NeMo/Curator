@@ -123,6 +123,7 @@ class TestAsyncNemotronGenerator:
             conversion_model_kwargs={},
             expected_length=2,
             ignore_conversion_failure=False,
+            trim_topics_list=False,
         )
         assert result == ["Item 1", "Item 2"]
 
@@ -136,6 +137,7 @@ class TestAsyncNemotronGenerator:
                 conversion_model_kwargs={},
                 expected_length=2,
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
         # Test with invalid YAML - should return empty list when ignore_conversion_failure=True
@@ -146,6 +148,7 @@ class TestAsyncNemotronGenerator:
             conversion_model_kwargs={},
             expected_length=2,
             ignore_conversion_failure=True,
+            trim_topics_list=False,
         )
         assert result == []
 
@@ -159,6 +162,7 @@ class TestAsyncNemotronGenerator:
                 conversion_model_kwargs={},
                 expected_length=2,
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
         # Test with YAML list of wrong length - should raise exception when ignore_conversion_failure=False
@@ -171,6 +175,7 @@ class TestAsyncNemotronGenerator:
                 conversion_model_kwargs={},
                 expected_length=2,  # Expected 2 items
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
         # Test with hallucination - should raise exception when ignore_conversion_failure=False
@@ -183,6 +188,7 @@ class TestAsyncNemotronGenerator:
                 conversion_model_kwargs={},
                 expected_length=2,
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
     @pytest.mark.asyncio
@@ -647,6 +653,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check that methods were called correctly
@@ -687,6 +694,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -906,6 +914,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -947,6 +956,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -988,6 +998,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1031,6 +1042,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1079,6 +1091,7 @@ class TestAsyncNemotronGenerator:
                 documents=documents,
                 n_openlines=2,
                 model="test_model",
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1115,6 +1128,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1155,6 +1169,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1268,6 +1283,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1308,6 +1324,7 @@ class TestAsyncNemotronGenerator:
                 base_model_kwargs={},
                 conversion_model_kwargs={},
                 ignore_conversion_failure=False,
+                trim_topics_list=False,
             )
 
             # Check methods were called correctly
@@ -1415,6 +1432,7 @@ class TestAsyncNemotronGenerator:
                     n_revisions=2,
                     model="test_model",
                     ignore_conversion_failure=False,
+                    trim_topics_list=False,
                 )
 
             # Reset the mock for the next test and configure it to handle both calls appropriately
