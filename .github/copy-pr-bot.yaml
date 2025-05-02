@@ -1,0 +1,27 @@
+enabled: true
+additional_trustees:
+  - ryantwolf
+  - ericharper
+  - ko3n1g
+  - chtruong814
+  - thomasdhc
+  - pablo-garay
+  - ayushdg
+  - praateekmahajan
+  - sarahyurick
+  - singhva
+  - VibhuJawa
+  - arhamm1
+additional_vetters:
+  - ryantwolf
+  - ericharper
+  - ko3n1g
+  - chtruong814
+  - thomasdhc
+  - pablo-garay
+  - ayushdg
+  - praateekmahajan
+  - sarahyurick
+  - singhva
+  - VibhuJawa
+  - arhamm1
