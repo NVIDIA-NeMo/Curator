@@ -25,3 +25,5 @@ additional_vetters:
   - singhva
   - VibhuJawa
   - arhamm1
+auto_sync_draft: false
+auto_sync_ready: false
