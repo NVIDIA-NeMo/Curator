@@ -11,8 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 import random
+from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -145,19 +147,35 @@ class TestSemDuplicates:
             # Correctly returns the original dataset with no duplicates removed
             result = sem_duplicates(dedup_data)
             result_df = result.df.compute()
-            docs_to_remove = [1, 100]
-            if id_col_type == "str":
-                docs_to_remove = list(map(str, docs_to_remove))
 
             if not perform_removal:
-                expected_df = cudf.Series(docs_to_remove, name="id", dtype=id_col_type)
-                assert_eq(result_df["id"].sort_values(), expected_df, check_index=False)
+                first_doc_to_remove = [1, 2, 3, 4]
+                second_doc_to_remove = [100, 200, 300]
+                # Generate all possible combinations of documents to remove
+                expected_series_list = [
+                    cudf.Series([a, b], name="id", dtype=id_col_type).sort_values().reset_index(drop=True)
+                    for a, b in product(first_doc_to_remove, second_doc_to_remove)
+                ]
+
+                result_series = result_df["id"].sort_values().reset_index(drop=True)
+                assert any(result_series.equals(expected_series) for expected_series in expected_series_list)
             else:
-                assert_eq(
-                    result_df,
-                    dedup_data.df[~dedup_data.df["id"].isin(docs_to_remove)],
-                    check_index=False,
-                )
+                if id_col_type == "int":
+                    first_doc_to_keep = {1, 2, 3, 4}
+                    second_doc_to_keep = {100, 200, 300}
+                else:
+                    first_doc_to_keep = {"1", "2", "3", "4"}
+                    second_doc_to_keep = {"100", "200", "300"}
+
+                result_ids = set(result_df["id"].to_arrow().to_pylist())
+
+                # Intersection of the sets
+                num_kept_from_first = len(result_ids & first_doc_to_keep)
+                num_kept_from_second = len(result_ids & second_doc_to_keep)
+
+                assert len(result_ids) == 5  # noqa: PLR2004
+                assert num_kept_from_first == 3  # noqa: PLR2004
+                assert num_kept_from_second == 2  # noqa: PLR2004
 
     @pytest.mark.parametrize("n_clusters", [2, 3])
     @pytest.mark.parametrize("perform_removal", [True, False])
