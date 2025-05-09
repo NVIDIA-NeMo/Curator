@@ -4,41 +4,62 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      # We can run gpuCI on any PR targeting these branches
-      - "main"
-      - "[rv][0-9].[0-9].[0-9]"
-      - "[rv][0-9].[0-9].[0-9]rc[0-9]"
-    # PR has to be labeled with "gpuCI" label
-    types: [labeled, synchronize]
+      - "pull-request/[0-9]+"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
+  changed-files:
+    runs-on: ubuntu-latest
+    outputs:
+      any_changed: ${{ steps.changed-files.outputs.any_changed }}
+      changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          if [[ "${{ github.ref }}" == refs/heads/pull-request/* ]]; then
+            # For PR branches, use the base branch from PR info
+            echo "base=${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}" >> $GITHUB_OUTPUT
+          else
+            # For other branches, use the last commit
+            echo "base=HEAD~1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get changed files
+        id: changed-files
+        uses: step-security/changed-files@v45.0.1
+        with:
+          files: |
+            nemo_curator/**
+            config/**
+            .github/**
+            pyproject.toml
+            Dockerfile
+            tests/**
+          base_sha: ${{ steps.base-ref.outputs.base }}
+
   # First, we build and push a NeMo Curator container
   build-container:
-    # This block covers 3 cases when gpuCI should be triggered:
-    # 1. The PR has the "gpuCI" label and is opened by a maintainer.
-    #    In this case, gpuCI will autorun on any subsequent pushes to the PR,
-    #    as long as the "gpuCI" label is not removed.
-    # 2. The "gpuCI" label is added to the PR. If a non-maintainer opened the PR,
-    #    then subsequent pushes to the PR will not autorun gpuCI
-    #    unless the "gpuCI" label is removed and re-added again.
-    # 3. PR is merged to main.
-    if: >-
-      (
-        contains(github.event.pull_request.labels.*.name, 'gpuci') &&
-        contains(
-          '["ayushdg", "ko3n1g", "praateekmahajan", "ryantwolf", "sarahyurick", "VibhuJawa"]',
-          github.event.pull_request.user.login
-        )
-      ) ||
-      (github.event.label.name == 'gpuci') ||
-      (github.ref == 'refs/heads/main')
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.18.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.29.0
+    needs: [changed-files]
+    if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
     with:
       image-name: nemo_curator_container
       dockerfile: Dockerfile
@@ -48,36 +69,44 @@ jobs:
         REPO_URL=https://github.com/${{ github.repository }}.git
         CURATOR_COMMIT=${{ github.sha }}
       prune-filter-timerange: 24h
+      runner: linux-amd64-cpu8
+      has-azure-credentials: true
+      use-inline-cache: false
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   # Then, we run our PyTests in the container we just built
   run-gpu-tests:
-    needs: build-container
-    # This is the tag on our Azure runner found in Actions -> Runners -> Self-hosted runners
-    # It has 2 A100 GPUs
-    runs-on: self-hosted-azure
-    # Unit tests should not take longer than 30 minutes
-    timeout-minutes: 30
-    # This block covers 3 cases when gpuCI should be triggered:
-    # 1. The PR has the "gpuCI" label and is opened by a maintainer.
-    #    In this case, gpuCI will autorun on any subsequent pushes to the PR,
-    #    as long as the "gpuCI" label is not removed.
-    # 2. The "gpuCI" label is added to the PR. If a non-maintainer opened the PR,
-    #    then subsequent pushes to the PR will not autorun gpuCI
-    #    unless the "gpuCI" label is removed and re-added again.
-    # 3. PR is merged to main.
-    if: >-
-      (
-        contains(github.event.pull_request.labels.*.name, 'gpuci') &&
-        contains(
-          '["ayushdg", "ko3n1g", "praateekmahajan", "ryantwolf", "sarahyurick", "VibhuJawa"]',
-          github.event.pull_request.user.login
-        )
-      ) ||
-      (github.event.label.name == 'gpuci') ||
-      (github.ref == 'refs/heads/main')
+    needs: [build-container]
+    if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
+    runs-on: linux-amd64-gpu-rtxa6000-latest-1
+    environment: nemo-ci
+    # Unit tests should not take longer than 40 minutes including docker pull and startup time
+    timeout-minutes: 40
     env:
       DIR: ${{ github.run_id }}
     steps:
+      - name: Install Azure CLI
+        run: |
+          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure ACR Login
+        run: |
+          az acr login --name nemoci
+          which docker
+
+      - name: Checkout NeMo-Curator
+        uses: actions/checkout@v4
+
       # If something went wrong during the last cleanup, this step ensures any existing container is removed
       - name: Remove existing container if it exists
         run: |
@@ -86,15 +115,19 @@ jobs:
           fi
 
         # This runs the container which was pushed by build-container, which we call "nemo-curator-container"
-        # `--gpus all` ensures that all of the GPUs from our self-hosted-azure runner are available in the container
-        # We use "github.run_id" to identify the PR with the commits we want to run the PyTests with
+        # `--gpus all` ensures that all of the GPUs from our runner are available in the container
         # `bash -c "sleep infinity"` keeps the container running indefinitely without exiting
       - name: Run Docker container
         run: |
-          docker run --gpus all --name nemo-curator-container -d nemoci.azurecr.io/nemo_curator_container:${{ github.run_id }} bash -c "sleep infinity"
+          docker run \
+            --gpus all \
+            --name nemo-curator-container \
+            -d \
+            --volume ${{ github.workspace }}:/opt/NeMo-Curator \
+            nemoci.azurecr.io/nemo_curator_container:${{ github.run_id }} \
+            bash -c "sleep infinity"
 
-        # Expect `whoami` to be "azureuser"
-        # Expect `nvidia-smi` to show our 2 A100 GPUs
+        # Expect `nvidia-smi` to show available GPUs
       - name: Check GPUs
         run: |
           whoami
@@ -127,6 +160,7 @@ jobs:
 
           docker exec nemo-curator-container coverage xml
 
+          mkdir -p $DIR
           docker cp nemo-curator-container:/opt/.coverage $DIR/.coverage
           docker cp nemo-curator-container:/opt/coverage.xml $DIR/coverage.xml
           coverage_report="codecov"

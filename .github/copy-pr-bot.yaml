@@ -26,4 +26,4 @@ additional_vetters:
   - VibhuJawa
   - arhamm1
 auto_sync_draft: false
-auto_sync_ready: false
+auto_sync_ready: true
