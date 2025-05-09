@@ -1,5 +1,14 @@
 # Changelog
 
+## NVIDIA NeMo Curator 0.8.0
+
+- Llama Based PII Redaction
+- Trafilatura Text Extractor
+- Chinese & Japanese Stopwords for Text Extractors
+- Writing gzip compressed jsonl datasets
+- Training dataset curation for retriever customization using hard-negative mining
+- Implemented a memory efficient pairwise similarity in Semantic Deduplication
+
 ## NVIDIA NeMo Curator 0.7.1
 
 - Fix Transformers + Cuda Context bug
