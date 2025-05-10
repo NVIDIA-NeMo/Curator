@@ -34,13 +34,7 @@ jobs:
       - name: Determine base reference
         id: base-ref
         run: |
-          if [[ "${{ github.ref }}" == refs/heads/pull-request/* ]]; then
-            # For PR branches, use the base branch from PR info
-            echo "base=${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}" >> $GITHUB_OUTPUT
-          else
-            # For other branches, use the last commit
-            echo "base=HEAD~1" >> $GITHUB_OUTPUT
-          fi
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" >> $GITHUB_OUTPUT
 
       - name: Get changed files
         id: changed-files
