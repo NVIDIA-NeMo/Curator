@@ -118,40 +118,59 @@ class ClusteringModel:
         with performance_report_if_with_ts_suffix(self.profile_dir, "clustering-model"):
             if not self.keep_all_columns:
                 embeddings_df = embeddings_df[[self.id_col, self.embedding_column]]
+                # We persist here to avoid a re-read of the embeddings_df
+                # We only persist if we are not keeping all columns as text column can be large resulting in OOM
+                embeddings_df = embeddings_df.persist()
+            else:
+                self.logger.warning(
+                    "Since all columns are being kept, we will not persist the embeddings_df which will result in a slowdown"
+                )
 
             if self.clustering_input_partition_size is not None:
                 embeddings_df = embeddings_df.repartition(partition_size=self.clustering_input_partition_size)
 
-            try:
-                embeddings_df = embeddings_df.to_backend("pandas").persist()
-                embeddings_length = embeddings_df.shape[0].compute()
+            # Optimize now to ensure consistent partition counts between embeddings_df and kmeans predictions
+            # Without this, the partition counts would mismatch and cause assignment errors
+            embeddings_df = embeddings_df.optimize()
 
-                if embeddings_length < self.n_clusters:
-                    msg = (
-                        "Number of clusters is greater than the number of documents in your dataset: "
-                        f"dataset length is {embeddings_length} while n_clusters is set to {self.n_clusters}. "
-                        f"Please reduce n_clusters to be less than or equal to {embeddings_length}."
-                    )
-                    raise ValueError(msg)
-            except IndexError as e:
-                msg = (
-                    f'Original error message: "{e}". '
-                    "This could be due to empty partitions in your DocumentDataset. "
-                    "Please check your dataset for empty partitions and remove them if necessary."
-                )
-                raise IndexError(msg) from e
-
-            embeddings_df = embeddings_df.to_backend("cudf")
             # Normalize embeddings before clustering
             embeddings_df = embeddings_df.map_partitions(
                 normalize_embeddings_col_in_df,
                 embedding_col=self.embedding_column,
                 meta=embeddings_df._meta.copy(),  # noqa: SLF001
             )
+
             cupy_normalized_darr = embeddings_df.map_partitions(
                 get_array_from_df, self.embedding_column, meta=cp.ndarray([1, 1])
             )
-            cupy_normalized_darr.compute_chunk_sizes()
+            # We ideally would persist here in case embeddings_df is not persisted
+            # However because of https://github.com/rapidsai/cudf/issues/18750 we run into an issue
+            # cupy_normalized_darr = cupy_normalized_darr.persist() # noqa: ERA001
+            try:
+                cupy_normalized_darr.compute_chunk_sizes()
+            except Exception:  # noqa: BLE001
+                try:
+                    import dask
+
+                    # For cudf 25.02 / 25.04 compute_chunk_sizes fails with a task fusion error
+                    # This is a workaround to disable task fusion
+                    with dask.config.set({"optimization.fuse.active": False}):
+                        cupy_normalized_darr.compute_chunk_sizes()
+                except Exception as inner_e:
+                    msg = (
+                        "Unable to compute chunk sizes for the embeddings array. "
+                        "Please raise an issue at https://github.com/NVIDIA/NeMo-Curator/issues"
+                    )
+                    raise RuntimeError(msg) from inner_e
+
+            # TODO: Remove once https://github.com/rapidsai/cuml/issues/6643 is fixed
+            if len(cupy_normalized_darr) < self.n_clusters:
+                msg = (
+                    f"Number of clusters is greater than the number of documents in your dataset: "
+                    f"dataset length is {len(cupy_normalized_darr)} while n_clusters is set to {self.n_clusters}. "
+                    f"Please reduce n_clusters to be less than or equal to {len(cupy_normalized_darr)}."
+                )
+                raise ValueError(msg)
 
             # Perform KMeans clustering (KMeans.fit)
             t0 = time.time()
@@ -192,7 +211,7 @@ class ClusteringModel:
             # Deleting kmeans triggers a future cancelled error in dask
             # See issue:https://github.com/NVIDIA/NeMo-Curator/issues/624
             # del kmeans
-            del centroids, cupy_normalized_darr
+            del centroids
 
             # Save embeddings by nearest center to a file
             clustering_output_dir = os.path.join(self.clustering_output_dir, "embs_by_nearest_center")
@@ -206,6 +225,7 @@ class ClusteringModel:
                 partition_on="nearest_cent",
                 write_index=False,
             )
+
             self.logger.info(
                 f"Time taken for assigning distance to each embedding: {time.time() - t0}s"
                 f" and output written at {clustering_output_dir}"
