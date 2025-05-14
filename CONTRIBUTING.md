@@ -69,6 +69,9 @@ pytest
 # pytest --cpu
 ```
 
+## Coverage
+Pull requests should cover at least 80% of its changes with tests. CI will reject PRs that do not fulfill this requirement. Please refer to the [Unit tests](#unit-tests) section for more about writing unit tests.
+
 ## Pull Requests (PR) Guidelines
 
 **Send your PRs to the `main` branch**
