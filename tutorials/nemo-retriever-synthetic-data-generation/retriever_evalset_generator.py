@@ -128,7 +128,7 @@ class RetrieverEvalSetGenerator(SyntheticDataGenerator):
         df["question"] = df["qa_pairs"].apply(lambda x: x["question"])
         df["question-id"] = df["question"].apply(self._get_random_hash)
         df["answer"] = df["qa_pairs"].apply(lambda x: x["answer"])
-        df["score"] = df["question"].apply(lambda: 1)
+        df["score"] = 1
 
         return df
 
