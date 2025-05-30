@@ -72,7 +72,7 @@ class SymbolsToWordsFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -215,7 +215,7 @@ class LongWordFilter(DocumentFilter):
     Source: C4 (Google)
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -238,7 +238,7 @@ class WordCountFilter(DocumentFilter):
     within a specified range, then discard.
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -301,7 +301,7 @@ class MeanWordLengthFilter(DocumentFilter):
     If the mean word length is not in a specified range, then discard.
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -422,7 +422,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -465,7 +465,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -564,7 +564,7 @@ class CommonEnglishWordsFilter(DocumentFilter):
     to remove documents with over-capitalization.
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 
@@ -595,7 +595,7 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
     Source: Gopher (Rae et al., 2021)
 
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
     """
 

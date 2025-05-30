@@ -25,7 +25,7 @@ from itertools import groupby
 def get_word_splitter(language: str) -> Callable[[str], list[str]]:
     """
     For Chinese and Japanese text, we use external libraries to split the text
-    because these languages are not separated by spaces. For all other langauges,
+    because these languages are not separated by spaces. For all other languages,
     such as English, we assume words are separated by spaces.
 
     Args:
