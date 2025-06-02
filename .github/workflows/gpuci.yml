@@ -51,7 +51,7 @@ jobs:
 
   # First, we build and push a NeMo Curator container
   build-container:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.29.0
+    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.35.0
     needs: [changed-files]
     if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
     with:
@@ -66,6 +66,7 @@ jobs:
       runner: linux-amd64-cpu8
       has-azure-credentials: true
       use-inline-cache: false
+      enable-pull-cache: true
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
