@@ -51,7 +51,7 @@ jobs:
 
   # First, we build and push a NeMo Curator container
   build-container:
-    uses: NVIDIA/NeMo-FW-CI-templates/.github/workflows/_build_container.yml@v0.35.0
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_container.yml@v0.35.0
     needs: [changed-files]
     if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
     with:
