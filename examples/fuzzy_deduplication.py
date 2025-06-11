@@ -19,7 +19,7 @@ import dask
 
 from nemo_curator import FuzzyDuplicates, FuzzyDuplicatesConfig
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.distributed_utils import get_client, write_to_disk
+from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
@@ -92,7 +92,7 @@ def main(args: argparse.Namespace) -> None:
             return
 
         result = fuzzy_dup.remove(input_dataset, duplicates)
-        write_to_disk(result, output_dir, output_type=filetype)
+        result.to_parquet(output_dir)
         print(f"Time taken:{time.time() - t0}s")
 
 

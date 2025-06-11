@@ -17,7 +17,7 @@ import time
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
-from nemo_curator.utils.distributed_utils import get_client, write_to_disk
+from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
@@ -60,7 +60,7 @@ def main(args: argparse.Namespace) -> None:
         duplicates = DocumentDataset.read_parquet(duplicates, backend=backend)
 
     result = exact_dup.remove(input_dataset, duplicates)
-    write_to_disk(result, output_dir, output_type="parquet")
+    result.to_parquet(output_dir)
     print(time.time() - t0)
 
 
