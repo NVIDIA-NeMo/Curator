@@ -76,7 +76,7 @@ jobs:
   run-gpu-tests:
     needs: [build-container]
     if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
-    runs-on: linux-amd64-gpu-rtxa6000-latest-1
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     environment: nemo-ci
     # Unit tests should not take longer than 40 minutes including docker pull and startup time
     timeout-minutes: 40

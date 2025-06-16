@@ -26,6 +26,7 @@ def create_logger(
     log_level: int = logging.INFO,
     stdout: bool = False,
 ) -> logging.Logger:
+    # Minor change
     # Create the logger
     logger = logging.getLogger(name)
     logger.setLevel(log_level)
