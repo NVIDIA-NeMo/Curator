@@ -15,11 +15,10 @@ permissions:
   contents: read
 
 jobs:
-  changed-files:
+  pre-flight:
     runs-on: ubuntu-latest
     outputs:
-      any_changed: ${{ steps.changed-files.outputs.any_changed }}
-      changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
+      allowed_to_run: ${{ steps.allowed-to-run.outputs.allowed_to_run }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,11 +48,21 @@ jobs:
             tests/**
           base_sha: ${{ steps.base-ref.outputs.base }}
 
+      - name: Is main branch
+        id: is-main-branch
+        run: |
+          echo "is_main_branch=${{ github.ref == 'refs/heads/main' }}" >> $GITHUB_OUTPUT
+
+      - name: Allowed to run
+        id: allowed-to-run
+        run: |
+          echo "allowed_to_run=${{ steps.changed-files.outputs.any_changed == 'true' || steps.changed-files.outputs.is_main_branch == 'true' }}" >> $GITHUB_OUTPUT
+
   # First, we build and push a NeMo Curator container
   build-container:
+    needs: [pre-flight]
+    if: ${{ needs.pre-flight.outputs.allowed_to_run == 'true' }}
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_container.yml@v0.35.0
-    needs: [changed-files]
-    if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
     with:
       image-name: nemo_curator_container
       dockerfile: Dockerfile
@@ -74,9 +83,9 @@ jobs:
 
   # Then, we run our PyTests in the container we just built
   run-gpu-tests:
-    needs: [build-container]
-    if: ${{ needs.changed-files.outputs.any_changed == 'true' }}
-    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
+    needs: [pre-flight, build-container]
+    if: ${{ needs.pre-flight.outputs.allowed_to_run == 'true' }}
+    runs-on: linux-amd64-gpu-rtxa6000-latest-1
     environment: nemo-ci
     # Unit tests should not take longer than 40 minutes including docker pull and startup time
     timeout-minutes: 40
