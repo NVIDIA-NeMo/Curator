@@ -548,7 +548,7 @@ class TestExtractor:
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(thai_html, stop_words["THAI"], "THAI")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
 
     @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
     def test_extract_chinese_text(
@@ -595,7 +595,7 @@ class TestExtractor:
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(chinese_html, stop_words["CHINESE"], "CHINESE")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
 
     @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
     def test_extract_japanese_text(
@@ -643,7 +643,7 @@ class TestExtractor:
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(japanese_html, stop_words["JAPANESE"], "JAPANESE")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
 
     @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
     def test_extract_korean_text(self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]) -> None:
@@ -690,4 +690,4 @@ class TestExtractor:
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(korean_html, stop_words["KOREAN"], "KOREAN")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
