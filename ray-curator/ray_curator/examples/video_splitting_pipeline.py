@@ -5,7 +5,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
 from ray_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorSrage, ClipTranscodingStage
 from ray_curator.stages.video.clipping.frame_extraction import VideoFrameExtractionStage
-
+from ray_curator.stages.video.filtering.motion_filter import MotionVectorDecodeStage, MotionFilterStage
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     
     # Define pipeline
@@ -44,6 +44,24 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         verbose=args.verbose,
         # log_stats=args.perf_profile,
     ))
+
+    if args.motion_filter != "disabled":
+        pipeline.add_stage(MotionVectorDecodeStage(
+            num_cpus_per_worker=args.motion_decode_cpus_per_worker,
+            verbose=args.verbose,
+            target_fps=args.motion_decode_target_fps,
+            target_duration_ratio=args.motion_decode_target_duration_ratio,
+            # log_stats=args.perf_profile,
+        ))
+        pipeline.add_stage(MotionFilterStage(
+            score_only=args.motion_filter == "score-only",
+            global_mean_threshold=args.motion_global_mean_threshold,
+            per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
+            num_gpus_per_worker=args.motion_score_gpus_per_worker,
+            batch_size=args.motion_score_batch_size,
+            verbose=args.verbose,
+            # log_stats=args.perf_profile,
+        ))
     return pipeline
 
 
@@ -116,8 +134,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--transcode-encoder",
         type=str,
-        default="libopenh264",
-        choices=["libopenh264", "h264_nvenc"],
+        default="libx264", # TODO: change to libopenh264
+        choices=["libopenh264", "h264_nvenc", "libx264"],
         help="Codec for transcoding clips; None to skip transocding.",
     )
     parser.add_argument(
@@ -129,7 +147,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--transcode-ffmpeg-batch-size",
         type=int,
-        default=16,
+        default=4, # TODO: change to 16
         help="FFMPEG batchsize for transcoding clips. Each clip/sub-command in "
         "the batch uses --transcode-encoder-threads number of CPU threads",
     )
@@ -150,6 +168,70 @@ if __name__ == "__main__":
         type=int,
         default=32,
         help="Number of clips per chunk after transcoding stage.",
+    )
+
+    # Motion vector decoding arguments
+    parser.add_argument(
+        "--motion-filter",
+        choices=["disable", "enable", "score-only"],
+        default="enable",
+        help=(
+            "Control motion filtering behavior:\n"
+            "  - disable: No filtering or scoring.\n"
+            "  - enable: Automatically filter clips based on motion thresholds.\n"
+            "      (controlled by --motion-global-mean-threshold and --motion-per-patch-min-256-threshold).\n"
+            "  - score-only: Calculate motion scores without filtering clips."
+        ),
+    )
+    parser.add_argument(
+        "--motion-global-mean-threshold",
+        type=float,
+        default=0.00098,
+        help=(
+            "Threshold for global average motion magnitude. "
+            "Clips with global motion below this value may be flagged as low-motion. "
+            "Only applies when --motion-filter is set to 'enable' or 'score-only'."
+        ),
+    )
+    parser.add_argument(
+        "--motion-per-patch-min-256-threshold",
+        type=float,
+        default=0.000001,
+        help=(
+            "Threshold for minimal average motion magnitude in any 256x256-pixel patch. "
+            "Clips containing patches below this threshold may be flagged as low-motion. "
+            "Only applies when --motion-filter is set to 'enable' or 'score-only'."
+        ),
+    )
+    parser.add_argument(
+        "--motion-decode-target-fps",
+        type=float,
+        default=2.0,
+        help="Target frames per second to sample for motion vector decoding.",
+    )
+    parser.add_argument(
+        "--motion-decode-target-duration-ratio",
+        type=float,
+        default=0.5,
+        help="Target ratio of video duration to sample for motion vector decoding (0.5 = 50%%).",
+    )
+    parser.add_argument(
+        "--motion-decode-cpus-per-worker",
+        type=float,
+        default=4.0,
+        help="Number of CPUs per worker allocated to motion vector decoding.",
+    )
+    parser.add_argument(
+        "--motion-score-batch-size",
+        type=int,
+        default=64,
+        help="Batch size for motion score computation.",
+    )
+    parser.add_argument(
+        "--motion-score-gpus-per-worker",
+        type=float,
+        default=0.5,
+        help="Number of GPUs per worker allocated to motion score computation. Set to 0 to use CPU instead of GPU.",
     )
 
     # parser.add_argument("--output_path", type=str, required=True)

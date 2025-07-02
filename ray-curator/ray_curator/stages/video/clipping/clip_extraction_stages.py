@@ -17,10 +17,10 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that transcodes video clips into a standardized format.
 
     This stage handles the conversion of video clips using FFmpeg, supporting both
-    software (libopenh264) and hardware (NVENC) encoding with configurable parameters.
+    software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
     """
     num_cpus_per_worker: float = 6.0
-    encoder: str = "libopenh264"
+    encoder: str = "libx264"
     encoder_threads: int = 1
     encode_batch_size: int = 16
     nb_streams_per_gpu: int = 3
@@ -41,18 +41,18 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         Args:
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
-        if self.encoder not in {"libopenh264", "h264_nvenc"}:
-            error_msg = f"Expected encoder of `libopenh264` or `h264_nvenc`. Got {self.encoder}"
+        if self.encoder not in {"libopenh264", "libx264", "h264_nvenc"}:
+            error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"
             raise ValueError(error_msg)
     
     @property
     def resources(self) -> Resources:
         """Resource requirements for this stage."""
         if self.encoder == "h264_nvenc" or self.use_hwaccel:
-            if self.nb_streams_per_gpu > 0:
-                return Resources(gpus=1.0 / self.nb_streams_per_gpu)
-            else:
-                return Resources(gpus=1.0)
+            # if self.nb_streams_per_gpu > 0:
+            #     return Resources(gpus=1.0 / self.nb_streams_per_gpu)
+            # else:
+            return Resources(entire_gpu=True)
 
         return Resources(cpus=self.num_cpus_per_worker)
 
@@ -82,6 +82,10 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             use_bit_rate = None
             if self.use_input_bit_rate:
                 use_bit_rate = str(video.metadata.bit_rate_k) + "K"
+
+            # TODO remove DEBUG
+            video.clips = video.clips[:self.encode_batch_size]
+            logger.info(f"***********DEBUG: Using first {len(video.clips)} clips for transcoding for DEBUG")
 
             # extract clips in batches
             for i in range(0, len(video.clips), self.encode_batch_size):
@@ -138,7 +142,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             #         stats.reset()
             if self.verbose:
                 logger.info(
-                    f"Spawning subtask {idx} with {len(subtask.video.clips)} clips and weight={subtask.weight:.2f}",
+                    f"Spawning subtask {idx} with {len(subtask.data.clips)} clips and weight={subtask.data.weight:.2f}",
                 )
             output_tasks.append(subtask)
         logger.info(f"Creating {len(clip_chunks)} tasks for downstream from {video.input_video}.")
@@ -237,6 +241,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
         # run ffmpeg command
         try:
+            logger.info(f"***********Running ffmpeg command: {' '.join(command)}")
             output = subprocess.check_output(  # noqa: S603
                 command, cwd=working_dir, stderr=subprocess.STDOUT
             )
@@ -244,6 +249,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 logger.warning(f"ffmpeg output: {output.decode('utf-8')}")
         except subprocess.CalledProcessError as e:
             logger.error(f"ffmpeg command failed with return code {e.returncode} on {input_video}")
+            logger.error(f"Error: {e}")
             logger.warning(f"Command: {' '.join(command)}")
             if e.output:
                 logger.warning(f"Error output: {e.output.decode('utf-8')}")
@@ -252,6 +258,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             return
 
         # read clips back into memory
+        logger.info(f"***********Reading {len(clips)} clips back into memory")
         for clip in clips:
             clip.buffer = (working_dir / f"{clip.uuid}.mp4").read_bytes()
 

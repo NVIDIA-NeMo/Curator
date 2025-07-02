@@ -7,7 +7,7 @@ import numpy.typing as npt
 import sys
 from .tasks import Task
 from ray_curator.utils.decoder_utils import extract_video_metadata
-
+import ray_curator.stages.video.filtering.motion_vector_backend as motion_backend
 from uuid import UUID
 
 @dataclass
@@ -64,9 +64,9 @@ class Clip:
     buffer: bytes | None = None
     extracted_frames: dict[str, npt.NDArray[np.uint8]] = field(default_factory=dict)
     # motion
-    # decoded_motion_data: motion.DecodedData | None = None
-    # motion_score_global_mean: float | None = None
-    # motion_score_per_patch_min_256: float | None = None
+    decoded_motion_data: motion_backend.DecodedData | None = None
+    motion_score_global_mean: float | None = None
+    motion_score_per_patch_min_256: float | None = None
     # aesthetic
     aesthetic_score: float | None = None
     # embedding
