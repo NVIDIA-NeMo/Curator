@@ -4,7 +4,8 @@ on:
     branches:
       - main
   pull_request:
-    types: [labeled, synchronize]
+    branches:
+      - main
   workflow_dispatch:
 
 # When this workflow is queued, automatically cancel any previous running
