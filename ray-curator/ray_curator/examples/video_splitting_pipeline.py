@@ -6,6 +6,11 @@ from ray_curator.stages.video.io.video_download import VideoDownloadStage
 from ray_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorSrage, ClipTranscodingStage
 from ray_curator.stages.video.clipping.frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionVectorDecodeStage, MotionFilterStage
+from ray_curator.stages.video.embedding.internvideo2 import InternVideo2FrameCreationStage, InternVideo2EmbeddingStage
+from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy
+from ray_curator.stages.video.io.clip_writer import ClipWriterStage
+
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     
     # Define pipeline
@@ -45,7 +50,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         # log_stats=args.perf_profile,
     ))
 
-    if args.motion_filter != "disabled":
+    if args.motion_filter != "disable":
         pipeline.add_stage(MotionVectorDecodeStage(
             num_cpus_per_worker=args.motion_decode_cpus_per_worker,
             verbose=args.verbose,
@@ -62,6 +67,52 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             verbose=args.verbose,
             # log_stats=args.perf_profile,
         ))
+    
+    pipeline.add_stage(ClipFrameExtractionStage(
+        extraction_policies=(FrameExtractionPolicy.sequence,),
+        target_fps=[2], # TODO
+        target_res=(
+            args.clip_extraction_target_res,
+            args.clip_extraction_target_res,
+        ),
+        verbose=args.verbose,
+        # log_stats=args.perf_profile,
+    ))
+        
+
+    if args.embedding_algorithm == "internvideo2":
+        pipeline.add_stage(InternVideo2FrameCreationStage(
+            target_fps=2.0,
+            verbose=args.verbose,
+            # log_stats=args.perf_profile,
+        ))
+        pipeline.add_stage(InternVideo2EmbeddingStage(
+            num_gpus_per_worker=args.embedding_gpus_per_worker,
+            # texts_to_verify=args.embedding_texts_to_verify,
+            verbose=args.verbose,
+            # log_stats=args.perf_profile,
+        ))
+    else:
+        raise NotImplementedError(f"Embedding algorithm {args.embedding_algorithm} not supported")
+
+
+    pipeline.add_stage(
+        ClipWriterStage(
+            output_path=args.output_clip_path,
+            input_path=args.video_folder,
+            upload_clips=args.upload_clips,
+            dry_run=args.dry_run,
+            generate_embeddings=args.generate_embeddings,
+            generate_previews=False, # args.generate_previews,
+            generate_captions=False, # args.generate_captions,
+            embedding_algorithm=args.embedding_algorithm,
+            caption_models=None, # args.caption_models,
+            enhanced_caption_models=None, # args.enhanced_caption_models,
+            verbose=args.verbose,
+            # log_stats=args.perf_profile,
+        )
+    )
+
     return pipeline
 
 
@@ -86,8 +137,22 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--video_folder", type=str, default='~/Videos')
+    parser.add_argument("--video-folder", type=str, default='/home/aot/Videos')
     parser.add_argument("--verbose", action="store_true", default=False)
+    parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
+    parser.add_argument(
+        "--no-upload-clips",
+        dest="upload_clips",
+        action="store_false",
+        default=True,
+        help="Whether to upload clips to output path.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="If set only write minimum metadata",
+    )
 
     # Splitting parameters
     parser.add_argument(
@@ -174,7 +239,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--motion-filter",
         choices=["disable", "enable", "score-only"],
-        default="enable",
+        default="disable",
         help=(
             "Control motion filtering behavior:\n"
             "  - disable: No filtering or scoring.\n"
@@ -233,7 +298,33 @@ if __name__ == "__main__":
         default=0.5,
         help="Number of GPUs per worker allocated to motion score computation. Set to 0 to use CPU instead of GPU.",
     )
-
+    parser.add_argument(
+        "--clip-extraction-target-res",
+        type=int,
+        default=-1,
+        help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
+    )
+    # Embedding arguments
+    parser.add_argument(
+        "--embedding-algorithm",
+        type=str,
+        default="internvideo2",
+        choices=["cosmos-embed1", "internvideo2"],
+        help="Embedding algorithm to use.",
+    )
+    parser.add_argument(
+        "--embedding-gpus-per-worker",
+        type=float,
+        default=1.0,
+        help="Number of GPUs per worker for InternVideo2 or Cosmos-Embed1 embedding stage.",
+    )
+    parser.add_argument(
+        "--no-generate-embeddings",
+        dest="generate_embeddings",
+        action="store_false",
+        default=True,
+        help="Whether to generate embeddings for clips.",
+    )
     # parser.add_argument("--output_path", type=str, required=True)
     # parser.add_argument("--output_format", type=str, required=True)
     # parser.add_argument("--executor", type=str, required=True)

@@ -9,7 +9,7 @@ from .tasks import Task
 from ray_curator.utils.decoder_utils import extract_video_metadata
 import ray_curator.stages.video.filtering.motion_vector_backend as motion_backend
 from uuid import UUID
-
+from ray_curator.utils import storage_client
 @dataclass
 class _Window:
     """Container for video window data including metadata, frames, and processing results.
@@ -161,6 +161,23 @@ class ClipStats:
     total_clip_duration: float = 0.0
     max_clip_duration: float = 0.0
 
+    def combine(self, other) -> None:
+        """Combine two ClipStats objects.
+
+        Args:
+            other: ClipStats object to combine with.
+
+        """
+        self.num_filtered_by_motion += other.num_filtered_by_motion
+        self.num_filtered_by_aesthetic += other.num_filtered_by_aesthetic
+        self.num_passed += other.num_passed
+        self.num_transcoded += other.num_transcoded
+        self.num_with_embeddings += other.num_with_embeddings
+        self.num_with_caption += other.num_with_caption
+        self.num_with_webp += other.num_with_webp
+        self.total_clip_duration += other.total_clip_duration
+        self.max_clip_duration = max(self.max_clip_duration, other.max_clip_duration)
+
 
 from dataclasses import dataclass
 
@@ -308,6 +325,18 @@ class Video:
         if self.metadata.pixel_format is None:
             return None
         return "10le" in self.metadata.pixel_format or "10be" in self.metadata.pixel_format
+
+    @property
+    def input_path(self) -> str:
+        """Get the input path of the video.
+
+        Returns:
+            Input path of the video.
+
+        """
+        if isinstance(self.input_video, storage_client.StoragePrefix):
+            return self.input_video.path
+        return self.input_video.as_posix()
 
 @dataclass
 class VideoTask(Task[Video]):
