@@ -1,0 +1,496 @@
+{
+    "available_corpus": {
+        "cc3m": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image"
+        },
+        "cc12m": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image"
+        },
+        "sbu": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image"
+        },
+        "vg": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image",
+            "jump_filter": true
+        },
+        "coco": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image",
+            "jump_filter": true
+        },
+        "laion_2b": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image",
+            "jump_filter": true
+        },
+        "laion_coco": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image",
+            "jump_filter": true
+        },
+        "laion_pop": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image",
+            "jump_filter": true
+        },
+        "webvid_fuse_10m": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "jump_filter": true
+        },
+        "internvid_v1": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "jump_filter": true
+        },
+        "internvid_v2_avs_private": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio_video",
+            "read_clip_from_video": false,
+            "read_audio_from_video": true,
+            "zero_audio_padding_for_video": true,
+            "caption_augmentation": {
+                "caption_sample_type": "avs_all"
+            },
+            "jump_filter": true
+        },
+        "webvid": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "webvid_10m": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "wavcaps_400k": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        },
+        "cc3m_debug": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "image"
+        },
+        "webvid_debug": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "pretrain_example_data_1B": [
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "video"
+            }
+        ],
+        "pretrain_example_data_6B": [
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "video"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "audio_video",
+                "read_clip_from_video": false,
+                "read_audio_from_video": true,
+                "zero_audio_padding_for_video": true,
+                "caption_augmentation": {
+                    "caption_sample_type": "avs_all"
+                },
+                "jump_filter": true
+            }
+        ],
+        "data_25m": [
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "video"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image",
+                "jump_filter": true
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image",
+                "jump_filter": true
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image"
+            }
+        ],
+        "debug": [
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "image"
+            },
+            {
+                "anno_path": "your_path",
+                "data_root": "",
+                "media_type": "video"
+            }
+        ],
+        "msrvtt_1k_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "didemo_ret_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_paragraph_retrieval": true,
+            "trimmed30": true,
+            "max_txt_l": 64
+        },
+        "anet_ret_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_paragraph_retrieval": true,
+            "max_txt_l": 150
+        },
+        "lsmdc_ret_test_1000": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "vatex_ch_ret_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "vatex_en_ret_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "k400_act_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "is_act_rec": true
+        },
+        "k600_act_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_act_rec": true
+        },
+        "k700_act_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_act_rec": true
+        },
+        "mit_act_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_act_rec": true
+        },
+        "ucf101_act_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_act_rec": true
+        },
+        "hmdb51_act_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_act_rec": true
+        },
+        "ssv2_mc_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "charades_mc_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "anet_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_paragraph_retrieval": true,
+            "max_txt_l": 150
+        },
+        "didemo_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_paragraph_retrieval": true,
+            "trimmed30": true,
+            "max_txt_l": 64
+        },
+        "didemo_ret_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "is_paragraph_retrieval": true,
+            "trimmed30": true,
+            "max_txt_l": 64
+        },
+        "lsmdc_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "max_txt_l": 96
+        },
+        "lsmdc_ret_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "max_txt_l": 96
+        },
+        "msrvtt_ret_train9k": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "msrvtt_ret_test1k": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video"
+        },
+        "msvd_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "max_txt_l": 64,
+            "has_multi_txt_gt": true
+        },
+        "msvd_ret_val": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "max_txt_l": 64
+        },
+        "msvd_ret_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "max_txt_l": 64
+        },
+        "vatex_en_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "video",
+            "has_multi_txt_gt": true
+        },
+        "audiocaps_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        },
+        "audiocaps_ret_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        },
+        "clothov1_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        },
+        "clothov1_ret_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        },
+        "clothov2_ret_train": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        },
+        "clothov2_ret_test": {
+            "anno_path": "your_path",
+            "data_root": "",
+            "media_type": "audio"
+        }
+    },
+    "VisionEncoders": {},
+    "TextEncoders": {
+        "bert": {
+            "name": "bert_base",
+            "pretrained": "bert-base-uncased",
+            "config": "configs/config_bert.json",
+            "d_model": 768,
+            "fusion_layer": 9
+        },
+        "bert_large": {
+            "name": "bert_large",
+            "pretrained": "bert-large-uncased",
+            "config": "configs/config_bert_large.json",
+            "d_model": 1024,
+            "fusion_layer": 19
+        },
+        "med_bert": {
+            "name": "med_bert_base",
+            "pretrained": "bert-base-uncased",
+            "config": "configs/med_config.json",
+            "d_model": 768
+        },
+        "med_bert_large": {
+            "name": "med_bert_large",
+            "pretrained": "bert-base-uncased",
+            "config": "configs/med_large_config.json",
+            "d_model": 768
+        }
+    },
+    "num_workers": 6,
+    "num_frames": 4,
+    "num_frames_test": 4,
+    "batch_size": 8,
+    "batch_size_test": 4,
+    "size_t": 224,
+    "max_txt_l": 40,
+    "origin_num_frames": 4,
+    "use_half_precision": false,
+    "use_bf16": false,
+    "inputs": {
+        "image_res": 224,
+        "video_input": {
+            "num_frames": 4,
+            "sample_type": "rand",
+            "num_frames_test": 4,
+            "sample_type_test": "middle",
+            "random_aug": false
+        },
+        "max_txt_l": {
+            "image": 40,
+            "video": 40
+        },
+        "batch_size": {
+            "image": 8,
+            "video": 8
+        },
+        "batch_size_test": {
+            "image": 4,
+            "video": 4
+        }
+    },
+    "text_enc": "bert_large",
+    "model": {
+        "model_cls": "InternVideo2_Stage2",
+        "vision_encoder": {
+            "name": "pretrain_internvideo2_1b_patch14_224",
+            "img_size": 224,
+            "num_frames": 4,
+            "tubelet_size": 1,
+            "patch_size": 14,
+            "d_model": 1408,
+            "clip_embed_dim": 768,
+            "clip_teacher_embed_dim": 3200,
+            "clip_teacher_final_dim": 768,
+            "clip_norm_type": "l2",
+            "clip_return_layer": 6,
+            "clip_student_return_interval": 1,
+            "pretrained": "your_model_path/1B_stage2_pt.pth",
+            "use_checkpoint": true,
+            "checkpoint_num": 40,
+            "use_flash_attn": false,
+            "use_fused_rmsnorm": false,
+            "use_fused_mlp": false,
+            "clip_teacher": null,
+            "clip_input_resolution": 224,
+            "clip_teacher_return_interval": 1,
+            "video_mask_type": "random",
+            "video_mask_ratio": 0.8,
+            "image_mask_type": "random",
+            "image_mask_ratio": 0.5,
+            "sep_image_video_pos_embed": true,
+            "keep_temporal": false,
+            "only_mask": true
+        },
+        "text_encoder": {
+            "name": "bert_large",
+            "pretrained": "bert-large-uncased",
+            "config": "configs/config_bert_large.json",
+            "d_model": 1024,
+            "fusion_layer": 19
+        },
+        "multimodal": {
+            "enable": true
+        },
+        "embed_dim": 512,
+        "temp": 0.07,
+        "find_unused_parameters": false
+    },
+    "evaluate": true,
+    "deep_fusion": false,
+    "evaluation": {
+        "eval_frame_ensemble": "concat",
+        "eval_x_only": false,
+        "k_test": 128,
+        "eval_offload": true
+    },
+    "gradient_checkpointing": true,
+    "use_flash_sdp": false,
+    "use_mem_efficient_sdp": false,
+    "compile_model": false,
+    "dist_url": "env://",
+    "device": "cuda",
+    "mode": "pt",
+    "output_dir": null,
+    "resume": false,
+    "debug": false,
+    "log_freq": 100,
+    "seed": 42,
+    "save_latest": false,
+    "auto_resume": true,
+    "jump_evaluate": false,
+    "pretrained_path": "",
+    "deepspeed": {
+        "enable": true,
+        "stage": 1
+    }
+}
