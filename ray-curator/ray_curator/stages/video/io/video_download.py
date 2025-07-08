@@ -178,6 +178,6 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
             keep_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
         )
         if self.debug:
-            logger.info(f"DEBUG mode: Using 2 files for DEBUG")
+            logger.info("DEBUG mode: Using 2 files for DEBUG")
             return files[:2]
         return files

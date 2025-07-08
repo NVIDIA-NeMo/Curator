@@ -1,1 +1,1 @@
-"""BERT model implementations for InternVideo2.""" 
+"""BERT model implementations for InternVideo2."""

@@ -1,3 +1,4 @@
+# ruff: noqa: ANN001, ANN201, ANN202, PLR0913, PLW2901, RET504, RUF005, SIM103, PLR1714, PLR2004, S107, C417, SIM109
 # Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,6 +22,28 @@ from transformers.tokenization_utils import PreTrainedTokenizer, _is_control, _i
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
+
+# Unicode constants for Chinese character detection
+CJK_UNIFIED_START = 0x4E00
+CJK_UNIFIED_END = 0x9FFF
+CJK_EXT_A_START = 0x3400
+CJK_EXT_A_END = 0x4DBF
+CJK_EXT_B_START = 0x20000
+CJK_EXT_B_END = 0x2A6DF
+CJK_EXT_C_START = 0x2A700
+CJK_EXT_C_END = 0x2B73F
+CJK_EXT_D_START = 0x2B740
+CJK_EXT_D_END = 0x2B81F
+CJK_EXT_E_START = 0x2B820
+CJK_EXT_E_END = 0x2CEAF
+CJK_COMPAT_START = 0xF900
+CJK_COMPAT_END = 0xFAFF
+CJK_COMPAT_SUPP_START = 0x2F800
+CJK_COMPAT_SUPP_END = 0x2FA1F
+
+# Control character constants
+NULL_CHAR = 0
+REPLACEMENT_CHAR = 0xFFFD
 
 VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt"}
 
@@ -469,14 +492,14 @@ class BasicTokenizer:
         # space-separated words, so they are not treated specially and handled
         # like the all of the other languages.
         if (
-            (cp >= 0x4E00 and cp <= 0x9FFF)
-            or (cp >= 0x3400 and cp <= 0x4DBF)
-            or (cp >= 0x20000 and cp <= 0x2A6DF)
-            or (cp >= 0x2A700 and cp <= 0x2B73F)
-            or (cp >= 0x2B740 and cp <= 0x2B81F)
-            or (cp >= 0x2B820 and cp <= 0x2CEAF)
-            or (cp >= 0xF900 and cp <= 0xFAFF)
-            or (cp >= 0x2F800 and cp <= 0x2FA1F)
+            (cp >= CJK_UNIFIED_START and cp <= CJK_UNIFIED_END)
+            or (cp >= CJK_EXT_A_START and cp <= CJK_EXT_A_END)
+            or (cp >= CJK_EXT_B_START and cp <= CJK_EXT_B_END)
+            or (cp >= CJK_EXT_C_START and cp <= CJK_EXT_C_END)
+            or (cp >= CJK_EXT_D_START and cp <= CJK_EXT_D_END)
+            or (cp >= CJK_EXT_E_START and cp <= CJK_EXT_E_END)
+            or (cp >= CJK_COMPAT_START and cp <= CJK_COMPAT_END)
+            or (cp >= CJK_COMPAT_SUPP_START and cp <= CJK_COMPAT_SUPP_END)
         ):
             return True
 
@@ -487,7 +510,7 @@ class BasicTokenizer:
         output = []
         for char in text:
             cp = ord(char)
-            if cp == 0 or cp == 0xFFFD or _is_control(char):
+            if cp == NULL_CHAR or cp == REPLACEMENT_CHAR or _is_control(char):
                 continue
             if _is_whitespace(char):
                 output.append(" ")
