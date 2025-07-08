@@ -450,6 +450,92 @@ class TestArxiv:
         with open(extraction_dir / "subdir" / "subfile.txt") as f:
             assert f.read() == "subdirectory content\n"
 
+    def test_safe_extract_device_file_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents extraction of device files."""
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with a device file
+        malicious_tar_path = tmp_path / "device_file.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a device file (character device)
+            device_tarinfo = tarfile.TarInfo(name="evil_device")
+            device_tarinfo.type = tarfile.CHRTYPE  # Character device
+            device_tarinfo.devmajor = 1
+            device_tarinfo.devminor = 3
+            tar.addfile(device_tarinfo)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for device files
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Device files not allowed"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
+    def test_safe_extract_symlink_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents unsafe symlinks."""
+        import io
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with unsafe symlinks
+        malicious_tar_path = tmp_path / "symlink_attack.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a normal file first
+            normal_data = io.BytesIO(b"normal content\n")
+            normal_tarinfo = tarfile.TarInfo(name="normal.txt")
+            normal_tarinfo.size = len(normal_data.getbuffer())
+            tar.addfile(normal_tarinfo, fileobj=normal_data)
+
+            # Add a symlink that tries to escape the extraction directory
+            symlink_tarinfo = tarfile.TarInfo(name="evil_symlink")
+            symlink_tarinfo.type = tarfile.SYMTYPE
+            symlink_tarinfo.linkname = "../../../etc/passwd"  # Path traversal via symlink
+            tar.addfile(symlink_tarinfo)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for unsafe symlinks
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Symlink target outside extraction directory"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
+    def test_safe_extract_absolute_symlink_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents symlinks with absolute targets."""
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with absolute symlink target
+        malicious_tar_path = tmp_path / "absolute_symlink.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a symlink with absolute target
+            symlink_tarinfo = tarfile.TarInfo(name="absolute_symlink")
+            symlink_tarinfo.type = tarfile.SYMTYPE
+            symlink_tarinfo.linkname = "/etc/passwd"  # Absolute symlink target
+            tar.addfile(symlink_tarinfo)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for absolute symlink targets
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Absolute symlink target not allowed"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
     def test_arxiv_extractor(self) -> None:
         extractor = ArxivExtractor()
         # Create a minimal LaTeX document including comments and a section header.
