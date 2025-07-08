@@ -424,7 +424,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0915
         # Filter out files that don't contain any of the provided substrings
         input_files = [filename for filename in input_files if any(s in filename for s in args.filename_filter)]
 
-    # If neither is set, set the default blocksize to 1GB
+    # If neither is set, set the default blocksize to 256MB
     if args.json_blocksize is None and args.json_files_per_partition is None:
         args.json_blocksize = "256mb"
 
