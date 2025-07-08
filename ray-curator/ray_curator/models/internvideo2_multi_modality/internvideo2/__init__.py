@@ -1,1 +1,1 @@
-"""InternVideo2 model implementations.""" 
+"""InternVideo2 model implementations."""

@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+
+
 import torch
 from einops import rearrange
 from flash_attn.bert_padding import pad_input, unpad_input
@@ -31,12 +34,20 @@ class FlashAttention(nn.Module):
 
     """
 
-    def __init__(self, softmax_scale=None, attention_dropout=0.0, device=None, dtype=None):
+    def __init__(self, softmax_scale: float | None = None, attention_dropout: float = 0.0) -> None:
         super().__init__()
         self.softmax_scale = softmax_scale
         self.dropout_p = attention_dropout
 
-    def forward(self, qkv, key_padding_mask=None, causal=False, cu_seqlens=None, max_s=None, need_weights=False):
+    def forward(  # noqa: PLR0913
+        self,
+        qkv: torch.Tensor,
+        key_padding_mask: torch.Tensor | None = None,
+        causal: bool = False,
+        cu_seqlens: torch.Tensor | None = None,
+        max_s: int | None = None,
+        need_weights: bool = False,
+    ) -> torch.Tensor:
         """Implements the multihead softmax attention.
 
         Arguments:
@@ -97,4 +108,4 @@ class FlashAttention(nn.Module):
                 causal=causal,
             )
 
-        return output, None
+        return output
