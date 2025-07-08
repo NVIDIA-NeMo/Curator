@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     BinaryIO,
     NamedTuple,
     cast,
@@ -16,7 +17,9 @@ import av
 import cv2
 import numpy as np
 import numpy.typing as npt
-from av.container import InputContainer
+
+if TYPE_CHECKING:
+    from av.container import InputContainer
 
 from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 

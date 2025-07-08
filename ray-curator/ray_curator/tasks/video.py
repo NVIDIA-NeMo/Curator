@@ -166,7 +166,7 @@ class ClipStats:
     total_clip_duration: float = 0.0
     max_clip_duration: float = 0.0
 
-    def combine(self, other) -> None:
+    def combine(self, other: "ClipStats") -> None:
         """Combine two ClipStats objects.
 
         Args:
@@ -182,10 +182,6 @@ class ClipStats:
         self.num_with_webp += other.num_with_webp
         self.total_clip_duration += other.total_clip_duration
         self.max_clip_duration = max(self.max_clip_duration, other.max_clip_duration)
-
-
-from dataclasses import dataclass
-
 
 @dataclass
 class VideoMetadata:
