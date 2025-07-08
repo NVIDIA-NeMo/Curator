@@ -1,11 +1,14 @@
-from dataclasses import dataclass
-from typing import List
-import pathlib
 import os
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask, Video, _EmptyTask
+import pathlib
+from dataclasses import dataclass
+
 from loguru import logger
+
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.tasks import Video, VideoTask, _EmptyTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
+
+
 @dataclass
 class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
     """Stage that downloads video files from storage and extracts metadata.
@@ -14,7 +17,7 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
     extracting metadata, and storing the results in the task.
     """
     folder_path: str = None
-    
+
     @property
     def name(self) -> str:
         return "video_download"
@@ -25,7 +28,7 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def process(self, _: _EmptyTask) -> List[VideoTask]:
+    def process(self, _: _EmptyTask) -> list[VideoTask]:
         """Process a single group of video files.
 
         Args:
@@ -42,10 +45,10 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
         for file_path in files:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Video file {file_path} does not exist")
-            
+
             if isinstance(file_path, str):
                 file_path = pathlib.Path(file_path)
-            
+
             video = Video(input_video=file_path)
             video_task = VideoTask(
                 task_id=f"{file_path}_processed",
@@ -63,10 +66,10 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
 
             # Log video information
             self._log_video_info(video)
-            
+
             video_tasks.append(video_task)
         return video_tasks
-    
+
     def _download_video_bytes(self, video: Video) -> bool:
         """Download video bytes from storage.
 
@@ -95,7 +98,7 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
             video.source_bytes = b""
 
         return True
-    
+
     def _extract_and_validate_metadata(self, video: Video) -> bool:
         """Extract metadata and validate video properties.
 
@@ -169,4 +172,4 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
             recurse_subdirectories=True,
             keep_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
         )
-        
+        # )[:2]

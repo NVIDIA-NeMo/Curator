@@ -1,15 +1,18 @@
+import subprocess
 from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask
-from ray_curator.backends.base import WorkerMetadata
-from loguru import logger
-from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
-from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
+from pathlib import Path
+
 import numpy as np
 import numpy.typing as npt
-import subprocess
-from pathlib import Path
+from loguru import logger
+
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
+from ray_curator.tasks import VideoTask
+from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
+from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
+
 
 def get_frames_from_ffmpeg(
     video_file: Path,
@@ -89,10 +92,10 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once before processing begins.
         Override this method to perform any initialization that should
@@ -106,7 +109,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                 height=self.output_hw[0],
                 batch_size=self.batch_size,
             )
-    
+
 
     def process(self, task: VideoTask) -> VideoTask:
         assert self.pynvc_frame_extractor is not None, "PyNvCodec frame extractor is not initialized"
@@ -115,12 +118,12 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
 
         if video.source_bytes is None:
             raise ValueError("Video source bytes are not available")
-        
+
         if not video.has_metadata():
             logger.warning(f"Incomplete metadata for {video.input_video}. Skipping...")
             video.errors["metadata"] = "incomplete"
             return task
-        
+
         with make_pipeline_named_temporary_file(sub_dir="frame_extraction") as video_path:
             with video_path.open("wb") as fp:
                 fp.write(video.source_bytes)

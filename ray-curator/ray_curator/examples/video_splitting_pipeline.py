@@ -1,18 +1,19 @@
 import argparse
 
-from ray_curator.pipeline import Pipeline
 from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
-from ray_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorSrage, ClipTranscodingStage
-from ray_curator.stages.video.clipping.frame_extraction import VideoFrameExtractionStage
-from ray_curator.stages.video.filtering.motion_filter import MotionVectorDecodeStage, MotionFilterStage
-from ray_curator.stages.video.embedding.internvideo2 import InternVideo2FrameCreationStage, InternVideo2EmbeddingStage
+from ray_curator.pipeline import Pipeline
+from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorSrage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy
+from ray_curator.stages.video.clipping.frame_extraction import VideoFrameExtractionStage
+from ray_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
+from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
+from ray_curator.stages.video.io.video_download import VideoDownloadStage
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy
+
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
-    
+
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
@@ -67,7 +68,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             verbose=args.verbose,
             # log_stats=args.perf_profile,
         ))
-    
+
     has_embeddings = args.generate_embeddings
     has_aesthetics = args.aesthetic_threshold is not None
     # If both aesthetics AND embeddings are needed: [1, 2] - extract frames at both 1 FPS and 2 FPS
@@ -88,7 +89,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             verbose=args.verbose,
             # log_stats=args.perf_profile,
         ))
-    
+
     if args.aesthetic_threshold is not None:
         raise NotImplementedError("Aesthetic threshold not implemented")
 
@@ -149,7 +150,7 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--video-folder", type=str, default='/home/aot/Videos')
+    parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
     parser.add_argument(
@@ -168,28 +169,28 @@ if __name__ == "__main__":
 
     # Splitting parameters
     parser.add_argument(
-        "--splitting-algorithm", 
-        type=str, 
-        default="fixed_stride", 
+        "--splitting-algorithm",
+        type=str,
+        default="fixed_stride",
         choices=["fixed_stride", "transnetv2"],
         help="Splitting algorithm to use",
     )
     parser.add_argument(
-        "--fixed-stride-split-duration", 
-        type=float, 
+        "--fixed-stride-split-duration",
+        type=float,
         default=10.0,
         help="Duration of clips (in seconds) generated from the fixed stride splitting stage.",
     )
     parser.add_argument(
-        "--fixed-stride-min-clip-length-s", 
-        type=float, 
+        "--fixed-stride-min-clip-length-s",
+        type=float,
         default=2.0,
         help="Minimum length of clips (in seconds) for fixed stride splitting stage.",
     )
     parser.add_argument(
-        "--limit-clips", 
-        type=int, 
-        default=0, 
+        "--limit-clips",
+        type=int,
+        default=0,
         help="limit number of clips from each input video to process. 0 means no limit.",
     )
     parser.add_argument(

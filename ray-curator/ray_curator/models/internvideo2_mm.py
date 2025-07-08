@@ -38,8 +38,7 @@ from .internvideo2_multi_modality.internvideo2.pos_embed import (
     interpolate_pos_embed_internvideo2_new,
 )
 
-
-CONTAINER_PATHS_CODE_DIR = pathlib.Path('/home/aot/codebase/Curator')
+CONTAINER_PATHS_CODE_DIR = pathlib.Path("/home/aot/codebase/Curator")
 _MODEL_CONFIG_PATH = CONTAINER_PATHS_CODE_DIR / pathlib.Path(
     "ray-curator/ray_curator/models/configs/internvideo2_mm_config_model.json",
 )
@@ -60,7 +59,7 @@ BERT_MODEL_FILES: Final = [
 
 def get_local_dir_for_weights_name(weights_name: str) -> pathlib.Path:
     """Get the local directory for the weights name."""
-    return pathlib.Path('/mnt/mint/models/cosmos_curator_local_workspace/models') / weights_name
+    return pathlib.Path("/mnt/mint/models/cosmos_curator_local_workspace/models") / weights_name
 
 class _InternVideo2Stage2(nn.Module):
     """Wrapper class for InternVideo2 model."""
@@ -305,7 +304,7 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2:
         config.pretrained_path.strip() and (pathlib.Path(config.pretrained_path).is_file())
     ) or "s3://" in config.pretrained_path:
         checkpoint = torch.load(config.pretrained_path, map_location="cpu", weights_only=True)
-        print('checkpoint loaded')
+        print("checkpoint loaded")
         try:
             # checkpoint["module"] : This is a deepspeed stage 1 model
             state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint["module"]
@@ -323,7 +322,7 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2:
             assert a == len(state_dict), state_dict.keys()
 
         _ = model_without_ddp.load_state_dict(state_dict, strict=False)
-        print('state_dict loaded')
+        print("state_dict loaded")
 
     # Move to device after loading checkpoint
     model_without_ddp = model

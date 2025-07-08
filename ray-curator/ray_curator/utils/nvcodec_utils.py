@@ -23,14 +23,13 @@ import queue
 from pathlib import Path
 from typing import Any
 
-import nvtx  # type: ignore[import-untyped]
-import torch
-
-
 import cvcuda  # type: ignore[import-untyped]
 import nvcv  # type: ignore[import-untyped]
+import nvtx  # type: ignore[import-untyped]
 import pycuda.driver as cuda  # type: ignore[import-untyped]
 import PyNvVideoCodec as Nvc  # type: ignore[import-untyped]
+import torch
+
 pixel_format_to_cvcuda_code = {
     Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,  # type: ignore[import-untyped]
     Nvc.Pixel_Format.NV12: cvcuda.ColorConversion.YUV2RGB_NV12,  # type: ignore[import-untyped]
@@ -375,7 +374,7 @@ def gpu_decode_for_stitching(  # noqa: PLR0913
 
                     for _j in range(frame_list.count(i)):
                         # use list.extend
-                        frames.append(batch[i - frame_idx, :, :, :])  # noqa: PERF401
+                        frames.append(batch[i - frame_idx, :, :, :])
 
             frame_idx += actual_batch_size
 

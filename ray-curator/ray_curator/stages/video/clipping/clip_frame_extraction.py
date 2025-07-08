@@ -1,16 +1,16 @@
-from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Video
-from loguru import logger
-import math
-from functools import reduce
 import io
-from ray_curator.utils.decoder_utils import extract_frames
-from ray_curator.utils.decoder_utils import FrameExtractionSignature
+import math
+from dataclasses import dataclass
+from functools import reduce
+
+from loguru import logger
+
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks import Video, VideoTask
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
+
 
 @dataclass
 class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
@@ -25,17 +25,17 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     num_cpus: int = 3
     # log_stats: bool = False
-    
+
     @property
     def name(self) -> str:
         return "clip_frame_extraction"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         if self.target_fps is None:
             self.target_fps = [2]
@@ -61,7 +61,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                 logger.error(f"Clip {clip.uuid} has no buffer")
                 clip.errors["buffer"] = "empty"
                 continue
-            
+
             try:
                 for policy in self.extraction_policies:
                     """
@@ -111,7 +111,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                 # reset the buffer to disable further operations on this clip
                 clip.buffer = None
                 continue
-        
+
         # if self._log_stats:
         #     stage_name, stage_perf_stats = self._timer.log_stats()
         #     task.stage_perf[stage_name] = stage_perf_stats

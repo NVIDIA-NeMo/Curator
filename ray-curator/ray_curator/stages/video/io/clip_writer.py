@@ -1,19 +1,23 @@
-from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask, Video, Clip, ClipStats, VideoMetadata
-from ray_curator.stages.resources import Resources
-from concurrent.futures import ThreadPoolExecutor
-from loguru import logger
+import hashlib
 import io
+import pathlib
 import pickle
 import uuid
-import pathlib
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
-from ray_curator.utils.writer_utils import write_parquet, write_json, write_bytes
-from ray_curator.utils.storage_utils import get_full_path
-from ray_curator.utils import storage_client
+
+from loguru import logger
+
 from ray_curator.backends.base import WorkerMetadata
-import hashlib
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks import Clip, ClipStats, Video, VideoMetadata, VideoTask
+from ray_curator.utils import storage_client
+from ray_curator.utils.storage_utils import get_full_path
+from ray_curator.utils.writer_utils import write_bytes, write_json, write_parquet
+
+
 @dataclass
 class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that writes clips and metadata for clip transcoding.
@@ -28,7 +32,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     generate_embeddings: bool
     generate_previews: bool
     generate_captions: bool
-    embedding_algorithm: str = 'cosmos-embed1'
+    embedding_algorithm: str = "cosmos-embed1"
     caption_models: list[str] | None = None,
     enhanced_caption_models: list[str] | None = None,
     verbose: bool = False
@@ -38,13 +42,13 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     @property
     def name(self) -> str:
         return "clip_writer"
-    
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     @property
     def resources(self) -> Resources:
         return Resources(cpus=0.25)
@@ -136,7 +140,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             for clip in video.clips:
                 self._write_clip_embedding_to_buffer(clip)
-            
+
             # schedule all write tasks for a single video and wait for them to complete
             futures_clips = []
             for clip in video.clips:
@@ -146,7 +150,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                     executor.submit(self._write_clip_embedding, clip),
                     executor.submit(self._write_clip_metadata, clip, video.metadata),
                 ]
-            
+
             for clip in video.filtered_clips:
                 futures_clips += [
                     executor.submit(self._write_clip_mp4, clip, filtered=True),
@@ -162,7 +166,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                 result = future_c.result()
                 if result is not None:
                     video.clip_stats.combine(result)
-            
+
             # write video-level embeddings and metadata after all clip-level tasks are done
             futures_videos = [
                 executor.submit(self._write_video_embeddings_to_parquet, video),
@@ -181,7 +185,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                     window.caption.clear()
                     window.enhanced_caption.clear()
                     window.webp_bytes = None
-        
+
         if self.verbose:
             logger.info(f"Video {video.input_path} has {len(video.clips)} clips and wrote to {self.output_path}")
         return task

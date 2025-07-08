@@ -1,15 +1,20 @@
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
-import pathlib
 import os
+import pathlib
+import sys
+from dataclasses import dataclass, field
+from typing import Any
+from uuid import UUID
+
 import numpy as np
 import numpy.typing as npt
-import sys
-from .tasks import Task
-from ray_curator.utils.decoder_utils import extract_video_metadata
+
 import ray_curator.stages.video.filtering.motion_vector_backend as motion_backend
-from uuid import UUID
 from ray_curator.utils import storage_client
+from ray_curator.utils.decoder_utils import extract_video_metadata
+
+from .tasks import Task
+
+
 @dataclass
 class _Window:
     """Container for video window data including metadata, frames, and processing results.
@@ -181,6 +186,7 @@ class ClipStats:
 
 from dataclasses import dataclass
 
+
 @dataclass
 class VideoMetadata:
     """Metadata for video content including dimensions, timing, and codec information.
@@ -286,7 +292,7 @@ class Video:
         weight = self.metadata.duration / 300
         # when clips are further chunked
         return weight * self.fraction
-    
+
     def get_major_size(self) -> int:
         """Calculate total memory size of the video.
 
@@ -301,7 +307,7 @@ class Video:
             total_size += clip.get_major_size()
         total_size += self.frame_array.nbytes if self.frame_array is not None else 0
         return total_size
-    
+
     def has_metadata(self) -> bool:
         """Check if all metadata fields are present.
 
@@ -319,7 +325,7 @@ class Video:
                 self.metadata.video_codec,
             ],
         )
-    
+
     def is_10_bit_color(self) -> bool | None:
         """Heuristic function to determine if the input video has 10-bit color."""
         if self.metadata.pixel_format is None:

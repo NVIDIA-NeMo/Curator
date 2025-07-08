@@ -1,22 +1,25 @@
+import enum
+import io
 import json
 import subprocess
-from pathlib import Path
-from dataclasses import dataclass
-import enum
-from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
-import numpy as np
-import numpy.typing as npt
-import av
-import cv2
-import io
 from collections.abc import Generator, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     BinaryIO,
     NamedTuple,
     cast,
 )
-from contextlib import contextmanager
+
+import av
+import cv2
+import numpy as np
+import numpy.typing as npt
 from av.container import InputContainer
+
+from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
+
 
 class Resolution(NamedTuple):
     """Container for video frame dimensions.
@@ -289,8 +292,8 @@ def sample_closest(  # noqa: PLR0913
     sample_rate: float,
     start: float | None = None,
     stop: float | None = None,
-    endpoint: bool = True,  # noqa: FBT001, FBT002
-    dedup: bool = True,  # noqa: FBT001, FBT002
+    endpoint: bool = True,
+    dedup: bool = True,
 ) -> tuple[npt.NDArray[np.int32], npt.NDArray[np.int32], npt.NDArray[np.float32]]:
     """Sample `src` at `sample_rate` rate and return the closest indices.
 
@@ -478,7 +481,7 @@ def decode_video_cpu(  # noqa: PLR0913
     timestamps: npt.NDArray[np.float32] | None = None,
     start: float | None = None,
     stop: float | None = None,
-    endpoint: bool = True,  # noqa: FBT001, FBT002
+    endpoint: bool = True,
     stream_idx: int = 0,
     video_format: str | None = None,
     num_threads: int = 1,

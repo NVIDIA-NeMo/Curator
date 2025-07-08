@@ -1,10 +1,13 @@
-from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask, Video
-from loguru import logger
 import io
+from dataclasses import dataclass
+
+from loguru import logger
+
 import ray_curator.stages.video.filtering.motion_vector_backend as motion_backend
+from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
+from ray_curator.tasks import Video, VideoTask
+
 
 @dataclass
 class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
@@ -21,20 +24,20 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
     @property
     def name(self) -> str:
         return "motion_vector_decoding"
-    
+
     @property
     def resources(self) -> Resources:
         return Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
-        
+
         failed_cnt = 0
         for clip in video.clips:
             if not clip.buffer:
@@ -45,12 +48,12 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
             with io.BytesIO(clip.buffer) as fp:
                 try:
                     clip.decode_motion_data = motion_backend.decode_for_motion(
-                        fp, 
+                        fp,
                         thread_count=int(self.num_cpus_per_worker),
-                        target_fps=self.target_fps, 
+                        target_fps=self.target_fps,
                         target_duration_ratio=self.target_duration_ratio,
                     )
-                except motion_backend.VideoResolutionTooSmallError as e:
+                except motion_backend.VideoResolutionTooSmallError:
                     if self.verbose:
                         logger.warning(f"Clip {clip.uuid} has too small resolution.")
                     clip.decoded_motion_data = None
@@ -68,7 +71,7 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
                         clip.decoded_motion_data = None
                         clip.errors["motion_decode"] = "no_motion_frames"
                     failed_cnt += 1
-                
+
 
         # if self._log_stats:
         #     stage_name, stage_perf_stats = self._timer.log_stats()
@@ -95,22 +98,22 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
     @property
     def name(self) -> str:
         return "motion_filter"
-    
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     @property
     def resources(self) -> Resources:
         # TODO: change to gpus=self.num_gpus_per_worker
         return Resources(entire_gpu=True)
-    
+
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
-        
-        
+
+
         passing_clips = []
         for clip in video.clips:
             if not clip.decoded_motion_data:

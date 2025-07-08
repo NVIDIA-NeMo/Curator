@@ -1,16 +1,18 @@
-from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask, Clip, SplitPipeTask
-from loguru import logger
-import uuid
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.resources import Resources
-from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
+import copy
 import pathlib
 import subprocess
+import uuid
+from dataclasses import dataclass
+
+from loguru import logger
+
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks import Clip, Video, VideoTask
 from ray_curator.utils import grouping
-from ray_curator.tasks import Video
-import copy
+from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
+
 
 @dataclass
 class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
@@ -29,11 +31,11 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
-    
+
     @property
     def name(self) -> str:
         return "clip_transcoding"
-    
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once before processing begins.
         Override this method to perform any initialization that should
@@ -44,7 +46,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         if self.encoder not in {"libopenh264", "libx264", "h264_nvenc"}:
             error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"
             raise ValueError(error_msg)
-    
+
     @property
     def resources(self) -> Resources:
         """Resource requirements for this stage."""
@@ -58,21 +60,21 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
         if video.source_bytes is None:
             raise ValueError("Video source bytes are not available")
-        
+
         if not video.clips:
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
             video.source_bytes = None
             return task
-        
-        with make_pipeline_temporary_dir(sub_dir='transcode') as tmp_dir:
+
+        with make_pipeline_temporary_dir(sub_dir="transcode") as tmp_dir:
             # write video to file
             video_file = tmp_dir / "input.mp4"
             video_file.write_bytes(video.source_bytes)
@@ -84,8 +86,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 use_bit_rate = str(video.metadata.bit_rate_k) + "K"
 
             # TODO remove DEBUG
-            video.clips = video.clips[:self.encode_batch_size]
-            logger.info(f"***********DEBUG: Using first {len(video.clips)} clips for transcoding for DEBUG")
+            # video.clips = video.clips[:self.encode_batch_size]
+            # logger.info(f"***********DEBUG: Using first {len(video.clips)} clips for transcoding for DEBUG")
 
             # extract clips in batches
             for i in range(0, len(video.clips), self.encode_batch_size):
@@ -98,7 +100,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                     clips=batch,
                     input_video=str(video.input_video),
                 )
-        
+
         # we are done with source_bytes
         video.source_bytes = None
 
@@ -149,7 +151,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
 
         return output_tasks
-    
+
     def _extract_clips(
             self,
             working_dir: pathlib.Path,
@@ -262,7 +264,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         for clip in clips:
             clip.buffer = (working_dir / f"{clip.uuid}.mp4").read_bytes()
 
-        
+
 @dataclass
 class FixedStrideExtractorSrage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that extracts video clips using fixed-length intervals.
@@ -278,18 +280,18 @@ class FixedStrideExtractorSrage(ProcessingStage[VideoTask, VideoTask]):
     @property
     def name(self) -> str:
         return "fixed_stride_extractor"
-    
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
         if video.source_bytes is None:
             raise ValueError("Video source bytes are not available")
-        
+
         if not video.has_metadata():
             logger.warning(f"Incomplete metadata for {video.input_video}. Skipping...")
             video.errors["metadata"] = "incomplete"
@@ -298,7 +300,7 @@ class FixedStrideExtractorSrage(ProcessingStage[VideoTask, VideoTask]):
         if self.limit_clips > 0 and len(video.clips) >= self.limit_clips:
             logger.warning(f"Skipping {video.input_video} because it has already been clipped")
             return task
-        
+
         file = video.input_video
         assert video.metadata.num_frames, "num_frames is not set"
         assert video.metadata.framerate, "framerate is not set"

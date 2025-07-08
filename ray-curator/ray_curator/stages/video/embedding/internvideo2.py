@@ -1,13 +1,15 @@
+import io
 from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import VideoTask, Video
+
+from loguru import logger
+
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.internvideo2_mm import InternVideo2MultiModality
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature
-from loguru import logger
-import io
-from ray_curator.utils.decoder_utils import extract_frames
+from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
+from ray_curator.tasks import Video, VideoTask
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
+
 
 @dataclass
 class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
@@ -22,13 +24,13 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     @property
     def name(self) -> str:
         return "internvideo2_embedding"
-    
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         # utils_only set to true to skip initializing the actual model
         self._model: InternVideo2MultiModality = InternVideo2MultiModality(utils_only=True)
@@ -53,7 +55,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
                 clip.errors[f"frames-{self._frame_extraction_signature}"] = "missing"
                 logger.error(f"Clip {clip.uuid} has buffer but no extracted frames for ???")
                 continue
-            
+
 
             frames = clip.extracted_frames[self._frame_extraction_signature]
             # check if we need re-extract
@@ -104,23 +106,23 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     @property
     def name(self) -> str:
         return "internvideo2_embedding"
-    
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-    
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         self._model: InternVideo2MultiModality = InternVideo2MultiModality()
         self._model.setup()
         if self.verbose:
-            logger.info(f'InternVideo2 model setup completed.')
-    
+            logger.info("InternVideo2 model setup completed.")
+
     @property
     def resources(self) -> Resources:
         return Resources(gpu_memory_gb=self.gpu_memory_gb)
-    
+
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
         for clip in video.clips:
@@ -134,7 +136,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
                 clip.errors["iv2_embedding"] = "failed"
             else:
                 clip.intern_video_2_embedding = embedding.cpu().numpy()
-            
+
             if self.texts_to_verify is not None:
                 text_embeddings = [self._model.get_text_embedding(x) for x in self._texts_to_verify]
                 probs, idxs = self._model.evaluate(embedding, text_embeddings)
@@ -142,13 +144,13 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
                     self._texts_to_verify[idxs[0]],
                     probs[0],
                 )
-            
+
             # clear frames to save memory
             clip.intern_video_2_frames = None
 
             if self.verbose:
-                logger.info(f'InternVideo2 embedding generated for clip {clip.uuid}. Embedding shape: {clip.intern_video_2_embedding.shape}')
-        
+                logger.info(f"InternVideo2 embedding generated for clip {clip.uuid}. Embedding shape: {clip.intern_video_2_embedding.shape}")
+
         # TODO log_stats
         # if self._log_stats:
         #     stage_name, stage_perf_stats = self._timer.log_stats()
