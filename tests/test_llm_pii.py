@@ -28,7 +28,7 @@ from nemo_curator.utils.llm_pii_utils import (
 
 
 class TestLLMPiiUtils:
-    def test_validate_keys(self):
+    def test_validate_keys(self) -> None:
         valid_keys = {"entity_type": "date_time", "entity_text": "1989.12.22"}
         assert validate_keys(valid_keys)
 
@@ -38,7 +38,7 @@ class TestLLMPiiUtils:
         invalid_keys = {"type": "date_time", "text": "1989.12.22"}
         assert not validate_keys(invalid_keys)
 
-    def test_validate_entity(self):
+    def test_validate_entity(self) -> None:
         valid_entity = {"entity_type": "date_time", "entity_text": "1989.12.22"}
         text = "Unloading Plan for Shipment MRN-293104, MED25315002, dated 1989.12.22. Driver EMP730359, Vehicle KS40540825."
         min_length = 2
@@ -53,7 +53,7 @@ class TestLLMPiiUtils:
         short_entity_text = {"entity_type": "date_time", "entity_text": "1"}
         assert not validate_entity(short_entity_text, text, min_length)
 
-    def test_redact(self):
+    def test_redact(self) -> None:
         full_text = "Transaction details: gasLimit set to 1000000 units by tw_brian740, gasPrice set to 10 Gwei by veronicawood@example.org, contactable at +1-869-341-9301x7005, located at Suite 378, Yolanda Mountain, Burkeberg."
         pii_entities = [
             {"entity_type": "name", "entity_text": "tw_brian740"},
@@ -69,7 +69,7 @@ class TestLLMPiiUtils:
         expected_text = "Transaction details: gasLimit set to 1000000 units by {{name}}, gasPrice set to 10 Gwei by {{email}}, contactable at {{phone_number}}, located at {{location}}."
         assert redacted_text == expected_text
 
-    def test_find_entity_spans(self):
+    def test_find_entity_spans(self) -> None:
         text = "Transaction details: gasLimit set to 1000000 units by tw_brian740, gasPrice set to 10 Gwei by veronicawood@example.org, contactable at +1-869-341-9301x7005, located at Suite 378, Yolanda Mountain, Burkeberg."
         entities = [
             {"entity_type": "name", "entity_text": "tw_brian740"},
@@ -88,59 +88,45 @@ class TestLLMPiiUtils:
             EntitySpan(entity_type="name", start_position=54, end_position=65),
             EntitySpan(entity_type="name", start_position=94, end_position=106),
             EntitySpan(entity_type="email", start_position=94, end_position=118),
-            EntitySpan(
-                entity_type="phone_number", start_position=135, end_position=155
-            ),
+            EntitySpan(entity_type="phone_number", start_position=135, end_position=155),
             EntitySpan(entity_type="location", start_position=168, end_position=206),
         ]
 
-    def test_fix_overlaps(self):
+    def test_fix_overlaps(self) -> None:
         assert fix_overlaps([]) == []
 
         spans = [
             EntitySpan(entity_type="name", start_position=54, end_position=65),
             EntitySpan(entity_type="name", start_position=94, end_position=106),
             EntitySpan(entity_type="email", start_position=94, end_position=118),
-            EntitySpan(
-                entity_type="phone_number", start_position=135, end_position=155
-            ),
+            EntitySpan(entity_type="phone_number", start_position=135, end_position=155),
             EntitySpan(entity_type="location", start_position=168, end_position=206),
         ]
         fixed_spans = fix_overlaps(spans)
         assert fixed_spans == [
             EntitySpan(entity_type="name", start_position=54, end_position=65),
             EntitySpan(entity_type="email", start_position=94, end_position=118),
-            EntitySpan(
-                entity_type="phone_number", start_position=135, end_position=155
-            ),
+            EntitySpan(entity_type="phone_number", start_position=135, end_position=155),
             EntitySpan(entity_type="location", start_position=168, end_position=206),
         ]
 
         spans = [
             EntitySpan(entity_type="date_time", start_position=59, end_position=69),
             EntitySpan(entity_type="employee_id", start_position=78, end_position=87),
-            EntitySpan(
-                entity_type="medical_record_number", start_position=28, end_position=38
-            ),
-            EntitySpan(
-                entity_type="vehicle_identifier", start_position=97, end_position=107
-            ),
+            EntitySpan(entity_type="medical_record_number", start_position=28, end_position=38),
+            EntitySpan(entity_type="vehicle_identifier", start_position=97, end_position=107),
         ]
         fixed_spans = fix_overlaps(spans)
         assert fixed_spans == [
-            EntitySpan(
-                entity_type="medical_record_number", start_position=28, end_position=38
-            ),
+            EntitySpan(entity_type="medical_record_number", start_position=28, end_position=38),
             EntitySpan(entity_type="date_time", start_position=59, end_position=69),
             EntitySpan(entity_type="employee_id", start_position=78, end_position=87),
-            EntitySpan(
-                entity_type="vehicle_identifier", start_position=97, end_position=107
-            ),
+            EntitySpan(entity_type="vehicle_identifier", start_position=97, end_position=107),
         ]
 
 
 class TestLLMPiiModifier:
-    def test_system_prompt(self):
+    def test_system_prompt(self) -> None:
         # Default system prompt, default PII labels, and English
         modifier = LLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1")
         assert modifier.system_prompt == get_system_prompt()
@@ -150,9 +136,7 @@ class TestLLMPiiModifier:
             UserWarning,
             match="The default system prompt is only available for English text",
         ):
-            modifier = LLMPiiModifier(
-                base_url="https://integrate.api.nvidia.com/v1", language="fr"
-            )
+            modifier = LLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1", language="fr")
             assert modifier.system_prompt == get_system_prompt()
 
         # Custom system prompt, default PII labels, and English
@@ -169,16 +153,12 @@ class TestLLMPiiModifier:
 
         # Custom system prompt, default PII labels, and non-English
         system_prompt = "Vous êtes un assistant utile."
-        modifier = LLMPiiModifier(
-            base_url="https://integrate.api.nvidia.com/v1", system_prompt=system_prompt
-        )
+        modifier = LLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1", system_prompt=system_prompt)
         assert modifier.system_prompt == system_prompt
 
         # Default system prompt and custom PII labels
         pii_labels = ["name", "email", "phone_number", "location"]
-        modifier = LLMPiiModifier(
-            base_url="https://integrate.api.nvidia.com/v1", pii_labels=pii_labels
-        )
+        modifier = LLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1", pii_labels=pii_labels)
         assert modifier.system_prompt == get_system_prompt(pii_labels)
 
         # Custom system prompt and custom PII labels
@@ -197,7 +177,7 @@ class TestLLMPiiModifier:
 
 
 class TestAsyncLLMPiiModifier:
-    def test_system_prompt(self):
+    def test_system_prompt(self) -> None:
         # Default system prompt, default PII labels, and English
         modifier = AsyncLLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1")
         assert modifier.system_prompt == get_system_prompt()
@@ -207,9 +187,7 @@ class TestAsyncLLMPiiModifier:
             UserWarning,
             match="The default system prompt is only available for English text",
         ):
-            modifier = AsyncLLMPiiModifier(
-                base_url="https://integrate.api.nvidia.com/v1", language="fr"
-            )
+            modifier = AsyncLLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1", language="fr")
             assert modifier.system_prompt == get_system_prompt()
 
         # Custom system prompt, default PII labels, and English
@@ -226,16 +204,12 @@ class TestAsyncLLMPiiModifier:
 
         # Custom system prompt, default PII labels, and non-English
         system_prompt = "Vous êtes un assistant utile."
-        modifier = AsyncLLMPiiModifier(
-            base_url="https://integrate.api.nvidia.com/v1", system_prompt=system_prompt
-        )
+        modifier = AsyncLLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1", system_prompt=system_prompt)
         assert modifier.system_prompt == system_prompt
 
         # Default system prompt and custom PII labels
         pii_labels = ["name", "email", "phone_number", "location"]
-        modifier = AsyncLLMPiiModifier(
-            base_url="https://integrate.api.nvidia.com/v1", pii_labels=pii_labels
-        )
+        modifier = AsyncLLMPiiModifier(base_url="https://integrate.api.nvidia.com/v1", pii_labels=pii_labels)
         assert modifier.system_prompt == get_system_prompt(pii_labels)
 
         # Custom system prompt and custom PII labels

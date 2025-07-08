@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nemo_curator.datasets import DocumentDataset
+from nemo_curator.modules.base import BaseModule
+
 
 class Sequential:
-    def __init__(self, modules):
+    def __init__(self, modules: list[BaseModule]) -> None:
         self.modules = modules
 
-    def __call__(self, dataset):
+    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
         for module in self.modules:
             dataset = module(dataset)
         return dataset

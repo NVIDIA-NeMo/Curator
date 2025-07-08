@@ -18,7 +18,8 @@ import re
 import subprocess
 import tarfile
 import tempfile
-from typing import Literal, Optional
+from collections.abc import Iterator
+from typing import Literal
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.download.doc_builder import (
@@ -39,13 +40,12 @@ from nemo_curator.utils.file_utils import (
 
 
 class ArxivDownloader(DocumentDownloader):
-
-    def __init__(self, download_dir, verbose=False):
+    def __init__(self, download_dir: str, verbose: bool = False):
         super().__init__()
         self._download_dir = download_dir
-        self._verbose = False
+        self._verbose = verbose
 
-    def download(self, tarfile):
+    def download(self, tarfile: str) -> str:
         output_file = os.path.join(self._download_dir, tarfile)
         s3path = os.path.join("s3://arxiv/src", tarfile)
         if os.path.exists(output_file):
@@ -57,7 +57,7 @@ class ArxivDownloader(DocumentDownloader):
                 stdout, stderr = None, None
             else:
                 stdout, stderr = subprocess.DEVNULL, subprocess.DEVNULL
-            p = subprocess.run(
+            p = subprocess.run(  # noqa: S603, PLW1510
                 cmd,
                 stdout=stdout,
                 stderr=stderr,
@@ -69,43 +69,38 @@ class ArxivDownloader(DocumentDownloader):
 
 
 class ArxivIterator(DocumentIterator):
-
-    def __init__(self, log_frequency=1000):
+    def __init__(self, log_frequency: int = 1000):
         super().__init__()
         self._log_frequency = log_frequency
         self._counter = 0
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict[str, str], list[str]]]:
         self._counter = 0
         download_dir = os.path.split(file_path)[0]
         bname = os.path.split(file_path)[-1]
-        with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir:
-            with tarfile.open(file_path) as tf:
-                tf.extractall(members=tf.getmembers(), path=tmpdir)
-                for i, item in enumerate(get_all_files_paths_under(tmpdir)):
-                    if self._counter > 0 and self._counter % self._log_frequency == 0:
-                        print(f"Extracted {self._counter} papers from {file_path}")
-                    self._counter += 1
+        with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir, tarfile.open(file_path) as tf:
+            tf.extractall(members=tf.getmembers(), path=tmpdir)  # noqa: S202
+            for _i, item in enumerate(get_all_files_paths_under(tmpdir)):
+                if self._counter > 0 and self._counter % self._log_frequency == 0:
+                    print(f"Extracted {self._counter} papers from {file_path}")
+                self._counter += 1
 
-                    tex_files = self._tex_proj_loader(item)
-                    arxiv_id = os.path.splitext(os.path.split(item)[-1])[0]
+                tex_files = self._tex_proj_loader(item)
+                arxiv_id = os.path.splitext(os.path.split(item)[-1])[0]
 
-                    # get the arxiv id in the correct format
-                    try:
-                        clean_arxiv_id = self._format_arxiv_id(arxiv_id)
-                    except Exception as e:
-                        print(
-                            f"[WARNING] failed to format arxiv id "
-                            f"{arxiv_id}; exception={e}"
-                        )
-                        clean_arxiv_id = arxiv_id
+                # get the arxiv id in the correct format
+                try:
+                    clean_arxiv_id = self._format_arxiv_id(arxiv_id)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[WARNING] failed to format arxiv id {arxiv_id}; exception={e}")
+                    clean_arxiv_id = arxiv_id
 
-                    if tex_files is None:
-                        continue
+                if tex_files is None:
+                    continue
 
-                    yield {"id": clean_arxiv_id, "source_id": f"{bname}"}, tex_files
+                yield {"id": clean_arxiv_id, "source_id": f"{bname}"}, tex_files
 
-    def _tex_proj_loader(self, file_or_dir_path):
+    def _tex_proj_loader(self, file_or_dir_path: str) -> list[str] | None:
         r"""function to load the tex files from a tar file or a gzip file. The
         function will return a tuple containing a list of tex files and the
         timestamp of the project.
@@ -122,13 +117,12 @@ class ArxivIterator(DocumentIterator):
             with tarfile.open(file_or_dir_path) as sub_tf:
                 for member in sub_tf.getmembers():
                     if member.name.endswith(".tex"):
-
                         file_content = sub_tf.extractfile(member).read()
 
                         try:
                             file_content = file_content.decode("utf-8")
                         except UnicodeDecodeError:
-                            # self._logger.info(f"UnicodeDecodeError: {file_or_dir_path}")
+                            self._logger.info(f"UnicodeDecodeError: {file_or_dir_path}")
                             return None
 
                         files_and_content.append(file_content)
@@ -138,26 +132,26 @@ class ArxivIterator(DocumentIterator):
             try:
                 with gzip.open(file_or_dir_path, "rb") as gz:
                     file_content = gz.read()
-            except Exception:
+            except Exception as e:  # noqa: BLE001
                 # all fails, we skip this file
-                # self._logger.info(f"[ERROR] {e}: {file_or_dir_path}")
+                self._logger.info(f"[ERROR] {e}: {file_or_dir_path}")
                 return None
 
             try:
                 file_content = file_content.decode("utf-8")
             except UnicodeDecodeError:
-                # self._logger.info(f"UnicodeDecodeError: {file_or_dir_path}")
+                self._logger.info(f"UnicodeDecodeError: {file_or_dir_path}")
                 return None
 
             files_and_content.append(file_content)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"[ERROR] {e}: {file_or_dir_path}")
             return None
 
         return files_and_content
 
-    def _format_arxiv_id(self, arxiv_id):
+    def _format_arxiv_id(self, arxiv_id: str) -> str:
         r"""this function brings the raw arxiv-id into a format compliant with the
         specification from arxiv. This is used to create the url to the arxiv
         abstract page.
@@ -179,7 +173,8 @@ class ArxivIterator(DocumentIterator):
         match = re.search(r"^([a-zA-Z-]*)([\d\.]+)$", arxiv_id)
 
         if match is None:
-            raise ValueError(f"Invalid arxiv id: {arxiv_id}")
+            msg = f"Invalid arxiv id: {arxiv_id}"
+            raise ValueError(msg)
 
         if match.group(1) == "":
             return match.group(2)
@@ -188,11 +183,10 @@ class ArxivIterator(DocumentIterator):
 
 
 class ArxivExtractor(DocumentExtractor):
-
     def __init__(self):
         super().__init__()
 
-    def extract(self, content):
+    def extract(self, content: list[str]) -> dict[str, str] | None:
         if len(content) == 0:
             return None
 
@@ -218,15 +212,16 @@ class ArxivExtractor(DocumentExtractor):
                 )
                 for file_content in content
             )
-        except Exception:
+        except Exception:  # noqa: BLE001
             return None
 
         # Don't return meta
-        if cleaned_latex_file_str is not None:
-            if len(cleaned_latex_file_str) > 0:
-                return {"text": cleaned_latex_file_str}
+        if (cleaned_latex_file_str is not None) and (len(cleaned_latex_file_str) > 0):
+            return {"text": cleaned_latex_file_str}
 
-    def _clean_tex_file(self, file_content, arg_macros, non_arg_macros):
+        return None
+
+    def _clean_tex_file(self, file_content: str, arg_macros: dict[str, str], non_arg_macros: dict[str, str]) -> str:
         r"""function takes a tex file as input and returns a cleaned version. The
          cleaned version is a concatenation of the tex files with the
         following modifications:
@@ -315,12 +310,12 @@ class ArxivExtractor(DocumentExtractor):
 
         # inline-expand all macros that use args
         # TODO: inline-expand macros with args
-        for macro_name, macro_value in arg_macros.items():
+        for _macro_name, _macro_value in arg_macros.items():
             pass
 
         return file_content
 
-    def _build_non_arg_macros_dict(self, file_content):
+    def _build_non_arg_macros_dict(self, file_content: str) -> dict[str, str]:
         r"""function takes the content of a tex file and returns a dictionary
         that contains the definitions of all macros that do not use arguments.
         The dictionary is of the form {macro_name: macro_value}.
@@ -364,14 +359,14 @@ class ArxivExtractor(DocumentExtractor):
         return macros
 
 
-def download_arxiv(
+def download_arxiv(  # noqa: PLR0913
     output_path: str,
     output_type: Literal["jsonl", "parquet"] = "jsonl",
-    raw_download_dir: Optional[str] = None,
+    raw_download_dir: str | None = None,
     keep_raw_download: bool = False,
     force_download: bool = False,
-    url_limit: Optional[int] = None,
-    record_limit: Optional[int] = None,
+    url_limit: int | None = None,
+    record_limit: int | None = None,
 ) -> DocumentDataset:
     """
     Download Arxiv tar files and extract the contained LaTeX projects.
@@ -408,9 +403,7 @@ def download_arxiv(
     arxiv_urls = get_arxiv_urls()
     if url_limit:
         arxiv_urls = arxiv_urls[:url_limit]
-    output_paths = list(
-        map(lambda url: os.path.join(output_path, f"{url}.{output_type}"), arxiv_urls)
-    )
+    output_paths = [os.path.join(output_path, f"{url}.{output_type}") for url in arxiv_urls]
 
     if not raw_download_dir:
         raw_download_dir = os.path.join(output_path, "downloads")
@@ -425,7 +418,8 @@ def download_arxiv(
         "source_id": str,
         "file_name": str,
     }
-    dataset = download_and_extract(
+
+    return download_and_extract(
         arxiv_urls,
         output_paths,
         downloader,
@@ -438,5 +432,3 @@ def download_arxiv(
         filename_col="file_name",
         record_limit=record_limit,
     )
-
-    return dataset

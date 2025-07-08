@@ -1,32 +1,35 @@
-
 .. _data-curator-documentdataset:
 
 ======================================
 Working with DocumentDataset
 ======================================
+
 -----------------------------------------
 Background
 -----------------------------------------
+
 Text datasets are responsible for storing metadata along with the core text/document.
-``jsonl``` files are common for their ease of processing and inspecting.
+``jsonl`` files are common for their ease of processing and inspecting.
 ``parquet`` files are also a common format.
 In both cases, a single dataset is often represented with multiple underlying files (called shards).
 For example, if you have a large dataset named "books" it is likely you will store it in shards with each shard being named something like ``books_00.jsonl``, ``books_01.jsonl``, ``books_02.jsonl``, etc.
 
 How you store your dataset in memory is just as important as how you store it on disk.
 If you have a large dataset that is too big to fit directly into memory, you will have to somehow distribute it across multiple machines/nodes.
-Furthermore, if curating your dataset takes a long time, it is likely to get interrupted due to some unforseen failure or another.
-NeMo Curator's ``DocumentDataset`` employs `Dask's distributed dataframes <https://docs.dask.org/en/stable/dataframe.html>`_ to mangage large datasets across multiple nodes and allow for easy restarting of interrupted curation.
+Furthermore, if curating your dataset takes a long time, it is likely to get interrupted due to some unforeseen failure or another.
+NeMo Curator's ``DocumentDataset`` employs `Dask's distributed dataframes <https://docs.dask.org/en/stable/dataframe.html>`_ to manage large datasets across multiple nodes and allow for easy restarting of interrupted curation.
 ``DocumentDataset`` supports reading and writing to sharded ``jsonl`` and ``parquet`` files both on local disk and from remote sources directly like S3.
 
 -----------------------------------------
 Usage
 -----------------------------------------
+
 ############################
 Reading and Writing
 ############################
+
 ``DocumentDataset`` is the standard format for text datasets in NeMo Curator.
-Imagine we have a "books" dataset stored in the following structure:
+Imagine we've a "books" dataset stored in the following structure:
 ::
 
     books_dataset/
@@ -34,7 +37,7 @@ Imagine we have a "books" dataset stored in the following structure:
         books_01.jsonl
         books_02.jsonl
 
-You could read, filter the dataset, and write it using the following methods
+You could read, filter the dataset, and write it using the following methods:
 
 .. code-block:: python
 
@@ -56,10 +59,10 @@ You could read, filter the dataset, and write it using the following methods
 
     long_books.to_json("long_books/", write_to_filename=True)
 
-Let's walk through this code line by line.
+Let's walk through this code line by line:
 
 * ``files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")`` This retrieves a list of all files in the given directory, then filters the list to include only files ending with ".jsonl".
-  In our case, this is equivalent to writing
+  In our case, this is equivalent to writing:
 
   .. code-block:: python
 
@@ -69,7 +72,7 @@ Let's walk through this code line by line.
 
 * ``books = DocumentDataset.read_json(files, add_filename=True)`` This will read the files listed into memory.
   The ``add_filename=True`` option preserves the name of the shard (``books_00.jsonl``, ``books_01.jsonl``, etc.) as an additional ``file_name`` field.
-  When the dataset is written back to disk, this option (in conjunction with the ``write_to_filename`` option and ``filename_col`` ) ensure that documents stay in their original shard.
+  When the dataset is written back to disk, this option (in conjunction with the ``write_to_filename`` option and ``filename_col``) ensure that documents stay in their original shard.
   This can be useful for manually inspecting the results of filtering shard by shard.
   The ``add_filename`` option can also be used as a string, in which case it will be used as the name of the column (instead of the default ``file_name``).
 * ``filter_step = ...`` This constructs and applies a heuristic filter for the length of the document.
@@ -78,6 +81,37 @@ Let's walk through this code line by line.
   As mentioned above, the ``write_to_filename=True`` preserves the sharding of the dataset.
   If the dataset was not read in with ``add_filename=True``, setting ``write_to_filename=True`` will throw an error.
   If the dataset was read with ``add_filename="path"`` then along with ``write_to_filename=True`` the ``filename_col="path"`` will need to be set as well.
+
+############################
+Compressed Files
+############################
+
+You can also write the dataset as gzip compressed JSONL files to save disk space:
+
+.. code-block:: python
+
+    # Write as gzip compressed JSONL files
+    long_books.to_json("long_books/", compression="gzip")
+
+This will write files with the ``.jsonl.gz`` extension. Compression is compatible with all other writing options, including ``write_to_filename`` and ``partition_on``.
+
+NeMo Curator also supports reading gzip compressed JSONL files. Simply point to the ``.jsonl.gz`` files and the library will handle the decompression automatically:
+
+.. code-block:: python
+
+    # Read gzip compressed JSONL files
+    compressed_books = DocumentDataset.read_json("books_dataset/*.jsonl.gz")
+
+    # You can also mix compressed and uncompressed files
+    all_books = DocumentDataset.read_json(["books_dataset/books_00.jsonl.gz",
+                                         "books_dataset/books_01.jsonl"])
+
+.. note::
+   Avoid mixing compressed (``.jsonl.gz``) and uncompressed (``.jsonl``) files, as it may lead to undefined behavior and could break in certain cases or with specific options.
+
+############################
+Lazy Evaluation with Dask
+############################
 
 ``DocumentDataset`` is just a wrapper around a `Dask dataframe <https://docs.dask.org/en/stable/dataframe.html>`_.
 The underlying dataframe can be accessed with the ``DocumentDataset.df`` member variable.
@@ -95,7 +129,8 @@ In our case, ``long_books.to_json()`` internally calls ``.compute()``, so the ta
 ############################
 Resuming from Interruptions
 ############################
-It can be helpful to track which documents in a dataset have already been processed so that long curation jobs can be resumed if they are interrupted.
+
+It can be helpful to track which documents in a dataset have already been processed so that long curation jobs can be resumed if they're interrupted.
 NeMo Curator provides a utility for easily tracking which dataset shards have already been processed.
 Consider a modified version of the code above:
 
@@ -117,8 +152,6 @@ Consider a modified version of the code above:
     long_books.to_json("long_books/", write_to_filename=True)
 
 ``get_remaining_files`` compares the input directory (``"books_dataset/"``) and the output directory (``"long_books"``) and returns a list of all the shards in the input directory that have not yet been written to the output directory.
-
-
 
 While Dask provides an easy way to avoid reading too much data into memory, there are times when we may need to call ``persist()`` or a similar operation that forces the dataset into memory.
 In these cases, we recommend processing the input dataset in batches using a simple wrapper function around ``get_remaining_files`` as shown below.
@@ -148,28 +181,28 @@ Blending and Shuffling
 ############################
 
 Blending data from multiple sources can be a great way of improving downstream model performance.
-This blending can be done during model training itself (i.e., *online* blending) or it can be done before training (i.e., *offline* blending).
+This blending can be done during model training itself (that is, *online* blending) or it can be done before training (that is, *offline* blending).
 Online blending is useful for rapidly iterating in the training process.
 Meanwhile, offline blending is useful if you want to distribute the dataset.
 Online blending is currently possible in `NeMo via NVIDIA Megatron Core <https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/datasets/blended_dataset.py>`_, and NeMo Curator offers a way to perform blending offline.
 
-Let's take a look at how datasets can be combined using ``nc.blend_datasets``
+Let's take a look at how datasets can be combined using ``nc.blend_datasets``:
 
 .. code-block:: python
 
-  import nemo_curator as nc
+    import nemo_curator as nc
 
-  books = DocumentDataset.read_json("books_dataset/")
-  articles = DocumentDataset.read_json("articles_dataset/")
-  journals = DocumentDataset.read_json("journals_dataset/")
+    books = DocumentDataset.read_json("books_dataset/")
+    articles = DocumentDataset.read_json("articles_dataset/")
+    journals = DocumentDataset.read_json("journals_dataset/")
 
-  datasets = [books, articles, journals]
-  target_samples = 1000
-  weights = [5.0, 2.0, 1.0]
+    datasets = [books, articles, journals]
+    target_samples = 1000
+    weights = [5.0, 2.0, 1.0]
 
-  blended_dataset = nc.blend_datasets(target_samples, datasets, weights)
+    blended_dataset = nc.blend_datasets(target_samples, datasets, weights)
 
-  blended_dataset.to_json("blended_dataset/")
+    blended_dataset.to_json("blended_dataset/")
 
 
 * ``datasets = [books, articles, journals]`` Here, we are choosing to blend three different datasets.
@@ -192,6 +225,7 @@ Let's take a look at how datasets can be combined using ``nc.blend_datasets``
   .. math::
 
     \lceil target\_samples \cdot w_i\rceil=\lceil 1000\cdot \frac{5}{8}\rceil=625
+
   If any datasets have fewer samples than the calculated weight, they will be oversampled to meet the quota.
   For example, if the books dataset only had 500 documents in it, the first 125 would be repeated to achieve
   the 625 samples.
@@ -203,7 +237,6 @@ Because blending datasets involves combining data from multiple sources, the sha
 cannot be preserved. The options ``add_filename=True`` and ``write_to_filename=True`` for reading and writing
 datasets are therefore incompatible with ``nc.blend_datasets``.
 
-
 Shuffling can be another important aspect of dataset management.
 NeMo Curator's ``nc.Shuffle`` allows users to reorder all entries in the dataset.
 
@@ -211,18 +244,12 @@ Here is a small example on how this can be done:
 
 .. code-block:: python
 
-  import nemo_curator as nc
+    import nemo_curator as nc
 
-  books = DocumentDataset.read_json("books_dataset/")
+    books = DocumentDataset.read_json("books_dataset/")
 
-  shuffle = nc.Shuffle(seed=42)
+    shuffle = nc.Shuffle(seed=42)
 
-  shuffled_books = shuffle(books)
+    shuffled_books = shuffle(books)
 
-  shuffled_books.to_json("shuffled_books/")
-
-* ``shuffle = nc.Shuffle(seed=42)`` This creates a shuffle operation that can be chained with
-  the various other modules in NeMo Curator. In this example, we fix the seed to be 42.
-  Setting the seed will guarantee determinism, but may be slightly slower (20-30% slower)
-  depending on the dataset size.
-* ``shuffled_books = shuffle(books)`` The dataset has now been shuffled, and we can save it to the filesystem.
+    shuffled_books.to_json("shuffled_books/")

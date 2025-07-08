@@ -16,7 +16,6 @@ import argparse
 import os
 import shutil
 from functools import partial
-from typing import Any
 
 from docbuilder import TedTalksDownloader
 
@@ -64,7 +63,7 @@ def filter_dataset(dataset: ParallelDataset, gpu: bool = False) -> ParallelDatas
                 tgt_score="tgt_hist",
                 score_type=int,
             ),
-        ]
+        ],
     )
 
     if gpu:
@@ -75,16 +74,15 @@ def filter_dataset(dataset: ParallelDataset, gpu: bool = False) -> ParallelDatas
                 gpu=gpu,
                 metadata_fields=["src_lang", "tgt_lang"],
                 score_type=float,
-            )
+            ),
         )
     else:
         print("Running on CPU, so skipping QE filtering to save time")
 
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
-def run_curation_pipeline(args: Any, src_file: str, tgt_file: str) -> None:
+def run_curation_pipeline(args: argparse.Namespace, src_file: str, tgt_file: str) -> None:
     # Initialize the Dask cluster.
     client = get_client(**ArgumentHelper.parse_client_args(args))
     print(f"Running curation pipeline on '{src_file} and {tgt_file}'...")
@@ -92,12 +90,17 @@ def run_curation_pipeline(args: Any, src_file: str, tgt_file: str) -> None:
     print("Reading the data...")
 
     bitext_dataset = ParallelDataset.read_simple_bitext(
-        src_file, tgt_file, SRC_LANG, TGT_LANG, add_filename=True, npartitions=16
+        src_file,
+        tgt_file,
+        SRC_LANG,
+        TGT_LANG,
+        add_filename=True,
+        npartitions=16,
     )
     curation_steps = Sequential(
         [
             partial(filter_dataset, gpu=(args.device == "gpu")),
-        ]
+        ],
     )
 
     dataset = curation_steps(bitext_dataset)
@@ -119,7 +122,7 @@ def run_curation_pipeline(args: Any, src_file: str, tgt_file: str) -> None:
     client.close()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.

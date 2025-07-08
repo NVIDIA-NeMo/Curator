@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import logging
-from typing import Dict, Iterator, List, Optional, Tuple, Union
+from collections.abc import Iterator
 
 import spacy
 from presidio_analyzer.nlp_engine import (
@@ -27,14 +27,13 @@ logger = logging.getLogger("presidio-analyzer")
 
 
 class CustomNlpEngine(SpacyNlpEngine):
-
     def __init__(
         self,
-        models: Optional[List[Dict[str, str]]] = None,
-        ner_model_configuration: Optional[NerModelConfiguration] = None,
+        models: list[dict[str, str]] | None = None,
+        ner_model_configuration: NerModelConfiguration | None = None,
     ):
         super().__init__(models, ner_model_configuration)
-        self.nlp: Dict[str, Language] = None
+        self.nlp: dict[str, Language] = None
 
     def load(self) -> None:
         """Load the spaCy NLP model."""
@@ -45,17 +44,15 @@ class CustomNlpEngine(SpacyNlpEngine):
         for model in self.models:
             self._validate_model_params(model)
             self._download_spacy_model_if_needed(model["model_name"])
-            self.nlp[model["lang_code"]] = spacy.load(
-                model["model_name"], enable=["ner"]
-            )
+            self.nlp[model["lang_code"]] = spacy.load(model["model_name"], enable=["ner"])
 
     def process_batch(
         self,
-        texts: Union[List[str], List[Tuple[str, object]]],
+        texts: list[str] | list[tuple[str, object]],
         language: str,
         as_tuples: bool = False,
         batch_size: int = 32,
-    ) -> Iterator[Optional[NlpArtifacts]]:
+    ) -> Iterator[NlpArtifacts | None]:
         """Execute the NLP pipeline on a batch of texts using spacy pipe.
 
         :param texts: A list of texts to process.
@@ -67,11 +64,10 @@ class CustomNlpEngine(SpacyNlpEngine):
         """
 
         if not self.nlp:
-            raise ValueError("NLP engine is not loaded. Consider calling .load()")
+            msg = "NLP engine is not loaded. Consider calling .load()"
+            raise ValueError(msg)
 
         texts = [str(text) for text in texts]
-        docs = self.nlp[language].pipe(
-            texts, as_tuples=as_tuples, batch_size=batch_size
-        )
+        docs = self.nlp[language].pipe(texts, as_tuples=as_tuples, batch_size=batch_size)
         for doc in docs:
             yield doc.text, self._doc_to_nlp_artifact(doc, language)

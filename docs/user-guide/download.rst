@@ -1,4 +1,3 @@
-
 .. _data-curator-download:
 
 ======================================
@@ -18,7 +17,7 @@ the extraction step to limit the amount of documents that undergo this heavy com
 NeMo Curator provides example utilities for downloading and extracting Common Crawl, ArXiv, and Wikipedia data.
 In addition, it provides a flexible interface to extend the utility to other datasets.
 Our Common Crawl example demonstrates how to process a crawl by downloading the data from S3, doing preliminary language filtering with pyCLD2,
-and extracting the relevant text with jusText, Resiliparse, or Trafilatura to output :code:`.jsonl` files.
+and extracting the relevant text with multiple extraction methods including jusText, Resiliparse, and Trafilatura to output :code:`.jsonl` files.
 
 NeMo Curator currently does not provide out-of-the-box support for web-crawling or web-scraping.
 It provides utilities for downloading and extracting data from the preexisting online sources given above.

@@ -12,7 +12,7 @@ from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.fuzzy_dedup_utils.id_mapping import convert_str_id_to_int
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
-
+logger = logging.getLogger(__name__)
 
 DATA_BASE = os.environ.get("DATA_BASE")
 SCHEDULER_FILE = os.environ.get("SCHEDULER_FILE")
@@ -20,7 +20,7 @@ SCHEDULER_FILE = os.environ.get("SCHEDULER_FILE")
 
 if __name__ == "__main__":
     client = get_client(scheduler_file=SCHEDULER_FILE)
-    logging.info(f"Number of dask workers: {get_num_workers(client)}")
+    logger.info(f"Number of dask workers: {get_num_workers(client)}")
 
     minhash_base_output_path = os.path.join(DATA_BASE, "fuzzy/minhash")
     minhash_output_dir = os.path.join(minhash_base_output_path, "data")
@@ -42,13 +42,13 @@ if __name__ == "__main__":
     t0 = time.time()
 
     # Load MinHash output
-    logging.info("Converting ids")
+    logger.info("Converting ids")
     df = dask_cudf.read_parquet(lsh_input_data_path, backend="cudf")
     df = df.map_partitions(
         convert_str_id_to_int,
         id_column=lsh_id_field,
         meta=cudf.DataFrame(
-            {minhash_field: [[1, 2, 3]], "doc_id": [1], "dataset_id": np.uint32(1)}
+            {minhash_field: [[1, 2, 3]], "doc_id": [1], "dataset_id": np.uint32(1)},
         ),
     )
     # Run LSH()
@@ -63,4 +63,4 @@ if __name__ == "__main__":
     res = lsh(DocumentDataset(df))
 
     t1 = time.time()
-    logging.info(f"Time taken for LSH: {time.time() - t0} s")
+    logger.info(f"Time taken for LSH: {time.time() - t0} s")

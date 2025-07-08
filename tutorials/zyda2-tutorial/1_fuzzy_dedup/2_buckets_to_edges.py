@@ -9,7 +9,7 @@ from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
-
+logger = logging.getLogger(__name__)
 
 DATA_BASE = os.environ.get("DATA_BASE")
 SCHEDULER_FILE = os.environ.get("SCHEDULER_FILE")
@@ -17,12 +17,13 @@ SCHEDULER_FILE = os.environ.get("SCHEDULER_FILE")
 
 if __name__ == "__main__":
     client = get_client(scheduler_file=SCHEDULER_FILE)
-    logging.info(f"Number of dask workers: {get_num_workers(client)}")
+    logger.info(f"Number of dask workers: {get_num_workers(client)}")
 
     # Input
     lsh_base_output_path = os.path.join(DATA_BASE, "fuzzy/lsh")
     lsh_buckets_output_path = os.path.join(
-        lsh_base_output_path, "data/_buckets.parquet"
+        lsh_base_output_path,
+        "data/_buckets.parquet",
     )
 
     # Output
@@ -42,4 +43,4 @@ if __name__ == "__main__":
 
     ddf_b2e = buckets_to_edges(DocumentDataset(ddf_bk))
 
-    logging.info(f"Time taken for Buckets to Edges: {time.time() - t0} s")
+    logger.info(f"Time taken for Buckets to Edges: {time.time() - t0} s")

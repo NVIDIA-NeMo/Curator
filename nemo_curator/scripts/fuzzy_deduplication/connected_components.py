@@ -21,7 +21,7 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     """
     Takes a dataset consisting of document pairs
     and their corresponding Jaccard similarity scores to compute connected
@@ -33,7 +33,7 @@ def main(args):
     st = time.time()
     output_path = os.path.join(args.output_dir, "connected_components.parquet")
     args.enable_spilling = True
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     components_stage = ConnectedComponents(
         cache_dir=args.cache_dir,
@@ -44,21 +44,21 @@ def main(args):
         profile_dir=args.profile_path,
     )
     components_stage.cc_workflow(output_path=output_path)
-    print(f"All done in {time.time()-st:.1f} seconds")
+    print(f"All done in {time.time() - st:.1f} seconds")
     print(f"Results written to {output_path}")
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = "Computes connected components."
     parser = argparse.ArgumentParser(
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
+    arg_helper.parse_gpu_dedup_args()
 
-    argumentHelper.add_arg_output_dir()
+    arg_helper.add_arg_output_dir()
     parser.add_argument(
         "--cache-dir",
         type=str,
@@ -73,14 +73,13 @@ def attach_args():
         "--jaccard-threshold",
         type=float,
         default=0.8,
-        help="Jaccard threshold below which we do not consider documents"
-        " to be duplicates.",
+        help="Jaccard threshold below which we do not consider documents to be duplicates.",
     )
 
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

@@ -18,8 +18,10 @@ import subprocess
 import unicodedata
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 from copy import deepcopy
-from typing import Literal, Optional
+from logging import Logger
+from typing import Literal
 from urllib.parse import urlparse
 
 import justext
@@ -44,7 +46,7 @@ from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 NON_SPACED_LANGUAGES = ["THAI", "CHINESE", "JAPANESE", "KOREAN"]
 
 
-def decode_html(html_bytes):
+def decode_html(html_bytes: bytes) -> str | None:
     # Convert from bytes to text using utf-8 encoding
     try:
         return html_bytes.decode("utf-8")
@@ -53,25 +55,23 @@ def decode_html(html_bytes):
         return try_decode_with_detected_encoding(html_bytes)
 
 
-def try_decode_with_detected_encoding(html_bytes):
+def try_decode_with_detected_encoding(html_bytes: bytes) -> str | None:
     detected_encoding = detect(html_bytes)["encoding"]
     bad_detection = not detected_encoding or detected_encoding == "utf-8"
     if bad_detection:
         return None
     try:
         return html_bytes.decode(detected_encoding)
-    except:
+    except:  # noqa: E722
         return None
 
 
-def lang_detect(decoded_html):
+def lang_detect(decoded_html: str) -> str:
     try:
         details = cld2.detect(decoded_html)[2]
-    except Exception:
+    except Exception:  # noqa: BLE001
         # Remove control characters
-        cleaned_html = "".join(
-            i for i in decoded_html if unicodedata.category(i)[0] != "C"
-        )
+        cleaned_html = "".join(i for i in decoded_html if unicodedata.category(i)[0] != "C")
         details = cld2.detect(cleaned_html)[2]
 
     return details[0][0].upper()
@@ -79,22 +79,22 @@ def lang_detect(decoded_html):
 
 class HTMLExtractorAlgorithm(ABC):
     @abstractmethod
-    def extract_text(self, html, stop_words, language):
+    def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
         pass
 
 
 class JusTextExtractor(HTMLExtractorAlgorithm):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        length_low=70,
-        length_high=200,
-        stopwords_low=0.30,
-        stopwords_high=0.32,
-        max_link_density=0.2,
-        max_heading_distance=200,
-        no_headings=False,
-        is_boilerplate=None,
-        logger=None,
+        length_low: int = 70,
+        length_high: int = 200,
+        stopwords_low: float = 0.30,
+        stopwords_high: float = 0.32,
+        max_link_density: float = 0.2,
+        max_heading_distance: int = 200,
+        no_headings: bool = False,
+        is_boilerplate: bool | None = None,
+        logger: Logger | None = None,
     ):
         """
         Initialize the jusText text extraction algorithm with specified parameters.
@@ -143,7 +143,7 @@ class JusTextExtractor(HTMLExtractorAlgorithm):
         self.is_boilerplate = is_boilerplate
         self.logger = logger
 
-    def extract_text(self, html, stop_words, language):
+    def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
         # Segment the HTML into paragraphs
         try:
             # Form the DOM tree
@@ -156,7 +156,7 @@ class JusTextExtractor(HTMLExtractorAlgorithm):
             # Return nothing when we cannot segment the document
             if self.logger is not None:
                 self.logger.info("Could not segment paragaphs in the document")
-            return
+            return None
 
         paragraphs = handler.paragraphs
 
@@ -186,7 +186,7 @@ class JusTextExtractor(HTMLExtractorAlgorithm):
 
         if self.is_boilerplate is None:
             if language in NON_SPACED_LANGUAGES:
-                warnings.warn("Disabling is_boilerplate check for jusText extraction.")
+                warnings.warn("Disabling is_boilerplate check for jusText extraction.", stacklevel=2)
                 is_boilerplate = False
             else:
                 is_boilerplate = True
@@ -204,9 +204,9 @@ class JusTextExtractor(HTMLExtractorAlgorithm):
 class ResiliparseExtractor(HTMLExtractorAlgorithm):
     def __init__(
         self,
-        required_stopword_density=0.32,
-        main_content=True,
-        alt_texts=False,
+        required_stopword_density: float = 0.32,
+        main_content: bool = True,
+        alt_texts: bool = False,
     ):
         """
         Initialize the Resiliparse text extraction algorithm with specified parameters.
@@ -235,17 +235,13 @@ class ResiliparseExtractor(HTMLExtractorAlgorithm):
         self.main_content = main_content
         self.alt_texts = alt_texts
 
-    def extract_text(self, html, stop_words, language):
-        text = extract_plain_text(
-            html, main_content=self.main_content, alt_texts=self.alt_texts
-        )
+    def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
+        text = extract_plain_text(html, main_content=self.main_content, alt_texts=self.alt_texts)
 
         paragraphs = list(filter(None, text.split("\n")))
 
         if language in NON_SPACED_LANGUAGES:
-            warnings.warn(
-                "stopword_density is ignored for non-space-separated languages."
-            )
+            warnings.warn("stopword_density is ignored for non-space-separated languages.", stacklevel=2)
             result = paragraphs
         else:
             result = []
@@ -267,16 +263,16 @@ class ResiliparseExtractor(HTMLExtractorAlgorithm):
 
 
 class TrafilaturaExtractor(HTMLExtractorAlgorithm):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        required_stopword_density=0.32,
-        min_extracted_size=250,
-        min_extracted_comm_size=1,
-        min_output_size=1,
-        min_output_comm_size=1,
-        max_tree_size=None,
-        min_duplcheck_size=100,
-        max_repetitions=2,
+        required_stopword_density: float = 0.32,
+        min_extracted_size: int = 250,
+        min_extracted_comm_size: int = 1,
+        min_output_size: int = 1,
+        min_output_comm_size: int = 1,
+        max_tree_size: int | None = None,
+        min_duplcheck_size: int = 100,
+        max_repetitions: int = 2,
         **extract_kwargs,
     ):
         """
@@ -331,39 +327,27 @@ class TrafilaturaExtractor(HTMLExtractorAlgorithm):
         self.max_repetitions = max_repetitions
         self.extract_kwargs = extract_kwargs
 
-    def extract_text(self, html, stop_words, language):
+    def extract_text(self, html: str, stop_words: frozenset[str], language: str) -> list[str] | None:
         trafilatura_config = deepcopy(TRAFILATURA_DEFAULT_CONFIG)
-        trafilatura_config["DEFAULT"]["MIN_EXTRACTED_SIZE"] = str(
-            self.min_extracted_size
-        )
-        trafilatura_config["DEFAULT"]["MIN_EXTRACTED_COMM_SIZE"] = str(
-            self.min_extracted_comm_size
-        )
+        trafilatura_config["DEFAULT"]["MIN_EXTRACTED_SIZE"] = str(self.min_extracted_size)
+        trafilatura_config["DEFAULT"]["MIN_EXTRACTED_COMM_SIZE"] = str(self.min_extracted_comm_size)
         trafilatura_config["DEFAULT"]["MIN_OUTPUT_SIZE"] = str(self.min_output_size)
-        trafilatura_config["DEFAULT"]["MIN_OUTPUT_COMM_SIZE"] = str(
-            self.min_output_comm_size
-        )
+        trafilatura_config["DEFAULT"]["MIN_OUTPUT_COMM_SIZE"] = str(self.min_output_comm_size)
         if self.max_tree_size:
             trafilatura_config["DEFAULT"]["MAX_TREE_SIZE"] = str(self.max_tree_size)
-        trafilatura_config["DEFAULT"]["MIN_DUPLCHECK_SIZE"] = str(
-            self.min_duplcheck_size
-        )
+        trafilatura_config["DEFAULT"]["MIN_DUPLCHECK_SIZE"] = str(self.min_duplcheck_size)
         trafilatura_config["DEFAULT"]["MAX_REPETITIONS"] = str(self.max_repetitions)
 
         # Recommended to set deduplicate=True
         self.extract_kwargs.setdefault("deduplicate", True)
 
-        text = extract_with_trafilatura(
-            html, config=trafilatura_config, **self.extract_kwargs
-        )
+        text = extract_with_trafilatura(html, config=trafilatura_config, **self.extract_kwargs)
 
         if text is not None:
             paragraphs = list(filter(None, text.split("\n")))
 
             if language in NON_SPACED_LANGUAGES:
-                warnings.warn(
-                    "stopword_density is ignored for non-space-separated languages."
-                )
+                warnings.warn("stopword_density is ignored for non-space-separated languages.", stacklevel=2)
                 result = paragraphs
 
             else:
@@ -390,7 +374,9 @@ class TrafilaturaExtractor(HTMLExtractorAlgorithm):
         return result
 
 
-def get_stop_list_dict(languages=[]):
+def get_stop_list_dict(languages: list[str] | None = None) -> dict[str, frozenset[str]]:
+    if languages is None:
+        languages = []
 
     # Name mapping for language names from CLD2 (values)
     # and jusText (keys)
@@ -432,10 +418,7 @@ def get_stop_list_dict(languages=[]):
 
     stop_list_dict = {}
     for language in languages:
-        if language in lang_map:
-            lang_key = lang_map[language]
-        else:
-            lang_key = language.upper()
+        lang_key = lang_map[language] if language in lang_map else language.upper()
 
         if lang_key in custom_stopwords:
             stop_list_dict[lang_key] = custom_stopwords[lang_key]
@@ -445,7 +428,7 @@ def get_stop_list_dict(languages=[]):
     return stop_list_dict
 
 
-def get_all_stop_words():
+def get_all_stop_words() -> frozenset[str]:
     stop_words = set()
     for language in justext.get_stoplists():
         stop_words.update(justext.get_stoplist(language))
@@ -458,7 +441,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
     Downloads WARC files from the Common Crawl
     """
 
-    def __init__(self, download_dir, aws=False, verbose=False):
+    def __init__(self, download_dir: str, aws: bool = False, verbose: bool = False):
         """
         Creates a downloader
 
@@ -473,7 +456,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         self._aws = aws
         self._verbose = verbose
 
-    def download(self, url):
+    def download(self, url: str) -> str:
         # Download each URL to the directory
         urlpath = urlparse(url).path[1:]
         output_name = urlpath.replace("/", "-")
@@ -492,7 +475,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
                 stdout, stderr = None, None
             else:
                 stdout, stderr = subprocess.DEVNULL, subprocess.DEVNULL
-            p = subprocess.run(
+            p = subprocess.run(  # noqa: S603, PLW1510
                 cmd,
                 stdout=stdout,
                 stderr=stderr,
@@ -509,28 +492,27 @@ class CommonCrawlWARCDownloaderExtractOnly(DocumentDownloader):
     files on the queue
     """
 
-    def __init__(self, aws=False, verbose=False):
+    def __init__(self, aws: bool = False, verbose: bool = False):  # noqa: ARG002
         super().__init__()
 
-    def download(self, url):
+    def download(self, url: str) -> str:
         print(f"Putting WARC file {url} on the queue for extraction")
         return url
 
 
 class CommonCrawlWARCIterator(DocumentIterator):
-
-    def __init__(self, log_frequency=1000):
+    def __init__(self, log_frequency: int = 1000):
         super().__init__()
         self._counter = 0
         self._log_frequency = log_frequency
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict[str, str], str]]:
         # Loop over all records in the current WARC
         self._counter = 0
         bname = os.path.split(file_path)[-1]
         with open(file_path, "rb") as file_pointer:
             ai = ArchiveIterator(file_pointer, arc2warc=True)
-            for k, rec in enumerate(ai):
+            for _k, rec in enumerate(ai):
                 # Get the response from the crawl
                 if rec.rec_type == "response":
                     if self._counter > 0 and self._counter % self._log_frequency == 0:
@@ -548,8 +530,14 @@ class CommonCrawlWARCIterator(DocumentIterator):
 
 
 class CommonCrawlWARCExtractor(DocumentExtractor):
+    def __init__(
+        self,
+        algorithm: HTMLExtractorAlgorithm | None = None,
+        stop_lists: dict[str, frozenset[str]] | None = None,
+    ):
+        if algorithm is None:
+            algorithm = JusTextExtractor()
 
-    def __init__(self, algorithm=JusTextExtractor(), stop_lists=None):
         if stop_lists is not None:
             self._stop_lists = stop_lists
         else:
@@ -558,7 +546,7 @@ class CommonCrawlWARCExtractor(DocumentExtractor):
         self.algorithm = algorithm
         super().__init__()
 
-    def extract(self, content):
+    def extract(self, content: str) -> dict[str, str] | None:
         html = decode_html(content)
         if html is not None:
             # Language detection and HTML extraction
@@ -569,26 +557,26 @@ class CommonCrawlWARCExtractor(DocumentExtractor):
             if text is not None:
                 if len(text) > 0:
                     text = "\n\n".join(text)
-                    meta = {"language": lang, "text": text}
-                    return meta
+                    return {"language": lang, "text": text}
                 else:
                     return None
+        return None
 
 
-def download_common_crawl(
+def download_common_crawl(  # noqa: PLR0913
     output_path: str,
     start_snapshot: str,
     end_snapshot: str,
     output_type: Literal["jsonl", "parquet"] = "jsonl",
-    algorithm=JusTextExtractor(),
-    stop_lists=None,
+    algorithm: HTMLExtractorAlgorithm | None = None,
+    stop_lists: dict[str, frozenset[str]] | None = None,
     news: bool = False,
     aws: bool = False,
-    raw_download_dir: Optional[str] = None,
+    raw_download_dir: str | None = None,
     keep_raw_download: bool = False,
     force_download: bool = False,
-    url_limit: Optional[int] = None,
-    record_limit: Optional[int] = None,
+    url_limit: int | None = None,
+    record_limit: int | None = None,
 ) -> DocumentDataset:
     """
     Downloads Common Crawl WARC snapshots and extracts text content using a specified extraction algorithm.
@@ -624,27 +612,24 @@ def download_common_crawl(
       record_limit: Optional; the maximum number of records to extract from each WARC file.
           • If None, all available records are extracted.
     """
+    if algorithm is None:
+        algorithm = JusTextExtractor()
+
     common_crawl_urls = get_common_crawl_urls(
         starting_snapshot=start_snapshot, ending_snapshot=end_snapshot, news=news
     )
 
     if len(common_crawl_urls) == 0:
-        raise ValueError(
+        msg = (
             f"No Common Crawl download urls found between {start_snapshot} and {end_snapshot}. "
             "Ensure that a valid Common Crawl snapshot (https://data.commoncrawl.org/) is "
             "within the range provided."
         )
+        raise ValueError(msg)
 
     if url_limit:
         common_crawl_urls = common_crawl_urls[:url_limit]
-    output_paths = list(
-        map(
-            lambda url: os.path.join(
-                output_path, url.split("/")[-1] + f".{output_type}"
-            ),
-            common_crawl_urls,
-        )
-    )
+    output_paths = [os.path.join(output_path, url.split("/")[-1] + f".{output_type}") for url in common_crawl_urls]
 
     if not raw_download_dir:
         raw_download_dir = os.path.join(output_path, "downloads")
@@ -661,7 +646,8 @@ def download_common_crawl(
         "source_id": str,
         "file_name": str,
     }
-    dataset = download_and_extract(
+
+    return download_and_extract(
         common_crawl_urls,
         output_paths,
         downloader,
@@ -674,5 +660,3 @@ def download_common_crawl(
         filename_col="file_name",
         record_limit=record_limit,
     )
-
-    return dataset

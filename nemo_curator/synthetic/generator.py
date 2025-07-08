@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib
 from abc import ABC, abstractmethod
-from typing import Any, List, Union
+from typing import Any
 
 
 class SyntheticDataGenerator(ABC):
@@ -30,9 +29,9 @@ class SyntheticDataGenerator(ABC):
         self._name = self.__class__.__name__
 
     @abstractmethod
-    def generate(self, llm_prompt: Union[str, List[str]]) -> Union[str, List[str]]:
+    def generate(self, llm_prompt: str | list[str]) -> str | list[str]:
         pass
 
     @abstractmethod
-    def parse_response(self, llm_response: Union[str, List[str]]) -> Any:
+    def parse_response(self, llm_response: str | list[str]) -> Any:  # noqa: ANN401
         pass

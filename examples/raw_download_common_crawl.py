@@ -21,7 +21,7 @@ from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     # Params
     start_snapshot = "2021-04"
     end_snapshot = "2021-10"
@@ -31,7 +31,7 @@ def main(args):
     url_limit = 10
 
     # Set up Dask client
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     # Download the raw compressed WARC files
     # Unlike the download_common_crawl function, this does not extract the files
@@ -46,13 +46,9 @@ def main(args):
         print(file)
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

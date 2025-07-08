@@ -18,7 +18,7 @@ import os
 from docbuilder import TinyStoriesExtractor, TinyStoriesIterator
 
 
-def write_jsonl(input_filename: str, output_dir: str, dump_every_n: int = 10000):
+def write_jsonl(input_filename: str, output_dir: str, dump_every_n: int = 10000) -> None:
     """
     Convert a file to JSONL format and write it to the specified output directory.
 
@@ -30,7 +30,7 @@ def write_jsonl(input_filename: str, output_dir: str, dump_every_n: int = 10000)
     if os.path.isdir(output_dir):
         if len(os.listdir(output_dir)) > 0:
             print(
-                f"Output directory '{output_dir}' is not empty. Skipping conversion to JSONL."
+                f"Output directory '{output_dir}' is not empty. Skipping conversion to JSONL.",
             )
             return
     else:
@@ -44,7 +44,7 @@ def write_jsonl(input_filename: str, output_dir: str, dump_every_n: int = 10000)
     to_dump = []
     dump_ctr = 0
 
-    def dump_to_file(to_dump, dump_ctr):
+    def dump_to_file(to_dump: list[str], dump_ctr: int) -> tuple[list[str], int]:
         """Helper function to facilitate dumping to file."""
         output_filename = f"{basename}-{dump_ctr}.jsonl"
         with open(os.path.join(output_dir, output_filename), "w") as output_file:

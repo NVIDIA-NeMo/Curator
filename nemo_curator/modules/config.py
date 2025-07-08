@@ -14,7 +14,7 @@
 
 import warnings
 from dataclasses import dataclass
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import yaml
 
@@ -22,8 +22,8 @@ import yaml
 @dataclass
 class BaseConfig:
     @classmethod
-    def from_yaml(cls, file_path: str):
-        with open(file_path, "r") as file:
+    def from_yaml(cls, file_path: str) -> "BaseConfig":
+        with open(file_path) as file:
             yaml_dict = yaml.safe_load(file)
         return cls(**yaml_dict)
 
@@ -63,7 +63,7 @@ class FuzzyDuplicatesConfig(BaseConfig):
 
     # General config
     cache_dir: str
-    profile_dir: Optional[str] = None
+    profile_dir: str | None = None
     id_field: str = "id"
     text_field: str = "text"
     perform_removal: bool = False
@@ -78,13 +78,13 @@ class FuzzyDuplicatesConfig(BaseConfig):
 
     false_positive_check: bool = False
     # Only required for false positive check
-    num_anchors: Optional[int] = None
-    jaccard_threshold: Optional[float] = None
-    bucket_mapping_blocksize: Optional[int] = None
-    parts_per_worker: Optional[int] = None
-    bucket_parts_per_worker: Optional[int] = None
+    num_anchors: int | None = None
+    jaccard_threshold: float | None = None
+    bucket_mapping_blocksize: int | None = None
+    parts_per_worker: int | None = None
+    bucket_parts_per_worker: int | None = None
 
-    def __post_init__(self):
+    def __post_init__(self):  # noqa: C901
         self.num_hashes = self.num_buckets * self.hashes_per_bucket
         false_positive_defaults = {
             "num_anchors": 2,
@@ -96,47 +96,51 @@ class FuzzyDuplicatesConfig(BaseConfig):
         if self.false_positive_check:
             warnings.warn(
                 "Identifying false positives during the Minhash deduplication is computationally expensive."
-                " For improved performance consider setting this to False"
+                " For improved performance consider setting this to False",
+                stacklevel=2,
             )
             for arg, default in false_positive_defaults.items():
                 if getattr(self, arg) is None:
                     setattr(self, arg, default)
             if self.num_anchors <= 0:
-                raise ValueError("Number of anchors must be greater than 0")
-            if self.num_anchors > 2:
+                msg = "Number of anchors must be greater than 0"
+                raise ValueError(msg)
+            if self.num_anchors > 2:  # noqa: PLR2004
                 warnings.warn(
                     "Using a higher number of anchor docs might lead to higher memory footprint and might impact performance",
                     category=UserWarning,
+                    stacklevel=2,
                 )
             if not 0 <= self.jaccard_threshold <= 1:
-                raise ValueError("Jaccard Threshold must be between [0,1]")
+                msg = "Jaccard Threshold must be between [0,1]"
+                raise ValueError(msg)
         else:
-            if self.char_ngrams < 20:
+            if self.char_ngrams < 20:  # noqa: PLR2004
                 warnings.warn(
                     "Using a small char_ngrams value might lead to a large number (~5%) of false positives during deduplication."
-                    " Using a value of at least 20 for char_ngrams is recommended."
+                    " Using a value of at least 20 for char_ngrams is recommended.",
+                    stacklevel=2,
                 )
-            unused_false_positive_args = [
-                arg
-                for arg in false_positive_defaults.keys()
-                if getattr(self, arg) is not None
-            ]
+            unused_false_positive_args = [arg for arg in false_positive_defaults if getattr(self, arg) is not None]
             if unused_false_positive_args:
                 warnings.warn(
                     f"False positive check is disabled. Unused arguments {unused_false_positive_args} will be ignored",
                     category=UserWarning,
+                    stacklevel=2,
                 )
 
         if self.cache_dir is None:
-            raise ValueError(
+            msg = (
                 "Finding fuzzy duplicates requires a cache directory accessible via all workers to store intermediates"
             )
+            raise ValueError(msg)
         if not 1 <= self.buckets_per_shuffle <= self.num_buckets:
-            raise ValueError("Buckets per shuffle must be between [1, num_buckets]")
+            msg = "Buckets per shuffle must be between [1, num_buckets]"
+            raise ValueError(msg)
 
         if not self.perform_removal:
             warnings.warn(
-                "In future NeMo Curator releases, the default value for perform_removal will be True."
+                "In future NeMo Curator releases, the default value for perform_removal will be True.", stacklevel=2
             )
 
 
@@ -192,14 +196,14 @@ class SemDedupConfig(BaseConfig):
     """
 
     cache_dir: str
-    profile_dir: Optional[str] = None
+    profile_dir: str | None = None
     num_files: int = -1
 
     # Embeddings
     embedding_model_name_or_path: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_batch_size: int = 128
     embeddings_save_loc: str = "embeddings"
-    embedding_max_mem_gb: Optional[int] = None
+    embedding_max_mem_gb: int | None = None
 
     # Options: "mean_pooling", "last_token"
     embedding_pooling_strategy: str = "mean_pooling"
@@ -214,7 +218,7 @@ class SemDedupConfig(BaseConfig):
     random_state: int = 1234
     sim_metric: Literal["cosine", "l2"] = "cosine"
     which_to_keep: Literal["hard", "easy", "random"] = "hard"
-    batched_cosine_similarity: Union[bool, int] = 1024
+    batched_cosine_similarity: bool | int = 1024
     clustering_input_partition_size: str = "2gb"
 
     # Extract dedup config
@@ -222,12 +226,11 @@ class SemDedupConfig(BaseConfig):
 
     def __post_init__(self):
         if self.cache_dir is None:
-            raise ValueError(
-                "Finding sem-dedup requires a cache directory accessible via all workers to store intermediates"
-            )
-        assert (
-            0 <= self.eps_to_extract <= 1
-        ), "Epsilon to extract must be between [0, 1]"
+            msg = "Finding sem-dedup requires a cache directory accessible via all workers to store intermediates"
+            raise ValueError(msg)
+        if not (0 <= self.eps_to_extract <= 1):
+            msg = "Epsilon to extract must be between [0, 1]"
+            raise ValueError(msg)
 
         # Convert bool to int
         if isinstance(self.batched_cosine_similarity, bool):
@@ -236,4 +239,5 @@ class SemDedupConfig(BaseConfig):
             else:
                 self.batched_cosine_similarity = 0
         if not isinstance(self.batched_cosine_similarity, int):
-            raise ValueError("batched_cosine_similarity must be an integer")
+            msg = "batched_cosine_similarity must be an integer"
+            raise TypeError(msg)

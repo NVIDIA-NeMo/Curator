@@ -16,7 +16,6 @@ import argparse
 import json
 import os
 from functools import partial
-from typing import Any
 
 from docbuilder import EmailsDownloader, EmailsIterator
 from filters import FilterEmailsWithLongBody, FilterEmptyEmails
@@ -59,7 +58,7 @@ def download_and_convert_to_jsonl() -> str:
     return output_path
 
 
-def redact_pii(dataset: DocumentDataset, text_field) -> DocumentDataset:
+def redact_pii(dataset: DocumentDataset, text_field: str) -> DocumentDataset:
     """
     Redacts personally identifiable information (PII) from a given dataset.
 
@@ -87,7 +86,7 @@ def redact_pii(dataset: DocumentDataset, text_field) -> DocumentDataset:
     return redactor(dataset)
 
 
-def run_curation_pipeline(args: Any, jsonl_fp: str) -> str:
+def run_curation_pipeline(args: argparse.Namespace, jsonl_fp: str) -> str:
     """
     Run the curation pipeline on the dataset.
 
@@ -119,13 +118,22 @@ def run_curation_pipeline(args: Any, jsonl_fp: str) -> str:
             #
             # Filter out empty emails.
             ScoreFilter(
-                FilterEmptyEmails(), text_field="subject", score_type=bool, invert=True
+                FilterEmptyEmails(),
+                text_field="subject",
+                score_type=bool,
+                invert=True,
             ),
             ScoreFilter(
-                FilterEmptyEmails(), text_field="body", score_type=bool, invert=True
+                FilterEmptyEmails(),
+                text_field="body",
+                score_type=bool,
+                invert=True,
             ),
             ScoreFilter(
-                FilterEmptyEmails(), text_field="category", score_type=bool, invert=True
+                FilterEmptyEmails(),
+                text_field="category",
+                score_type=bool,
+                invert=True,
             ),
             # Filter out emails that are too long.
             ScoreFilter(FilterEmailsWithLongBody(), text_field="body", score_type=bool),
@@ -141,7 +149,7 @@ def run_curation_pipeline(args: Any, jsonl_fp: str) -> str:
             Modify(AddSystemPrompt(), text_field="body"),
             # Add a period to the end of each email category, which makes PEFT easier.
             Modify(AddPeriod(), text_field="category"),
-        ]
+        ],
     )
 
     dataset = curation_steps(dataset)
@@ -160,7 +168,7 @@ def run_curation_pipeline(args: Any, jsonl_fp: str) -> str:
     return os.path.join(out_path, os.path.basename(jsonl_fp))
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
     # Limit the total number of workers to ensure we don't run out of memory.

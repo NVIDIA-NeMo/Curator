@@ -17,16 +17,15 @@ import time
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
-from nemo_curator.utils.distributed_utils import get_client, write_to_disk
+from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def pre_imports():
+def pre_imports() -> None:
     import cudf  # noqa: F401
 
 
-def main(args):
-
+def main(args: argparse.Namespace) -> None:
     dataset_dir = "/path/to/data"
     log_dir = "./"
     output_dir = "./"
@@ -39,9 +38,7 @@ def main(args):
         client.run(pre_imports)
 
     t0 = time.time()
-    input_dataset = DocumentDataset.read_json(
-        dataset_dir, backend=backend, blocksize="1GiB", files_per_partition=None
-    )
+    input_dataset = DocumentDataset.read_json(dataset_dir, backend=backend, blocksize="1GiB", files_per_partition=None)
 
     exact_dup = ExactDuplicates(
         logger=log_dir,
@@ -50,32 +47,28 @@ def main(args):
         # Decides whether output of the module is deduplicated dataset or duplicates
         # If true, you should set cache_dir for performance improvement
         perform_removal=False,
-        # cache_dir=output_dir  # Optionally write the output to disk
+        # cache_dir=output_dir  # Optionally write the output to disk  # noqa: ERA001
     )
 
     # When perform_removal=False, it will only call .identify_duplicates() and return the list of duplicate IDs.
     # When perform_removal=True, then exact_dup outputs the dataset with the duplicates removed.
     # It will behave by calling .identify_duplicates() and .remove() in sequence.
-    duplicates = exact_dup(
-        dataset=input_dataset
-    )  # or exact_dup.identify_duplicates(input_dataset)
+    duplicates = exact_dup(dataset=input_dataset)  # or exact_dup.identify_duplicates(input_dataset)
 
     # If caching, result is a path to the output dataset.
     if isinstance(duplicates, str):
         duplicates = DocumentDataset.read_parquet(duplicates, backend=backend)
 
     result = exact_dup.remove(input_dataset, duplicates)
-    write_to_disk(result, output_dir, output_type="parquet")
+    result.to_parquet(output_dir)
     print(time.time() - t0)
 
 
 def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

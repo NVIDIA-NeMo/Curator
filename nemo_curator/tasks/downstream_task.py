@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,21 +19,20 @@ from nemo_curator.utils.text_utils import get_words
 
 
 class DownstreamTask(ABC):
-
     def __init__(self):
         super().__init__()
         self._task_name = None
         self._ngrams = {}
 
     @abstractmethod
-    def generate_ngrams(self):
+    def generate_ngrams(self) -> dict[str, int]:
         pass
 
     @property
-    def ngrams(self):
+    def ngrams(self) -> dict[str, int]:
         return self._ngrams
 
-    def _update_ngrams(self, text, min_ngram_size=8, max_ngram_size=13):
+    def _update_ngrams(self, text: str, min_ngram_size: int = 8, max_ngram_size: int = 13) -> None:
         words, positions = get_words(text)
         if len(words) < min_ngram_size:
             return
@@ -49,14 +48,15 @@ class DownstreamTask(ABC):
                 self._ngrams[seq] = 0
 
 
-def import_task(task_path):
+def import_task(task_path: str) -> DownstreamTask:
     module_path, task_name = task_path.rsplit(".", 1)
     task_module = importlib.import_module(module_path)
     task_class = getattr(task_module, task_name)
     if not issubclass(task_class, DownstreamTask):
-        raise ValueError(
+        msg = (
             f"Input iterator {task_class.__name__} "
             "must be derived from DownstreamTask"
             "defined in nemo_curator.tasks.downstream_task"
         )
+        raise TypeError(msg)
     return task_class

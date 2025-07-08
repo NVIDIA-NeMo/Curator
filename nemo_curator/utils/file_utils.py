@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ import os
 import pathlib
 import warnings
 from functools import partial, reduce
-from typing import List, Optional, Union
 
 import dask.bag as db
 import dask.dataframe as dd
@@ -31,25 +30,23 @@ from nemo_curator.utils.distributed_utils import (
     single_partition_write_with_filename,
 )
 
-NEMO_CURATOR_HOME = os.environ.get(
-    "NEMO_CURATOR_HOME", os.path.join(os.path.expanduser("~"), ".nemo_curator")
-)
+NEMO_CURATOR_HOME = os.environ.get("NEMO_CURATOR_HOME", os.path.join(os.path.expanduser("~"), ".nemo_curator"))
 
 
-def mkdir(d):
+def mkdir(d: str) -> None:
     pathlib.Path(d).mkdir(parents=True, exist_ok=True)
 
 
-def expand_outdir_and_mkdir(outdir):
+def expand_outdir_and_mkdir(outdir: str) -> str:
     outdir = os.path.abspath(os.path.expanduser(outdir))
     mkdir(outdir)
     return outdir
 
 
 def filter_files_by_extension(
-    files_list: List[str],
-    keep_extensions: Union[str, List[str]],
-) -> List[str]:
+    files_list: list[str],
+    keep_extensions: str | list[str],
+) -> list[str]:
     """
     Given a list of files, filter it to only include files matching given extension(s).
 
@@ -71,7 +68,7 @@ def filter_files_by_extension(
             filtered_files.append(file)
 
     if len(files_list) != len(filtered_files):
-        warnings.warn(f"Skipped at least one file due to unmatched file extension(s).")
+        warnings.warn("Skipped at least one file due to unmatched file extension(s).", stacklevel=2)
 
     return filtered_files
 
@@ -80,8 +77,8 @@ def get_all_files_paths_under(
     root: str,
     recurse_subdirectories: bool = True,
     followlinks: bool = False,
-    keep_extensions: Optional[Union[str, List[str]]] = None,
-) -> List[str]:
+    keep_extensions: str | list[str] | None = None,
+) -> list[str]:
     """
     This function returns a list of all the files under a specified directory.
     Args:
@@ -95,11 +92,7 @@ def get_all_files_paths_under(
                    "jsonl" or ["jsonl", "parquet"].
     """
     if recurse_subdirectories:
-        file_ls = [
-            os.path.join(r, f)
-            for r, subdirs, files in os.walk(root, followlinks=followlinks)
-            for f in files
-        ]
+        file_ls = [os.path.join(r, f) for r, subdirs, files in os.walk(root, followlinks=followlinks) for f in files]
     else:
         # Only include files, not directories
         file_ls = [entry.path for entry in os.scandir(root) if entry.is_file()]
@@ -120,9 +113,9 @@ def get_remaining_files(
     input_file_path: str,
     output_file_path: str,
     input_file_type: str,
-    output_file_type: Optional[str] = None,
+    output_file_type: str | None = None,
     num_files: int = -1,
-):
+) -> list[str]:
     """
     This function returns a list of the files that still remain to be read.
 
@@ -141,32 +134,28 @@ def get_remaining_files(
 
     if not os.path.exists(output_file_path):
         expand_outdir_and_mkdir(output_file_path)
-    completed_files = [
-        os.path.basename(entry.path) for entry in os.scandir(output_file_path)
-    ]
+    completed_files = [os.path.basename(entry.path) for entry in os.scandir(output_file_path)]
     completed_files = set(completed_files)
 
     input_files = [
         entry.path
         for entry in os.scandir(input_file_path)
-        if os.path.basename(entry.path)
-        not in _update_filetype(completed_files, output_file_type, input_file_type)
+        if os.path.basename(entry.path) not in _update_filetype(completed_files, output_file_type, input_file_type)
     ]
     # Guard against non extension files if present in the input directory
     input_files = [f for f in input_files if f.endswith(input_file_type)]
     input_files.sort()
 
     len_written_files = len(completed_files)
-    if num_files > 0:
+    if num_files > 0:  # noqa: SIM108
         left_to_sample = max(num_files - len_written_files, 0)
     else:
         left_to_sample = len(input_files)
 
-    input_files = input_files[:left_to_sample]
-    return input_files
+    return input_files[:left_to_sample]
 
 
-def _update_filetype(file_set, old_file_type, new_file_type):
+def _update_filetype(file_set: set[str], old_file_type: str | None, new_file_type: str | None) -> set[str]:
     if old_file_type is None or new_file_type is None:
         return file_set
 
@@ -178,15 +167,9 @@ def _update_filetype(file_set, old_file_type, new_file_type):
     if old_file_type == new_file_type:
         return file_set
 
-    updated_file_set = {
-        (
-            f"{os.path.splitext(file)[0]}{new_file_type}"
-            if file.endswith(old_file_type)
-            else file
-        )
-        for file in file_set
+    return {
+        (f"{os.path.splitext(file)[0]}{new_file_type}" if file.endswith(old_file_type) else file) for file in file_set
     }
-    return updated_file_set
 
 
 def get_batched_files(
@@ -194,7 +177,7 @@ def get_batched_files(
     output_file_path: str,
     input_file_type: str,
     batch_size: int = 64,
-):
+) -> list[list[str]]:
     """
     This function returns a batch of files that still remain to be processed.
 
@@ -206,23 +189,21 @@ def get_batched_files(
     Returns:
         A batch of files that are not in the output directory.
     """
-    remaining_files = get_remaining_files(
-        input_file_path, output_file_path, input_file_type
-    )
+    remaining_files = get_remaining_files(input_file_path, output_file_path, input_file_type)
     for i in range(0, len(remaining_files), batch_size):
         yield remaining_files[i : i + batch_size]
 
 
-def write_dataframe_by_meta(
+def write_dataframe_by_meta(  # noqa: PLR0913
     df: pd.DataFrame,
     output_dir: str,
     metadata_field: str,
     remove_metadata: bool = False,
     output_type: str = "jsonl",
-    include_values: List[str] = None,
-    exclude_values: List[str] = None,
+    include_values: list[str] | None = None,
+    exclude_values: list[str] | None = None,
     filename_col: str = "file_name",
-):
+) -> dict:
     counts = df[metadata_field].value_counts().to_dict()
 
     # Apply include_values or value_exclesion_filter if provided
@@ -247,22 +228,22 @@ def write_dataframe_by_meta(
     return counts
 
 
-def merge_counts(first: dict, second: dict):
+def merge_counts(first: dict, second: dict) -> dict:
     for ngram, count in second.items():
         first[ngram] = first.get(ngram, 0) + count
 
     return first
 
 
-def write_record(
+def write_record(  # noqa: PLR0913
     input_dir: str,
     file_name: str,
     line: str,
     field: str,
     output_dir: str,
-    include_values: List[str] = None,
-    exclude_values: List[str] = None,
-):
+    include_values: list[str] | None = None,
+    exclude_values: list[str] | None = None,
+) -> str | None:
     try:
         # Parse the JSON-encoded string 'line' into a Python dictionary
         line = json.loads(line)
@@ -270,35 +251,31 @@ def write_record(
         # Select category value
         category = line[field]
 
-        if (exclude_values and category in exclude_values) or (
-            include_values and category not in include_values
-        ):
+        if (exclude_values and category in exclude_values) or (include_values and category not in include_values):
             return None
 
         # Obtain the relative path
-        rel_path, file_name = os.path.split(
-            os.path.relpath(file_name, start=os.path.abspath(input_dir))
-        )
+        rel_path, file_name = os.path.split(os.path.relpath(file_name, start=os.path.abspath(input_dir)))
 
         output_dir = os.path.join(output_dir, category, rel_path)
         os.makedirs(output_dir, exist_ok=True)
         with open(os.path.join(output_dir, file_name), "a") as f:
             f.write(json.dumps(line) + "\n")
 
-        return category
+        return category  # noqa: TRY300
     except (KeyError, ValueError, json.JSONDecodeError):
         return None
 
 
-def separate_by_metadata(
-    input_data: Union[dd.DataFrame, str],
+def separate_by_metadata(  # noqa: PLR0913
+    input_data: dd.DataFrame | str,
     output_dir: str,
     metadata_field: str,
     remove_metadata: bool = False,
     output_type: str = "jsonl",
     input_type: str = "jsonl",
-    include_values: List[str] = None,
-    exclude_values: List[str] = None,
+    include_values: list[str] | None = None,
+    exclude_values: list[str] | None = None,
     filename_col: str = "file_name",
 ) -> dict:
     """
@@ -325,7 +302,7 @@ def separate_by_metadata(
     if include_values is not None and exclude_values is not None:
         print("Error: 'include_values' and 'exclude_values' are mutually exclusive.")
 
-        return
+        return None
 
     # Create output_dir if needed
     if output_dir:
@@ -382,31 +359,39 @@ def separate_by_metadata(
     return delayed(reduce)(merge_counts, delayed_counts)
 
 
-def parse_str_of_num_bytes(s: str, return_str: bool = False) -> Union[str, int]:
+def parse_str_of_num_bytes(s: str, return_str: bool = False) -> str | int:
     try:
         last_char = s[-1].lower()
         if last_char not in "kmg":
-            raise ValueError("Invalid size: {}".format(s))
+            msg = f"Invalid size: {s}"
+            raise ValueError(msg)  # noqa: TRY301
         power = "kmg".find(last_char) + 1
         size = float(s[:-1]) * 1024**power
     except ValueError:
-        raise ValueError("Invalid size: {}".format(s))
+        msg = f"Invalid size: {s}"
+        raise ValueError(msg)  # noqa: B904
     if return_str:
         return s
     else:
         return int(size)
 
 
-def _save_jsonl(documents, output_path, start_index=0, max_index=10000, prefix=None):
+def _save_jsonl(
+    documents: db.Bag,
+    output_path: str,
+    start_index: int = 0,
+    max_index: int = 10000,
+    prefix: str | None = None,
+) -> None:
     """
     Worker function to write out the data to jsonl files
 
     """
 
-    def _encode_text(document):
+    def _encode_text(document: str) -> bytes:
         return document.strip().encode("utf-8")
 
-    def _name(start_index, npad, prefix, i):
+    def _name(start_index: int, npad: int, prefix: str | None, i: int) -> str:
         tag = str(start_index + i).rjust(npad, "0")
         return f"{prefix}{tag}"
 
@@ -426,7 +411,7 @@ def _save_jsonl(documents, output_path, start_index=0, max_index=10000, prefix=N
         try:
             if os.path.getsize(output_file) == 0:
                 os.remove(output_file)
-        except Exception as exception:
+        except Exception as exception:  # noqa: BLE001, PERF203
             print(
                 f"An exception occurred when trying to delete {output_file}.\n{exception}",
                 flush=True,
@@ -439,7 +424,7 @@ def reshard_jsonl(
     output_file_size: str = "100M",
     start_index: int = 0,
     file_prefix: str = "",
-):
+) -> None:
     """
     Reshards a directory of jsonl files to have a new (approximate) file size for each shard
 
@@ -468,6 +453,6 @@ def reshard_jsonl(
     _save_jsonl(b, output_dir, start_index=start_index, prefix=file_prefix)
 
 
-def remove_path_extension(path: str):
+def remove_path_extension(path: str) -> str:
     p = pathlib.Path(path)
     return os.path.join(p.parent, p.stem)

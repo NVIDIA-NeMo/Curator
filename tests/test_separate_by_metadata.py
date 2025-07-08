@@ -1,4 +1,6 @@
 import os
+from collections.abc import Callable
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -11,8 +13,8 @@ from nemo_curator.utils.file_utils import separate_by_metadata
 
 
 @pytest.fixture
-def tmp_path_w_data(tmp_path):
-    def _write_data(num_files, file_ext):
+def tmp_path_w_data(tmp_path: Path) -> Callable[[int, str], Path]:
+    def _write_data(num_files: int, file_ext: str) -> Path:
         out_path = tmp_path / file_ext
         df = pd.DataFrame(
             {
@@ -39,22 +41,24 @@ def tmp_path_w_data(tmp_path):
     return _write_data
 
 
-@pytest.mark.parametrize(
-    "backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)]
-)
+@pytest.mark.parametrize("backend", ["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
 class TestMetadataSep:
-
     @pytest.mark.parametrize("files_per_partition", [1, 3])
     @pytest.mark.parametrize(
-        "file_ext, read_f",
+        ("file_ext", "read_f"),
         [
             ("jsonl", DocumentDataset.read_json),
             ("parquet", DocumentDataset.read_parquet),
         ],
     )
     def test_metadatasep(
-        self, tmp_path_w_data, files_per_partition, backend, file_ext, read_f
-    ):
+        self,
+        tmp_path_w_data: Callable[[int, str], Path],
+        files_per_partition: int,
+        backend: str,
+        file_ext: str,
+        read_f: Callable[[str, str, int, int, bool], DocumentDataset],
+    ) -> None:
         data_dir = tmp_path_w_data(num_files=5, file_ext=file_ext)
         output_dir = data_dir / "metadata_sep"
         df = read_f(

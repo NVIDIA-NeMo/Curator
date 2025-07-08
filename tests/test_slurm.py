@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,9 +20,8 @@ from nemo_curator.nemo_run.slurm import SlurmJobConfig
 
 
 class TestSlurmJobConfig:
-
     @pytest.fixture
-    def basic_config(self):
+    def basic_config(self) -> SlurmJobConfig:
         """Returns a basic SlurmJobConfig with required parameters"""
         return SlurmJobConfig(
             job_dir="/path/to/job",
@@ -32,7 +30,7 @@ class TestSlurmJobConfig:
         )
 
     @pytest.fixture
-    def custom_config(self):
+    def custom_config(self) -> SlurmJobConfig:
         """Returns a SlurmJobConfig with custom parameters"""
         return SlurmJobConfig(
             job_dir="/path/to/custom/job",
@@ -49,7 +47,7 @@ class TestSlurmJobConfig:
             libcudf_cufile_policy="ON",
         )
 
-    def test_initialize_with_defaults(self, basic_config):
+    def test_initialize_with_defaults(self, basic_config: SlurmJobConfig) -> None:
         """Test initializing SlurmJobConfig with default values"""
         # Check required parameters
         assert basic_config.job_dir == "/path/to/job"
@@ -67,14 +65,11 @@ class TestSlurmJobConfig:
         assert basic_config.rmm_worker_pool_size == "72GiB"
         assert basic_config.libcudf_cufile_policy == "OFF"
 
-    def test_initialize_with_custom_values(self, custom_config):
+    def test_initialize_with_custom_values(self, custom_config: SlurmJobConfig) -> None:
         """Test initializing SlurmJobConfig with custom values"""
         # Check required parameters
         assert custom_config.job_dir == "/path/to/custom/job"
-        assert (
-            custom_config.container_entrypoint
-            == "/path/to/custom/container-entrypoint.sh"
-        )
+        assert custom_config.container_entrypoint == "/path/to/custom/container-entrypoint.sh"
         assert custom_config.script_command == "custom_tool --arg1=val1 --arg2=val2"
 
         # Check custom values
@@ -88,9 +83,9 @@ class TestSlurmJobConfig:
         assert custom_config.rmm_worker_pool_size == "80GiB"
         assert custom_config.libcudf_cufile_policy == "ON"
 
-    def test_build_env_vars(self, basic_config):
+    def test_build_env_vars(self, basic_config: SlurmJobConfig) -> None:
         """Test the _build_env_vars method"""
-        env_vars = basic_config._build_env_vars()
+        env_vars = basic_config._build_env_vars()  # noqa: SLF001
 
         # Check that keys are uppercased
         assert "JOB_DIR" in env_vars
@@ -111,7 +106,7 @@ class TestSlurmJobConfig:
         assert env_vars["SCRIPT_COMMAND"] == "nemo_curator_tool arg1 arg2"
         assert env_vars["DEVICE"] == "cpu"
 
-    def test_to_script_with_defaults(self, basic_config):
+    def test_to_script_with_defaults(self, basic_config: SlurmJobConfig) -> None:
         """Test to_script method with default arguments"""
         # Mock the run.Script class
         with patch("nemo_curator.nemo_run.slurm.run") as mock_run:
@@ -135,7 +130,7 @@ class TestSlurmJobConfig:
             # Check that the script object was returned
             assert script == mock_script
 
-    def test_to_script_with_custom_options(self, basic_config):
+    def test_to_script_with_custom_options(self, basic_config: SlurmJobConfig) -> None:
         """Test to_script method with custom add_scheduler_file and add_device arguments"""
         # Mock the run.Script class
         with patch("nemo_curator.nemo_run.slurm.run") as mock_run:
@@ -143,7 +138,7 @@ class TestSlurmJobConfig:
             mock_run.Script.return_value = mock_script
 
             # Don't add scheduler file or device arguments
-            script = basic_config.to_script(add_scheduler_file=False, add_device=False)
+            _script = basic_config.to_script(add_scheduler_file=False, add_device=False)
 
             # Verify Script was created with correct parameters
             mock_run.Script.assert_called_once()
@@ -158,14 +153,14 @@ class TestSlurmJobConfig:
             assert "--scheduler-file" not in env_vars["SCRIPT_COMMAND"]
             assert "--device" not in env_vars["SCRIPT_COMMAND"]
 
-    def test_to_script_with_gpu_device(self, custom_config):
+    def test_to_script_with_gpu_device(self, custom_config: SlurmJobConfig) -> None:
         """Test to_script method with a GPU device configuration"""
         # Mock the run.Script class
         with patch("nemo_curator.nemo_run.slurm.run") as mock_run:
             mock_script = MagicMock()
             mock_run.Script.return_value = mock_script
 
-            script = custom_config.to_script()
+            _script = custom_config.to_script()
 
             # Verify Script was created with correct parameters
             call_args = mock_run.Script.call_args[1]

@@ -15,6 +15,8 @@
 import argparse
 import csv
 
+import pandas as pd
+
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modifiers import FastTextLabelModifier
 from nemo_curator.modules import Modify
@@ -23,18 +25,16 @@ from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def sample_rows(df, n, seed):
+def sample_rows(df: pd.DataFrame, n: int, seed: int) -> pd.DataFrame:
     samples = df.sample(frac=n / len(df) + 0.05, random_state=seed)
 
     return samples.head(n=n, compute=False)
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     client = get_client(**ArgumentHelper.parse_client_args(args))
     # Get local path
-    files = list(
-        get_all_files_paths_under(args.input_data_dir, keep_extensions="jsonl")
-    )
+    files = list(get_all_files_paths_under(args.input_data_dir, keep_extensions="jsonl"))
     raw_data = read_data(files, file_type="jsonl", backend="pandas")
     dataset = DocumentDataset(raw_data)
     text_field = args.input_json_field
@@ -57,30 +57,16 @@ def main(args):
     client.close()
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-Prepare data for training skip-gram classifier with FastText.
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
 
-Takes as input a directory of .jsonl files, and writes an output
-file of samples prepared in order to train a skip-gram classifier
-with FastText.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_arg_log_dir(default="./log/prepare_filter_data")
+    arg_helper.add_arg_output_train_file(
+        help="The output file containing prepared samples to train a skip-gram classifier with FastText."
     )
-):
-    argumentHelper = ArgumentHelper(parser)
-
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_arg_log_dir(default="./log/prepare_filter_data")
-    argumentHelper.add_arg_output_train_file(
-        help="The output file containing prepared samples to train a "
-        "skip-gram classifier with FastText."
-    )
-    argumentHelper.add_arg_seed(
-        help="The random seed to use for sampling from the dataset."
-    )
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_seed(help="The random seed to use for sampling from the dataset.")
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--input-json-field",
         type=str,
@@ -102,5 +88,15 @@ with FastText.
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        """
+Prepare data for training skip-gram classifier with FastText.
+
+Takes as input a directory of .jsonl files, and writes an output
+file of samples prepared in order to train a skip-gram classifier
+with FastText.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

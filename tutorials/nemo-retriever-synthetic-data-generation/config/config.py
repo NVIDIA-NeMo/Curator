@@ -12,12 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import warnings
 from dataclasses import dataclass, field
-from typing import List, Optional
-
-import yaml
 
 from nemo_curator.modules.config import BaseConfig
 
@@ -34,39 +29,37 @@ class RetrieverEvalSDGConfig(BaseConfig):
     base_url: str
     api_key: str
     generator_model: str = "mistralai/mixtral-8x22b-instruct-v0.1"
-    generator_url: Optional[str] = None
-    generator_api_key: Optional[str] = None
-    temperature: Optional[float] = 0.5
-    top_p: Optional[float] = 1.0
-    num_questions: Optional[int] = 1
-    max_tokens: Optional[int] = 2048
-    squad_format: Optional[bool] = False
+    generator_url: str | None = None
+    generator_api_key: str | None = None
+    temperature: float | None = 0.5
+    top_p: float | None = 1.0
+    num_questions: int | None = 1
+    max_tokens: int | None = 2048
+    squad_format: bool | None = False
 
-    generator_system_prompt: Optional[
-        str
-    ] = """You are data annotator, your task is
+    generator_system_prompt: str | None = """You are data annotator, your task is
     to generate a question for the given document. Also generate answer to the generated
     question."""
 
-    generator_user_prompt_template: Optional[
-        str
-    ] = """Generate {n_openlines} questions and corresponding answers based on Input Document.
+    generator_user_prompt_template: (
+        str | None
+    ) = """Generate {n_openlines} questions and corresponding answers based on Input Document.
     Input Document:
     {document}
     """
 
     # easiness filter parameters
     easiness_filter: str = None
-    easiness_url: Optional[str] = None
-    easiness_api_key: Optional[str] = None
+    easiness_url: str | None = None
+    easiness_api_key: str | None = None
     truncate: str = "END"
     percentile: float = 70
-    batch_size: Optional[int] = 1
+    batch_size: int | None = 1
 
     # answerability filter parameters
     answerability_filter: str = None
-    answerability_url: Optional[str] = None
-    answerability_api_key: Optional[str] = None
+    answerability_url: str | None = None
+    answerability_api_key: str | None = None
     num_criteria: int = 4
     answerability_system_prompt: str = """You are an evaluator who is rating questions to given context passages based on the given criteria. Assess the given question for clarity and answerability given enough domain knowledge, consider the following evaluation criterion:
       Criterion 1 - Can the question be understood and answered without needing additional context or access to external references not provided within the question itself? Questions should be self-contained, meaning they do not rely on specific documents, tables, or prior knowledge not shared within the question.

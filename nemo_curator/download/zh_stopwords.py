@@ -761,38 +761,38 @@ zh_stopwords = frozenset(
         "顺着",
         "首先",
         "︿",
-        "！",
-        "＃",
-        "＄",
-        "％",
-        "＆",
-        "（",
-        "）",
-        "＊",
-        "＋",
-        "，",
-        "０",
-        "１",
-        "２",
-        "３",
-        "４",
-        "５",
-        "６",
-        "７",
-        "８",
-        "９",
-        "：",
-        "；",
-        "＜",
-        "＞",
-        "？",
-        "＠",
-        "［",
-        "］",
-        "｛",
-        "｜",
-        "｝",
-        "～",
+        "！",  # noqa: RUF001
+        "＃",  # noqa: RUF001
+        "＄",  # noqa: RUF001
+        "％",  # noqa: RUF001
+        "＆",  # noqa: RUF001
+        "（",  # noqa: RUF001
+        "）",  # noqa: RUF001
+        "＊",  # noqa: RUF001
+        "＋",  # noqa: RUF001
+        "，",  # noqa: RUF001
+        "０",  # noqa: RUF001
+        "１",  # noqa: RUF001
+        "２",  # noqa: RUF001
+        "３",  # noqa: RUF001
+        "４",  # noqa: RUF001
+        "５",  # noqa: RUF001
+        "６",  # noqa: RUF001
+        "７",  # noqa: RUF001
+        "８",  # noqa: RUF001
+        "９",  # noqa: RUF001
+        "：",  # noqa: RUF001
+        "；",  # noqa: RUF001
+        "＜",  # noqa: RUF001
+        "＞",  # noqa: RUF001
+        "？",  # noqa: RUF001
+        "＠",  # noqa: RUF001
+        "［",  # noqa: RUF001
+        "］",  # noqa: RUF001
+        "｛",  # noqa: RUF001
+        "｜",  # noqa: RUF001
+        "｝",  # noqa: RUF001
+        "～",  # noqa: RUF001
         "￥",
     ]
 )

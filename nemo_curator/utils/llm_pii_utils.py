@@ -15,7 +15,6 @@
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import DefaultDict, Dict, List, Tuple
 
 
 @dataclass
@@ -74,12 +73,12 @@ PII_LABELS = [
 ]
 
 
-def get_system_prompt(pii_labels: List[str] = PII_LABELS) -> str:
+def get_system_prompt(pii_labels: list[str] = PII_LABELS) -> str:
     return (
         "You are an expert redactor. The user is going to provide you with "
         "some text. Please find all personally identifying information from "
         "this text. Return results according to this JSON schema: "
-        f"{str(JSON_SCHEMA)}\nOnly return results for entities which actually "
+        f"{JSON_SCHEMA!s}\nOnly return results for entities which actually "
         "appear in the text. It is very important that you return the  "
         "entity_text by copying it exactly from the input. Do not perform any "
         "modification or normalization of the text. The entity_type should be "
@@ -88,7 +87,7 @@ def get_system_prompt(pii_labels: List[str] = PII_LABELS) -> str:
 
 
 def validate_entity(
-    entity: Dict[str, str],
+    entity: dict[str, str],
     text: str,
     min_length: int = 2,
 ) -> bool:
@@ -100,13 +99,10 @@ def validate_entity(
     if entity["entity_text"] not in text:
         return False
 
-    if len(entity["entity_text"]) < min_length:
-        return False
-
-    return True
+    return not len(entity["entity_text"]) < min_length
 
 
-def validate_keys(entity_dict: Dict) -> bool:
+def validate_keys(entity_dict: dict) -> bool:
     """Validate that keys in entity dict match schema"""
 
     required_keys = JSON_SCHEMA["items"]["required"]
@@ -115,7 +111,7 @@ def validate_keys(entity_dict: Dict) -> bool:
     if len(entity_keys) != len(required_keys):
         return False
 
-    for k in required_keys:
+    for k in required_keys:  # noqa: SIM110
         if k not in entity_keys:
             return False
 
@@ -124,7 +120,7 @@ def validate_keys(entity_dict: Dict) -> bool:
 
 def redact(
     full_text: str,
-    pii_entities: List[Dict[str, str]],
+    pii_entities: list[dict[str, str]],
 ) -> str:
     """Redact given entities from the original text"""
 
@@ -140,9 +136,7 @@ def redact(
 
         # Replace the entity value with its type
         replacement = "{{" + entity_type + "}}"
-        redacted_text = (
-            redacted_text[:start_position] + replacement + redacted_text[end_position:]
-        )
+        redacted_text = redacted_text[:start_position] + replacement + redacted_text[end_position:]
 
         # Update the offset
         offset += len(replacement) - (end_position - start_position)
@@ -150,7 +144,7 @@ def redact(
     return redacted_text
 
 
-def find_entity_spans(text: str, entities: List[Dict[str, str]]) -> List[EntitySpan]:
+def find_entity_spans(text: str, entities: list[dict[str, str]]) -> list[EntitySpan]:
     """
     Find the start and end indexes for each entity in the given text.
 
@@ -165,7 +159,7 @@ def find_entity_spans(text: str, entities: List[Dict[str, str]]) -> List[EntityS
 
     """
     result = []
-    seen: DefaultDict[Tuple, int] = defaultdict(int)
+    seen: defaultdict[tuple, int] = defaultdict(int)
     for entity in entities:
         entity_text = entity["entity_text"]
         entity_type = entity["entity_type"]
@@ -174,18 +168,13 @@ def find_entity_spans(text: str, entities: List[Dict[str, str]]) -> List[EntityS
 
         matches = re.finditer(re.escape(entity_text), text, re.IGNORECASE)
         if matches:
-            result.extend(
-                [
-                    EntitySpan(entity_type, match.start(), match.end())
-                    for match in matches
-                ]
-            )
+            result.extend([EntitySpan(entity_type, match.start(), match.end()) for match in matches])
             seen[(entity_text, entity_type)] += 1
 
     return result
 
 
-def fix_overlaps(spans: List[EntitySpan]) -> List[EntitySpan]:
+def fix_overlaps(spans: list[EntitySpan]) -> list[EntitySpan]:
     """Handle overlaps in entity spans"""
 
     if not spans:
@@ -201,20 +190,19 @@ def fix_overlaps(spans: List[EntitySpan]) -> List[EntitySpan]:
             if span.end_position < results[-1].end_position:
                 continue
 
-            else:
-                if span.entity_type == results[-1].entity_type:
-                    # If overlapping spans have same type, then extend boundary
-                    results[-1].end_position = span.end_position
+            elif span.entity_type == results[-1].entity_type:
+                # If overlapping spans have same type, then extend boundary
+                results[-1].end_position = span.end_position
 
-                else:
-                    # If overlapping spans have different type, add new span
-                    results.append(
-                        EntitySpan(
-                            span.entity_type,
-                            results[-1].end_position + 1,
-                            span.end_position,
-                        )
+            else:
+                # If overlapping spans have different type, add new span
+                results.append(
+                    EntitySpan(
+                        span.entity_type,
+                        results[-1].end_position + 1,
+                        span.end_position,
                     )
+                )
         else:
             # Add non-overlapping span
             results.append(span)

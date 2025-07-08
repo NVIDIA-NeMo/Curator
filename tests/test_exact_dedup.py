@@ -13,22 +13,20 @@
 # limitations under the License.
 
 from hashlib import md5
+from pathlib import Path
 
 import pandas as pd
 import pytest
 from dask import dataframe as dd
+from pytest import FixtureRequest
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules import ExactDuplicates
 
 
-@pytest.fixture(
-    params=[False, pytest.param(True, marks=pytest.mark.gpu)], ids=["no gpu", "gpu"]
-)
-def exact_dedup_data(request):
-    df = pd.DataFrame(
-        {"id": [1, 2, 300, 4, -1], "text": ["abc", "aba", "abb", "aba", "abc"]}
-    )
+@pytest.fixture(params=[False, pytest.param(True, marks=pytest.mark.gpu)], ids=["no gpu", "gpu"])
+def exact_dedup_data(request: FixtureRequest) -> DocumentDataset:
+    df = pd.DataFrame({"id": [1, 2, 300, 4, -1], "text": ["abc", "aba", "abb", "aba", "abc"]})
     df = dd.from_pandas(df, 2)
     if request.param:
         df = df.to_backend("cudf")
@@ -36,7 +34,7 @@ def exact_dedup_data(request):
 
 
 @pytest.fixture
-def exact_no_dedup_data(request):
+def exact_no_dedup_data(request: FixtureRequest) -> DocumentDataset:  # noqa: ARG001
     # A dataset with no exact duplicates
     df = pd.DataFrame({"id": [1, 2, 300], "text": ["abc", "aba", "abb"]})
     df = dd.from_pandas(df, 2)
@@ -44,12 +42,12 @@ def exact_no_dedup_data(request):
 
 
 class TestExactDuplicates:
-    def test_unsupported_hash(self):
-        with pytest.raises(ValueError):
+    def test_unsupported_hash(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011
             ExactDuplicates(hash_method="sha256")
 
     @pytest.mark.parametrize("cache_result", [False, True])
-    def test_dup(self, exact_dedup_data, cache_result, tmpdir):
+    def test_dup(self, exact_dedup_data: DocumentDataset, cache_result: bool, tmpdir: Path) -> None:
         exact_dups = ExactDuplicates(
             id_field="id",
             text_field="text",
@@ -58,32 +56,23 @@ class TestExactDuplicates:
         )
         duplicates = exact_dups.identify_duplicates(exact_dedup_data)
         deduplicated_ds = exact_dups.remove(exact_dedup_data, duplicates)
-        deduplicated_ids_series = deduplicated_ds.df.to_backend("pandas").compute()[
-            "id"
-        ]
+        deduplicated_ids_series = deduplicated_ds.df.to_backend("pandas").compute()["id"]
         output_deduplicated_ids = set(deduplicated_ids_series.tolist())
-        assert (
-            len(output_deduplicated_ids) == 3
-            and 300 in output_deduplicated_ids
-            and len({-1, 1}.intersection(output_deduplicated_ids)) == 1
-            and len({2, 4}.intersection(output_deduplicated_ids)) == 1
-        )
+        assert len(output_deduplicated_ids) == 3  # noqa: PLR2004
+        assert 300 in output_deduplicated_ids  # noqa: PLR2004
+        assert len({-1, 1}.intersection(output_deduplicated_ids)) == 1
+        assert len({2, 4}.intersection(output_deduplicated_ids)) == 1
 
-        duplicates_df = (
-            duplicates.df.to_backend("pandas")
-            .compute()
-            .sort_values(by="id", ignore_index=True)
-        )
+        duplicates_df = duplicates.df.to_backend("pandas").compute().sort_values(by="id", ignore_index=True)
         expected_df = pd.DataFrame(
             {
-                "id": [1, -1] + [2, 4],
-                "_hashes": [md5(b"abc").hexdigest()] * 2
-                + [md5(b"aba").hexdigest()] * 2,
+                "id": [1, -1, 2, 4],
+                "_hashes": [md5(b"abc").hexdigest()] * 2 + [md5(b"aba").hexdigest()] * 2,  # noqa: S324
             }
         ).sort_values(by="id", ignore_index=True)
         pd.testing.assert_frame_equal(duplicates_df, expected_df, check_like=True)
 
-    def test_no_dedup(self, exact_no_dedup_data):
+    def test_no_dedup(self, exact_no_dedup_data: DocumentDataset) -> None:
         exact_dups = ExactDuplicates(
             id_field="id",
             text_field="text",

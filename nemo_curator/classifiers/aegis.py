@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,19 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import List, Optional, Union
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.functional as F  # noqa: N812
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
 from huggingface_hub import PyTorchModelHubMixin
+from torch import nn
 from torch.nn import Dropout, Linear
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
@@ -41,7 +41,7 @@ cudf = gpu_only_import("cudf")
 @dataclass
 class AegisConfig:
     peft_model_name_or_path: str
-    token: Optional[Union[str, bool]] = None
+    token: str | bool | None = None
     pretrained_model_name_or_path: str = "meta-llama/LlamaGuard-7b"
     dtype: torch.dtype = torch.bfloat16
     max_length: int = 4096
@@ -76,7 +76,7 @@ AEGIS_LABELS = [
 
 
 class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
-    def __init__(self, input_dim, dropout=0.7):
+    def __init__(self, input_dim: int, dropout: float = 0.7):
         super().__init__()
         self.input_dim = input_dim
         self.dropout = Dropout(dropout)
@@ -87,8 +87,8 @@ class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
         self.hidden_layer_1 = Linear(2000, 500)
         self.hidden_layer_2 = Linear(500, 1)
 
-    def forward(self, x):
-        x = torch.nn.functional.normalize(x, dim=-1)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.normalize(x, dim=-1)
         x = self.dropout(x)
         x = F.relu(self.input_layer(x))
         x = self.dropout(x)
@@ -97,17 +97,16 @@ class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
         x = F.relu(self.hidden_layer_1(x))
         x = self.dropout(x)
         x = self.hidden_layer_2(x)
-        x = self.sigmoid(x)
-        return x
+        return self.sigmoid(x)
 
 
 class AegisModel(nn.Module):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         pretrained_model_name_or_path: str,
         peft_model_name_or_path: str,
         dtype: torch.dtype,
-        token: Optional[Union[str, bool]],
+        token: str | bool | None,
         add_instruction_data_guard: bool = False,
         autocast: bool = False,
     ):
@@ -127,7 +126,7 @@ class AegisModel(nn.Module):
             self.instruction_data_guard_net = InstructionDataGuardNet(4096)
 
     @torch.no_grad()
-    def _forward(self, batch):
+    def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.add_instruction_data_guard:
             response = self.model.generate(
                 **batch,
@@ -137,13 +136,8 @@ class AegisModel(nn.Module):
                 return_dict_in_generate=True,
             )
             # Access the hidden state of the last non-generated token from the last layer
-            instruction_data_guard_input_tensor = response.hidden_states[0][32][
-                :, -1, :
-            ].to(torch.float)
-            instruction_data_guard_output_tensor = self.instruction_data_guard_net(
-                instruction_data_guard_input_tensor
-            ).flatten()
-            return instruction_data_guard_output_tensor
+            instruction_data_guard_input_tensor = response.hidden_states[0][32][:, -1, :].to(torch.float)
+            return self.instruction_data_guard_net(instruction_data_guard_input_tensor).flatten()
         else:
             response = self.model.generate(
                 **batch,
@@ -152,7 +146,7 @@ class AegisModel(nn.Module):
             )
         return response
 
-    def forward(self, batch):
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.autocast:
             with torch.autocast(device_type="cuda"):
                 return self._forward(batch)
@@ -161,7 +155,7 @@ class AegisModel(nn.Module):
 
 
 class AegisHFModel(HFModel):
-    def __init__(self, config: AegisConfig, max_mem_gb: Optional[int] = None):
+    def __init__(self, config: AegisConfig, max_mem_gb: int | None = None):
         self.config = config
         if max_mem_gb is None:
             max_mem_gb = _get_suggest_memory_for_classifier()
@@ -176,7 +170,7 @@ class AegisHFModel(HFModel):
             seq_len_increment=1024,
         )
 
-    def load_model(self, device: str = "cuda"):
+    def load_model(self, device: str = "cuda") -> AegisModel:
         model = AegisModel(
             pretrained_model_name_or_path=self.config.pretrained_model_name_or_path,
             peft_model_name_or_path=self.config.peft_model_name_or_path,
@@ -185,32 +179,28 @@ class AegisHFModel(HFModel):
             add_instruction_data_guard=self.config.add_instruction_data_guard,
         )
         if self.config.add_instruction_data_guard:
-            model.instruction_data_guard_net = (
-                model.instruction_data_guard_net.from_pretrained(
-                    self.config.instruction_data_guard_path
-                )
+            model.instruction_data_guard_net = model.instruction_data_guard_net.from_pretrained(
+                self.config.instruction_data_guard_path
             )
-            model.instruction_data_guard_net = model.instruction_data_guard_net.to(
-                device
-            )
+            model.instruction_data_guard_net = model.instruction_data_guard_net.to(device)
             model.instruction_data_guard_net.eval()
 
         model = model.to(device)
         model.eval()
         return model
 
-    def load_config(self):
+    def load_config(self) -> AutoConfig:
         return AutoConfig.from_pretrained(
             pretrained_model_name_or_path=self.config.pretrained_model_name_or_path,
             token=self.config.token,
         )
 
-    @lru_cache(maxsize=1)
-    def load_cfg(self):
+    @lru_cache(maxsize=1)  # noqa: B019
+    def load_cfg(self) -> AutoConfig:
         return self.load_config()
 
-    @lru_cache(maxsize=1)
-    def load_tokenizer(self):
+    @lru_cache(maxsize=1)  # noqa: B019
+    def load_tokenizer(self) -> AutoTokenizer:
         tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=self.config.pretrained_model_name_or_path,
             token=self.config.token,
@@ -238,11 +228,11 @@ class AegisClassifier(DistributedDataClassifier):
     the constructor of this classifier.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         aegis_variant: str = "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
-        token: Optional[Union[str, bool]] = None,
-        filter_by: Optional[List[str]] = None,
+        token: str | bool | None = None,
+        filter_by: list[str] | None = None,
         batch_size: int = 64,
         text_field: str = "text",
         pred_column: str = "aegis_pred",
@@ -251,7 +241,7 @@ class AegisClassifier(DistributedDataClassifier):
         max_chars: int = 6000,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         """
         Constructs the classifier
@@ -294,9 +284,9 @@ class AegisClassifier(DistributedDataClassifier):
             model = AegisHFModel(config=config, max_mem_gb=max_mem_gb)
         except OSError as e:
             if "meta-llama/LlamaGuard-7b" in str(e):
-                raise PermissionError(ACCESS_ERROR_MESSAGE)
+                raise PermissionError(ACCESS_ERROR_MESSAGE) from e
             else:
-                raise e
+                raise
 
         super().__init__(
             model=model,
@@ -310,7 +300,7 @@ class AegisClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _wrap_in_prompt(self, df):
+    def _wrap_in_prompt(self, df: cudf.DataFrame) -> cudf.DataFrame:
         documents = df[self.text_field].to_arrow().to_pylist()
         prompts = [format_aegis(doc[: self.max_chars]) for doc in documents]
         df["_hidden_text"] = cudf.Series(prompts)
@@ -321,7 +311,7 @@ class AegisClassifier(DistributedDataClassifier):
         if lines[0].strip() == "safe":
             return "safe"
         elif lines[0].strip() == "unsafe":
-            if len(lines) < 2:
+            if len(lines) < 2:  # noqa: PLR2004
                 return "unknown"
             potential_label = lines[1].strip()
             if potential_label not in AEGIS_LABELS[2:]:
@@ -331,7 +321,7 @@ class AegisClassifier(DistributedDataClassifier):
         else:
             return "unknown"
 
-    def _postprocess_responses(self, df):
+    def _postprocess_responses(self, df: cudf.DataFrame) -> cudf.DataFrame:
         tokenizer = self.model.load_tokenizer()
         generated_tokens = df[self.raw_pred_column].to_arrow().to_pylist()
         generated_tokens = tokenizer.batch_decode(
@@ -340,12 +330,9 @@ class AegisClassifier(DistributedDataClassifier):
         )
         original_lengths = df["_hidden_text"].str.len().to_arrow().to_pylist()
         generated_tokens = [
-            chars[original_length:]
-            for chars, original_length in zip(generated_tokens, original_lengths)
+            chars[original_length:] for chars, original_length in zip(generated_tokens, original_lengths, strict=False)
         ]
-        parsed_response = [
-            self._parse_response(response) for response in generated_tokens
-        ]
+        parsed_response = [self._parse_response(response) for response in generated_tokens]
         if self.keep_raw_pred:
             df[self.raw_pred_column] = cudf.Series(generated_tokens)
         else:
@@ -356,7 +343,7 @@ class AegisClassifier(DistributedDataClassifier):
     def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
         print("Starting AEGIS classifier inference", flush=True)
         ddf = dataset.df
-        hidden_meta = ddf._meta.copy()
+        hidden_meta = ddf._meta.copy()  # noqa: SLF001
         hidden_meta["_hidden_text"] = "DUMMY_STRING"
         ddf = ddf.map_partitions(self._wrap_in_prompt, meta=hidden_meta)
         columns = ddf.columns.tolist()
@@ -371,7 +358,7 @@ class AegisClassifier(DistributedDataClassifier):
             keep_cols=columns,
         )
         ddf = pipe(ddf)
-        translated_meta = ddf._meta.copy()
+        translated_meta = ddf._meta.copy()  # noqa: SLF001
         if self.keep_raw_pred:
             translated_meta[self.raw_pred_column] = "DUMMY_STRING"
         else:
@@ -424,9 +411,9 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
     (https://huggingface.co/meta-llama/LlamaGuard-7b) is required via a user access token.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        token: Optional[Union[str, bool]] = None,
+        token: str | bool | None = None,
         batch_size: int = 64,
         text_field: str = "text",
         pred_column: str = "is_poisoned",
@@ -434,7 +421,7 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
         max_chars: int = 6000,
         autocast: bool = True,
         device_type: str = "cuda",
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         """
         Constructs the classifier
@@ -473,9 +460,9 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
             model = AegisHFModel(config=config, max_mem_gb=max_mem_gb)
         except OSError as e:
             if "meta-llama/LlamaGuard-7b" in str(e):
-                raise PermissionError(ACCESS_ERROR_MESSAGE)
+                raise PermissionError(ACCESS_ERROR_MESSAGE) from e
             else:
-                raise e
+                raise
 
         super().__init__(
             model=model,
@@ -489,13 +476,11 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset):
+    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
         print("Starting Instruction Data Guard classifier inference", flush=True)
         ddf = dataset.df
         columns = ddf.columns.tolist()
-        tokenizer = op.Tokenizer(
-            self.model, cols=[self.text_field], tokenizer_type="default"
-        )
+        tokenizer = op.Tokenizer(self.model, cols=[self.text_field], tokenizer_type="default")
         predictor = op.Predictor(
             self.model,
             sorted_data_loader=True,
@@ -504,5 +489,5 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
         )
         pipe = op.Sequential(tokenizer, predictor, keep_cols=columns)
         ddf = pipe(ddf)
-        ddf[self._pred_column] = ddf[self._prob_column] >= 0.50
+        ddf[self._pred_column] = ddf[self._prob_column] >= 0.50  # noqa: PLR2004
         return DocumentDataset(ddf)

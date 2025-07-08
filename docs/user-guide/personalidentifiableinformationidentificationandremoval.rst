@@ -1,4 +1,3 @@
-
 .. _data-curator-pii:
 
 ======================================
@@ -28,7 +27,7 @@ The ``PiiModifier`` class utilizes the `Presidio <https://microsoft.github.io/pr
 
 The ``LLMPiiModifier`` and ``AsyncLLMPiiModifier`` classes utilize LLM models to identify PII in text.
 Using `NVIDIA NIM <https://developer.nvidia.com/nim>`_, the ``LLMPiiModifier`` and ``AsyncLLMPiiModifier`` classes can submit prompts to LLMs, such as Meta's `Llama 3.1 <https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct>`_, for PII identification.
-The LLM's reponse is then parsed and used to redact the PII in the text.
+The LLM's response is then parsed and used to redact the PII in the text.
 We found that LLM-based PII redaction (using Llama-3.1-70B) outperformed Presidio by 26% on core PII categories.
 Evaluations were run on the `Gretel PII masking <https://huggingface.co/datasets/gretelai/gretel-pii-masking-en-v1>`_ dataset and the `Text Anonymization Benchmark <https://arxiv.org/abs/2202.00443>`_ dataset.
 Please note that the LLM prompts were written in English, and the datasets used for evaluation were in English as well.
@@ -36,11 +35,12 @@ Please note that the LLM prompts were written in English, and the datasets used 
 -----------------------------------------
 Usage
 -----------------------------------------
+
 ############################
 PII redaction using Presidio
 ############################
 
-Imagine we have a "books" dataset stored in the following structure:
+Imagine we've a "books" dataset stored in the following structure:
 ::
 
     books_dataset/
@@ -83,7 +83,7 @@ You could read, de-identify the dataset, and write it to an output directory usi
 
 Let's walk through this code line by line:
 
-* ``modifier = PiiModifier(...)`` creates an instance of ``PiiModifier`` class that is responsible for PII de-identification.
+* ``modifier = PiiModifier(...)`` creates an instance of ``PiiModifier`` class that's responsible for PII de-identification.
 * ``supported_entities=["PERSON", "EMAIL_ADDRESS"]`` specifies the PII entities that the ``PiiModifier`` will identify and redact. By default, the ``PiiModifier`` will identify and redact the following entities:
 ::
 
@@ -167,8 +167,8 @@ After setting up a NIM endpoint, you can read, de-identify the dataset, and writ
 
 Let's walk through this code line by line:
 
-* ``modifier = AsyncLLMPiiModifier(...)`` creates an instance of ``AsyncLLMPiiModifier`` class that is responsible for PII de-identification.
-* ``model="meta/llama-3.1-70b-instruct"`` specifies the LLM model to use. ``AsyncLLMPiiModifier`` requires LLMs that support the OpenAI chat message format (i.e., system, user, and assistant roles). Examples include instruct-tuned versions of Meta's LLaMA ("meta/llama-3.1-70b-instruct" is the default model used by ``AsyncLLMPiiModifier``) and OpenAI's GPT models (such as "gpt-4o").
+* ``modifier = AsyncLLMPiiModifier(...)`` creates an instance of ``AsyncLLMPiiModifier`` class that's responsible for PII de-identification.
+* ``model="meta/llama-3.1-70b-instruct"`` specifies the LLM model to use. ``AsyncLLMPiiModifier`` requires LLMs that support the OpenAI chat message format (that is, system, user, and assistant roles). Examples include instruct-tuned versions of Meta's LLaMA ("meta/llama-3.1-70b-instruct" is the default model used by ``AsyncLLMPiiModifier``) and OpenAI's GPT models (such as "gpt-4o").
 * ``pii_labels=["name", "email"]`` specifies the PII entities that the ``AsyncLLMPiiModifier`` will identify and redact. By default, the ``AsyncLLMPiiModifier`` will identify and redact the following entities:
 ::
 
@@ -214,14 +214,42 @@ Let's walk through this code line by line:
 * ``modified_dataset = modify(dataset)`` modifies the data in the dataset by performing the PII de-identification based upon the passed parameters.
 * ``modified_dataset.to_json(...)`` writes the de-identified documents to disk.
 
+Redaction Format
+~~~~~~~~~~~~~~~~~~~~~~
+
+When PII entities are identified, they're replaced with the entity type surrounded by double curly braces. For example:
+
+.. code-block:: text
+
+    Original text: "My name is John Smith and my email is john.smith@example.com"
+    Redacted text: "My name is {{name}} and my email is {{email}}"
+
+This consistent formatting makes it easy to identify redacted content and understand what type of information was removed.
+
+Command-Line Usage
+~~~~~~~~~~~~~~~~~~~~~~
+
 The ``AsyncLLMPiiModifier`` module can be invoked via the ``nemo_curator/scripts/async_llm_pii_redaction.py`` script which provides a CLI-based interface. To see a complete list of options supported by the script, execute:
 
-``async_llm_pii_redaction --help``
+.. code-block:: bash
+
+    async_llm_pii_redaction --help
+
+Here's an example of using the async CLI tool:
+
+.. code-block:: bash
+
+    async_llm_pii_redaction \
+      --input-data-dir /path/to/input \
+      --output-data-dir /path/to/output \
+      --base_url "http://0.0.0.0:8000/v1" \
+      --api_key "your_api_key" \
+      --max_concurrent_requests 20
 
 Above, we recommend using the ``AsyncLLMPiiModifier`` because it utilizes ``AsyncOpenAI`` to submit multiple concurrent requests to the NIM endpoint.
 The higher the ``max_concurrent_requests`` is, the faster the ``AsyncLLMPiiModifier`` will be, but the user should be mindful to avoid overwhelming the NIM endpoint.
-Alternatively, the user can use the ``LLMPiiModifier`` class which does not utilize ``AsyncOpenAI`` and hence submits requests serially.
-Use of the ``LLMPiiModifier`` class is the same as the ``AsyncLLMPiiModifier`` class except that the ``max_concurrent_requests`` parameter is not used.
+Alternatively, the user can use the ``LLMPiiModifier`` class which doesn't utilize ``AsyncOpenAI`` and hence submits requests serially.
+Use of the ``LLMPiiModifier`` class is the same as the ``AsyncLLMPiiModifier`` class except that the ``max_concurrent_requests`` parameter isn't used.
 
 For example:
 
@@ -241,13 +269,60 @@ For example:
 
 The ``LLMPiiModifier`` module can be invoked via the ``nemo_curator/scripts/llm_pii_redaction.py`` script which provides a CLI-based interface. To see a complete list of options supported by the script, execute:
 
-``llm_pii_redaction --help``
+.. code-block:: bash
+
+    llm_pii_redaction --help
+
+Example of using the non-async CLI tool:
+
+.. code-block:: bash
+
+    llm_pii_redaction \
+      --input-data-dir /path/to/input \
+      --output-data-dir /path/to/output \
+      --base_url "http://0.0.0.0:8000/v1" \
+      --api_key "your_api_key"
+
+Custom System Prompts
+~~~~~~~~~~~~~~~~~~~~~~
+
+When working with non-English text or when you want to customize how the LLM identifies PII entities, you can provide a custom system prompt. However, ensure that the JSON schema is included exactly as shown in the default system prompt.
+
+.. code-block:: json
+
+    {
+        "type": "array",
+        "items": {
+            "type": "object",
+            "required": ["entity_type", "entity_text"],
+            "properties": {
+                "entity_type": {"type": "string"},
+                "entity_text": {"type": "string"}
+            }
+        }
+    }
+
+For reference, the default system prompt is:
+
+.. code-block:: text
+
+    "You are an expert redactor. The user is going to provide you with some text.
+    Please find all personally identifying information from this text.
+    Return results according to this JSON schema: {JSON_SCHEMA}
+    Only return results for entities which actually appear in the text.
+    It is very important that you return the entity_text by copying it exactly from the input.
+    Do not perform any modification or normalization of the text.
+    The entity_type should be one of these: {PII_LABELS}"
+
+``{PII_LABELS}`` represents a comma-separated list of strings corresponding to the PII entity types you want to identify (for example, "name", "email", "ip_address", etc.).
+
+When using a custom system prompt with non-English text, make sure to adapt the instructions while maintaining the exact JSON schema requirement. The LLM models will use this system prompt to guide their identification of PII entities.
 
 ############################
 Resuming from interruptions
 ############################
 
-It can be helpful to track which documents in a dataset have already been processed so that long curation jobs can be resumed if they are interrupted.
+It can be helpful to track which documents in a dataset have already been processed so that long curation jobs can be resumed if they're interrupted.
 NeMo Curator provides a utility for easily tracking which dataset shards have already been processed.
 A call to ``get_batched_files`` will return an iterator over the files that have yet to be processed by a modifier such as ``PiiModifier``.
 When you re-run the code example provided above, NeMo Curator ensures that only unprocessed files are processed by the PII module.

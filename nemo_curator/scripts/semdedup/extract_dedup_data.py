@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import logging
 import os
-from datetime import datetime
+import time
 
 from nemo_curator.log import create_logger
 from nemo_curator.modules import SemanticClusterLevelDedup
@@ -23,7 +24,7 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     semdedup_config = SemDedupConfig.from_yaml(args.config_file)
     client = get_client(**ArgumentHelper.parse_client_args(args))
 
@@ -39,43 +40,37 @@ def main(args):
         stdout=True,
     )
 
-    dt1 = datetime.now()
+    dt1 = time.perf_counter()
     logger.info(f"Start: {dt1}")
     cache_dir = semdedup_config.cache_dir
 
     semantic_dedup = SemanticClusterLevelDedup(
         n_clusters=semdedup_config.n_clusters,
-        emb_by_clust_dir=os.path.join(
-            cache_dir, semdedup_config.clustering_save_loc, "embs_by_nearest_center"
-        ),
+        emb_by_clust_dir=os.path.join(cache_dir, semdedup_config.clustering_save_loc, "embs_by_nearest_center"),
         id_column=args.id_column,
         which_to_keep=semdedup_config.which_to_keep,
         sim_metric=semdedup_config.sim_metric,
         batched_cosine_similarity=semdedup_config.batched_cosine_similarity,
-        output_dir=os.path.join(
-            semdedup_config.cache_dir, semdedup_config.clustering_save_loc
-        ),
+        output_dir=os.path.join(semdedup_config.cache_dir, semdedup_config.clustering_save_loc),
         embedding_column=semdedup_config.embedding_column,
         logger=logger,
     )
 
     semantic_dedup.compute_semantic_match_dfs()
-    dedup_id_dataset = semantic_dedup.extract_dedup_data(
-        eps_to_extract=semdedup_config.eps_to_extract
-    )
+    dedup_id_dataset = semantic_dedup.extract_dedup_data(eps_to_extract=semdedup_config.eps_to_extract)
     print(dedup_id_dataset.df.head(10))
 
-    dt2 = datetime.now()
+    dt2 = time.perf_counter()
     logger.info(f"End: {dt2}")
-    elapse = (dt2 - dt1).total_seconds() / 60
+    elapse = (dt2 - dt1) / 60
     logger.info(f"elapse: {elapse}")
 
     client.cancel(client.futures, force=True)
     client.close()
 
 
-def attach_args():
-    parser = ArgumentHelper.parse_semdedup_args(
+def attach_args() -> argparse.ArgumentParser:
+    return ArgumentHelper.parse_semdedup_args(
         description=(
             "Extracts deduplicated data from the clustered embeddings of a collection of documents. "
             "This script requires that embeddings and clustering have been performed "
@@ -91,10 +86,9 @@ def attach_args():
             " and eps_to_extract for the epsilon value to extract deduplicated data."
         ),
     )
-    return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

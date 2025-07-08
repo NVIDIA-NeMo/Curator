@@ -25,7 +25,7 @@ from nemo_curator.utils.distributed_utils import get_client, get_num_workers
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = """
     Takes the buckets generated from minhashes and converts
     them into an edge list for the connected components algorithm. This is done by
@@ -35,9 +35,9 @@ def attach_args():
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
+    arg_helper.parse_gpu_dedup_args()
     parser.add_argument(
         "--input-bucket-dir",
         type=str,
@@ -57,7 +57,7 @@ def attach_args():
     return parser
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     logger = create_logger(
         rank=0,
         log_file=os.path.join(args.log_dir, "rank_000.log"),
@@ -65,7 +65,6 @@ def main(args):
     )
 
     input_bucket_path = args.input_bucket_dir
-    OUTPUT_PATH = args.output_dir
 
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
@@ -75,22 +74,20 @@ def main(args):
     )
 
     buckets_to_edges = BucketsToEdges(
-        cache_dir=OUTPUT_PATH,
+        cache_dir=args.output_dir,
         id_fields=["dataset_id", "doc_id"],
         str_id_name=args.input_json_id_field,
         bucket_field=args.input_bucket_field,
         logger=logger,
     )
     st = time.time()
-    buckets_df = DocumentDataset(
-        dask_cudf.read_parquet(input_bucket_path, split_row_groups=False)
-    )
+    buckets_df = DocumentDataset(dask_cudf.read_parquet(input_bucket_path, split_row_groups=False))
     _ = buckets_to_edges(buckets_df)
     et = time.time()
-    logger.info(f"Bucket to Edges conversion took = {et-st} s")
+    logger.info(f"Bucket to Edges conversion took = {et - st} s")
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

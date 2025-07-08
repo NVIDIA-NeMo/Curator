@@ -28,7 +28,7 @@ USE_EXCOMMS = (
 ) or dask_cuda_version >= Version("24.08")
 
 
-def write_partitioned_file(df, output_path, partition_on, batch_id):
+def write_partitioned_file(df: cudf.DataFrame, output_path: str, partition_on: str, batch_id: int) -> cudf.Series:
     if len(df) == 0:
         return cudf.Series([True])
 
@@ -42,12 +42,12 @@ def write_partitioned_file(df, output_path, partition_on, batch_id):
 
 
 def rearange_by_column_direct(
-    df,
-    col,
-    npartitions,
-    ignore_index,
-    excomms_default=USE_EXCOMMS,
-):
+    df: cudf.DataFrame,
+    col: str,
+    npartitions: int,
+    ignore_index: bool,
+    excomms_default: bool = USE_EXCOMMS,
+) -> cudf.DataFrame:
     # Execute a "direct" shuffle operation without staging
     if config.get("explicit-comms", excomms_default):
         from dask_cuda.explicit_comms.dataframe.shuffle import (
@@ -73,7 +73,7 @@ def rearange_by_column_direct(
 
         # Use the internal dask-expr API
         return dask_expr.new_collection(
-            dask_expr._shuffle.RearrangeByColumn(
+            dask_expr._shuffle.RearrangeByColumn(  # noqa: SLF001
                 frame=df.expr,
                 partitioning_index=col,
                 npartitions_out=npartitions,
@@ -101,12 +101,12 @@ def rearange_by_column_direct(
 
 
 def get_shuffle_part_ids_df(
-    agg_df,
-    partition_on,
-    output_col,
-    size_col,
-    num_workers=0,
-):
+    agg_df: cudf.DataFrame,
+    partition_on: str,
+    output_col: str,
+    size_col: str,
+    num_workers: int = 0,
+) -> cudf.DataFrame:
     sizes = agg_df[size_col].values
     max_text_bytes_per_part = int(np.iinfo(np.int32).max * 3)
 
