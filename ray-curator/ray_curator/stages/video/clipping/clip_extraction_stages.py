@@ -31,6 +31,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
+    debug: bool = False
 
     @property
     def name(self) -> str:
@@ -73,6 +74,10 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
             video.source_bytes = None
             return task
+
+        if self.debug:
+            logger.info(f"DEBUG Mode: Using first {self.encode_batch_size} clips for transcoding for DEBUG")
+            video.clips = video.clips[:self.encode_batch_size]
 
         with make_pipeline_temporary_dir(sub_dir="transcode") as tmp_dir:
             # write video to file

@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+from typing import Any
 
 from .xbert import BertConfig, BertForMaskedLM, BertLMHeadModel, BertModel
 
 logger = logging.getLogger(__name__)
 
 
-def build_bert(model_config, pretrain, checkpoint, encoder_width=None):
+def build_bert(model_config: Any, pretrain: bool, checkpoint: bool, encoder_width: int | None = None) -> BertForMaskedLM | BertModel:  # noqa: ANN401
     """Build text encoder.
 
     Args:
@@ -49,7 +50,7 @@ def build_bert(model_config, pretrain, checkpoint, encoder_width=None):
                 output_loading_info=True,
                 local_files_only=True,
             )
-        except:
+        except (OSError, ValueError, RuntimeError):  # Common exceptions from model loading
             text_encoder, loading_info = BertForMaskedLM.from_pretrained(
                 model_config.text_encoder.pretrained,
                 config=bert_config,
@@ -65,7 +66,7 @@ def build_bert(model_config, pretrain, checkpoint, encoder_width=None):
                 output_loading_info=True,
                 local_files_only=True,
             )
-        except:
+        except (OSError, ValueError, RuntimeError):  # Common exceptions from model loading
             text_encoder, loading_info = BertModel.from_pretrained(
                 model_config.text_encoder.pretrained,
                 config=bert_config,
@@ -77,7 +78,7 @@ def build_bert(model_config, pretrain, checkpoint, encoder_width=None):
     return text_encoder
 
 
-def build_bert_decoder(model_config, checkpoint, only_fusion_layer=True):
+def build_bert_decoder(model_config: Any, checkpoint: bool, only_fusion_layer: bool = True) -> BertLMHeadModel:  # noqa: ANN401
     """Build text decoder the same as the multimodal encoder.
 
     Args:
@@ -107,7 +108,7 @@ def build_bert_decoder(model_config, checkpoint, only_fusion_layer=True):
     return text_decoder
 
 
-def build_lm_bert_decoder(model_config, checkpoint):
+def build_lm_bert_decoder(model_config: Any, checkpoint: bool) -> BertLMHeadModel:  # noqa: ANN401
     """Build text decoder the same as the multimodal encoder.
 
     Args:

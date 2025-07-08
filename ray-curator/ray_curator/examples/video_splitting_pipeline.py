@@ -18,7 +18,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoDownloadStage(folder_path=args.video_folder))
+    pipeline.add_stage(VideoDownloadStage(folder_path=args.video_folder, debug=args.debug))
 
     if args.splitting_algorithm == "fixed_stride":
         pipeline.add_stage(
@@ -48,6 +48,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         use_input_bit_rate=args.transcode_use_input_video_bit_rate,
         num_clips_per_chunk=args.clip_re_chunk_size,
         verbose=args.verbose,
+        debug=args.debug,
         # log_stats=args.perf_profile,
     ))
 
@@ -150,6 +151,7 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
+    parser.add_argument("--debug", action="store_true", default=False, help="Run in debug mode")
     parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")

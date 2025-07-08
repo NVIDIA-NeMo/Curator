@@ -17,6 +17,7 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
     extracting metadata, and storing the results in the task.
     """
     folder_path: str = None
+    debug: bool = False
 
     @property
     def name(self) -> str:
@@ -171,9 +172,12 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
         """Get the list of files to process."""
         if self.folder_path is None:
             raise ValueError("folder_path is not set")
-        return get_all_files_paths_under(
+        files = get_all_files_paths_under(
             self.folder_path,
             recurse_subdirectories=True,
             keep_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
         )
-        # )[:2]
+        if self.debug:
+            logger.info(f"DEBUG mode: Using 2 files for DEBUG")
+            return files[:2]
+        return files

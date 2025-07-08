@@ -111,8 +111,8 @@ class _InternVideo2Stage2(nn.Module):
             torch.Tensor: The pooled output features. Shape: [B,1,C].
 
         """
-        T = image.shape[1]
-        use_image = T == 1
+        t = image.shape[1]
+        use_image = t == 1
         image = image.permute(0, 2, 1, 3, 4).to(self.dtype)  # [B,T,C,H,W] -> [B,C,T,H,W]
         vision_embeds, pooled_vision_embeds, _, _ = self.vision_encoder(image, None, use_image)
         return vision_embeds, pooled_vision_embeds
@@ -297,7 +297,7 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2:
         torch.set_float32_matmul_precision("high")
         model = torch.compile(model)  # type: ignore[assignment]
 
-    model.to_empty(device=torch.device(config.device)) # TODO confirm the to_empty is needed
+    model.to_empty(device=torch.device(config.device)) # TODO: confirm the to_empty is needed
     # Load checkpoint before moving to device
     model_without_ddp = model
     if (
