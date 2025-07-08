@@ -98,6 +98,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     num_gpus_per_worker: float = 1.0
     texts_to_verify: list[str] | None = None
     verbose: bool = False
+    gpu_memory_gb: float = 10.0
     # log_stats: bool = False
 
     @property
@@ -118,8 +119,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     
     @property
     def resources(self) -> Resources:
-        # TODO
-        return Resources(entire_gpu=True)
+        return Resources(gpu_memory_gb=self.gpu_memory_gb)
     
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data

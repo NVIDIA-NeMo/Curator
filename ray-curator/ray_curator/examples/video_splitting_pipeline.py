@@ -68,17 +68,29 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             # log_stats=args.perf_profile,
         ))
     
-    pipeline.add_stage(ClipFrameExtractionStage(
-        extraction_policies=(FrameExtractionPolicy.sequence,),
-        target_fps=[2], # TODO
-        target_res=(
-            args.clip_extraction_target_res,
-            args.clip_extraction_target_res,
-        ),
-        verbose=args.verbose,
-        # log_stats=args.perf_profile,
-    ))
-        
+    has_embeddings = args.generate_embeddings
+    has_aesthetics = args.aesthetic_threshold is not None
+    # If both aesthetics AND embeddings are needed: [1, 2] - extract frames at both 1 FPS and 2 FPS
+    # If only aesthetics is needed: [1] - extract frames at 1 FPS
+    # If only embeddings is needed: [2] - extract frames at 2 FPS
+    target_fps: list[float | int] = (
+        [1, 2] if has_aesthetics and has_embeddings else [1] if has_aesthetics else [2] if has_embeddings else []
+    )
+
+    if target_fps:
+        pipeline.add_stage(ClipFrameExtractionStage(
+            extraction_policies=(FrameExtractionPolicy.sequence,),
+            target_fps=target_fps,
+            target_res=(
+                args.clip_extraction_target_res,
+                args.clip_extraction_target_res,
+            ),
+            verbose=args.verbose,
+            # log_stats=args.perf_profile,
+        ))
+    
+    if args.aesthetic_threshold is not None:
+        raise NotImplementedError("Aesthetic threshold not implemented")
 
     if args.embedding_algorithm == "internvideo2":
         pipeline.add_stage(InternVideo2FrameCreationStage(
@@ -303,6 +315,14 @@ if __name__ == "__main__":
         type=int,
         default=-1,
         help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
+    )
+
+    # Aesthetic arguments
+    parser.add_argument(
+        "--aesthetic-threshold",
+        type=float,
+        default=None,
+        help="If specified (e.g. 3.5), filter out clips with an aesthetic score below this threshold.",
     )
     # Embedding arguments
     parser.add_argument(
