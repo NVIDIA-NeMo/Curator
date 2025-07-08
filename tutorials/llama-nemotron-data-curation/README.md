@@ -119,9 +119,10 @@ You may also encounter errors about Dask workers unexpectedly shutting down. To 
 
 To see how to train a reasoning model with the resulting dataset, please refer to this NeMo tutorial: [Train Your Own Reasoning Model in 48 Hours on a Single GPU](https://github.com/NVIDIA/NeMo/tree/main/tutorials/llm/reasoning).
 
-Before running the NeMo tutorial, you should combine all of the resulting JSONL files from this tutorial into a single file called `training.jsonl`. To do this, you can navigate to the output directory and then use the following command:
+Before running the NeMo tutorial, you should combine all of the resulting JSONL files from this tutorial into a single file called `training.jsonl`. To do this, you can navigate to the output directory and then combine all of the JSONL files:
 
 ```bash
+cd /path/to/curated-data
 find . -name "*.jsonl" -exec cat {} + | sed '/^$/d' > training.jsonl
 ```
 
