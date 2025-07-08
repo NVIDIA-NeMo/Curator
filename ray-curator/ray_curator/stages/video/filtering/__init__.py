@@ -1,0 +1,1 @@
+"""Video filtering stages module."""

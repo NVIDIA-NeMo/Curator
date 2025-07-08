@@ -31,7 +31,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         # utils_only set to true to skip initializing the actual model
         self._model: InternVideo2MultiModality = InternVideo2MultiModality(utils_only=True)
         self._model.setup()
@@ -113,7 +113,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._model: InternVideo2MultiModality = InternVideo2MultiModality()
         self._model.setup()
         if self.verbose:
@@ -151,11 +151,11 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
             if self.verbose:
                 logger.info(f"InternVideo2 embedding generated for clip {clip.uuid}. Embedding shape: {clip.intern_video_2_embedding.shape}")
 
-        # TODO log_stats
+        # TODO: log_stats
         # if self._log_stats:
         #     stage_name, stage_perf_stats = self._timer.log_stats()
         #     task.stage_perf[stage_name] = stage_perf_stats
 
-        # TODO clear CUDA memory
+        # TODO: clear CUDA memory
 
         return task

@@ -173,7 +173,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
         #     stage_name, stage_perf_stats = self._timer.log_stats()
         #     task.stage_perf[stage_name] = stage_perf_stats
 
-        # TODO free memory periodically
+        # TODO: free memory periodically
         # self._process_count += 1
         # if self._process_count % 10 == 0:
         #     torch.cuda.empty_cache()

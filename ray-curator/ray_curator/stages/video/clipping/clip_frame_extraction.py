@@ -36,7 +36,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if self.target_fps is None:
             self.target_fps = [2]
         if self.target_res is None:
@@ -105,7 +105,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                                 clip.extracted_frames[signature] = frames
                                 if self.verbose:
                                     logger.info(f"Extracted {len(frames)} frames from clip {clip.uuid} at {fps} fps")
-            except Exception as e:
+            except (ValueError, OSError, RuntimeError) as e:
                 logger.exception(f"Error extracting frames for clip {clip.uuid}: {e}")
                 clip.errors["frame_extraction"] = "video_decode_failed"
                 # reset the buffer to disable further operations on this clip

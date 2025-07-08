@@ -142,7 +142,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    results = pipeline.run(executor)
+    pipeline.run(executor)
 
     # Print results
     print("\nPipeline completed!")
@@ -346,8 +346,5 @@ if __name__ == "__main__":
         default=True,
         help="Whether to generate embeddings for clips.",
     )
-    # parser.add_argument("--output_path", type=str, required=True)
-    # parser.add_argument("--output_format", type=str, required=True)
-    # parser.add_argument("--executor", type=str, required=True)
     args = parser.parse_args()
     main(args)

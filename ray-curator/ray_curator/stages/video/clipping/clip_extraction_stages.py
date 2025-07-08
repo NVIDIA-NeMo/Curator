@@ -36,7 +36,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def name(self) -> str:
         return "clip_transcoding"
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
         Override this method to perform any initialization that should
         happen once per worker.
@@ -85,10 +85,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             if self.use_input_bit_rate:
                 use_bit_rate = str(video.metadata.bit_rate_k) + "K"
 
-            # TODO remove DEBUG
-            # video.clips = video.clips[:self.encode_batch_size]
-            # logger.info(f"***********DEBUG: Using first {len(video.clips)} clips for transcoding for DEBUG")
-
             # extract clips in batches
             for i in range(0, len(video.clips), self.encode_batch_size):
                 batch = video.clips[i : i + self.encode_batch_size]
@@ -98,13 +94,12 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                     force_pix_fmt=force_pix_fmt,
                     use_bit_rate=use_bit_rate,
                     clips=batch,
-                    input_video=str(video.input_video),
                 )
 
         # we are done with source_bytes
         video.source_bytes = None
 
-        # TODO log_stats
+        # TODO: log_stats
 
         # Consider craking into smaller chunks of clips
         output_tasks = []
@@ -158,11 +153,27 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             video_filename: str,
             *,
             force_pix_fmt: bool,
-            use_bit_rate: str,
+            use_bit_rate: str | None,
             clips: list[Clip],
-            input_video: str,
     ) -> None:
-# construct ffmpeg command
+        """Extract clips using ffmpeg."""
+        # construct ffmpeg command
+        command = self._build_ffmpeg_command(video_filename, clips, force_pix_fmt, use_bit_rate)
+
+        # run ffmpeg command
+        self._run_ffmpeg_command(command, working_dir, clips)
+
+        # read clips back into memory
+        self._read_clips_to_memory(working_dir, clips)
+
+    def _build_ffmpeg_command(
+            self,
+            video_filename: str,
+            clips: list[Clip],
+            force_pix_fmt: bool,
+            use_bit_rate: str | None,
+    ) -> list[str]:
+        """Build the ffmpeg command for extracting clips."""
         command = [
             "ffmpeg",
             "-hide_banner",
@@ -171,77 +182,85 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         ]
 
         for i, clip in enumerate(clips):
-            # set decoder threads
-            if self.resources.gpus > 0:
-                command.extend(["-threads", str(1)])
-            else:
-                command.extend(["-threads", str(self.encoder_threads)])
-            # hwaccel needs to specified before each input
-            if self.use_hwaccel:
-                if self.encoder == "h264_nvenc":
-                    command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
-                else:
-                    command.extend(["-hwaccel", "auto"])
-            start_s, end_s = clip.span
-            command.extend(
-                [
-                    "-ss",
-                    str(start_s),
-                    "-to",
-                    str(end_s),
-                    "-i",
-                    video_filename,
-                    "-map",
-                    f"{i}:v:0",
-                    "-c:v",
-                    self.encoder,
-                ],
-            )
-            if use_bit_rate is not None:
-                command.extend(
-                    [
-                        "-b:v",
-                        use_bit_rate,
-                    ],
-                )
-            if self.encoder == "h264_nvenc":
-                # IMPORTANT! these settings are necessary for high quality!
-                command.extend(
-                    [
-                        "-rc:v",
-                        "vbr",
-                        "-cq:v",
-                        "21",
-                        "-tune",
-                        "hq",
-                        "-b_ref_mode",
-                        "middle",
-                        "-temporal-aq",
-                        "1",
-                        "-rc-lookahead",
-                        "20",
-                        "-spatial-aq",
-                        "1",
-                    ],
-                )
-                # To fix `10 bit encode not supported` error
-                if force_pix_fmt:
-                    command.extend(["-pix_fmt", "yuv420p"])
-            if self.resources.gpus > 0:
-                command.extend(["-threads", str(1)])
-            else:
-                command.extend(["-threads", str(self.encoder_threads)])
-            command.extend(
-                [
-                    "-map",
-                    f"{i}:a:0?",
-                    "-c:a",
-                    "copy",
-                    f"{clip.uuid}.mp4",
-                ],
-            )
+            # Add decoder threads
+            self._add_decoder_threads(command)
 
-        # run ffmpeg command
+            # Add hardware acceleration if needed
+            self._add_hwaccel_options(command)
+
+            # Add input options
+            self._add_input_options(command, clip, video_filename, i)
+
+            # Add video encoding options
+            self._add_video_encoding_options(command, use_bit_rate, force_pix_fmt)
+
+            # Add output options
+            self._add_output_options(command, clip, i)
+
+        return command
+
+    def _add_decoder_threads(self, command: list[str]) -> None:
+        """Add decoder thread options to command."""
+        thread_count = "1" if self.resources.gpus > 0 else str(self.encoder_threads)
+        command.extend(["-threads", thread_count])
+
+    def _add_hwaccel_options(self, command: list[str]) -> None:
+        """Add hardware acceleration options to command."""
+        if self.use_hwaccel:
+            if self.encoder == "h264_nvenc":
+                command.extend(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda"])
+            else:
+                command.extend(["-hwaccel", "auto"])
+
+    def _add_input_options(self, command: list[str], clip: Clip, video_filename: str, index: int) -> None:
+        """Add input options to command."""
+        start_s, end_s = clip.span
+        command.extend([
+            "-ss", str(start_s),
+            "-to", str(end_s),
+            "-i", video_filename,
+            "-map", f"{index}:v:0",
+            "-c:v", self.encoder,
+        ])
+
+    def _add_video_encoding_options(self, command: list[str], use_bit_rate: str | None, force_pix_fmt: bool) -> None:
+        """Add video encoding options to command."""
+        if use_bit_rate is not None:
+            command.extend(["-b:v", use_bit_rate])
+
+        if self.encoder == "h264_nvenc":
+            self._add_nvenc_options(command, force_pix_fmt)
+
+    def _add_nvenc_options(self, command: list[str], force_pix_fmt: bool) -> None:
+        """Add NVENC-specific encoding options."""
+        command.extend([
+            "-rc:v", "vbr",
+            "-cq:v", "21",
+            "-tune", "hq",
+            "-b_ref_mode", "middle",
+            "-temporal-aq", "1",
+            "-rc-lookahead", "20",
+            "-spatial-aq", "1",
+        ])
+
+        if force_pix_fmt:
+            command.extend(["-pix_fmt", "yuv420p"])
+
+    def _add_output_options(self, command: list[str], clip: Clip, index: int) -> None:
+        """Add output options to command."""
+        # Add encoder threads again
+        thread_count = "1" if self.resources.gpus > 0 else str(self.encoder_threads)
+        command.extend(["-threads", thread_count])
+
+        # Add audio and output filename
+        command.extend([
+            "-map", f"{index}:a:0?",
+            "-c:a", "copy",
+            f"{clip.uuid}.mp4",
+        ])
+
+    def _run_ffmpeg_command(self, command: list[str], working_dir: pathlib.Path, clips: list[Clip]) -> None:
+        """Run the ffmpeg command and handle errors."""
         try:
             logger.info(f"***********Running ffmpeg command: {' '.join(command)}")
             output = subprocess.check_output(  # noqa: S603
@@ -250,16 +269,21 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             if output and self.ffmpeg_verbose:
                 logger.warning(f"ffmpeg output: {output.decode('utf-8')}")
         except subprocess.CalledProcessError as e:
-            logger.error(f"ffmpeg command failed with return code {e.returncode} on {input_video}")
-            logger.error(f"Error: {e}")
-            logger.warning(f"Command: {' '.join(command)}")
-            if e.output:
-                logger.warning(f"Error output: {e.output.decode('utf-8')}")
-            for clip in clips:
-                clip.errors["transcode"] = e.output.decode("utf-8") if e.output else str(e)
-            return
+            self._handle_ffmpeg_error(e, command, clips)
 
-        # read clips back into memory
+    def _handle_ffmpeg_error(self, error: subprocess.CalledProcessError, command: list[str], clips: list[Clip]) -> None:
+        """Handle ffmpeg command errors."""
+        logger.error(f"ffmpeg command failed with return code {error.returncode}")
+        logger.error(f"Error: {error}")
+        logger.warning(f"Command: {' '.join(command)}")
+        if error.output:
+            logger.warning(f"Error output: {error.output.decode('utf-8')}")
+
+        for clip in clips:
+            clip.errors["transcode"] = error.output.decode("utf-8") if error.output else str(error)
+
+    def _read_clips_to_memory(self, working_dir: pathlib.Path, clips: list[Clip]) -> None:
+        """Read extracted clips back into memory."""
         logger.info(f"***********Reading {len(clips)} clips back into memory")
         for clip in clips:
             clip.buffer = (working_dir / f"{clip.uuid}.mp4").read_bytes()

@@ -33,8 +33,8 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     generate_previews: bool
     generate_captions: bool
     embedding_algorithm: str = "cosmos-embed1"
-    caption_models: list[str] | None = None,
-    enhanced_caption_models: list[str] | None = None,
+    caption_models: list[str] | None = None
+    enhanced_caption_models: list[str] | None = None
     verbose: bool = False
     max_workers: int = 6
     log_stats: bool = False
@@ -53,7 +53,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     def resources(self) -> Resources:
         return Resources(cpus=0.25)
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self.storage_client = None # storage_client.get_client(worker_metadata)
         self._iv2_embedding_buffer: list[dict[str, Any]] = []
         self._ce1_embedding_buffer: list[dict[str, Any]] = []
@@ -273,8 +273,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         assert input_video_path.startswith(self.input_path)
         video_metadata_path = input_video_path[len(self.input_path) :].lstrip("/") + ".json"
         output_path_videos = self.get_output_path_processed_videos(self.output_path)
-        full_path = get_full_path(output_path_videos, video_metadata_path)
-        return full_path
+        return get_full_path(output_path_videos, video_metadata_path)
 
     def _get_clip_chunk_uri(self, input_video_path: str, idx: int) -> storage_client.StoragePrefix | pathlib.Path:
         assert input_video_path.startswith(self.input_path)

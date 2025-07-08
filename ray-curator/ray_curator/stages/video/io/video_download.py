@@ -42,10 +42,11 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
         logger.info(f"Found {len(files)} files")
 
         video_tasks = []
-        for file_path in files:
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"Video file {file_path} does not exist")
+        for fp in files:
+            if not os.path.exists(fp):
+                raise FileNotFoundError(f"Video file {fp} does not exist")
 
+            file_path =fp
             if isinstance(file_path, str):
                 file_path = pathlib.Path(file_path)
 
@@ -80,13 +81,16 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
             True if download successful, False otherwise.
 
         """
+        def _raise_s3_error() -> None:
+            raise TypeError("S3 client is required for S3 destination")
+
         try:
             if isinstance(video.input_video, pathlib.Path):
                 with video.input_video.open("rb") as fp:
                     video.source_bytes = fp.read()
             # TODO: Add support for S3
             else:
-                raise ValueError("S3 client is required for S3 destination")
+                _raise_s3_error()
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
