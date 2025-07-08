@@ -1,3 +1,4 @@
+# ruff: noqa: ANN001, ANN201, ANN202, PLR0913, PLR0912, PLR0915, C901, E721, RET504, RUF005, SIM108, PLR1714, PLR2004, UP031, N812, TRY400, PLW2901, B023, ARG001
 # SPDX-FileCopyrightText: 2018 The Google AI Language Team Authors and The HuggingFace Inc. team
 # SPDX-FileCopyrightText: 2018 NVIDIA CORPORATION.  All rights reserved.
 # SPDX-FileCopyrightText: 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
@@ -21,6 +22,7 @@ import math
 import os
 import warnings
 from dataclasses import dataclass
+from typing import ClassVar
 
 import torch
 import torch.nn.functional as F
@@ -63,6 +65,9 @@ logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "BertConfig"
 _TOKENIZER_FOR_DOC = "BertTokenizer"
+
+# Constants
+IGNORE_INDEX = -100
 
 BERT_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "bert-base-uncased",
@@ -909,7 +914,7 @@ class BertPreTrainedModel(PreTrainedModel):
     config_class = BertConfig
     load_tf_weights = load_tf_weights_in_bert
     base_model_prefix = "bert"
-    _keys_to_ignore_on_load_missing = [r"position_ids"]
+    _keys_to_ignore_on_load_missing: ClassVar[list[str]] = [r"position_ids"]
 
     def _init_weights(self, module):
         """Initialize the weights"""
@@ -1379,7 +1384,7 @@ class BertForPreTraining(BertPreTrainedModel):
 
         if not return_dict:
             output = (prediction_scores, seq_relationship_score) + outputs[2:]
-            return ((total_loss,) + output) if total_loss is not None else output
+            return (total_loss, *output) if total_loss is not None else output
 
         return BertForPreTrainingOutput(
             loss=total_loss,
@@ -1395,8 +1400,8 @@ class BertForPreTraining(BertPreTrainedModel):
     BERT_START_DOCSTRING,
 )
 class BertLMHeadModel(BertPreTrainedModel):
-    _keys_to_ignore_on_load_unexpected = [r"pooler"]
-    _keys_to_ignore_on_load_missing = [r"position_ids", r"predictions.decoder.bias"]
+    _keys_to_ignore_on_load_unexpected: ClassVar[list[str]] = [r"pooler"]
+    _keys_to_ignore_on_load_missing: ClassVar[list[str]] = [r"position_ids", r"predictions.decoder.bias"]
 
     def __init__(self, config):
         super().__init__(config)
@@ -1530,12 +1535,12 @@ class BertLMHeadModel(BertPreTrainedModel):
                 F.log_softmax(shifted_prediction_scores, dim=1) * soft_labels,
                 dim=-1,
             )
-            loss_distill = (loss_distill * (labels != -100)).sum(1)
+            loss_distill = (loss_distill * (labels != IGNORE_INDEX)).sum(1)
             lm_loss = (1 - alpha) * lm_loss + alpha * loss_distill
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
-            return ((lm_loss,) + output) if lm_loss is not None else output
+            return (lm_loss, *output) if lm_loss is not None else output
 
         return CausalLMOutputWithCrossAttentions(
             loss=lm_loss,
@@ -1589,8 +1594,8 @@ class MaskedLMOutputWithDistill(MaskedLMOutput):
     BERT_START_DOCSTRING,
 )
 class BertForMaskedLM(BertPreTrainedModel):
-    _keys_to_ignore_on_load_unexpected = [r"pooler"]
-    _keys_to_ignore_on_load_missing = [r"position_ids", r"predictions.decoder.bias"]
+    _keys_to_ignore_on_load_unexpected: ClassVar[list[str]] = [r"pooler"]
+    _keys_to_ignore_on_load_missing: ClassVar[list[str]] = [r"position_ids", r"predictions.decoder.bias"]
 
     def __init__(self, config):
         super().__init__(config)
@@ -1678,12 +1683,12 @@ class BertForMaskedLM(BertPreTrainedModel):
                 F.log_softmax(prediction_scores, dim=1) * soft_labels,
                 dim=-1,
             )
-            loss_distill = loss_distill[labels != -100].mean()
+            loss_distill = loss_distill[labels != IGNORE_INDEX].mean()
             masked_lm_loss = (1 - alpha) * masked_lm_loss + alpha * loss_distill
 
         if not return_dict:
             output = (prediction_scores,) + outputs[2:]
-            return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
+            return (masked_lm_loss, *output) if masked_lm_loss is not None else output
 
         # changed from MaskedLMOutput to MaskedLMOutputWithDistill
         return MaskedLMOutputWithDistill(
@@ -1694,7 +1699,7 @@ class BertForMaskedLM(BertPreTrainedModel):
             attentions=outputs.attentions,
         )
 
-    def prepare_inputs_for_generation(self, input_ids, attention_mask=None, **model_kwargs):
+    def prepare_inputs_for_generation(self, input_ids, attention_mask=None, **model_kwargs):  # noqa: ARG002
         input_shape = input_ids.shape
         effective_batch_size = input_shape[0]
 
@@ -1773,6 +1778,7 @@ class BertForNextSentencePrediction(BertPreTrainedModel):
             warnings.warn(
                 "The `next_sentence_label` argument is deprecated and will be removed in a future version, use `labels` instead.",
                 FutureWarning,
+                stacklevel=2,
             )
             labels = kwargs.pop("next_sentence_label")
 
@@ -1801,7 +1807,7 @@ class BertForNextSentencePrediction(BertPreTrainedModel):
 
         if not return_dict:
             output = (seq_relationship_scores,) + outputs[2:]
-            return ((next_sentence_loss,) + output) if next_sentence_loss is not None else output
+            return (next_sentence_loss, *output) if next_sentence_loss is not None else output
 
         return NextSentencePredictorOutput(
             loss=next_sentence_loss,
@@ -1878,7 +1884,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
 
         if not return_dict:
             output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
+            return (loss, *output) if loss is not None else output
 
         return SequenceClassifierOutput(
             loss=loss,
@@ -1961,7 +1967,7 @@ class BertForMultipleChoice(BertPreTrainedModel):
 
         if not return_dict:
             output = (reshaped_logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
+            return (loss, *output) if loss is not None else output
 
         return MultipleChoiceModelOutput(
             loss=loss,
@@ -1979,7 +1985,7 @@ class BertForMultipleChoice(BertPreTrainedModel):
     BERT_START_DOCSTRING,
 )
 class BertForTokenClassification(BertPreTrainedModel):
-    _keys_to_ignore_on_load_unexpected = [r"pooler"]
+    _keys_to_ignore_on_load_unexpected: ClassVar[list[str]] = [r"pooler"]
 
     def __init__(self, config):
         super().__init__(config)
@@ -2045,7 +2051,7 @@ class BertForTokenClassification(BertPreTrainedModel):
 
         if not return_dict:
             output = (logits,) + outputs[2:]
-            return ((loss,) + output) if loss is not None else output
+            return (loss, *output) if loss is not None else output
 
         return TokenClassifierOutput(
             loss=loss,
@@ -2063,7 +2069,7 @@ class BertForTokenClassification(BertPreTrainedModel):
     BERT_START_DOCSTRING,
 )
 class BertForQuestionAnswering(BertPreTrainedModel):
-    _keys_to_ignore_on_load_unexpected = [r"pooler"]
+    _keys_to_ignore_on_load_unexpected: ClassVar[list[str]] = [r"pooler"]
 
     def __init__(self, config):
         super().__init__(config)
@@ -2137,7 +2143,7 @@ class BertForQuestionAnswering(BertPreTrainedModel):
 
         if not return_dict:
             output = (start_logits, end_logits) + outputs[2:]
-            return ((total_loss,) + output) if total_loss is not None else output
+            return (total_loss, *output) if total_loss is not None else output
 
         return QuestionAnsweringModelOutput(
             loss=total_loss,
