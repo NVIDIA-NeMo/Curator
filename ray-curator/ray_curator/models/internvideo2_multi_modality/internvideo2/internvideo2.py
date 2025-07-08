@@ -13,13 +13,18 @@
 # limitations under the License.
 import logging
 import math
+import warnings
 from functools import partial
+from typing import Any
 
+import numpy as np
 import torch
-import torch.nn.functional as F
 from einops import rearrange
+from flash_attn.modules.mlp import FusedMLP
+from flash_attn.ops.rms_norm import DropoutAddRMSNorm
 from timm.layers import DropPath, to_2tuple, trunc_normal_
 from torch import nn
+from torch.nn import functional
 from torch.utils import checkpoint
 
 from .flash_attention_class import FlashAttention
@@ -31,26 +36,21 @@ from .pos_embed import (
 logger = logging.getLogger(__name__)
 
 # TODO: remove this once flash-attn is fixed.
-import warnings
-
 warnings.filterwarnings("ignore", message=".*torch.cuda.amp.custom_.*")
-
-from flash_attn.modules.mlp import FusedMLP
-from flash_attn.ops.rms_norm import DropoutAddRMSNorm
 
 
 class CrossAttention(nn.Module):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        dim,
-        num_heads=8,
-        qkv_bias=False,
-        qk_scale=None,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        attn_head_dim=None,
-        out_dim=None,
-    ):
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = False,
+        qk_scale: float | None = None,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        attn_head_dim: int | None = None,
+        out_dim: int | None = None,
+    ) -> None:
         super().__init__()
         if out_dim is None:
             out_dim = dim
@@ -79,10 +79,10 @@ class CrossAttention(nn.Module):
         self.proj = nn.Linear(all_head_dim, out_dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-    def forward(self, x, k=None, v=None):
-        B, N, C = x.shape
-        N_k = k.shape[1]
-        N_v = v.shape[1]
+    def forward(self, x: torch.Tensor, k: torch.Tensor | None = None, v: torch.Tensor | None = None) -> torch.Tensor:
+        B, N, C = x.shape  # noqa: N806
+        N_k = k.shape[1]  # noqa: N806
+        N_v = v.shape[1]  # noqa: N806
 
         q_bias, k_bias, v_bias = None, None, None
         if self.q_bias is not None:
@@ -90,13 +90,13 @@ class CrossAttention(nn.Module):
             k_bias = self.k_bias
             v_bias = self.v_bias
 
-        q = F.linear(input=x, weight=self.q.weight, bias=q_bias)
+        q = functional.linear(input=x, weight=self.q.weight, bias=q_bias)
         q = q.reshape(B, N, 1, self.num_heads, -1).permute(2, 0, 3, 1, 4).squeeze(0)  # (B, N_head, N_q, dim)
 
-        k = F.linear(input=k, weight=self.k.weight, bias=k_bias)
+        k = functional.linear(input=k, weight=self.k.weight, bias=k_bias)
         k = k.reshape(B, N_k, 1, self.num_heads, -1).permute(2, 0, 3, 1, 4).squeeze(0)
 
-        v = F.linear(input=v, weight=self.v.weight, bias=v_bias)
+        v = functional.linear(input=v, weight=self.v.weight, bias=v_bias)
         v = v.reshape(B, N_v, 1, self.num_heads, -1).permute(2, 0, 3, 1, 4).squeeze(0)
 
         q = q * self.scale
@@ -107,25 +107,23 @@ class CrossAttention(nn.Module):
 
         x = (attn @ v).transpose(1, 2).reshape(B, N, -1)
         x = self.proj(x)
-        x = self.proj_drop(x)
-
-        return x
+        return self.proj_drop(x)
 
 
 class AttentiveBlock(nn.Module):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        dim,
-        num_heads,
-        qkv_bias=False,
-        qk_scale=None,
-        drop=0.0,
-        attn_drop=0.0,
-        drop_path=0.0,
-        norm_layer=nn.LayerNorm,
-        attn_head_dim=None,
-        out_dim=None,
-    ):
+        dim: int,
+        num_heads: int,
+        qkv_bias: bool = False,
+        qk_scale: float | None = None,
+        drop: float = 0.0,
+        attn_drop: float = 0.0,
+        drop_path: float = 0.0,
+        norm_layer: nn.Module = nn.LayerNorm,
+        attn_head_dim: int | None = None,
+        out_dim: int | None = None,
+    ) -> None:
         super().__init__()
 
         self.norm1_q = norm_layer(dim)
@@ -144,31 +142,28 @@ class AttentiveBlock(nn.Module):
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
-    def forward(self, x_q, x_kv, pos_q, pos_k, bool_masked_pos, rel_pos_bias=None):
+    def forward(self, x_q: torch.Tensor, x_kv: torch.Tensor, pos_q: torch.Tensor, pos_k: torch.Tensor, bool_masked_pos: torch.Tensor | None, rel_pos_bias: torch.Tensor | None = None) -> torch.Tensor:  # noqa: PLR0913, ARG002
         x_q = self.norm1_q(x_q + pos_q)
         x_k = self.norm1_k(x_kv + pos_k)
         x_v = self.norm1_v(x_kv)
-        x = self.cross_attn(x_q, k=x_k, v=x_v)
-
-        return x
+        return self.cross_attn(x_q, k=x_k, v=x_v)
 
 
 class AttentionPoolingBlock(AttentiveBlock):
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_q = x.mean(1, keepdim=True)
         x_kv, pos_q, pos_k = x, 0, 0
         x = super().forward(x_q, x_kv, pos_q, pos_k, bool_masked_pos=None, rel_pos_bias=None)
-        x = x.squeeze(1)
-        return x
+        return x.squeeze(1)
 
 
 class RMSNorm(nn.Module):
-    def __init__(self, hidden_size, eps=1e-6):
+    def __init__(self, hidden_size: int, eps: float = 1e-6) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.variance_epsilon = eps
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         input_dtype = hidden_states.dtype
         hidden_states = hidden_states.to(torch.float32)
         variance = hidden_states.pow(2).mean(-1, keepdim=True)
@@ -177,36 +172,35 @@ class RMSNorm(nn.Module):
 
 
 class LayerScale(nn.Module):
-    def __init__(self, dim, init_values=1e-5, inplace=False, force_fp32=False):
+    def __init__(self, dim: int, init_values: float = 1e-5, inplace: bool = False, force_fp32: bool = False) -> None:
         super().__init__()
         self.inplace = inplace
         self.gamma = nn.Parameter(init_values * torch.ones(dim))
         self.force_fp32 = force_fp32
 
     @torch.amp.autocast(device_type="cuda", enabled=False)
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.force_fp32:
             output_type = x.dtype
             out = x.float().mul_(self.gamma.float()) if self.inplace else x.float() * self.gamma.float()
             return out.to(dtype=output_type)
-        out = x.mul_(self.gamma) if self.inplace else x * self.gamma
-        return out
+        return x.mul_(self.gamma) if self.inplace else x * self.gamma
 
 
 class Attention(nn.Module):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        dim,
-        num_heads=8,
-        qkv_bias=False,
-        attn_drop=0.0,
-        proj_drop=0.0,
-        use_flash_attn=False,
-        causal=False,
-        norm_layer=nn.LayerNorm,
-        qk_normalization=False,
-        use_fused_rmsnorm=False,
-    ):
+        dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = False,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        use_flash_attn: bool = False,
+        causal: bool = False,
+        norm_layer: nn.Module = nn.LayerNorm,
+        qk_normalization: bool = False,
+        use_fused_rmsnorm: bool = False,
+    ) -> None:
         super().__init__()
         assert dim % num_heads == 0, "dim should be divisible by num_heads"
         self.num_heads = num_heads
@@ -228,14 +222,14 @@ class Attention(nn.Module):
         self.k_norm = norm_layer(dim) if qk_normalization else nn.Identity()
         self.use_fused_rmsnorm = use_fused_rmsnorm
 
-    def _naive_attn(self, x):
-        B, N, C = x.shape
+    def _naive_attn(self, x: torch.Tensor) -> torch.Tensor:
+        B, N, C = x.shape  # noqa: N806
         # print(x.shape, torch.cuda.memory_allocated(), torch.cuda.memory_allocated())
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)  # make torchscript happy (cannot use tensor as tuple)
 
         if self.qk_normalization:
-            B_, H_, N_, D_ = q.shape
+            B_, H_, N_, D_ = q.shape  # noqa: N806
             q = self.q_norm(q.transpose(1, 2).flatten(-2, -1)).view(B_, N_, H_, D_).transpose(1, 2)
             k = self.k_norm(k.transpose(1, 2).flatten(-2, -1)).view(B_, N_, H_, D_).transpose(1, 2)
 
@@ -246,10 +240,9 @@ class Attention(nn.Module):
         # print(torch.cuda.memory_allocated(), torch.cuda.memory_allocated())
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
+        return self.proj_drop(x)
 
-    def _flash_attn(self, x, key_padding_mask=None, need_weights=False):
+    def _flash_attn(self, x: torch.Tensor, key_padding_mask: torch.Tensor | None = None, need_weights: bool = False) -> torch.Tensor:
         qkv = self.qkv(x)
         qkv = rearrange(qkv, "b s (three h d) -> b s three h d", three=3, h=self.num_heads)
 
@@ -270,18 +263,16 @@ class Attention(nn.Module):
             causal=self.causal,
         )
         outs = self.proj(rearrange(context, "b s h d -> b s (h d)"))
-        outs = self.proj_drop(outs)
-        return outs
+        return self.proj_drop(outs)
 
-    def forward(self, x):
-        x = self._naive_attn(x) if not self.use_flash_attn else self._flash_attn(x)
-        return x
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self._naive_attn(x) if not self.use_flash_attn else self._flash_attn(x)
 
 
 class Mlp(nn.Module):
     """MLP as used in Vision Transformer, MLP-Mixer and related networks"""
 
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, bias=True, drop=0.0):
+    def __init__(self, in_features: int, hidden_features: int | None = None, out_features: int | None = None, act_layer: nn.Module = nn.GELU, bias: bool = True, drop: float = 0.0) -> None:  # noqa: PLR0913
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -294,36 +285,35 @@ class Mlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop1(x)
         x = self.fc2(x)
-        x = self.drop2(x)
-        return x
+        return self.drop2(x)
 
 
 class Block(nn.Module):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        dim,
-        num_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        drop=0.0,
-        attn_drop=0.0,
-        init_values=None,
-        drop_path=0.0,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-        use_flash_attn=False,
-        use_fused_mlp=False,
-        fused_mlp_heuristic=1,
-        with_cp=False,
-        qk_normalization=False,
-        layerscale_no_force_fp32=False,
-        use_fused_rmsnorm=False,
-    ):
+        dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        qkv_bias: bool = False,
+        drop: float = 0.0,
+        attn_drop: float = 0.0,
+        init_values: float | None = None,
+        drop_path: float = 0.0,
+        act_layer: nn.Module = nn.GELU,
+        norm_layer: nn.Module = nn.LayerNorm,
+        use_flash_attn: bool = False,
+        use_fused_mlp: bool = False,
+        fused_mlp_heuristic: int = 1,
+        with_cp: bool = False,
+        qk_normalization: bool = False,
+        layerscale_no_force_fp32: bool = False,
+        use_fused_rmsnorm: bool = False,
+    ) -> None:
         super().__init__()
 
         self.norm1 = norm_layer(dim)
@@ -363,8 +353,8 @@ class Block(nn.Module):
         self.with_cp = with_cp
         self.use_fused_rmsnorm = use_fused_rmsnorm
 
-    def forward(self, x, residual=None):
-        def _inner_forward(x, residual=None):
+    def forward(self, x: torch.Tensor, residual: torch.Tensor | None = None) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        def _inner_forward(x: torch.Tensor, residual: torch.Tensor | None = None) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
             if self.use_fused_rmsnorm:
                 x, residual = self.norm1(x, residual)
                 x = self.drop_path1(self.ls1(self.attn(x)))
@@ -373,8 +363,7 @@ class Block(nn.Module):
                 return x, residual
             assert residual is None
             x = x + self.drop_path1(self.ls1(self.attn(self.norm1(x))))
-            x = x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
-            return x
+            return x + self.drop_path2(self.ls2(self.mlp(self.norm2(x))))
 
         if self.with_cp:
             # print(f"\033[31m use_checkpoint [0m")
@@ -385,16 +374,16 @@ class Block(nn.Module):
 class PatchEmbed(nn.Module):
     """3D Image to Patch Embedding"""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        img_size=224,
-        patch_size=16,
-        in_chans=3,
-        embed_dim=768,
-        num_frames=8,
-        tubelet_size=1,
-        norm_layer=None,
-    ):
+        img_size: int = 224,
+        patch_size: int = 16,
+        in_chans: int = 3,
+        embed_dim: int = 768,
+        num_frames: int = 8,
+        tubelet_size: int = 1,
+        norm_layer: nn.Module | None = None,
+    ) -> None:
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
@@ -416,15 +405,14 @@ class PatchEmbed(nn.Module):
         )
         self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.proj(x)
         x = x.flatten(3).permute(0, 2, 3, 1)  # B x C x T x HW => B x T x HW x C
-        x = self.norm(x)
-        return x
+        return self.norm(x)
 
 
-class Linear_Decoder(nn.Module):
-    def __init__(self, in_channels=1408, out_channels=3200, norm_layer=nn.LayerNorm, clip_norm_type="l2"):
+class LinearDecoder(nn.Module):
+    def __init__(self, in_channels: int = 1408, out_channels: int = 3200, norm_layer: nn.Module = nn.LayerNorm, clip_norm_type: str = "l2") -> None:
         super().__init__()
         self.clip_norm_type = clip_norm_type
         logger.info(f"Normalization Type: {clip_norm_type}")
@@ -434,7 +422,7 @@ class Linear_Decoder(nn.Module):
 
         self.apply(self._init_weights)
 
-    def _init_weights(self, m):
+    def _init_weights(self, m: nn.Module) -> None:
         if isinstance(m, nn.Linear):
             nn.init.xavier_uniform_(m.weight)
             if isinstance(m, nn.Linear) and m.bias is not None:
@@ -443,7 +431,7 @@ class Linear_Decoder(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(self.head(x))
 
         if self.clip_norm_type == "l2":
@@ -457,7 +445,7 @@ class Linear_Decoder(nn.Module):
 
 
 class PretrainInternVideo2(nn.Module):
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0915
         self,
         in_chans: int = 3,
         patch_size: int = 14,
@@ -489,7 +477,7 @@ class PretrainInternVideo2(nn.Module):
         clip_norm_type: str = "l2",
         clip_return_layer: int = 1,
         clip_student_return_interval: int = 1,
-    ):
+    ) -> None:
         super().__init__()
 
         self.num_frames = num_frames
@@ -589,7 +577,7 @@ class PretrainInternVideo2(nn.Module):
         # CLIP decoder
         self.clip_decoder = nn.ModuleList(
             [
-                Linear_Decoder(
+                LinearDecoder(
                     in_channels=embed_dim,
                     out_channels=clip_teacher_embed_dim,
                     norm_layer=partial(nn.LayerNorm, eps=1e-5),
@@ -600,7 +588,7 @@ class PretrainInternVideo2(nn.Module):
         )
         self.final_clip_decoder = nn.Identity()
         if clip_teacher_final_dim > 0:
-            self.final_clip_decoder = Linear_Decoder(
+            self.final_clip_decoder = LinearDecoder(
                 in_channels=clip_embed_dim,
                 out_channels=clip_teacher_final_dim,
                 norm_layer=partial(nn.LayerNorm, eps=1e-5),
@@ -612,7 +600,7 @@ class PretrainInternVideo2(nn.Module):
         self.apply(self._init_weights)
         self.fix_init_weight()
 
-    def init_pos_embed(self):
+    def init_pos_embed(self) -> None:
         logger.info("Init pos_embed from sincos pos_embed")
         if self.sep_pos_embed:
             raise NotImplementedError
@@ -637,7 +625,7 @@ class PretrainInternVideo2(nn.Module):
             self.img_pos_embed.data.copy_(torch.from_numpy(img_pos_embed).float().unsqueeze(0))
             self.clip_img_pos_embed.data.copy_(torch.from_numpy(img_pos_embed).float().unsqueeze(0))
 
-    def _init_weights(self, m):
+    def _init_weights(self, m: nn.Module) -> None:
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=0.02)
             if isinstance(m, nn.Linear) and m.bias is not None:
@@ -646,8 +634,8 @@ class PretrainInternVideo2(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def fix_init_weight(self):
-        def rescale(param, layer_id):
+    def fix_init_weight(self) -> None:
+        def rescale(param: torch.Tensor, layer_id: int) -> None:
             param.div_(math.sqrt(2.0 * layer_id))
 
         for layer_id, layer in enumerate(self.blocks):
@@ -655,14 +643,14 @@ class PretrainInternVideo2(nn.Module):
             rescale(layer.mlp.fc2.weight.data, layer_id + 1)
 
     @property
-    def dtype(self):
+    def dtype(self) -> torch.dtype:
         return self.patch_embed.proj.weight.dtype
 
-    def get_num_layers(self):
+    def get_num_layers(self) -> int:
         return len(self.blocks)
 
     @torch.jit.ignore
-    def no_weight_decay(self):
+    def no_weight_decay(self) -> set:
         return {
             "pos_embed",
             "pos_embed_spatial",
@@ -678,14 +666,21 @@ class PretrainInternVideo2(nn.Module):
         }
 
     # @torch.cuda.amp.autocast(enabled=False)
-    def forward(self, x, mask=None, use_image=False, x_vis_return_idx=-1, x_vis_only=False):
+    def forward(  # noqa: C901, PLR0912, PLR0915
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor | None = None,
+        use_image: bool = False,
+        x_vis_return_idx: int = -1,
+        x_vis_only: bool = False,
+    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         x = self.patch_embed(x.type(self.dtype))
         # print(f"x.shape: {x.shape} x.dtype: {x.dtype}, model.dtype: {self.dtype}")
-        B, T, L, C = x.shape  # T: temporal; L: spatial
-        x = x.view([B, T * L, C])
+        batch_size, num_frames, spatial_size, embed_dim = x.shape  # T: temporal; L: spatial
+        x = x.view([batch_size, num_frames * spatial_size, embed_dim])
 
         # append cls token
-        cls_tokens = self.cls_token.expand(B, -1, -1)
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)
         x = torch.cat((cls_tokens, x), dim=1)
 
         # add pos_embed
@@ -714,21 +709,19 @@ class PretrainInternVideo2(nn.Module):
         x = x + pos_embed
 
         # mask tokens, ~mask means visible
-        if mask is not None:
-            x = x[~mask].reshape(B, -1, C)
-        else:
-            x = x.reshape(B, -1, C)
+        x = x[~mask].reshape(batch_size, -1, embed_dim) if mask is not None else x.reshape(batch_size, -1, embed_dim)
 
         residual = None
         x_clip = []
+        tuple_size = 2
         for idx, blk in enumerate(self.blocks):
-            if isinstance(x, tuple) and len(x) == 2:
+            if isinstance(x, tuple) and len(x) == tuple_size:
                 x, residual = x
             # print(f"\033[31m这是{idx}, {x.shape}\033[0m")
             x = blk(x, residual=residual)
             # return intermediate features
             if idx in self.return_index:
-                if isinstance(x, tuple) and len(x) == 2:
+                if isinstance(x, tuple) and len(x) == tuple_size:
                     tmp_x, tmp_residual = x
                     if residual is not None:
                         x_clip.append(tmp_x + tmp_residual)
@@ -738,7 +731,7 @@ class PretrainInternVideo2(nn.Module):
                 # print(f'idx = {idx} len(self.blocks)={len(self.blocks)}')
                 break
 
-        if isinstance(x, tuple) and len(x) == 2:
+        if isinstance(x, tuple) and len(x) == tuple_size:
             x, residual = x
             if residual is not None:
                 x = x + residual
@@ -752,7 +745,7 @@ class PretrainInternVideo2(nn.Module):
 
         # align CLIP
         x_clip = torch.stack(x_clip)
-        K, B, _, C_CLIP = x_clip.shape
+        num_layers, batch_size, _, clip_embed_dim = x_clip.shape
         # add pos_embed
         if self.sep_pos_embed:
             raise NotImplementedError
@@ -778,11 +771,11 @@ class PretrainInternVideo2(nn.Module):
         else:
             clip_pos_embed = self.clip_pos_embed
 
-        clip_pos_embed = clip_pos_embed.repeat(B, 1, 1)
+        clip_pos_embed = clip_pos_embed.repeat(batch_size, 1, 1)
         if mask is not None:
-            x_clip = x_clip + clip_pos_embed[~mask].view(B, -1, C_CLIP).unsqueeze(0).repeat(K, 1, 1, 1)
+            x_clip = x_clip + clip_pos_embed[~mask].view(batch_size, -1, clip_embed_dim).unsqueeze(0).repeat(num_layers, 1, 1, 1)
         else:
-            x_clip = x_clip + clip_pos_embed.view(B, -1, C_CLIP).unsqueeze(0).repeat(K, 1, 1, 1)
+            x_clip = x_clip + clip_pos_embed.view(batch_size, -1, clip_embed_dim).unsqueeze(0).repeat(num_layers, 1, 1, 1)
 
         # CLIP decoder
         x_clip_align = []
@@ -793,7 +786,7 @@ class PretrainInternVideo2(nn.Module):
         return x_vis, x_pool_vis, x_clip_align, x_align
 
 
-def pretrain_internvideo2_1b_patch14_224(config):
+def pretrain_internvideo2_1b_patch14_224(config: Any) -> PretrainInternVideo2:  # noqa: ANN401
     model = PretrainInternVideo2(
         in_chans=3,
         img_size=224,
@@ -838,7 +831,7 @@ def pretrain_internvideo2_1b_patch14_224(config):
     return model
 
 
-def pretrain_internvideo2_6b_patch14_224(config):
+def pretrain_internvideo2_6b_patch14_224(config: Any) -> PretrainInternVideo2:  # noqa: ANN401
     model = PretrainInternVideo2(
         in_chans=3,
         img_size=224,
@@ -886,7 +879,7 @@ if __name__ == "__main__":
     import numpy as np
 
     seed = 4217
-    np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)

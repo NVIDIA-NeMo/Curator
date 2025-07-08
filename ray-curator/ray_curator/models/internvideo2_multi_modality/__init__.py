@@ -1,1 +1,1 @@
-"""InternVideo2 multi-modality model implementations.""" 
+"""InternVideo2 multi-modality model implementations."""

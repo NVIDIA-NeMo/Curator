@@ -1,1 +1,1 @@
-"""Model implementations for ray-curator.""" 
+"""Model implementations for ray-curator."""
