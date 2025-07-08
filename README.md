@@ -89,8 +89,8 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
 
 #### Source
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-pip install --extra-index-url https://pypi.nvidia.com "./NeMo-Curator[all]"
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+pip install --extra-index-url https://pypi.nvidia.com "./Curator[all]"
 ```
 
 #### NeMo Framework Container
