@@ -194,10 +194,11 @@ class BertTokenizer(PreTrainedTokenizer):
         **kwargs,
     ):
         if not os.path.isfile(vocab_file):
-            raise ValueError(
+            msg = (
                 f"Can't find a vocabulary file at path '{vocab_file}'. To load the vocabulary from a Google pretrained "
-                "model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`",
+                "model use `tokenizer = BertTokenizer.from_pretrained(PRETRAINED_MODEL_NAME)`"
             )
+            raise ValueError(msg)
         self.vocab = load_vocab(vocab_file)
 
         super().__init__(
@@ -310,10 +311,11 @@ class BertTokenizer(PreTrainedTokenizer):
         """
         if already_has_special_tokens:
             if token_ids_1 is not None:
-                raise ValueError(
+                msg = (
                     "You should not supply a second sequence if the provided sequence of "
-                    "ids is already formatted with special tokens for the model.",
+                    "ids is already formatted with special tokens for the model."
                 )
+                raise ValueError(msg)
             return list(map(lambda x: 1 if x in [self.sep_token_id, self.cls_token_id] else 0, token_ids_0))
 
         if token_ids_1 is not None:

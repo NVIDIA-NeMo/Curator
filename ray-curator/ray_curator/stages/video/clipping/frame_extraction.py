@@ -117,7 +117,8 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         video = task.data
 
         if video.source_bytes is None:
-            raise ValueError("Video source bytes are not available")
+            msg = "Video source bytes are not available"
+            raise ValueError(msg)
 
         if not video.has_metadata():
             logger.warning(f"Incomplete metadata for {video.input_video}. Skipping...")

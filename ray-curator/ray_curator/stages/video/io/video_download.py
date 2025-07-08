@@ -45,7 +45,8 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
         video_tasks = []
         for fp in files:
             if not os.path.exists(fp):
-                raise FileNotFoundError(f"Video file {fp} does not exist")
+                msg = f"Video file {fp} does not exist"
+                raise FileNotFoundError(msg)
 
             file_path =fp
             if isinstance(file_path, str):
@@ -83,7 +84,8 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
 
         """
         def _raise_s3_error() -> None:
-            raise TypeError("S3 client is required for S3 destination")
+            msg = "S3 client is required for S3 destination"
+            raise TypeError(msg)
 
         try:
             if isinstance(video.input_video, pathlib.Path):
@@ -171,7 +173,8 @@ class VideoDownloadStage(ProcessingStage[_EmptyTask, VideoTask]):
     def _get_file_list(self) -> list[str]:
         """Get the list of files to process."""
         if self.folder_path is None:
-            raise ValueError("folder_path is not set")
+            msg = "folder_path is not set"
+            raise ValueError(msg)
         files = get_all_files_paths_under(
             self.folder_path,
             recurse_subdirectories=True,

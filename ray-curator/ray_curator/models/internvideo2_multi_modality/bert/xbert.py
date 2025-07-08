@@ -1110,9 +1110,8 @@ class BertModel(BertPreTrainedModel):
             else:
                 extended_attention_mask = attention_mask[:, None, None, :]
         else:
-            raise ValueError(
-                f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})",
-            )
+            msg = f"Wrong shape for input_ids (shape {input_shape}) or attention_mask (shape {attention_mask.shape})"
+            raise ValueError(msg)
 
         # Since attention_mask is 1.0 for positions we want to attend and 0.0 for
         # masked positions, this operation will create a tensor which is 0.0 for
@@ -1174,9 +1173,8 @@ class BertModel(BertPreTrainedModel):
             use_cache = False
 
         if input_ids is not None and inputs_embeds is not None:
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time",
-            )
+            msg = "You cannot specify both input_ids and inputs_embeds at the same time"
+            raise ValueError(msg)
         if input_ids is not None:
             input_shape = input_ids.size()
             batch_size, seq_length = input_shape
@@ -1190,9 +1188,8 @@ class BertModel(BertPreTrainedModel):
             batch_size, seq_length = input_shape
             device = encoder_embeds.device
         else:
-            raise ValueError(
-                "You have to specify either input_ids or inputs_embeds or encoder_embeds",
-            )
+            msg = "You have to specify either input_ids or inputs_embeds or encoder_embeds"
+            raise ValueError(msg)
 
         # past_key_values_length
         past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0

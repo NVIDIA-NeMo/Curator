@@ -37,7 +37,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         )
         # TODO: add transnetv2 stage
     else:
-        raise ValueError(f"Splitting algorithm {args.splitting_algorithm} not supported")
+        msg = f"Splitting algorithm {args.splitting_algorithm} not supported"
+        raise ValueError(msg)
 
     pipeline.add_stage(ClipTranscodingStage(
         num_cpus_per_worker=args.transcode_cpus_per_worker,
@@ -92,7 +93,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         ))
 
     if args.aesthetic_threshold is not None:
-        raise NotImplementedError("Aesthetic threshold not implemented")
+        msg = "Aesthetic threshold not implemented"
+        raise NotImplementedError(msg)
 
     if args.embedding_algorithm == "internvideo2":
         pipeline.add_stage(InternVideo2FrameCreationStage(
@@ -107,7 +109,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             # log_stats=args.perf_profile,
         ))
     else:
-        raise NotImplementedError(f"Embedding algorithm {args.embedding_algorithm} not supported")
+        msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
+        raise NotImplementedError(msg)
 
 
     pipeline.add_stage(

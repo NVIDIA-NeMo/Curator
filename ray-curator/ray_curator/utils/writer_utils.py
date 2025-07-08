@@ -84,7 +84,8 @@ def write_bytes(  # noqa: C901, PLR0912, PLR0913
         if client.object_exists(dest):
             if backup_and_overwrite:
                 # backup_file(dest, client)
-                raise NotImplementedError("Backup and overwrite is not implemented")
+                msg = "Backup and overwrite is not implemented"
+                raise NotImplementedError(msg)
             elif overwrite:
                 logger.warning(f"{desc} {dest.path} already exists, overwriting ...")
             else:
@@ -102,7 +103,8 @@ def write_bytes(  # noqa: C901, PLR0912, PLR0913
         if dest.exists():
             if backup_and_overwrite:
                 # backup_file(dest, client)
-                raise NotImplementedError("Backup and overwrite is not implemented")
+                msg = "Backup and overwrite is not implemented"
+                raise NotImplementedError(msg)
             elif overwrite:
                 logger.warning(f"{desc} {dest} already exists, overwriting ...")
             else:
