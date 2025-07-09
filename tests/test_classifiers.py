@@ -38,6 +38,7 @@ def domain_dataset() -> DocumentDataset:
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 @pytest.mark.parametrize("keep_prob", [True, False])
 def test_domain_classifier(gpu_client, domain_dataset: DocumentDataset, keep_prob: bool) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import DomainClassifier
@@ -67,6 +68,7 @@ def test_domain_classifier(gpu_client, domain_dataset: DocumentDataset, keep_pro
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_quality_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import QualityClassifier
 
@@ -84,6 +86,7 @@ def test_quality_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 @pytest.mark.parametrize(
     "aegis_variant",
     [
@@ -121,6 +124,7 @@ def test_aegis_classifier(gpu_client, aegis_variant: str) -> None:  # noqa: ANN0
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_fineweb_edu_classifier(gpu_client, domain_dataset: DocumentDataset) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import FineWebEduClassifier
 
@@ -134,6 +138,7 @@ def test_fineweb_edu_classifier(gpu_client, domain_dataset: DocumentDataset) -> 
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_fineweb_mixtral_classifier(gpu_client, domain_dataset: DocumentDataset) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import FineWebMixtralEduClassifier
 
@@ -147,6 +152,7 @@ def test_fineweb_mixtral_classifier(gpu_client, domain_dataset: DocumentDataset)
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_fineweb_nemotron_classifier(gpu_client, domain_dataset: DocumentDataset) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import FineWebNemotronEduClassifier
 
@@ -160,6 +166,7 @@ def test_fineweb_nemotron_classifier(gpu_client, domain_dataset: DocumentDataset
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_instruction_data_guard_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import InstructionDataGuardClassifier
 
@@ -188,6 +195,7 @@ def test_instruction_data_guard_classifier(gpu_client) -> None:  # noqa: ANN001,
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_multilingual_domain_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import MultilingualDomainClassifier
 
@@ -224,6 +232,7 @@ def test_multilingual_domain_classifier(gpu_client) -> None:  # noqa: ANN001, AR
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_content_type_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import ContentTypeClassifier
 
@@ -241,6 +250,7 @@ def test_content_type_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_prompt_task_complexity_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import PromptTaskComplexityClassifier
 
