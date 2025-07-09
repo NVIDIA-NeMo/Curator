@@ -158,7 +158,7 @@ def process_structured_data(structured_data: list[dict[str, Any]]) -> pd.DataFra
     )
 
 
-def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, DocumentDataset, DocumentDataset]:
+def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, DocumentDataset]:
     """
     Process different types of document data (text, image, structured) and convert them into
     DocumentDataset-wrapped Dask DataFrames.
