@@ -1,30 +1,50 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import json
-import os
+import logging, os, time, sys
 import re
 import shutil
 from base64 import b64decode
 from collections import defaultdict
 from io import BytesIO
-
 import arxiv as axv
 import pandas as pd
-from nv_ingest_client.client import Ingestor
 from PIL import Image
 
+from nv_ingest.framework.orchestration.ray.util.pipeline.pipeline_runners import run_pipeline
+from nv_ingest.framework.orchestration.ray.util.pipeline.pipeline_runners import PipelineCreationSchema
+from nv_ingest_api.util.logging.configuration import configure_logging as configure_local_logging
+from nv_ingest_client.client import Ingestor, NvIngestClient
+from nv_ingest_api.util.message_brokers.simple_message_broker import SimpleClient
+from nv_ingest_client.util.process_json_files import ingest_json_results_to_blob
+
+
+config = PipelineCreationSchema()
+run_pipeline(config, block=False, disable_dynamic_scaling=True, run_in_subprocess=True)
+client = NvIngestClient(
+    message_client_allocator=SimpleClient,
+    message_client_port=7671,
+    message_client_hostname="localhost"
+)
+
 # Constants for configuration and paths
-HTTP_HOST = os.environ.get("HTTP_HOST", "localhost")
-HTTP_PORT = os.environ.get("HTTP_PORT", "7670")
-TASK_QUEUE = os.environ.get("TASK_QUEUE", "morpheus_task_queue")
-
-
-DEFAULT_JOB_TIMEOUT = 10000  # Timeout for job completion (in ms)
-
 SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR_PATH, "sources")
 RESULT_DIR = os.path.join(DATA_DIR, "extracted_data")
 OUTPUT_DIR = os.path.join(DATA_DIR, "separated_extracted_data")
-
 
 def format_invalid_arxiv_id_error(input_string: str) -> str:
     return f"The provided input '{input_string}' does not match the expected arXiv URL or ID format."
@@ -98,7 +118,7 @@ def separate_extracted_contents() -> None:
 
     for file in os.listdir(RESULT_DIR):
         file_path = os.path.join(RESULT_DIR, file)
-        with open(file_path) as f:
+        with open(file_path, 'r', encoding='utf-8') as f:
             jsonl_loaded = json.load(f)
             for jsonl_chunk in jsonl_loaded:
                 data_type = jsonl_chunk.get("document_type")
@@ -133,23 +153,27 @@ def extract_contents() -> None:
         sample_pdf = os.path.join(downloaded_path, file)
 
         ingestor = (
-            Ingestor(message_client_hostname=HTTP_HOST)
+            Ingestor(client=client)
             .files(sample_pdf)
             .extract(
                 extract_text=True,
                 extract_tables=True,
                 extract_charts=True,
                 extract_images=True,
-                text_depth="document",
+                paddle_output_format="markdown",
+                extract_infographics=True,
+                # extract_method="nemoretriever_parse", #Slower, but maximally accurate, especially for PDFs with pages that are scanned images
+                text_depth="page"
             )
-            .dedup(
-                content_type="image",
-                filter=True,
-            )
-            .caption()
         )
 
-        generated_metadata = ingestor.ingest()[0]
+        print("Starting ingestion..")
+        t0 = time.time()
+        results = ingestor.caption().ingest(show_progress=True)
+        t1 = time.time()
+        print(f"Time taken: {t1 - t0} seconds")
+
+        generated_metadata = results[0]
 
         # Save extracted metadata
         with open(os.path.join(RESULT_DIR, f"generated_metadata_{file}.json"), "w") as f:
