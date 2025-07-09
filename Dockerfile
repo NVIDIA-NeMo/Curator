@@ -42,7 +42,7 @@ RUN conda create -y --name curator -c nvidia/label/cuda-${CUDA_VER} -c conda-for
   libcusolver \
   cuda-nvvm && \
   source activate curator && \
-  pip install --upgrade pytest pip pytest-coverage
+  pip install --upgrade pytest pip pytest-coverage nemo-toolkit
 
 RUN \
   --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=/opt/NeMo-Curator/nemo_curator/__init__.py,from=curator-update \
