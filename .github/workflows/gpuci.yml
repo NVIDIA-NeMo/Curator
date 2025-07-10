@@ -136,6 +136,8 @@ jobs:
         run: |
           whoami
           docker exec nemo-curator-container nvidia-smi
+          ls -l /dev/shm/nccl-* /tmp/nccl-* 2>/dev/null || echo "No NCCL shm/temp files found on host"
+          docker exec nemo-curator-container ls -l /dev/shm/nccl-* /tmp/nccl-* 2>/dev/null || echo "No NCCL shm/temp files found in container"
 
         # In the virtual environment (called "curator") we created in the container,
         # list all of our packages. Useful for debugging
