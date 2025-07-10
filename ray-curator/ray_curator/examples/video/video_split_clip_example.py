@@ -3,7 +3,9 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
-from ray_curator.stages.video.io.video_reader import VideoReader
+from ray_curator.stages.video.io.clip_writer import ClipWriterStage
+from ray_curator.stages.video.io.video_download import VideoDownloadStage
+from ray_curator.stages.video.io.video_reader import VideoReaderStage
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -12,7 +14,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReader(
+    pipeline.add_stage(VideoReaderStage(
         input_video_path=args.video_folder,
         video_limit=args.video_limit,
         verbose=args.verbose
@@ -41,6 +43,22 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         num_clips_per_chunk=args.clip_re_chunk_size,
         verbose=args.verbose,
     ))
+
+    pipeline.add_stage(
+        ClipWriterStage(
+            output_path=args.output_clip_path,
+            input_path=args.video_folder,
+            upload_clips=args.upload_clips,
+            dry_run=args.dry_run,
+            generate_embeddings=False, # TODO: Change this once we have an embedding stage
+            generate_previews=False, # TODO: Change this once we have a preview stage
+            generate_captions=False, # TODO: Change this once we have a caption stage
+            embedding_algorithm=args.embedding_algorithm,
+            caption_models=None, # TODO: Change this once we have a caption stage
+            enhanced_caption_models=None, # TODO: Change this once we have a caption stage
+            verbose=args.verbose,
+        )
+    )
 
     return pipeline
 
