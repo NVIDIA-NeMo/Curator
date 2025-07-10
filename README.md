@@ -76,7 +76,7 @@ Before installing NeMo Curator, ensure that the following requirements are met:
   - Volta™ or higher ([compute capability 7.0+](https://developer.nvidia.com/cuda-gpus))
   - CUDA 12 (or above)
 
-You can get NeMo-Curator in 3 ways.
+You can get NeMo Curator in 3 ways.
 1. PyPi
 2. Source
 3. NeMo Framework Container
