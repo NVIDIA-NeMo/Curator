@@ -43,10 +43,7 @@ class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         def process_llm_response(response: list[str]) -> str:
             processed_response = response[0].strip().split('\n')[-1].strip()
-            # assert processed_response in ["Yes", "No"], "Response must contain Yes or No"
-
-            # DEBUGGING
-            processed_response = response[0]
+            assert processed_response in ["Yes", "No"], "Response must contain Yes or No"
 
             return processed_response
 
@@ -62,9 +59,6 @@ class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
         
         df[self.output_field] = df.apply(generate_response, axis=1)
 
-        # DEBUGGING
-        print(f"[ray_curator/stages/reasoning/correctness_filter.py - LLMBasedCorrectnessFilter] Number of rows in df: {len(df)}")
-
         return DocumentBatch(data=df, dataset_name="reasoning_traces_synthetic_data", task_id=1)
 
 class LLMBasedCorrectnessFilter(DocumentFilter):
@@ -73,7 +67,6 @@ class LLMBasedCorrectnessFilter(DocumentFilter):
         self._name = "llm_based_correctness_filter"
 
     def score_document(self, text: str) -> float:
-        # assert text in ["Yes", "No"], "Response must contain Yes or No"
         document_score = 1.0 if text == "Yes" else 0.0
         return document_score
 

@@ -54,7 +54,4 @@ class ReasoningTracesSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch
         
         df[self.output_field] = df.apply(generate_response, axis=1)
 
-        # DEBUGGING
-        print(f"[ray_curator/stages/reasoning/reasoning_traces_synthetic.py - ReasoningTracesSyntheticStage] Number of rows in df: {len(df)}")
-
         return DocumentBatch(data=df, dataset_name="reasoning_traces_synthetic_data", task_id=1)

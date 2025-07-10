@@ -58,9 +58,6 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
         
         df[self.output_field] = df.apply(generate_response, axis=1)
 
-        # DEBUGGING
-        print(f"[ray_curator/stages/reasoning/diversity_filter.py - LLMBasedDomainClassifier] Number of rows in df: {len(df)}")
-
         return DocumentBatch(data=df, dataset_name="domain_classification_data", task_id=1)
 
 
@@ -142,8 +139,5 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
         df = self._sample_uniformly(df)
-
-        # DEBUGGING
-        print(f"[ray_curator/stages/reasoning/diversity_filter.py - DiversitySampler] Number of rows in df: {len(df)}")
 
         return DocumentBatch(data=df, dataset_name="diversity_sampling_data", task_id=1)

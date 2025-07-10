@@ -1,12 +1,5 @@
 import os
 import argparse
-import logging
-
-# DEBUGGING
-# Configure loguru (which is what ray_curator actually uses)
-from loguru import logger
-logger.disable("ray_curator")  # Disable all loguru logs from ray_curator
-logger.disable("cosmos_xenna")  # Disable all loguru logs from cosmos_xenna
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
@@ -71,91 +64,91 @@ def main(args: argparse.Namespace) -> None:
             output_field="reasoning_trace_correctness",
         ),
     )
-    # pipeline.add_stage(
-    #     ScoreFilter(
-    #         LLMBasedCorrectnessFilter(),
-    #         text_field="reasoning_trace_correctness",
-    #     ),
-    # )
-    # # 3. Difficulty filter
-    # # 3.1. Length difficulty filter
-    # pipeline.add_stage(
-    #     ScoreFilter(
-    #         ReasoningLengthDifficultyFilter(
-    #             min_length=100,
-    #         ),
-    #         text_field="reasoning_trace_attempt",
-    #     ),
-    # )
-    # # 3.2. LLM-based difficulty filter
-    # pipeline.add_stage(
-    #     ReasoningTracesSyntheticStage(
-    #         prompt=None,
-    #         client=llm_client,
-    #         model_name=llm_difficulty_model_1,
-    #         input_problem_field="question",
-    #         output_field="llm_difficulty_1_attempt",
-    #     ),
-    # )
-    # pipeline.add_stage(
-    #     ReasoningTracesSyntheticStage(
-    #         prompt=None,
-    #         client=llm_client,
-    #         model_name=llm_difficulty_model_2,
-    #         input_problem_field="question",    
-    #         output_field="llm_difficulty_2_attempt",
-    #     ),
-    # )
-    # pipeline.add_stage(
-    #     LLMBasedGrader(
-    #         client=llm_client,
-    #         model_name=llm_grader_model,
-    #         prompt=None,
-    #         input_problem_field="question",
-    #         input_attempt_field="llm_difficulty_1_attempt",
-    #         input_solution_field="answer",
-    #         output_field="llm_difficulty_1_correctness",
-    #     ),
-    # )
-    # pipeline.add_stage(
-    #     LLMBasedGrader(
-    #         client=llm_client,
-    #         model_name=llm_grader_model,
-    #         prompt=None,
-    #         input_problem_field="question",
-    #         input_attempt_field="llm_difficulty_2_attempt",
-    #         input_solution_field="answer",
-    #         output_field="llm_difficulty_2_correctness",
-    #     ),
-    # )
-    # pipeline.add_stage(
-    #     LLMBasedDifficultyFilter(
-    #         filter_obj=LLMBasedDifficultyFilterFunction(
-    #             llm_correctness_fields=["llm_difficulty_1_correctness", "llm_difficulty_2_correctness"],
-    #         ),
-    #         llm_correctness_fields=["llm_difficulty_1_correctness", "llm_difficulty_2_correctness"],
-    #     ),
-    # )
-    # # 4. Diversity filter
-    # # 4.1. Domain classifier
-    # pipeline.add_stage(
-    #     LLMBasedDomainClassifier(
-    #         client=llm_client,
-    #         model_name=llm_domain_classifier_model,
-    #         prompt=None,
-    #         domains_file_path=args.domains_file_path,
-    #         input_problem_field="question",
-    #         output_field="domain",
-    #     ),
-    # )
-    # # 4.2. Diversity sampler
-    # pipeline.add_stage(
-    #     DiversitySampler(
-    #         sampling_size=20,
-    #         input_problem_field="question",
-    #         input_domain_field="domain",
-    #     ),
-    # )
+    pipeline.add_stage(
+        ScoreFilter(
+            LLMBasedCorrectnessFilter(),
+            text_field="reasoning_trace_correctness",
+        ),
+    )
+    # 3. Difficulty filter
+    # 3.1. Length difficulty filter
+    pipeline.add_stage(
+        ScoreFilter(
+            ReasoningLengthDifficultyFilter(
+                min_length=100,
+            ),
+            text_field="reasoning_trace_attempt",
+        ),
+    )
+    # 3.2. LLM-based difficulty filter
+    pipeline.add_stage(
+        ReasoningTracesSyntheticStage(
+            prompt=None,
+            client=llm_client,
+            model_name=llm_difficulty_model_1,
+            input_problem_field="question",
+            output_field="llm_difficulty_1_attempt",
+        ),
+    )
+    pipeline.add_stage(
+        ReasoningTracesSyntheticStage(
+            prompt=None,
+            client=llm_client,
+            model_name=llm_difficulty_model_2,
+            input_problem_field="question",    
+            output_field="llm_difficulty_2_attempt",
+        ),
+    )
+    pipeline.add_stage(
+        LLMBasedGrader(
+            client=llm_client,
+            model_name=llm_grader_model,
+            prompt=None,
+            input_problem_field="question",
+            input_attempt_field="llm_difficulty_1_attempt",
+            input_solution_field="answer",
+            output_field="llm_difficulty_1_correctness",
+        ),
+    )
+    pipeline.add_stage(
+        LLMBasedGrader(
+            client=llm_client,
+            model_name=llm_grader_model,
+            prompt=None,
+            input_problem_field="question",
+            input_attempt_field="llm_difficulty_2_attempt",
+            input_solution_field="answer",
+            output_field="llm_difficulty_2_correctness",
+        ),
+    )
+    pipeline.add_stage(
+        LLMBasedDifficultyFilter(
+            filter_obj=LLMBasedDifficultyFilterFunction(
+                llm_correctness_fields=["llm_difficulty_1_correctness", "llm_difficulty_2_correctness"],
+            ),
+            llm_correctness_fields=["llm_difficulty_1_correctness", "llm_difficulty_2_correctness"],
+        ),
+    )
+    # 4. Diversity filter
+    # 4.1. Domain classifier
+    pipeline.add_stage(
+        LLMBasedDomainClassifier(
+            client=llm_client,
+            model_name=llm_domain_classifier_model,
+            prompt=None,
+            domains_file_path=args.domains_file_path,
+            input_problem_field="question",
+            output_field="domain",
+        ),
+    )
+    # 4.2. Diversity sampler
+    pipeline.add_stage(
+        DiversitySampler(
+            sampling_size=20,
+            input_problem_field="question",
+            input_domain_field="domain",
+        ),
+    )
 
     # Print pipeline description
     print(pipeline.describe())

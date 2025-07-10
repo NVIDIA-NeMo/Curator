@@ -255,7 +255,7 @@ class TestReasoningTracesSyntheticStage:
         stage.setup()
         assert mock_client.setup_called
     
-    def test_process(self, sample_reasoning_data):
+    def test_process(self, sample_reasoning_data: DocumentBatch):
         """Test process method"""
         mock_client = MockLLMClient(responses=["Trace 1", "Trace 2", "Trace 3"])
         stage = ReasoningTracesSyntheticStage(
@@ -328,7 +328,7 @@ class TestLLMBasedGrader:
         assert stage.inputs() == ([], [])
         assert stage.outputs() == (["data"], ["correctness"])
     
-    def test_process(self, sample_grading_data):
+    def test_process(self, sample_grading_data: DocumentBatch):
         """Test process method"""
         mock_client = MockLLMClient(responses=["Reasoning...\nYes", "Analysis...\nNo"])
         stage = LLMBasedGrader(
@@ -473,7 +473,7 @@ class TestLLMBasedDifficultyFilter:
         inputs = difficulty_filter.inputs()
         assert inputs == (["data"], fields)
     
-    def test_compute_filter_mask(self, sample_difficulty_data):
+    def test_compute_filter_mask(self, sample_difficulty_data: DocumentBatch):
         """Test compute_filter_mask method"""
         fields = ["llm_difficulty_1_correctness", "llm_difficulty_2_correctness"]
         filter_function = LLMBasedDifficultyFilterFunction(llm_correctness_fields=fields)
@@ -556,7 +556,7 @@ class TestLLMBasedDomainClassifier:
             import os
             os.unlink(domains_file)
     
-    def test_process(self, sample_reasoning_data):
+    def test_process(self, sample_reasoning_data: DocumentBatch):
         """Test process method"""
         domains_file = create_domains_file()
         mock_client = MockLLMClient(responses=["Analysis...\n01", "Analysis...\n02", "Analysis...\n03"])
@@ -625,7 +625,7 @@ class TestDiversitySampler:
     
     @patch('numpy.random.choice')
     @patch('numpy.random.seed')
-    def test_sample_uniformly(self, mock_seed, mock_choice, sample_diversity_data):
+    def test_sample_uniformly(self, mock_seed, mock_choice, sample_diversity_data: DocumentBatch):
         """Test uniform sampling method"""
         stage = DiversitySampler(
             sampling_size=4,
@@ -662,7 +662,7 @@ class TestDiversitySampler:
         domains = result["domain"].unique()
         assert len(domains) >= 1  # At least 1 domain
     
-    def test_process(self, sample_diversity_data):
+    def test_process(self, sample_diversity_data: DocumentBatch):
         """Test process method"""
         stage = DiversitySampler(
             sampling_size=3,
@@ -671,7 +671,7 @@ class TestDiversitySampler:
         )
         
         result = stage.process(sample_diversity_data)
-        
+
         # Check that result has correct structure
         assert isinstance(result, DocumentBatch)
         assert len(result.data) == 3
@@ -681,7 +681,7 @@ class TestDiversitySampler:
         assert "question" in result.data.columns
         assert "domain" in result.data.columns
     
-    def test_process_sampling_size_larger_than_data(self, sample_diversity_data):
+    def test_process_sampling_size_larger_than_data(self, sample_diversity_data: DocumentBatch):
         """Test process method when sampling size is larger than available data"""
         stage = DiversitySampler(
             sampling_size=10,  # Larger than the 6 samples in test data
