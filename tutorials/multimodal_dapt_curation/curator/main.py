@@ -420,7 +420,6 @@ def main() -> None:
 
     # Initialize the client and run the curation pipelines
     client = get_client(**ArgumentHelper.parse_client_args(args), set_torch_to_use_rmm=True)
-    rmm_allocator_external_lib_list=["cupy", "torch"]
     run_text_curation_pipeline(args, text_ddf, struct_ddf)
     run_image_curation_pipeline(image_ddf)
     client.close()
