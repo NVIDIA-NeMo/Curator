@@ -147,14 +147,15 @@ jobs:
         # run our PyTests marked with `@pytest.mark.gpu`
         # We specify the `rootdir` to help locate the "pyproject.toml" file (which is in the root directory of the repository),
         # and then the directory where the PyTests are located
-        # TODO: Try to remove NCCL_P2P_DISABLE=1 once we switch to Ray
+        # TODO: Try to remove NCCL_P2P_DISABLE=1 and NCCL_IB_DISABLE=1 once we switch to Ray
       - name: Run PyTests with GPU mark
         id: coverage
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          docker exec -e HF_TOKEN=$HF_TOKEN -e NCCL_P2P_DISABLE=1 nemo-curator-container bash -c '
+          docker exec -e HF_TOKEN=$HF_TOKEN -e NCCL_P2P_DISABLE=1 -e NCCL_IB_DISABLE=1 nemo-curator-container bash -c '
             export NCCL_P2P_DISABLE=1 && \
+            export NCCL_IB_DISABLE=1 && \
             cd /opt/NeMo-Curator && \
             coverage run \
             --branch \
