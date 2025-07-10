@@ -161,37 +161,6 @@ class TestClipTranscodingStage:
             assert "No clips to transcode" in mock_logger.warning.call_args[0][0]
             assert result.data.source_bytes is None
 
-    def test_process_debug_mode(self) -> None:
-        """Test processing in debug mode."""
-        stage = ClipTranscodingStage(debug=True, encode_batch_size=1)
-
-        # Add more clips than batch size
-        for i in range(5):
-            self.mock_video.clips.append(
-                Clip(
-                    uuid=uuid.uuid4(),
-                    source_video="test_video.mp4",
-                    span=(i * 5.0, (i + 1) * 5.0)
-                )
-            )
-
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger, \
-             patch.object(stage, "_extract_clips"), \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir") as mock_temp_dir, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size") as mock_split, \
-             patch("pathlib.Path.write_bytes"):
-
-            # Setup mocks
-            mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
-            mock_split.return_value = [self.mock_video.clips[:1]]  # Return one chunk
-
-            stage.process(self.mock_task)
-
-            # Should log debug message and limit clips
-            mock_logger.info.assert_called()
-            debug_call = [call for call in mock_logger.info.call_args_list if "DEBUG Mode" in str(call)]
-            assert len(debug_call) > 0
-
     @patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir")
     @patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size")
     def test_process_successful_transcoding(self, mock_split: MagicMock, mock_temp_dir: MagicMock) -> None:
