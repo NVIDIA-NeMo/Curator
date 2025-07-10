@@ -37,7 +37,7 @@ from .services import (
 )
 from .utils.distributed_utils import get_client, get_network_interfaces
 
-# Dask will automatically convert the list score type
+# Dask automatically convert the list score type
 # to a string without this option.
 # See https://github.com/NVIDIA/NeMo-Curator/issues/33
 # This also happens when reading and writing to files
