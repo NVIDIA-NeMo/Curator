@@ -15,16 +15,17 @@
 import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+import cudf
+import pandas as pd
 import torch
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
 from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 
-from nemo_curator.classifiers.base import (
-    DistributedDataClassifier,
-    _get_suggest_memory_for_classifier,
-)
-from nemo_curator.datasets import DocumentDataset
+from ray_curator.backends.base import WorkerMetadata
+
+from .base import DistributedDataClassifier
+from .utils import _get_suggest_memory_for_classifier
 
 FINEWEB_EDU_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
 FINEWEB_MIXTRAL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
@@ -75,6 +76,7 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
     """
     Parent class for FineWebEduClassifier, FineWebMixtralEduClassifier, and FineWebNemotronEduClassifier,
     since their implementations are almost identical.
+
     """
 
     def __init__(  # noqa: PLR0913
@@ -83,7 +85,7 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
         pred_column: str,
         int_column: str,
         quality_label_column: str | None,
-        batch_size: int = 1024,
+        model_batch_size: int = 1024,
         text_field: str = "text",
         max_chars: int = -1,
         device_type: str = "cuda",
@@ -92,20 +94,15 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
     ):
         self.fineweb_identifier = fineweb_identifier
 
-        model = FinewebEduModel(
-            path_or_name=fineweb_identifier,
-            autocast=autocast,
-            max_mem_gb=max_mem_gb,
-        )
-
         self.text_field = text_field
         self.int_column = int_column
         self.quality_label_column = quality_label_column
+        self.max_chars = max_chars
+        self.max_mem_gb = max_mem_gb
 
         super().__init__(
-            model=model,
             filter_by=None,  # No filtering as its a numeric score
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             pred_column=pred_column,
             max_chars=max_chars,
             device_type=device_type,
@@ -114,15 +111,32 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
             out_dim=1,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
+    @property
+    def name(self) -> str:
+        if self.fineweb_identifier == FINEWEB_EDU_IDENTIFIER:
+            return "fineweb_edu_classifier"
+        elif self.fineweb_identifier == FINEWEB_MIXTRAL_IDENTIFIER:
+            return "fineweb_mixtral_edu_classifier"
+        elif self.fineweb_identifier == FINEWEB_NEMOTRON_IDENTIFIER:
+            return "fineweb_nemotron_4_edu_classifier"
+        else:
+            msg = f"Invalid fineweb_identifier: {self.fineweb_identifier}"
+            raise ValueError(msg)
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self.model = FinewebEduModel(
+            path_or_name=self.fineweb_identifier,
+            autocast=self.autocast,
+            max_mem_gb=self.max_mem_gb,
+        )
+
+    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
         if self.fineweb_identifier == FINEWEB_EDU_IDENTIFIER:
             print("Starting FineWeb-Edu Classifier inference", flush=True)
         elif self.fineweb_identifier == FINEWEB_MIXTRAL_IDENTIFIER:
             print("Starting FineWeb Mixtral Edu Classifier inference", flush=True)
         elif self.fineweb_identifier == FINEWEB_NEMOTRON_IDENTIFIER:
             print("Starting FineWeb Nemotron-4 Edu Classifier inference", flush=True)
-
-        ddf = dataset.df
 
         pipe = op.Sequential(
             op.Tokenizer(
@@ -134,26 +148,27 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
             op.Predictor(
                 self.model,
                 sorted_data_loader=True,
-                batch_size=self.batch_size,
+                batch_size=self.model_batch_size,
                 pred_output_col=self.pred_column,
+                progress_bar=False,
             ),
-            keep_cols=ddf.columns.tolist(),
+            keep_cols=df.columns.tolist(),
         )
-        ddf = pipe(ddf)
+        df = pipe(df)
 
-        ddf[self.pred_column] = ddf[self.pred_column].where(ddf[self.pred_column] >= 0, 0)
-        ddf[self.pred_column] = ddf[self.pred_column].where(ddf[self.pred_column] <= 5, 5)  # noqa: PLR2004
-        ddf[self.int_column] = ddf[self.pred_column].round().astype(int)
+        df[self.pred_column] = df[self.pred_column].where(df[self.pred_column] >= 0, 0)
+        df[self.pred_column] = df[self.pred_column].where(df[self.pred_column] <= 5, 5)  # noqa: PLR2004
+        df[self.int_column] = df[self.pred_column].round().astype(int)
 
         if self.quality_label_column is not None:
-            ddf[self.quality_label_column] = "high_quality"
+            df[self.quality_label_column] = "high_quality"
             # If the score is less than 2.5, label it as low quality
-            ddf[self.quality_label_column] = ddf[self.quality_label_column].mask(
-                ddf[self.pred_column] < 2.5,  # noqa: PLR2004
+            df[self.quality_label_column] = df[self.quality_label_column].mask(
+                df[self.pred_column] < 2.5,  # noqa: PLR2004
                 "low_quality",
             )
 
-        return DocumentDataset(ddf)
+        return df
 
 
 class FineWebEduClassifier(_FineWebBaseClassifier):
@@ -163,7 +178,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
-        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The column name containing the text data to be classified. Defaults to "text".
         pred_column (str): The column name where prediction scores will be stored. Defaults to "fineweb-edu-score".
         int_column (str): The column name where integer-rounded prediction scores will be stored. Defaults to "fineweb-edu-score-int".
@@ -177,7 +192,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
-        batch_size: int = 256,
+        model_batch_size: int = 256,
         text_field: str = "text",
         pred_column: str = "fineweb-edu-score",
         int_column: str = "fineweb-edu-score-int",
@@ -188,7 +203,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
     ):
         super().__init__(
             fineweb_identifier=FINEWEB_EDU_IDENTIFIER,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             text_field=text_field,
             pred_column=pred_column,
             int_column=int_column,
@@ -208,7 +223,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
-        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The column name containing the text data to be classified. Defaults to "text".
         pred_column (str): The column name where prediction scores will be stored. Defaults to "fineweb-mixtral-edu-score".
         int_column (str): The column name where integer-rounded prediction scores will be stored. Defaults to "fineweb-mixtral-edu-score-int".
@@ -223,7 +238,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
-        batch_size: int = 1024,
+        model_batch_size: int = 1024,
         text_field: str = "text",
         pred_column: str = "fineweb-mixtral-edu-score",
         int_column: str = "fineweb-mixtral-edu-score-int",
@@ -235,7 +250,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
     ):
         super().__init__(
             fineweb_identifier=FINEWEB_MIXTRAL_IDENTIFIER,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             text_field=text_field,
             pred_column=pred_column,
             int_column=int_column,
@@ -255,7 +270,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
-        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The column name containing the text data to be classified. Defaults to "text".
         pred_column (str): The column name where prediction scores will be stored. Defaults to "fineweb-nemotron-edu-score".
         int_column (str): The column name where integer-rounded prediction scores will be stored. Defaults to "fineweb-nemotron-edu-score-int".
@@ -270,7 +285,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
-        batch_size: int = 1024,
+        model_batch_size: int = 1024,
         text_field: str = "text",
         pred_column: str = "fineweb-nemotron-edu-score",
         int_column: str = "fineweb-nemotron-edu-score-int",
@@ -282,7 +297,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
     ):
         super().__init__(
             fineweb_identifier=FINEWEB_NEMOTRON_IDENTIFIER,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             text_field=text_field,
             pred_column=pred_column,
             int_column=int_column,

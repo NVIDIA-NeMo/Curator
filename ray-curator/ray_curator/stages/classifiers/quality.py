@@ -16,16 +16,20 @@ import os
 from dataclasses import dataclass
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+import cudf
+import pandas as pd
 from crossfit.backend.torch.hf.model import HFModel
 from transformers import AutoConfig, AutoTokenizer
 
-from nemo_curator.classifiers.base import (
+from ray_curator.backends.base import WorkerMetadata
+
+from .base import (
     DistributedDataClassifier,
     HFDeberta,
-    _get_suggest_memory_for_classifier,
+    StreamingDataClassifier,
     _run_classifier_helper,
 )
-from nemo_curator.datasets import DocumentDataset
+from .utils import _get_suggest_memory_for_classifier
 
 QUALITY_IDENTIFIER = "nvidia/quality-classifier-deberta"
 
@@ -71,7 +75,7 @@ class QualityClassifier(DistributedDataClassifier):
 
     Attributes:
         filter_by (list[str], optional): The classes to filter the dataset by. If None, all classes will be included. Defaults to None.
-        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The field in the dataset that should be classified.
         pred_column (str): The column name where predictions will be stored. Defaults to "quality_pred".
         prob_column (str): The column name where prediction probabilities will be stored. Defaults to "quality_prob".
@@ -80,12 +84,13 @@ class QualityClassifier(DistributedDataClassifier):
         autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
         max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
                                       it defaults to the available GPU memory minus 4 GB.
+
     """
 
     def __init__(  # noqa: PLR0913
         self,
         filter_by: list[str] | None = None,
-        batch_size: int = 256,
+        model_batch_size: int = 256,
         text_field: str = "text",
         pred_column: str = "quality_pred",
         prob_column: str = "quality_prob",
@@ -101,14 +106,12 @@ class QualityClassifier(DistributedDataClassifier):
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
-
-        model = QualityModel(config=QualityModelConfig, autocast=autocast, max_mem_gb=max_mem_gb)
+        self.max_mem_gb = max_mem_gb
 
         super().__init__(
-            model=model,
             labels=self.labels,
             filter_by=filter_by,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             out_dim=self.out_dim,
             pred_column=pred_column,
             max_chars=max_chars,
@@ -116,17 +119,73 @@ class QualityClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
+    @property
+    def name(self) -> str:
+        return "quality_classifier"
+
+    # TODO: Add setup_on_node function
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        # Load the Hugging Face model and processor from the cache.
+        self.model = QualityModel(config=QualityModelConfig, autocast=self.autocast, max_mem_gb=self.max_mem_gb)
+
+    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
         print("Starting quality classifier inference", flush=True)
-        df = dataset.df
-        df = _run_classifier_helper(
+        return _run_classifier_helper(
             df=df,
             model=self.model,
             labels=self.labels,
             max_chars=self.max_chars,
-            batch_size=self.batch_size,
+            model_batch_size=self.model_batch_size,
             label_col=self.pred_column,
             text_field=self.text_field,
             prob_col=self.prob_column,
         )
-        return DocumentDataset(df)
+
+
+class StreamingQualityClassifier(StreamingDataClassifier):
+    def __init__(  # noqa: PLR0913
+        self,
+        filter_by: list[str] | None = None,
+        model_batch_size: int = 256,
+        text_field: str = "text",
+        pred_column: str = "quality_pred",
+        prob_column: str = "quality_prob",
+        max_chars: int = 6000,
+        device_type: str = "cuda",
+        autocast: bool = True,
+        max_mem_gb: int | None = None,
+        # TODO: Remove this once we decide on a permanent solution
+        gpu_tokenizer: bool = True,
+    ):
+        config = AutoConfig.from_pretrained(QUALITY_IDENTIFIER)
+
+        self.text_field = text_field
+        self.prob_column = prob_column
+        self.labels = list(config.label2id.keys())
+        self.labels.sort(key=lambda x: config.label2id[x])
+        self.out_dim = len(self.labels)
+        self.max_mem_gb = max_mem_gb
+
+        # TODO: Find a solution to remove this
+        self.model = QualityModel(config=QualityModelConfig, autocast=autocast, max_mem_gb=self.max_mem_gb)
+
+        super().__init__(
+            labels=self.labels,
+            filter_by=filter_by,
+            model_batch_size=model_batch_size,
+            out_dim=self.out_dim,
+            pred_column=pred_column,
+            max_chars=max_chars,
+            device_type=device_type,
+            autocast=autocast,
+            gpu_tokenizer=gpu_tokenizer,
+        )
+
+    @property
+    def name(self) -> str:
+        return "streaming_quality_classifier"
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        # Load the Hugging Face model and processor from the cache.
+        self.model = QualityModel(config=QualityModelConfig, autocast=self.autocast, max_mem_gb=self.max_mem_gb)

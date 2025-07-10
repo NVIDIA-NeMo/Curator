@@ -16,16 +16,19 @@ import os
 from dataclasses import dataclass
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+import cudf
+import pandas as pd
 from crossfit.backend.torch.hf.model import HFModel
 from transformers import AutoConfig, AutoTokenizer
 
-from nemo_curator.classifiers.base import (
+from ray_curator.backends.base import WorkerMetadata
+
+from .base import (
     DistributedDataClassifier,
     HFDeberta,
-    _get_suggest_memory_for_classifier,
     _run_classifier_helper,
 )
-from nemo_curator.datasets import DocumentDataset
+from .utils import _get_suggest_memory_for_classifier
 
 CONTENT_TYPE_IDENTIFIER = "nvidia/content-type-classifier-deberta"
 
@@ -75,7 +78,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
     Attributes:
         filter_by (list[str], optional): The classes to filter the dataset by.
                                          If None, all classes will be included. Defaults to None.
-        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The field in the dataset that should be classified.
         pred_column (str): The column name where predictions will be stored. Defaults to "content_pred".
         prob_column (str, optional): The column name where prediction probabilities will be stored. Defaults to None.
@@ -90,7 +93,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
     def __init__(  # noqa: PLR0913
         self,
         filter_by: list[str] | None = None,
-        batch_size: int = 256,
+        model_batch_size: int = 256,
         text_field: str = "text",
         pred_column: str = "content_pred",
         prob_column: str | None = None,
@@ -106,14 +109,12 @@ class ContentTypeClassifier(DistributedDataClassifier):
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
-
-        model = ContentTypeModel(config=ContentTypeModelConfig, autocast=autocast, max_mem_gb=max_mem_gb)
+        self.max_mem_gb = max_mem_gb
 
         super().__init__(
-            model=model,
             labels=self.labels,
             filter_by=filter_by,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             out_dim=self.out_dim,
             pred_column=pred_column,
             max_chars=max_chars,
@@ -121,17 +122,25 @@ class ContentTypeClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
+    @property
+    def name(self) -> str:
+        return "content_type_classifier"
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        # Load the Hugging Face model and processor from the cache.
+        self.model = ContentTypeModel(
+            config=ContentTypeModelConfig, autocast=self.autocast, max_mem_gb=self.max_mem_gb
+        )
+
+    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
         print("Starting content type classifier inference", flush=True)
-        df = dataset.df
-        df = _run_classifier_helper(
+        return _run_classifier_helper(
             df=df,
             model=self.model,
             labels=self.labels,
             max_chars=self.max_chars,
-            batch_size=self.batch_size,
+            model_batch_size=self.model_batch_size,
             label_col=self.pred_column,
             text_field=self.text_field,
             prob_col=self.prob_column,
         )
-        return DocumentDataset(df)

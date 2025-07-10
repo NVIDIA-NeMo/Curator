@@ -18,6 +18,8 @@ os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from dataclasses import dataclass
 from functools import lru_cache
 
+import cudf
+import pandas as pd
 import torch
 import torch.nn.functional as F  # noqa: N812
 from crossfit import op
@@ -27,15 +29,11 @@ from torch import nn
 from torch.nn import Dropout, Linear
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-from nemo_curator.classifiers.base import (
-    DistributedDataClassifier,
-    _get_suggest_memory_for_classifier,
-)
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.aegis_utils import format_aegis
-from nemo_curator.utils.import_utils import gpu_only_import
+from ray_curator.backends.base import WorkerMetadata
 
-cudf = gpu_only_import("cudf")
+from .aegis_utils import format_aegis
+from .base import DistributedDataClassifier
+from .utils import _get_suggest_memory_for_classifier
 
 
 @dataclass
@@ -226,6 +224,7 @@ class AegisClassifier(DistributedDataClassifier):
     Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
     Afterwards, they should set up a user access token and pass that token into
     the constructor of this classifier.
+
     """
 
     def __init__(  # noqa: PLR0913
@@ -233,7 +232,7 @@ class AegisClassifier(DistributedDataClassifier):
         aegis_variant: str = "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
         token: str | bool | None = None,
         filter_by: list[str] | None = None,
-        batch_size: int = 64,
+        model_batch_size: int = 64,
         text_field: str = "text",
         pred_column: str = "aegis_pred",
         raw_pred_column: str = "_aegis_raw_pred",
@@ -255,7 +254,7 @@ class AegisClassifier(DistributedDataClassifier):
                 Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
             filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
                 expect those specified in this list.
-            batch_size (int): The batch size to use when running the classifier.
+            model_batch_size (int): The batch size to use when running the classifier.
             text_field (str): The field in the dataset that should be classified.
             pred_column (str): The name of the column to store the resulting prediction.
             raw_pred_column (str): The name of the column to store the raw output of the AEGIS LLM before
@@ -270,35 +269,49 @@ class AegisClassifier(DistributedDataClassifier):
                                 it defaults to the available GPU memory minus 4 GB.
 
         """
-        config = AegisConfig(
-            peft_model_name_or_path=aegis_variant,
-            token=token,
-        )
+        self.aegis_variant = aegis_variant
+        self.token = token
+
         self.text_field = text_field
         self.labels = AEGIS_LABELS
         self.out_dim = len(self.labels)
         self.raw_pred_column = raw_pred_column
         self.keep_raw_pred = keep_raw_pred
-
-        try:
-            model = AegisHFModel(config=config, max_mem_gb=max_mem_gb)
-        except OSError as e:
-            if "meta-llama/LlamaGuard-7b" in str(e):
-                raise PermissionError(ACCESS_ERROR_MESSAGE) from e
-            else:
-                raise
+        self.max_mem_gb = max_mem_gb
 
         super().__init__(
-            model=model,
             labels=self.labels,
             filter_by=filter_by,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             out_dim=self.out_dim,
             pred_column=pred_column,
             max_chars=max_chars,
             device_type=device_type,
             autocast=autocast,
         )
+
+    @property
+    def name(self) -> str:
+        if "Defensive" in self.aegis_variant:
+            return "aegis_defensive_classifier"
+        elif "Permissive" in self.aegis_variant:
+            return "aegis_permissive_classifier"
+        else:
+            msg = f"Invalid aegis_variant: {self.aegis_variant}"
+            raise ValueError(msg)
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self.config = AegisConfig(
+            peft_model_name_or_path=self.aegis_variant,
+            token=self.token,
+        )
+        try:
+            self.model = AegisHFModel(config=self.config, max_mem_gb=self.max_mem_gb)
+        except OSError as e:
+            if "meta-llama/LlamaGuard-7b" in str(e):
+                raise PermissionError(ACCESS_ERROR_MESSAGE) from e
+            else:
+                raise
 
     def _wrap_in_prompt(self, df: cudf.DataFrame) -> cudf.DataFrame:
         documents = df[self.text_field].to_arrow().to_pylist()
@@ -340,33 +353,30 @@ class AegisClassifier(DistributedDataClassifier):
         df[self.pred_column] = cudf.Series(parsed_response)
         return df
 
-    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
+    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
         print("Starting AEGIS classifier inference", flush=True)
-        ddf = dataset.df
-        hidden_meta = ddf._meta.copy()  # noqa: SLF001
-        hidden_meta["_hidden_text"] = "DUMMY_STRING"
-        ddf = ddf.map_partitions(self._wrap_in_prompt, meta=hidden_meta)
-        columns = ddf.columns.tolist()
+
+        if isinstance(df, pd.DataFrame):
+            df = cudf.from_pandas(df)
+
+        df = self._wrap_in_prompt(df)
+        columns = df.columns.tolist()
+
         pipe = op.Sequential(
             op.Tokenizer(self.model, cols=["_hidden_text"], tokenizer_type="default"),
             op.Predictor(
                 self.model,
                 sorted_data_loader=True,
-                batch_size=self.batch_size,
+                batch_size=self.model_batch_size,
                 pred_output_col=self.raw_pred_column,
+                progress_bar=False,
             ),
             keep_cols=columns,
         )
-        ddf = pipe(ddf)
-        translated_meta = ddf._meta.copy()  # noqa: SLF001
-        if self.keep_raw_pred:
-            translated_meta[self.raw_pred_column] = "DUMMY_STRING"
-        else:
-            translated_meta = translated_meta.drop(columns=[self.raw_pred_column])
-        translated_meta[self.pred_column] = "DUMMY_STRING"
-        ddf = ddf.map_partitions(self._postprocess_responses, meta=translated_meta)
-        ddf = ddf.drop(columns=["_hidden_text"])
-        return DocumentDataset(ddf)
+
+        df = pipe(df)
+        df = self._postprocess_responses(df)
+        return df.drop(columns=["_hidden_text"])
 
 
 class InstructionDataGuardClassifier(DistributedDataClassifier):
@@ -409,12 +419,13 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
     Built on NVIDIA's AEGIS safety classifier, which is a parameter-efficient instruction-tuned
     version of Llama Guard (Llama2-7B). Access to the base Llama Guard model on HuggingFace
     (https://huggingface.co/meta-llama/LlamaGuard-7b) is required via a user access token.
+
     """
 
     def __init__(  # noqa: PLR0913
         self,
         token: str | bool | None = None,
-        batch_size: int = 64,
+        model_batch_size: int = 64,
         text_field: str = "text",
         pred_column: str = "is_poisoned",
         prob_column: str = "instruction_data_guard_poisoning_score",
@@ -432,7 +443,7 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
                 Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
             filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
                 expect those specified in this list.
-            batch_size (int): The batch size to use when running the classifier.
+            model_batch_size (int): The batch size to use when running the classifier.
             text_field (str): The field in the dataset that should be classified.
             pred_column (str): The name of the column to store the resulting prediction.
             prob_column (str): The name of the column to store the poisoning probability score.
@@ -444,31 +455,18 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
                                 it defaults to the available GPU memory minus 4 GB.
 
         """
-
-        _aegis_variant = "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0"
-        config = AegisConfig(
-            peft_model_name_or_path=_aegis_variant,
-            token=token,
-            add_instruction_data_guard=True,
-        )
+        self._aegis_variant = "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0"
+        self.token = token
 
         self.text_field = text_field
         self._pred_column = pred_column
         self._prob_column = prob_column
-
-        try:
-            model = AegisHFModel(config=config, max_mem_gb=max_mem_gb)
-        except OSError as e:
-            if "meta-llama/LlamaGuard-7b" in str(e):
-                raise PermissionError(ACCESS_ERROR_MESSAGE) from e
-            else:
-                raise
+        self.max_mem_gb = max_mem_gb
 
         super().__init__(
-            model=model,
             labels=None,
             filter_by=None,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             out_dim=1,
             pred_column=self._prob_column,
             max_chars=max_chars,
@@ -476,18 +474,30 @@ class InstructionDataGuardClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
+    @property
+    def name(self) -> str:
+        return "instruction_data_guard_classifier"
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self.config = AegisConfig(
+            peft_model_name_or_path=self._aegis_variant,
+            token=self.token,
+            add_instruction_data_guard=True,
+        )
+        self.model = AegisHFModel(config=self.config, max_mem_gb=self.max_mem_gb)
+
+    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
         print("Starting Instruction Data Guard classifier inference", flush=True)
-        ddf = dataset.df
-        columns = ddf.columns.tolist()
+        columns = df.columns.tolist()
         tokenizer = op.Tokenizer(self.model, cols=[self.text_field], tokenizer_type="default")
         predictor = op.Predictor(
             self.model,
             sorted_data_loader=True,
-            batch_size=self.batch_size,
+            batch_size=self.model_batch_size,
             pred_output_col=self._prob_column,
+            progress_bar=False,
         )
         pipe = op.Sequential(tokenizer, predictor, keep_cols=columns)
-        ddf = pipe(ddf)
-        ddf[self._pred_column] = ddf[self._prob_column] >= 0.50  # noqa: PLR2004
-        return DocumentDataset(ddf)
+        df = pipe(df)
+        df[self._pred_column] = df[self._prob_column] >= 0.50  # noqa: PLR2004
+        return df

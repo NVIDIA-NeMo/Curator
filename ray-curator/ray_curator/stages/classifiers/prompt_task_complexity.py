@@ -16,7 +16,9 @@ import os
 from dataclasses import dataclass, field
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+import cudf
 import numpy as np
+import pandas as pd
 import torch
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
@@ -24,11 +26,10 @@ from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-from nemo_curator.classifiers.base import (
-    DistributedDataClassifier,
-    _get_suggest_memory_for_classifier,
-)
-from nemo_curator.datasets import DocumentDataset
+from ray_curator.backends.base import WorkerMetadata
+
+from .base import DistributedDataClassifier
+from .utils import _get_suggest_memory_for_classifier
 
 PROMPT_TASK_COMPLEXITY_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 
@@ -262,7 +263,7 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
     This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
-        batch_size (int): The number of samples per batch for inference. Defaults to 256.
+        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
         text_field (str): The field in the dataset that should be classified.
         max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 2000.
         device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
@@ -274,7 +275,7 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
-        batch_size: int = 256,
+        model_batch_size: int = 256,
         text_field: str = "text",
         max_chars: int = 2000,
         device_type: str = "cuda",
@@ -283,17 +284,15 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
     ):
         self.text_field = text_field
 
-        config = AutoConfig.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
-        pred_column = config.targets
+        self.config = AutoConfig.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
+        pred_column = self.config.targets
 
-        model_config = PromptTaskComplexityConfig(model_output_type=config.model_output_type)
-        model = PromptTaskComplexityModel(config=model_config, autocast=autocast, max_mem_gb=max_mem_gb)
+        self.max_mem_gb = max_mem_gb
 
         super().__init__(
-            model=model,
             labels=None,
             filter_by=None,
-            batch_size=batch_size,
+            model_batch_size=model_batch_size,
             out_dim=None,
             pred_column=pred_column,
             max_chars=max_chars,
@@ -301,10 +300,19 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-    def _run_classifier(self, dataset: DocumentDataset) -> DocumentDataset:
+    @property
+    def name(self) -> str:
+        return "prompt_task_complexity_classifier"
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self.model_config = PromptTaskComplexityConfig(model_output_type=self.config.model_output_type)
+        self.model = PromptTaskComplexityModel(
+            config=self.model_config, autocast=self.autocast, max_mem_gb=self.max_mem_gb
+        )
+
+    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
         print("Starting prompt task and complexity classifier inference", flush=True)
 
-        df = dataset.df
         columns_to_keep_list = df.columns.to_list()
 
         model = self.model
@@ -318,20 +326,19 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
             op.Predictor(
                 model,
                 sorted_data_loader=True,
-                batch_size=self.batch_size,
+                batch_size=self.model_batch_size,
                 model_output_cols=self.pred_column,
+                progress_bar=False,
             ),
-            repartition=df.npartitions,
             keep_cols=columns_to_keep_list,
         )
 
-        df = classifier_pipe(df)
-        return DocumentDataset(df)
+        return classifier_pipe(df)
 
     def _filter_documents(
         self,
-        dataset: DocumentDataset,
-    ) -> DocumentDataset:
+        df: pd.DataFrame | cudf.DataFrame,
+    ) -> pd.DataFrame | cudf.DataFrame:
         msg = "filter_by not supported with PromptTaskComplexityClassifier"
         raise NotImplementedError(msg)
 
