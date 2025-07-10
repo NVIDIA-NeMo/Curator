@@ -158,7 +158,7 @@ def process_structured_data(structured_data: list[dict[str, Any]]) -> pd.DataFra
     )
 
 
-def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, DocumentDataset]:
+def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, DocumentDataset, DocumentDataset]:
     """
     Process different types of document data (text, image, structured) and convert them into
     DocumentDataset-wrapped Dask DataFrames.
@@ -421,15 +421,8 @@ def main() -> None:
     image_ddf = process_image_data(data_type_map)
 
     # Initialize the client and run the curation pipelines
-    cluster = LocalCUDACluster(
-        rmm_pool_size="1GB",
-        protocol="tcp",
-        rmm_async=True,
-        enable_cudf_spill=True,
-    )
+    client = get_client(**ArgumentHelper.parse_client_args(args), set_torch_to_use_rmm=True)
     rmm_allocator_external_lib_list=["cupy", "torch"]
-    client = Client(cluster)
-    #client = get_client(**ArgumentHelper.parse_client_args(args), set_torch_to_use_rmm=True)
     run_text_curation_pipeline(args, text_ddf, struct_ddf)
     run_image_curation_pipeline(image_ddf)
     client.close()
