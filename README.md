@@ -9,7 +9,7 @@
 </div>
 
 # NeMo Curator
-🚀 **The GPU Accelerated Open Source Framework for Efficient Generative AI Model Data Curation** 🚀
+🚀 **The GPU-Accelerated Open Source Framework for Efficient Generative AI Model Data Curation** 🚀
 
 NeMo Curator is a Python library specifically designed for fast and scalable dataset preparation and curation for generative AI use cases such as foundation language model pretraining, text-to-image model training, domain-adaptive pretraining (DAPT), supervised fine-tuning (SFT) and parameter-efficient fine-tuning (PEFT). It greatly accelerates data curation by leveraging GPUs with [Dask](https://www.dask.org/) and [RAPIDS](https://developer.nvidia.com/rapids), resulting in significant time savings. The library provides a customizable and modular interface, simplifying pipeline expansion and accelerating model convergence through the preparation of high-quality tokens.
 
