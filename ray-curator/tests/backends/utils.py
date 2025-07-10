@@ -7,6 +7,7 @@ and validating expected outputs across different backend implementations.
 import io
 import json
 import logging
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -53,6 +54,8 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, input_data: DocumentBatch) -> DocumentBatch:
         df = input_data.to_pandas()
         df["doc_length"] = df["text"].apply(len)
+        # Add process ID to track parallel execution
+        df["add_length_process_id"] = os.getpid()
         return DocumentBatch(
             task_id=input_data.task_id,
             dataset_name=input_data.dataset_name,
@@ -69,7 +72,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], ["text"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["text", "doc_length"]
+        return ["data"], ["text", "doc_length", "add_length_process_id"]
 
 
 class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -81,6 +84,9 @@ class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, input_data: DocumentBatch) -> list[DocumentBatch]:
         df = input_data.to_pandas()
+        # Add process ID to track parallel execution
+        df["fanout_process_id"] = os.getpid()
+
         # Remove source_files from metadata to prevent file collision issues
         # When splitting a document into individual rows, each row would inherit
         # the same source_files metadata. This causes the JsonlWriter to hash
@@ -120,7 +126,7 @@ class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["fanout_process_id"]
 
 
 def create_test_pipeline(input_dir: Path, output_dir: Path) -> Pipeline:
@@ -138,11 +144,11 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> Pipeline:
         )
     )
 
-    # Add AddLengthStage stage
-    pipeline.add_stage(AddLengthStage())
-
     # Add SplitIntoRowsStage stage
     pipeline.add_stage(SplitIntoRowsStage())
+
+    # Add AddLengthStage stage
+    pipeline.add_stage(AddLengthStage())
 
     # Add JsonlWriter stage
     pipeline.add_stage(JsonlWriter(output_dir=str(output_dir)))
