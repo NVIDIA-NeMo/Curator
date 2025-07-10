@@ -37,15 +37,12 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
         score_fn (Callable | DocumentFilter): The score function or the DocumentFilter object. If it is a DocumentFilter object, the score_fn will be the score_document method of the DocumentFilter.
         score_field (str): The field the score will be stored in.
         text_field (str): The field the documents will be read from.
-        processing_batch_size (int): The number of tasks to process in a batch.
 
     """
 
     score_fn: Callable[[str], float | str] | DocumentFilter
     score_field: str
     text_field: str = "text"
-    # TODO: Remove this once we have .with(batch_size=...)
-    processing_batch_size: int = 1
 
     @property
     def name(self) -> str:
@@ -56,11 +53,6 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.score_field]
-
-    @property
-    def batch_size(self) -> int:
-        """Number of tasks to process in a batch."""
-        return self.processing_batch_size
 
     def setup_on_node(
         self,
@@ -76,49 +68,6 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
                 self.score_fn.load_model()
             elif hasattr(self.score_fn, "load_tokenizer"):
                 self.score_fn.load_tokenizer()
-
-    def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
-        """
-        Scores all records in multiple dataset batches
-
-        Args:
-            tasks (list[DocumentBatch]): The dataset batches to apply the module to
-
-        Returns:
-            list[DocumentBatch]: The dataset batches with the score applied
-
-        """
-
-        if self.processing_batch_size == 1:
-            return [self.process(tasks[0])]
-
-        # Convert and collect all Pandas DataFrames
-        dfs = [task.to_pandas() for task in tasks]
-        lengths = [len(df) for df in dfs]
-        task_ids = [task.task_id for task in tasks]
-        dataset_names = [task.dataset_name for task in tasks]
-
-        # Combine and process
-        combined_df = pd.concat(dfs, ignore_index=True)
-        combined_batch = DocumentBatch(data=combined_df, task_id="batch_list", dataset_name="batch_list")
-        processed_batch = self.process(combined_batch)
-        processed_df = processed_batch.to_pandas()
-
-        # Use original lengths to rebuild the DocumentBatch objects
-        result_batches = []
-        offset = 0
-        for length, task_id, dataset_name in zip(lengths, task_ids, dataset_names, strict=True):
-            chunk = processed_df.iloc[offset : offset + length].reset_index(drop=True)
-            result_batches.append(
-                DocumentBatch(
-                    task_id=f"{task_id}_{self.name}",
-                    dataset_name=dataset_name,
-                    data=chunk,
-                )
-            )
-            offset += length
-
-        return result_batches
 
     def process(self, batch: DocumentBatch) -> DocumentBatch | None:
         """
@@ -160,15 +109,12 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
             in which case the filter_fn will be the keep_document method of the DocumentFilter.
         filter_field (str): The field(s) to be passed into the filter function.
         invert (bool): Whether to invert the filter condition.
-        processing_batch_size (int): The number of tasks to process in a batch.
 
     """
 
     filter_fn: Callable | DocumentFilter
     filter_field: str
     invert: bool = False
-    # TODO: Remove this once we have .with(batch_size=...)
-    processing_batch_size: int = 1
 
     @property
     def name(self) -> str:
@@ -179,11 +125,6 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-
-    @property
-    def batch_size(self) -> int:
-        """Number of tasks to process in a batch."""
-        return self.processing_batch_size
 
     def compute_filter_mask(self, df: pd.DataFrame) -> pd.Series:
         """Compute the bool mask to filter the dataset.
@@ -205,61 +146,6 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
             bool_mask = ~bool_mask
 
         return bool_mask
-
-    def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
-        """
-        Filters records in multiple dataset batches
-
-        Args:
-            tasks (list[DocumentBatch]): The dataset batches to apply the module to
-
-        Returns:
-            list[DocumentBatch]: The dataset batches with the filter applied
-
-        """
-
-        if self.processing_batch_size == 1:
-            return [self.process(tasks[0])]
-
-        dfs = []
-        for i, task in enumerate(tasks):
-            df = task.to_pandas().copy()
-            df["__original_batch_id__"] = i
-            dfs.append(df)
-
-        combined_df = pd.concat(dfs, ignore_index=True)
-
-        task_ids = [task.task_id for task in tasks]
-        dataset_names = [task.dataset_name for task in tasks]
-        batch_id_str = "_".join(task_ids)
-        batch_name_str = "_".join(dataset_names)
-        combined_batch = DocumentBatch(data=combined_df, task_id=batch_id_str, dataset_name=batch_name_str)
-
-        processed_batch = self.process(combined_batch)
-
-        if processed_batch is None:
-            return []
-
-        filtered_df = processed_batch.to_pandas()
-
-        if "__original_batch_id__" not in filtered_df.columns:
-            msg = "Expected '__original_batch_id__' column is missing after processing."
-            raise ValueError(msg)
-
-        # Reconstruct batches based on the temp column
-        result_batches = []
-        for i, group_df in filtered_df.groupby("__original_batch_id__"):
-            task = tasks[i]
-            cleaned_df = group_df.drop(columns="__original_batch_id__").reset_index(drop=True)
-            result_batches.append(
-                DocumentBatch(
-                    task_id=f"{task.task_id}_{self.name}",
-                    dataset_name=task.dataset_name,
-                    data=cleaned_df,
-                )
-            )
-
-        return result_batches
 
     def process(self, batch: DocumentBatch) -> DocumentBatch | None:
         """
@@ -303,7 +189,6 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         text_field (str): The field the documents will be read from.
         score_field: The field to which the scores will be written. If None, scores will be immediately discarded after use.
         invert (bool): If True, will keep all documents that are normally discarded.
-        processing_batch_size (int): The number of tasks to process in a batch.
 
     """
 
@@ -311,8 +196,6 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     text_field: str = "text"
     score_field: str | None = None
     invert: bool = False
-    # TODO: Remove this once we have .with(batch_size=...)
-    processing_batch_size: int = 1
 
     @property
     def name(self) -> str:
@@ -323,11 +206,6 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.score_field] if self.score_field else []
-
-    @property
-    def batch_size(self) -> int:
-        """Number of tasks to process in a batch."""
-        return self.processing_batch_size
 
     def setup_on_node(
         self,
@@ -366,61 +244,6 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             bool_mask = ~bool_mask
 
         return bool_mask
-
-    def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
-        """
-        Scores and filters all records in multiple dataset batches
-
-        Args:
-            tasks (list[DocumentBatch]): The dataset batches to apply the module to
-
-        Returns:
-            list[DocumentBatch]: The dataset batches with the score and filter applied
-
-        """
-
-        if self.processing_batch_size == 1:
-            return [self.process(tasks[0])]
-
-        dfs = []
-        for i, task in enumerate(tasks):
-            df = task.to_pandas().copy()
-            df["__original_batch_id__"] = i
-            dfs.append(df)
-
-        combined_df = pd.concat(dfs, ignore_index=True)
-
-        task_ids = [task.task_id for task in tasks]
-        dataset_names = [task.dataset_name for task in tasks]
-        batch_id_str = "_".join(task_ids)
-        batch_name_str = "_".join(dataset_names)
-        combined_batch = DocumentBatch(data=combined_df, task_id=batch_id_str, dataset_name=batch_name_str)
-
-        processed_batch = self.process(combined_batch)
-
-        if processed_batch is None:
-            return []
-
-        filtered_df = processed_batch.to_pandas()
-
-        if "__original_batch_id__" not in filtered_df.columns:
-            msg = "Expected '__original_batch_id__' column is missing after processing."
-            raise ValueError(msg)
-
-        # Reconstruct batches based on the temp column
-        result_batches = []
-        for i, group_df in filtered_df.groupby("__original_batch_id__"):
-            task = tasks[i]
-            cleaned_df = group_df.drop(columns="__original_batch_id__").reset_index(drop=True)
-            result_batches.append(
-                DocumentBatch(
-                    task_id=f"{task.task_id}_{self.name}",
-                    dataset_name=task.dataset_name,
-                    data=cleaned_df,
-                )
-            )
-
-        return result_batches
 
     def process(self, batch: DocumentBatch) -> DocumentBatch | None:
         """
