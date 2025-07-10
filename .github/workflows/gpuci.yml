@@ -152,6 +152,8 @@ jobs:
         id: coverage
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          NCCL_P2P_DISABLE: 1
+          NCCL_IB_DISABLE: 1
         run: |
           docker exec -e HF_TOKEN=$HF_TOKEN -e NCCL_P2P_DISABLE=1 -e NCCL_IB_DISABLE=1 nemo-curator-container bash -c '
             export NCCL_P2P_DISABLE=1 && \
