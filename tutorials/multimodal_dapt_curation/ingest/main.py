@@ -14,7 +14,7 @@
 
 import argparse
 import json
-import logging, os, time, sys
+import os, time
 import re
 import shutil
 from base64 import b64decode
@@ -29,16 +29,6 @@ from nv_ingest.framework.orchestration.ray.util.pipeline.pipeline_runners import
 from nv_ingest_api.util.logging.configuration import configure_logging as configure_local_logging
 from nv_ingest_client.client import Ingestor, NvIngestClient
 from nv_ingest_api.util.message_brokers.simple_message_broker import SimpleClient
-from nv_ingest_client.util.process_json_files import ingest_json_results_to_blob
-
-
-config = PipelineCreationSchema()
-run_pipeline(config, block=False, disable_dynamic_scaling=True, run_in_subprocess=True)
-client = NvIngestClient(
-    message_client_allocator=SimpleClient,
-    message_client_port=7671,
-    message_client_hostname="localhost"
-)
 
 # Constants for configuration and paths
 SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -243,6 +233,14 @@ def main() -> None:
     parser.add_argument("--display", action="store_true", help="Enable displaying of contents")
 
     args = parser.parse_args()
+
+    config = PipelineCreationSchema()
+    run_pipeline(config, block=False, disable_dynamic_scaling=True, run_in_subprocess=True)
+    client = NvIngestClient(
+        message_client_allocator=SimpleClient,
+        message_client_port=7671,
+        message_client_hostname="localhost"
+    )
 
     download_arxiv_data()
     extract_contents()
