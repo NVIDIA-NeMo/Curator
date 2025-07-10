@@ -26,7 +26,7 @@ from presidio_analyzer import (
 from presidio_analyzer.nlp_engine import NlpArtifacts
 
 if TYPE_CHECKING:
-    from nemo_curator.pii.custom_nlp_engine import CustomNlpEngine
+    from ray_curator.stages.pii.ner_pii.custom_nlp_engine import CustomNlpEngine
 
 logger = logging.getLogger("presidio-analyzer")
 

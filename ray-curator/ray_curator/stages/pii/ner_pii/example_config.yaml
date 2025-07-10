@@ -1,0 +1,74 @@
+# Simplified PII Configuration Example
+# This configuration focuses on the most commonly changed settings
+# The configuration is split into analyzer (detection) settings and anonymization settings
+
+# SpaCy models for different languages (used by analyzer/detection)
+# Download models with: python -m spacy download <model_name>
+models:
+  - language: en
+    model_name: en_core_web_lg
+  - language: es
+    model_name: es_core_news_md
+  # Add more languages as needed:
+  # - language: de
+  #   model_name: de_core_news_lg
+  # - language: fr
+  #   model_name: fr_core_news_md
+
+# Entity types to detect (comment out to detect all supported types)
+supported_entities:
+  - PERSON
+  - EMAIL_ADDRESS
+  - PHONE_NUMBER
+  - CREDIT_CARD
+  - US_SSN
+  - LOCATION
+  - ADDRESS
+  - DATE_TIME
+  - IP_ADDRESS
+  - URL
+
+# Processing configuration
+device: gpu  # Use "cpu" if GPU not available
+batch_size: 2000
+max_doc_size: 2000000
+
+# Anonymization configuration
+anonymization:
+  # Default action for all entities
+  default_action: replace  # Options: replace, redact, hash, mask
+  default_params:
+    new_value: "<REDACTED>"
+  
+  # Entity-specific actions (optional - overrides default)
+  entity_config:
+    PERSON:
+      action: replace
+      params:
+        new_value: "[NAME]"
+    
+    EMAIL_ADDRESS:
+      action: hash
+      params:
+        hash_type: sha256  # Options: sha256, sha512, md5
+    
+    PHONE_NUMBER:
+      action: mask
+      params:
+        chars_to_mask: 7
+        masking_char: "*"
+        from_end: false
+    
+    CREDIT_CARD:
+      action: mask
+      params:
+        chars_to_mask: 12
+        masking_char: "X"
+        from_end: false
+    
+    US_SSN:
+      action: redact
+      params: {}
+
+# Column containing text to process
+text_column: text 
