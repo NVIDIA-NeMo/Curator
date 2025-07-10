@@ -42,7 +42,6 @@ from nemo_curator import ClusteringModel, ScoreFilter, SemanticClusterLevelDedup
 from nemo_curator.datasets import DocumentDataset, ImageTextPairDataset
 from nemo_curator.image.embedders import TimmImageEmbedder
 from nemo_curator.utils.distributed_utils import get_client
-from dask.distributed import Client, LocalCluster
 from dask_cuda import LocalCUDACluster
 from nemo_curator.utils.script_utils import ArgumentHelper
 
