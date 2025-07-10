@@ -147,6 +147,7 @@ jobs:
         # run our PyTests marked with `@pytest.mark.gpu`
         # We specify the `rootdir` to help locate the "pyproject.toml" file (which is in the root directory of the repository),
         # and then the directory where the PyTests are located
+        # TODO: Try to remove NCCL_P2P_DISABLE=1 once we switch to Ray
       - name: Run PyTests with GPU mark
         id: coverage
         env:
