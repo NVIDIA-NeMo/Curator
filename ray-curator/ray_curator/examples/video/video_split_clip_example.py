@@ -3,6 +3,7 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
 
 
@@ -39,6 +40,22 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         debug=args.debug,
     ))
 
+    pipeline.add_stage(
+        ClipWriterStage(
+            output_path=args.output_clip_path,
+            input_path=args.video_folder,
+            upload_clips=args.upload_clips,
+            dry_run=args.dry_run,
+            generate_embeddings=False, # TODO: Change this once we have an embedding stage
+            generate_previews=False, # TODO: Change this once we have a preview stage
+            generate_captions=False, # TODO: Change this once we have a caption stage
+            embedding_algorithm=args.embedding_algorithm,
+            caption_models=None, # TODO: Change this once we have a caption stage
+            enhanced_caption_models=None, # TODO: Change this once we have a caption stage
+            verbose=args.verbose,
+        )
+    )
+
     return pipeline
 
 
@@ -66,7 +83,7 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", default=False, help="Run in debug mode")
     parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
+    parser.add_argument("--output-clip-path", type=str, help="Path to output clips")
     parser.add_argument(
         "--no-upload-clips",
         dest="upload_clips",
