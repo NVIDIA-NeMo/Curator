@@ -40,5 +40,5 @@ FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS final
 
 ENV PATH /opt/conda/envs/curator/bin:$PATH
 LABEL "nemo.library"=${IMAGE_LABEL}
-WORKDIR /opt
+WORKDIR /workspace
 COPY --from=deps /opt/conda/envs/curator /opt/conda/envs/curator
