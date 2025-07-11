@@ -22,6 +22,7 @@ dependencies = [
     "transformers>=4.48.0",
     "pyarrow",
     "absl-py>=2.0.0,<3.0.0",
+    "pynvml==11.5.3"
 ]
 
 [project.optional-dependencies]
@@ -39,6 +40,11 @@ dev = [
     "ruff==0.11.4",
     "debugpy",
     "pytest"
+]
+
+video = [
+    "av==13.1.0",
+    "opencv-python",
 ]
 
 [tool.setuptools]
