@@ -92,6 +92,7 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=df,
+            _metadata=batch._metadata,
         )
 
 
@@ -171,6 +172,7 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=result_df,
+            _metadata=batch._metadata,
         )
 
 
@@ -269,4 +271,5 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=f"{batch.task_id}_{self.name}",
             dataset_name=batch.dataset_name,
             data=result_df,
+            _metadata=batch._metadata,
         )
