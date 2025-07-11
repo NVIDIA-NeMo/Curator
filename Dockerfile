@@ -27,10 +27,11 @@ RUN conda create -y --name curator -c nvidia/label/cuda-${CUDA_VER} -c conda-for
   source activate curator && \
   pip install --upgrade pytest pip pytest-coverage
 
+WORKDIR /tmp/Curator
 RUN \
-  --mount=type=bind,source=nemo_curator/__init__.py,target=/tmp/NeMo-Curator/nemo_curator/__init__.py \
-  --mount=type=bind,source=nemo_curator/package_info.py,target=/tmp/NeMo-Curator/nemo_curator/package_info.py \
-  --mount=type=bind,source=pyproject.toml,target=/tmp/NeMo-Curator/pyproject.toml \
+  --mount=type=bind,source=nemo_curator/__init__.py,target=/tmp/Curator/nemo_curator/__init__.py \
+  --mount=type=bind,source=nemo_curator/package_info.py,target=/tmp/Curator/nemo_curator/package_info.py \
+  --mount=type=bind,source=pyproject.toml,target=/tmp/Curator/pyproject.toml \
   source activate curator && \
   pip install --extra-index-url https://pypi.nvidia.com -e ".[all]"
 
