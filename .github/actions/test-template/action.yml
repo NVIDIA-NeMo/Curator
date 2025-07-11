@@ -176,8 +176,6 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c '
           set -e
           
-          . /opt/venv/env.sh
-
           bash tests/${{ inputs.is_unit_test == 'true' && 'unit_tests' || 'functional_tests' }}/${{ inputs.script }}.sh
           
         '
@@ -203,8 +201,8 @@ runs:
       id: check
       shell: bash
       run: |
-        docker exec nemo_container_${{ github.run_id }} /opt/venv/bin/coverage combine || true
-        docker exec nemo_container_${{ github.run_id }} /opt/venv/bin/coverage xml || true
+        docker exec nemo_container_${{ github.run_id }} coverage combine || true
+        docker exec nemo_container_${{ github.run_id }} coverage xml || true
         docker cp nemo_container_${{ github.run_id }}:/workspace/.coverage .coverage
         docker cp nemo_container_${{ github.run_id }}:/workspace/coverage.xml coverage.xml
 
@@ -229,7 +227,7 @@ runs:
     - name: Test coverage
       shell: bash -x -e -u -o pipefail {0}
       run: |
-        docker exec -t nemo_container_${{ github.run_id }} /opt/venv/bin/coverage report -i
+        docker exec -t nemo_container_${{ github.run_id }} coverage report -i
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
