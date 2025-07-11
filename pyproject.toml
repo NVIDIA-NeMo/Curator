@@ -83,20 +83,20 @@ dev = [
 ]
 # Installs CPU + GPU text curation modules
 cuda12x = [
-    "cudf-cu12==25.04",
-    "cugraph-cu12==25.04",
-    "cuml-cu12==25.04",
-    "dask-cuda==25.04",
-    "dask-cudf-cu12==25.04",
+    "cudf-cu12==25.06",
+    "cugraph-cu12==25.06",
+    "cuml-cu12==25.06",
+    "dask-cuda==25.06",
+    "dask-cudf-cu12==25.06",
     "spacy[cuda12x]>=3.6.0, <3.8.0",
 ]
 # Installs CPU + GPU text curation modules with RAPIDS Nightlies
 cuda12x_nightly = [
-    "cudf-cu12>=25.06.0a0,<=25.06",
-    "cugraph-cu12>=25.06.0a0,<=25.06",
-    "cuml-cu12>=25.06.0a0,<=25.06",
-    "dask-cuda>=25.06.0a0,<=25.06",
-    "dask-cudf-cu12>=25.06.0a0,<=25.06",
+    "cudf-cu12>=25.08.0a0,<=25.08",
+    "cugraph-cu12>=25.08.0a0,<=25.08",
+    "cuml-cu12>=25.08.0a0,<=25.08",
+    "dask-cuda>=25.08.0a0,<=25.08",
+    "dask-cudf-cu12>=25.08.0a0,<=25.08",
     "spacy[cuda12x]>=3.6.0, <3.8.0",
 ]
 # Installs CPU + GPU text and image curation modules
