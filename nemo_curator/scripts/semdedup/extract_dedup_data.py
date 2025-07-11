@@ -58,7 +58,14 @@ def main(args: argparse.Namespace) -> None:
 
     semantic_dedup.compute_semantic_match_dfs()
     dedup_id_dataset = semantic_dedup.extract_dedup_data(eps_to_extract=semdedup_config.eps_to_extract)
-    print(dedup_id_dataset.df.head(10))
+
+    len_dedup_id_dataset = len(dedup_id_dataset.df.index)
+
+    # Check whether duplicates are found or not
+    if len_dedup_id_dataset == 0:
+        logger.info("No semantic duplicates found!")
+    else:
+        print(dedup_id_dataset.df.head(10, npartitions=-1))
 
     dt2 = time.perf_counter()
     logger.info(f"End: {dt2}")
@@ -77,7 +84,6 @@ def attach_args() -> argparse.ArgumentParser:
             "earlier using semdedup_extract_embeddings and semdedup_cluster_embeddings."
             "Input arguments include: "
             "--id-column for the the identifier in the dataset, "
-            "--id-column-type for the data type of ID column, "
             "--config-file for the path to the semantic deduplication configuration file. "
             "Important configuration parameters include:"
             " cache_dir for the directory to store cache"

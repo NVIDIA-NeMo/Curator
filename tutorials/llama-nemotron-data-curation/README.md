@@ -111,6 +111,19 @@ If you are interested in counting and displaying the number of rows after each s
 
 ## Debugging Out of Memory Errors
 
-If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. One is to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 256 MB per Dask partition. To customize the file reading logic, the user may specify `--json-blocksize "1gb"` with any string representation for the partition size (e.g., "1gb", "256mb"). Alternatively, the user may specify `--json-files-per-partition 2` with any integer to represent the number of JSONL files per Dask partition. Please note that either the blocksize or files per partition can be specified, but not both. For GPU workflows, a good general rule of thumb is to set the blocksize to 1/32 of the total GPU memory. In general, a blocksize between 100 MB and 1 GB is considered ideal.
+If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. One is to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 100 MB per Dask partition. To customize the file reading logic, the user may specify `--json-blocksize "1gb"` with any string representation for the partition size (e.g., "1gb", "256mb"). Alternatively, the user may specify `--json-files-per-partition 2` with any integer to represent the number of JSONL files per Dask partition. Please note that either the blocksize or files per partition can be specified, but not both. For GPU workflows, a good general rule of thumb is to set the blocksize to 1/32 of the total GPU memory. In general, a blocksize between 100 MB and 1 GB is considered ideal.
 
 You may also encounter errors about Dask workers unexpectedly shutting down. To help mitigate this, consider lowering the `--n-workers` parameter. By default, we set the number of Dask workers equal to the number of CPU cores. It may be helpful to set `--n-workers` to half or a fourth of the number of CPU cores and possibly reduce the number from there. For example, if `lscpu` shows `CPU(s): 96`, then setting `--n-workers 48` or `--n-workers 24` may help optimize performance while avoiding memory issues. In the example bash script, we set `--n-workers 4` as a safe option to help avoid errors.
+
+## Next Steps
+
+To see how to train a reasoning model with the resulting dataset, please refer to this NeMo tutorial: [Train Your Own Reasoning Model in 48 Hours on a Single GPU](https://github.com/NVIDIA/NeMo/tree/main/tutorials/llm/reasoning).
+
+Before running the NeMo tutorial, you should combine all of the resulting JSONL files from this tutorial into a single file called `training.jsonl`. To do this, you can navigate to the output directory and then combine all of the JSONL files:
+
+```bash
+cd /path/to/curated-data
+find . -name "*.jsonl" -exec cat {} + | sed '/^$/d' > training.jsonl
+```
+
+Please note that the above command contains some additional logic to help ignore any empty JSONL files, which may have resulted from the filtering done by this tutorial.

@@ -149,7 +149,7 @@ class SemanticClusterLevelDedup:
             msg = "eps_to_extract must be a float"
             self.logger.error(msg)
             raise TypeError(msg)
-        output_parquet_path = os.path.join(self.output_dir, f"unique_ids_{eps_to_extract}.parquet")
+        output_parquet_path = os.path.join(self.output_dir, f"duplicate_ids_{eps_to_extract}.parquet")
 
         t0 = time.time()
         with performance_report_if_with_ts_suffix(
