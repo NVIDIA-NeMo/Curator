@@ -124,14 +124,14 @@ runs:
     - name: Checkout repository
       uses: actions/checkout@v2
       with:
-        path: NeMo-Automodel
+        path: NeMo-Curator
 
     - name: Build container
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f docker/Dockerfile.ci  --secret id=GH_TOKEN -t automodel .
+        docker build -f Dockerfile --secret id=GH_TOKEN -t curator .
 
     - name: Start container
       shell: bash
@@ -155,10 +155,10 @@ runs:
           --env HYDRA_FULL_ERROR=1 \
           --env HF_HOME=/home/TestData/HF_HOME \
           --env RUN_ID=${{ github.run_id }} \
-          --volume $(pwd)/NeMo-Automodel:/workspace \
+          --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
           --volume $MNT_PATH/TestData:/home/TestData \
-          automodel \
+          curator \
           bash -c "sleep $(( ${{ inputs.timeout }} * 60 + 60 ))"
         RUN_TEST_EOF
         )
