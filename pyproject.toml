@@ -192,6 +192,7 @@ source = [".", "/workspace", "/home/runner/work/Curator/Curator"]
 [tool.coverage.run]
 omit = [
     "tests/*",
+    "nemo_curator/scripts/*",
 ]
 
 [tool.ruff]
