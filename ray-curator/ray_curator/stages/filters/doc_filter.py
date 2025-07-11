@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import importlib
 from abc import ABC, abstractmethod
-from typing import Literal
-
-from nemo_curator.filters.bitext_filter import BitextFilter
 
 
 class DocumentFilter(ABC):
@@ -80,16 +76,6 @@ class DocumentFilter(ABC):
         raise NotImplementedError(msg)
 
     @property
-    def backend(self) -> Literal["pandas", "cudf", "any"]:
-        """
-        The dataframe backend the filter operates on.
-        Can be 'pandas', 'cudf', or 'any'. Defaults to 'pandas'.
-        Returns:
-            str: A string representing the dataframe backend the filter needs as input
-        """
-        return "pandas"
-
-    @property
     def name(self) -> str:
         return self._name
 
@@ -116,29 +102,3 @@ class DocumentFilter(ABC):
     @ngrams.setter
     def ngrams(self, ngrams: dict) -> None:
         self._ngrams = ngrams
-
-
-def import_filter(filter_path: str) -> DocumentFilter | BitextFilter:
-    """
-    Imports a filter under nemo_curator.filters given the module path
-
-    Args:
-        filter_path (str): The path to the filter in the form of "nemo_curator.filters.filter_name"
-
-    Returns:
-        DocumentFilter: The filter that is at the given path
-
-    Raises:
-        ValueError: If the filter_path does not point to a DocumentFilter
-    """
-    module_path, filter_name = filter_path.rsplit(".", 1)
-    filter_module = importlib.import_module(module_path)
-    filter_class = getattr(filter_module, filter_name)
-    if not issubclass(filter_class, DocumentFilter) and not issubclass(filter_class, BitextFilter):
-        msg = (
-            f"Input filter {filter_class.__name__} must be derived "
-            "from DocumentFilter defined in nemo_curator.filters.doc_filter or"
-            "from BitextFilter defined in nemo_curator.filters.bitext_filter"
-        )
-        raise TypeError(msg)
-    return filter_class

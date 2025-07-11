@@ -7,38 +7,46 @@ name = "ray-curator"
 version = "0.1.0"
 authors = [
     { name = "Ayush Dattagupta", email = "adattagupta@nvidia.com" },
+    { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
     { name = "Praateek Mahajan", email = "praateekm@nvidia.com" },
+    { name = "Sarah Yurick", email = "syurick@nvidia.com" },
 ]
 description = "A Ray-based data curator"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
-    "ray[default]",
-    "fsspec",
-    "torch",
-    "loguru",
-    "crossfit>=0.0.9",
-    "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
-    "transformers>=4.48.0",
-    "pyarrow",
     "absl-py>=2.0.0,<3.0.0",
+    "beautifulsoup4",
+    "comment_parser",
+    "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
+    "crossfit>=0.0.9",
+    "fasttext==0.9.3",
+    "fsspec",
+    "jieba==0.42.1",
+    "loguru",
+    "mecab-python3",
+    "pyarrow",
+    "ray[default]",
+    "sentencepiece",
+    "torch",
+    "transformers>=4.48.0",
 ]
 
 [project.optional-dependencies]
 cuda12x = [
     "cudf-cu12==25.6.*",
+    "cugraph-cu12==25.6.*",
     "cuml-cu12==25.6.*",
+    "nx-cugraph-cu12==25.6.*",
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
-    "cugraph-cu12==25.6.*",
-    "nx-cugraph-cu12==25.6.*",
 ]
 
 dev = [
-    "pre-commit",
-    "ruff==0.11.4",
     "debugpy",
-    "pytest"
+    "pre-commit",
+    "pytest",
+    "ruff==0.11.4",
 ]
 
 [tool.setuptools]
