@@ -179,7 +179,8 @@ runs:
           source activate /opt/conda/envs/curator
           
           bash tests/${{ inputs.script }}.sh
-          
+
+          ls /workspace
         '
 
         RUN_TEST_EOF
