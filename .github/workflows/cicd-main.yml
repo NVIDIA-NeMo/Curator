@@ -135,6 +135,7 @@ jobs:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           PAT: ${{ secrets.PAT }}
+          timeout: 20
 
   Nemo_CICD_Test:
     needs:
