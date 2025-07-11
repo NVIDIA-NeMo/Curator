@@ -60,13 +60,12 @@ def main(args: argparse.Namespace) -> None:
     dedup_id_dataset = semantic_dedup.extract_dedup_data(eps_to_extract=semdedup_config.eps_to_extract)
 
     len_dedup_id_dataset = len(dedup_id_dataset.df.index)
-    npartitions = dedup_id_dataset.df.npartitions
 
     # Check whether duplicates are found or not
     if len_dedup_id_dataset == 0:
         logger.info("No semantic duplicates found!")
     else:
-        print(dedup_id_dataset.df.head(10, npartitions=npartitions))
+        print(dedup_id_dataset.df.head(10, npartitions=-1))
 
     dt2 = time.perf_counter()
     logger.info(f"End: {dt2}")
