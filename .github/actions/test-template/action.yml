@@ -131,7 +131,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f Dockerfile --build-arg REPO_URL=https://github.com/${{ github.repository }}.git --build-arg CURATOR_COMMIT=${{ github.sha }} -t curator .
+        docker build -f Dockerfile -t curator .
 
     - name: Start container
       shell: bash
