@@ -109,7 +109,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - script: L0_GPU_Test_GPU
+          - script: L0_Unit_Test_GPU
             runner: linux-amd64-gpu-rtxa6000-latest-2-nemo
     needs: [pre-flight]
     runs-on: ${{ matrix.runner }}
