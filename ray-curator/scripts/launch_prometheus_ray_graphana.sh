@@ -1,5 +1,39 @@
 set -e
-set -x
+
+# Default values
+start_ray=false
+
+# Function to show help
+show_help() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Launch Prometheus and Grafana for Ray metrics monitoring. Optinally start ray"
+    echo ""
+    echo "Options:"
+    echo "  --start_ray    Start Ray (default: false). We currently only support starting ray using xenna."
+    echo "                  If you start ray with this sciprt, all your metrics will be part of a single session "
+    echo "  -h, --help          Show this help message"
+    echo ""
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --start_ray)
+            start_ray=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
 
 # Get the absolute path to the grafana config directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,6 +73,14 @@ if [[ $(uname -m) == "x86_64" ]]; then
     if ! pgrep -f "grafana server" > /dev/null; then
         nohup ./bin/grafana-server --config "${GRAFANA_CONFIG_DIR}/grafana.ini" web > ../grafana.log 2>&1 &
     fi
+fi
+
+if [ "$start_ray" = true ]; then
+    python << 'EOF'
+from cosmos_xenna.ray_utils.cluster import init_or_connect_to_cluster
+context = init_or_connect_to_cluster()
+print(f'Dashboard URL: {context.dashboard_url}')
+EOF
 fi
 
 echo "If you are running using Xenna, please remember to export XENNA_RAY_METRICS_PORT=8080"
