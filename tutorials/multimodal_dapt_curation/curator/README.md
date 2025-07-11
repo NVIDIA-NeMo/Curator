@@ -34,7 +34,7 @@ pip install -r requirements.txt
 ```
 
 ```sh
-python main.py --device "gpu"
+python main.py --protocol "tcp" --rmm-pool-size "1GB" --device "gpu"
 ```
 
 ## License
