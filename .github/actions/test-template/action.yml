@@ -131,7 +131,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f Dockerfile --secret id=GH_TOKEN -t curator .
+        docker build -f Dockerfile --build-arg REPO_URL=https://github.com/${{ github.repository }}.git --build-arg CURATOR_COMMIT=${{ github.sha }} -t curator .
 
     - name: Start container
       shell: bash
@@ -151,9 +151,6 @@ runs:
           -d \
           --name nemo_container_${{ github.run_id }} ${ARG[@]} \
           --shm-size=64g \
-          --env TRANSFORMERS_OFFLINE=0 \
-          --env HYDRA_FULL_ERROR=1 \
-          --env HF_HOME=/home/TestData/HF_HOME \
           --env RUN_ID=${{ github.run_id }} \
           --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
