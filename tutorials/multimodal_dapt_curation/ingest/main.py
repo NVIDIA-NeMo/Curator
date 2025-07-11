@@ -14,27 +14,33 @@
 
 import argparse
 import json
-import os, time
+import os
 import re
 import shutil
+import time
 from base64 import b64decode
 from collections import defaultdict
 from io import BytesIO
+
 import arxiv as axv
 import pandas as pd
-from PIL import Image
-
-from nv_ingest.framework.orchestration.ray.util.pipeline.pipeline_runners import run_pipeline
-from nv_ingest.framework.orchestration.ray.util.pipeline.pipeline_runners import PipelineCreationSchema
-from nv_ingest_api.util.logging.configuration import configure_logging as configure_local_logging
-from nv_ingest_client.client import Ingestor, NvIngestClient
+from nv_ingest.framework.orchestration.ray.util.pipeline.pipeline_runners import PipelineCreationSchema, run_pipeline
 from nv_ingest_api.util.message_brokers.simple_message_broker import SimpleClient
+from nv_ingest_client.client import Ingestor, NvIngestClient
+from PIL import Image
 
 # Constants for configuration and paths
 SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR_PATH, "sources")
 RESULT_DIR = os.path.join(DATA_DIR, "extracted_data")
 OUTPUT_DIR = os.path.join(DATA_DIR, "separated_extracted_data")
+
+config = PipelineCreationSchema()
+run_pipeline(config, block=False, disable_dynamic_scaling=True, run_in_subprocess=True)
+client = NvIngestClient(
+    message_client_allocator=SimpleClient, message_client_port=7671, message_client_hostname="localhost"
+)
+
 
 def format_invalid_arxiv_id_error(input_string: str) -> str:
     return f"The provided input '{input_string}' does not match the expected arXiv URL or ID format."
@@ -108,7 +114,7 @@ def separate_extracted_contents() -> None:
 
     for file in os.listdir(RESULT_DIR):
         file_path = os.path.join(RESULT_DIR, file)
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             jsonl_loaded = json.load(f)
             for jsonl_chunk in jsonl_loaded:
                 data_type = jsonl_chunk.get("document_type")
@@ -152,8 +158,7 @@ def extract_contents() -> None:
                 extract_images=True,
                 paddle_output_format="markdown",
                 extract_infographics=True,
-                # extract_method="nemoretriever_parse", #Slower, but maximally accurate, especially for PDFs with pages that are scanned images
-                text_depth="page"
+                text_depth="page",
             )
         )
 
@@ -233,14 +238,6 @@ def main() -> None:
     parser.add_argument("--display", action="store_true", help="Enable displaying of contents")
 
     args = parser.parse_args()
-
-    config = PipelineCreationSchema()
-    run_pipeline(config, block=False, disable_dynamic_scaling=True, run_in_subprocess=True)
-    client = NvIngestClient(
-        message_client_allocator=SimpleClient,
-        message_client_port=7671,
-        message_client_hostname="localhost"
-    )
 
     download_arxiv_data()
     extract_contents()
