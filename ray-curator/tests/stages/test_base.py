@@ -199,6 +199,57 @@ class TestProcessingStageWith:
             assert modified_resources[i] == expected_resources
             assert modified_batch_sizes[i] == expected_batch_size
 
+    def test_class_variable_vs_instance_variable_isolation(self):
+        """Test that instances created with with_ are isolated from class-level changes."""
+
+        # Create a stage that uses class-level defaults (no instance variables set)
+        class MinimalStage(ProcessingStage[MockTask, MockTask]):
+            _name = "MinimalStage"
+            # Note: _resources is not set, so it falls back to ProcessingStage._resources
+            _batch_size = 1
+
+            def process(self, task: MockTask) -> MockTask:
+                return task
+
+        # Create an instance that relies on class-level defaults
+        stage = MinimalStage()
+
+        # Create a modified instance using with_
+        stage_with_custom = stage.with_(resources=Resources(cpus=5.0))
+
+        # Store original class-level resources for restoration
+        original_class_resources = ProcessingStage._resources
+
+        try:
+            # Modify the class-level resources
+            ProcessingStage._resources = Resources(cpus=10.0)
+
+            # The original stage should now reflect the class-level change
+            # (because it doesn't have an instance variable set)
+            assert stage.resources == Resources(cpus=10.0)
+
+            # But the stage created with with_ should be isolated from this change
+            # (because it has an instance variable set)
+            assert stage_with_custom.resources == Resources(cpus=5.0)
+
+            # Create another instance with with_ after the class change
+            stage_with_custom2 = stage.with_(resources=Resources(cpus=7.0))
+            assert stage_with_custom2.resources == Resources(cpus=7.0)
+
+            # The original stage should still reflect the class-level change
+            assert stage.resources == Resources(cpus=10.0)
+
+        finally:
+            # Restore the original class-level resources
+            ProcessingStage._resources = original_class_resources
+
+        # After restoration, the original stage should go back to the default
+        assert stage.resources == original_class_resources
+
+        # But the instances created with with_ should still have their custom values
+        assert stage_with_custom.resources == Resources(cpus=5.0)
+        assert stage_with_custom2.resources == Resources(cpus=7.0)
+
 
 # Mock stages for testing composite stage functionality
 class MockStageA(ProcessingStage[MockTask, MockTask]):
@@ -346,9 +397,9 @@ class TestCompositeStageWith:
 
         # Check that each stage was modified correctly
         # Find each stage by original name in the modified stages
-        stage_a = next(s for s in modified_stages if s.__class__.__name__ == "MockStageAWithOverrides")
-        stage_b = next(s for s in modified_stages if s.__class__.__name__ == "MockStageBWithOverrides")
-        stage_c = next(s for s in modified_stages if s.__class__.__name__ == "MockStageCWithOverrides")
+        stage_a = next(s for s in modified_stages if s.__class__.__name__ == "MockStageA")
+        stage_b = next(s for s in modified_stages if s.__class__.__name__ == "MockStageB")
+        stage_c = next(s for s in modified_stages if s.__class__.__name__ == "MockStageC")
 
         assert stage_a.name == "CustomStageA"
         assert stage_a.resources == Resources(cpus=1.0)  # Not modified
@@ -383,9 +434,9 @@ class TestCompositeStageWith:
         assert len(modified_stages) == 3
 
         # Find each stage by class name
-        stage_a = next(s for s in modified_stages if s.__class__.__name__ == "MockStageAWithOverrides")
-        stage_b = next(s for s in modified_stages if s.__class__.__name__ == "MockStageBWithOverrides")
-        stage_c = next(s for s in modified_stages if s.__class__.__name__ == "MockStageCWithOverrides")
+        stage_a = next(s for s in modified_stages if s.__class__.__name__ == "MockStageA")
+        stage_b = next(s for s in modified_stages if s.__class__.__name__ == "MockStageB")
+        stage_c = next(s for s in modified_stages if s.__class__.__name__ == "MockStageC")
 
         assert stage_a.name == "CustomStageA"
         assert stage_a.resources == Resources(cpus=6.0)
@@ -462,8 +513,8 @@ class TestCompositeStageWith:
         # Verify the final stages have the applied configurations
         assert len(final_stages) == 3  # Only MockStageA and MockStageB were configured
 
-        stage_a = next(s for s in final_stages if s.__class__.__name__ == "MockStageAWithOverrides")
-        stage_b = next(s for s in final_stages if s.__class__.__name__ == "MockStageBWithOverrides")
+        stage_a = next(s for s in final_stages if s.__class__.__name__ == "MockStageA")
+        stage_b = next(s for s in final_stages if s.__class__.__name__ == "MockStageB")
 
         assert stage_a.name == "ProcessedStageA"
         assert stage_a.resources == Resources(cpus=4.0)

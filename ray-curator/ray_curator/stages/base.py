@@ -224,37 +224,25 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     ) -> ProcessingStage:
         """Apply configuration changes to this stage with overridden properties.
 
+        Note: This method uses class-level attributes and instance attributes interchangeably which can sometimes
+        lead to unexpected behavior. Please see https://github.com/NVIDIA-NeMo/Curator/pull/764 for more details.
         Args:
             name: Override the name property
             resources: Override the resources property
             batch_size: Override the batch_size property
         """
-        # Create a new class dynamically with modified class-level attributes
-        class_name = f"{self.__class__.__name__}WithOverrides"
+        # Create a copy of the current instance
+        import copy
 
-        # Get the current class-level attributes
-        current_name = getattr(self.__class__, "_name", self._name)
-        current_resources = getattr(self.__class__, "_resources", self._resources)
-        current_batch_size = getattr(self.__class__, "_batch_size", self._batch_size)
+        new_instance = copy.deepcopy(self)
 
-        # Create new class attributes dictionary
-        new_attrs = {
-            "_name": name if name is not None else current_name,
-            "_resources": resources if resources is not None else current_resources,
-            "_batch_size": batch_size if batch_size is not None else current_batch_size,
-        }
-
-        # Create new class that inherits from the current class
-        new_class = type(class_name, (self.__class__,), new_attrs)
-
-        # Create and return a new instance of the new class
-        # Copy any instance-specific state
-        new_instance = new_class()
-
-        # Copy instance attributes (excluding the class-level ones we just overrode)
-        for attr_name, attr_value in self.__dict__.items():
-            if attr_name not in ("_name", "_resources", "_batch_size"):
-                setattr(new_instance, attr_name, attr_value)
+        # Override the instance attributes directly
+        if name is not None:
+            new_instance._name = name
+        if resources is not None:
+            new_instance._resources = resources
+        if batch_size is not None:
+            new_instance._batch_size = batch_size
 
         return new_instance
 
