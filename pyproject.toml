@@ -186,6 +186,14 @@ version = { attr = "nemo_curator.package_info.__version__" }
 include = ["*"]
 exclude = ["tests", "tests.*"]
 
+[tool.coverage.paths]
+source = [".", "/workspace", "/home/runner/work/Curator/Curator"]
+
+[tool.coverage.run]
+omit = [
+    "tests/*",
+]
+
 [tool.ruff]
 line-length = 119
 [tool.ruff.lint]
