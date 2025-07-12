@@ -1,16 +1,21 @@
-import os
 import argparse
+import os
+
+import pandas as pd
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.modules.filter import ScoreFilter
-from ray_curator.stages.services.openai_client import OpenAIClient
+from ray_curator.stages.reasoning.correctness_filter import LLMBasedCorrectnessFilter, LLMBasedGrader
+from ray_curator.stages.reasoning.difficulty_filter import (
+    LLMBasedDifficultyFilter,
+    LLMBasedDifficultyFilterFunction,
+    ReasoningLengthDifficultyFilter,
+)
+from ray_curator.stages.reasoning.diversity_filter import DiversitySampler, LLMBasedDomainClassifier
 from ray_curator.stages.reasoning.reasoning_traces_synthetic import ReasoningTracesSyntheticStage
-from ray_curator.stages.reasoning.correctness_filter import LLMBasedGrader, LLMBasedCorrectnessFilter
-from ray_curator.stages.reasoning.difficulty_filter import ReasoningLengthDifficultyFilter, LLMBasedDifficultyFilterFunction, LLMBasedDifficultyFilter
-from ray_curator.stages.reasoning.diversity_filter import LLMBasedDomainClassifier, DiversitySampler
+from ray_curator.stages.services.openai_client import OpenAIClient
 from ray_curator.tasks import DocumentBatch
-import pandas as pd
 
 
 def main(args: argparse.Namespace) -> None:
@@ -95,7 +100,7 @@ def main(args: argparse.Namespace) -> None:
             prompt=None,
             client=llm_client,
             model_name=llm_difficulty_model_2,
-            input_problem_field="question",    
+            input_problem_field="question",
             output_field="llm_difficulty_2_attempt",
         ),
     )
@@ -170,12 +175,12 @@ def main(args: argparse.Namespace) -> None:
             print(f"\nDocument Batch {i}:")
             print(f"Number of documents: {len(document_batch.data)}")
             print("\nGenerated text:")
-            
+
             # Print the DataFrame data directly
-            pd.set_option('display.max_rows', None)
-            pd.set_option('display.max_columns', None)
-            pd.set_option('display.width', None)
-            pd.set_option('display.max_colwidth', None)
+            pd.set_option("display.max_rows", None)
+            pd.set_option("display.max_columns", None)
+            pd.set_option("display.width", None)
+            pd.set_option("display.max_colwidth", None)
             print(document_batch.data)
 
             print("-" * 40)
@@ -184,7 +189,6 @@ def main(args: argparse.Namespace) -> None:
     print(f"Writing to output file: {args.output_path}")
     combined_data = pd.concat([document_batch.data for document_batch in results])
     combined_data.to_json(args.output_path, orient="records", lines=True)
-
 
 
 if __name__ == "__main__":

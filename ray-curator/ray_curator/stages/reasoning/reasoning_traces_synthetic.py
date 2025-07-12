@@ -54,4 +54,7 @@ class ReasoningTracesSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch
         
         df[self.output_field] = df.apply(generate_response, axis=1)
 
+        # DEBUGGING
+        print(f"[Stage finished] - ReasoningTracesSyntheticStage - Number of samples - {len(df)}")
+
         return DocumentBatch(data=df, dataset_name="reasoning_traces_synthetic_data", task_id=1)

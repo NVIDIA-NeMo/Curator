@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+
 import pandas as pd
+
 from ray_curator.stages.filters.doc_filter import DocumentFilter
 from ray_curator.stages.modules.filter import ScoreFilter
 
@@ -11,15 +13,12 @@ class ReasoningLengthDifficultyFilter(DocumentFilter):
 
     def score_document(self, text: str) -> float:
         word_count = len(text.split())
-        if word_count > self._min_length:
-            document_score = 1.0
-        else:
-            document_score = 0.0
-
+        document_score = 1.0 if word_count > self._min_length else 0.0
         return document_score
-    
+
     def keep_document(self, score: float) -> bool:
         return score == 1.0
+
 
 class LLMBasedDifficultyFilterFunction(DocumentFilter):
     def __init__(self, llm_correctness_fields: list[str]):
@@ -28,11 +27,11 @@ class LLMBasedDifficultyFilterFunction(DocumentFilter):
 
     def score_document(self, sample: dict) -> float:
         document_score = 1.0 if all(sample[item] == "Yes" for item in self.llm_correctness_fields) else 0.0
-        keep_document = 1.0 - document_score
-        return keep_document
+        return 1.0 - document_score
 
     def keep_document(self, score: float) -> bool:
         return score == 1.0
+
 
 @dataclass
 class LLMBasedDifficultyFilter(ScoreFilter):

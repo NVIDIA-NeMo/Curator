@@ -2,10 +2,9 @@ import pandas as pd
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.reasoning.prompts import DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE
 from ray_curator.stages.services.model_client import LLMClient
 from ray_curator.tasks import DocumentBatch
-from ray_curator.stages.filters.doc_filter import DocumentFilter
-from ray_curator.stages.reasoning.prompts import DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE
 
 
 class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -13,7 +12,15 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
     A stage for filtering reasoning traces based on correctness. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
     """
 
-    def __init__(self, prompt: str, client: LLMClient, model_name: str, domains_file_path: str, input_problem_field: str, output_field: str):
+    def __init__(
+        self,
+        prompt: str,
+        client: LLMClient,
+        model_name: str,
+        domains_file_path: str,
+        input_problem_field: str,
+        output_field: str,
+    ):
         if prompt is not None:
             self.prompt = prompt
         else:
@@ -42,21 +49,26 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = batch.to_pandas()
 
         def process_llm_response(response: list[str]) -> str:
-            processed_response = response[0].strip().split('\n')[-1].strip()
-            # assert processed_response in ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10"], "Response must contain a two-digit code"
+            processed_response = response[0].strip().split("\n")[-1].strip()
+            processed_response = processed_response.replace("*", "")
             return processed_response
 
         def process_llm_prompt(sample: dict) -> str:
-            processed_prompt = self.prompt.format(question=sample[self.input_problem_field], domains_prompt=self.domains_prompt)
-            return processed_prompt
+            return self.prompt.format(
+                question=sample[self.input_problem_field],
+                domains_prompt=self.domains_prompt,
+            )
 
         def generate_response(row: pd.Series) -> str:
             prompt = process_llm_prompt(row)
             messages = [{"role": "user", "content": prompt}]
             response = self.client.query_model(model=self.model_name, messages=messages)
             return process_llm_response(response)
-        
+
         df[self.output_field] = df.apply(generate_response, axis=1)
+
+        # DEBUGGING
+        print(f"[Stage finished] - LLMBasedDomainClassifier - Number of samples - {len(df)}")
 
         return DocumentBatch(data=df, dataset_name="domain_classification_data", task_id=1)
 
@@ -75,8 +87,8 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
-    def outputs(self) -> [list[str]]:
-        return ["data"]
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         pass
@@ -139,5 +151,8 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
         df = self._sample_uniformly(df)
+
+        # DEBUGGING
+        print(f"[Stage finished] - DiversitySampler - Number of samples - {len(df)}")
 
         return DocumentBatch(data=df, dataset_name="diversity_sampling_data", task_id=1)
