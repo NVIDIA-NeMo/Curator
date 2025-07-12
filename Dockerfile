@@ -4,25 +4,8 @@ ARG CUDA_VER=12.5.1
 ARG LINUX_VER=ubuntu22.04
 ARG PYTHON_VER=3.12
 ARG IMAGE_LABEL
-ARG REPO_URL
-ARG CURATOR_COMMIT
 
 FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS curator-update
-# Needed to navigate to and pull the forked repository's changes
-ARG REPO_URL
-ARG CURATOR_COMMIT
-
-# Clone the user's repository, find the relevant commit, and install everything we need
-RUN bash -exu <<EOF
-  mkdir -p /opt/NeMo-Curator
-  cd /opt/NeMo-Curator
-  git init
-  git remote add origin $REPO_URL
-  git fetch --all
-  git fetch origin '+refs/pull/*/merge:refs/remotes/pull/*/merge'
-  git checkout $CURATOR_COMMIT
-EOF
-
 
 FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS deps
 LABEL "nemo.library"=${IMAGE_LABEL}
@@ -44,11 +27,11 @@ RUN conda create -y --name curator -c nvidia/label/cuda-${CUDA_VER} -c conda-for
   source activate curator && \
   pip install --upgrade pytest pip pytest-coverage
 
+WORKDIR /tmp/Curator
 RUN \
-  --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/__init__.py,target=/opt/NeMo-Curator/nemo_curator/__init__.py,from=curator-update \
-  --mount=type=bind,source=/opt/NeMo-Curator/nemo_curator/package_info.py,target=/opt/NeMo-Curator/nemo_curator/package_info.py,from=curator-update \
-  --mount=type=bind,source=/opt/NeMo-Curator/pyproject.toml,target=/opt/NeMo-Curator/pyproject.toml,from=curator-update \
-  cd /opt/NeMo-Curator && \
+  --mount=type=bind,source=nemo_curator/__init__.py,target=/tmp/Curator/nemo_curator/__init__.py \
+  --mount=type=bind,source=nemo_curator/package_info.py,target=/tmp/Curator/nemo_curator/package_info.py \
+  --mount=type=bind,source=pyproject.toml,target=/tmp/Curator/pyproject.toml \
   source activate curator && \
   pip install --extra-index-url https://pypi.nvidia.com -e ".[all]"
 
@@ -57,5 +40,5 @@ FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS final
 
 ENV PATH /opt/conda/envs/curator/bin:$PATH
 LABEL "nemo.library"=${IMAGE_LABEL}
-WORKDIR /opt
+WORKDIR /workspace
 COPY --from=deps /opt/conda/envs/curator /opt/conda/envs/curator
