@@ -180,7 +180,7 @@ runs:
           
           bash tests/${{ inputs.script }}.sh
 
-          ls /workspace
+          ls -l -a /workspace
         '
 
         RUN_TEST_EOF
