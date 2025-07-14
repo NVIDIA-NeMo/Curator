@@ -35,8 +35,7 @@ class TestClipTranscodingStage:
             use_input_bit_rate=False,
             num_clips_per_chunk=16,
             ffmpeg_verbose=False,
-            verbose=False,
-            debug=False
+            verbose=False
         )
 
         # Create mock clips
@@ -647,9 +646,9 @@ class TestClipTranscodingStage:
         # Should not raise any exception
         self.stage.setup(worker_metadata)
 
-    def test_edge_case_empty_clips_after_debug_limit(self) -> None:
-        """Test edge case where debug mode results in empty clips."""
-        stage = ClipTranscodingStage(debug=True, encode_batch_size=1)
+    def test_edge_case_empty_clips(self) -> None:
+        """Test edge case where there are no clips to process."""
+        stage = ClipTranscodingStage(encode_batch_size=1)
 
         # Create a video with no clips
         empty_video = Video(

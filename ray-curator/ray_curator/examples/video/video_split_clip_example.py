@@ -4,6 +4,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
+from ray_curator.stages.video.io.video_reader import VideoReaderStage
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -12,7 +13,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoDownloadStage(folder_path=args.video_folder, debug=args.debug))
+    pipeline.add_stage(VideoReaderStage(input_video_path=args.video_folder, video_limit=args.video_limit))
+    pipeline.add_stage(VideoDownloadStage(verbose=args.verbose))
 
     if args.splitting_algorithm == "fixed_stride":
         pipeline.add_stage(
@@ -36,7 +38,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         use_input_bit_rate=args.transcode_use_input_video_bit_rate,
         num_clips_per_chunk=args.clip_re_chunk_size,
         verbose=args.verbose,
-        debug=args.debug,
     ))
 
     return pipeline
@@ -63,7 +64,6 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--debug", action="store_true", default=False, help="Run in debug mode")
     parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
