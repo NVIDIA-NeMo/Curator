@@ -227,7 +227,7 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Five aaa aa", "aaaSeven aaaa"]}),
-            task_id="batch_1_score_fn_filter_fn",
+            task_id="batch_1_letter_count_letter_count",
             dataset_name="test_1",
         )
         expected_data.data[score_field] = pd.Series([5, 7])
