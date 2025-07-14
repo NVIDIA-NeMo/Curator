@@ -31,7 +31,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
-    debug: bool = False
 
     @property
     def name(self) -> str:
