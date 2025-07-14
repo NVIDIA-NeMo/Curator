@@ -13,7 +13,7 @@ def create_video_reading_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Add stages
     pipeline.add_stage(VideoReaderStage(input_video_path=args.video_folder, video_limit=args.video_limit))
-    pipeline.add_stage(VideoDownloadStage(folder_path=args.video_folder, debug=args.debug))
+    pipeline.add_stage(VideoDownloadStage(verbose=args.verbose))
 
     # TODO: Add Writer stage in the following PR
 
@@ -44,5 +44,6 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", default=False, help="Run in debug mode")
     parser.add_argument("--video-folder", type=str, required=True, help="Path to the video folder")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
+    parser.add_argument("--verbose", action="store_true", default=False, help="Verbose output")
     args = parser.parse_args()
     main(args)

@@ -19,9 +19,14 @@ class TestVideoDownloadStage:
         assert stage.outputs() == (["data"], [])
 
     def test_stage_initialization(self) -> None:
-        """Test stage initialization."""
+        """Test stage initialization with different parameters."""
+        # Test default initialization
         stage = VideoDownloadStage()
-        assert stage is not None
+        assert stage.verbose is False
+
+        # Test with verbose mode
+        stage = VideoDownloadStage(verbose=True)
+        assert stage.verbose is True
 
     def test_download_video_bytes_success(self) -> None:
         """Test _download_video_bytes method with successful file reading."""
@@ -246,7 +251,7 @@ class TestVideoDownloadStage:
         # Mock the private methods
         with patch.object(stage, "_download_video_bytes", return_value=True), \
              patch.object(stage, "_extract_and_validate_metadata", return_value=True), \
-             patch.object(stage, "_log_video_info"):
+             patch.object(stage, "_log_video_info") as mock_log:
 
             result = stage.process(task)
 
@@ -255,6 +260,8 @@ class TestVideoDownloadStage:
             assert result.task_id == "test_task"
             assert result.dataset_name == "test_dataset"
             assert result.data is video
+            # _log_video_info should not be called when verbose=False
+            mock_log.assert_not_called()
 
     def test_process_download_fails(self) -> None:
         """Test process method when video download fails."""
@@ -262,11 +269,14 @@ class TestVideoDownloadStage:
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
         stage = VideoDownloadStage()
 
-        with patch.object(stage, "_download_video_bytes", return_value=False):
+        with patch.object(stage, "_download_video_bytes", return_value=False), \
+             patch.object(stage, "_log_video_info") as mock_log:
             result = stage.process(task)
 
             assert result is task
             # Should return the original task when download fails
+            # _log_video_info should not be called when download fails
+            mock_log.assert_not_called()
 
     def test_process_metadata_extraction_fails(self) -> None:
         """Test process method when metadata extraction fails."""
@@ -275,12 +285,15 @@ class TestVideoDownloadStage:
         stage = VideoDownloadStage()
 
         with patch.object(stage, "_download_video_bytes", return_value=True), \
-             patch.object(stage, "_extract_and_validate_metadata", return_value=False):
+             patch.object(stage, "_extract_and_validate_metadata", return_value=False), \
+             patch.object(stage, "_log_video_info") as mock_log:
 
             result = stage.process(task)
 
             assert result is task
             # Should return the original task when metadata extraction fails
+            # _log_video_info should not be called when metadata extraction fails
+            mock_log.assert_not_called()
 
     def test_process_video_task_passthrough(self) -> None:
         """Test that the VideoTask object is passed through correctly."""
@@ -290,7 +303,7 @@ class TestVideoDownloadStage:
 
         with patch.object(stage, "_download_video_bytes", return_value=True), \
              patch.object(stage, "_extract_and_validate_metadata", return_value=True), \
-             patch.object(stage, "_log_video_info"):
+             patch.object(stage, "_log_video_info") as mock_log:
 
             result = stage.process(task)
 
@@ -299,6 +312,50 @@ class TestVideoDownloadStage:
             assert result.task_id == "test_task"
             assert result.dataset_name == "test_dataset"
             assert result.data is video
+            # _log_video_info should not be called when verbose=False
+            mock_log.assert_not_called()
+
+    def test_process_success_verbose(self) -> None:
+        """Test process method with successful video processing in verbose mode."""
+        video = Video(input_video=pathlib.Path("/test/video.mp4"))
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        stage = VideoDownloadStage(verbose=True)
+
+        # Mock the private methods
+        with patch.object(stage, "_download_video_bytes", return_value=True), \
+             patch.object(stage, "_extract_and_validate_metadata", return_value=True), \
+             patch.object(stage, "_log_video_info") as mock_log:
+
+            result = stage.process(task)
+
+            assert result is task
+            assert isinstance(result, VideoTask)
+            assert result.task_id == "test_task"
+            assert result.dataset_name == "test_dataset"
+            assert result.data is video
+            # _log_video_info should be called when verbose=True
+            mock_log.assert_called_once_with(video)
+
+    def test_process_success_non_verbose(self) -> None:
+        """Test process method with successful video processing in non-verbose mode."""
+        video = Video(input_video=pathlib.Path("/test/video.mp4"))
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
+        stage = VideoDownloadStage(verbose=False)
+
+        # Mock the private methods
+        with patch.object(stage, "_download_video_bytes", return_value=True), \
+             patch.object(stage, "_extract_and_validate_metadata", return_value=True), \
+             patch.object(stage, "_log_video_info") as mock_log:
+
+            result = stage.process(task)
+
+            assert result is task
+            assert isinstance(result, VideoTask)
+            assert result.task_id == "test_task"
+            assert result.dataset_name == "test_dataset"
+            assert result.data is video
+            # _log_video_info should not be called when verbose=False
+            mock_log.assert_not_called()
 
     def test_download_video_bytes_s3_error(self) -> None:
         """Test _download_video_bytes method with S3 input (not supported)."""

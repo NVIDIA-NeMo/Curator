@@ -14,6 +14,7 @@ class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video files through a series of steps including downloading,
     extracting metadata, and storing the results in the task.
     """
+    verbose: bool = False
 
     @property
     def name(self) -> str:
@@ -44,7 +45,8 @@ class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
             return task
 
         # Log video information
-        self._log_video_info(video)
+        if self.verbose:
+            self._log_video_info(video)
 
         return task
 
