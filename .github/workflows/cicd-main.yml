@@ -157,15 +157,15 @@ jobs:
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      if: ${{ steps.check.outputs.coverage_report != 'none' }}
-      with:
-        name: ${{ steps.check.outputs.coverage_report }}
-        path: |
-          coverage.xml
-          .coverage
-        include-hidden-files: true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: ${{ steps.check.outputs.coverage_report != 'none' }}
+        with:
+          name: ${{ steps.check.outputs.coverage_report }}
+          path: |
+            coverage.xml
+            .coverage
+          include-hidden-files: true
 
   cicd-gpu-tests:
     strategy:
