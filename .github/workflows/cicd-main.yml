@@ -155,7 +155,7 @@ jobs:
           python -m coverage report
 
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
-          echo "coverage_report"
+          echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts
