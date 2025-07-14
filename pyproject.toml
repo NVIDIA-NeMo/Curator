@@ -187,7 +187,7 @@ include = ["*"]
 exclude = ["tests", "tests.*"]
 
 [tool.coverage.paths]
-source = ["/workspace/nemo_curator"]
+source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
 
 [tool.coverage.run]
 omit = [
