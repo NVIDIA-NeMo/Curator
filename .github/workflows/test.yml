@@ -42,6 +42,7 @@ jobs:
           pip install -U pip
           cd ray-curator
           pip install --no-cache-dir ".[dev]"
+          pip install --no-cache-dir ".[video]"
           pip install --no-cache-dir pytest-asyncio coverage
 
       - name: Run tests
