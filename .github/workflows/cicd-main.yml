@@ -104,6 +104,58 @@ jobs:
       - name: Running CI tests
         run: |
 
+  cicd-cpu-tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Optionally free up space on Ubuntu
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install NeMo-Curator and pytest
+        # TODO: Remove pytest when optional test dependencies are added to setup.py
+
+        # Installing wheel beforehand due to fasttext issue:
+        # https://github.com/facebookresearch/fastText/issues/512#issuecomment-1837367666
+        run: |
+          pip install -U pip
+          pip install --no-cache-dir wheel
+          pip install --no-cache-dir .
+          pip install --no-cache-dir pytest pytest-asyncio coverage
+
+      - name: Run tests
+        run: |
+          python -m coverage run --branch --source=nemo_curator --omit=nemo_curator/scripts/* -m pytest -v --cpu
+
+      - name: Generate report
+        run: |
+          python -m coverage xml
+          python -m coverage report
+
+          coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
+          echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      if: ${{ steps.check.outputs.coverage_report != 'none' }}
+      with:
+        name: ${{ steps.check.outputs.coverage_report }}
+        path: |
+          coverage.xml
+          .coverage
+        include-hidden-files: true
+
   cicd-gpu-tests:
     strategy:
       fail-fast: false
