@@ -83,9 +83,8 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     @property
     def batch_size(self) -> int | None:
         """Number of tasks to process in a batch."""
-        return self._batch_size
+        return 1
 
-    @property
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
         return None
@@ -260,7 +259,6 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             "supports_batch_processing": self.supports_batch_processing(),
         }
 
-    @property
     def ray_stage_spec(self) -> dict[str, Any]:
         """Get Ray configuration for this stage.
         Note : This is only used for Ray Data which is an experimental backend.

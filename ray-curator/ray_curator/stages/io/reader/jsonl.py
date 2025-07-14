@@ -175,6 +175,10 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     task_type: Literal["document", "image", "video", "audio"] = "document"
     _name: str = "jsonl_reader"
 
+    def __post_init__(self):
+        """Initialize parent class after dataclass initialization."""
+        super().__init__()
+
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into file partitioning and processing stages."""
         if self.task_type != "document":
