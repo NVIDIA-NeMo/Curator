@@ -1,5 +1,7 @@
 """Tests for base stage classes."""
 
+import pytest
+
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import Task
@@ -9,8 +11,8 @@ class MockTask(Task[dict]):
     """Mock task for testing."""
 
     def __init__(self, data: dict | None = None):
-        super().__init__()
         self.data = data or {}
+        super().__init__(task_id="", dataset_name="", data=self.data)
 
     @property
     def num_items(self) -> int:
@@ -316,9 +318,10 @@ class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
 class TestCompositeStageWith:
     """Test the with_ method for CompositeStage."""
 
-    def test_basic_with_functionality(self):
+    def test_single_operation(self):
         """Test basic with_ functionality for composite stages."""
         composite = ConcreteCompositeStage()
+        original_stages = composite.decompose()
 
         # Initially, no with operations
         assert len(composite._with_operations) == 0
@@ -332,100 +335,45 @@ class TestCompositeStageWith:
         assert len(composite._with_operations) == 1
         assert composite._with_operations[0] == stage_config
 
-    def test_multiple_with_operations(self):
-        """Test that multiple with_ calls accumulate operations."""
-        composite = ConcreteCompositeStage()
-
-        # Add multiple with operations
-        config1 = {"MockStageA": {"name": "CustomStageA"}}
-        config2 = {"MockStageB": {"resources": Resources(cpus=10.0)}}
-        config3 = {"MockStageC": {"batch_size": 5}}
-
-        composite.with_(config1).with_(config2).with_(config3)
-
-        # Should have accumulated all operations
-        assert len(composite._with_operations) == 3
-        assert composite._with_operations[0] == config1
-        assert composite._with_operations[1] == config2
-        assert composite._with_operations[2] == config3
-
-    def test_apply_with_single_operation(self):
-        """Test _apply_with_ with a single configuration operation."""
-        composite = ConcreteCompositeStage()
-        stages = composite.decompose()
-
-        # Verify initial state
-        assert stages[0].name == "MockStageA"
-        assert stages[0].resources == Resources(cpus=1.0)
-        assert stages[0].batch_size == 1
-
-        # Add a with operation
-        config = {"MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=8.0), "batch_size": 4}}
-        composite.with_(config)
-
-        # Apply the configuration changes
-        modified_stages = composite._apply_with_(stages)
-
-        # Should have modified the first stage
-        assert len(modified_stages) == 3  # Only MockStageA was modified
-        assert modified_stages[0].name == "CustomStageA"
-        assert modified_stages[0].resources == Resources(cpus=8.0)
-        assert modified_stages[0].batch_size == 4
-
-        # Original stages should be unchanged
-        assert stages[0].name == "MockStageA"
-        assert stages[0].resources == Resources(cpus=1.0)
-        assert stages[0].batch_size == 1
-
-    def test_apply_with_multiple_operations(self):
-        """Test _apply_with_ with multiple configuration operations."""
-        composite = ConcreteCompositeStage()
-        stages = composite.decompose()
-
-        # Add multiple with operations
-        config1 = {"MockStageA": {"name": "CustomStageA"}}
-        config2 = {"MockStageB": {"resources": Resources(cpus=12.0)}}
-        config3 = {"MockStageC": {"batch_size": 7}}
-
-        composite.with_(config1).with_(config2).with_(config3)
-
-        # Apply the configuration changes
-        modified_stages = composite._apply_with_(stages)
-
-        # Should have modified all specified stages
+        # When decomposed, the with operations should be applied to the decomposed stages
+        modified_stages = composite._apply_with_(original_stages)
         assert len(modified_stages) == 3
 
-        # Check that each stage was modified correctly
-        # Find each stage by original name in the modified stages
-        stage_a = next(s for s in modified_stages if s.__class__.__name__ == "MockStageA")
-        stage_b = next(s for s in modified_stages if s.__class__.__name__ == "MockStageB")
-        stage_c = next(s for s in modified_stages if s.__class__.__name__ == "MockStageC")
+        # The first stage should have the applied configuration
+        assert modified_stages[0].name == "CustomStageA"
+        assert modified_stages[0].resources == Resources(cpus=5.0)
 
-        assert stage_a.name == "CustomStageA"
-        assert stage_a.resources == Resources(cpus=1.0)  # Not modified
-        assert stage_a.batch_size == 1  # Not modified
+        # The other stages should not have been modified
+        assert modified_stages[1].name == "MockStageB"
+        assert modified_stages[1].resources == Resources(cpus=2.0)
+        assert modified_stages[2].name == "MockStageC"
+        assert modified_stages[2].resources == Resources(cpus=3.0)
 
-        assert stage_b.name == "MockStageB"  # Not modified
-        assert stage_b.resources == Resources(cpus=12.0)
-        assert stage_b.batch_size == 2  # Not modified
-
-        assert stage_c.name == "MockStageC"  # Not modified
-        assert stage_c.resources == Resources(cpus=3.0)  # Not modified
-        assert stage_c.batch_size == 7
-
-    def test_apply_with_multiple_stages_in_single_operation(self):
-        """Test _apply_with_ with multiple stages configured in a single operation."""
+    @pytest.mark.parametrize(
+        "configs",
+        [
+            {
+                "MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)},
+                "MockStageB": {"resources": Resources(cpus=10.0), "batch_size": 8},
+                "MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10},
+            },
+            [
+                {"MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)}},
+                {"MockStageB": {"resources": Resources(cpus=10.0), "batch_size": 8}},
+                {"MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10}},
+            ],
+        ],
+    )
+    def test_multiple_operations(self, configs: dict | list[dict]):
+        """Test _apply_with_ with multiple stages configured in single operation and multiple operations."""
         composite = ConcreteCompositeStage()
         stages = composite.decompose()
 
-        # Configure multiple stages in a single operation
-        config = {
-            "MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)},
-            "MockStageB": {"batch_size": 8},
-            "MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10},
-        }
-
-        composite.with_(config)
+        if isinstance(configs, dict):
+            composite.with_(configs)
+        else:
+            for config in configs:
+                composite.with_(config)
 
         # Apply the configuration changes
         modified_stages = composite._apply_with_(stages)
@@ -434,21 +382,75 @@ class TestCompositeStageWith:
         assert len(modified_stages) == 3
 
         # Find each stage by class name
-        stage_a = next(s for s in modified_stages if s.__class__.__name__ == "MockStageA")
-        stage_b = next(s for s in modified_stages if s.__class__.__name__ == "MockStageB")
-        stage_c = next(s for s in modified_stages if s.__class__.__name__ == "MockStageC")
+        stage_a = modified_stages[0]
+        stage_b = modified_stages[1]
+        stage_c = modified_stages[2]
 
         assert stage_a.name == "CustomStageA"
         assert stage_a.resources == Resources(cpus=6.0)
         assert stage_a.batch_size == 1  # Not modified
 
         assert stage_b.name == "MockStageB"  # Not modified
-        assert stage_b.resources == Resources(cpus=2.0)  # Not modified
+        assert stage_b.resources == Resources(cpus=10.0)
         assert stage_b.batch_size == 8
 
         assert stage_c.name == "CustomStageC"
         assert stage_c.resources == Resources(cpus=9.0)
         assert stage_c.batch_size == 10
+
+    @pytest.mark.parametrize(
+        ("configs", "should_fail"),
+        [
+            (
+                {
+                    "MockStageA": {"name": "CustomStageA"},
+                    "CustomStageA": {"name": "CustomStageA_2", "resources": Resources(cpus=7.0)},
+                },
+                True,
+            ),
+            (
+                [
+                    {"MockStageA": {"name": "CustomStageA"}},
+                    {"CustomStageA": {"name": "CustomStageA_2", "resources": Resources(cpus=7.0)}},
+                ],
+                False,
+            ),
+        ],
+    )
+    def test_multiple_operations_with_name_changed(self, configs: dict | list[dict], should_fail: bool):
+        """Test _apply_with_ with multiple stages with name changed."""
+        composite = ConcreteCompositeStage()
+        stages = composite.decompose()
+
+        if isinstance(configs, dict):
+            composite.with_(configs)
+        else:
+            for config in configs:
+                composite.with_(config)
+
+        if should_fail:
+            # The first config should fail because it tries to reference "CustomStageA"
+            # in the same operation where "MockStageA" is being renamed to "CustomStageA"
+            with pytest.raises(ValueError, match="Stage CustomStageA not found in composite stage"):
+                composite._apply_with_(stages)
+        else:
+            # The second config should work because it applies operations sequentially
+            modified_stages = composite._apply_with_(stages)
+
+            assert len(modified_stages) == 3
+
+            assert modified_stages[0].name == "CustomStageA_2"  # Should reflect the latest name
+            assert modified_stages[0].resources == Resources(cpus=7.0)  # Should reflect the latest resources
+            assert modified_stages[0].batch_size == 1  # Should not be modified
+
+            # MockStageB / MockStageC should not be modified
+            assert modified_stages[1].name == "MockStageB"
+            assert modified_stages[1].resources == Resources(cpus=2.0)
+            assert modified_stages[1].batch_size == 2
+
+            assert modified_stages[2].name == "MockStageC"
+            assert modified_stages[2].resources == Resources(cpus=3.0)
+            assert modified_stages[2].batch_size == 3
 
     def test_apply_with_non_unique_stage_names_error(self):
         """Test that _apply_with_ raises error for non-unique stage names."""
@@ -494,35 +496,6 @@ class TestCompositeStageWith:
 
         # Should return the original stages
         assert modified_stages == stages
-
-    def test_decompose_followed_by_apply_with_pattern(self):
-        """Test the typical pattern of decompose() followed by _apply_with_()."""
-        composite = ConcreteCompositeStage()
-
-        # Configure the composite stage
-        config = {
-            "MockStageA": {"name": "ProcessedStageA", "resources": Resources(cpus=4.0)},
-            "MockStageB": {"batch_size": 6},
-        }
-        composite.with_(config)
-
-        # Simulate the typical usage pattern
-        stages = composite.decompose()
-        final_stages = composite._apply_with_(stages)
-
-        # Verify the final stages have the applied configurations
-        assert len(final_stages) == 3  # Only MockStageA and MockStageB were configured
-
-        stage_a = next(s for s in final_stages if s.__class__.__name__ == "MockStageA")
-        stage_b = next(s for s in final_stages if s.__class__.__name__ == "MockStageB")
-
-        assert stage_a.name == "ProcessedStageA"
-        assert stage_a.resources == Resources(cpus=4.0)
-        assert stage_a.batch_size == 1  # Not modified
-
-        assert stage_b.name == "MockStageB"  # Not modified
-        assert stage_b.resources == Resources(cpus=2.0)  # Not modified
-        assert stage_b.batch_size == 6
 
     def test_composite_stage_inputs_and_outputs(self):
         """Test that inputs() and outputs() delegate to the decomposed stages."""
