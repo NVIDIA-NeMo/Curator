@@ -82,10 +82,12 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
         """
 
         if isinstance(self.score_fn, DocumentFilter):
-            self.score_fn = self.score_fn.score_document
+            score_fn = self.score_fn.score_document
+        else:
+            score_fn = self.score_fn
 
         df = batch.to_pandas()
-        df[self.score_field] = df[self.text_field].apply(self.score_fn)
+        df[self.score_field] = df[self.text_field].apply(score_fn)
 
         # Create output batch
         return DocumentBatch(
@@ -93,6 +95,7 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
             dataset_name=batch.dataset_name,
             data=df,
             _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
         )
 
 
@@ -173,6 +176,7 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
             dataset_name=batch.dataset_name,
             data=result_df,
             _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
         )
 
 
@@ -272,4 +276,5 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             dataset_name=batch.dataset_name,
             data=result_df,
             _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
         )
