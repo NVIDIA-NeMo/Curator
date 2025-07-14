@@ -113,7 +113,7 @@ jobs:
         python-version: ["3.10", "3.12"]
     needs: [pre-flight]
     runs-on: ${{ matrix.os }}
-    name: cicd-cpu-tests-python-${{ matrix.python-version }}
+    name: L0_Unit_Test_CPU_python-${{ matrix.python-version }}
     environment: nemo-ci
     if: |
       (
@@ -174,7 +174,7 @@ jobs:
         include:
           - script: L0_Unit_Test_GPU
             runner: linux-amd64-gpu-rtxa6000-latest-2-nemo
-    needs: [pre-flight]
+    needs: [cicd-cpu-tests]
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.script }}
     environment: nemo-ci
