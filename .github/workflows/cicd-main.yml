@@ -150,6 +150,8 @@ jobs:
           python -m coverage run --branch --source=nemo_curator --omit=nemo_curator/scripts/* -m pytest -v --cpu
 
       - name: Generate report
+        id: check
+        shell: bash
         run: |
           python -m coverage xml
           python -m coverage report
