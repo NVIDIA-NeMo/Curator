@@ -45,7 +45,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         """Resource requirements for this stage."""
         return Resources(cpus=0.5)
 
-    @property
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
         return {

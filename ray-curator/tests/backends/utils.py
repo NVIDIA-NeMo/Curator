@@ -110,7 +110,6 @@ class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def name(self) -> str:
         return "split_into_rows"
 
-    @property
     def ray_stage_spec(self) -> dict[str, bool]:
         return {
             "is_fanout_stage": True,

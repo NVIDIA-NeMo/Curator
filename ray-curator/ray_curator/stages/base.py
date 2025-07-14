@@ -83,7 +83,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     @property
     def batch_size(self) -> int | None:
         """Number of tasks to process in a batch."""
-        return 1
+        return self._batch_size
 
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
