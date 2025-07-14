@@ -65,6 +65,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
     parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
+    parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
     parser.add_argument(
