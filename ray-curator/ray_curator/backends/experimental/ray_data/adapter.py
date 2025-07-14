@@ -87,7 +87,7 @@ class RayDataStageAdapter(BaseStageAdapter):
             num_gpus=self.stage.resources.gpus,
         )
 
-        if self.stage.ray_stage_spec.get("is_fanout_stage", False):
+        if self.stage.ray_stage_spec().get("is_fanout_stage", False):
             processed_dataset = processed_dataset.repartition(target_num_rows_per_block=1)
 
         return processed_dataset
