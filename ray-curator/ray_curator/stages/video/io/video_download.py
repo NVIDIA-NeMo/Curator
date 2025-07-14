@@ -24,7 +24,7 @@ class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["source_bytes", "metadata"]
 
     def process(self, task: VideoTask) -> VideoTask:
         """Process a single video task.

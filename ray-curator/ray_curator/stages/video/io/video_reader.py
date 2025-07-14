@@ -22,7 +22,7 @@ class VideoReaderStage(ProcessingStage[_EmptyTask, VideoTask]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["input_video"]
 
     def process(self, _: _EmptyTask) -> list[VideoTask]:
         """Process a single group of video files."""

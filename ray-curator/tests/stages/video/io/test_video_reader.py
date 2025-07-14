@@ -21,7 +21,7 @@ class TestVideoReaderStage:
         stage = VideoReaderStage(input_video_path="/test/path")
         assert stage.name == "video_reader"
         assert stage.inputs() == ([], [])
-        assert stage.outputs() == (["data"], [])
+        assert stage.outputs() == (["data"], ["input_video"])
 
     def test_stage_initialization(self) -> None:
         """Test stage initialization with different parameters."""
