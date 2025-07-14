@@ -103,6 +103,7 @@ jobs:
     steps:
       - name: Running CI tests
         run: |
+          echo "Running CI tests"
 
   cicd-cpu-tests:
     strategy:
