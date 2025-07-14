@@ -43,10 +43,11 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
     score_fn: Callable[[str], float | str] | DocumentFilter
     score_field: str
     text_field: str = "text"
+    _name: str = "score_fn"
 
-    @property
-    def name(self) -> str:
-        return self.score_fn.name if isinstance(self.score_fn, DocumentFilter) else "score_fn"
+    def __post_init__(self):
+        if isinstance(self.score_fn, DocumentFilter):
+            self._name = self.score_fn.name
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
@@ -81,10 +82,7 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         """
 
-        if isinstance(self.score_fn, DocumentFilter):
-            score_fn = self.score_fn.score_document
-        else:
-            score_fn = self.score_fn
+        score_fn = self.score_fn.score_document if isinstance(self.score_fn, DocumentFilter) else self.score_fn
 
         df = batch.to_pandas()
         df[self.score_field] = df[self.text_field].apply(score_fn)
@@ -119,10 +117,11 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
     filter_fn: Callable | DocumentFilter
     filter_field: str
     invert: bool = False
+    _name: str = "filter_fn"
 
-    @property
-    def name(self) -> str:
-        return self.filter_fn.name if isinstance(self.filter_fn, DocumentFilter) else "filter_fn"
+    def __post_init__(self):
+        if isinstance(self.filter_fn, DocumentFilter):
+            self._name = self.filter_fn.name
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.filter_field]
@@ -202,10 +201,10 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     text_field: str = "text"
     score_field: str | None = None
     invert: bool = False
+    _name: str = "score_filter"
 
-    @property
-    def name(self) -> str:
-        return self.filter_obj.name
+    def __post_init__(self):
+        self._name = self.filter_obj.name
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
