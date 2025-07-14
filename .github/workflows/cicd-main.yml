@@ -105,12 +105,22 @@ jobs:
         run: |
 
   cicd-cpu-tests:
-    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
+    needs: [pre-flight]
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.script }}
+    environment: nemo-ci
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && !cancelled()
     steps:
       - uses: actions/checkout@v4
       - name: Optionally free up space on Ubuntu
@@ -192,6 +202,7 @@ jobs:
   Nemo_CICD_Test:
     needs:
       - pre-flight
+      - cicd-cpu-tests
       - cicd-gpu-tests
     if: |
       (
