@@ -177,7 +177,7 @@ jobs:
         include:
           - script: L0_Unit_Test_GPU
             runner: linux-amd64-gpu-rtxa6000-latest-2-nemo
-    needs: [cicd-cpu-tests]
+    needs: [pre-flight]
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.script }}
     environment: nemo-ci
