@@ -14,7 +14,6 @@ class FileGroupTask(Task[list[str]]):
 
     reader_config: dict[str, Any] = field(default_factory=dict)
     data: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def num_items(self) -> int:
@@ -24,7 +23,9 @@ class FileGroupTask(Task[list[str]]):
     def validate(self) -> bool:
         """Validate the task data."""
         # TODO: We should fsspec checks for that file paths do exist
-        if not self.data:
+        # Handle both Python lists and numpy arrays by checking length
+        # instead of boolean evaluation (which is ambiguous for numpy arrays)
+        if len(self.data) == 0:
             logger.warning(f"No files to process in task {self.task_id}")
             return False
         return True

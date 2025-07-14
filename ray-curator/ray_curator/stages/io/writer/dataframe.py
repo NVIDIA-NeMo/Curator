@@ -23,6 +23,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     output_dir: str
     file_extension: str
     storage_options: dict[str, Any] = field(default_factory=dict)
+    _name: str = "BaseWriter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

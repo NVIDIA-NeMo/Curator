@@ -9,8 +9,6 @@ from ray_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import EmptyTask, Task
 
-from .ray_cluster_init import init_or_connect_to_cluster
-
 
 class XennaExecutor(BaseExecutor):
     """Executor that runs pipelines using Cosmos-Xenna.
@@ -57,7 +55,7 @@ class XennaExecutor(BaseExecutor):
 
         for stage in stages:
             # Get stage configuration
-            stage_config = stage.xenna_stage_spec
+            stage_config = stage.xenna_stage_spec()
 
             # Create Xenna stage adapter with the original stage's name
             xenna_stage = create_named_xenna_stage_adapter(
@@ -115,9 +113,6 @@ class XennaExecutor(BaseExecutor):
         logger.info(f"Execution mode: {exec_mode.name}")
 
         try:
-            # Initialize a ray cluster
-            init_or_connect_to_cluster()
-
             # Run the pipeline
             results = pipelines_v1.run_pipeline(pipeline_spec)
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")

@@ -26,3 +26,7 @@ class ImageBatch(Task):
         """Validate the task data."""
         # TODO: Implement image validation which should ensure image_path exists
         return True
+
+    def num_items(self) -> int:
+        """Number of images in this batch."""
+        return len(self.data)
