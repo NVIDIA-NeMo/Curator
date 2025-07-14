@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 class StagePerfStats:
     """Statistics for tracking stage performance metrics.
     Attributes:
+        stage_name: Name of the processing stage.
         process_time: Total processing time in seconds.
         actor_idle_time: Time the actor spent idle in seconds.
         input_data_size_mb: Size of input data in megabytes.
