@@ -97,7 +97,6 @@ jobs:
     environment: test
     if: |
       needs.pre-flight.outputs.test_to_run != '[]'
-      && needs.pre-flight.outputs.components_to_run != '[]'
       && needs.pre-flight.outputs.is_ci_workload == 'false'
       && needs.pre-flight.outputs.docs_only == 'false'
     steps:
@@ -274,7 +273,7 @@ jobs:
 
             So it might be time to merge this PR or get some approvals.
 
-            //cc @chtruong814 @ko3n1g @pablo-garay @thomasdhc
+            //cc @NVIDIA-NeMo/automation
 
       - name: "Pipeline not successful and not cancelled: Send Slack alert & create step summary"
         if: |
@@ -311,7 +310,6 @@ jobs:
     needs: [pre-flight, Nemo_CICD_Test]
     if: |
       needs.pre-flight.outputs.test_to_run != '[]'
-      && needs.pre-flight.outputs.components_to_run != '[]'
       && needs.pre-flight.outputs.docs_only == 'false'
       && (
         success()
