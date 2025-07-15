@@ -4,6 +4,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
@@ -29,6 +30,23 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 limit_clips=args.limit_clips,
             )
         )
+    elif args.splitting_algorithm == "transnetv2":
+        pipeline.add_stage(
+            VideoFrameExtractionStage(
+                decoder_mode=args.transnetv2_frame_decoder_mode,
+                verbose=args.verbose,
+            )
+        )
+        # TODO: replace this with a transnetv2 stage
+        pipeline.add_stage(
+            FixedStrideExtractorStage(
+                clip_len_s=args.fixed_stride_split_duration,
+                clip_stride_s=args.fixed_stride_split_duration,
+                min_clip_length_s=args.fixed_stride_min_clip_length_s,
+                limit_clips=args.limit_clips,
+            )
+        )
+
     else:
         msg = f"Splitting algorithm {args.splitting_algorithm} not supported"
         raise ValueError(msg)

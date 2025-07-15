@@ -45,6 +45,9 @@ dev = [
 video = [
     "av==13.1.0",
     "opencv-python",
+    "PyNvVideoCodec==1.0.2",
+    "cvcuda_cu12",
+    "pycuda",
 ]
 
 [tool.setuptools]
