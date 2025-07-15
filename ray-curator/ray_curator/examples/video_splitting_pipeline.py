@@ -89,7 +89,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 args.clip_extraction_target_res,
             ),
             verbose=args.verbose,
-            # log_stats=args.perf_profile,
         ))
 
     if args.aesthetic_threshold is not None:
