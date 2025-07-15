@@ -36,7 +36,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips.extracted_frames"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        if self.target_fps is None:
+        if self.target_fps is None or len(self.target_fps) == 0:
             self.target_fps = [2]
         if self.target_res is None:
             self.target_res = (-1, -1)
@@ -73,7 +73,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                         for fps in self.target_fps
                     )
                     if use_lcm_fps:
-                        lcm = self.lcm_multiple(self._target_fps)
+                        lcm = self.lcm_multiple(self.target_fps)
                         with io.BytesIO(clip.buffer) as fp:
                             frames = extract_frames(
                                 fp,
@@ -82,7 +82,7 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                                 target_res=self.target_res,
                                 num_threads=self.num_cpus,
                             )
-                            for fps in self._target_fps:
+                            for fps in self.target_fps:
                                 signature = FrameExtractionSignature(
                                     extraction_policy=policy,
                                     target_fps=fps,
