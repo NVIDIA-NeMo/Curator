@@ -105,6 +105,11 @@ class _DomainClassifier(DistributedDataClassifier):
         self.out_dim = len(self.labels)
         self.max_mem_gb = max_mem_gb
 
+        if self.multilingual:
+            self._name = "multilingual_domain_classifier"
+        else:
+            self._name = "domain_classifier"
+
         super().__init__(
             labels=self.labels,
             filter_by=filter_by,
@@ -115,13 +120,6 @@ class _DomainClassifier(DistributedDataClassifier):
             device_type=device_type,
             autocast=autocast,
         )
-
-    @property
-    def name(self) -> str:
-        if self.multilingual:
-            return "multilingual_domain_classifier"
-        else:
-            return "domain_classifier"
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         # Load the Hugging Face model and processor from the cache.

@@ -289,6 +289,8 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
 
         self.max_mem_gb = max_mem_gb
 
+        self._name = "prompt_task_complexity_classifier"
+
         super().__init__(
             labels=None,
             filter_by=None,
@@ -299,10 +301,6 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
             device_type=device_type,
             autocast=autocast,
         )
-
-    @property
-    def name(self) -> str:
-        return "prompt_task_complexity_classifier"
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.model_config = PromptTaskComplexityConfig(model_output_type=self.config.model_output_type)

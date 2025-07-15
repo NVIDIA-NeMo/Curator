@@ -106,8 +106,10 @@ class CrossFitTokenizerWrapper(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def __post_init__(self):
         if self.use_gpu:
+            # TODO: Check this
             self._resources = Resources(gpu_memory_gb=_get_suggest_memory_for_tokenizer())
         else:
+            # Default CPU resources
             self._resources = Resources(cpus=1.0)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -168,6 +170,7 @@ class CrossFitPredictorWrapper(ProcessingStage[DocumentBatch, DocumentBatch]):
     _name: str = "crossfit_predictor"
 
     def __post_init__(self):
+        # TODO: Check this
         self._resources = Resources(gpu_memory_gb=_get_suggest_memory_for_classifier() + 3)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -309,9 +312,6 @@ class CrossFitLabelerWrapper(ProcessingStage[DocumentBatch, DocumentBatch]):
     suffix: str
     prob_col: str | None = None
     _name: str = "crossfit_labeler"
-
-    def __post_init__(self):
-        self._resources = Resources(gpu_memory_gb=_get_suggest_memory_for_classifier() + 3)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

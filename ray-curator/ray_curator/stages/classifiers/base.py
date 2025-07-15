@@ -52,6 +52,7 @@ class DistributedDataClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
     autocast: bool
 
     def __post_init__(self):
+        # TODO: Check this
         self._resources = Resources(gpu_memory_gb=(_get_suggest_memory_for_classifier() + 3))
 
     def inputs(self) -> tuple[list[str], list[str]]:

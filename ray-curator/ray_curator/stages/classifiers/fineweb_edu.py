@@ -100,6 +100,16 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
         self.max_chars = max_chars
         self.max_mem_gb = max_mem_gb
 
+        if self.fineweb_identifier == FINEWEB_EDU_IDENTIFIER:
+            self._name = "fineweb_edu_classifier"
+        elif self.fineweb_identifier == FINEWEB_MIXTRAL_IDENTIFIER:
+            self._name = "fineweb_mixtral_edu_classifier"
+        elif self.fineweb_identifier == FINEWEB_NEMOTRON_IDENTIFIER:
+            self._name = "fineweb_nemotron_4_edu_classifier"
+        else:
+            msg = f"Invalid fineweb_identifier: {self.fineweb_identifier}"
+            raise ValueError(msg)
+
         super().__init__(
             filter_by=None,  # No filtering as its a numeric score
             model_batch_size=model_batch_size,
@@ -110,18 +120,6 @@ class _FineWebBaseClassifier(DistributedDataClassifier):
             labels=None,
             out_dim=1,
         )
-
-    @property
-    def name(self) -> str:
-        if self.fineweb_identifier == FINEWEB_EDU_IDENTIFIER:
-            return "fineweb_edu_classifier"
-        elif self.fineweb_identifier == FINEWEB_MIXTRAL_IDENTIFIER:
-            return "fineweb_mixtral_edu_classifier"
-        elif self.fineweb_identifier == FINEWEB_NEMOTRON_IDENTIFIER:
-            return "fineweb_nemotron_4_edu_classifier"
-        else:
-            msg = f"Invalid fineweb_identifier: {self.fineweb_identifier}"
-            raise ValueError(msg)
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.model = FinewebEduModel(

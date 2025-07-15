@@ -107,6 +107,7 @@ class QualityClassifier(DistributedDataClassifier):
         self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
         self.max_mem_gb = max_mem_gb
+        self._name = "quality_classifier"
 
         super().__init__(
             labels=self.labels,
@@ -118,10 +119,6 @@ class QualityClassifier(DistributedDataClassifier):
             device_type=device_type,
             autocast=autocast,
         )
-
-    @property
-    def name(self) -> str:
-        return "quality_classifier"
 
     # TODO: Add setup_on_node function
 
@@ -166,6 +163,7 @@ class StreamingQualityClassifier(StreamingDataClassifier):
         self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
         self.max_mem_gb = max_mem_gb
+        self._name = "streaming_quality_classifier"
 
         # TODO: Find a solution to remove this
         self.model = QualityModel(config=QualityModelConfig, autocast=autocast, max_mem_gb=self.max_mem_gb)
@@ -181,10 +179,6 @@ class StreamingQualityClassifier(StreamingDataClassifier):
             autocast=autocast,
             gpu_tokenizer=gpu_tokenizer,
         )
-
-    @property
-    def name(self) -> str:
-        return "streaming_quality_classifier"
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         # Load the Hugging Face model and processor from the cache.
