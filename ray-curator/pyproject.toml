@@ -51,11 +51,15 @@ cuda12x = [
     "nx-cugraph-cu12==25.6.*",
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
+<<<<<<<<< Temporary merge branch 1
     "cugraph-cu12==25.6.*",
     "nx-cugraph-cu12==25.6.*"
+=========
+>>>>>>>>> Temporary merge branch 2
 ]
 dev = [
     "debugpy",
+    "pre-commit",
     "pre-commit",
     "pytest",
     "pytest-loguru",
