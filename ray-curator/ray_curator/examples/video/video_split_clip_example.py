@@ -20,7 +20,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReaderStage(input_video_path=args.video_folder, video_limit=args.video_limit))
+    pipeline.add_stage(VideoReaderStage(input_video_path=args.video_dir, video_limit=args.video_limit))
     pipeline.add_stage(VideoDownloadStage(verbose=args.verbose))
 
     if args.splitting_algorithm == "fixed_stride":
@@ -41,6 +41,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         )
         pipeline.add_stage(
             TransNetV2ClipExtractionStage(
+                model_dir=args.model_dir,
                 threshold=args.transnetv2_threshold,
                 min_length_s=args.transnetv2_min_length_s,
                 max_length_s=args.transnetv2_max_length_s,
@@ -108,7 +109,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(
         ClipWriterStage(
             output_path=args.output_clip_path,
-            input_path=args.video_folder,
+            input_path=args.video_dir,
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
             generate_embeddings=False, # TODO: Change this once we have an embedding stage
@@ -153,7 +154,8 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
+    parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
+    parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips")

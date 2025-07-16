@@ -44,6 +44,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     gpu_memory_gb: (float) gpu memory in GB
     verbose: (bool) verbose
     """
+    model_dir: str = None
     threshold: float = 0.4
     min_length_s: float | None = 2.0
     max_length_s: float | None = 10.0
@@ -65,7 +66,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips.extracted_frames"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self._model = transnetv2.TransNetV2()
+        self._model = transnetv2.TransNetV2(model_dir=self.model_dir)
         self._model.setup()
 
     @property

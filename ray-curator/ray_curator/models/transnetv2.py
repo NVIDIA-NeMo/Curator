@@ -546,9 +546,10 @@ class ColorHistograms(nn.Module):
 class TransNetV2(ModelInterface):
     """Interface for TransNetV2 shot transition detection model."""
 
-    def __init__(self) -> None:
+    def __init__(self, model_dir: str | None = None) -> None:
         """Initialize the TransNetV2 model interface."""
         super().__init__()
+        self.model_dir = model_dir
 
     @property
     def conda_env_name(self) -> str:
@@ -573,7 +574,7 @@ class TransNetV2(ModelInterface):
     def setup(self) -> None:
         """Set up the TransNetV2 model interface."""
         self._model = _TransNetV2()
-        model_dir = pathlib.Path("/mnt/mint/models/cosmos_curate_local_workspace/models/Sn4kehead/TransNetV2/")
+        model_dir = pathlib.Path(self.model_dir) / _TRANSNETV2_MODEL_ID
         model_file = model_dir / _TRANSNETV2_MODEL_WEIGHTS
         if not model_file.exists():
             error_msg = f"{model_file} not found!"
