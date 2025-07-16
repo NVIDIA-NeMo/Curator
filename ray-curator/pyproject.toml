@@ -27,8 +27,6 @@ dependencies = [
     "ray[default,data]",
     "torch",
     "transformers>=4.48.0",
-    "pyarrow",
-    "absl-py>=2.0.0,<3.0.0",
 ]
 [project.optional-dependencies]
 text = [
@@ -51,22 +49,13 @@ cuda12x = [
     "nx-cugraph-cu12==25.6.*",
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
-<<<<<<<<< Temporary merge branch 1
-    "cugraph-cu12==25.6.*",
-    "nx-cugraph-cu12==25.6.*"
-=========
->>>>>>>>> Temporary merge branch 2
 ]
 dev = [
     "debugpy",
     "pre-commit",
-    "pre-commit",
     "pytest",
     "pytest-loguru",
     "ruff==0.11.4",
-    "debugpy",
-    "pytest",
-    "pytest-loguru",
 ]
 
 [tool.setuptools]
