@@ -46,7 +46,7 @@ dependencies = [
     "crossfit>=0.0.9",
     "dask-mpi>=2021.11.0",
     "dask[complete]>=2021.7.1",
-    "datasets",
+    "datasets<4.0.0",
     "distributed>=2021.7.1",
     "fasttext==0.9.3",
     "ftfy==6.1.1",
