@@ -60,7 +60,6 @@ jobs:
         with:
           files: |
             nemo_curator/**
-            config/**
             .github/**
             pyproject.toml
             Dockerfile
