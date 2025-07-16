@@ -5,6 +5,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -38,13 +39,16 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 verbose=args.verbose,
             )
         )
-        # TODO: replace this with a transnetv2 stage
         pipeline.add_stage(
-            FixedStrideExtractorStage(
-                clip_len_s=args.fixed_stride_split_duration,
-                clip_stride_s=args.fixed_stride_split_duration,
-                min_clip_length_s=args.fixed_stride_min_clip_length_s,
+            TransNetV2ClipExtractionStage(
+                threshold=args.transnetv2_threshold,
+                min_length_s=args.transnetv2_min_length_s,
+                max_length_s=args.transnetv2_max_length_s,
+                max_length_mode=args.transnetv2_max_length_mode,
+                crop_s=args.transnetv2_crop_s,
+                gpu_memory_gb=args.transnetv2_gpu_memory_gb,
                 limit_clips=args.limit_clips,
+                verbose=args.verbose,
             )
         )
 
