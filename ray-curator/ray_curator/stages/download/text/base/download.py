@@ -71,10 +71,6 @@ class DocumentDownloader(ABC):
                 logger.info(f"File: {output_file} exists. Not downloading")
             return output_file
 
-        # If temp file exists delete it
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-
         # Download to temporary file
         success, error_message = self._download_to_path(url, temp_file)
 
@@ -99,13 +95,12 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     This allows the download step to scale independently from iteration/extraction.
     """
 
+    _resources = Resources(cpus=0.5)
     downloader: DocumentDownloader
+    _batch_size = None
 
-    @property
-    def name(self) -> str:
-        """Return stage name."""
-        downloader_name = self.downloader.__class__.__name__
-        return f"download_{downloader_name.lower()}"
+    def __post_init__(self):
+        self._name = f"download_{self.downloader.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects FileGroupTask with URLs."""
@@ -141,8 +136,3 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             },
             _stage_perf=task._stage_perf,
         )
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        return Resources(cpus=0.5)

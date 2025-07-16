@@ -86,7 +86,7 @@ class TestURLGenerationStage:
         assert stage.resources == Resources(cpus=0.5)
 
         # Test ray stage spec
-        assert stage.ray_stage_spec == {"is_fanout_stage": True}
+        assert stage.ray_stage_spec() == {"is_fanout_stage": True}
 
     def test_stage_properties_with_limit(self) -> None:
         """Test stage properties when limit is set."""

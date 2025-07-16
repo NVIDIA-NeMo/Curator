@@ -12,15 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .bitext_filter import BitextFilter
-from .classifier_filter import QualityEstimationFilter
-from .heuristic_filter import LengthRatioFilter
-from .synthetic import AnswerabilityFilter, EasinessFilter
+from .score_filter import Filter, Score, ScoreFilter
 
 __all__ = [
-    "AnswerabilityFilter",
-    "BitextFilter",
-    "EasinessFilter",
-    "LengthRatioFilter",
-    "QualityEstimationFilter",
+    "Filter",
+    "Score",
+    "ScoreFilter",
 ]

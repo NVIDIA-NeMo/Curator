@@ -45,12 +45,7 @@ class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
-
-    @property
-    def name(self) -> str:
-        """Return stage name."""
-        iterator_name = self.iterator.__class__.__name__
-        return f"iterate_{iterator_name.lower()}"
+        self._name = f"iterate_{self.iterator.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects FileGroupTask with local file paths."""
@@ -58,7 +53,7 @@ class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define output - produces DocumentBatch with records."""
-        return (["data"], self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []))
+        return (["data"], self.iterator.output_columns() + ([self.filename_col] if self.add_filename_column else []))  # type: ignore[reportReturnType]
 
     def process(self, task: FileGroupTask) -> DocumentBatch:
         """Iterate through files and extract records.
@@ -81,7 +76,7 @@ class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
                             break
                         if self.add_filename_column:
                             # TODO: Support cloud storage https://github.com/NVIDIA-NeMo/Curator/issues/779
-                            record_dict[self.filename_col] = os.path.basename(file_path)
+                            record_dict[self.filename_col] = os.path.basename(file_path)  # type: ignore[reportReturnType]
                         records.append(record_dict)
                         record_count += 1
 

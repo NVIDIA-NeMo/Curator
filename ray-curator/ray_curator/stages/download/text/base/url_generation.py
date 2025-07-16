@@ -25,12 +25,10 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     url_generator: URLGenerator
     limit: int | None = None
+    _resources = Resources(cpus=0.5)
 
-    @property
-    def name(self) -> str:
-        """Return stage name."""
-        generator_name = self.url_generator.__class__.__name__
-        return f"url_generation_{generator_name.lower()}"
+    def __post_init__(self):
+        self._name = f"url_generation_{self.url_generator.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects empty task."""
@@ -65,12 +63,6 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             for i, url in enumerate(urls)
         ]
 
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        return Resources(cpus=0.5)
-
-    @property
     def ray_stage_spec(self) -> dict[str, Any]:
         return {
             "is_fanout_stage": True,

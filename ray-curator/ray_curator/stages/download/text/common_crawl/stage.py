@@ -57,7 +57,6 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             algorithm_kwargs=html_extraction_kwargs,
             stop_lists=stop_lists,
         )
-
         super().__init__(
             url_generator=self.url_generator,
             downloader=self.downloader,
@@ -67,11 +66,7 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             record_limit=record_limit,
             add_filename_column=add_filename_column,
         )
-
-    @property
-    def name(self) -> str:
-        """Return the name of this stage."""
-        return f"common_crawl_{self.crawl_type}_pipeline"
+        self._name = f"common_crawl_{self.crawl_type}_pipeline"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose this composite stage into its constituent stages."""

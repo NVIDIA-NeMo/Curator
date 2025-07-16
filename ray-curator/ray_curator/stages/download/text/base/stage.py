@@ -60,12 +60,10 @@ class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
 
         self.stages = stages
 
-    @property
-    def name(self) -> str:
-        """Return composite stage name."""
-        generator_name = self.url_generator.__class__.__name__
-        downloader_name = self.downloader.__class__.__name__
-        return f"document_download_extract_{generator_name.lower()}_{downloader_name.lower()}_composite"
+        url_generator_name = self.url_generator.__class__.__name__.lower()
+        downloader_name = self.downloader.__class__.__name__.lower()
+        self._name = f"document_download_extract_{url_generator_name}_{downloader_name}_composite"
+        super().__init__()
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent stages."""

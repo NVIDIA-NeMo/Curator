@@ -47,20 +47,15 @@ class DocumentExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
-
-    @property
-    def name(self) -> str:
-        """Return stage name."""
-        extractor_name = self.extractor.__class__.__name__
-        return f"extract_{extractor_name.lower()}"
+        self._name = f"extract_{self.extractor.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects DocumentBatch with dict records."""
-        return (["data"], self.extractor.input_columns() + ([self.filename_col] if self.add_filename_column else []))
+        return (["data"], self.extractor.input_columns() + ([self.filename_col] if self.add_filename_column else []))  # type: ignore[reportReturnType]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define output - produces DocumentBatch with processed records."""
-        return (["data"], self.extractor.output_columns() + ([self.filename_col] if self.add_filename_column else []))
+        return (["data"], self.extractor.output_columns() + ([self.filename_col] if self.add_filename_column else []))  # type: ignore[reportReturnType]
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         """Extract structured content from raw records.
@@ -85,7 +80,7 @@ class DocumentExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                         msg = f"Since add_filename_col is specified, we'll overwrite ({self.filename_col}) from the input data."
                         logger.warning(msg)
 
-                    extracted[self.filename_col] = record_dict[self.filename_col]
+                    extracted[self.filename_col] = record_dict[self.filename_col]  # type: ignore[reportReturnType]
                 extracted_records.append(extracted)
 
         # Convert to DataFrame
