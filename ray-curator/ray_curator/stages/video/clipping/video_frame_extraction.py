@@ -4,15 +4,17 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
+import torch
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import VideoTask
-from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
 from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
+if torch.cuda.is_available():
+    from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
 
 def get_frames_from_ffmpeg(
     video_file: Path,
@@ -81,14 +83,13 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     converting video content into standardized frame arrays for downstream processing.
     """
     output_hw: tuple[int, int] = (27, 48)
-    batch_size: int = 64
+    pyncv_batch_size: int = 64
     decoder_mode: str = "pynvc"
-    pynvc_frame_extractor: PyNvcFrameExtractor | None = None
     verbose: bool = False
 
     @property
     def name(self) -> str:
-        return "frame_extraction"
+        return "video_frame_extraction"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -107,14 +108,11 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             self.pynvc_frame_extractor = PyNvcFrameExtractor(
                 width=self.output_hw[1],
                 height=self.output_hw[0],
-                batch_size=self.batch_size,
+                batch_size=self.pyncv_batch_size,
             )
 
 
     def process(self, task: VideoTask) -> VideoTask:
-        if self.pynvc_frame_extractor is None:
-            msg = "PyNvCodec frame extractor is not initialized"
-            raise RuntimeError(msg)
         width, height = self.output_hw
         video = task.data
 
@@ -163,4 +161,4 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if self.decoder_mode == "pynvc":
             return Resources(gpu_memory_gb=10)
         else:
-            return Resources(cpus=1.0)
+            return Resources(cpus=4.0)

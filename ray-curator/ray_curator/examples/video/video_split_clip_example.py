@@ -1,9 +1,11 @@
 import argparse
+import time
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -121,6 +123,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
 
 def main(args: argparse.Namespace) -> None:
 
+    print("Starting pipeline execution...")
+    start_time = time.time()
     pipeline = create_video_splitting_pipeline(args)
 
     # Print pipeline description
@@ -131,11 +135,17 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
-    print("Starting pipeline execution...")
     pipeline.run(executor)
+    end_time = time.time()
 
-    # Print results
+    # Calculate and print execution time
+    execution_time = end_time - start_time
+    hours, remainder = divmod(execution_time, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
     print("\nPipeline completed!")
+    print(f"Total execution time: {int(hours):02d}:{int(minutes):02d}:{seconds:.2f}")
+    print(f"Total execution time: {execution_time:.2f} seconds")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -191,7 +201,61 @@ if __name__ == "__main__":
         choices=["pynvc", "ffmpeg_gpu", "ffmpeg_cpu"],
         help="Choose between ffmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
     )
-
+    parser.add_argument(
+        "--transnetv2-threshold",
+        type=float,
+        default=0.4,
+        help=(
+            "TransNetV2 probability threshold above which a frame is classified as a shot transition. "
+            "Default is 0.4, which prioritizes recall over precision."
+        ),
+    )
+    parser.add_argument(
+        "--transnetv2-min-length-s",
+        type=float,
+        default=2.0,
+        help=(
+            "Minimum length of clips (in seconds) for TransNetV2 splitting stage. "
+            "If specified, will remove any scenes below this length."
+        ),
+    )
+    parser.add_argument(
+        "--transnetv2-max-length-s",
+        type=float,
+        default=60.0,
+        help=(
+            "Maximum length of clips (in seconds) for TransNetV2 splitting stage. "
+            "If specified, will deal with the scene by the `max_length_mode` specified."
+        ),
+    )
+    parser.add_argument(
+        "--transnetv2-max-length-mode",
+        type=str,
+        default="stride",
+        choices=["truncate", "stride"],
+        help=(
+            "Maximum length mode for TransNetV2 splitting stage. "
+            "If `truncate`, will truncate the scene to `max_length_s`. "
+            "If `stride`, will generate a number of max_length_s scenes until the end of the scene. "
+            "If the end scene is less than `min_length_s`, it will drop the last scene."
+        ),
+    )
+    parser.add_argument(
+        "--transnetv2-crop-s",
+        type=float,
+        default=0.5,
+        help=(
+            "Crop size for TransNetV2 splitting stage. If specified, will crop each scene at start and end. "
+            "E.g. 0.25 will crop ~250ms from start, and ~250ms from end frame (reducing all clips by ~0.5 seconds). "
+            "If cropped scenes result in zero-length scenes, these will be filtered."
+        ),
+    )
+    parser.add_argument(
+        "--transnetv2-gpu-memory-gb",
+        type=float,
+        default=10,
+        help="GPU memory in GB per worker for TransNetV2 splitting stage.",
+    )
     # Transcoding arguments
     parser.add_argument(
         "--transcode-cpus-per-worker",
