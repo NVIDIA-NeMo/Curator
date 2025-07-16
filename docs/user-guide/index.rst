@@ -75,6 +75,9 @@ Reference
 :ref:`Next Steps <data-curator-next-steps>`
    Now that you've curated your data, let's discuss where to go next in the NeMo Framework to put it to good use.
 
+`NeMo Curator on AWS <https://github.com/NVIDIA/NeMo-Curator/tree/main/docs/user-guide/aws-examples/>`__
+   Demonstration of how to run the existing NeMo Curator modules on AWS services
+
 `Tutorials <https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials>`__
    To get started, you can explore the NeMo Curator GitHub repository and follow the available tutorials and notebooks. These resources cover various aspects of data curation, including training from scratch and Parameter-Efficient Fine-Tuning (PEFT).
 
