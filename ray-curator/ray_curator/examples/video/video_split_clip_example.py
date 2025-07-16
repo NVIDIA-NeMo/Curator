@@ -5,7 +5,6 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
-from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
