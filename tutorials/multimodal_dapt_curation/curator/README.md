@@ -27,6 +27,16 @@ The tutorial follows these steps:
 6. Apply semantic deduplication to get rid of duplicate images extracted
 7. Save the filtered and curated data
 
+## Interpreting the outputs
+The tutorial provides detailed logging of the dataset curation process:
+- It begins by printing the original dataset lengths for text extracted from different modalities, such as tables and charts.
+- It then displays the progressive reductions in dataset size as various filters are applied:
+   - Fuzzy deduplication
+   - Semantic deduplication
+   - Additional filtering mechanisms
+- During the PII redaction step, the number of names and email addresses redacted from the dataset is also reported.
+Once the tutorial completes, the final curated outputs are saved in the `curated/` directory. The results are organized by modality, such as `text/` or `tables_charts/`, for easy access and inspection.
+
 ## Usage
 After installing the NeMo Curator package, install the required dependencies and run the pipeline using the following command:
 ```sh
