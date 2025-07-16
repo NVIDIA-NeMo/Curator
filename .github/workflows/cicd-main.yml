@@ -41,24 +41,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" >> $GITHUB_OUTPUT
 
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v45.0.1
         with:
-          files_yaml: |
-            doc:
-              - '**.md'
-              - docs/**
-            src:
-              - '!**.md'
-              - '!docs/**'
+          files: |
+            nemo_curator/**
+            config/**
+            .github/**
+            pyproject.toml
+            Dockerfile
+            tests/**
+          base_sha: ${{ steps.base-ref.outputs.base }}
 
       - name: Check if docs only
         shell: bash
         id: docs_only
         env:
-          DOCS_ONLY: ${{ steps.changed-files.outputs.doc_any_changed == 'true' && steps.changed-files.outputs.src_any_changed == 'false' }}
+          DOCS_ONLY: ${{ steps.changed-files.outputs.any_changed == 'false' }}
         run: |
           echo "main=$DOCS_ONLY" | tee -a "$GITHUB_OUTPUT"
 
@@ -110,7 +123,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
-    needs: [pre-flight]
+    needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
     name: L0_Unit_Test_CPU_python-${{ matrix.python-version }}
     environment: nemo-ci
@@ -134,10 +147,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install NeMo-Curator and pytest
-        # TODO: Remove pytest when optional test dependencies are added to setup.py
-
-        # Installing wheel beforehand due to fasttext issue:
-        # https://github.com/facebookresearch/fastText/issues/512#issuecomment-1837367666
         run: |
           pip install -U pip
           pip install --no-cache-dir wheel
@@ -355,3 +364,13 @@ jobs:
           path: |
             .coverage
           include-hidden-files: true
+
+  codecov-placeholder:
+     name: codecov/patch
+     needs: [pre-flight]
+     if: needs.pre-flight.outputs.docs_only == 'true'
+     runs-on: ubuntu-latest
+     steps:
+       - name: codecov_placeholder
+         run: |
+           echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
