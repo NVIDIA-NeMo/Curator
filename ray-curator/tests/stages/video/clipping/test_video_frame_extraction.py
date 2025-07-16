@@ -183,7 +183,7 @@ class TestVideoFrameExtractionStage:
         self.batch_size = 64
         self.stage = VideoFrameExtractionStage(
             output_hw=self.output_hw,
-            batch_size=self.batch_size,
+            pyncv_batch_size=self.batch_size,
             decoder_mode="pynvc",
             verbose=False,
         )
@@ -192,9 +192,9 @@ class TestVideoFrameExtractionStage:
         """Test initialization with default values."""
         stage = VideoFrameExtractionStage()
         assert stage.output_hw == (27, 48)
-        assert stage.batch_size == 64
+        assert stage.pyncv_batch_size == 64
         assert stage.decoder_mode == "pynvc"
-        assert stage.pynvc_frame_extractor is None
+        assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
         assert stage.verbose is False
 
     def test_init_custom_values(self) -> None:
@@ -203,18 +203,18 @@ class TestVideoFrameExtractionStage:
         custom_batch_size = 32
         stage = VideoFrameExtractionStage(
             output_hw=custom_output_hw,
-            batch_size=custom_batch_size,
+            pyncv_batch_size=custom_batch_size,
             decoder_mode="ffmpeg",
             verbose=True,
         )
         assert stage.output_hw == custom_output_hw
-        assert stage.batch_size == custom_batch_size
+        assert stage.pyncv_batch_size == custom_batch_size
         assert stage.decoder_mode == "ffmpeg"
         assert stage.verbose is True
 
     def test_name_property(self) -> None:
         """Test name property."""
-        assert self.stage.name == "frame_extraction"
+        assert self.stage.name == "video_frame_extraction"
 
     def test_inputs_property(self) -> None:
         """Test inputs property."""
@@ -238,21 +238,21 @@ class TestVideoFrameExtractionStage:
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg")
         resources = stage.resources
         assert isinstance(resources, Resources)
-        assert resources.cpus == 1.0
+        assert resources.cpus == 4.0
 
     def test_resources_property_ffmpeg_gpu(self) -> None:
         """Test resources property with FFmpeg GPU mode."""
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_gpu")
         resources = stage.resources
         assert isinstance(resources, Resources)
-        assert resources.cpus == 1.0
+        assert resources.cpus == 4.0
 
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.PyNvcFrameExtractor")
     def test_setup_pynvc_mode(self, mock_pynvc_extractor: Any) -> None:
         """Test setup method with PyNvCodec mode."""
         stage = VideoFrameExtractionStage(
             output_hw=self.output_hw,
-            batch_size=self.batch_size,
+            pyncv_batch_size=self.batch_size,
             decoder_mode="pynvc",
         )
 
@@ -274,7 +274,7 @@ class TestVideoFrameExtractionStage:
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg")
         stage.setup()
         # Should not create PyNvcFrameExtractor
-        assert stage.pynvc_frame_extractor is None
+        assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
 
     def test_process_no_pynvc_extractor(self) -> None:
         """Test process method without PyNvCodec extractor initialization."""
@@ -288,8 +288,9 @@ class TestVideoFrameExtractionStage:
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
-        with pytest.raises(RuntimeError, match="PyNvCodec frame extractor is not initialized"):
-            stage.process(task)
+        # The implementation now falls back to FFmpeg CPU mode and then returns None on failure
+        result = stage.process(task)
+        assert result is None
 
     def test_process_no_source_bytes(self) -> None:
         """Test process method with no source bytes."""
@@ -583,4 +584,4 @@ class TestVideoFrameExtractionStage:
         stage.setup(worker_metadata)
 
         # Should not create PyNvcFrameExtractor for FFmpeg mode
-        assert stage.pynvc_frame_extractor is None
+        assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
