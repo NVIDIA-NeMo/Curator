@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 
 import pandas as pd
 
@@ -14,7 +15,7 @@ from ray_curator.stages.reasoning.difficulty_filter import (
 )
 from ray_curator.stages.reasoning.diversity_filter import DiversitySampler, LLMBasedDomainClassifier
 from ray_curator.stages.reasoning.reasoning_traces_synthetic import ReasoningTracesSyntheticStage
-from ray_curator.stages.services.openai_client import OpenAIClient
+from ray_curator.stages.services.openai_client import AsyncOpenAIClient, OpenAIClient
 from ray_curator.tasks import DocumentBatch
 
 
@@ -24,30 +25,64 @@ def main(args: argparse.Namespace) -> None:
     # Create pipeline
     pipeline = Pipeline(name="reasoning_curation", description="Curation pipeline for reasoning traces")
 
-    # Create NeMo Curator LLM client
-    # You can get your API key from https://build.nvidia.com/settings/api-keys
-    llm_client = OpenAIClient(
-        api_key=os.environ.get("NVIDIA_API_KEY", "<your-nvidia-api-key>"),
-        base_url="https://integrate.api.nvidia.com/v1",
-    )
-    llm_reasoning_model = "nvidia/llama-3.1-nemotron-70b-instruct" # "deepseek-ai/deepseek-r1"
-    llm_domain_classifier_model = "nvidia/llama-3.1-nemotron-70b-instruct"
-    llm_grader_model = "nvidia/llama-3.1-nemotron-70b-instruct"
-    llm_difficulty_model_1 = "microsoft/phi-3-mini-4k-instruct"
-    llm_difficulty_model_2 = "microsoft/phi-3-medium-4k-instruct"
+    # Choose client based on async flag
+    if args.enable_async:
+        print("🚀 Using ASYNC generation with concurrent processing")
+        llm_client = AsyncOpenAIClient(
+            max_concurrent_requests=args.max_concurrent_requests,
+            max_retries=3,
+            base_delay=1.0,
+            api_key=os.environ.get("NVIDIA_API_KEY", "<your-nvidia-api-key>"),
+            base_url="https://integrate.api.nvidia.com/v1",
+        )
+    else:
+        print("🐌 Using SYNC generation with sequential processing")
+        llm_client = OpenAIClient(
+            api_key=os.environ.get("NVIDIA_API_KEY", "<your-nvidia-api-key>"),
+            base_url="https://integrate.api.nvidia.com/v1",
+        )
+
+    # setting LLM models
+    ## regular Nvidia account
+    # llm_reasoning_model = "nvidia/llama-3.1-nemotron-70b-instruct" # "deepseek-ai/deepseek-r1"
+    # llm_domain_classifier_model = "nvidia/llama-3.1-nemotron-70b-instruct"
+    # llm_grader_model = "nvidia/llama-3.1-nemotron-70b-instruct"
+    # llm_difficulty_model_1 = "microsoft/phi-3-mini-4k-instruct"
+    # llm_difficulty_model_2 = "microsoft/phi-3-medium-4k-instruct"
+    ## Nvidia internal developer account
+    llm_reasoning_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
+    llm_domain_classifier_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
+    llm_grader_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
+    llm_difficulty_model_1 = "nvdev/meta/llama-3.2-1b-instruct"
+    llm_difficulty_model_2 = "nvdev/meta/llama-3.2-3b-instruct"
 
     # Read samples for reasoning traces
     input_data = pd.read_csv(args.input_path)
+    print(f"📊 Processing {len(input_data)} rows")
 
-    # Create a DocumentBatch from the input data
-    input_batch = DocumentBatch(
-        data=input_data,
-        task_id="input_questions",
-        dataset_name="reasoning_traces_synthetic",
-    )
+    # Divide input data into batches
+    batch_size = args.batch_size
+    data_batches = []
+    for i in range(0, len(input_data), batch_size):
+        batch_data = input_data.iloc[i:i + batch_size]
+        data_batches.append(batch_data)
+    
+    print(f"📦 Created {len(data_batches)} data batches with batch size {batch_size}")
+    print(f"📊 Batch sizes: {[len(batch) for batch in data_batches]}")
+
+    # Wrap each batch with DocumentBatch
+    input_batches = []
+    for i, batch_data in enumerate(data_batches):
+        input_batch = DocumentBatch(
+            data=batch_data,
+            task_id=f"input_questions_batch_{i}",
+            dataset_name="reasoning_traces_synthetic",
+        )
+        input_batches.append(input_batch)
+
 
     # Add stages to the pipeline
-    # 1. Generate reasoning traces
+    # 1. Generate reasoning traces (automatically detects async/sync based on client type)
     pipeline.add_stage(
         ReasoningTracesSyntheticStage(
             prompt=None,
@@ -64,17 +99,17 @@ def main(args: argparse.Namespace) -> None:
             model_name=llm_grader_model,
             prompt=None,
             input_problem_field="question",
-            input_solution_field="answer",
+            input_solution_field="solution",
             input_attempt_field="reasoning_trace_attempt",
             output_field="reasoning_trace_correctness",
         ),
     )
-    pipeline.add_stage(
-        ScoreFilter(
-            LLMBasedCorrectnessFilter(),
-            text_field="reasoning_trace_correctness",
-        ),
-    )
+    # pipeline.add_stage(
+    #     ScoreFilter(
+    #         LLMBasedCorrectnessFilter(),
+    #         text_field="reasoning_trace_correctness",
+    #     ),
+    # )
     # 3. Difficulty filter
     # 3.1. Length difficulty filter
     pipeline.add_stage(
@@ -111,7 +146,7 @@ def main(args: argparse.Namespace) -> None:
             prompt=None,
             input_problem_field="question",
             input_attempt_field="llm_difficulty_1_attempt",
-            input_solution_field="answer",
+            input_solution_field="solution",
             output_field="llm_difficulty_1_correctness",
         ),
     )
@@ -122,7 +157,7 @@ def main(args: argparse.Namespace) -> None:
             prompt=None,
             input_problem_field="question",
             input_attempt_field="llm_difficulty_2_attempt",
-            input_solution_field="answer",
+            input_solution_field="solution",
             output_field="llm_difficulty_2_correctness",
         ),
     )
@@ -162,13 +197,25 @@ def main(args: argparse.Namespace) -> None:
     # Create executor
     executor = XennaExecutor()
 
-    # Execute pipeline
+    # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
-    results = pipeline.run(executor, [input_batch])
+    start_time = time.time()
+    
+    # Execute pipeline
+    results = pipeline.run(executor, input_batches)
 
-    # Print results
+    end_time = time.time()
+    execution_time = end_time - start_time
+
+    # Print results with performance metrics
     print("\nPipeline completed!")
-    print(f"Total output documents: {len(results) if results else 0}")
+    print(f"⏱️  Total execution time: {execution_time:.2f} seconds")
+    print(f"📊 Processed {len(input_data)} rows")
+    print(f"⚡ Average time per row: {execution_time / len(input_data):.2f} seconds")
+    print(f"🔧 Mode: {'ASYNC' if args.enable_async else 'SYNC'}")
+    if args.enable_async:
+        print(f"🚀 Max concurrent requests: {args.max_concurrent_requests}")
+    print(f"📈 Total output documents: {len(results) if results else 0}")
 
     if results:
         for i, document_batch in enumerate(results):
@@ -181,7 +228,7 @@ def main(args: argparse.Namespace) -> None:
             pd.set_option("display.max_columns", None)
             pd.set_option("display.width", None)
             pd.set_option("display.max_colwidth", None)
-            print(document_batch.data)
+            # print(document_batch.data)
 
             print("-" * 40)
 
@@ -192,10 +239,23 @@ def main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--input_path", type=str, default=None)
-    parser.add_argument("--output_path", type=str, default=None)
-    parser.add_argument("--domains_file_path", type=str, default=None)
+    parser = argparse.ArgumentParser(description="Reasoning curation pipeline with async/sync comparison")
+    parser.add_argument("--input_path", type=str, default=None, help="Path to input CSV file")
+    parser.add_argument("--output_path", type=str, default=None, help="Path to output JSON file")
+    parser.add_argument("--domains_file_path", type=str, default=None, help="Path to domains file")
+    parser.add_argument("--batch_size", type=int, default=100, help="Number of rows per batch (default: 100)")
+    parser.add_argument(
+        "--enable-async", 
+        action="store_true", 
+        default=False,
+        help="Enable async generation with concurrent processing (default: False for sync processing)"
+    )
+    parser.add_argument(
+        "--max-concurrent-requests", 
+        type=int, 
+        default=5,
+        help="Maximum number of concurrent requests when using async mode (default: 5)"
+    )
     args = parser.parse_args()
 
     main(args)

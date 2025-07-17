@@ -26,7 +26,7 @@ The user will provide theattemptandthe correctanswer inthefollowing format:
 {attempt}
 ## Correct answer
 {solution}
-Explain your reasoning, and end your response on a new line with strictly only "Yes" or "No" (without quotes, without formatting, no symbols, asterisks, or punctuation marks). If not knowing the answer, respond with "No"ss.
+Explain your reasoning, and end your response on a new line with strictly only "Yes" or "No" (without quotes, without formatting, no symbols, asterisks, or punctuation marks). If not knowing the answer, respond with "No".
 """
 
 DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE = """
