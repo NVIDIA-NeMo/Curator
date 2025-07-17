@@ -46,7 +46,7 @@ dependencies = [
     "crossfit>=0.0.9",
     "dask-mpi>=2021.11.0",
     "dask[complete]>=2021.7.1",
-    "datasets",
+    "datasets<4.0.0",
     "distributed>=2021.7.1",
     "fasttext==0.9.3",
     "ftfy==6.1.1",
@@ -166,7 +166,7 @@ fineweb_nemotron_edu_classifier_inference = "nemo_curator.scripts.classifiers.fi
 blend_datasets = "nemo_curator.scripts.blend_datasets:console_script"
 semdedup_extract_embeddings = "nemo_curator.scripts.semdedup.compute_embeddings:console_script"
 semdedup_clustering = "nemo_curator.scripts.semdedup.clustering:console_script"
-semdedup_extract_unique_ids = "nemo_curator.scripts.semdedup.extract_dedup_data:console_script"
+semdedup_extract_duplicate_ids = "nemo_curator.scripts.semdedup.extract_dedup_data:console_script"
 async_llm_pii_redaction = "nemo_curator.scripts.async_llm_pii_redaction:console_script"
 llm_pii_redaction = "nemo_curator.scripts.llm_pii_redaction:console_script"
 

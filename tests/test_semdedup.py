@@ -690,22 +690,22 @@ class TestSemanticDedupWithoutEmbeddingCreation:
 
         # Call extract_dedup_data
         semantic_cluster_level_dedup.extract_dedup_data(eps_to_extract=0.01)
-        # Check content of unique_ids
-        unique_ids_path = os.path.join(semantic_extraction_output_dir, "unique_ids_0.01.parquet")
-        assert os.path.exists(unique_ids_path)
-        unique_ids_df = pd.read_parquet(unique_ids_path)
-        assert unique_ids_df.columns.tolist() == [
+        # Check content of duplicate_ids
+        duplicate_ids_path = os.path.join(semantic_extraction_output_dir, "duplicate_ids_0.01.parquet")
+        assert os.path.exists(duplicate_ids_path)
+        duplicate_ids_df = pd.read_parquet(duplicate_ids_path)
+        assert duplicate_ids_df.columns.tolist() == [
             "id",
             "cosine_dist_to_cent",
             "cluster",
         ]
 
-        # Check content of semdedup_pruning_table with the filter matches the unique_ids
+        # Check content of semdedup_pruning_table with the filter matches the duplicate_ids
         semdedup_pruning_tables_df_filtered = semdedup_pruning_tables_df[
             semdedup_pruning_tables_df["cosine_sim_score"] >= 1 - 0.01
         ]
-        assert len(semdedup_pruning_tables_df_filtered) == len(unique_ids_df)
-        assert set(semdedup_pruning_tables_df_filtered["id"].to_list()) == set(unique_ids_df["id"].to_list())
+        assert len(semdedup_pruning_tables_df_filtered) == len(duplicate_ids_df)
+        assert set(semdedup_pruning_tables_df_filtered["id"].to_list()) == set(duplicate_ids_df["id"].to_list())
 
         # Check content of summary file
         summary_path = os.path.join(semantic_extraction_output_dir, "dedup_summary_0.01.csv")
@@ -729,6 +729,6 @@ class TestSemanticDedupWithoutEmbeddingCreation:
                 }
             ),
         )
-        # Ensure that the unique_ids are also correct (this implicitly checks for semdedup_pruning_tables output)
-        assert len(unique_ids_df) == _removed
-        assert len(set(unique_ids_df["id"].to_list())) == _removed
+        # Ensure that the duplicate_ids are also correct (this implicitly checks for semdedup_pruning_tables output)
+        assert len(duplicate_ids_df) == _removed
+        assert len(set(duplicate_ids_df["id"].to_list())) == _removed
