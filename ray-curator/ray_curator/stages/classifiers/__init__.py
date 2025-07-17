@@ -14,10 +14,6 @@
 
 import os
 
-import crossfit.config
-
-crossfit.config.set_disable_dask(True)
-
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from .aegis import AegisClassifier, InstructionDataGuardClassifier
 from .content_type import ContentTypeClassifier

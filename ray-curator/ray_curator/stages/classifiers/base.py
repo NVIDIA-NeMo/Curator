@@ -13,174 +13,252 @@
 # limitations under the License.
 
 import os
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from crossfit.backend.torch.hf.model import HFModel
+from functools import lru_cache
+from typing import Any, Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-from abc import abstractmethod
 
-import cudf
+import numpy as np
 import pandas as pd
 import torch
-from crossfit import op
-from huggingface_hub import PyTorchModelHubMixin
+from huggingface_hub import PyTorchModelHubMixin, snapshot_download
 from torch import nn
-from transformers import AutoModel
+from transformers import AutoConfig, AutoModel, AutoTokenizer
 
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import DocumentBatch
 
-from .crossfit_wrappers import CrossFitLabelerWrapper, CrossFitPredictorWrapper, CrossFitTokenizerWrapper
-from .utils import _get_suggest_memory_for_classifier
 
+class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """
+    Tokenizer stage for Hugging Face models.
 
-@dataclass(kw_only=True)
-class DistributedDataClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
-    """Abstract class for running multi-node multi-GPU data classification"""
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        text_field: The name of the text field in the input data. Defaults to "text".
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
 
-    labels: list[str]
-    filter_by: list[str]
-    model_batch_size: int
-    out_dim: int
-    pred_column: str | list[str]
-    max_chars: int
-    device_type: str
-    autocast: bool
+    """
 
-    def __post_init__(self):
-        # TODO: Check this
-        self._resources = Resources(gpu_memory_gb=(_get_suggest_memory_for_classifier() + 3))
+    def __init__(
+        self,
+        model_identifier: str,
+        text_field: str = "text",
+        max_seq_length: int | None = None,
+        padding_side: Literal["left", "right"] = "right",
+        sort_by_length: bool = True,
+    ):
+        self._name = f"tokenizer-{model_identifier}"
+
+        self.text_field = text_field
+        self.model_identifier = model_identifier
+        self.max_seq_length = max_seq_length
+        self.padding_side = padding_side
+        self.sort_by_length = sort_by_length
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        # TODO: Check for prob_column too, if there is one
-        return ["data"], [self.pred_column] if isinstance(self.pred_column, str) else self.pred_column
-
-    def process(self, batch: DocumentBatch) -> DocumentBatch | None:
-        """Run classifier on documents and filter if desired."""
-
-        df = batch.to_pandas()
-        result_df = self._run_classifier(df)
-
-        if self.filter_by is not None:
-            result_df = self._filter_documents(result_df)
-
-        result_df = result_df.to_pandas()
-
-        if len(result_df) == 0:
-            print(f"All documents filtered out for batch {batch.task_id}")
-            return None
-
-        # Create output batch
-        return DocumentBatch(
-            task_id=f"{batch.task_id}_{self.name}",
-            dataset_name=batch.dataset_name,
-            data=result_df,
+        return ["data"], [self.text_field, "input_ids", "attention_mask"] + (
+            ["_curator_seq_order"] if self.sort_by_length else []
         )
 
-    @abstractmethod
-    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
-        pass
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
 
-    def _filter_documents(
+    def setup_on_node(self, _node_info: NodeInfo | None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(repo_id=self.model_identifier, local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.model_identifier}"
+            raise RuntimeError(msg) from e
+
+    @lru_cache(maxsize=1)  # noqa: B019
+    def load_cfg(self) -> AutoConfig:
+        return AutoConfig.from_pretrained(self.model_identifier)
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_identifier)
+
+        if self.max_seq_length is None:
+            self.max_seq_length = self.tokenizer.model_max_length
+
+            # Guard against the HF bug
+            # which sets max_seq_length to max(int) for some models
+            if self.max_seq_length > 1e5:  # noqa: PLR2004
+                self.max_seq_length = self.load_cfg().max_position_embeddings
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+
+        with torch.no_grad():
+            tokens = self.tokenizer.batch_encode_plus(
+                df[self.text_field].tolist(),
+                max_length=self.max_seq_length,
+                padding="max_length",
+                return_tensors="np",
+                truncation=True,
+                add_special_tokens=True,
+                return_token_type_ids=False,
+            )
+
+        output = df.copy()
+        output["input_ids"] = tokens.input_ids.tolist()
+        output["attention_mask"] = tokens.attention_mask.tolist()
+
+        if self.sort_by_length:
+            # Add column to preserve original order
+            output["_curator_seq_order"] = np.arange(len(df))
+            output["_curator_token_length"] = tokens.attention_mask.sum(axis=1)
+            output = output.sort_values(by="_curator_token_length", kind="stable", ignore_index=True).drop(
+                columns=["_curator_token_length"]
+            )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=output,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+
+def clip_tokens(token_o: dict, padding_side: Literal["left", "right"] = "right") -> dict[str, torch.Tensor]:
+    """
+    Clip the tokens to the smallest size possible.
+
+    Args:
+        token_o: The dictionary containing the input tokens (input_ids, attention_mask).
+        padding_side: The side to pad the input tokens. Defaults to "right".
+
+    Returns:
+        The clipped tokens (input_ids, attention_mask).
+
+    """
+    clip_len = token_o["attention_mask"].sum(axis=1).max()
+
+    if padding_side == "right":
+        token_o["input_ids"] = token_o["input_ids"][:, :clip_len]
+        token_o["attention_mask"] = token_o["attention_mask"][:, :clip_len]
+    else:
+        token_o["input_ids"] = token_o["input_ids"][:, -clip_len:]
+        token_o["attention_mask"] = token_o["attention_mask"][:, -clip_len:]
+
+    token_o.pop("metadata", None)
+
+    return token_o
+
+
+class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """
+    Base class for Hugging Face model inference.
+
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        pred_column: The name of the prediction column.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        has_seq_order: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+
+    """
+
+    def __init__(
         self,
-        df: pd.DataFrame | cudf.DataFrame,
-    ) -> pd.DataFrame | cudf.DataFrame:
-        filter_by = self.filter_by
-        if isinstance(filter_by, str):
-            return df[df[self.pred_column].astype(str) == filter_by]
-        elif isinstance(filter_by, list):
-            return df[df[self.pred_column].isin(filter_by)]
+        model_identifier: str,
+        pred_column: str,
+        micro_batch_size: int = 256,
+        has_seq_order: bool = True,
+        padding_side: Literal["left", "right"] = "right",
+    ):
+        self._name = f"model-{model_identifier}"
+        # Assume that the model can fit on a single GPU
+        self._resources = Resources(cpus=1, gpus=1)
 
-        msg = "filter_by must be a string or list type"
-        raise TypeError(msg)
+        self.model_identifier = model_identifier
+        self.pred_column = pred_column
+        self.micro_batch_size = micro_batch_size
+        self.has_seq_order = has_seq_order
+        self.padding_side = padding_side
 
-    def get_labels(self) -> list[str]:
-        return self.labels
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
 
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.pred_column]
 
-@dataclass(kw_only=True)
-class StreamingDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
-    """Abstract class for running multi-node multi-GPU data classification"""
+    def setup_on_node(self, _node_info: NodeInfo | None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(repo_id=self.model_identifier, local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.model_identifier}"
+            raise RuntimeError(msg) from e
 
-    labels: list[str]
-    filter_by: list[str]
-    model_batch_size: int
-    out_dim: int
-    pred_column: str | list[str]
-    max_chars: int
-    device_type: str
-    autocast: bool
-    gpu_tokenizer: bool = True
+    def yield_next_batch(self, df: pd.DataFrame) -> Generator[dict[str, torch.Tensor]]:
+        """
+        Yields a generator of model inputs for the next batch.
+        We only move the microbatch to the GPU to reduce the memory overhead.
 
-    @property
-    def name(self) -> str:
+        Args:
+            df (pd.DataFrame): The Pandas DataFrame (with input_ids and attention_mask) to process.
+
+        Yields:
+            Generator[dict[str, torch.Tensor]]: A generator of model inputs for the next batch.
+
+        """
+        # TODO : Move to device after clipping
+        for i in range(0, len(df), self.micro_batch_size):
+            yield clip_tokens(
+                {
+                    "input_ids": torch.tensor(df["input_ids"][i : i + self.micro_batch_size].tolist()).to(
+                        self.model.device
+                    ),
+                    "attention_mask": torch.tensor(df["attention_mask"][i : i + self.micro_batch_size].tolist()).to(
+                        self.model.device
+                    ),
+                },
+                padding_side=self.padding_side,
+            )
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
         msg = "Subclasses must implement this method"
         raise NotImplementedError(msg)
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        # TODO: Check for prob_column too, if there is one
-        return ["data"], [self.pred_column] if isinstance(self.pred_column, str) else self.pred_column
-
-    def decompose(self) -> list[ProcessingStage]:
-        """Decompose into tokenizer, predictor, and labeler stages."""
-        # TODO: Add filter_by
-
-        if self.prob_column is None:
-            prob_col = "_prob"
-            keep_prob_col = False
-        else:
-            prob_col = self.prob_column
-            keep_prob_col = True
-
-        return [
-            CrossFitTokenizerWrapper(
-                model=self.model,
-                cols=[self.text_field],
-                tokenizer_type="default",
-                max_chars=self.max_chars,
-                use_gpu=self.gpu_tokenizer,
-            ),
-            CrossFitPredictorWrapper(
-                model=self.model,
-                sorted_data_loader=True,
-                model_batch_size=self.model_batch_size,
-                pred_output_col=prob_col,
-                progress_bar=False,
-            ),
-            CrossFitLabelerWrapper(
-                labels=self.labels,
-                cols=[prob_col],
-                suffix=self.pred_column,
-                prob_col=prob_col if keep_prob_col else None,
-            ),
-        ]
-
-    def get_labels(self) -> list[str]:
-        return self.labels
-
 
 class HFDeberta(nn.Module, PyTorchModelHubMixin):
+    """
+    Base PyTorch model where we add a classification head.
+
+    Args:
+        config: The configuration of the model.
+
+    """
+
     def __init__(self, config: dataclass):
         super().__init__()
         self.model = AutoModel.from_pretrained(config["base_model"])
         self.dropout = nn.Dropout(config["fc_dropout"])
         self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
 
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
+
     def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        features = self.model(batch["input_ids"], batch["attention_mask"]).last_hidden_state
-        dropped = self.dropout(features)
-        outputs = self.fc(dropped)
-        return torch.softmax(outputs[:, 0, :], dim=1)
+        with torch.no_grad():
+            features = self.model(batch["input_ids"], batch["attention_mask"]).last_hidden_state
+            dropped = self.dropout(features)
+            outputs = self.fc(dropped)
+            return torch.softmax(outputs[:, 0, :], dim=1)
 
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.autocast:
@@ -193,35 +271,180 @@ class HFDeberta(nn.Module, PyTorchModelHubMixin):
         self.autocast = autocast
 
 
-def _run_classifier_helper(  # noqa: PLR0913
-    df: pd.DataFrame | cudf.DataFrame,
-    model: "HFModel",
-    labels: list[str],
-    max_chars: int,
-    model_batch_size: int,
-    label_col: str,
-    text_field: str = "text",
-    prob_col: str | None = None,
-) -> pd.DataFrame | cudf.DataFrame:
-    columns_to_keep_list = df.columns.to_list()
+class HFModelStage(HFModel):
+    """
+    Stage for Hugging Face model inference.
 
-    if prob_col is None:
-        prob_col = "_prob"
-        labeler = op.Labeler(labels, cols=[prob_col], suffix=label_col)
-    else:
-        labeler = op.Labeler(labels, cols=[prob_col], keep_cols=[prob_col], suffix=label_col)
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        pred_column: The name of the prediction column.
+        prob_column: The name of the probability column. Defaults to None.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        has_seq_order: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
-    classifier_pipe = op.Sequential(
-        op.Tokenizer(model, cols=[text_field], tokenizer_type="default", max_chars=max_chars),
-        op.Predictor(
-            model,
-            sorted_data_loader=True,
-            batch_size=model_batch_size,
-            pred_output_col=prob_col,
-            progress_bar=False,
-        ),
-        labeler,
-        keep_cols=columns_to_keep_list,
-    )
+    """
 
-    return classifier_pipe(df)
+    def __init__(  # noqa: PLR0913
+        self,
+        model_identifier: str,
+        pred_column: str,
+        prob_column: str | None = None,
+        micro_batch_size: int = 256,
+        has_seq_order: bool = True,
+        padding_side: Literal["left", "right"] = "right",
+        autocast: bool = True,
+    ):
+        super().__init__(
+            pred_column=pred_column,
+            model_identifier=model_identifier,
+            has_seq_order=has_seq_order,
+            micro_batch_size=micro_batch_size,
+            padding_side=padding_side,
+        )
+
+        self.prob_column = prob_column
+        self.autocast = autocast
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.pred_column] + ([self.prob_column] if self.prob_column is not None else [])
+
+    def setup(self, _: WorkerMetadata | None) -> None:
+        self.model = HFDeberta.from_pretrained(self.model_identifier).cuda().eval()
+        self.model.set_autocast(self.autocast)
+
+        config = AutoConfig.from_pretrained(self.model_identifier)
+        self.labels = list(config.label2id.keys())
+        self.labels.sort(key=lambda x: config.label2id[x])
+
+    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+        probs = outputs.cpu().numpy()
+        preds = np.argmax(probs, axis=1)
+
+        pred_labels = [self.labels[idx] for idx in preds]
+
+        return {
+            "probs": probs,
+            "preds": np.array(pred_labels),
+        }
+
+    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+        return {
+            "probs": np.concatenate([out["probs"] for out in processed_outputs], axis=0),
+            "preds": np.concatenate([out["preds"] for out in processed_outputs], axis=0),
+        }
+
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
+        df_cpu[self.pred_column] = collected_output["preds"]
+
+        if self.prob_column is not None:
+            df_cpu[self.prob_column] = collected_output["probs"].tolist()
+
+        return df_cpu
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        processed_outputs = []
+        df_cpu = batch.to_pandas()
+
+        for model_input_batch in self.yield_next_batch(df_cpu):
+            # Forward pass
+            with torch.no_grad():
+                outputs = self.model(model_input_batch)  # TODO: **
+
+            processed_output = self.process_model_output(outputs)
+            processed_outputs.append(processed_output)
+
+        # Collect all outputs
+        collected_output = self.collect_outputs(processed_outputs)
+
+        # Create output Pandas DataFrame
+        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
+
+        # Sort by seq_order to preserve original order from tokenizer
+        if self.has_seq_order:
+            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
+                columns=["_curator_seq_order"]
+            )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_cpu,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+
+@dataclass(kw_only=True)
+class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
+    """
+    Base composite stage for distributed data classification.
+
+    It decomposes into a tokenizer stage and a model stage.
+
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        pred_column: The name of the prediction column.
+        prob_column: The name of the probability column. Defaults to None.
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
+
+    """
+
+    model_identifier: str
+    pred_column: str
+    prob_column: str | None = None
+    text_field: str = "text"
+    filter_by: list[str] | None = None
+    max_seq_length: int | None = None
+    padding_side: Literal["left", "right"] = "right"
+    sort_by_length: bool = True
+    micro_batch_size: int = 256
+    autocast: bool = True
+
+    def __post_init__(self) -> None:
+        super().__init__()
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field, self.pred_column] + (
+            [self.prob_column] if self.prob_column is not None else []
+        )
+
+    def decompose(self) -> list[ProcessingStage]:
+        # TODO: Add filter_by
+
+        return [
+            HFTokenizerStage(
+                model_identifier=self.model_identifier,
+                text_field=self.text_field,
+                max_seq_length=self.max_seq_length,
+                padding_side=self.padding_side,
+                sort_by_length=self.sort_by_length,
+            ),
+            HFModelStage(
+                model_identifier=self.model_identifier,
+                pred_column=self.pred_column,
+                prob_column=self.prob_column,
+                micro_batch_size=self.micro_batch_size,
+                has_seq_order=self.sort_by_length,
+                padding_side=self.padding_side,
+                autocast=self.autocast,
+            ),
+        ]
