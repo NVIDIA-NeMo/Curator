@@ -42,7 +42,7 @@ class QualityClassifier(DistributedDataClassifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         pred_column: str = "quality_pred",
         prob_column: str | None = None,
