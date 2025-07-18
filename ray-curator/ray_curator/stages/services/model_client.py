@@ -81,6 +81,7 @@ class AsyncLLMClient(ABC):
         self.max_retries = max_retries
         self.base_delay = base_delay
         self._semaphore = None
+        self._semaphore_loop = None
 
     @abstractmethod
     def setup(self) -> None:
@@ -129,9 +130,11 @@ class AsyncLLMClient(ABC):
         """
         Query the model with automatic retry and concurrency control.
         """
-        # Initialize semaphore if not already done
-        if self._semaphore is None:
+        # Initialize semaphore if not already done or if we're in a different event loop
+        current_loop = asyncio.get_event_loop()
+        if self._semaphore is None or self._semaphore_loop != current_loop:
             self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
+            self._semaphore_loop = current_loop
         
         async with self._semaphore:  # Limit concurrent requests
             # Retry logic with exponential backoff
