@@ -7,6 +7,7 @@ from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTransco
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
+from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
@@ -94,17 +95,34 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         [1, 2] if has_aesthetics and has_embeddings else [1] if has_aesthetics else [2] if has_embeddings else []
     )
 
-    # TODO: add a check once we have embeddings / aesthetics stages
-    target_fps = [2]
-    pipeline.add_stage(ClipFrameExtractionStage(
-        extraction_policies=(FrameExtractionPolicy.sequence,),
-        target_fps=target_fps,
-        target_res=(
-            args.clip_extraction_target_res,
-            args.clip_extraction_target_res,
-        ),
-        verbose=args.verbose,
-    ))
+    if target_fps:
+        pipeline.add_stage(ClipFrameExtractionStage(
+            extraction_policies=(FrameExtractionPolicy.sequence,),
+            target_fps=target_fps,
+            target_res=(
+                args.clip_extraction_target_res,
+                args.clip_extraction_target_res,
+            ),
+            verbose=args.verbose,
+        ))
+
+    if args.generate_embeddings and args.embedding_algorithm.startswith("cosmos-embed1"):
+        variant = args.embedding_algorithm.split("-")[-1]
+        pipeline.add_stage(CosmosEmbed1FrameCreationStage(
+            model_dir=args.model_dir,
+            variant=variant,
+            target_fps=2.0,
+            verbose=args.verbose,
+        ))
+        pipeline.add_stage(CosmosEmbed1EmbeddingStage(
+            model_dir=args.model_dir,
+            variant=variant,
+            gpu_memory_gb=args.embedding_gpu_memory_gb,
+            verbose=args.verbose,
+        ))
+    else:
+        msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
+        raise ValueError(msg)
 
     pipeline.add_stage(
         ClipWriterStage(
@@ -112,7 +130,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             input_path=args.video_dir,
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
-            generate_embeddings=False, # TODO: Change this once we have an embedding stage
+            generate_embeddings=args.generate_embeddings,
             generate_previews=False, # TODO: Change this once we have a preview stage
             generate_captions=False, # TODO: Change this once we have a caption stage
             embedding_algorithm=args.embedding_algorithm,
@@ -390,14 +408,14 @@ if __name__ == "__main__":
         "--embedding-algorithm",
         type=str,
         default="internvideo2",
-        choices=["cosmos-embed1", "internvideo2"],
+        choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p", "internvideo2"],
         help="Embedding algorithm to use.",
     )
     parser.add_argument(
-        "--embedding-gpus-per-worker",
+        "--embedding-gpu-memory-gb",
         type=float,
-        default=1.0,
-        help="Number of GPUs per worker for InternVideo2 or Cosmos-Embed1 embedding stage.",
+        default=20.0,
+        help="GPU memory in GB per worker for Cosmos-Embed1 embedding stage.",
     )
     parser.add_argument(
         "--no-generate-embeddings",
