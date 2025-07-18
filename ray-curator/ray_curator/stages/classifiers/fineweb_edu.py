@@ -101,8 +101,8 @@ class HFFineWebModelStage(HFModel):
 
         float_scores = logits.tolist()
         float_scores = [min(5.0, max(0.0, x)) for x in float_scores]
-        int_scores = [int(round(max(0, min(score, 5)))) for score in logits]
-        pred_labels = ["high_quality" if score >= 2.5 else "low_quality" for score in logits]
+        int_scores = [round(max(0, min(score, 5))) for score in logits]
+        pred_labels = ["high_quality" if score >= 2.5 else "low_quality" for score in logits]  # noqa: PLR2004
 
         return {
             "floats": float_scores,
