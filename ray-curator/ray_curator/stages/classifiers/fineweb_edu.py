@@ -13,42 +13,69 @@
 # limitations under the License.
 
 import os
+from dataclasses import dataclass
+from typing import Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-import cudf
+
+import numpy as np
 import pandas as pd
 import torch
-from crossfit import op
-from crossfit.backend.torch.hf.model import HFModel
-from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoModelForSequenceClassification
 
 from ray_curator.backends.base import WorkerMetadata
-
-from .base import DistributedDataClassifier
-from .utils import _get_suggest_memory_for_classifier
-
-FINEWEB_EDU_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
-FINEWEB_MIXTRAL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
-FINEWEB_NEMOTRON_IDENTIFIER = "nvidia/nemocurator-fineweb-nemotron-4-edu-classifier"
+from ray_curator.stages.base import CompositeStage, ProcessingStage
+from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
+from ray_curator.stages.modules.score_filter import Filter
+from ray_curator.tasks import DocumentBatch
 
 
-class FinewebEduModel(HFModel):
-    def __init__(
+class HFFineWebModelStage(HFModel):
+    """
+    Stage for Hugging Face model inference.
+
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        pred_column: The name of the prediction column.
+        float_score_column: The name of the float score column.
+        int_score_column: The name of the integer score column.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        has_seq_order: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
+
+    """
+
+    def __init__(  # noqa: PLR0913
         self,
-        path_or_name: str,
-        max_mem_gb: int | None = None,
-        autocast: bool = False,
+        model_identifier: str,
+        pred_column: str,
+        float_score_column: str,
+        int_score_column: str,
+        micro_batch_size: int = 256,
+        has_seq_order: bool = True,
+        padding_side: Literal["left", "right"] = "right",
+        autocast: bool = True,
     ):
-        self.path_or_name = path_or_name
-        self.autocast = autocast
-        if max_mem_gb is None:
-            max_mem_gb = _get_suggest_memory_for_classifier()
-        super().__init__(path_or_name=path_or_name, max_mem_gb=max_mem_gb)
+        super().__init__(
+            pred_column=pred_column,
+            model_identifier=model_identifier,
+            has_seq_order=has_seq_order,
+            micro_batch_size=micro_batch_size,
+            padding_side=padding_side,
+        )
 
-    def load_model(self, device: str = "cuda") -> torch.nn.Module:
-        model = AutoModelForSequenceClassification.from_pretrained(self.path_or_name)
-        model = model.to(device)
-        return self.configure_forward(model, self.autocast)
+        self.float_score_column = float_score_column
+        self.int_score_column = int_score_column
+        self.autocast = autocast
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.pred_column, self.float_score_column, self.int_score_column]
 
     @staticmethod
     def configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
@@ -65,108 +92,146 @@ class FinewebEduModel(HFModel):
         model.forward = custom_forward
         return model
 
-    def load_tokenizer(self) -> AutoTokenizer:
-        return AutoTokenizer.from_pretrained(self.path_or_name)
+    def setup(self, _: WorkerMetadata | None) -> None:
+        model = AutoModelForSequenceClassification.from_pretrained(self.model_identifier).cuda()
+        self.model = self.configure_forward(model, self.autocast)
 
-    def load_config(self) -> AutoConfig:
-        return AutoConfig.from_pretrained(self.path_or_name)
+    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+        logits = outputs.cpu().numpy()
+
+        float_scores = logits.tolist()
+        float_scores = [min(5.0, max(0.0, x)) for x in float_scores]
+        int_scores = [int(round(max(0, min(score, 5)))) for score in logits]
+        pred_labels = ["high_quality" if score >= 2.5 else "low_quality" for score in logits]
+
+        return {
+            "floats": float_scores,
+            "ints": int_scores,
+            "preds": pred_labels,
+        }
+
+    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+        return {
+            "floats": np.concatenate([out["floats"] for out in processed_outputs], axis=0),
+            "ints": np.concatenate([out["ints"] for out in processed_outputs], axis=0),
+            "preds": np.concatenate([out["preds"] for out in processed_outputs], axis=0),
+        }
+
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
+        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
+
+        df_cpu[self.float_score_column] = collected_output["floats"]
+        df_cpu[self.int_score_column] = collected_output["ints"]
+        df_cpu[self.pred_column] = collected_output["preds"]
+
+        return df_cpu
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        processed_outputs = []
+        df_cpu = batch.to_pandas()
+
+        for model_input_batch in self.yield_next_batch(df_cpu):
+            # Forward pass
+            with torch.no_grad():
+                outputs = self.model(**model_input_batch)
+
+            processed_output = self.process_model_output(outputs)
+            processed_outputs.append(processed_output)
+
+        # Collect all outputs
+        collected_output = self.collect_outputs(processed_outputs)
+
+        # Create output Pandas DataFrame
+        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
+
+        # Sort by seq_order to preserve original order from tokenizer
+        if self.has_seq_order:
+            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
+                columns=["_curator_seq_order"]
+            )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_cpu,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 
-class _FineWebBaseClassifier(DistributedDataClassifier):
+@dataclass(kw_only=True)
+class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     """
     Parent class for FineWebEduClassifier, FineWebMixtralEduClassifier, and FineWebNemotronEduClassifier,
     since their implementations are almost identical.
 
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        pred_column: The name of the prediction column.
+        float_score_column: The name of the float score column.
+        int_score_column: The name of the integer score column.
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
+
     """
 
-    def __init__(  # noqa: PLR0913
-        self,
-        fineweb_identifier: str,
-        pred_column: str,
-        int_column: str,
-        quality_label_column: str | None,
-        model_batch_size: int = 1024,
-        text_field: str = "text",
-        max_chars: int = -1,
-        device_type: str = "cuda",
-        autocast: bool = True,
-        max_mem_gb: int | None = None,
-    ):
-        self.fineweb_identifier = fineweb_identifier
+    model_identifier: str
+    pred_column: str
+    float_score_column: str
+    int_score_column: str
+    text_field: str = "text"
+    filter_by: list[str] | None = None
+    max_seq_length: int | None = None
+    padding_side: Literal["left", "right"] = "right"
+    sort_by_length: bool = True
+    micro_batch_size: int = 256
+    autocast: bool = True
 
-        self.text_field = text_field
-        self.int_column = int_column
-        self.quality_label_column = quality_label_column
-        self.max_chars = max_chars
-        self.max_mem_gb = max_mem_gb
+    def __post_init__(self) -> None:
+        super().__init__()
 
-        if self.fineweb_identifier == FINEWEB_EDU_IDENTIFIER:
-            self._name = "fineweb_edu_classifier"
-        elif self.fineweb_identifier == FINEWEB_MIXTRAL_IDENTIFIER:
-            self._name = "fineweb_mixtral_edu_classifier"
-        elif self.fineweb_identifier == FINEWEB_NEMOTRON_IDENTIFIER:
-            self._name = "fineweb_nemotron_4_edu_classifier"
-        else:
-            msg = f"Invalid fineweb_identifier: {self.fineweb_identifier}"
-            raise ValueError(msg)
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
 
-        super().__init__(
-            filter_by=None,  # No filtering as its a numeric score
-            model_batch_size=model_batch_size,
-            pred_column=pred_column,
-            max_chars=max_chars,
-            device_type=device_type,
-            autocast=autocast,
-            labels=None,
-            out_dim=1,
-        )
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.pred_column, self.float_score_column, self.int_score_column]
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model = FinewebEduModel(
-            path_or_name=self.fineweb_identifier,
-            autocast=self.autocast,
-            max_mem_gb=self.max_mem_gb,
-        )
+    def filter_by_category(self, value: str) -> bool:
+        return value in self.filter_by
 
-    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
-        if self.fineweb_identifier == FINEWEB_EDU_IDENTIFIER:
-            print("Starting FineWeb-Edu Classifier inference", flush=True)
-        elif self.fineweb_identifier == FINEWEB_MIXTRAL_IDENTIFIER:
-            print("Starting FineWeb Mixtral Edu Classifier inference", flush=True)
-        elif self.fineweb_identifier == FINEWEB_NEMOTRON_IDENTIFIER:
-            print("Starting FineWeb Nemotron-4 Edu Classifier inference", flush=True)
-
-        pipe = op.Sequential(
-            op.Tokenizer(
-                self.model,
-                cols=[self.text_field],
-                tokenizer_type="default",
-                max_length=self.model.max_seq_length(),
+    def decompose(self) -> list[ProcessingStage]:
+        stages = [
+            HFTokenizerStage(
+                model_identifier=self.model_identifier,
+                text_field=self.text_field,
+                max_seq_length=self.max_seq_length,
+                padding_side=self.padding_side,
+                sort_by_length=self.sort_by_length,
             ),
-            op.Predictor(
-                self.model,
-                sorted_data_loader=True,
-                batch_size=self.model_batch_size,
-                pred_output_col=self.pred_column,
-                progress_bar=False,
+            HFFineWebModelStage(
+                model_identifier=self.model_identifier,
+                pred_column=self.pred_column,
+                float_score_column=self.float_score_column,
+                int_score_column=self.int_score_column,
+                micro_batch_size=self.micro_batch_size,
+                has_seq_order=self.sort_by_length,
+                padding_side=self.padding_side,
+                autocast=self.autocast,
             ),
-            keep_cols=df.columns.tolist(),
-        )
-        df = pipe(df)
+        ]
 
-        df[self.pred_column] = df[self.pred_column].where(df[self.pred_column] >= 0, 0)
-        df[self.pred_column] = df[self.pred_column].where(df[self.pred_column] <= 5, 5)  # noqa: PLR2004
-        df[self.int_column] = df[self.pred_column].round().astype(int)
+        if self.filter_by is not None and len(self.filter_by) > 0:
+            stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
 
-        if self.quality_label_column is not None:
-            df[self.quality_label_column] = "high_quality"
-            # If the score is less than 2.5, label it as low quality
-            df[self.quality_label_column] = df[self.quality_label_column].mask(
-                df[self.pred_column] < 2.5,  # noqa: PLR2004
-                "low_quality",
-            )
-
-        return df
+        return stages
 
 
 class FineWebEduClassifier(_FineWebBaseClassifier):
@@ -176,40 +241,47 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
-        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
-        text_field (str): The column name containing the text data to be classified. Defaults to "text".
-        pred_column (str): The column name where prediction scores will be stored. Defaults to "fineweb-edu-score".
-        int_column (str): The column name where integer-rounded prediction scores will be stored. Defaults to "fineweb-edu-score-int".
-        max_chars (int): The maximum number of characters in each document to consider for classification. If -1, the entire document is considered. Defaults to -1.
-        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
-        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
-        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
-                                      it defaults to the available GPU memory minus 4 GB.
+        pred_column: The name of the prediction column. Defaults to "fineweb-edu-score-label".
+        float_score_column: The name of the float score column. Defaults to "fineweb-edu-score-float".
+        int_score_column: The name of the integer score column. Defaults to "fineweb-edu-score-int".
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
-        model_batch_size: int = 256,
+        pred_column: str = "fineweb-edu-score-label",
+        float_score_column: str = "fineweb-edu-score-float",
+        int_score_column: str = "fineweb-edu-score-int",
         text_field: str = "text",
-        pred_column: str = "fineweb-edu-score",
-        int_column: str = "fineweb-edu-score-int",
-        max_chars: int = -1,
-        device_type: str = "cuda",
+        filter_by: list[str] | None = None,
+        max_seq_length: int | None = None,
+        padding_side: Literal["left", "right"] = "right",
+        sort_by_length: bool = True,
+        micro_batch_size: int = 256,
         autocast: bool = True,
-        max_mem_gb: int | None = None,
     ):
         super().__init__(
-            fineweb_identifier=FINEWEB_EDU_IDENTIFIER,
-            model_batch_size=model_batch_size,
-            text_field=text_field,
+            model_identifier="HuggingFaceFW/fineweb-edu-classifier",
             pred_column=pred_column,
-            int_column=int_column,
-            quality_label_column=None,
-            max_chars=max_chars,
-            device_type=device_type,
+            float_score_column=float_score_column,
+            int_score_column=int_score_column,
+            text_field=text_field,
+            filter_by=filter_by,
+            max_seq_length=max_seq_length,
+            padding_side=padding_side,
+            sort_by_length=sort_by_length,
+            micro_batch_size=micro_batch_size,
             autocast=autocast,
-            max_mem_gb=max_mem_gb,
         )
 
 
@@ -221,42 +293,47 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
-        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
-        text_field (str): The column name containing the text data to be classified. Defaults to "text".
-        pred_column (str): The column name where prediction scores will be stored. Defaults to "fineweb-mixtral-edu-score".
-        int_column (str): The column name where integer-rounded prediction scores will be stored. Defaults to "fineweb-mixtral-edu-score-int".
-        quality_label_column (str): The column name where a score of >= 2.5 is labeled "high_quality" and otherwise labeled "low_quality". Defaults to "fineweb-mixtral-edu-score-label".
-        max_chars (int): The maximum number of characters in each document to consider for classification. If -1, the entire document is considered. Defaults to -1.
-        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
-        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
-        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
-                                      it defaults to the available GPU memory minus 4 GB.
+        pred_column: The name of the prediction column. Defaults to "fineweb-mixtral-edu-score-label".
+        float_score_column: The name of the float score column. Defaults to "fineweb-mixtral-edu-score-float".
+        int_score_column: The name of the integer score column. Defaults to "fineweb-mixtral-edu-score-int".
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
-        model_batch_size: int = 1024,
+        pred_column: str = "fineweb-mixtral-edu-score-label",
+        float_score_column: str = "fineweb-mixtral-edu-score-float",
+        int_score_column: str = "fineweb-mixtral-edu-score-int",
         text_field: str = "text",
-        pred_column: str = "fineweb-mixtral-edu-score",
-        int_column: str = "fineweb-mixtral-edu-score-int",
-        quality_label_column: str = "fineweb-mixtral-edu-score-label",
-        max_chars: int = -1,
-        device_type: str = "cuda",
+        filter_by: list[str] | None = None,
+        max_seq_length: int | None = None,
+        padding_side: Literal["left", "right"] = "right",
+        sort_by_length: bool = True,
+        micro_batch_size: int = 256,
         autocast: bool = True,
-        max_mem_gb: int | None = None,
     ):
         super().__init__(
-            fineweb_identifier=FINEWEB_MIXTRAL_IDENTIFIER,
-            model_batch_size=model_batch_size,
-            text_field=text_field,
+            model_identifier="nvidia/nemocurator-fineweb-mixtral-edu-classifier",
             pred_column=pred_column,
-            int_column=int_column,
-            quality_label_column=quality_label_column,
-            max_chars=max_chars,
-            device_type=device_type,
+            float_score_column=float_score_column,
+            int_score_column=int_score_column,
+            text_field=text_field,
+            filter_by=filter_by,
+            max_seq_length=max_seq_length,
+            padding_side=padding_side,
+            sort_by_length=sort_by_length,
+            micro_batch_size=micro_batch_size,
             autocast=autocast,
-            max_mem_gb=max_mem_gb,
         )
 
 
@@ -268,40 +345,45 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
-        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
-        text_field (str): The column name containing the text data to be classified. Defaults to "text".
-        pred_column (str): The column name where prediction scores will be stored. Defaults to "fineweb-nemotron-edu-score".
-        int_column (str): The column name where integer-rounded prediction scores will be stored. Defaults to "fineweb-nemotron-edu-score-int".
-        quality_label_column (str): The column name where a score of >= 2.5 is labeled "high_quality" and otherwise labeled "low_quality". Defaults to "fineweb-nemotron-edu-score-label".
-        max_chars (int): The maximum number of characters in each document to consider for classification. If -1, the entire document is considered. Defaults to -1.
-        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
-        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
-        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
-                                      it defaults to the available GPU memory minus 4 GB.
+        pred_column: The name of the prediction column. Defaults to "fineweb-nemotron-edu-score-label".
+        float_score_column: The name of the float score column. Defaults to "fineweb-nemotron-edu-score-float".
+        int_score_column: The name of the integer score column. Defaults to "fineweb-nemotron-edu-score-int".
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
-        model_batch_size: int = 1024,
+        pred_column: str = "fineweb-nemotron-edu-score-label",
+        float_score_column: str = "fineweb-nemotron-edu-score-float",
+        int_score_column: str = "fineweb-nemotron-edu-score-int",
         text_field: str = "text",
-        pred_column: str = "fineweb-nemotron-edu-score",
-        int_column: str = "fineweb-nemotron-edu-score-int",
-        quality_label_column: str = "fineweb-nemotron-edu-score-label",
-        max_chars: int = -1,
-        device_type: str = "cuda",
+        filter_by: list[str] | None = None,
+        max_seq_length: int | None = None,
+        padding_side: Literal["left", "right"] = "right",
+        sort_by_length: bool = True,
+        micro_batch_size: int = 256,
         autocast: bool = True,
-        max_mem_gb: int | None = None,
     ):
         super().__init__(
-            fineweb_identifier=FINEWEB_NEMOTRON_IDENTIFIER,
-            model_batch_size=model_batch_size,
-            text_field=text_field,
+            model_identifier="nvidia/nemocurator-fineweb-nemotron-4-edu-classifier",
             pred_column=pred_column,
-            int_column=int_column,
-            quality_label_column=quality_label_column,
-            max_chars=max_chars,
-            device_type=device_type,
+            float_score_column=float_score_column,
+            int_score_column=int_score_column,
+            text_field=text_field,
+            filter_by=filter_by,
+            max_seq_length=max_seq_length,
+            padding_side=padding_side,
+            sort_by_length=sort_by_length,
+            micro_batch_size=micro_batch_size,
             autocast=autocast,
-            max_mem_gb=max_mem_gb,
         )
