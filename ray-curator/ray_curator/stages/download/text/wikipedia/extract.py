@@ -693,8 +693,6 @@ class WikipediaExtractor(DocumentExtractor):
             logger.error(f"Error extracting Wikipedia content for article {record.get('title', 'unknown')}: {e}")
             return None
 
-        return None
-
     def input_columns(self) -> list[str]:
         """Define the input columns expected by this extractor."""
         return ["title", "id", "url", "language", "source_id", "raw_content"]

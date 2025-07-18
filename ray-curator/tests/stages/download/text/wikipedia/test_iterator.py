@@ -556,7 +556,7 @@ class TestWikipediaIterator:
 
                 assert len(results) == 3
                 # Log should be called once when counter reaches 2
-                mock_logger.info.assert_called_once()
+                mock_logger.debug.assert_called_once()
 
     @mock.patch("bz2.BZ2File")
     def test_iterate_file_error_handling(self, mock_bz2file: mock.Mock, tmp_path: Path):
