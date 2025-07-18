@@ -13,32 +13,21 @@
 # limitations under the License.
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from typing import Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-import cudf
 import numpy as np
 import pandas as pd
 import torch
-from crossfit import op
-from crossfit.backend.torch.hf.model import HFModel
 from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
-from transformers import AutoConfig, AutoModel, AutoTokenizer
+from transformers import AutoModel
 
 from ray_curator.backends.base import WorkerMetadata
-
-from .base import DistributedDataClassifier
-from .utils import _get_suggest_memory_for_classifier
-
-PROMPT_TASK_COMPLEXITY_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
-
-
-@dataclass
-class PromptTaskComplexityConfig:
-    base_model: str = "microsoft/DeBERTa-v3-base"
-    max_len: int = 512
-    model_output_type: dict = field(default_factory=dict)
+from ray_curator.stages.base import CompositeStage, ProcessingStage
+from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
+from ray_curator.tasks import DocumentBatch
 
 
 class MeanPooling(nn.Module):
@@ -81,6 +70,10 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
             self.add_module(f"head_{i}", head)
 
         self.pool = MeanPooling()
+
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
 
     def compute_results(
         self, preds: torch.Tensor, target: str, decimal: int = 4
@@ -184,18 +177,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
                     strict=False,
                 )
             ],
-            device="cuda",
         )
-
-        # Convert lists results to PyTorch Tensors for CrossFit to handle
-        result["task_type_prob"] = torch.tensor(result["task_type_prob"], device="cuda")
-        result["creativity_scope"] = torch.tensor(result["creativity_scope"], device="cuda")
-        result["reasoning"] = torch.tensor(result["reasoning"], device="cuda")
-        result["contextual_knowledge"] = torch.tensor(result["contextual_knowledge"], device="cuda")
-        result["number_of_few_shots"] = torch.tensor(result["number_of_few_shots"], device="cuda")
-        result["domain_knowledge"] = torch.tensor(result["domain_knowledge"], device="cuda")
-        result["no_label_reason"] = torch.tensor(result["no_label_reason"], device="cuda")
-        result["constraint_ct"] = torch.tensor(result["constraint_ct"], device="cuda")
 
         return result
 
@@ -223,38 +205,113 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
         self.autocast = autocast
 
 
-class PromptTaskComplexityModel(HFModel):
-    def __init__(
-        self,
-        config: PromptTaskComplexityConfig,
-        autocast: bool,
-        max_mem_gb: int | None,
-    ):
-        self.config = config
-        self.autocast = autocast
-        if max_mem_gb is None:
-            max_mem_gb = _get_suggest_memory_for_classifier()
+class HFPromptTaskComplexityModelStage(HFModel):
+    """
+    Stage for Hugging Face model inference.
 
+    Args:
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        has_seq_order: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
+
+    """
+
+    def __init__(  # noqa: PLR0913
+        self,
+        micro_batch_size: int = 256,
+        has_seq_order: bool = True,
+        padding_side: Literal["left", "right"] = "right",
+        autocast: bool = True,
+    ):
         super().__init__(
-            self.config.base_model,
-            max_mem_gb=max_mem_gb,
-            model_output_type=config.model_output_type,
+            pred_column="prompt_complexity_score",
+            model_identifier="nvidia/prompt-task-and-complexity-classifier",
+            has_seq_order=has_seq_order,
+            micro_batch_size=micro_batch_size,
+            padding_side=padding_side,
         )
 
-    def load_model(self, device: str = "cuda") -> CustomHFDeberta:
-        model = CustomHFDeberta.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
-        model.set_autocast(self.autocast)
-        model = model.to(device)
-        return model.eval()
+        self.autocast = autocast
 
-    def load_tokenizer(self) -> AutoTokenizer:
-        return AutoTokenizer.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
 
-    def load_config(self) -> AutoConfig:
-        return AutoConfig.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.pred_column, "task_type_1", "task_type_2", "task_type_prob", "creativity_scope", "reasoning", "contextual_knowledge", "number_of_few_shots", "domain_knowledge", "no_label_reason", "constraint_ct"]
+
+    def setup(self, _: WorkerMetadata | None) -> None:
+        self.model = CustomHFDeberta.from_pretrained(self.model_identifier).cuda().eval()
+        self.model.set_autocast(self.autocast)
+
+    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+        return {
+            self.pred_column: np.concatenate([out[self.pred_column] for out in processed_outputs], axis=0),
+            "task_type_1": np.concatenate([out["task_type_1"] for out in processed_outputs], axis=0),
+            "task_type_2": np.concatenate([out["task_type_2"] for out in processed_outputs], axis=0),
+            "task_type_prob": np.concatenate([out["task_type_prob"] for out in processed_outputs], axis=0),
+            "creativity_scope": np.concatenate([out["creativity_scope"] for out in processed_outputs], axis=0),
+            "reasoning": np.concatenate([out["reasoning"] for out in processed_outputs], axis=0),
+            "contextual_knowledge": np.concatenate([out["contextual_knowledge"] for out in processed_outputs], axis=0),
+            "number_of_few_shots": np.concatenate([out["number_of_few_shots"] for out in processed_outputs], axis=0),
+            "domain_knowledge": np.concatenate([out["domain_knowledge"] for out in processed_outputs], axis=0),
+            "no_label_reason": np.concatenate([out["no_label_reason"] for out in processed_outputs], axis=0),
+            "constraint_ct": np.concatenate([out["constraint_ct"] for out in processed_outputs], axis=0),
+        }
+
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
+        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
+
+        df_cpu[self.pred_column] = collected_output[self.pred_column]
+        df_cpu["task_type_1"] = collected_output["task_type_1"]
+        df_cpu["task_type_2"] = collected_output["task_type_2"]
+        df_cpu["task_type_prob"] = collected_output["task_type_prob"]
+        df_cpu["creativity_scope"] = collected_output["creativity_scope"]
+        df_cpu["reasoning"] = collected_output["reasoning"]
+        df_cpu["contextual_knowledge"] = collected_output["contextual_knowledge"]
+        df_cpu["number_of_few_shots"] = collected_output["number_of_few_shots"]
+        df_cpu["domain_knowledge"] = collected_output["domain_knowledge"]
+        df_cpu["no_label_reason"] = collected_output["no_label_reason"]
+        df_cpu["constraint_ct"] = collected_output["constraint_ct"]
+
+        return df_cpu
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        processed_outputs = []
+        df_cpu = batch.to_pandas()
+
+        for model_input_batch in self.yield_next_batch(df_cpu):
+            # Forward pass
+            with torch.no_grad():
+                outputs = self.model(model_input_batch)
+
+            processed_outputs.append(outputs)
+
+        # Collect all outputs
+        collected_output = self.collect_outputs(processed_outputs)
+
+        # Create output Pandas DataFrame
+        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
+
+        # Sort by seq_order to preserve original order from tokenizer
+        if self.has_seq_order:
+            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
+                columns=["_curator_seq_order"]
+            )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_cpu,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 
-class PromptTaskComplexityClassifier(DistributedDataClassifier):
+@dataclass
+class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     """
     PromptTaskComplexityClassifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
     Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
@@ -262,84 +319,56 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
     https://huggingface.co/nvidia/prompt-task-and-complexity-classifier.
     This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
-    Attributes:
-        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
-        text_field (str): The field in the dataset that should be classified.
-        max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 2000.
-        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
-        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
-        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
-                                    it defaults to the available GPU memory minus 4 GB.
+    Args:
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+            Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
-    def __init__(  # noqa: PLR0913
-        self,
-        model_batch_size: int = 256,
-        text_field: str = "text",
-        max_chars: int = 2000,
-        device_type: str = "cuda",
-        autocast: bool = True,
-        max_mem_gb: int | None = None,
-    ):
-        self.text_field = text_field
+    text_field: str = "text"
+    filter_by: list[str] | None = None
+    max_seq_length: int | None = None
+    padding_side: Literal["left", "right"] = "right"
+    sort_by_length: bool = True
+    micro_batch_size: int = 256
+    autocast: bool = True
+    _name: str = "prompt_task_complexity_classifier"
 
-        self.config = AutoConfig.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
-        pred_column = self.config.targets
+    def __post_init__(self) -> None:
+        super().__init__()
 
-        self.max_mem_gb = max_mem_gb
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
 
-        self._name = "prompt_task_complexity_classifier"
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], ["prompt_complexity_score", "task_type_1", "task_type_2", "task_type_prob", "creativity_scope", "reasoning", "contextual_knowledge", "number_of_few_shots", "domain_knowledge", "no_label_reason", "constraint_ct"]
 
-        super().__init__(
-            labels=None,
-            filter_by=None,
-            model_batch_size=model_batch_size,
-            out_dim=None,
-            pred_column=pred_column,
-            max_chars=max_chars,
-            device_type=device_type,
-            autocast=autocast,
-        )
+    def decompose(self) -> list[ProcessingStage]:
+        if self.filter_by is not None and len(self.filter_by) > 0:
+            msg = "filter_by not supported with PromptTaskComplexityClassifier"
+            raise NotImplementedError(msg)
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model_config = PromptTaskComplexityConfig(model_output_type=self.config.model_output_type)
-        self.model = PromptTaskComplexityModel(
-            config=self.model_config, autocast=self.autocast, max_mem_gb=self.max_mem_gb
-        )
-
-    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
-        print("Starting prompt task and complexity classifier inference", flush=True)
-
-        columns_to_keep_list = df.columns.to_list()
-
-        model = self.model
-        classifier_pipe = op.Sequential(
-            op.Tokenizer(
-                model,
-                cols=[self.text_field],
-                tokenizer_type="default",
-                max_chars=self.max_chars,
+        return [
+            HFTokenizerStage(
+                model_identifier="nvidia/prompt-task-and-complexity-classifier",
+                text_field=self.text_field,
+                max_seq_length=self.max_seq_length,
+                padding_side=self.padding_side,
+                sort_by_length=self.sort_by_length,
             ),
-            op.Predictor(
-                model,
-                sorted_data_loader=True,
-                batch_size=self.model_batch_size,
-                model_output_cols=self.pred_column,
-                progress_bar=False,
+            HFPromptTaskComplexityModelStage(
+                micro_batch_size=self.micro_batch_size,
+                has_seq_order=self.sort_by_length,
+                padding_side=self.padding_side,
+                autocast=self.autocast,
             ),
-            keep_cols=columns_to_keep_list,
-        )
-
-        return classifier_pipe(df)
-
-    def _filter_documents(
-        self,
-        df: pd.DataFrame | cudf.DataFrame,
-    ) -> pd.DataFrame | cudf.DataFrame:
-        msg = "filter_by not supported with PromptTaskComplexityClassifier"
-        raise NotImplementedError(msg)
-
-    def get_labels(self) -> list[str]:
-        msg = "Please see https://huggingface.co/nvidia/prompt-task-and-complexity-classifier for more information about PromptTaskComplexityClassifier outputs."
-        raise NotImplementedError(msg)
+        ]

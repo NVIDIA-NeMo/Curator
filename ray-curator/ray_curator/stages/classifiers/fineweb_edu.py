@@ -270,6 +270,8 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
+        self._name = "fineweb_edu_classifier"
+
         super().__init__(
             model_identifier="HuggingFaceFW/fineweb-edu-classifier",
             pred_column=pred_column,
@@ -322,6 +324,8 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
+        self._name = "fineweb_mixtral_edu_classifier"
+
         super().__init__(
             model_identifier="nvidia/nemocurator-fineweb-mixtral-edu-classifier",
             pred_column=pred_column,
@@ -374,6 +378,8 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
+        self._name = "fineweb_nemotron_edu_classifier"
+
         super().__init__(
             model_identifier="nvidia/nemocurator-fineweb-nemotron-4-edu-classifier",
             pred_column=pred_column,
