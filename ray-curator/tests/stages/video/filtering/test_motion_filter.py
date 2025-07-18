@@ -215,7 +215,7 @@ class TestMotionFilterStage:
             global_mean_threshold=0.00098,
             per_patch_min_256_threshold=0.000001,
             gpu_memory_gb=20,
-            batch_size=256,
+            motion_filter_batch_size=256,
             verbose=False
         )
 
@@ -458,7 +458,7 @@ class TestMotionFilterStage:
 
     def test_process_with_custom_batch_size(self):
         """Test processing with custom batch size."""
-        custom_stage = MotionFilterStage(batch_size=128)
+        custom_stage = MotionFilterStage(motion_filter_batch_size=128)
 
         mock_motion_info = MotionInfo(
             is_small_motion=False,
