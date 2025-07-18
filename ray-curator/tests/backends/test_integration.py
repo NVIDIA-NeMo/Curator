@@ -1,9 +1,12 @@
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
 
 import pytest
+import ray
+from loguru import logger
 
 from ray_curator.backends.base import BaseExecutor
 from ray_curator.backends.experimental.ray_data import RayDataExecutor
@@ -12,6 +15,7 @@ from ray_curator.tasks import FileGroupTask
 
 from .utils import (
     EXPECTED_NUM_STAGES,
+    FILES_PER_PARTITION,
     TOTAL_DOCUMENTS,
     capture_logs,
     create_test_data,
@@ -22,13 +26,14 @@ from .utils import (
 @pytest.mark.parametrize(
     "backend_config",
     [
-        (XennaExecutor, {}),
-        (RayDataExecutor, {}),
+        pytest.param((RayDataExecutor, {}), id="ray_data"),
+        pytest.param((XennaExecutor, {"execution_mode": "batch"}), id="xenna_batch"),
+        pytest.param((XennaExecutor, {"execution_mode": "streaming"}), id="xenna_streaming"),
     ],
     indirect=True,
 )
 class TestBackendIntegrations:
-    NUM_TEST_FILES = 3
+    NUM_TEST_FILES = 15
     EXPECTED_OUTPUT_TASKS = EXPECTED_OUTPUT_FILES = TOTAL_DOCUMENTS  # After split_into_rows stage
 
     # Class attributes for shared test data
@@ -38,6 +43,7 @@ class TestBackendIntegrations:
     input_dir: Path | None = None
     output_dir: Path | None = None
     output_tasks: list[FileGroupTask] | None = None
+    remote_counter_actor: Any | None = None
     all_logs: str = ""
 
     @pytest.fixture(scope="class", autouse=True)
@@ -57,14 +63,22 @@ class TestBackendIntegrations:
 
         # Create test data and pipeline
         create_test_data(request.cls.input_dir, num_files=self.NUM_TEST_FILES)  # type: ignore[reportOptionalMemberAccess]
-        pipeline = create_test_pipeline(request.cls.input_dir, request.cls.output_dir)  # type: ignore[reportOptionalMemberAccess]
+        pipeline, remote_counter_actor = create_test_pipeline(request.cls.input_dir, request.cls.output_dir)  # type: ignore[reportOptionalMemberAccess]
+        request.cls.remote_counter_actor = remote_counter_actor  # type: ignore[reportOptionalMemberAccess]
 
         # Execute pipeline with comprehensive logging capture
-        executor = backend_cls(**config)
+        executor = backend_cls(config)
         with capture_logs() as log_buffer:
             request.cls.output_tasks = pipeline.run(executor)  # type: ignore[reportOptionalMemberAccess]
             # Store logs for backend-specific tests
             request.cls.all_logs = log_buffer.getvalue()  # type: ignore[reportOptionalMemberAccess]
+
+        # Teardown: kill the actor after the test class completes
+        yield
+
+        # Kill the counter actor to clean up for next test run
+        if hasattr(request.cls, "remote_counter_actor") and request.cls.remote_counter_actor is not None:  # type: ignore[reportOptionalMemberAccess]
+            ray.kill(request.cls.remote_counter_actor)  # type: ignore[reportOptionalMemberAccess]
 
     def test_output_files(self):
         """Test that the correct number of output files are created with expected content."""
@@ -77,9 +91,18 @@ class TestBackendIntegrations:
         # Check file contents
         for file in output_files:
             with open(file) as f:
-                for line in f:
-                    data = json.loads(line)
-                    assert set(data.keys()) == {"id", "doc_length", "text"}, "Mismatch in output file contents"
+                lines = f.readlines()
+                # Because of split_into_rows, each file should have 1 line
+                assert len(lines) == 1, f"Expected 1 line per file but got {len(lines)}"
+                data = json.loads(lines[0])
+                assert set(data.keys()) == {
+                    "id",
+                    "text",
+                    "doc_length_1",
+                    "doc_length_2",
+                    "node_id",
+                    "random_string",
+                }, "Mismatch in output file contents"
 
     def test_output_tasks(self):
         """Test that output tasks have the correct count, types, and properties."""
@@ -105,7 +128,14 @@ class TestBackendIntegrations:
         """Test that performance statistics are correctly recorded for all stages."""
         # Check content of stage perf stats
         assert self.output_tasks is not None, "Expected output tasks"
-        expected_stage_names = ["jsonl_reader", "add_length", "split_into_rows", "jsonl_writer"]
+        expected_stage_names = [
+            "jsonl_reader",
+            "add_length",
+            "split_into_rows",
+            "add_length",
+            "stage_with_setup",
+            "jsonl_writer",
+        ]
         for task_idx, task in enumerate(self.output_tasks):
             assert len(task._stage_perf) == EXPECTED_NUM_STAGES, "Mismatch in number of stage perf stats"
             # Make sure stage names match
@@ -115,14 +145,23 @@ class TestBackendIntegrations:
                 )
                 # Process time should be greater than idle time
                 assert perf_stats.process_time > 0, "Process time should be non-zero for all stages"
-            assert task._stage_perf[1].num_items_processed == task._stage_perf[2].num_items_processed, (
-                "Mismatch in number of items processed by add_length and split_into_rows"
-            )
-            # Because we split df into a single row each, the number of items processed by jsonl_writer should be only 1 i.e 1 row
-            assert task._stage_perf[3].num_items_processed == 1, (
-                "Mismatch in number of items processed by jsonl_writer"
-            )
 
+            # We expect the first add_length and split_into_rows to have the same number of items processed
+            assert task._stage_perf[1].num_items_processed == task._stage_perf[2].num_items_processed, (
+                "Mismatch in number of items processed by firstadd_length and split_into_rows"
+            )
+            # Because we split df into a single row each, each stage after split_into_rows should have 1 item processed
+            assert (
+                task._stage_perf[3].num_items_processed
+                == task._stage_perf[4].num_items_processed
+                == task._stage_perf[5].num_items_processed
+                == 1
+            ), "Mismatch in number of items processed by stages after split_into_rows"
+
+    @pytest.mark.xfail(
+        ray.__version__ <= "2.47.1",
+        reason="Execution plan will fail for <=2.47.1 due to https://github.com/ray-project/ray/issues/54431",
+    )
     def test_ray_data_execution_plan(self):
         """Test that Ray Data creates the expected execution plan with correct stage organization."""
         if self.backend_cls != RayDataExecutor:
@@ -135,14 +174,30 @@ class TestBackendIntegrations:
         # Split by " -> " to get individual stages
         stages = execution_plan.split(" -> ")
         execution_plan_stages = [stage.strip() for stage in stages]
+        # Tasks can get fused with Actors, but Actors can't get fused with Tasks or Actors
+        # StreamingRepartition should never get fused
         expected_stages = [
             "InputDataBuffer[Input]",
-            "TaskPoolMapOperator[MapBatches(FilePartitioningStage)]",
-            "TaskPoolMapOperator[StreamingRepartition->MapBatches(JsonlReaderStage)->MapBatches(AddLengthStage)]",
-            "TaskPoolMapOperator[MapBatches(SplitIntoRowsStage)]",
-            "TaskPoolMapOperator[StreamingRepartition->MapBatches(JsonlWriter)]",
+            "TaskPoolMapOperator[MapBatches(FilePartitioningStageTask)]",
+            "TaskPoolMapOperator[StreamingRepartition]",
+            "ActorPoolMapOperator[MapBatches(JsonlReaderStageTask)->MapBatches(AddLengthStageActor)]",
+            "ActorPoolMapOperator[MapBatches(SplitIntoRowsStageActor)]",
+            "TaskPoolMapOperator[StreamingRepartition]",
+            "ActorPoolMapOperator[MapBatches(AddLengthStageActor)]",
+            "ActorPoolMapOperator[MapBatches(StageWithSetupActor)]",
+            "TaskPoolMapOperator[MapBatches(JsonlWriterTask)]",
         ]
 
         assert execution_plan_stages == expected_stages, (
             f"Expected execution plan stages: {expected_stages}, got: {execution_plan_stages}"
         )
+
+    def test_stage_call_counts(self):
+        """Test that the stage call counts are correctly recorded for all stages."""
+        assert self.remote_counter_actor is not None, "Expected remote counter actor"
+        stage_call_counts = ray.get(self.remote_counter_actor.get_all_counts.remote())
+        logger.info(f"Stage call counts: {stage_call_counts}")
+        assert stage_call_counts == {
+            "add_length_doc_length_1": math.ceil(self.NUM_TEST_FILES / FILES_PER_PARTITION),
+            "add_length_doc_length_2": TOTAL_DOCUMENTS,
+        }

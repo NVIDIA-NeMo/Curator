@@ -46,13 +46,11 @@ class SampleTask(Task[pd.DataFrame]):
 
 
 class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
+    _name: str = "TaskCreationStage"
+
     def __init__(self, num_sentences_per_task: int, num_tasks: int):
         self.num_sentences_per_task = num_sentences_per_task
         self.num_tasks = num_tasks
-
-    @property
-    def name(self) -> str:
-        return "TaskCreationStage"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -79,20 +77,15 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
 
 
 class WordCountStage(ProcessingStage[SampleTask, SampleTask]):
-    @property
-    def name(self) -> str:
-        return "WordCountStage"
+    _name: str = "WordCountStage"
+    _resources: Resources = Resources(cpus=1.0)
+    _batch_size: int = 1
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence", "word_count"]
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        return Resources(cpus=1.0)
 
     def process(self, task: SampleTask) -> SampleTask:
         """
@@ -103,6 +96,10 @@ class WordCountStage(ProcessingStage[SampleTask, SampleTask]):
 
 
 class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
+    _name: str = "SentimentStage"
+    _resources: Resources = Resources(cpus=1.0, gpu_memory_gb=10.0)
+    _batch_size: int = 1
+
     def __init__(self, model_name: str, batch_size: int):
         """
         Args:
@@ -114,25 +111,11 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
         self.model = None
         self.tokenizer = None
 
-    @property
-    def name(self) -> str:
-        return "SentimentStage"
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence", "word_count"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence", "word_count", "sentiment"]
-
-    @property
-    def batch_size(self) -> int:
-        """Number of tasks to process in a batch."""
-        return self._batch_size
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        return Resources(cpus=1.0, gpu_memory_gb=10.0)
 
     def setup_on_node(self, node_info: NodeInfo, _: WorkerMetadata) -> None:
         """Cache this model on the node. You can assume that this only gets called once per node."""

@@ -16,6 +16,7 @@ import os.path
 import tarfile
 from typing import Literal
 
+import huggingface_hub
 import requests
 from platformdirs import user_cache_dir
 from transformers import AutoTokenizer
@@ -677,6 +678,20 @@ class TokenCountFilter(DocumentFilter):
         self._min_tokens = min_tokens
         self._max_tokens = max_tokens
         self._name = "token_count"
+
+    def model_check_or_download(self) -> None:
+        if self._hf_model_name is not None:
+            # Use snapshot_download to download all files without loading the model into memory.
+            huggingface_hub.snapshot_download(
+                repo_id=self._hf_model_name,
+                token=self._hf_token,
+                local_files_only=False,  # Download if not cached
+                resume_download=True,  # Resume interrupted downloads
+            )
+
+    def load_tokenizer(self) -> None:
+        if self._hf_model_name is not None:
+            self._tokenizer = AutoTokenizer.from_pretrained(self._hf_model_name, local_files_only=True)
 
     def score_document(self, text: str) -> int:
         tokens = self._tokenizer.encode(text)

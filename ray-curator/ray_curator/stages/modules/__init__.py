@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .filter import Filter, Score, ScoreFilter
+from .score_filter import Filter, Score, ScoreFilter
 
 __all__ = [
     "Filter",
