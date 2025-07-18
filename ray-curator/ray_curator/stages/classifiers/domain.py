@@ -13,194 +13,64 @@
 # limitations under the License.
 
 import os
-from dataclasses import dataclass
+from typing import Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
-import cudf
-import pandas as pd
-from crossfit.backend.torch.hf.model import HFModel
-from transformers import AutoConfig, AutoTokenizer
 
-from ray_curator.backends.base import WorkerMetadata
-
-from .base import (
-    DistributedDataClassifier,
-    HFDeberta,
-    _run_classifier_helper,
-)
-from .utils import _get_suggest_memory_for_classifier
-
-DOMAIN_IDENTIFIER = "nvidia/domain-classifier"
-DOMAIN_BASE_MODEL = "microsoft/deberta-v3-base"
-MULTILINGUAL_DOMAIN_IDENTIFIER = "nvidia/multilingual-domain-classifier"
-MULTILINGUAL_DOMAIN_BASE_MODEL = "microsoft/mdeberta-v3-base"
+from .base import DistributedDataClassifier
 
 
-@dataclass
-class DomainModelConfig:
-    identifier: str = DOMAIN_IDENTIFIER
-    base_model: str = DOMAIN_BASE_MODEL
-    fc_dropout: float = 0.2
-    max_len: int = 512
-
-
-class DomainModel(HFModel):
-    def __init__(
-        self,
-        config: DomainModelConfig,
-        autocast: bool = False,
-        max_mem_gb: int | None = None,
-    ):
-        self.config = config
-        self.autocast = autocast
-        if max_mem_gb is None:
-            max_mem_gb = _get_suggest_memory_for_classifier()
-
-        super().__init__(self.config.base_model, max_mem_gb=max_mem_gb)
-
-    def load_model(self, device: str = "cuda") -> HFDeberta:
-        model = HFDeberta.from_pretrained(self.config.identifier)
-        model.set_autocast(self.autocast)
-        model = model.to(device)
-        return model.eval()
-
-    def load_tokenizer(self) -> AutoTokenizer:
-        return AutoTokenizer.from_pretrained(self.config.identifier)
-
-    def load_config(self) -> AutoConfig:
-        return AutoConfig.from_pretrained(self.config.identifier)
-
-
-class _DomainClassifier(DistributedDataClassifier):
-    """
-    Parent class for DomainClassifier and MultilingualDomainClassifier,
-    since their implementations are almost identical.
-
-    """
-
-    def __init__(  # noqa: PLR0913
-        self,
-        multilingual: bool = False,
-        filter_by: list[str] | None = None,
-        model_batch_size: int = 256,
-        text_field: str = "text",
-        pred_column: str = "domain_pred",
-        prob_column: str | None = None,
-        max_chars: int = 2000,
-        device_type: str = "cuda",
-        autocast: bool = True,
-        max_mem_gb: int | None = None,
-    ):
-        self.multilingual = multilingual
-
-        if multilingual:
-            config = AutoConfig.from_pretrained(MULTILINGUAL_DOMAIN_IDENTIFIER)
-        else:
-            config = AutoConfig.from_pretrained(DOMAIN_IDENTIFIER)
-
-        self.text_field = text_field
-        self.prob_column = prob_column
-        self.labels = list(config.label2id.keys())
-        self.labels.sort(key=lambda x: config.label2id[x])
-        self.out_dim = len(self.labels)
-        self.max_mem_gb = max_mem_gb
-
-        if self.multilingual:
-            self._name = "multilingual_domain_classifier"
-        else:
-            self._name = "domain_classifier"
-
-        super().__init__(
-            labels=self.labels,
-            filter_by=filter_by,
-            model_batch_size=model_batch_size,
-            out_dim=self.out_dim,
-            pred_column=pred_column,
-            max_chars=max_chars,
-            device_type=device_type,
-            autocast=autocast,
-        )
-
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        # Load the Hugging Face model and processor from the cache.
-        if self.multilingual:
-            self.model_config = DomainModelConfig(
-                identifier=MULTILINGUAL_DOMAIN_IDENTIFIER,
-                base_model=MULTILINGUAL_DOMAIN_BASE_MODEL,
-            )
-        else:
-            self.model_config = DomainModelConfig(
-                identifier=DOMAIN_IDENTIFIER,
-                base_model=DOMAIN_BASE_MODEL,
-            )
-        self.model = DomainModel(config=self.model_config, autocast=self.autocast, max_mem_gb=self.max_mem_gb)
-
-    def _run_classifier(self, df: pd.DataFrame | cudf.DataFrame) -> pd.DataFrame | cudf.DataFrame:
-        if self.multilingual:
-            print("Starting multilingual domain classifier inference", flush=True)
-        else:
-            print("Starting domain classifier inference", flush=True)
-
-        return _run_classifier_helper(
-            df=df,
-            model=self.model,
-            labels=self.labels,
-            max_chars=self.max_chars,
-            model_batch_size=self.model_batch_size,
-            label_col=self.pred_column,
-            text_field=self.text_field,
-            prob_col=self.prob_column,
-        )
-
-
-class DomainClassifier(_DomainClassifier):
+class DomainClassifier(DistributedDataClassifier):
     """
     DomainClassifier is a specialized classifier designed for English text domain classification tasks,
     utilizing the NemoCurator Domain Classifier (https://huggingface.co/nvidia/domain-classifier) model.
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
-        filter_by (list[str], optional): The classes to filter the dataset by.
-                                         If None, all classes will be included. Defaults to None.
-        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
-        text_field (str): The field in the dataset that should be classified.
-        pred_column (str): The column name where predictions will be stored. Defaults to "domain_pred".
-        prob_column (str, optional): The column name where prediction probabilities will be stored. Defaults to None.
-        max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 2000.
-        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
-        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
-        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
-                                      it defaults to the available GPU memory minus 4 GB.
+        pred_column: The name of the prediction column. Defaults to "quality_pred".
+        prob_column: The name of the probability column. Defaults to None.
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
-        filter_by: list[str] | None = None,
-        model_batch_size: int = 256,
-        text_field: str = "text",
         pred_column: str = "domain_pred",
         prob_column: str | None = None,
-        max_chars: int = 2000,
-        device_type: str = "cuda",
+        text_field: str = "text",
+        filter_by: list[str] | None = None,
+        max_seq_length: int | None = None,
+        padding_side: Literal["left", "right"] = "right",
+        sort_by_length: bool = True,
+        micro_batch_size: int = 256,
         autocast: bool = True,
-        max_mem_gb: int | None = None,
     ):
+        self._name = "domain_classifier"
+
         super().__init__(
-            multilingual=False,
-            filter_by=filter_by,
-            model_batch_size=model_batch_size,
-            text_field=text_field,
+            model_identifier="nvidia/domain-classifier",
             pred_column=pred_column,
             prob_column=prob_column,
-            max_chars=max_chars,
-            device_type=device_type,
+            text_field=text_field,
+            filter_by=filter_by,
+            max_seq_length=max_seq_length,
+            padding_side=padding_side,
+            sort_by_length=sort_by_length,
+            micro_batch_size=micro_batch_size,
             autocast=autocast,
-            max_mem_gb=max_mem_gb,
         )
 
 
-class MultilingualDomainClassifier(_DomainClassifier):
+class MultilingualDomainClassifier(DistributedDataClassifier):
     """
     MultilingualDomainClassifier is a specialized classifier designed for domain classification tasks,
     utilizing the NemoCurator Multilingual Domain Classifier (https://huggingface.co/nvidia/multilingual-domain-classifier) model.
@@ -208,41 +78,44 @@ class MultilingualDomainClassifier(_DomainClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
-        filter_by (list[str], optional): The classes to filter the dataset by.
-                                         If None, all classes will be included. Defaults to None.
-        model_batch_size (int): The number of samples per batch for inference. Defaults to 256.
-        text_field (str): The field in the dataset that should be classified.
-        pred_column (str): The column name where predictions will be stored. Defaults to "domain_pred".
-        prob_column (str, optional): The column name where prediction probabilities will be stored. Defaults to None.
-        max_chars (int): The maximum number of characters in each document to consider for classification. Defaults to 2000.
-        device_type (str): The type of device to use for inference, either "cuda" or "cpu". Defaults to "cuda".
-        autocast (bool): Whether to use mixed precision for faster inference. Defaults to True.
-        max_mem_gb (int, optional): The maximum amount of memory in GB to allocate for the model. If None,
-                                      it defaults to the available GPU memory minus 4 GB.
+        pred_column: The name of the prediction column. Defaults to "quality_pred".
+        prob_column: The name of the probability column. Defaults to None.
+        text_field: The name of the text field in the input data. Defaults to "text".
+        filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+            If None, the tokenizer's model_max_length is used. Defaults to None.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        sort_by_length: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
-        filter_by: list[str] | None = None,
-        model_batch_size: int = 256,
-        text_field: str = "text",
-        pred_column: str = "domain_pred",
+        pred_column: str = "multilingual_domain_pred",
         prob_column: str | None = None,
-        max_chars: int = 2000,
-        device_type: str = "cuda",
+        text_field: str = "text",
+        filter_by: list[str] | None = None,
+        max_seq_length: int | None = None,
+        padding_side: Literal["left", "right"] = "right",
+        sort_by_length: bool = True,
+        micro_batch_size: int = 256,
         autocast: bool = True,
-        max_mem_gb: int | None = None,
     ):
+        self._name = "multilingual_domain_classifier"
+
         super().__init__(
-            multilingual=True,
-            filter_by=filter_by,
-            model_batch_size=model_batch_size,
-            text_field=text_field,
+            model_identifier="nvidia/multilingual-domain-classifier",
             pred_column=pred_column,
             prob_column=prob_column,
-            max_chars=max_chars,
-            device_type=device_type,
+            text_field=text_field,
+            filter_by=filter_by,
+            max_seq_length=max_seq_length,
+            padding_side=padding_side,
+            sort_by_length=sort_by_length,
+            micro_batch_size=micro_batch_size,
             autocast=autocast,
-            max_mem_gb=max_mem_gb,
         )

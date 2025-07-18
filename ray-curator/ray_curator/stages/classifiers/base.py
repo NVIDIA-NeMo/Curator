@@ -29,6 +29,7 @@ from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
+from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import DocumentBatch
 
@@ -215,7 +216,6 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
             Generator[dict[str, torch.Tensor]]: A generator of model inputs for the next batch.
 
         """
-        # TODO : Move to device after clipping
         for i in range(0, len(df), self.micro_batch_size):
             yield clip_tokens(
                 {
@@ -341,6 +341,7 @@ class HFModelStage(HFModel):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
+        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
         df_cpu[self.pred_column] = collected_output["preds"]
 
         if self.prob_column is not None:
@@ -355,7 +356,7 @@ class HFModelStage(HFModel):
         for model_input_batch in self.yield_next_batch(df_cpu):
             # Forward pass
             with torch.no_grad():
-                outputs = self.model(model_input_batch)  # TODO: **
+                outputs = self.model(model_input_batch)
 
             processed_output = self.process_model_output(outputs)
             processed_outputs.append(processed_output)
@@ -427,10 +428,11 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             [self.prob_column] if self.prob_column is not None else []
         )
 
-    def decompose(self) -> list[ProcessingStage]:
-        # TODO: Add filter_by
+    def filter_by_category(self, value: str) -> bool:
+        return value in self.filter_by
 
-        return [
+    def decompose(self) -> list[ProcessingStage]:
+        stages = [
             HFTokenizerStage(
                 model_identifier=self.model_identifier,
                 text_field=self.text_field,
@@ -448,3 +450,8 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 autocast=self.autocast,
             ),
         ]
+
+        if self.filter_by is not None and len(self.filter_by) > 0:
+            stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+
+        return stages
