@@ -84,7 +84,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
     global_mean_threshold: float = 0.00098
     per_patch_min_256_threshold: float = 0.000001
     gpu_memory_gb: float = 20
-    batch_size: int = 256
+    motion_filter_batch_size: int = 256
     verbose: bool = False
 
     @property
@@ -123,7 +123,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
                     global_mean_threshold=self.global_mean_threshold,
                     per_patch_min_256_threshold=self.per_patch_min_256_threshold,
                     use_gpu=self.gpu_memory_gb > 0,
-                    batch_size=self.batch_size,
+                    batch_size=self.motion_filter_batch_size,
                 )
 
             clip.decoded_motion_data = None

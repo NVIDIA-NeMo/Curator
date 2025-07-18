@@ -54,7 +54,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             global_mean_threshold=args.motion_global_mean_threshold,
             per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
             gpu_memory_gb=args.motion_score_gpu_memory_gb,
-            batch_size=args.motion_score_batch_size,
+            motion_filter_batch_size=args.motion_score_batch_size,
             verbose=args.verbose,
         ))
 
