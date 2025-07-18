@@ -679,15 +679,15 @@ class WikipediaExtractor(DocumentExtractor):
             )
 
             # Only return if we have meaningful content
-            if text and len(text.strip()) > 0:
-                return {
-                    "text": text,
-                    "title": record["title"],
-                    "id": record["id"],
-                    "url": record["url"],
-                    "language": record["language"],
-                    "source_id": record["source_id"],
-                }
+
+            return {
+                "text": text,
+                "title": record["title"],
+                "id": record["id"],
+                "url": record["url"],
+                "language": record["language"],
+                "source_id": record["source_id"],
+            }
 
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error extracting Wikipedia content for article {record.get('title', 'unknown')}: {e}")
