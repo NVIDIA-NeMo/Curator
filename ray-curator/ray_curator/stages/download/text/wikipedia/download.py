@@ -58,3 +58,6 @@ class WikipediaDownloader(DocumentDownloader):
         else:
             error_msg = result.stderr.decode("utf-8") if result.stderr else "Unknown error"
             return False, error_msg
+
+    def num_workers_per_node(self) -> int | None:
+        return 1
