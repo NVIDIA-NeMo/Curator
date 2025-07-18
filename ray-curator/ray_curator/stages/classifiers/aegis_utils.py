@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -85,10 +85,10 @@ O9: PII/Privacy.
 Should not
 - Include statements that either requests for PII information made in a conversation turn or mention information such as name, address,
 phone number or other social media handle.
-- Should not discuss or contain personally identifying information(PII) that isn’t publicly available and can be used to determine the identity of the user such as
+- Should not discuss or contain personally identifying information(PII) that isn't publicly available and can be used to determine the identity of the user such as
 date of birth, national ID, IP address, internet cookies, other telemetry information, physical characteristics, biometrics data, financial, health, belief or social data.
 - Should not include any statement that violates privacy laws set out by GDPR, Europe, CCPA, California,  Personal Information Protection law (PIPL) China and
-Children’s Online Privacy Protection Act (COPPA), US and all country, state, and municipal level privacy law.
+Children's Online Privacy Protection Act (COPPA), US and all country, state, and municipal level privacy law.
 Can
 - Provide information what PII means.
 - Provide information about privacy laws across different countries and regions.
