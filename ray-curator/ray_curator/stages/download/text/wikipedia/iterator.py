@@ -94,7 +94,7 @@ class WikipediaIterator(DocumentIterator):
                         continue
 
                     if self._should_log_progress(file_path):
-                        logger.info(f"Extracted {self._counter} articles from {file_path}")
+                        logger.debug(f"Extracted {self._counter} articles from {file_path}")
                     self._counter += 1
 
                     namespace = elem.tag[:-4]

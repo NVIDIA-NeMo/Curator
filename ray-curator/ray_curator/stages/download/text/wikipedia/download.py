@@ -60,4 +60,4 @@ class WikipediaDownloader(DocumentDownloader):
             return False, error_msg
 
     def num_workers_per_node(self) -> int | None:
-        return 1
+        return 2
