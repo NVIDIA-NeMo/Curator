@@ -28,6 +28,19 @@ class WikipediaUrlGenerator(URLGenerator):
         """
         return self._get_wikipedia_urls()
 
+    def _get_data_for_dump(self, dump_date: str, wiki_index_url: str) -> dict | None:
+        """Get the JSON dump data for a given dump date. Returns None if the dump is not found."""
+        wiki_latest_dump = urljoin(wiki_index_url + "/", dump_date)
+        wiki_latest_dump_status = urljoin(wiki_latest_dump, "dumpstatus.json")
+
+        raw_dump_data = requests.get(wiki_latest_dump_status, timeout=REQUEST_TIMEOUT)
+        try:
+            dump_data = json.loads(raw_dump_data.content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Unable to load dump data for {wiki_latest_dump_status}: {e}")
+            return None
+        return dump_data
+
     def _get_wikipedia_urls(self) -> list[str]:
         """
         Retrieves all URLs pointing to Wikipedia dumps for the specified language and date.
@@ -47,35 +60,34 @@ class WikipediaUrlGenerator(URLGenerator):
 
             # Get all dumps available in the index
             dumps = wiki_index_parsed.find_all("a")
-            # TODO: Can Either Sarah or Praateek help me with this? If no one is aware about Wikipedia, happy to take it later
-            # Ideally this should be dumps[-2].
-            # Dumps is something like:
-            # (Pdb) p dumps
-            # [<a href="../">../</a>, <a href="20250401/">20250401/</a>, <a href="20250420/">20250420/</a>,
-            # <a href="20250501/">20250501/</a>, <a href="20250520/">20250520/</a>, <a href="20250601/">20250601/</a>,
-            # <a href="20250620/">20250620/</a>, <a href="20250701/">20250701/</a>, <a href="latest/">latest/</a>]
-            # But with the latest dump of -2, I get no files in dump_data["jobs"]["articlesmultistreamdump"]["files"].
-            # With the satutus being waiting.
-            # This problem is same in nemo_curator.utils.download_utils.get_wikipedia_urls(), so not specific to ray-curator.
-            dump_date = dumps[-3].text
-            logger.info(f"Found latest dump date: {dump_date}")
+            for dump in reversed(dumps[:-1]):
+                if dump.text.strip("/").isdigit():
+                    candidate_dump_date = dump.text
+                    dump_data = self._get_data_for_dump(candidate_dump_date, wiki_index_url)
+                    if dump_data is None:
+                        logger.warning(f"Cannot load dump data for {candidate_dump_date[:-1]}")
+                        continue
+
+                    if dump_data["jobs"].get("articlesmultistreamdump", {}).get("status") == "done":
+                        dump_date = candidate_dump_date
+                        break
+                    else:
+                        logger.warning(f"Dump {candidate_dump_date[:-1]} is not finished, trying next dump")
+                        continue
+
+            logger.info(f"Found latest dump date: {dump_date[:-1]}")
         else:
             # A trailing / is needed for the URL
             dump_date = dump_date + "/"
+            dump_data = self._get_data_for_dump(dump_date, wiki_index_url)
+            if dump_data is None:
+                error_msg = f"Unable to load dump data for {dump_date[:-1]}"
+                raise ValueError(error_msg)
+            if dump_data["jobs"].get("articlesmultistreamdump", {}).get("status") != "done":
+                error_msg = f"Dump {dump_date[:-1]} is not finished"
+                raise ValueError(error_msg)
 
-        # Get the JSON dump data
         wiki_latest_dump = urljoin(wiki_index_url + "/", dump_date)
-        wiki_latest_dump_status = urljoin(wiki_latest_dump, "dumpstatus.json")
-
-        logger.info(f"Fetching dump status from {wiki_latest_dump_status}")
-        raw_dump_data = requests.get(wiki_latest_dump_status, timeout=REQUEST_TIMEOUT)
-
-        try:
-            dump_data = json.loads(raw_dump_data.content)
-        except json.JSONDecodeError:
-            clean_dump_date = dump_date.removesuffix("/")
-            msg = f"No Wikipedia dump found for {clean_dump_date}"
-            raise ValueError(msg) from None
 
         # Get all multistream files within the dump data
         wikipedia_urls = []
