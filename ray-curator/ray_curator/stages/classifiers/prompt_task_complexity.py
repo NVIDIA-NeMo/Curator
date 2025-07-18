@@ -219,7 +219,7 @@ class HFPromptTaskComplexityModelStage(HFModel):
 
     """
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         micro_batch_size: int = 256,
         has_seq_order: bool = True,
