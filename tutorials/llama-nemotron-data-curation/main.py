@@ -12,18 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
 import argparse
 import os
 import time
 from itertools import zip_longest
+from typing import TYPE_CHECKING
 
-import cudf
 import dask.dataframe as dd
-import dask_cudf
 import fasttext
 import pandas as pd
 from dask.delayed import delayed
 from transformers import AutoTokenizer
+
+if TYPE_CHECKING:
+    import cudf
+    import dask_cudf
 
 from nemo_curator import ScoreFilter, Sequential
 from nemo_curator.datasets import DocumentDataset
@@ -366,6 +371,8 @@ def interleave_partitions(
             merged_parts.append(p2)
 
     if gpu:
+        import dask_cudf
+
         return dask_cudf.from_delayed(merged_parts, meta=df1._meta)  # noqa: SLF001
     else:
         return dd.from_delayed(merged_parts, meta=df1._meta)  # noqa: SLF001
@@ -386,6 +393,8 @@ def _interleave_rows(
             rows.append(df2.iloc[i])
 
     if gpu:
+        import cudf
+
         return cudf.DataFrame(rows)
     else:
         return pd.DataFrame(rows)
@@ -408,6 +417,8 @@ def interleave_rows(
         interleaved_parts.append(interleaved)
 
     if gpu:
+        import dask_cudf
+
         return dask_cudf.from_delayed(interleaved_parts, meta=df1._meta)  # noqa: SLF001
     else:
         return dd.from_delayed(interleaved_parts, meta=df1._meta)  # noqa: SLF001
@@ -505,6 +516,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: C901, PLR0915
 
     # Convert to GPU if requested
     if args.device == "gpu":
+        import cudf
+
         print("Converting to GPU")
         dataset_df = dataset_df.map_partitions(lambda partition: cudf.from_pandas(partition))
 
