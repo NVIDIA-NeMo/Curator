@@ -40,6 +40,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
             If None, text will not be truncated. Defaults to None.
@@ -48,26 +49,31 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        unk_token: If True, set the pad_token to the tokenizer's unk_token. Defaults to False.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        hf_token: str | None = None,
         text_field: str = "text",
         max_chars: int | None = None,
         max_seq_length: int | None = None,
         padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
+        unk_token: bool = False,
     ):
         self._name = f"tokenizer-{model_identifier}"
 
-        self.text_field = text_field
         self.model_identifier = model_identifier
+        self.hf_token = hf_token
+        self.text_field = text_field
         self.max_chars = max_chars
         self.max_seq_length = max_seq_length
         self.padding_side = padding_side
         self.sort_by_length = sort_by_length
+        self.unk_token = unk_token
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
@@ -82,8 +88,9 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(repo_id=self.model_identifier, local_files_only=False)
+            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
         except Exception as e:
+            # TODO: Fix for Aegis
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
@@ -92,7 +99,9 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return AutoConfig.from_pretrained(self.model_identifier)
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_identifier)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_identifier, padding_side=self.padding_side)
+        if self.unk_token:
+            self.tokenizer.pad_token = self.tokenizer.unk_token
 
         if self.max_seq_length is None:
             self.max_seq_length = self.tokenizer.model_max_length
@@ -172,6 +181,7 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
         pred_column: The name of the prediction column.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
@@ -180,10 +190,11 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
-        pred_column: str,
+        hf_token: str | None = None,
+        pred_column: str = "preds",
         micro_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
@@ -193,6 +204,7 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
+        self.hf_token = hf_token
         self.pred_column = pred_column
         self.micro_batch_size = micro_batch_size
         self.has_seq_order = has_seq_order
@@ -206,8 +218,9 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(repo_id=self.model_identifier, local_files_only=False)
+            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
         except Exception as e:
+            # TODO: Fix for Aegis
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
