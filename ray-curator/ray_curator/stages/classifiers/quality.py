@@ -57,6 +57,7 @@ class QualityClassifier(DistributedDataClassifier):
             prob_column=prob_column,
             text_field=text_field,
             filter_by=filter_by,
+            max_chars=6000,
             max_seq_length=1024,
             padding_side="right",
             sort_by_length=sort_by_length,

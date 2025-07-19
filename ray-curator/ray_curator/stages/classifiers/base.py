@@ -41,7 +41,9 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     Args:
         model_identifier: The identifier of the Hugging Face model.
         text_field: The name of the text field in the input data. Defaults to "text".
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to None.
+        max_seq_length: Limits the total sequence returned by the tokenizer so that it has a maximum length.
             If None, the tokenizer's model_max_length is used. Defaults to None.
         padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
@@ -53,6 +55,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self,
         model_identifier: str,
         text_field: str = "text",
+        max_chars: int | None = None,
         max_seq_length: int | None = None,
         padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
@@ -61,6 +64,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         self.text_field = text_field
         self.model_identifier = model_identifier
+        self.max_chars = max_chars
         self.max_seq_length = max_seq_length
         self.padding_side = padding_side
         self.sort_by_length = sort_by_length
@@ -100,6 +104,9 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
+
+        if self.max_chars is not None and self.max_chars > 0:
+            df[self.text_field] = df[self.text_field].str.slice(0, self.max_chars)
 
         with torch.no_grad():
             tokens = self.tokenizer.batch_encode_plus(
@@ -395,8 +402,10 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to None.
+        max_seq_length: Limits the total sequence returned by the tokenizer so that it has a maximum length.
+            If None, the tokenizer's model_max_length is used. Defaults to 512.
         padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
@@ -411,6 +420,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     prob_column: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
+    max_chars: int | None = None
     max_seq_length: int | None = None
     padding_side: Literal["left", "right"] = "right"
     sort_by_length: bool = True
@@ -436,6 +446,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             HFTokenizerStage(
                 model_identifier=self.model_identifier,
                 text_field=self.text_field,
+                max_chars=self.max_chars,
                 max_seq_length=self.max_seq_length,
                 padding_side=self.padding_side,
                 sort_by_length=self.sort_by_length,

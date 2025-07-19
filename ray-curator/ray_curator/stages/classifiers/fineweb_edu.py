@@ -170,7 +170,8 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         int_score_column: The name of the integer score column.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer. Defaults to 512.
+        max_seq_length: Limits the total sequence returned by the tokenizer so that it has a maximum length.
+            Defaults to 512.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.

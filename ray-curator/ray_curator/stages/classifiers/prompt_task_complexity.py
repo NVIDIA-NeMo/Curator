@@ -354,6 +354,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             HFTokenizerStage(
                 model_identifier="nvidia/prompt-task-and-complexity-classifier",
                 text_field=self.text_field,
+                max_chars=2000,
                 max_seq_length=512,
                 padding_side="right",
                 sort_by_length=self.sort_by_length,
