@@ -42,7 +42,6 @@ class HFFineWebModelStage(HFModel):
         micro_batch_size: The size of the micro-batch. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -56,7 +55,6 @@ class HFFineWebModelStage(HFModel):
         int_score_column: str,
         micro_batch_size: int = 256,
         has_seq_order: bool = True,
-        padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
     ):
         super().__init__(
@@ -64,7 +62,7 @@ class HFFineWebModelStage(HFModel):
             model_identifier=model_identifier,
             has_seq_order=has_seq_order,
             micro_batch_size=micro_batch_size,
-            padding_side=padding_side,
+            padding_side="right",
         )
 
         self.float_score_column = float_score_column
@@ -174,7 +172,6 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_seq_length: The maximum number of characters that can be fed to the tokenizer.
             If None, the tokenizer's model_max_length is used. Defaults to None.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -190,7 +187,6 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_seq_length: int | None = None
-    padding_side: Literal["left", "right"] = "right"
     sort_by_length: bool = True
     micro_batch_size: int = 256
     autocast: bool = True
@@ -213,7 +209,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=self.model_identifier,
                 text_field=self.text_field,
                 max_seq_length=self.max_seq_length,
-                padding_side=self.padding_side,
+                padding_side="right",
                 sort_by_length=self.sort_by_length,
             ),
             HFFineWebModelStage(
@@ -223,7 +219,6 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 int_score_column=self.int_score_column,
                 micro_batch_size=self.micro_batch_size,
                 has_seq_order=self.sort_by_length,
-                padding_side=self.padding_side,
                 autocast=self.autocast,
             ),
         ]
@@ -248,7 +243,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_seq_length: The maximum number of characters that can be fed to the tokenizer.
             If None, the tokenizer's model_max_length is used. Defaults to None.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -265,7 +259,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_seq_length: int | None = None,
-        padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
@@ -280,7 +273,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             text_field=text_field,
             filter_by=filter_by,
             max_seq_length=max_seq_length,
-            padding_side=padding_side,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -302,7 +294,6 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_seq_length: The maximum number of characters that can be fed to the tokenizer.
             If None, the tokenizer's model_max_length is used. Defaults to None.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -319,7 +310,6 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_seq_length: int | None = None,
-        padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
@@ -334,7 +324,6 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             text_field=text_field,
             filter_by=filter_by,
             max_seq_length=max_seq_length,
-            padding_side=padding_side,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -356,7 +345,6 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_seq_length: The maximum number of characters that can be fed to the tokenizer.
             If None, the tokenizer's model_max_length is used. Defaults to None.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -373,7 +361,6 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_seq_length: int | None = None,
-        padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
@@ -388,7 +375,6 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             text_field=text_field,
             filter_by=filter_by,
             max_seq_length=max_seq_length,
-            padding_side=padding_side,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,

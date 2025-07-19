@@ -213,7 +213,6 @@ class HFPromptTaskComplexityModelStage(HFModel):
         micro_batch_size: The size of the micro-batch. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -223,7 +222,6 @@ class HFPromptTaskComplexityModelStage(HFModel):
         self,
         micro_batch_size: int = 256,
         has_seq_order: bool = True,
-        padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
     ):
         super().__init__(
@@ -231,7 +229,7 @@ class HFPromptTaskComplexityModelStage(HFModel):
             model_identifier="nvidia/prompt-task-and-complexity-classifier",
             has_seq_order=has_seq_order,
             micro_batch_size=micro_batch_size,
-            padding_side=padding_side,
+            padding_side="right",
         )
 
         self.autocast = autocast
@@ -325,7 +323,6 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
         max_seq_length: The maximum number of characters that can be fed to the tokenizer.
             If None, the tokenizer's model_max_length is used. Defaults to None.
-        padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -337,7 +334,6 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_seq_length: int | None = None
-    padding_side: Literal["left", "right"] = "right"
     sort_by_length: bool = True
     micro_batch_size: int = 256
     autocast: bool = True
@@ -362,13 +358,12 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 model_identifier="nvidia/prompt-task-and-complexity-classifier",
                 text_field=self.text_field,
                 max_seq_length=self.max_seq_length,
-                padding_side=self.padding_side,
+                padding_side="right",
                 sort_by_length=self.sort_by_length,
             ),
             HFPromptTaskComplexityModelStage(
                 micro_batch_size=self.micro_batch_size,
                 has_seq_order=self.sort_by_length,
-                padding_side=self.padding_side,
                 autocast=self.autocast,
             ),
         ]
