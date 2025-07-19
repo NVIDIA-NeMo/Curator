@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 

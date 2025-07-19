@@ -51,7 +51,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
         text_field: str = "text",

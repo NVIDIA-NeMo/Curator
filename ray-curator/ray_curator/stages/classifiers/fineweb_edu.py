@@ -14,7 +14,6 @@
 
 import os
 from dataclasses import dataclass
-from typing import Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
