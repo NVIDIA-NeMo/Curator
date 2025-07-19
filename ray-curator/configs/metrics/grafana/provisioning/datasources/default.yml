@@ -1,0 +1,9 @@
+apiVersion: 1
+datasources:
+- access: proxy
+  isDefault: true
+  jsonData: {}
+  name: Prometheus
+  secureJsonData: {}
+  type: prometheus
+  url: http://localhost:9090
