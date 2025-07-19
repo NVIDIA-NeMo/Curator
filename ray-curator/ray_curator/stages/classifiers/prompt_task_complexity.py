@@ -321,8 +321,6 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
             Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -333,7 +331,6 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
 
     text_field: str = "text"
     filter_by: list[str] | None = None
-    max_seq_length: int | None = None
     sort_by_length: bool = True
     micro_batch_size: int = 256
     autocast: bool = True
@@ -357,7 +354,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             HFTokenizerStage(
                 model_identifier="nvidia/prompt-task-and-complexity-classifier",
                 text_field=self.text_field,
-                max_seq_length=self.max_seq_length,
+                max_seq_length=512,
                 padding_side="right",
                 sort_by_length=self.sort_by_length,
             ),

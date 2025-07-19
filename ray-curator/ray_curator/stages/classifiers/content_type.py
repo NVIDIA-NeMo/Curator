@@ -33,8 +33,6 @@ class ContentTypeClassifier(DistributedDataClassifier):
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -49,7 +47,6 @@ class ContentTypeClassifier(DistributedDataClassifier):
         prob_column: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
-        max_seq_length: int | None = None,
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
@@ -62,7 +59,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
             prob_column=prob_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=max_seq_length,
+            max_seq_length=1024,
             padding_side="right",
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,

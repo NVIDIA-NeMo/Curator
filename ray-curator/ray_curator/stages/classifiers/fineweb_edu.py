@@ -170,8 +170,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         int_score_column: The name of the integer score column.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
+        max_seq_length: The maximum number of characters that can be fed to the tokenizer. Defaults to 512.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -186,7 +185,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     int_score_column: str
     text_field: str = "text"
     filter_by: list[str] | None = None
-    max_seq_length: int | None = None
+    max_seq_length: int = 512
     sort_by_length: bool = True
     micro_batch_size: int = 256
     autocast: bool = True
@@ -241,8 +240,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         int_score_column: The name of the integer score column. Defaults to "fineweb-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -258,7 +255,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         int_score_column: str = "fineweb-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
-        max_seq_length: int | None = None,
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
@@ -272,7 +268,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             int_score_column=int_score_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=max_seq_length,
+            max_seq_length=512,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -292,11 +288,9 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         int_score_column: The name of the integer score column. Defaults to "fineweb-mixtral-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        micro_batch_size: The size of the micro-batch. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -309,9 +303,8 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         int_score_column: str = "fineweb-mixtral-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
-        max_seq_length: int | None = None,
         sort_by_length: bool = True,
-        micro_batch_size: int = 256,
+        micro_batch_size: int = 1024,
         autocast: bool = True,
     ):
         self._name = "fineweb_mixtral_edu_classifier"
@@ -323,7 +316,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             int_score_column=int_score_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=max_seq_length,
+            max_seq_length=512,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -343,11 +336,9 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         int_score_column: The name of the integer score column. Defaults to "fineweb-nemotron-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
-        max_seq_length: The maximum number of characters that can be fed to the tokenizer.
-            If None, the tokenizer's model_max_length is used. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        micro_batch_size: The size of the micro-batch. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -360,9 +351,8 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         int_score_column: str = "fineweb-nemotron-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
-        max_seq_length: int | None = None,
         sort_by_length: bool = True,
-        micro_batch_size: int = 256,
+        micro_batch_size: int = 1024,
         autocast: bool = True,
     ):
         self._name = "fineweb_nemotron_edu_classifier"
@@ -374,7 +364,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             int_score_column=int_score_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=max_seq_length,
+            max_seq_length=512,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
