@@ -1,6 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 
@@ -86,6 +87,14 @@ class DocumentDownloader(ABC):
             logger.error(f"Failed to download to {output_file}: {error_message}")
             return None
 
+    def num_workers_per_node(self) -> int | None:
+        """Number of workers per node for Downloading. This is sometimes needed to ensure we are not overloading the network.
+
+        Returns:
+            Number of workers per node, or None if there is no limit and we can download as fast as possible
+        """
+        return None
+
 
 @dataclass
 class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
@@ -136,3 +145,8 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             },
             _stage_perf=task._stage_perf,
         )
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        return {
+            "num_workers_per_node": self.downloader.num_workers_per_node(),
+        }
