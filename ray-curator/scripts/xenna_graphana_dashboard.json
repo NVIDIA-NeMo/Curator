@@ -371,7 +371,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "sum by (stage) (ray_pipeline_actor_count{state=\"ready\"})",
+          "expr": "sum by (stage) (ray_pipeline_actor_count{state=\"ready\", SessionName=~\"${session}\"})",
           "format": "time_series",
           "legendFormat": "{{stage}}",
           "range": true,
