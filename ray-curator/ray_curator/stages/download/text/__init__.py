@@ -1,6 +1,7 @@
+from .arxiv.stage import ArxivDownloadExtractStage
 from .base import DocumentDownloader, DocumentDownloadExtractStage, DocumentExtractor, DocumentIterator, URLGenerator
 from .common_crawl.stage import CommonCrawlDownloadExtractStage
-from .arxiv.stage import ArxivDownloadExtractStage
+from .wikipedia.stage import WikipediaDownloadExtractStage
 
 __all__ = [
     "ArxivDownloadExtractStage",
@@ -10,4 +11,5 @@ __all__ = [
     "DocumentExtractor",
     "DocumentIterator",
     "URLGenerator",
+    "WikipediaDownloadExtractStage",
 ]
