@@ -29,13 +29,12 @@ class ArxivDownloader(DocumentDownloader):
         return url
 
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
-        output_file = os.path.join(self._download_dir, url)
         s3path = os.path.join("s3://arxiv/src", url)
 
         if self._verbose:
-            print(f"Downloading {s3path} and writing to {output_file}")
+            print(f"Downloading {s3path} and writing to {path}")
 
-        cmd = ["s5cmd", "--request-payer=requester", "cp", s3path, output_file]
+        cmd = ["s5cmd", "--request-payer=requester", "cp", s3path, path]
 
         if self._verbose:
             stdout, stderr = None, None
@@ -50,7 +49,7 @@ class ArxivDownloader(DocumentDownloader):
 
         if p.returncode != 0:
             if self._verbose:
-                print(f"Failed to download {s3path} to {output_file}")
-            return False, f"Failed to download {s3path} to {output_file}"
+                print(f"Failed to download {s3path} to {path}")
+            return False, f"Failed to download {s3path} to {path}"
 
         return True, None

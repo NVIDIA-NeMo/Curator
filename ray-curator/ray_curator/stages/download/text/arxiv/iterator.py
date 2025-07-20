@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gzip
 import os
 import re
 import tarfile
 import tempfile
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from loguru import logger
 
