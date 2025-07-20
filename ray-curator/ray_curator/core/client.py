@@ -97,6 +97,19 @@ def get_ray_client(  # noqa: C901, PLR0912, PLR0913, PLR0915
     - ray_port: The port number of the ray dashboard.
     - ray_dashboard_port: The port number of the ray dashboard.
     - ray_metrics_port: The port number of the ray metrics.
+
+    Args:
+        executor: The executor to use. One of "Xenna" or "Ray Data".
+        ray_port: The port number of the ray GCS.
+        ray_dashboard_port: The port number of the ray dashboard.
+        ray_temp_dir: The temporary directory to use for ray.
+        prometheus_web_port: The port number of the prometheus web UI.
+        grafana_web_port: The port number of the grafana web UI.
+        ray_metrics_port: The port number of the ray metrics.
+        ray_dashboard_host: The host of the ray dashboard.
+        num_gpus: The number of GPUs to use.
+        num_cpus: The number of CPUs to use.
+        enable_object_spilling: Whether to enable object spilling.
     """
     # This function returns a dictionary with the following keys:
     return_dict = {
