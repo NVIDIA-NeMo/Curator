@@ -78,7 +78,7 @@ class AegisModel(nn.Module):
         # Importing PeftModel here to prevent cuda context issues
         # that seem to happen on Transformers 4.48.3
         # See related: https://github.com/rapidsai/crossfit/pull/113
-        from peft import PeftModel  # noqa: PLC0415
+        from peft import PeftModel
 
         self.model = PeftModel.from_pretrained(base_model, peft_model_name_or_path)
         self.autocast = autocast
@@ -155,6 +155,7 @@ class HFAegisModelStage(HFModel):
             dtype=torch.bfloat16,
             token=None,
             add_instruction_data_guard=self.add_instruction_data_guard,
+            autocast=self.autocast,
         )
         if self.add_instruction_data_guard:
             self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.from_pretrained(

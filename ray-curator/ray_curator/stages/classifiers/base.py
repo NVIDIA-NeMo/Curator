@@ -90,7 +90,6 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         try:
             snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
         except Exception as e:
-            # TODO: Fix for Aegis
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
@@ -220,7 +219,6 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         try:
             snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
         except Exception as e:
-            # TODO: Fix for Aegis
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
