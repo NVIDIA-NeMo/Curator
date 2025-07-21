@@ -1,5 +1,6 @@
 import asyncio
 import pandas as pd
+import time
 from typing import Union
 
 from ray_curator.backends.base import WorkerMetadata
@@ -30,11 +31,12 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
             self.prompt = DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE
         self.client = client
         self.model_name = model_name
-        self.domains = pd.read_json(domains_file_path)
+        self.domains = pd.read_json(domains_file_path, dtype=str)
         self.domains_prompt = "\n\n".join(self.domains["prompt"].tolist())
         self.input_problem_field = input_problem_field
         self.output_field = output_field
         self.is_async_client = isinstance(client, AsyncLLMClient)
+        self.allowed_output_values = self.domains["code"].tolist()
 
     @property
     def name(self) -> str:
@@ -67,7 +69,9 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _process_llm_response(self, response: list[str]) -> str:
         """Process LLM response to extract the content."""
         processed_response = response[0].strip().split("\n")[-1].strip()
-        processed_response = processed_response.replace("*", "")
+        # Some models add ** bolding for the generated text
+        if "*" in processed_response:
+            processed_response = processed_response.replace("*", "")
         return processed_response
 
     def _process_llm_prompt(self, sample: dict) -> str:
@@ -82,27 +86,58 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
         def generate_response(row: pd.Series) -> str:
             prompt = self._process_llm_prompt(row)
             messages = [{"role": "user", "content": prompt}]
-            response = self.client.query_model(model=self.model_name, messages=messages)
-            return self._process_llm_response(response)
+            
+            for attempt in range(3):  # Try up to 3 times
+                response = self.client.query_model(model=self.model_name, messages=messages)
+                processed_response = self._process_llm_response(response)
+                
+                if processed_response in self.allowed_output_values:
+                    return processed_response
+                
+                # If not the last attempt, wait 30 seconds before retrying
+                if attempt < 2:
+                    print(f"⚠️  WARNING: Invalid response '{processed_response}' (expected one of {self.allowed_output_values}). Retrying in 30 seconds... (Attempt {attempt + 1}/3)")
+                    time.sleep(10)
+                else:
+                    print(f"⚠️  WARNING: Invalid response '{processed_response}' after 3 attempts. Returning 'Failed to classify'.")
+            
+            # If after 3 attempts we still don't have a valid response
+            return "Failed to classify"
         
         # Sequential processing row by row
         return df.apply(generate_response, axis=1).tolist()
 
     def _process_async(self, df: pd.DataFrame) -> list[str]:
         """Process DataFrame using asynchronous concurrent processing."""
+        return asyncio.run(self._generate_responses_async(df))
+    
+    async def _generate_responses_async(self, df: pd.DataFrame) -> list[str]:
+        """Generate responses asynchronously using concurrent requests."""
         async def generate_response_async(row: pd.Series) -> str:
             prompt = self._process_llm_prompt(row)
             messages = [{"role": "user", "content": prompt}]
-            response = await self.client.query_model(model=self.model_name, messages=messages)
-            return self._process_llm_response(response)
+            
+            # logic to make sure generated response is in the allowed output values
+            for attempt in range(3):  # Try up to 3 times
+                response = await self.client.query_model(model=self.model_name, messages=messages)
+                processed_response = self._process_llm_response(response)
+                
+                if processed_response in self.allowed_output_values:
+                    return processed_response
+                
+                # If not the last attempt, wait 30 seconds before retrying
+                if attempt < 2:
+                    print(f"⚠️  WARNING: Invalid response '{processed_response}' (expected one of {self.allowed_output_values}). Retrying in 30 seconds... (Attempt {attempt + 1}/3)")
+                    await asyncio.sleep(10)
+                else:
+                    print(f"⚠️  WARNING: Invalid response '{processed_response}' after 3 attempts. Returning 'Failed to classify'.")
+            
+            # If after 3 attempts we still don't have a valid response
+            return "Failed to classify"
         
-        async def generate_all_responses_async(dataframe: pd.DataFrame) -> list[str]:
-            """Generate responses for all rows with controlled concurrency"""
-            tasks = [generate_response_async(row) for _, row in dataframe.iterrows()]
-            return await asyncio.gather(*tasks)
-        
-        # Run the async function and get all responses
-        return asyncio.run(generate_all_responses_async(df))
+        # Create tasks for all rows and execute concurrently
+        tasks = [generate_response_async(row) for _, row in df.iterrows()]
+        return await asyncio.gather(*tasks)
 
 
 class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):

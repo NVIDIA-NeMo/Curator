@@ -104,12 +104,12 @@ def main(args: argparse.Namespace) -> None:
             output_field="reasoning_trace_correctness",
         ),
     )
-    # pipeline.add_stage(
-    #     ScoreFilter(
-    #         LLMBasedCorrectnessFilter(),
-    #         text_field="reasoning_trace_correctness",
-    #     ),
-    # )
+    pipeline.add_stage(
+        ScoreFilter(
+            LLMBasedCorrectnessFilter(),
+            text_field="reasoning_trace_correctness",
+        ),
+    )
     # 3. Difficulty filter
     # 3.1. Length difficulty filter
     pipeline.add_stage(
@@ -184,7 +184,7 @@ def main(args: argparse.Namespace) -> None:
     # 4.2. Diversity sampler
     pipeline.add_stage(
         DiversitySampler(
-            sampling_size=20,
+            sampling_size=1000,
             input_problem_field="question",
             input_domain_field="domain",
         ),

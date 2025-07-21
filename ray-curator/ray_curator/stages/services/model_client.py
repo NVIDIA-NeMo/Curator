@@ -38,27 +38,20 @@ class LLMClient(ABC):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = None,
+        max_tokens: int | None = 2048,
         n: int | None = 1,
-        seed: int | None = None,
+        seed: int | None = 0,
         stop: str | None | list[str] = None,
         stream: bool = False,
-        temperature: float | None = None,
+        temperature: float | None = 0.0,
         top_k: int | None = None,
-        top_p: float | None = None,
+        top_p: float | None = 0.95,
+        timeout: float | None = None,
+        presence_penalty: float | None = 1.0,
+        logprobs: bool = False,
+        top_logprobs: int | None = None,
     ) -> list[str]:
         msg = "Subclass of LLMClient must implement 'query_model'"
-        raise NotImplementedError(msg)
-
-    @abstractmethod
-    def query_reward_model(
-        self,
-        *,
-        messages: Iterable,
-        model: str,
-        conversation_formatter: ConversationFormatter | None = None,
-    ) -> dict:
-        msg = "Subclass of LLMClient must implement 'query_reward_model'"
         raise NotImplementedError(msg)
 
 
@@ -96,14 +89,14 @@ class AsyncLLMClient(ABC):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = None,
+        max_tokens: int | None = 2048,
         n: int | None = 1,
-        seed: int | None = None,
+        seed: int | None = 0,
         stop: str | None | list[str] = None,
         stream: bool = False,
-        temperature: float | None = None,
+        temperature: float | None = 0.0,
         top_k: int | None = None,
-        top_p: float | None = None,
+        top_p: float | None = 0.95,
     ) -> list[str]:
         """
         Internal implementation of query_model without retry/concurrency logic.
@@ -118,14 +111,18 @@ class AsyncLLMClient(ABC):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = None,
+        max_tokens: int | None = 2048,
         n: int | None = 1,
-        seed: int | None = None,
+        seed: int | None = 0,
         stop: str | None | list[str] = None,
         stream: bool = False,
-        temperature: float | None = None,
+        temperature: float | None = 0.0,
         top_k: int | None = None,
-        top_p: float | None = None,
+        top_p: float | None = 0.95,
+        timeout: float | None = None,
+        presence_penalty: float | None = 1.0,
+        logprobs: bool = False,
+        top_logprobs: int | None = None,
     ) -> list[str]:
         """
         Query the model with automatic retry and concurrency control.
@@ -165,13 +162,5 @@ class AsyncLLMClient(ABC):
                     # Re-raise if not a rate limit error or if max retries exceeded
                     raise
 
-    @abstractmethod
-    async def query_reward_model(
-        self,
-        *,
-        messages: Iterable,
-        model: str,
-        conversation_formatter: ConversationFormatter | None = None,
-    ) -> dict:
         msg = "Subclass of AsyncLLMClient must implement 'query_reward_model'"
         raise NotImplementedError(msg)

@@ -73,16 +73,19 @@ class ReasoningTracesSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch
 
     def _process_async(self, df: pd.DataFrame) -> list[str]:
         """Process DataFrame using asynchronous concurrent processing."""
+        return asyncio.run(self._generate_responses_async(df))
+    
+    async def _generate_responses_async(self, df: pd.DataFrame) -> list[str]:
+        """Generate responses asynchronously using concurrent requests."""
         async def generate_response_async(row: pd.Series) -> str:
             prompt = self._process_llm_prompt(row)
             messages = [{"role": "user", "content": prompt}]
-            response = await self.client.query_model(model=self.model_name, messages=messages)
+            response = await self.client.query_model(
+                model=self.model_name, 
+                messages=messages
+            )
             return self._process_llm_response(response)
         
-        async def generate_all_responses_async(dataframe: pd.DataFrame) -> list[str]:
-            """Generate responses for all rows with controlled concurrency"""
-            tasks = [generate_response_async(row) for _, row in dataframe.iterrows()]
-            return await asyncio.gather(*tasks)
-        
-        # Run the async function and get all responses
-        return asyncio.run(generate_all_responses_async(df))
+        # Create tasks for all rows and execute concurrently
+        tasks = [generate_response_async(row) for _, row in df.iterrows()]
+        return await asyncio.gather(*tasks)

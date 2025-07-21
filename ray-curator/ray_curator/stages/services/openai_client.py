@@ -41,14 +41,14 @@ class OpenAIClient(LLMClient):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None | NotGiven = NOT_GIVEN,
-        n: int | None | NotGiven = NOT_GIVEN,
-        seed: int | None | NotGiven = NOT_GIVEN,
-        stop: str | None | list[str] | NotGiven = NOT_GIVEN,
-        stream: bool | None | NotGiven = False,
-        temperature: float | None | NotGiven = NOT_GIVEN,
+        max_tokens: int | None = 2048,
+        n: int | None = 1,
+        seed: int | None = 0,
+        stop: str | None | list[str] = None,
+        stream: bool = False,
+        temperature: float | None = 0.0,
         top_k: int | None = None,
-        top_p: float | None | NotGiven = NOT_GIVEN,
+        top_p: float | None = 0.95,
     ) -> list[str]:
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
@@ -68,26 +68,6 @@ class OpenAIClient(LLMClient):
         )
 
         return [choice.message.content for choice in response.choices]
-
-    def query_reward_model(self, *, messages: Iterable, model: str) -> dict:
-        """
-        Prompts an LLM Reward model to score a conversation between a user and assistant
-        Args:
-            messages: The conversation to calculate a score for.
-                Should be formatted like:
-                    [{"role": "user", "content": "Write a sentence"}, {"role": "assistant", "content": "This is a sentence"}, ...]
-            model: The name of the model that should be used to calculate the reward.
-                Must be a reward model, cannot be a regular LLM.
-        Returns:
-            A mapping of score_name -> score
-        """
-        response = self.client.chat.completions.create(messages=messages, model=model)
-
-        if response.choices[0].logprobs is None:
-            msg = f"Logprobs not found. {model} is likely not a reward model."
-            raise ValueError(msg)
-
-        return {score.token: score.logprob for score in response.choices[0].logprobs.content}
 
 
 class AsyncOpenAIClient(AsyncLLMClient):
@@ -120,14 +100,14 @@ class AsyncOpenAIClient(AsyncLLMClient):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None | NotGiven = NOT_GIVEN,
-        n: int | None | NotGiven = NOT_GIVEN,
-        seed: int | None | NotGiven = NOT_GIVEN,
-        stop: str | None | list[str] | NotGiven = NOT_GIVEN,
-        stream: bool | None | NotGiven = False,
-        temperature: float | None | NotGiven = NOT_GIVEN,
+        max_tokens: int | None = 2048,
+        n: int | None = 1,
+        seed: int | None = 0,
+        stop: str | None | list[str] = None,
+        stream: bool = False,
+        temperature: float | None = 0.0,
         top_k: int | None = None,
-        top_p: float | None | NotGiven = NOT_GIVEN,
+        top_p: float | None = 0.95,
     ) -> list[str]:
         """
         Internal implementation of query_model without retry/concurrency logic.
@@ -140,7 +120,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
         response = await self.client.chat.completions.create(
             messages=messages,
             model=model,
-            max_tokens=max_tokens,
+            max_tokens = 2048,
             n=n,
             seed=seed,
             stop=stop,
@@ -150,23 +130,3 @@ class AsyncOpenAIClient(AsyncLLMClient):
         )
 
         return [choice.message.content for choice in response.choices]
-
-    async def query_reward_model(self, *, messages: Iterable, model: str) -> dict:
-        """
-        Prompts an LLM Reward model to score a conversation between a user and assistant
-        Args:
-            messages: The conversation to calculate a score for.
-                Should be formatted like:
-                    [{"role": "user", "content": "Write a sentence"}, {"role": "assistant", "content": "This is a sentence"}, ...]
-            model: The name of the model that should be used to calculate the reward.
-                Must be a reward model, cannot be a regular LLM.
-        Returns:
-            A mapping of score_name -> score
-        """
-        response = await self.client.chat.completions.create(messages=messages, model=model)
-
-        if response.choices[0].logprobs is None:
-            msg = f"Logprobs not found. {model} is likely not a reward model."
-            raise ValueError(msg)
-
-        return {score.token: score.logprob for score in response.choices[0].logprobs.content}

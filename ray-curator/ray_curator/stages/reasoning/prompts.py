@@ -26,7 +26,9 @@ The user will provide theattemptandthe correctanswer inthefollowing format:
 {attempt}
 ## Correct answer
 {solution}
-Explain your reasoning, and end your response on a new line with strictly only "Yes" or "No" (without quotes, without formatting, no symbols, asterisks, or punctuation marks). If not knowing the answer, respond with "No".
+Explain your reasoning, and end your response on a new line with strictly only "Yes" or "No", no punctuation marks.
+(Example for last line: '\nYes', '\nNo').
+If not knowing the answer, respond with "No".
 """
 
 DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE = """
@@ -35,7 +37,7 @@ You will be given a question and a list of subjects.
 You need to classify the question into one of the subjects.
 If the question has multiple subjects, you should classify the question into the most relevant subject.
 Explain your reasoning, and end your response on a new line with two-digit code of the subject that the question belongs to 
-(e.g. 01, 02, 03, etc., only use two digits, no other text, formatting, no symbols, asterisks, or punctuation marks).
+(Example for last line: '\n01', '\n02', '\n03', etc., no punctuation marks).
 ## Question
 {question}
 ## Classification rubrics
