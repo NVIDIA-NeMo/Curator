@@ -16,6 +16,20 @@ from ray_curator.tasks import Clip, Video, VideoTask
 from ray_curator.tasks.video import VideoMetadata
 
 
+# Mock GPU info class to simulate GPU information
+class MockGpuInfo:
+    def __init__(self, index: int, name: str):
+        self.index = index
+        self.name = name
+
+
+# Mock GPU resources class to simulate GPU resources
+class MockGpuResources:
+    def __init__(self, num_nvencs: int = 3, num_nvdecs: int = 3):
+        self.num_nvencs = num_nvencs
+        self.num_nvdecs = num_nvdecs
+
+
 class TestClipTranscodingStage:
     """Test cases for ClipTranscodingStage."""
 
@@ -117,29 +131,51 @@ class TestClipTranscodingStage:
         assert resources.cpus == 6.0
         assert not resources.entire_gpu
 
-    def test_resources_gpu_encoder(self) -> None:
+    @patch("cosmos_xenna.ray_utils.resources._get_local_gpu_info")
+    @patch("cosmos_xenna.ray_utils.resources._make_gpu_resources_from_gpu_name")
+    @patch("ray_curator.stages.resources._get_gpu_memory_gb")
+    def test_resources_gpu_encoder(self, mock_gpu_memory: MagicMock, mock_gpu_resources: MagicMock, mock_gpu_info: MagicMock) -> None:
         """Test resource requirements for GPU encoders."""
+        # Mock GPU info to avoid IndexError in test environment
+        mock_gpu_info.return_value = [MockGpuInfo(0, "NVIDIA RTX A6000")]
+        mock_gpu_resources.return_value = MockGpuResources(num_nvencs=3, num_nvdecs=3)
+        mock_gpu_memory.return_value = 24.0
+
         stage = ClipTranscodingStage(
             encoder="h264_nvenc",
             use_hwaccel=False,
-            num_cpus_per_worker=6.0
+            num_cpus_per_worker=6.0,
+            nb_streams_per_gpu=3
         )
 
         resources = stage.resources
         assert isinstance(resources, Resources)
-        assert not resources.entire_gpu
+        # When nb_streams_per_gpu > 0, it should use nvencs and gpu_memory_gb
+        assert resources.nvencs == 1  # 3 nvencs // 3 streams = 1
+        assert resources.gpu_memory_gb == 15.0  # Based on Resources.__post_init__ calculation
 
-    def test_resources_hwaccel_enabled(self) -> None:
+    @patch("cosmos_xenna.ray_utils.resources._get_local_gpu_info")
+    @patch("cosmos_xenna.ray_utils.resources._make_gpu_resources_from_gpu_name")
+    @patch("ray_curator.stages.resources._get_gpu_memory_gb")
+    def test_resources_hwaccel_enabled(self, mock_gpu_memory: MagicMock, mock_gpu_resources: MagicMock, mock_gpu_info: MagicMock) -> None:
         """Test resource requirements when hardware acceleration is enabled."""
+        # Mock GPU info to avoid IndexError in test environment
+        mock_gpu_info.return_value = [MockGpuInfo(0, "NVIDIA RTX A6000")]
+        mock_gpu_resources.return_value = MockGpuResources(num_nvencs=3, num_nvdecs=3)
+        mock_gpu_memory.return_value = 24.0
+
         stage = ClipTranscodingStage(
             encoder="libx264",
             use_hwaccel=True,
-            num_cpus_per_worker=6.0
+            num_cpus_per_worker=6.0,
+            nb_streams_per_gpu=3
         )
 
         resources = stage.resources
         assert isinstance(resources, Resources)
-        assert not resources.entire_gpu
+        # When use_hwaccel=True and nb_streams_per_gpu > 0, it should use nvencs and gpu_memory_gb
+        assert resources.nvencs == 1  # 3 nvencs // 3 streams = 1
+        assert resources.gpu_memory_gb == 15.0  # Based on Resources.__post_init__ calculation
 
     def test_process_no_source_bytes(self) -> None:
         """Test processing when source_bytes is None."""
@@ -599,8 +635,16 @@ class TestClipTranscodingStage:
             spawn_calls = [call for call in info_calls if "Spawning subtask" in call]
             assert len(spawn_calls) == 2  # One for each chunk
 
-    def test_different_encoder_configurations(self) -> None:
+    @patch("cosmos_xenna.ray_utils.resources._get_local_gpu_info")
+    @patch("cosmos_xenna.ray_utils.resources._make_gpu_resources_from_gpu_name")
+    @patch("ray_curator.stages.resources._get_gpu_memory_gb")
+    def test_different_encoder_configurations(self, mock_gpu_memory: MagicMock, mock_gpu_resources: MagicMock, mock_gpu_info: MagicMock) -> None:
         """Test various encoder configurations."""
+        # Mock GPU info to avoid IndexError in test environment
+        mock_gpu_info.return_value = [MockGpuInfo(0, "NVIDIA RTX A6000")]
+        mock_gpu_resources.return_value = MockGpuResources(num_nvencs=3, num_nvdecs=3)
+        mock_gpu_memory.return_value = 24.0
+
         test_configs = [
             {"encoder": "libopenh264", "use_hwaccel": False},
             {"encoder": "libx264", "use_hwaccel": False},
@@ -617,7 +661,9 @@ class TestClipTranscodingStage:
             # Should have appropriate resource requirements
             resources = stage.resources
             if config["encoder"] == "h264_nvenc" or config["use_hwaccel"]:
-                assert not resources.entire_gpu
+                # For GPU configurations, when nb_streams_per_gpu > 0 (default is 3), it should use nvencs and gpu_memory_gb
+                assert resources.nvencs == 1  # 3 nvencs // 3 streams = 1
+                assert resources.gpu_memory_gb == 15.0  # Based on Resources.__post_init__ calculation
             else:
                 assert resources.cpus > 0
                 assert not resources.entire_gpu
