@@ -21,7 +21,7 @@ name = "nemo_curator"
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
-    { name = "Ryan Wolf", email = "rywolf@nvidia.com" },
+    { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
     { name = "Joseph Jennings", email = "jjennings@nvidia.com" },
     { name = "Mostofa Patwary", email = "mpatwary@nvidia.com" },
     { name = "Sandeep Subramanian", email = "sasubramania@nvidia.com" },
