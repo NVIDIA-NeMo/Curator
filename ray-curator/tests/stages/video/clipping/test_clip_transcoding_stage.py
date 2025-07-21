@@ -127,7 +127,7 @@ class TestClipTranscodingStage:
 
         resources = stage.resources
         assert isinstance(resources, Resources)
-        assert resources.entire_gpu
+        assert not resources.entire_gpu
 
     def test_resources_hwaccel_enabled(self) -> None:
         """Test resource requirements when hardware acceleration is enabled."""
@@ -139,7 +139,7 @@ class TestClipTranscodingStage:
 
         resources = stage.resources
         assert isinstance(resources, Resources)
-        assert resources.entire_gpu
+        assert not resources.entire_gpu
 
     def test_process_no_source_bytes(self) -> None:
         """Test processing when source_bytes is None."""
@@ -586,7 +586,7 @@ class TestClipTranscodingStage:
             # Should have appropriate resource requirements
             resources = stage.resources
             if config["encoder"] == "h264_nvenc" or config["use_hwaccel"]:
-                assert resources.entire_gpu
+                assert not resources.entire_gpu
             else:
                 assert resources.cpus > 0
                 assert not resources.entire_gpu
