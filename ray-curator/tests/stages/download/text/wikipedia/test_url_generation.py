@@ -48,10 +48,11 @@ class TestWikipediaUrlGenerator:
         mock_dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "enwiki-20230501-pages-articles-multistream1.xml.bz2": {},
                         "enwiki-20230501-pages-articles-multistream2.xml.bz2": {},
-                    }
+                    },
                 }
             }
         }
@@ -60,6 +61,11 @@ class TestWikipediaUrlGenerator:
             response = Mock()
             if url == "https://dumps.wikimedia.org/enwiki":
                 response.content = mock_html.encode("utf-8")
+            elif url == "https://dumps.wikimedia.org/enwiki/20230520/dumpstatus.json":
+                # Mock 20230520 as not finished, so it tries the next one
+                response.content = json.dumps({"jobs": {"articlesmultistreamdump": {"status": "running"}}}).encode(
+                    "utf-8"
+                )
             elif url == "https://dumps.wikimedia.org/enwiki/20230501/dumpstatus.json":
                 response.content = json.dumps(mock_dump_data).encode("utf-8")
             else:
@@ -85,11 +91,12 @@ class TestWikipediaUrlGenerator:
         mock_dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "enwiki-20230501-pages-articles-multistream1.xml.bz2": {},
                         "enwiki-20230501-pages-articles-multistream2.xml.bz2": {},
                         "enwiki-20230501-index.txt.bz2": {},  # Should be filtered out
-                    }
+                    },
                 }
             }
         }
@@ -125,7 +132,7 @@ class TestWikipediaUrlGenerator:
 
         generator = WikipediaUrlGenerator(language="en", dump_date="20230501")
 
-        with pytest.raises(ValueError, match="No Wikipedia dump found"):
+        with pytest.raises(ValueError, match="Unable to load dump data for 20230501"):
             generator._get_wikipedia_urls()
 
     @patch("requests.get")
@@ -134,10 +141,11 @@ class TestWikipediaUrlGenerator:
         mock_dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "enwiki-20230501-index.txt.bz2": {},
                         "enwiki-20230501-other.txt.bz2": {},
-                    }
+                    },
                 }
             }
         }
@@ -169,9 +177,10 @@ class TestWikipediaUrlGenerator:
         mock_dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "eswiki-20230501-pages-articles-multistream1.xml.bz2": {},
-                    }
+                    },
                 }
             }
         }
@@ -193,9 +202,10 @@ class TestWikipediaUrlGenerator:
         mock_dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "enwiki-20230501-pages-articles-multistream1.xml.bz2": {},
-                    }
+                    },
                 }
             }
         }
@@ -277,12 +287,13 @@ class TestWikipediaUrlGeneratorIntegration:
         dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "enwiki-20230501-pages-articles-multistream1.xml.bz2": {},
                         "enwiki-20230501-pages-articles-multistream2.xml.bz2": {},
                         "enwiki-20230501-pages-articles-multistream3.xml.bz2": {},
                         "enwiki-20230501-index.txt.bz2": {},
-                    }
+                    },
                 }
             }
         }
@@ -291,6 +302,11 @@ class TestWikipediaUrlGeneratorIntegration:
             response = Mock()
             if url == "https://dumps.wikimedia.org/enwiki":
                 response.content = index_html.encode("utf-8")
+            elif url == "https://dumps.wikimedia.org/enwiki/20230520/dumpstatus.json":
+                # Mock 20230520 as not finished, so it tries the next one
+                response.content = json.dumps({"jobs": {"articlesmultistreamdump": {"status": "running"}}}).encode(
+                    "utf-8"
+                )
             elif url == "https://dumps.wikimedia.org/enwiki/20230501/dumpstatus.json":
                 response.content = json.dumps(dump_data).encode("utf-8")
             else:
@@ -309,7 +325,7 @@ class TestWikipediaUrlGeneratorIntegration:
             "https://dumps.wikimedia.org/enwiki/20230501/enwiki-20230501-pages-articles-multistream3.xml.bz2",
         ]
         assert sorted(urls) == sorted(expected_urls)
-        assert mock_get.call_count == 2
+        assert mock_get.call_count == 3  # Index page + 2 dump status calls
 
     @patch("requests.get")
     def test_realistic_scenario_specific_dump(self, mock_get: Mock):
@@ -317,10 +333,11 @@ class TestWikipediaUrlGeneratorIntegration:
         dump_data = {
             "jobs": {
                 "articlesmultistreamdump": {
+                    "status": "done",
                     "files": {
                         "eswiki-20230301-pages-articles-multistream1.xml.bz2": {},
                         "eswiki-20230301-pages-articles-multistream2.xml.bz2": {},
-                    }
+                    },
                 }
             }
         }

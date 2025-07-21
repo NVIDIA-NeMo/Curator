@@ -83,7 +83,7 @@ class WikipediaUrlGenerator(URLGenerator):
             if dump_data is None:
                 error_msg = f"Unable to load dump data for {dump_date[:-1]}"
                 raise ValueError(error_msg)
-            if dump_data["jobs"].get("articlesmultistreamdump", {}).get("status") != "done":
+            if dump_data["jobs"]["articlesmultistreamdump"]["status"] != "done":
                 error_msg = f"Dump {dump_date[:-1]} is not finished"
                 raise ValueError(error_msg)
 
