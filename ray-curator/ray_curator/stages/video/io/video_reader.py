@@ -13,10 +13,7 @@ class VideoReaderStage(ProcessingStage[_EmptyTask, VideoTask]):
     """Stage that reads video files from storage and extracts metadata."""
     input_video_path: str
     video_limit: int = -1
-
-    @property
-    def name(self) -> str:
-        return "video_reader"
+    _name: str = "video_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

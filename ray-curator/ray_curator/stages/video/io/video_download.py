@@ -15,13 +15,10 @@ class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
     extracting metadata, and storing the results in the task.
     """
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "video_download"
+    _name: str = "video_download"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        return ["data"], ["input_video"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes", "metadata"]
