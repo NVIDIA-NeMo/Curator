@@ -161,6 +161,3 @@ class AsyncLLMClient(ABC):
                             continue
                     # Re-raise if not a rate limit error or if max retries exceeded
                     raise
-
-        msg = "Subclass of AsyncLLMClient must implement 'query_reward_model'"
-        raise NotImplementedError(msg)

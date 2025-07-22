@@ -11,11 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .model_client import LLMClient
-from .openai_client import OpenAIClient
+from .model_client import LLMClient, AsyncLLMClient
+from .openai_client import OpenAIClient, AsyncOpenAIClient
 
 __all__ = [
     "LLMClient",
+    "AsyncLLMClient",
     "OpenAIClient",
+    "AsyncOpenAIClient",
 ]
 

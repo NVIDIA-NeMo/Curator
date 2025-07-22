@@ -38,9 +38,6 @@ class TestLLMClient:
             
             def query_model(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 return ["test response"]
-            
-            def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestLLMClient()
         client.setup()
@@ -48,10 +45,6 @@ class TestLLMClient:
         # Test query_model
         result = client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
         assert result == ["test response"]
-        
-        # Test query_reward_model
-        result = client.query_reward_model(messages=[{"role": "user", "content": "test"}], model="test-model")
-        assert result == {"score": 0.5}
 
 
 class TestAsyncLLMClient:
@@ -66,9 +59,6 @@ class TestAsyncLLMClient:
             
             async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 return ["test response"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         assert client.max_concurrent_requests == 5
@@ -86,9 +76,6 @@ class TestAsyncLLMClient:
             
             async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 return ["test response"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient(
             max_concurrent_requests=10,
@@ -114,9 +101,6 @@ class TestAsyncLLMClient:
             
             async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 return ["test response"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         result = await client.query_model(
@@ -139,9 +123,6 @@ class TestAsyncLLMClient:
                 assert kwargs.get("temperature") == 0.5
                 assert kwargs.get("seed") == 42
                 return ["test response"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         result = await client.query_model(
@@ -170,9 +151,6 @@ class TestAsyncLLMClient:
                 if self.attempt_count <= 2:
                     raise Exception("429 Rate limit exceeded")
                 return ["success after retry"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         
@@ -195,9 +173,6 @@ class TestAsyncLLMClient:
             
             async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 raise ValueError("Some other error")
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         
@@ -220,9 +195,6 @@ class TestAsyncLLMClient:
             
             async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 raise Exception("429 Rate limit exceeded")
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         
@@ -243,9 +215,6 @@ class TestAsyncLLMClient:
             
             async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs) -> list[str]:
                 return ["test response"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient(max_concurrent_requests=3)
         
@@ -291,9 +260,6 @@ class TestAsyncLLMClient:
                 await asyncio.sleep(0.1)  # Simulate work
                 self.active_requests -= 1
                 return ["test response"]
-            
-            async def query_reward_model(self, *, messages: Iterable, model: str, **kwargs) -> dict:
-                return {"score": 0.5}
         
         client = TestAsyncLLMClient()
         

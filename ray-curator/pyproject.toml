@@ -54,6 +54,7 @@ dev = [
     "debugpy",
     "pre-commit",
     "pytest",
+    "pytest-asyncio",
     "pytest-loguru",
     "ruff==0.11.4",
 ]
@@ -102,3 +103,4 @@ fixable = ["ALL"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

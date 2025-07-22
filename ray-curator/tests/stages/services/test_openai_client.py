@@ -102,7 +102,14 @@ class TestOpenAIClient:
     @patch('ray_curator.stages.services.openai_client.OpenAI')
     def test_query_model_with_conversation_formatter_warning(self, mock_openai):
         """Test query_model warns when conversation_formatter is provided."""
+        # Setup proper mock response
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        
         mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
         mock_openai.return_value = mock_client
         
         client = OpenAIClient()
@@ -124,7 +131,14 @@ class TestOpenAIClient:
     @patch('ray_curator.stages.services.openai_client.OpenAI')
     def test_query_model_with_top_k_warning(self, mock_openai):
         """Test query_model warns when top_k is provided."""
+        # Setup proper mock response
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        
         mock_client = Mock()
+        mock_client.chat.completions.create.return_value = mock_response
         mock_openai.return_value = mock_client
         
         client = OpenAIClient()
@@ -141,65 +155,7 @@ class TestOpenAIClient:
             assert len(w) == 1
             assert "top_k is not used in an OpenAIClient" in str(w[0].message)
 
-    @patch('ray_curator.stages.services.openai_client.OpenAI')
-    def test_query_reward_model_success(self, mock_openai):
-        """Test successful query_reward_model execution."""
-        # Setup mock response with logprobs
-        mock_logprob1 = Mock()
-        mock_logprob1.token = "good"
-        mock_logprob1.logprob = -0.5
-        mock_logprob2 = Mock()
-        mock_logprob2.token = "bad"
-        mock_logprob2.logprob = -2.0
-        
-        mock_logprobs = Mock()
-        mock_logprobs.content = [mock_logprob1, mock_logprob2]
-        
-        mock_choice = Mock()
-        mock_choice.logprobs = mock_logprobs
-        
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        
-        mock_client = Mock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
-        client = OpenAIClient()
-        client.setup()
-        
-        result = client.query_reward_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="reward-model"
-        )
-        
-        assert result == {"good": -0.5, "bad": -2.0}
-        mock_client.chat.completions.create.assert_called_once_with(
-            messages=[{"role": "user", "content": "test"}],
-            model="reward-model"
-        )
 
-    @patch('ray_curator.stages.services.openai_client.OpenAI')
-    def test_query_reward_model_no_logprobs_error(self, mock_openai):
-        """Test query_reward_model raises error when no logprobs are found."""
-        mock_choice = Mock()
-        mock_choice.logprobs = None
-        
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        
-        mock_client = Mock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_openai.return_value = mock_client
-        
-        client = OpenAIClient()
-        client.setup()
-        
-        with pytest.raises(ValueError, match="Logprobs not found. reward-model is likely not a reward model."):
-            client.query_reward_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="reward-model"
-            )
 
 
 class TestAsyncOpenAIClient:
@@ -307,7 +263,14 @@ class TestAsyncOpenAIClient:
     @patch('ray_curator.stages.services.openai_client.AsyncOpenAI')
     async def test_query_model_impl_with_conversation_formatter_warning(self, mock_async_openai):
         """Test _query_model_impl warns when conversation_formatter is provided."""
+        # Setup proper mock response
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        
         mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = mock_response
         mock_async_openai.return_value = mock_client
         
         client = AsyncOpenAIClient()
@@ -330,7 +293,14 @@ class TestAsyncOpenAIClient:
     @patch('ray_curator.stages.services.openai_client.AsyncOpenAI')
     async def test_query_model_impl_with_top_k_warning(self, mock_async_openai):
         """Test _query_model_impl warns when top_k is provided."""
+        # Setup proper mock response
+        mock_choice = Mock()
+        mock_choice.message.content = "Test response"
+        mock_response = Mock()
+        mock_response.choices = [mock_choice]
+        
         mock_client = AsyncMock()
+        mock_client.chat.completions.create.return_value = mock_response
         mock_async_openai.return_value = mock_client
         
         client = AsyncOpenAIClient()
@@ -347,67 +317,7 @@ class TestAsyncOpenAIClient:
             assert len(w) == 1
             assert "top_k is not used in an AsyncOpenAIClient" in str(w[0].message)
 
-    @pytest.mark.asyncio
-    @patch('ray_curator.stages.services.openai_client.AsyncOpenAI')
-    async def test_query_reward_model_success(self, mock_async_openai):
-        """Test successful query_reward_model execution."""
-        # Setup mock response with logprobs
-        mock_logprob1 = Mock()
-        mock_logprob1.token = "good"
-        mock_logprob1.logprob = -0.5
-        mock_logprob2 = Mock()
-        mock_logprob2.token = "bad"
-        mock_logprob2.logprob = -2.0
-        
-        mock_logprobs = Mock()
-        mock_logprobs.content = [mock_logprob1, mock_logprob2]
-        
-        mock_choice = Mock()
-        mock_choice.logprobs = mock_logprobs
-        
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_async_openai.return_value = mock_client
-        
-        client = AsyncOpenAIClient()
-        client.setup()
-        
-        result = await client.query_reward_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="reward-model"
-        )
-        
-        assert result == {"good": -0.5, "bad": -2.0}
-        mock_client.chat.completions.create.assert_called_once_with(
-            messages=[{"role": "user", "content": "test"}],
-            model="reward-model"
-        )
 
-    @pytest.mark.asyncio
-    @patch('ray_curator.stages.services.openai_client.AsyncOpenAI')
-    async def test_query_reward_model_no_logprobs_error(self, mock_async_openai):
-        """Test query_reward_model raises error when no logprobs are found."""
-        mock_choice = Mock()
-        mock_choice.logprobs = None
-        
-        mock_response = Mock()
-        mock_response.choices = [mock_choice]
-        
-        mock_client = AsyncMock()
-        mock_client.chat.completions.create.return_value = mock_response
-        mock_async_openai.return_value = mock_client
-        
-        client = AsyncOpenAIClient()
-        client.setup()
-        
-        with pytest.raises(ValueError, match="Logprobs not found. reward-model is likely not a reward model."):
-            await client.query_reward_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="reward-model"
-            )
 
     @pytest.mark.asyncio
     @patch('ray_curator.stages.services.openai_client.AsyncOpenAI')

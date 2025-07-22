@@ -42,9 +42,7 @@ from ray_curator.stages.reasoning.reasoning_traces_synthetic import (
     ReasoningTracesSyntheticStage,
 )
 from ray_curator.stages.services.model_client import LLMClient
-from ray_curator.stages.services.openai_client import (
-    ConversationFormatter,
-)
+from ray_curator.stages.services.conversation_formatter import ConversationFormatter
 from ray_curator.tasks import DocumentBatch
 
 
@@ -95,16 +93,6 @@ class MockLLMClient(LLMClient):
             return [response]
         return ["Mock response"]
 
-    def query_reward_model(
-        self,
-        *,
-        messages: Iterable,
-        model: str,
-        conversation_formatter: ConversationFormatter | None = None,
-    ) -> dict:
-        """Mock query_reward_model method."""
-        return {"score": 0.5}
-
 
 def create_test_batch(data: dict) -> DocumentBatch:
     """Create a test DocumentBatch."""
@@ -119,9 +107,9 @@ def create_test_batch(data: dict) -> DocumentBatch:
 def create_domains_file() -> str:
     """Create a temporary domains file for testing."""
     domains_data = [
-        {"domain": "Mathematics", "prompt": "Mathematical problems and equations"},
-        {"domain": "Science", "prompt": "Scientific concepts and phenomena"},
-        {"domain": "History", "prompt": "Historical events and figures"},
+        {"code": "01", "prompt": "Mathematical problems and equations"},
+        {"code": "02", "prompt": "Scientific concepts and phenomena"},
+        {"code": "03", "prompt": "Historical events and figures"},
     ]
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(domains_data, f)
@@ -266,6 +254,7 @@ class TestReasoningTracesSyntheticStage:
         assert len(result.data) == 3
         assert "reasoning_trace" in result.data.columns
         assert result.data["reasoning_trace"].tolist() == ["Reasoning trace 1", "Reasoning trace 2", "Reasoning trace 3"]
+        assert result.dataset_name == "reasoning_traces_synthetic_data"
 
         # Check that LLM was called correctly
         assert len(mock_client.query_calls) == 3
@@ -332,6 +321,7 @@ class TestLLMBasedGrader:
         assert len(result.data) == 3
         assert "correctness" in result.data.columns
         assert result.data["correctness"].tolist() == ["Yes", "No", "Yes"]
+        assert result.dataset_name == "reasoning_traces_synthetic_data"
 
         # Check that LLM was called correctly
         assert len(mock_client.query_calls) == 3
@@ -498,6 +488,8 @@ class TestLLMBasedDomainClassifier:
             assert stage.output_field == "domain"
             assert isinstance(stage.domains, pd.DataFrame)
             assert len(stage.domains) == 3
+            assert "code" in stage.domains.columns
+            assert "prompt" in stage.domains.columns
         finally:
             import os
             os.unlink(domains_file)
@@ -546,6 +538,7 @@ class TestLLMBasedDomainClassifier:
             assert len(result.data) == 3
             assert "domain" in result.data.columns
             assert result.data["domain"].tolist() == ["01", "02", "03"]
+            assert result.dataset_name == "domain_classification_data"
 
             # Check that LLM was called correctly
             assert len(mock_client.query_calls) == 3
@@ -579,7 +572,7 @@ class TestDiversitySampler:
 
         assert stage.name == "DiversitySampler"
         assert stage.inputs() == ([], [])
-        assert stage.outputs() == ["data"]
+        assert stage.outputs() == (["data"], [])
 
     def test_setup(self):
         """Test setup method"""
@@ -604,7 +597,7 @@ class TestDiversitySampler:
         # Create a counter to cycle through choices
         call_count = 0
 
-        def mock_choice_func(*args) -> object:
+        def mock_choice_func(*args, **kwargs) -> object:
             nonlocal call_count
             call_count += 1
 
@@ -697,9 +690,10 @@ class TestPromptTemplates:
 
     def test_default_domain_classification_prompt_template(self):
         """Test that default domain classification prompt template has required placeholders"""
-        # Note: The actual template might have different placeholders
         assert isinstance(DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE, str)
         assert len(DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE) > 0
+        assert "{question}" in DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE
+        assert "{domains_prompt}" in DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE
 
     def test_prompt_formatting(self):
         """Test that prompts can be formatted correctly"""
@@ -718,3 +712,11 @@ class TestPromptTemplates:
             problem="What is 2+2?"
         )
         assert "What is 2+2?" in reasoning_prompt
+
+        # Test domain classification prompt
+        domain_prompt = DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE.format(
+            question="What is 2+2?",
+            domains_prompt="01: Mathematics\n02: Science"
+        )
+        assert "What is 2+2?" in domain_prompt
+        assert "Mathematics" in domain_prompt
