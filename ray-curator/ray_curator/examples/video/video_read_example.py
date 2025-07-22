@@ -2,8 +2,7 @@ import argparse
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
-from ray_curator.stages.video.io.video_reader import VideoReaderStage
+from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 
 
 def create_video_reading_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -12,8 +11,12 @@ def create_video_reading_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_reading", description="Read videos from a folder and extract metadata on video level.")
 
     # Add stages
-    pipeline.add_stage(VideoReaderStage(input_video_path=args.video_folder, video_limit=args.video_limit))
-    pipeline.add_stage(VideoDownloadStage(verbose=args.verbose))
+    # Add the composite stage that combines reading and downloading
+    pipeline.add_stage(VideoReaderDownloadStage(
+        input_video_path=args.video_folder,
+        video_limit=args.video_limit,
+        verbose=args.verbose
+    ))
 
     # TODO: Add Writer stage in the following PR
 
@@ -41,7 +44,6 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--debug", action="store_true", default=False, help="Run in debug mode")
     parser.add_argument("--video-folder", type=str, required=True, help="Path to the video folder")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False, help="Verbose output")

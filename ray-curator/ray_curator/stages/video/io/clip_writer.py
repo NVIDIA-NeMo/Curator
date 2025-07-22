@@ -54,7 +54,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return Resources(cpus=0.25)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self.storage_client = None # storage_client.get_client(worker_metadata)
+        self.storage_client = None # we currently write everything to a local storage
         self._iv2_embedding_buffer: list[dict[str, Any]] = []
         self._ce1_embedding_buffer: list[dict[str, Any]] = []
 

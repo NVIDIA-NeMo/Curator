@@ -54,7 +54,7 @@ SemDedup = gpu_only_import_from("nemo_curator.modules.semantic_dedup.semdedup", 
 # PyTorch-related imports must come after all imports that require cuGraph
 # because of context cleanup issues between PyTorch and cuGraph
 # See this issue: https://github.com/rapidsai/cugraph/issues/2718
-from .filter import Filter, ParallelScoreFilter, Score, ScoreFilter
+from .filter import ParallelScoreFilter
 
 __all__ = [
     "LSH",
@@ -67,15 +67,12 @@ __all__ = [
     "DocumentSplitter",
     "EmbeddingCreator",
     "ExactDuplicates",
-    "Filter",
     "FuzzyDuplicates",
     "FuzzyDuplicatesConfig",
     "JaccardSimilarity",
     "MinHash",
     "Modify",
     "ParallelScoreFilter",
-    "Score",
-    "ScoreFilter",
     "SemDedup",
     "SemDedupConfig",
     "SemanticClusterLevelDedup",
