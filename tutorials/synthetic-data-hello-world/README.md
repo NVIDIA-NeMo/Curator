@@ -11,7 +11,8 @@ We'll walk through an example of each pipeline, as well as how you could make mo
 Through the following tools, NeMo Curator offers the following tools, which are compatible with both OpenAI API compatible models hosted on `build.nvidia.com`, as well as any LLM NIM that is locally running.
 
 - NeMo Curator OpenAI Client (Sync and Async)
-- Chat and Reward Model Usage
+- Model Usage
+- Synthetic Data Generation
 
 ### Covered Pipelines:
 
@@ -28,4 +29,4 @@ Through the use of the `NemotronGenerator`, NeMo Curator offers the following pi
     - Classify Math Entity
     - Classify Python Entity
 
-> NOTE: If you are using the `build.nvidia.com` endpoint for Nemotron-4 340B Instruct as your model for the above pipelines, during times of high load, it's possible that pipelines might time-out. In this case, we would recommend running the pipeline in a piecewise fashion and saving the intermediate outputs.
+> NOTE: If you are using the `build.nvidia.com` endpoint for Llama-3.3-Nemotron-Super-49B-v1 as your model for the above pipelines, during times of high load, it's possible that pipelines might time-out. In this case, we would recommend running the pipeline in a piecewise fashion and saving the intermediate outputs.

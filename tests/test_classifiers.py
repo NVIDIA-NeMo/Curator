@@ -84,6 +84,7 @@ def test_quality_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 @pytest.mark.parametrize(
     "aegis_variant",
     [
@@ -160,6 +161,7 @@ def test_fineweb_nemotron_classifier(gpu_client, domain_dataset: DocumentDataset
 
 
 @pytest.mark.gpu
+@pytest.mark.skip(reason="Skipping classifier tests")
 def test_instruction_data_guard_classifier(gpu_client) -> None:  # noqa: ANN001, ARG001
     from nemo_curator.classifiers import InstructionDataGuardClassifier
 

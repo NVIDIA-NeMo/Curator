@@ -17,4 +17,4 @@ coverage:
         branches:
           - main
 fixes:
-  - "/opt/NeMo-Curator/::"
+  - "/workspace/::"
