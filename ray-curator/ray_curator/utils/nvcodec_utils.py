@@ -23,10 +23,17 @@ import queue
 from pathlib import Path
 from typing import Any
 
-import cvcuda  # type: ignore[import-untyped]
-import nvcv  # type: ignore[import-untyped]
-import pycuda.driver as cuda  # type: ignore[import-untyped]
-import PyNvVideoCodec as Nvc  # type: ignore[import-untyped]
+try:
+    import cvcuda  # type: ignore[import-untyped]
+    import nvcv  # type: ignore[import-untyped]
+    import pycuda.driver as cuda  # type: ignore[import-untyped]
+    import PyNvVideoCodec as Nvc  # type: ignore[import-untyped]
+except ImportError:
+    logger.warning("PyNvVideoCodec is not installed, some features will be disabled.")
+    Nvc = None
+    cvcuda = None
+    nvcv = None
+    cuda = None
 import torch
 from loguru import logger
 
