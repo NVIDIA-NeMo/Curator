@@ -23,6 +23,9 @@ import queue
 from pathlib import Path
 from typing import Any
 
+import torch
+from loguru import logger
+
 try:
     import cvcuda  # type: ignore[import-untyped]
     import nvcv  # type: ignore[import-untyped]
@@ -34,8 +37,7 @@ except ImportError:
     cvcuda = None
     nvcv = None
     cuda = None
-import torch
-from loguru import logger
+
 
 pixel_format_to_cvcuda_code = {
     Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,  # type: ignore[import-untyped]
