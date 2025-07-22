@@ -77,9 +77,6 @@ docs/_build/
 .pybuilder/
 target/
 
-# Metrics
-.metrics/
-
 # Jupyter Notebook
 .ipynb_checkpoints
 
