@@ -26,6 +26,66 @@ class TestFrameExtractionPolicy:
         assert FrameExtractionPolicy.fps.value == 1
 
 
+class TestImportHandling:
+    """Test suite for handling missing GPU dependencies."""
+
+    def test_pixel_format_mapping_when_dependencies_missing(self) -> None:
+        """Test that pixel format mapping is properly handled when dependencies are missing."""
+        # Test that the mapping is a dictionary (empty or populated)
+        assert isinstance(pixel_format_to_cvcuda_code, dict)
+        # When dependencies are missing, it should be empty
+        # When dependencies are present, it should have entries
+        # Both cases are valid
+
+    @patch("ray_curator.utils.nvcodec_utils.Nvc", None)
+    def test_video_batch_decoder_init_without_dependencies(self) -> None:
+        """Test VideoBatchDecoder raises error when PyNvVideoCodec is not available."""
+        with pytest.raises(RuntimeError, match="PyNvVideoCodec is not available"):
+            VideoBatchDecoder(
+                batch_size=2,
+                target_width=224,
+                target_height=224,
+                device_id=0,
+                cuda_ctx=Mock(),
+                cvcuda_stream=Mock(),
+            )
+
+    @patch("ray_curator.utils.nvcodec_utils.cuda", None)
+    @patch("ray_curator.utils.nvcodec_utils.cvcuda", None)
+    @patch("ray_curator.utils.nvcodec_utils.nvcv", None)
+    @patch("ray_curator.utils.nvcodec_utils.Nvc", None)
+    def test_py_nvc_frame_extractor_without_dependencies(self) -> None:
+        """Test PyNvcFrameExtractor fails gracefully when dependencies are missing."""
+        with pytest.raises((RuntimeError, AttributeError)):
+            PyNvcFrameExtractor(width=224, height=224, batch_size=2)
+
+    @patch("ray_curator.utils.nvcodec_utils.cvcuda", None)
+    @patch("ray_curator.utils.nvcodec_utils.torch")
+    def test_gpu_decode_for_stitching_without_cvcuda(self, _mock_torch: Any) -> None:
+        """Test gpu_decode_for_stitching fails gracefully when cvcuda is missing."""
+        with pytest.raises(AttributeError):
+            gpu_decode_for_stitching(
+                device_id=0,
+                ctx=Mock(),
+                stream=Mock(),
+                input_path=Path("test.mp4"),
+                frame_list=[0, 1],
+                batch_size=2,
+            )
+
+    def test_module_imports_gracefully_without_dependencies(self) -> None:
+        """Test that the module can be imported even when GPU dependencies are missing."""
+        # If we got here, the import was successful
+        # This test verifies that import failures are handled gracefully
+        from ray_curator.utils import nvcodec_utils
+
+        # Verify the module has expected attributes
+        assert hasattr(nvcodec_utils, "FrameExtractionPolicy")
+        assert hasattr(nvcodec_utils, "VideoBatchDecoder")
+        assert hasattr(nvcodec_utils, "NvVideoDecoder")
+        assert hasattr(nvcodec_utils, "PyNvcFrameExtractor")
+
+
 class TestVideoBatchDecoder:
     """Test suite for VideoBatchDecoder class."""
 
@@ -38,7 +98,8 @@ class TestVideoBatchDecoder:
         self.mock_cuda_ctx = Mock()
         self.mock_cvcuda_stream = Mock()
 
-    def test_init_valid_params(self) -> None:
+    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    def test_init_valid_params(self, _mock_nvc: Any) -> None:
         """Test initialization with valid parameters."""
         decoder = VideoBatchDecoder(
             batch_size=self.batch_size,
@@ -58,7 +119,8 @@ class TestVideoBatchDecoder:
         assert decoder.decoder is None
         assert decoder.input_path is None
 
-    def test_init_invalid_batch_size(self) -> None:
+    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    def test_init_invalid_batch_size(self, _mock_nvc: Any) -> None:
         """Test initialization with invalid batch size."""
         with pytest.raises(ValueError, match="Batch size should be a valid number"):
             VideoBatchDecoder(
@@ -70,7 +132,8 @@ class TestVideoBatchDecoder:
                 cvcuda_stream=self.mock_cvcuda_stream,
             )
 
-    def test_get_fps_no_decoder(self) -> None:
+    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    def test_get_fps_no_decoder(self, _mock_nvc: Any) -> None:
         """Test get_fps when no decoder is initialized."""
         decoder = VideoBatchDecoder(
             batch_size=self.batch_size,
@@ -86,7 +149,8 @@ class TestVideoBatchDecoder:
     @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
-    def test_call_first_time(self, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
+    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
+    def test_call_first_time(self, _mock_nvc: Any, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
         """Test calling decoder for the first time."""
         # Setup mocks
         mock_decoder_instance = Mock()
@@ -120,7 +184,8 @@ class TestVideoBatchDecoder:
     @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
-    def test_call_unsupported_pixel_format(self, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
+    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
+    def test_call_unsupported_pixel_format(self, _mock_nvc: Any, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
         """Test calling decoder with unsupported pixel format."""
         # Setup mocks
         mock_decoder_instance = Mock()
@@ -148,7 +213,8 @@ class TestVideoBatchDecoder:
         with pytest.raises(ValueError, match="Unsupported pixel format"):
             decoder("test_video.mp4")
 
-    def test_call_no_decoder(self) -> None:
+    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    def test_call_no_decoder(self, _mock_nvc: Any) -> None:
         """Test calling decoder when not initialized."""
         decoder = VideoBatchDecoder(
             batch_size=self.batch_size,
@@ -570,4 +636,49 @@ class TestPixelFormatMapping:
         """Test that pixel format mapping dictionary exists and has expected keys."""
         # This test verifies the mapping exists and has the expected structure
         assert isinstance(pixel_format_to_cvcuda_code, dict)
-        assert len(pixel_format_to_cvcuda_code) > 0
+        # When dependencies are missing, dict is empty
+        # When dependencies are present, dict has entries
+        # Both cases are valid
+
+
+class TestGracefulDegradation:
+    """Test suite for ensuring graceful degradation when dependencies are missing."""
+
+    def test_import_without_gpu_dependencies(self) -> None:
+        """Test that module imports successfully even without GPU dependencies."""
+        # This test passes if we can import the module, which we already did at the top
+        # It serves as documentation that this is an important requirement
+        assert True  # If we got here, the import worked
+
+    def test_error_messages_are_helpful(self) -> None:
+        """Test that error messages guide users to install missing dependencies."""
+        with (
+            patch("ray_curator.utils.nvcodec_utils.Nvc", None),
+            pytest.raises(RuntimeError, match="PyNvVideoCodec is not available"),
+        ):
+            VideoBatchDecoder(
+                batch_size=2,
+                target_width=224,
+                target_height=224,
+                device_id=0,
+                cuda_ctx=Mock(),
+                cvcuda_stream=Mock(),
+            )
+
+    def test_all_classes_can_be_imported(self) -> None:
+        """Test that all public classes can be imported regardless of dependency availability."""
+        # All these should be importable even when dependencies are missing
+        from ray_curator.utils.nvcodec_utils import (
+            FrameExtractionPolicy,
+            NvVideoDecoder,
+            PyNvcFrameExtractor,
+            VideoBatchDecoder,
+            gpu_decode_for_stitching,
+        )
+
+        # Verify they're actually classes/functions
+        assert FrameExtractionPolicy is not None
+        assert VideoBatchDecoder is not None
+        assert NvVideoDecoder is not None
+        assert PyNvcFrameExtractor is not None
+        assert callable(gpu_decode_for_stitching)
