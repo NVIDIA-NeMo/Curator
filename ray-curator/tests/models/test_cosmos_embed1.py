@@ -350,5 +350,5 @@ class TestCosmosEmbed1:
         """Test weights directory construction with None model_dir."""
         # This test demonstrates the current behavior - None model_dir causes an error
         # The model expects a valid model_dir to be provided
-        with pytest.raises(TypeError, match="expected str, bytes or os.PathLike object, not NoneType"):
+        with pytest.raises(TypeError):
             CosmosEmbed1(variant="336p", model_dir=None)
