@@ -24,7 +24,7 @@ dependencies = [
     "loguru",
     "mecab-python3",
     "pyarrow",
-    "ray[default,data]",
+    "ray[default,data]>=2.48",
     "torch",
     "transformers>=4.48.0",
 ]

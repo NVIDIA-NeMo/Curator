@@ -158,10 +158,6 @@ class TestBackendIntegrations:
                 == 1
             ), "Mismatch in number of items processed by stages after split_into_rows"
 
-    @pytest.mark.xfail(
-        ray.__version__ <= "2.47.1",
-        reason="Execution plan will fail for <=2.47.1 due to https://github.com/ray-project/ray/issues/54431",
-    )
     def test_ray_data_execution_plan(self):
         """Test that Ray Data creates the expected execution plan with correct stage organization."""
         if self.backend_cls != RayDataExecutor:
