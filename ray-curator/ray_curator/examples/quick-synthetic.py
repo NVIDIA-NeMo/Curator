@@ -41,8 +41,7 @@ def main() -> None:
         SimpleSyntheticStage(
             prompt=prompt,
             client=llm_client,
-            # model_name="nvidia/llama-3.1-nemotron-70b-instruct",  # or "mistralai/mixtral-8x7b-instruct-v0.1" for NVIDIA API
-            model_name="deepseek-ai/deepseek-r1"
+            model_name="nvidia/llama-3.1-nemotron-70b-instruct"
         )
     )
 

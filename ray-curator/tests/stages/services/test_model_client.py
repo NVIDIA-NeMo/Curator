@@ -36,7 +36,7 @@ class TestLLMClient:
             def setup(self) -> None:
                 pass
 
-            def query_model(self, *, messages: Iterable, model: str, **_kwargs: object) -> list[str]:
+            def query_model(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestLLMClient()
@@ -57,7 +57,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient()
@@ -74,7 +74,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient(
@@ -99,7 +99,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient()

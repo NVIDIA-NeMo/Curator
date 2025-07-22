@@ -1,7 +1,7 @@
 import asyncio
-import pandas as pd
 import time
-from typing import Union
+
+import pandas as pd
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -10,17 +10,21 @@ from ray_curator.stages.reasoning.prompts import DEFAULT_GRADING_PROMPT_TEMPLATE
 from ray_curator.stages.services.model_client import AsyncLLMClient, LLMClient
 from ray_curator.tasks import DocumentBatch
 
+# Constants for magic values
+MAX_RETRY_ATTEMPTS = 3
+RETRY_SLEEP_SECONDS = 10
+
 
 class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
-    A stage for filtering reasoning traces based on correctness. It automatically detects whether to use 
+    A stage for filtering reasoning traces based on correctness. It automatically detects whether to use
     async (concurrent) or sync (sequential) processing based on the client type.
     """
 
     def __init__(
         self,
         prompt: str,
-        client: Union[AsyncLLMClient, LLMClient],
+        client: AsyncLLMClient | LLMClient,
         model_name: str,
         input_problem_field: str,
         input_attempt_field: str,
@@ -56,11 +60,8 @@ class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
 
-        if self.is_async_client:
-            responses = self._process_async(df)
-        else:
-            responses = self._process_sync(df)
-        
+        responses = self._process_async(df) if self.is_async_client else self._process_sync(df)
+
         df[self.output_field] = responses
 
         # DEBUGGING
@@ -89,55 +90,55 @@ class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
         def generate_response(row: pd.Series) -> str:
             prompt = self._process_llm_prompt(row)
             messages = [{"role": "user", "content": prompt}]
-            
-            for attempt in range(3):  # Try up to 3 times
+
+            for attempt in range(MAX_RETRY_ATTEMPTS):  # Try up to 3 times
                 response = self.client.query_model(model=self.model_name, messages=messages)
                 processed_response = self._process_llm_response(response)
-                
+
                 if processed_response in self.allowed_output_values:
                     return processed_response
-                
+
                 # If not the last attempt, wait 30 seconds before retrying
-                if attempt < 2:
+                if attempt < MAX_RETRY_ATTEMPTS - 1:
                     print(f"⚠️  WARNING: Invalid response '{processed_response}' (expected 'Yes' or 'No'). Retrying in 30 seconds... (Attempt {attempt + 1}/3)")
-                    time.sleep(10)
+                    time.sleep(RETRY_SLEEP_SECONDS)
                 else:
                     print(f"⚠️  WARNING: Invalid response '{processed_response}' after 3 attempts. Returning 'Failed to grade'.")
-            
+
             # If after 3 attempts we still don't have a valid response
             return "Failed to grade"
-        
+
         # Sequential processing row by row
         return df.apply(generate_response, axis=1).tolist()
 
     def _process_async(self, df: pd.DataFrame) -> list[str]:
         """Process DataFrame using asynchronous concurrent processing."""
         return asyncio.run(self._generate_responses_async(df))
-    
+
     async def _generate_responses_async(self, df: pd.DataFrame) -> list[str]:
         """Generate responses asynchronously using concurrent requests."""
         async def generate_response_async(row: pd.Series) -> str:
             prompt = self._process_llm_prompt(row)
             messages = [{"role": "user", "content": prompt}]
-            
+
             # logic to make sure generated response is in the allowed output values
-            for attempt in range(3):  # Try up to 3 times
+            for attempt in range(MAX_RETRY_ATTEMPTS):  # Try up to 3 times
                 response = await self.client.query_model(model=self.model_name, messages=messages)
                 processed_response = self._process_llm_response(response)
-                
+
                 if processed_response in self.allowed_output_values:
                     return processed_response
-                
+
                 # If not the last attempt, wait 30 seconds before retrying
-                if attempt < 2:
+                if attempt < MAX_RETRY_ATTEMPTS - 1:
                     print(f"⚠️  WARNING: Invalid response '{processed_response}' (expected 'Yes' or 'No'). Retrying in 30 seconds... (Attempt {attempt + 1}/3)")
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(RETRY_SLEEP_SECONDS)
                 else:
                     print(f"⚠️  WARNING: Invalid response '{processed_response}' after 3 attempts. Returning 'Failed to grade'.")
-            
+
             # If after 3 attempts we still don't have a valid response
             return "Failed to grade"
-        
+
         # Create tasks for all rows and execute concurrently
         tasks = [generate_response_async(row) for _, row in df.iterrows()]
         return await asyncio.gather(*tasks)

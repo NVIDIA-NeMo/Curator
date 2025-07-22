@@ -4,10 +4,9 @@ Unit tests for ray_curator.stages.services.openai_client module.
 
 import asyncio
 import warnings
-from typing import Any
-from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from unittest.mock import AsyncMock, Mock, patch
 
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
 from ray_curator.stages.services.openai_client import AsyncOpenAIClient, OpenAIClient
@@ -155,8 +154,6 @@ class TestOpenAIClient:
 
             assert len(w) == 1
             assert "top_k is not used in an OpenAIClient" in str(w[0].message)
-
-
 
 
 class TestAsyncOpenAIClient:
@@ -318,8 +315,6 @@ class TestAsyncOpenAIClient:
             assert len(w) == 1
             assert "top_k is not used in an AsyncOpenAIClient" in str(w[0].message)
 
-
-
     @pytest.mark.asyncio
     @patch("ray_curator.stages.services.openai_client.AsyncOpenAI")
     async def test_integration_with_parent_retry_logic(self, mock_async_openai: Mock) -> None:
@@ -330,7 +325,7 @@ class TestAsyncOpenAIClient:
         class RateLimitError(Exception):
             """Custom exception for rate limit errors."""
 
-        def side_effect(*_args: Any, **_kwargs: Any) -> Mock:
+        def side_effect(*_args: object, **_kwargs: object) -> Mock:
             nonlocal call_count
             call_count += 1
             if call_count <= 2:
@@ -366,7 +361,7 @@ class TestAsyncOpenAIClient:
         active_requests = 0
         max_active = 0
 
-        async def mock_create(*_args: Any, **_kwargs: Any) -> Mock:
+        async def mock_create(*_args: object, **_kwargs: object) -> Mock:
             nonlocal active_requests, max_active
             active_requests += 1
             max_active = max(max_active, active_requests)

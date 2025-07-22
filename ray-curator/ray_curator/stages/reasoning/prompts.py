@@ -36,7 +36,7 @@ You are a helpful assistant that classifies questions into different subjects ba
 You will be given a question and a list of subjects.
 You need to classify the question into one of the subjects.
 If the question has multiple subjects, you should classify the question into the most relevant subject.
-Explain your reasoning, and end your response on a new line with two-digit code of the subject that the question belongs to 
+Explain your reasoning, and end your response on a new line with two-digit code of the subject that the question belongs to
 (Example for last line: '\n01', '\n02', '\n03', etc., no punctuation marks).
 ## Question
 {question}

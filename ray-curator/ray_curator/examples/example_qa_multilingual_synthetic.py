@@ -9,8 +9,8 @@ import os
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
-from ray_curator.stages.services.openai_client import AsyncOpenAIClient
 from ray_curator.stages.modules.score_filter import ScoreFilter
+from ray_curator.stages.services.openai_client import AsyncOpenAIClient
 from ray_curator.stages.synthetic.example_qa_multilingual_synthetic import QAMultilingualSyntheticStage, LanguageFilter
 
 
@@ -31,7 +31,7 @@ def main() -> None:
     )
 
     # Define a prompt for synthetic data generation
-    languages = ["English", "French", "German", "Spanish", "Italian"]   
+    languages = ["English", "French", "German", "Spanish", "Italian"]
     prompt = """
     Generate a short question and a short answer in the general science domain in the language {language}.
     Begin with the language name using the 2-letter code, which is in square brackets, e.g. [EN] for English, [FR] for French, [DE] for German, [ES] for Spanish, [IT] for Italian.

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
-import random
+import secrets
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 
@@ -46,10 +46,10 @@ class LLMClient(ABC):
         temperature: float | None = 0.0,
         top_k: int | None = None,
         top_p: float | None = 0.95,
-        timeout: float | None = None,
-        presence_penalty: float | None = 1.0,
-        logprobs: bool = False,
-        top_logprobs: int | None = None,
+        _timeout: float | None = None,
+        _presence_penalty: float | None = 1.0,
+        _logprobs: bool = False,
+        _top_logprobs: int | None = None,
     ) -> list[str]:
         msg = "Subclass of LLMClient must implement 'query_model'"
         raise NotImplementedError(msg)
@@ -64,7 +64,7 @@ class AsyncLLMClient(ABC):
     def __init__(self, max_concurrent_requests: int = 5, max_retries: int = 3, base_delay: float = 1.0):
         """
         Initialize the async client with concurrency and retry settings.
-        
+
         Args:
             max_concurrent_requests: Maximum number of concurrent requests
             max_retries: Maximum number of retry attempts for rate-limited requests
@@ -132,12 +132,12 @@ class AsyncLLMClient(ABC):
         if self._semaphore is None or self._semaphore_loop != current_loop:
             self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
             self._semaphore_loop = current_loop
-        
+
         async with self._semaphore:  # Limit concurrent requests
             # Retry logic with exponential backoff
             for attempt in range(self.max_retries + 1):
                 try:
-                    response = await self._query_model_impl(
+                    return await self._query_model_impl(
                         messages=messages,
                         model=model,
                         conversation_formatter=conversation_formatter,
@@ -149,15 +149,21 @@ class AsyncLLMClient(ABC):
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
+                        timeout=timeout,
+                        presence_penalty=presence_penalty,
+                        logprobs=logprobs,
+                        top_logprobs=top_logprobs,
                     )
-                    return response
                 except Exception as e:
-                    if "429" in str(e) or "rate" in str(e).lower():  # Rate limit error
+                    is_rate_limit = "429" in str(e) or "rate" in str(e).lower()
+                    if is_rate_limit and attempt < self.max_retries:
                         print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** attempt):.1f}s...")
-                        if attempt < self.max_retries:
-                            # Exponential backoff with jitter
-                            delay = self.base_delay * (2 ** attempt) + random.uniform(0, 1)
-                            await asyncio.sleep(delay)
-                            continue
+                        # Exponential backoff with jitter
+                        delay = self.base_delay * (2 ** attempt) + secrets.randbelow(100) / 100.0
+                        await asyncio.sleep(delay)
+                        continue
                     # Re-raise if not a rate limit error or if max retries exceeded
                     raise
+
+            # This line should never be reached due to the raise in the except block
+            return []

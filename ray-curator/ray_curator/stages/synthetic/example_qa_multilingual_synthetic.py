@@ -3,9 +3,9 @@ This module contains a simple stage for generating synthetic data. It takes in E
 """
 
 import asyncio
-import random
+import secrets
+
 import pandas as pd
-from typing import Union
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -19,7 +19,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     A simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
     """
 
-    def __init__(self, prompt: str, languages: list[str], client: Union[AsyncLLMClient, LLMClient], model_name: str, num_samples: int):
+    def __init__(self, prompt: str, languages: list[str], client: AsyncLLMClient | LLMClient, model_name: str, num_samples: int):
         self.prompt = prompt
         self.languages = languages
         self.client = client
@@ -41,22 +41,19 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         self.client.setup()
 
     def process(self, _: _EmptyTask) -> DocumentBatch:
-        if self.is_async_client:
-            responses = self._process_async()
-        else:
-            responses = self._process_sync()
-        
+        responses = self._process_async() if self.is_async_client else self._process_sync()
+
         return DocumentBatch(data=pd.DataFrame({"text": responses}), dataset_name="simple_synthetic_data", task_id=1)
 
     def _process_llm_response(self, response: list[str]) -> str:
         """Process a single response from the LLM."""
         # Extract only the generated text content (first element of the response list)
         generated_text = response[0] if response else ""
-        
+
         # Some models add ** bolding for the generated text
         if "*" in generated_text:
             generated_text = generated_text.replace("*", "")
-        
+
         return generated_text
 
     def _process_sync(self) -> list[str]:
@@ -64,7 +61,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         responses = []
         for i in range(self.num_samples):
             print(f"Generating sample {i+1}/{self.num_samples} (sync)...")
-            language = random.choice(self.languages)
+            language = secrets.choice(self.languages)
             prompt = self.prompt.format(language=language)
             response = self.client.query_model(
                 model=self.model_name,
@@ -82,15 +79,15 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
 
     async def _generate_responses_async(self) -> list[str]:
         """Generate responses asynchronously using concurrent requests."""
-        async def generate_single_response(i: int) -> str:
-            language = random.choice(self.languages)
+        async def generate_single_response(_i: int) -> str:
+            language = secrets.choice(self.languages)
             prompt = self.prompt.format(language=language)
             response = await self.client.query_model(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
             )
             return self._process_llm_response(response)
-                
+
         # Create tasks for all samples and execute concurrently
         tasks = [generate_single_response(i) for i in range(self.num_samples)]
         return await asyncio.gather(*tasks)

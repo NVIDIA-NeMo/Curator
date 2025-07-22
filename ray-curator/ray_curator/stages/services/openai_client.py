@@ -14,9 +14,9 @@
 import warnings
 from collections.abc import Iterable
 
-from ray_curator.stages.services.conversation_formatter import ConversationFormatter
 from openai import AsyncOpenAI, OpenAI
-from openai._types import NOT_GIVEN, NotGiven
+
+from ray_curator.stages.services.conversation_formatter import ConversationFormatter
 
 from .model_client import AsyncLLMClient, LLMClient
 
@@ -78,7 +78,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
     def __init__(self, max_concurrent_requests: int = 5, max_retries: int = 3, base_delay: float = 1.0, **kwargs) -> None:
         """
         Initialize the AsyncOpenAIClient.
-        
+
         Args:
             max_concurrent_requests: Maximum number of concurrent requests
             max_retries: Maximum number of retry attempts for rate-limited requests
@@ -120,7 +120,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
         response = await self.client.chat.completions.create(
             messages=messages,
             model=model,
-            max_tokens = 2048,
+            max_tokens=max_tokens,
             n=n,
             seed=seed,
             stop=stop,

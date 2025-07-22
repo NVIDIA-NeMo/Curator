@@ -41,8 +41,8 @@ from ray_curator.stages.reasoning.prompts import (
 from ray_curator.stages.reasoning.reasoning_traces_synthetic import (
     ReasoningTracesSyntheticStage,
 )
-from ray_curator.stages.services.model_client import LLMClient
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
+from ray_curator.stages.services.model_client import LLMClient
 from ray_curator.tasks import DocumentBatch
 
 
@@ -585,8 +585,7 @@ class TestDiversitySampler:
         stage.setup()
 
     @patch("numpy.random.choice")
-    @patch("numpy.random.seed")
-    def test_sample_uniformly(self, _mock_seed: object, mock_choice: object, sample_diversity_data: DocumentBatch):
+    def test_sample_uniformly(self, mock_choice: object, sample_diversity_data: DocumentBatch):
         """Test uniform sampling method"""
         stage = DiversitySampler(
             sampling_size=4,

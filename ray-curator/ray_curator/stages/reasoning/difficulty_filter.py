@@ -13,8 +13,7 @@ class ReasoningLengthDifficultyFilter(DocumentFilter):
 
     def score_document(self, text: str) -> float:
         word_count = len(text.split())
-        document_score = 1.0 if word_count > self._min_length else 0.0
-        return document_score
+        return 1.0 if word_count > self._min_length else 0.0
 
     def keep_document(self, score: float) -> bool:
         return score == 1.0
@@ -26,8 +25,7 @@ class LLMBasedDifficultyFilterFunction(DocumentFilter):
         self.llm_correctness_fields = llm_correctness_fields
 
     def score_document(self, sample: dict) -> float:
-        document_score = 1.0 if all(sample[item] == "Yes" for item in self.llm_correctness_fields) else 0.0
-        return 1.0 - document_score
+        return 1.0 - (1.0 if all(sample[item] == "Yes" for item in self.llm_correctness_fields) else 0.0)
 
     def keep_document(self, score: float) -> bool:
         return score == 1.0

@@ -43,13 +43,6 @@ def main(args: argparse.Namespace) -> None:
         )
 
     # setting LLM models
-    ## regular Nvidia account
-    # llm_reasoning_model = "nvidia/llama-3.1-nemotron-70b-instruct" # "deepseek-ai/deepseek-r1"
-    # llm_domain_classifier_model = "nvidia/llama-3.1-nemotron-70b-instruct"
-    # llm_grader_model = "nvidia/llama-3.1-nemotron-70b-instruct"
-    # llm_difficulty_model_1 = "microsoft/phi-3-mini-4k-instruct"
-    # llm_difficulty_model_2 = "microsoft/phi-3-medium-4k-instruct"
-    ## Nvidia internal developer account
     llm_reasoning_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
     llm_domain_classifier_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
     llm_grader_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
@@ -66,7 +59,7 @@ def main(args: argparse.Namespace) -> None:
     for i in range(0, len(input_data), batch_size):
         batch_data = input_data.iloc[i:i + batch_size]
         data_batches.append(batch_data)
-    
+
     print(f"📦 Created {len(data_batches)} data batches with batch size {batch_size}")
     print(f"📊 Batch sizes: {[len(batch) for batch in data_batches]}")
 
@@ -200,7 +193,7 @@ def main(args: argparse.Namespace) -> None:
     # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
     start_time = time.time()
-    
+
     # Execute pipeline
     results = pipeline.run(executor, input_batches)
 
@@ -228,7 +221,6 @@ def main(args: argparse.Namespace) -> None:
             pd.set_option("display.max_columns", None)
             pd.set_option("display.width", None)
             pd.set_option("display.max_colwidth", None)
-            # print(document_batch.data)
 
             print("-" * 40)
 
@@ -245,14 +237,14 @@ if __name__ == "__main__":
     parser.add_argument("--domains_file_path", type=str, default=None, help="Path to domains file")
     parser.add_argument("--batch_size", type=int, default=100, help="Number of rows per batch (default: 100)")
     parser.add_argument(
-        "--enable-async", 
-        action="store_true", 
+        "--enable-async",
+        action="store_true",
         default=False,
         help="Enable async generation with concurrent processing (default: False for sync processing)"
     )
     parser.add_argument(
-        "--max-concurrent-requests", 
-        type=int, 
+        "--max-concurrent-requests",
+        type=int,
         default=5,
         help="Maximum number of concurrent requests when using async mode (default: 5)"
     )
