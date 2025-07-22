@@ -136,7 +136,21 @@ class AsyncLLMClient(ABC):
         async with self._semaphore:  # Limit concurrent requests
             # Retry logic with exponential backoff
             last_exception = None
+            
             for attempt in range(self.max_retries + 1):
+                # Check if this is a retry attempt and if we should delay
+                if attempt > 0 and last_exception:
+                    is_rate_limit = "429" in str(last_exception) or "rate" in str(last_exception).lower()
+                    if is_rate_limit:
+                        print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s...")
+                        # Exponential backoff with jitter
+                        delay = self.base_delay * (2 ** (attempt - 1)) + secrets.randbelow(100) / 100.0
+                        await asyncio.sleep(delay)
+                    else:
+                        # Re-raise if not a rate limit error
+                        raise last_exception
+                
+                # Attempt the query
                 try:
                     return await self._query_model_impl(
                         messages=messages,
@@ -157,15 +171,11 @@ class AsyncLLMClient(ABC):
                     )
                 except Exception as e:
                     last_exception = e
-                    is_rate_limit = "429" in str(e) or "rate" in str(e).lower()
-                    if is_rate_limit and attempt < self.max_retries:
-                        print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** attempt):.1f}s...")
-                        # Exponential backoff with jitter
-                        delay = self.base_delay * (2 ** attempt) + secrets.randbelow(100) / 100.0
-                        await asyncio.sleep(delay)
-                        continue
-                    # Re-raise if not a rate limit error or if max retries exceeded
-                    raise
+                    # If this is the last attempt, re-raise
+                    if attempt == self.max_retries:
+                        raise
+                    # Otherwise, continue to next iteration
+                    continue
 
             # This line should never be reached due to the raise in the except block
             # but if we get here, re-raise the last exception
