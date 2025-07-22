@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -135,6 +135,7 @@ class AsyncLLMClient(ABC):
 
         async with self._semaphore:  # Limit concurrent requests
             # Retry logic with exponential backoff
+            last_exception = None
             for attempt in range(self.max_retries + 1):
                 try:
                     return await self._query_model_impl(
@@ -155,6 +156,7 @@ class AsyncLLMClient(ABC):
                         top_logprobs=top_logprobs,
                     )
                 except Exception as e:
+                    last_exception = e
                     is_rate_limit = "429" in str(e) or "rate" in str(e).lower()
                     if is_rate_limit and attempt < self.max_retries:
                         print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** attempt):.1f}s...")
@@ -166,4 +168,7 @@ class AsyncLLMClient(ABC):
                     raise
 
             # This line should never be reached due to the raise in the except block
+            # but if we get here, re-raise the last exception
+            if last_exception:
+                raise last_exception
             return []

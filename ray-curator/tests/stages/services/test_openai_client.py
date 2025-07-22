@@ -4,9 +4,9 @@ Unit tests for ray_curator.stages.services.openai_client module.
 
 import asyncio
 import warnings
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from unittest.mock import AsyncMock, Mock, patch
 
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
 from ray_curator.stages.services.openai_client import AsyncOpenAIClient, OpenAIClient

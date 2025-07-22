@@ -11,7 +11,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.modules.score_filter import ScoreFilter
 from ray_curator.stages.services.openai_client import AsyncOpenAIClient
-from ray_curator.stages.synthetic.example_qa_multilingual_synthetic import QAMultilingualSyntheticStage, LanguageFilter
+from ray_curator.stages.synthetic.example_qa_multilingual_synthetic import LanguageFilter, QAMultilingualSyntheticStage
 
 
 def main() -> None:
