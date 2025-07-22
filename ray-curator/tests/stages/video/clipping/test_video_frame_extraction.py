@@ -247,6 +247,7 @@ class TestVideoFrameExtractionStage:
         assert isinstance(resources, Resources)
         assert resources.cpus == 4.0
 
+    @patch("ray_curator.stages.video.clipping.video_frame_extraction._PYNVC_AVAILABLE", True)
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.PyNvcFrameExtractor")
     def test_setup_pynvc_mode(self, mock_pynvc_extractor: Any) -> None:
         """Test setup method with PyNvCodec mode."""
@@ -276,10 +277,37 @@ class TestVideoFrameExtractionStage:
         # Should not create PyNvcFrameExtractor
         assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
 
-    def test_process_no_pynvc_extractor(self) -> None:
+    @patch("ray_curator.stages.video.clipping.video_frame_extraction._PYNVC_AVAILABLE", False)
+    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    def test_setup_pynvc_mode_unavailable(self, mock_logger: Any) -> None:
+        """Test setup method with PyNvCodec mode when PyNvcFrameExtractor is not available."""
+        stage = VideoFrameExtractionStage(decoder_mode="pynvc")
+        stage.setup()
+
+        # Verify warning was logged
+        mock_logger.warning.assert_called_once_with("PyNvcFrameExtractor not available, will fall back to FFmpeg for video processing")
+
+        # Should not create PyNvcFrameExtractor
+        assert stage.pynvc_frame_extractor is None
+
+    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    def test_process_no_pynvc_extractor(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
         """Test process method without PyNvCodec extractor initialization."""
         stage = VideoFrameExtractionStage(decoder_mode="pynvc")
         # Don't call setup, so extractor remains None
+        stage.pynvc_frame_extractor = None
+
+        # Mock temporary file
+        mock_temp_path = Mock()
+        mock_temp_path.open.return_value.__enter__ = Mock()
+        mock_temp_path.open.return_value.__exit__ = Mock()
+        mock_temp_file.return_value.__enter__ = Mock(return_value=mock_temp_path)
+        mock_temp_file.return_value.__exit__ = Mock()
+
+        # Mock FFmpeg to return None (simulating failure)
+        mock_get_frames.return_value = None
 
         video = Video(
             input_video=Path("test_video.mp4"),
@@ -288,8 +316,15 @@ class TestVideoFrameExtractionStage:
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
-        # The implementation now falls back to FFmpeg CPU mode and then returns None on failure
         result = stage.process(task)
+
+        # Verify fallback message was logged
+        mock_logger.info.assert_called_with("PyNvcFrameExtractor not available, using FFmpeg CPU fallback")
+
+        # Verify FFmpeg was called as fallback
+        mock_get_frames.assert_called_once_with(mock_temp_path, width=27, height=48, use_gpu=False)
+
+        # The implementation returns None when frame extraction fails
         assert result is None
 
     def test_process_no_source_bytes(self) -> None:
