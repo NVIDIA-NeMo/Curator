@@ -17,7 +17,7 @@ on:
     - cron: 0 0 * * *
   push:
     branches:
-      - main
+      - ray-api
       - "pull-request/[0-9]+"
 
 concurrency:
@@ -59,6 +59,7 @@ jobs:
         uses: step-security/changed-files@v45.0.1
         with:
           files: |
+            ray-curator/**
             nemo_curator/**
             .github/**
             pyproject.toml
@@ -148,18 +149,20 @@ jobs:
       - name: Install NeMo-Curator and pytest
         run: |
           pip install -U pip
-          pip install --no-cache-dir wheel
-          pip install --no-cache-dir .
-          pip install --no-cache-dir pytest pytest-asyncio coverage
+          cd ray-curator
+          pip install --no-cache-dir ".[dev]"
+          pip install --no-cache-dir pytest-asyncio coverage
 
       - name: Run tests
         run: |
-          python -m coverage run --branch --source=nemo_curator --omit=nemo_curator/scripts/* -m pytest -v --cpu
+          cd ray-curator
+          python -m coverage run --branch --source=ray_curator -m pytest -v
 
       - name: Generate report
         id: check
         shell: bash
         run: |
+          cd ray-curator
           python -m coverage xml
           python -m coverage report
 
@@ -173,7 +176,7 @@ jobs:
         with:
           name: ${{ steps.check.outputs.coverage_report }}
           path: |
-            coverage.xml
+            ray-curator/coverage.xml
             .coverage
           include-hidden-files: true
 
