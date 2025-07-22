@@ -6,8 +6,8 @@ from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTransco
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
