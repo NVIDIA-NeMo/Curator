@@ -1,6 +1,5 @@
 enabled: true
 additional_trustees:
-  - ryantwolf
   - ericharper
   - ko3n1g
   - chtruong814
@@ -16,7 +15,6 @@ additional_trustees:
   - abhinavg4
   - huvunvidia
 additional_vetters:
-  - ryantwolf
   - ericharper
   - ko3n1g
   - chtruong814
