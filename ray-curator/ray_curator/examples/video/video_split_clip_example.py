@@ -3,6 +3,7 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 
@@ -42,6 +43,22 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         num_clips_per_chunk=args.clip_re_chunk_size,
         verbose=args.verbose,
     ))
+
+    if args.motion_filter != "disable":
+        pipeline.add_stage(MotionVectorDecodeStage(
+            num_cpus_per_worker=args.motion_decode_cpus_per_worker,
+            verbose=args.verbose,
+            target_fps=args.motion_decode_target_fps,
+            target_duration_ratio=args.motion_decode_target_duration_ratio,
+        ))
+        pipeline.add_stage(MotionFilterStage(
+            score_only=args.motion_filter == "score-only",
+            global_mean_threshold=args.motion_global_mean_threshold,
+            per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
+            num_gpus_per_worker=args.motion_score_gpus_per_worker,
+            motion_filter_batch_size=args.motion_score_batch_size,
+            verbose=args.verbose,
+        ))
 
     pipeline.add_stage(
         ClipWriterStage(

@@ -8,6 +8,7 @@ from uuid import UUID
 import numpy as np
 import numpy.typing as npt
 
+from ray_curator.stages.video.filtering.motion_vector_backend import DecodedData
 from ray_curator.utils.decoder_utils import extract_video_metadata
 
 from .tasks import Task
@@ -67,7 +68,7 @@ class Clip:
     buffer: bytes | None = None
     extracted_frames: dict[str, npt.NDArray[np.uint8]] = field(default_factory=dict)
     # motion
-    decoded_motion_data: None = None # TODO: Add motion data type in the motion filter PR
+    decoded_motion_data: DecodedData | None = None
     motion_score_global_mean: float | None = None
     motion_score_per_patch_min_256: float | None = None
     # aesthetic
