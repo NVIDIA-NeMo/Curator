@@ -14,7 +14,7 @@
 
 import json
 import tempfile
-from typing import Iterable
+from collections.abc import Iterable
 from unittest.mock import patch
 
 import pandas as pd
@@ -49,7 +49,7 @@ from ray_curator.tasks import DocumentBatch
 class MockLLMClient(LLMClient):
     """Mock LLM client for testing."""
 
-    def __init__(self, responses: list[str] = None):
+    def __init__(self, responses: list[str] | None = None):
         self.responses = responses or ["Mock response"]
         self.current_response = 0
         self.query_calls = []
@@ -586,7 +586,7 @@ class TestDiversitySampler:
 
     @patch("numpy.random.choice")
     @patch("numpy.random.seed")
-    def test_sample_uniformly(self, mock_seed: object, mock_choice: object, sample_diversity_data: DocumentBatch):
+    def test_sample_uniformly(self, _mock_seed: object, mock_choice: object, sample_diversity_data: DocumentBatch):
         """Test uniform sampling method"""
         stage = DiversitySampler(
             sampling_size=4,
@@ -597,7 +597,7 @@ class TestDiversitySampler:
         # Create a counter to cycle through choices
         call_count = 0
 
-        def mock_choice_func(*args, **kwargs) -> object:
+        def mock_choice_func(*args, **_kwargs) -> object:
             nonlocal call_count
             call_count += 1
 
