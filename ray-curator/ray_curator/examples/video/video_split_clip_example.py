@@ -8,6 +8,7 @@ from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExt
 from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
+from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
@@ -105,6 +106,15 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 args.clip_extraction_target_res,
                 args.clip_extraction_target_res,
             ),
+            verbose=args.verbose,
+        ))
+
+    if args.aesthetic_threshold is not None:
+        pipeline.add_stage(ClipAestheticFilterStage(
+            model_dir=args.model_dir,
+            score_threshold=args.aesthetic_threshold,
+            reduction=args.aesthetic_reduction,
+            num_gpus_per_worker=args.aesthetic_gpus_per_worker,
             verbose=args.verbose,
         ))
 
@@ -404,6 +414,21 @@ if __name__ == "__main__":
         type=float,
         default=None,
         help="If specified (e.g. 3.5), filter out clips with an aesthetic score below this threshold.",
+    )
+    parser.add_argument(
+        "--aesthetic-reduction",
+        choices=[
+            "mean",
+            "min",
+        ],
+        default="min",
+        help="Method to reduce the frame-level aesthetic scores.",
+    )
+    parser.add_argument(
+        "--aesthetic-gpus-per-worker",
+        type=float,
+        default=0.25,
+        help="Number of GPUs per worker allocated to aesthetic filter.",
     )
     # Embedding arguments
     parser.add_argument(
