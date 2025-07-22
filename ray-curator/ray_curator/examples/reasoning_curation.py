@@ -6,7 +6,7 @@ import pandas as pd
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
-from ray_curator.stages.modules.filter import ScoreFilter
+from ray_curator.stages.modules.score_filter import ScoreFilter
 from ray_curator.stages.reasoning.correctness_filter import LLMBasedCorrectnessFilter, LLMBasedGrader
 from ray_curator.stages.reasoning.difficulty_filter import (
     LLMBasedDifficultyFilter,

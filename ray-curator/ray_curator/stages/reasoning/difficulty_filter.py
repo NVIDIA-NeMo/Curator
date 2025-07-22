@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from ray_curator.stages.filters.doc_filter import DocumentFilter
-from ray_curator.stages.modules.filter import ScoreFilter
+from ray_curator.stages.modules.score_filter import ScoreFilter
 
 
 class ReasoningLengthDifficultyFilter(DocumentFilter):
