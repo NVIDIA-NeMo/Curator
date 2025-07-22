@@ -158,3 +158,207 @@ jobs:
         run: |
           cd ray-curator
           python -m coverage run --branch --source=ray_curator -m pytest -v
+
+#      - name: Generate report
+#        id: check
+#        shell: bash
+#        run: |
+#          python -m coverage xml
+#          python -m coverage report
+#          coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
+#          echo "$coverage_report"
+#          echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        if: ${{ steps.check.outputs.coverage_report != 'none' }}
+#        with:
+#          name: ${{ steps.check.outputs.coverage_report }}
+#          path: |
+#            coverage.xml
+#            .coverage
+#          include-hidden-files: true
+
+#  cicd-gpu-tests:
+#    strategy:
+#      fail-fast: false
+#      matrix:
+#        include:
+#          - script: L0_Unit_Test_GPU
+#            runner: linux-amd64-gpu-rtxa6000-latest-2-nemo
+#    needs: [cicd-cpu-tests]
+#    runs-on: ${{ matrix.runner }}
+#    name: ${{ matrix.script }}
+#    environment: nemo-ci
+#    if: |
+#      (
+#        success()
+#        || needs.pre-flight.outputs.is_ci_workload == 'true'
+#        || needs.pre-flight.outputs.force_run_all == 'true'
+#      )
+#      && !cancelled()
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v4
+#      - name: main
+#        uses: ./.github/actions/test-template
+#        with:
+#          script: ${{ matrix.script }}
+#          is_unit_test: "false"
+#          has-azure-credentials: "true"
+#          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+#          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+#          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+#          PAT: ${{ secrets.PAT }}
+#          timeout: 20
+
+#  Nemo_CICD_Test:
+#    needs:
+#      - pre-flight
+#      - cicd-cpu-tests
+#      - cicd-gpu-tests
+#    if: |
+#      (
+#        needs.pre-flight.outputs.docs_only == 'true'
+#        || success()
+#      )
+#      && !cancelled()
+#    runs-on: ubuntu-latest
+#    permissions: write-all
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v4
+
+#      - name: Get workflow result
+#        id: result
+#        env:
+#          GH_TOKEN: ${{ github.token }}
+#          RUN_ID: ${{ github.run_id }}
+#          DOCS_ONLY: ${{ needs.pre-flight.outputs.docs_only }}
+#        run: |
+#          # Get workflow run details and check job conclusions
+#          NUM_FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.conclusion == "failure") | .name] | length')
+#          NUM_CANCELLED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.conclusion == "cancelled") | .name] | length')
+#          if [[ ($NUM_FAILED -eq 0 && $NUM_CANCELLED -eq 0) || $DOCS_ONLY == 'true' ]]; then
+#            RESULT="success"
+#          elif [[ $NUM_CANCELLED -gt 0 ]]; then
+#            RESULT="cancelled"
+#          else
+#            RESULT="failure"
+#          fi
+#          # Output the final status
+#          echo "code=$RESULT" | tee -a $GITHUB_OUTPUT
+#      - name: Checkout for GH CLI
+#        uses: actions/checkout@v4
+
+#      - name: Remove label if not cancelled
+#        if: |
+#          steps.result.outputs.code != 'cancelled'
+#          && github.event.label.name == 'Run CICD'
+#          && github.event.pull_request.head.repo.full_name == github.repository
+#        env:
+#          GH_TOKEN: ${{ github.token }}
+#          PR_NUMBER: ${{ github.event.number }}
+#        run: gh pr edit "$PR_NUMBER" --remove-label "Run CICD"
+
+#      - name: Pipeline successful, add PR comment
+#        if: |
+#          steps.result.outputs.code == 'success'
+#          && github.event_name == 'pull_request'
+#          && env.SLACK_WEBHOOK != ''
+#        uses: peter-evans/create-or-update-comment@v4
+#        env:
+#          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+#          REPOSITORY: ${{ github.repository }}
+#          RUN_ID: ${{ github.run_id }}
+#        with:
+#          issue-number: ${{ github.event.number }}
+#          body: |
+#            [🤖]: Hi @${{ github.event.pull_request.user.login }} 👋,
+#            We wanted to let you know that a [CICD pipeline](https://github.com/${{ env.REPOSITORY }}/actions/runs/${{ env.RUN_ID }}) for this PR just finished successfully.
+#            So it might be time to merge this PR or get some approvals.
+#            //cc @NVIDIA-NeMo/automation
+#      - name: "Pipeline not successful and not cancelled: Send Slack alert & create step summary"
+#        if: |
+#          steps.result.outputs.code == 'failure'
+#          && github.event.label.name == 'Run CICD'
+#          && env.SLACK_WEBHOOK != ''
+#        env:
+#          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+#          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#          REPOSITORY: ${{ github.repository }}
+#          RUN_ID: ${{ github.run_id }}
+#          PR_NUMBER: ${{ github.event.number }}
+#          SERVER_URL: ${{ github.server_url }}
+#        run: |
+#          set -x
+#          pip install PyGithub
+#          export BRANCH_NAME=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+#          python .github/scripts/notify.py
+#      - name: Exit
+#        if: ${{ always() }}
+#        env:
+#          RESULT: ${{ steps.result.outputs.code }}
+#        run: |
+#          if [ $RESULT == "success" ]; then
+#            exit 0
+#          else
+#            exit 1
+#          fi
+#   Coverage:
+#    runs-on: ubuntu-latest
+#    needs: [pre-flight, Nemo_CICD_Test]
+#    if: |
+#      needs.pre-flight.outputs.test_to_run != '[]'
+#      && needs.pre-flight.outputs.docs_only == 'false'
+#      && (
+#        success()
+#        || needs.Nemo_CICD_Test.result == 'success'
+#      )
+#      && !cancelled()
+#    strategy:
+#      matrix:
+#        flag: [unit-test, e2e]
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v4
+
+#      - name: Download coverage reports of current branch
+#        uses: actions/download-artifact@v4
+#        with:
+#          pattern: coverage-${{ matrix.flag }}-*
+
+#      - name: Get total coverage of current branch
+#        shell: bash -x -e -u -o pipefail {0}
+#        if: always()
+#        run: |
+#          pip install coverage[toml]
+#          ls -al .
+#          ls -al coverage-*/
+#          coverage combine --keep $(ls coverage-*/.coverage)
+#          coverage report -i
+#          rm -rf coverage-*
+#          ls -al
+#      - name: Upload coverage reports to Codecov
+#        uses: codecov/codecov-action@v5
+#        with:
+#          token: ${{ secrets.CODECOV_TOKEN }}
+#          verbose: true
+#          flags: ${{ matrix.flag }}
+
+#      - name: Upload artifacts
+#        uses: actions/upload-artifact@v4
+#        with:
+#          name: coverage-${{ matrix.flag }}-aggregated
+#          path: |
+#            .coverage
+#          include-hidden-files: true
+
+#  codecov-placeholder:
+#     name: codecov/patch
+#     needs: [pre-flight]
+#     if: needs.pre-flight.outputs.docs_only == 'true'
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: codecov_placeholder
+#         run: |
+#           echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
