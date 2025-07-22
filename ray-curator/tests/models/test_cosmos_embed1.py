@@ -189,6 +189,7 @@ class TestCosmosEmbed1:
             mock_logger.error.assert_called_once()
             assert result is None
 
+    @pytest.mark.skipif(not torch.cuda.is_available(), reason="GPU not available")
     def test_encode_video_frames_success(self) -> None:
         """Test encode_video_frames method with successful encoding."""
         # Mock model
