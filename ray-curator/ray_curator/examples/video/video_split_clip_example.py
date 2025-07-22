@@ -53,7 +53,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             score_only=args.motion_filter == "score-only",
             global_mean_threshold=args.motion_global_mean_threshold,
             per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
-            gpu_memory_gb=args.motion_score_gpu_memory_gb,
+            num_gpus_per_worker=args.motion_score_gpus_per_worker,
             motion_filter_batch_size=args.motion_score_batch_size,
             verbose=args.verbose,
         ))
@@ -255,10 +255,10 @@ if __name__ == "__main__":
         help="Batch size for motion score computation.",
     )
     parser.add_argument(
-        "--motion-score-gpu-memory-gb",
+        "--motion-score-gpus-per-worker",
         type=float,
-        default=20,
-        help="GPU memory in GB per worker allocated to motion score computation.",
+        default=0.5,
+        help="Number of GPUs per worker allocated to motion score computation. Set to 0 to use CPU instead of GPU.",
     )
     parser.add_argument(
         "--clip-extraction-target-res",
