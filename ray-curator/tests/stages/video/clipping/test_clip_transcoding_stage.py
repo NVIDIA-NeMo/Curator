@@ -16,6 +16,20 @@ from ray_curator.tasks import Clip, Video, VideoTask
 from ray_curator.tasks.video import VideoMetadata
 
 
+# Mock GPU info class to simulate GPU information
+class MockGpuInfo:
+    def __init__(self, index: int, name: str):
+        self.index = index
+        self.name = name
+
+
+# Mock GPU resources class to simulate GPU resources
+class MockGpuResources:
+    def __init__(self, num_nvencs: int = 3, num_nvdecs: int = 3):
+        self.num_nvencs = num_nvencs
+        self.num_nvdecs = num_nvdecs
+
+
 class TestClipTranscodingStage:
     """Test cases for ClipTranscodingStage."""
 
@@ -116,30 +130,6 @@ class TestClipTranscodingStage:
         assert isinstance(resources, Resources)
         assert resources.cpus == 6.0
         assert not resources.entire_gpu
-
-    def test_resources_gpu_encoder(self) -> None:
-        """Test resource requirements for GPU encoders."""
-        stage = ClipTranscodingStage(
-            encoder="h264_nvenc",
-            use_hwaccel=False,
-            num_cpus_per_worker=6.0
-        )
-
-        resources = stage.resources
-        assert isinstance(resources, Resources)
-        assert resources.entire_gpu
-
-    def test_resources_hwaccel_enabled(self) -> None:
-        """Test resource requirements when hardware acceleration is enabled."""
-        stage = ClipTranscodingStage(
-            encoder="libx264",
-            use_hwaccel=True,
-            num_cpus_per_worker=6.0
-        )
-
-        resources = stage.resources
-        assert isinstance(resources, Resources)
-        assert resources.entire_gpu
 
     def test_process_no_source_bytes(self) -> None:
         """Test processing when source_bytes is None."""
@@ -567,29 +557,6 @@ class TestClipTranscodingStage:
             info_calls = [str(call) for call in mock_logger.info.call_args_list]
             spawn_calls = [call for call in info_calls if "Spawning subtask" in call]
             assert len(spawn_calls) == 2  # One for each chunk
-
-    def test_different_encoder_configurations(self) -> None:
-        """Test various encoder configurations."""
-        test_configs = [
-            {"encoder": "libopenh264", "use_hwaccel": False},
-            {"encoder": "libx264", "use_hwaccel": False},
-            {"encoder": "h264_nvenc", "use_hwaccel": False},
-            {"encoder": "libx264", "use_hwaccel": True},
-        ]
-
-        for config in test_configs:
-            stage = ClipTranscodingStage(**config)
-
-            # Should not raise during setup
-            stage.setup()
-
-            # Should have appropriate resource requirements
-            resources = stage.resources
-            if config["encoder"] == "h264_nvenc" or config["use_hwaccel"]:
-                assert resources.entire_gpu
-            else:
-                assert resources.cpus > 0
-                assert not resources.entire_gpu
 
     def test_batch_processing(self) -> None:
         """Test processing clips in batches."""

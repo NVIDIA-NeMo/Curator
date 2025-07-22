@@ -15,7 +15,7 @@ class TestVideoDownloadStage:
         """Test stage properties."""
         stage = VideoDownloadStage()
         assert stage.name == "video_download"
-        assert stage.inputs() == ([], [])
+        assert stage.inputs() == (["data"], ["input_video"])
         assert stage.outputs() == (["data"], ["source_bytes", "metadata"])
 
     def test_stage_initialization(self) -> None:

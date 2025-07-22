@@ -55,7 +55,7 @@ class XennaExecutor(BaseExecutor):
 
         for stage in stages:
             # Get stage configuration
-            stage_config = stage.xenna_stage_spec
+            stage_config = stage.xenna_stage_spec()
 
             # Create Xenna stage adapter with the original stage's name
             xenna_stage = create_named_xenna_stage_adapter(
