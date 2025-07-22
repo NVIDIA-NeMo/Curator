@@ -136,7 +136,7 @@ class AsyncLLMClient(ABC):
         async with self._semaphore:  # Limit concurrent requests
             # Retry logic with exponential backoff
             last_exception = None
-            
+
             for attempt in range(self.max_retries + 1):
                 # Check if this is a retry attempt and if we should delay
                 if attempt > 0 and last_exception:
@@ -149,7 +149,7 @@ class AsyncLLMClient(ABC):
                     else:
                         # Re-raise if not a rate limit error
                         raise last_exception
-                
+
                 # Attempt the query
                 try:
                     return await self._query_model_impl(
