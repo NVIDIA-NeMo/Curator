@@ -51,7 +51,6 @@ cuda12x = [
     "nx-cugraph-cu12==25.6.*",
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
-    "cvcuda_cu12",
 ]
 dev = [
     "debugpy",
@@ -60,11 +59,13 @@ dev = [
     "pytest-loguru",
     "ruff==0.11.4",
 ]
-
 video = [
     "av==13.1.0",
     "opencv-python",
+]
+video_cuda = [
     "PyNvVideoCodec==1.0.2",
+    "cvcuda_cu12",
     "pycuda",
 ]
 
