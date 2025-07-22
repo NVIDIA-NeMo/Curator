@@ -83,8 +83,8 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
     score_only: bool = False
     global_mean_threshold: float = 0.00098
     per_patch_min_256_threshold: float = 0.000001
-    gpu_memory_gb: float = 20
-    batch_size: int = 256
+    num_gpus_per_worker: float = 0
+    motion_filter_batch_size: int = 256
     verbose: bool = False
 
     @property
@@ -99,7 +99,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
 
     @property
     def resources(self) -> Resources:
-        return Resources(gpu_memory_gb=self.gpu_memory_gb)
+        return Resources(gpus=self.num_gpus_per_worker)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
@@ -122,8 +122,8 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
                     clip.decoded_motion_data.frame_size,
                     global_mean_threshold=self.global_mean_threshold,
                     per_patch_min_256_threshold=self.per_patch_min_256_threshold,
-                    use_gpu=self.gpu_memory_gb > 0,
-                    batch_size=self.batch_size,
+                    use_gpu=self.num_gpus_per_worker > 0,
+                    batch_size=self.motion_filter_batch_size,
                 )
 
             clip.decoded_motion_data = None
@@ -159,6 +159,6 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
             "passed/filtered",
         )
 
-        # TODO: free memory periodically
+        # @aot TODO: free memory periodically
 
         return task

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-import torch
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
@@ -13,8 +12,13 @@ from ray_curator.stages.resources import Resources
 from ray_curator.tasks import VideoTask
 from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
-if torch.cuda.is_available():
+try:
     from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
+    _PYNVC_AVAILABLE = True
+except ImportError:
+    logger.warning("PyNvcFrameExtractor not available, PyNvCodec mode will fall back to FFmpeg")
+    PyNvcFrameExtractor = None
+    _PYNVC_AVAILABLE = False
 
 def get_frames_from_ffmpeg(
     video_file: Path,
@@ -105,11 +109,15 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             worker_metadata (WorkerMetadata, optional): Information about the worker (provided by some backends)
         """
         if self.decoder_mode == "pynvc":
-            self.pynvc_frame_extractor = PyNvcFrameExtractor(
-                width=self.output_hw[1],
-                height=self.output_hw[0],
-                batch_size=self.pyncv_batch_size,
-            )
+            if _PYNVC_AVAILABLE and PyNvcFrameExtractor is not None:
+                self.pynvc_frame_extractor = PyNvcFrameExtractor(
+                    width=self.output_hw[1],
+                    height=self.output_hw[0],
+                    batch_size=self.pyncv_batch_size,
+                )
+            else:
+                logger.warning("PyNvcFrameExtractor not available, will fall back to FFmpeg for video processing")
+                self.pynvc_frame_extractor = None
 
 
     def process(self, task: VideoTask) -> VideoTask:
@@ -129,10 +137,19 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             with video_path.open("wb") as fp:
                 fp.write(video.source_bytes)
             if self.decoder_mode == "pynvc":
-                try:
-                    video.frame_array = self.pynvc_frame_extractor(video_path).cpu().numpy().astype(np.uint8)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning(f"Got exception {e} with PyNvVideoCodec decode, trying ffmpeg CPU fallback")
+                if self.pynvc_frame_extractor is not None:
+                    try:
+                        video.frame_array = self.pynvc_frame_extractor(video_path).cpu().numpy().astype(np.uint8)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"Got exception {e} with PyNvVideoCodec decode, trying ffmpeg CPU fallback")
+                        video.frame_array = get_frames_from_ffmpeg(
+                            video_path,
+                            width=width,
+                            height=height,
+                            use_gpu=False,
+                        )
+                else:
+                    logger.info("PyNvcFrameExtractor not available, using FFmpeg CPU fallback")
                     video.frame_array = get_frames_from_ffmpeg(
                         video_path,
                         width=width,

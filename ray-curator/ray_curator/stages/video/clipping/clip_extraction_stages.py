@@ -4,11 +4,12 @@ import subprocess
 import uuid
 from dataclasses import dataclass
 
+from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
+from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
 from ray_curator.tasks import Clip, Video, VideoTask
 from ray_curator.utils import grouping
 from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
@@ -20,6 +21,18 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     This stage handles the conversion of video clips using FFmpeg, supporting both
     software (libx264, libopenh264) and hardware (NVENC) encoding with configurable parameters.
+
+    Args:
+        num_cpus_per_worker: Number of CPUs per worker.
+        encoder: Video encoder to use.
+        encoder_threads: Number of threads per encoder.
+        encode_batch_size: Number of clips to encode in parallel.
+        nb_streams_per_gpu: Number of streams per GPU.
+        use_hwaccel: Whether to use hardware acceleration.
+        use_input_bit_rate: Whether to use input video bit rate.
+        num_clips_per_chunk: Number of clips per chunk. If the number of clips is larger than this, the clips will be split into chunks, and created VideoTasks for each chunk.
+        verbose: Whether to print verbose logs.
+        ffmpeg_verbose: Whether to print FFmpeg verbose logs.
     """
     num_cpus_per_worker: float = 6.0
     encoder: str = "libx264"
@@ -51,8 +64,14 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def resources(self) -> Resources:
         """Resource requirements for this stage."""
         if self.encoder == "h264_nvenc" or self.use_hwaccel:
-            # TODO: support partial GPU usage
-            return Resources(entire_gpu=True)
+            if self.nb_streams_per_gpu > 0:
+                # Assume that we have same type of GPUs
+                gpu_info = _get_local_gpu_info()[0]
+                nvencs = _make_gpu_resources_from_gpu_name(gpu_info.name).num_nvencs
+                gpu_memory_gb = _get_gpu_memory_gb()
+                return Resources(nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu)
+            else:
+                return Resources(gpus=1)
 
         return Resources(cpus=self.num_cpus_per_worker)
 
@@ -131,6 +150,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                     clip_chunk_index=idx,
                     errors=copy.deepcopy(video.errors),
                 ),
+                _stage_perf=copy.deepcopy(task._stage_perf),
+                _metadata=copy.deepcopy(task._metadata),
             )
 
             if self.verbose:
@@ -197,7 +218,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _add_decoder_threads(self, command: list[str]) -> None:
         """Add decoder thread options to command."""
-        thread_count = "1" if self.resources.gpus > 0 else str(self.encoder_threads)
+        thread_count = str(self.encoder_threads)
         command.extend(["-threads", thread_count])
 
     def _add_hwaccel_options(self, command: list[str]) -> None:
@@ -244,8 +265,8 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _add_output_options(self, command: list[str], clip: Clip, index: int) -> None:
         """Add output options to command."""
-        # Add encoder threads again
-        thread_count = "1" if self.resources.gpus > 0 else str(self.encoder_threads)
+        # Add encoder threads
+        thread_count = str(self.encoder_threads)
         command.extend(["-threads", thread_count])
 
         # Add audio and output filename
@@ -296,6 +317,7 @@ class FixedStrideExtractorStage(ProcessingStage[VideoTask, VideoTask]):
     clip_stride_s: float
     min_clip_length_s: float
     limit_clips: int
+    verbose: bool = False
 
     @property
     def name(self) -> str:

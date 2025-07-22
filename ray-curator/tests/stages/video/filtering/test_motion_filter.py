@@ -214,8 +214,8 @@ class TestMotionFilterStage:
             score_only=False,
             global_mean_threshold=0.00098,
             per_patch_min_256_threshold=0.000001,
-            gpu_memory_gb=20,
-            batch_size=256,
+            num_gpus_per_worker=0.25,
+            motion_filter_batch_size=256,
             verbose=False
         )
 
@@ -276,7 +276,7 @@ class TestMotionFilterStage:
         """Test the resources property."""
         resources = self.stage.resources
         assert isinstance(resources, Resources)
-        assert resources.gpu_memory_gb == 20
+        assert resources.gpus == 0.25
 
     def test_inputs_property(self):
         """Test the inputs property."""
@@ -418,7 +418,7 @@ class TestMotionFilterStage:
 
     def test_process_with_gpu_enabled(self):
         """Test processing with GPU enabled."""
-        gpu_stage = MotionFilterStage(gpu_memory_gb=10)
+        gpu_stage = MotionFilterStage(num_gpus_per_worker=0.1)
 
         mock_motion_info = MotionInfo(
             is_small_motion=False,
@@ -438,7 +438,7 @@ class TestMotionFilterStage:
 
     def test_process_with_gpu_disabled(self):
         """Test processing with GPU disabled."""
-        cpu_stage = MotionFilterStage(gpu_memory_gb=0)
+        cpu_stage = MotionFilterStage(num_gpus_per_worker=0)
 
         mock_motion_info = MotionInfo(
             is_small_motion=False,
@@ -458,7 +458,7 @@ class TestMotionFilterStage:
 
     def test_process_with_custom_batch_size(self):
         """Test processing with custom batch size."""
-        custom_stage = MotionFilterStage(batch_size=128)
+        custom_stage = MotionFilterStage(motion_filter_batch_size=128)
 
         mock_motion_info = MotionInfo(
             is_small_motion=False,

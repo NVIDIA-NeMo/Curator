@@ -87,7 +87,7 @@ class Pipeline:
 
         for stage in stages:
             # Get the decomposed stages (returns [self] for regular stages)
-            sub_stages = stage.decompose() if isinstance(stage, CompositeStage) else [stage]
+            sub_stages = stage.decompose_and_apply_with() if isinstance(stage, CompositeStage) else [stage]
 
             if len(sub_stages) > 1:
                 # This was a composite stage

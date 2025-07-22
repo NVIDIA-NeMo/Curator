@@ -1,1 +1,1 @@
-"""Test utilities package."""
+# Utils tests module

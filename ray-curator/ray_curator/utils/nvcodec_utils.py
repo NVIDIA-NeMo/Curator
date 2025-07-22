@@ -23,19 +23,25 @@ import queue
 from pathlib import Path
 from typing import Any
 
-import cvcuda  # type: ignore[import-untyped]
-import nvcv  # type: ignore[import-untyped]
-import pycuda.driver as cuda  # type: ignore[import-untyped]
-import PyNvVideoCodec as Nvc  # type: ignore[import-untyped]
 import torch
 from loguru import logger
 
-pixel_format_to_cvcuda_code = {
-    Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,  # type: ignore[import-untyped]
-    Nvc.Pixel_Format.NV12: cvcuda.ColorConversion.YUV2RGB_NV12,  # type: ignore[import-untyped]
-}
-
-
+try:
+    import cvcuda  # type: ignore[import-untyped]
+    import nvcv  # type: ignore[import-untyped]
+    import pycuda.driver as cuda  # type: ignore[import-untyped]
+    import PyNvVideoCodec as Nvc  # type: ignore[import-untyped]
+    pixel_format_to_cvcuda_code = {
+        Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,  # type: ignore[import-untyped]
+        Nvc.Pixel_Format.NV12: cvcuda.ColorConversion.YUV2RGB_NV12,  # type: ignore[import-untyped]
+    }
+except ImportError:
+    logger.warning("PyNvVideoCodec is not installed, some features will be disabled.")
+    Nvc = None
+    cvcuda = None
+    nvcv = None
+    cuda = None
+    pixel_format_to_cvcuda_code = {}
 
 
 class FrameExtractionPolicy(enum.Enum):
@@ -75,6 +81,10 @@ class VideoBatchDecoder:
             cvcuda_stream: CUDA stream for parallel processing.
 
         """
+        if Nvc is None:
+            msg = "PyNvVideoCodec is not available, please install it."
+            raise RuntimeError(msg)
+
         self.batch_size = batch_size
         if self.batch_size <= 0:
             msg = "Batch size should be a valid number."

@@ -9,8 +9,7 @@ from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2Cl
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
-from ray_curator.stages.video.io.video_reader import VideoReaderStage
+from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy
 
 
@@ -20,8 +19,11 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReaderStage(input_video_path=args.video_dir, video_limit=args.video_limit))
-    pipeline.add_stage(VideoDownloadStage(verbose=args.verbose))
+    pipeline.add_stage(VideoReaderDownloadStage(
+        input_video_path=args.video_dir,
+        video_limit=args.video_limit,
+        verbose=args.verbose
+    ))
 
     if args.splitting_algorithm == "fixed_stride":
         pipeline.add_stage(
@@ -79,8 +81,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             score_only=args.motion_filter == "score-only",
             global_mean_threshold=args.motion_global_mean_threshold,
             per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
-            gpu_memory_gb=args.motion_score_gpu_memory_gb,
-            batch_size=args.motion_score_batch_size,
+            num_gpus_per_worker=args.motion_score_gpus_per_worker,
+            motion_filter_batch_size=args.motion_score_batch_size,
             verbose=args.verbose,
         ))
 
@@ -158,7 +160,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, help="Path to output clips")
+    parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
     parser.add_argument(
         "--no-upload-clips",
         dest="upload_clips",
@@ -366,10 +368,10 @@ if __name__ == "__main__":
         help="Batch size for motion score computation.",
     )
     parser.add_argument(
-        "--motion-score-gpu-memory-gb",
+        "--motion-score-gpus-per-worker",
         type=float,
-        default=20,
-        help="GPU memory in GB per worker allocated to motion score computation.",
+        default=0.5,
+        help="Number of GPUs per worker allocated to motion score computation. Set to 0 to use CPU instead of GPU.",
     )
     parser.add_argument(
         "--clip-extraction-target-res",
