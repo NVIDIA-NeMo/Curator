@@ -1,9 +1,9 @@
 <div align="center">
 
-  <a href="https://github.com/NVIDIA/NeMo-Curator/blob/main/LICENSE">![https://pypi.org/project/nemo-curator](https://img.shields.io/github/license/NVIDIA/NeMo-Curator)</a>
+  <a href="https://github.com/NVIDIA-NeMo/Curator/blob/main/LICENSE">![https://pypi.org/project/nemo-curator](https://img.shields.io/github/license/NVIDIA-NeMo/Curator)</a>
   <a href="https://pypi.org/project/nemo-curator/">![https://pypi.org/project/nemo-curator/](https://img.shields.io/pypi/pyversions/nemo-curator.svg)</a>
-  <a href="https://github.com/NVIDIA/NeMo-Curator/graphs/contributors">![NVIDIA/NeMo-Curator](https://img.shields.io/github/contributors/NVIDIA/NeMo-Curator)</a>
-  <a href="https://github.com/NVIDIA/NeMo-Curator/releases">![https://github.com/NVIDIA/NeMo-Curator/releases](https://img.shields.io/github/release/NVIDIA/NeMo-Curator)</a>
+  <a href="https://github.com/NVIDIA-NeMo/Curator/graphs/contributors">![NVIDIA-NeMo/Curator](https://img.shields.io/github/contributors/NVIDIA-NeMo/Curator)</a>
+  <a href="https://github.com/NVIDIA-NeMo/Curator/releases">![https://github.com/NVIDIA-NeMo/Curator/releases](https://img.shields.io/github/release/NVIDIA-NeMo/Curator)</a>
   <a href="https://pypi.org/project/nemo-curator/">![https://github.com/Naereen/badges/](https://badgen.net/badge/open%20source/❤/blue?icon=github)</a>
 
 </div>
@@ -76,7 +76,7 @@ Before installing NeMo Curator, ensure that the following requirements are met:
   - Volta™ or higher ([compute capability 7.0+](https://developer.nvidia.com/cuda-gpus))
   - CUDA 12 (or above)
 
-You can get NeMo-Curator in 3 ways.
+You can get NeMo Curator in 3 ways.
 1. PyPi
 2. Source
 3. NeMo Framework Container
@@ -89,8 +89,8 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
 
 #### Source
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-pip install --extra-index-url https://pypi.nvidia.com "./NeMo-Curator[all]"
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+pip install --extra-index-url https://pypi.nvidia.com "./Curator[all]"
 ```
 
 #### NeMo Framework Container
@@ -99,9 +99,9 @@ The latest release of NeMo Curator comes preinstalled in the [NeMo Framework Con
 
 ```bash
 pip uninstall nemo-curator
-rm -r /opt/NeMo-Curator
-git clone https://github.com/NVIDIA/NeMo-Curator.git /opt/NeMo-Curator
-pip install --extra-index-url https://pypi.nvidia.com "/opt/NeMo-Curator[all]"
+rm -r /opt/Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git /opt/Curator
+pip install --extra-index-url https://pypi.nvidia.com "/opt/Curator[all]"
 ```
 
 #### Extras
@@ -126,7 +126,7 @@ You can also install NeMo Curator using the [RAPIDS Nightly Builds](https://docs
 pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "nemo-curator[cuda12x_nightly]"
 
 # Installing from source
-pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "./NeMo-Curator[cuda12x_nightly]"
+pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "./Curator[cuda12x_nightly]"
 ```
 
 For the image curation modules and all modules, you can use `[image_nightly]` and `[all_nightly]`, respectively.
@@ -156,13 +156,13 @@ curated_dataset = curation_pipeline(dataset)
 
 ### Explore NeMo Curator Tutorials
 
-To get started with NeMo Curator, you can follow the tutorials [available here](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials). These tutorials include:
+To get started with NeMo Curator, you can follow the tutorials [available here](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials). These tutorials include:
 
-- [`tinystories`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/tinystories) which focuses on data curation for training LLMs from scratch.
-- [`peft-curation`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/peft-curation) which focuses on data curation for LLM parameter-efficient fine-tuning (PEFT) use-cases.
-- [`distributed_data_classification`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/distributed_data_classification) which demonstrates how to use NVIDIA's Hugging Face classifiers to help with data annotation.
-- [`single_node_tutorial`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/single_node_tutorial) which demonstrates an end-to-end data curation pipeline for curating Wikipedia data in Thai.
-- [`image-curation`](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image-curation/image-curation.ipynb) which explores the scalable image curation modules.
+- [`tinystories`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/tinystories) which focuses on data curation for training LLMs from scratch.
+- [`peft-curation`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/peft-curation) which focuses on data curation for LLM parameter-efficient fine-tuning (PEFT) use-cases.
+- [`distributed_data_classification`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/distributed_data_classification) which demonstrates how to use NVIDIA's Hugging Face classifiers to help with data annotation.
+- [`single_node_tutorial`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/single_node_tutorial) which demonstrates an end-to-end data curation pipeline for curating Wikipedia data in Thai.
+- [`image-curation`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image-curation/image-curation.ipynb) which explores the scalable image curation modules.
 
 
 ### Access Python Modules
