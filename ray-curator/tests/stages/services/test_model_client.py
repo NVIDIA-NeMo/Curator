@@ -36,7 +36,7 @@ class TestLLMClient:
             def setup(self) -> None:
                 pass
 
-            def query_model(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            def query_model(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestLLMClient()
@@ -57,7 +57,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient()
@@ -74,7 +74,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient(
@@ -99,7 +99,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient()
@@ -117,7 +117,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 # Verify parameters are passed through
                 assert kwargs.get("max_tokens") == 1024
                 assert kwargs.get("temperature") == 0.5
@@ -149,7 +149,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 self.attempt_count += 1
                 if self.attempt_count <= 2:
                     error_msg = "429 Rate limit exceeded"
@@ -175,7 +175,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 error_msg = "Some other error"
                 raise ValueError(error_msg)
 
@@ -201,7 +201,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 error_msg = "429 Rate limit exceeded"
                 raise RateLimitError(error_msg)
 
@@ -221,7 +221,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 return ["test response"]
 
         client = TestAsyncLLMClient(max_concurrent_requests=3)
@@ -262,7 +262,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, _messages: Iterable, _model: str, **_kwargs: object) -> list[str]:
+            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:
                 self.active_requests += 1
                 self.max_active = max(self.max_active, self.active_requests)
                 await asyncio.sleep(0.1)  # Simulate work

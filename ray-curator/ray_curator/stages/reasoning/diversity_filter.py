@@ -169,7 +169,7 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
         all_domains = df[self.input_domain_field].unique().tolist()
 
         # Group dataframe by domain
-        domain_groups = dict(df.groupby(self.input_domain_field))
+        domain_groups = {domain: group for domain, group in df.groupby(self.input_domain_field)}
 
         # Initialize selected indices
         selected_indices = set()

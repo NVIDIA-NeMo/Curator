@@ -43,7 +43,7 @@ def main() -> None:
             prompt=prompt,
             languages=languages,
             client=llm_client,
-            model_name="nvdev/nvidia/llama-3.1-nemotron-70b-instruct",
+            model_name="nvdev/meta/llama-3.2-3b-instruct",
             num_samples=100,  # Increased to better show async performance benefits
         )
     )

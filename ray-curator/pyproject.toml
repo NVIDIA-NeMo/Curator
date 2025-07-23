@@ -23,6 +23,7 @@ dependencies = [
     "jieba==0.42.1",
     "loguru",
     "mecab-python3",
+    "openai>=1.0.0",
     "pyarrow",
     "ray[default,data]>=2.48",
     "torch",
