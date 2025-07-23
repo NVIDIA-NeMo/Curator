@@ -60,6 +60,7 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
     if filter_by is None:
         assert len(stages) == 2
     else:
+        # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
     assert stages[0].name == "tokenizer-nvidia/domain-classifier"
@@ -96,6 +97,7 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
     )
     assert result_batch.data["domain_pred"].equals(expected_pred)
 
+    # Check that the filter_fn stage filters the batch correctly
     if filter_by is not None:
         filter_stage = stages[2]
         filtered_batch = filter_stage.process(result_batch)
@@ -181,6 +183,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     if filter_by is None:
         assert len(stages) == 4
     else:
+        # Filtering adds a filter_fn stage
         assert len(stages) == 5
         assert stages[4].name == "filter_fn"
     assert stages[0].name == "wrap_in_prompt"
@@ -224,6 +227,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     expected_pred = pd.Series(["safe", "O3", "O13", "O3"])
     assert postprocessed_batch.data["aegis_pred"].equals(expected_pred)
 
+    # Check that the filter_fn stage filters the batch correctly
     if filter_by is not None:
         filter_stage = stages[4]
         filtered_batch = filter_stage.process(postprocessed_batch)
@@ -244,6 +248,7 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
     if filter_by is None:
         assert len(stages) == 2
     else:
+        # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
     assert stages[0].name == "tokenizer-HuggingFaceFW/fineweb-edu-classifier"
@@ -272,6 +277,7 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
     expected_pred = pd.Series([1, 0, 1, 1, 0])
     assert result_batch.data["fineweb-edu-score-int"].equals(expected_pred)
 
+    # Check that the filter_fn stage filters the batch correctly
     if filter_by is not None:
         filter_stage = stages[2]
         filtered_batch = filter_stage.process(result_batch)
@@ -377,6 +383,7 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
     if filter_by is None:
         assert len(stages) == 2
     else:
+        # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
     assert stages[0].name == "tokenizer-meta-llama/LlamaGuard-7b"
@@ -405,6 +412,7 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
     expected_pred = pd.Series([False])
     assert result_batch.data["is_poisoned"].equals(expected_pred)
 
+    # Check that the filter_fn stage filters the batch correctly
     if filter_by is not None:
         filter_stage = stages[2]
         filtered_batch = filter_stage.process(result_batch)
