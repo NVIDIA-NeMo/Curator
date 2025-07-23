@@ -22,7 +22,7 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
     async (concurrent) or sync (sequential) processing based on the client type.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         prompt: str,
         client: AsyncLLMClient | LLMClient,

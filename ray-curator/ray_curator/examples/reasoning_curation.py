@@ -1,7 +1,6 @@
 import argparse
 import os
 import time
-from typing import List, Tuple, Union
 
 import pandas as pd
 
@@ -20,7 +19,7 @@ from ray_curator.stages.services.openai_client import AsyncOpenAIClient, OpenAIC
 from ray_curator.tasks import DocumentBatch
 
 
-def setup_client(args: argparse.Namespace) -> Union[AsyncOpenAIClient, OpenAIClient]:
+def setup_client(args: argparse.Namespace) -> AsyncOpenAIClient | OpenAIClient:
     """Set up the LLM client based on async flag."""
     if args.enable_async:
         print("🚀 Using ASYNC generation with concurrent processing")
@@ -39,7 +38,7 @@ def setup_client(args: argparse.Namespace) -> Union[AsyncOpenAIClient, OpenAICli
         )
 
 
-def process_input_data(args: argparse.Namespace) -> Tuple[pd.DataFrame, List[DocumentBatch]]:
+def process_input_data(args: argparse.Namespace) -> tuple[pd.DataFrame, list[DocumentBatch]]:
     """Read and batch input data."""
     input_data = pd.read_csv(args.input_path)
     print(f"📊 Processing {len(input_data)} rows")
@@ -67,7 +66,7 @@ def process_input_data(args: argparse.Namespace) -> Tuple[pd.DataFrame, List[Doc
     return input_data, input_batches
 
 
-def setup_pipeline_stages(pipeline: Pipeline, llm_client: Union[AsyncOpenAIClient, OpenAIClient], args: argparse.Namespace) -> None:
+def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | OpenAIClient, args: argparse.Namespace) -> None:
     """Add all stages to the pipeline."""
     # Setting LLM models
     llm_reasoning_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
@@ -190,7 +189,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: Union[AsyncOpenAIClien
     )
 
 
-def process_results(results: List[DocumentBatch], input_data: pd.DataFrame, execution_time: float, args: argparse.Namespace) -> None:
+def process_results(results: list[DocumentBatch], input_data: pd.DataFrame, execution_time: float, args: argparse.Namespace) -> None:
     """Process and output the pipeline results."""
     # Print results with performance metrics
     print("\nPipeline completed!")
