@@ -155,7 +155,7 @@ class TestVideoReaderDownloadStage:
         stage = VideoReaderDownloadStage(input_video_path="/test/path")
 
         configured_stage = stage.with_({
-            "video_reader": {
+            "video_list": {
                 "name": "custom_reader",
                 "batch_size": 4
             },
@@ -167,7 +167,7 @@ class TestVideoReaderDownloadStage:
 
         assert configured_stage is stage
         assert len(stage._with_operations) == 1
-        assert stage._with_operations[0]["video_reader"]["name"] == "custom_reader"
+        assert stage._with_operations[0]["video_list"]["name"] == "custom_reader"
         assert stage._with_operations[0]["video_download"]["name"] == "custom_download"
 
     def test_with_method_chaining(self):
@@ -175,14 +175,14 @@ class TestVideoReaderDownloadStage:
         stage = VideoReaderDownloadStage(input_video_path="/test/path")
 
         stage.with_({
-            "video_reader": {"batch_size": 4}
+            "video_list": {"batch_size": 4}
         }).with_({
             "video_download": {"batch_size": 2}
         })
 
         # Should have two with operations
         assert len(stage._with_operations) == 2
-        assert stage._with_operations[0] == {"video_reader": {"batch_size": 4}}
+        assert stage._with_operations[0] == {"video_list": {"batch_size": 4}}
         assert stage._with_operations[1] == {"video_download": {"batch_size": 2}}
 
     def test_decompose_and_apply_with(self):
