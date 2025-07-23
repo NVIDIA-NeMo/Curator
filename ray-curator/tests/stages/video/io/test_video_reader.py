@@ -1,4 +1,4 @@
-"""Test suite for VideoReaderStage."""
+"""Test suite for VideoListStage."""
 
 import pathlib
 from typing import TYPE_CHECKING
@@ -6,19 +6,19 @@ from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.video.io.video_reader import VideoReaderStage
+from ray_curator.stages.video.io.video_reader import VideoListStage
 from ray_curator.tasks import Video, VideoTask, _EmptyTask
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
-class TestVideoReaderStage:
-    """Test suite for VideoReaderStage."""
+class TestVideoListStage:
+    """Test suite for VideoListStage."""
 
     def test_stage_properties(self) -> None:
         """Test stage properties."""
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         assert stage.name == "video_reader"
         assert stage.inputs() == ([], [])
         assert stage.outputs() == (["data"], ["input_video"])
@@ -26,12 +26,12 @@ class TestVideoReaderStage:
     def test_stage_initialization(self) -> None:
         """Test stage initialization with different parameters."""
         # Test with input_video_path
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         assert stage.input_video_path == "/test/path"
         assert stage.video_limit == -1
 
         # Test with video_limit
-        stage = VideoReaderStage(input_video_path="/test/path", video_limit=10)
+        stage = VideoListStage(input_video_path="/test/path", video_limit=10)
         assert stage.video_limit == 10
 
     @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
@@ -39,7 +39,7 @@ class TestVideoReaderStage:
         """Test process method with successful file discovery."""
         mock_get_files.return_value = ["/test/video1.mp4", "/test/video2.avi"]
 
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         assert len(result) == 2
@@ -71,7 +71,7 @@ class TestVideoReaderStage:
             "/test/video4.webm",
         ]
 
-        stage = VideoReaderStage(input_video_path="/test/path", video_limit=2)
+        stage = VideoListStage(input_video_path="/test/path", video_limit=2)
         result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         assert len(result) == 2
@@ -83,14 +83,14 @@ class TestVideoReaderStage:
         """Test process method when no files are found."""
         mock_get_files.return_value = []
 
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         assert result == []
 
     def test_process_no_input_video_path(self) -> None:
         """Test process method raises error when input_video_path is None."""
-        stage = VideoReaderStage(input_video_path=None)
+        stage = VideoListStage(input_video_path=None)
 
         with pytest.raises(ValueError, match="input_video_path is not set"):
             stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
@@ -100,7 +100,7 @@ class TestVideoReaderStage:
         """Test process method filters for correct file extensions."""
         mock_get_files.return_value = ["/test/video1.mp4"]
 
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         mock_get_files.assert_called_once_with(
@@ -114,7 +114,7 @@ class TestVideoReaderStage:
         video_path = pathlib.Path("/test/video.mp4")
 
         with patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under", return_value=[str(video_path)]):
-            stage = VideoReaderStage(input_video_path="/test/path")
+            stage = VideoListStage(input_video_path="/test/path")
             result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
             assert len(result) == 1
@@ -131,7 +131,7 @@ class TestVideoReaderStage:
         """Test that string file paths are converted to pathlib.Path objects."""
         mock_get_files.return_value = ["/test/video1.mp4", "/test/video2.avi"]
 
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         # Check that the paths are converted to pathlib.Path objects
@@ -150,7 +150,7 @@ class TestVideoReaderStage:
             "/test/video4.webm",
         ]
 
-        stage = VideoReaderStage(input_video_path="/test/path", video_limit=-1)
+        stage = VideoListStage(input_video_path="/test/path", video_limit=-1)
         result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         # Should process all files when video_limit is -1
@@ -162,7 +162,7 @@ class TestVideoReaderStage:
         """Test process method logs appropriate messages."""
         mock_get_files.return_value = ["/test/video1.mp4", "/test/video2.avi"]
 
-        stage = VideoReaderStage(input_video_path="/test/path")
+        stage = VideoListStage(input_video_path="/test/path")
         stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         # Check that info is logged about files found
@@ -179,7 +179,7 @@ class TestVideoReaderStage:
             "/test/video4.webm",
         ]
 
-        stage = VideoReaderStage(input_video_path="/test/path", video_limit=2)
+        stage = VideoListStage(input_video_path="/test/path", video_limit=2)
         stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
         # Check that info is logged about files found and limit applied

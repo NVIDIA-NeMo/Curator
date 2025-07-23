@@ -9,7 +9,7 @@ from ray_curator.utils.file_utils import get_all_files_paths_under
 
 
 @dataclass
-class VideoReaderStage(ProcessingStage[_EmptyTask, VideoTask]):
+class VideoListStage(ProcessingStage[_EmptyTask, VideoTask]):
     """Stage that reads video files from storage and extracts metadata."""
     input_video_path: str
     video_limit: int = -1

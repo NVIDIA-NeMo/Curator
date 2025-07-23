@@ -1,7 +1,7 @@
 import pytest
 
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
-from ray_curator.stages.video.io.video_reader import VideoReaderStage
+from ray_curator.stages.video.io.video_reader import VideoListStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 from ray_curator.tasks import _EmptyTask
 
@@ -51,9 +51,9 @@ class TestVideoReaderDownloadStage:
         # Should return exactly 2 stages
         assert len(stages) == 2
 
-        # First stage should be VideoReaderStage
+        # First stage should be VideoListStage
         reader_stage = stages[0]
-        assert isinstance(reader_stage, VideoReaderStage)
+        assert isinstance(reader_stage, VideoListStage)
         assert reader_stage.input_video_path == "/test/videos"
         assert reader_stage.video_limit == 50
 
@@ -79,10 +79,10 @@ class TestVideoReaderDownloadStage:
         """Test that inputs() method delegates to the first constituent stage."""
         stage = VideoReaderDownloadStage(input_video_path="/test/path")
 
-        # Should delegate to VideoReaderStage.inputs()
+        # Should delegate to VideoListStage.inputs()
         top_level_attrs, data_attrs = stage.inputs()
 
-        # VideoReaderStage returns ([], [])
+        # VideoListStage returns ([], [])
         assert top_level_attrs == []
         assert data_attrs == []
 
