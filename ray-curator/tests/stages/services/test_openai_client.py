@@ -221,7 +221,7 @@ class TestAsyncOpenAIClient:
         mock_client.chat.completions.create.assert_called_once_with(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
-            max_tokens=2048,  # Note: hardcoded in implementation
+            max_tokens=1024,  # Match the value passed in the test call
             n=1,
             seed=0,
             stop=None,
