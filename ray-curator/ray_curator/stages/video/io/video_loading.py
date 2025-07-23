@@ -7,7 +7,7 @@ from ray_curator.tasks import VideoTask, _EmptyTask
 
 
 @dataclass
-class VideoReaderDownloadStage(CompositeStage[_EmptyTask, VideoTask]):
+class VideoLoadingStage(CompositeStage[_EmptyTask, VideoTask]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
     This stage combines VideoListStage and VideoReaderStage into a single
@@ -29,7 +29,7 @@ class VideoReaderDownloadStage(CompositeStage[_EmptyTask, VideoTask]):
 
     @property
     def name(self) -> str:
-        return "video_reader_download"
+        return "video_loading"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent execution stages.

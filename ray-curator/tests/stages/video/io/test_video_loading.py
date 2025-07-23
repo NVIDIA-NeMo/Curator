@@ -2,16 +2,16 @@ import pytest
 
 from ray_curator.stages.video.io.video_reader import VideoReaderStage
 from ray_curator.stages.video.io.video_list import VideoListStage
-from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
+from ray_curator.stages.video.io.video_loading import VideoLoadingStage
 from ray_curator.tasks import _EmptyTask
 
 
-class TestVideoReaderDownloadStage:
-    """Test suite for VideoReaderDownloadStage composite stage."""
+class TestVideoLoadingStage:
+    """Test suite for VideoLoadingStage composite stage."""
 
     def test_initialization_default_values(self):
         """Test initialization with default parameter values."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         assert stage.input_video_path == "/test/path"
         assert stage.video_limit == -1
@@ -21,7 +21,7 @@ class TestVideoReaderDownloadStage:
 
     def test_initialization_custom_values(self):
         """Test initialization with custom parameter values."""
-        stage = VideoReaderDownloadStage(
+        stage = VideoLoadingStage(
             input_video_path="/custom/path",
             video_limit=100,
             verbose=True
@@ -35,12 +35,12 @@ class TestVideoReaderDownloadStage:
 
     def test_name_property(self):
         """Test that the name property returns the correct value."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
-        assert stage.name == "video_reader_download"
+        stage = VideoLoadingStage(input_video_path="/test/path")
+        assert stage.name == "video_loading"
 
     def test_decompose(self):
         """Test that decompose returns the correct constituent stages."""
-        stage = VideoReaderDownloadStage(
+        stage = VideoLoadingStage(
             input_video_path="/test/videos",
             video_limit=50,
             verbose=True
@@ -64,7 +64,7 @@ class TestVideoReaderDownloadStage:
 
     def test_decompose_default_values(self):
         """Test decompose with default parameter values."""
-        stage = VideoReaderDownloadStage(input_video_path="/default/path")
+        stage = VideoLoadingStage(input_video_path="/default/path")
 
         stages = stage.decompose()
 
@@ -77,7 +77,7 @@ class TestVideoReaderDownloadStage:
 
     def test_inputs(self):
         """Test that inputs() method delegates to the first constituent stage."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         # Should delegate to VideoListStage.inputs()
         top_level_attrs, data_attrs = stage.inputs()
@@ -88,7 +88,7 @@ class TestVideoReaderDownloadStage:
 
     def test_outputs(self):
         """Test that outputs() method delegates to the last constituent stage."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         # Should delegate to VideoReaderStage.outputs()
         top_level_attrs, data_attrs = stage.outputs()
@@ -99,7 +99,7 @@ class TestVideoReaderDownloadStage:
 
     def test_get_description_unlimited(self):
         """Test get_description with unlimited video limit."""
-        stage = VideoReaderDownloadStage(
+        stage = VideoLoadingStage(
             input_video_path="/my/videos",
             video_limit=-1
         )
@@ -114,7 +114,7 @@ class TestVideoReaderDownloadStage:
 
     def test_get_description_limited(self):
         """Test get_description with specific video limit."""
-        stage = VideoReaderDownloadStage(
+        stage = VideoLoadingStage(
             input_video_path="/my/videos",
             video_limit=25
         )
@@ -129,7 +129,7 @@ class TestVideoReaderDownloadStage:
 
     def test_with_method_single_stage_config(self):
         """Test with_() method for configuring a single constituent stage."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         configured_stage = stage.with_({
             "video_reader": {
@@ -152,7 +152,7 @@ class TestVideoReaderDownloadStage:
 
     def test_with_method_multiple_stage_config(self):
         """Test with_() method for configuring multiple constituent stages."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         configured_stage = stage.with_({
             "video_list": {
@@ -172,7 +172,7 @@ class TestVideoReaderDownloadStage:
 
     def test_with_method_chaining(self):
         """Test chaining multiple with_() calls."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         stage.with_({
             "video_list": {"batch_size": 4}
@@ -187,7 +187,7 @@ class TestVideoReaderDownloadStage:
 
     def test_decompose_and_apply_with(self):
         """Test decompose_and_apply_with method applies configurations correctly."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         # Configure both stages
         stage.with_({
@@ -218,7 +218,7 @@ class TestVideoReaderDownloadStage:
 
     def test_process_raises_runtime_error(self):
         """Test that process() raises RuntimeError as composite stages shouldn't execute directly."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         # Create a dummy task
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
@@ -227,12 +227,12 @@ class TestVideoReaderDownloadStage:
             stage.process(task)
 
         error_msg = str(exc_info.value)
-        assert "Composite stage 'video_reader_download' should not be executed directly" in error_msg
+        assert "Composite stage 'video_loading' should not be executed directly" in error_msg
         assert "It should be decomposed into execution stages during planning" in error_msg
 
     def test_with_invalid_stage_name(self):
         """Test that with_() with invalid stage name raises error during decompose_and_apply_with."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         stage.with_({
             "invalid_stage_name": {
@@ -246,7 +246,7 @@ class TestVideoReaderDownloadStage:
 
     def test_post_init_called(self):
         """Test that __post_init__ properly initializes parent CompositeStage."""
-        stage = VideoReaderDownloadStage(input_video_path="/test/path")
+        stage = VideoLoadingStage(input_video_path="/test/path")
 
         # _with_operations should be initialized as empty list
         assert hasattr(stage, "_with_operations")
