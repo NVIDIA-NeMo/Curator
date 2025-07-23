@@ -45,11 +45,7 @@ class LLMClient(ABC):
         stream: bool = False,
         temperature: float | None = 0.0,
         top_k: int | None = None,
-        top_p: float | None = 0.95,
-        _timeout: float | None = None,
-        _presence_penalty: float | None = 1.0,
-        _logprobs: bool = False,
-        _top_logprobs: int | None = None,
+        top_p: float | None = 0.95
     ) -> list[str]:
         msg = "Subclass of LLMClient must implement 'query_model'"
         raise NotImplementedError(msg)
@@ -119,10 +115,6 @@ class AsyncLLMClient(ABC):
         temperature: float | None = 0.0,
         top_k: int | None = None,
         top_p: float | None = 0.95,
-        timeout: float | None = None,
-        presence_penalty: float | None = 1.0,
-        logprobs: bool = False,
-        top_logprobs: int | None = None,
     ) -> list[str]:
         """
         Query the model with automatic retry and concurrency control.
@@ -164,10 +156,6 @@ class AsyncLLMClient(ABC):
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
-                        timeout=timeout,
-                        presence_penalty=presence_penalty,
-                        logprobs=logprobs,
-                        top_logprobs=top_logprobs,
                     )
                 except Exception as e:
                     last_exception = e
