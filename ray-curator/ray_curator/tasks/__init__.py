@@ -2,7 +2,7 @@ from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
 from .tasks import EmptyTask, Task, _EmptyTask
-from .video import Clip, ClipStats, SplitPipeTask, Video, VideoMetadata, VideoTask
+from .video import Clip, ClipStats, Video, VideoMetadata, VideoTask
 
 __all__ = [
     "Clip",
@@ -12,7 +12,6 @@ __all__ = [
     "FileGroupTask",
     "ImageBatch",
     "ImageObject",
-    "SplitPipeTask",
     "Task",
     "Video",
     "VideoMetadata",
