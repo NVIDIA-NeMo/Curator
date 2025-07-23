@@ -62,7 +62,7 @@ class TestVideoReaderStage:
             video = Video(input_video=pathlib.Path("/test/video.mp4"))
             # Simulate the actual behavior where source_bytes could become None
             stage = VideoReaderStage()
-            
+
             # First call the method
             result = stage._download_video_bytes(video)
             # Then manually set to None to test the fallback
@@ -126,14 +126,16 @@ class TestVideoReaderStage:
             bit_rate_k=5000
         )
 
-        with patch.object(video, "populate_metadata", return_value=None):
-            with patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warning:
-                stage = VideoReaderStage()
-                result = stage._extract_and_validate_metadata(video)
+        with (
+            patch.object(video, "populate_metadata", return_value=None),
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warning
+        ):
+            stage = VideoReaderStage()
+            result = stage._extract_and_validate_metadata(video)
 
-                assert result is True
-                mock_warning.assert_called_once()
-                assert "Codec could not be extracted" in str(mock_warning.call_args)
+            assert result is True
+            mock_warning.assert_called_once()
+            assert "Codec could not be extracted" in str(mock_warning.call_args)
 
     def test_extract_and_validate_metadata_warns_missing_pixel_format(self) -> None:
         """Test _extract_and_validate_metadata logs warning for missing pixel format."""
@@ -148,14 +150,16 @@ class TestVideoReaderStage:
             bit_rate_k=5000
         )
 
-        with patch.object(video, "populate_metadata", return_value=None):
-            with patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warning:
-                stage = VideoReaderStage()
-                result = stage._extract_and_validate_metadata(video)
+        with (
+            patch.object(video, "populate_metadata", return_value=None),
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warning
+        ):
+            stage = VideoReaderStage()
+            result = stage._extract_and_validate_metadata(video)
 
-                assert result is True
-                mock_warning.assert_called_once()
-                assert "Pixel format could not be extracted" in str(mock_warning.call_args)
+            assert result is True
+            mock_warning.assert_called_once()
+            assert "Pixel format could not be extracted" in str(mock_warning.call_args)
 
     def test_process_success(self) -> None:
         """Test process method with successful execution."""
@@ -174,12 +178,14 @@ class TestVideoReaderStage:
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
-        with patch.object(VideoReaderStage, "_download_video_bytes", return_value=True):
-            with patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True):
-                stage = VideoReaderStage()
-                result = stage.process(task)
+        with (
+            patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+        ):
+            stage = VideoReaderStage()
+            result = stage.process(task)
 
-                assert result == task
+            assert result == task
 
     def test_process_download_failure(self) -> None:
         """Test process method when download fails."""
@@ -197,12 +203,14 @@ class TestVideoReaderStage:
         video = Video(input_video=pathlib.Path("/test/video.mp4"))
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
-        with patch.object(VideoReaderStage, "_download_video_bytes", return_value=True):
-            with patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=False):
-                stage = VideoReaderStage()
-                result = stage.process(task)
+        with (
+            patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=False)
+        ):
+            stage = VideoReaderStage()
+            result = stage.process(task)
 
-                assert result == task
+            assert result == task
 
     def test_log_video_info_verbose_enabled(self) -> None:
         """Test _log_video_info when verbose logging is enabled."""
@@ -250,14 +258,16 @@ class TestVideoReaderStage:
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
-        with patch.object(VideoReaderStage, "_download_video_bytes", return_value=True):
-            with patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True):
-                with patch("ray_curator.stages.video.io.video_reader.logger.info") as mock_info:
-                    stage = VideoReaderStage(verbose=False)
-                    stage.process(task)
+        with (
+            patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
+            patch("ray_curator.stages.video.io.video_reader.logger.info") as mock_info
+        ):
+            stage = VideoReaderStage(verbose=False)
+            stage.process(task)
 
-                    # _log_video_info should not be called when verbose=False
-                    mock_info.assert_not_called()
+            # _log_video_info should not be called when verbose=False
+            mock_info.assert_not_called()
 
     def test_format_metadata_for_logging_all_fields(self) -> None:
         """Test _format_metadata_for_logging with all metadata fields present."""
@@ -328,26 +338,30 @@ class TestVideoReaderStage:
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
-        with patch.object(VideoReaderStage, "_download_video_bytes", return_value=True):
-            with patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True):
-                with patch.object(VideoReaderStage, "_log_video_info") as mock_log:
-                    stage = VideoReaderStage(verbose=True)
-                    stage.process(task)
+        with (
+            patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
+            patch.object(VideoReaderStage, "_log_video_info") as mock_log
+        ):
+            stage = VideoReaderStage(verbose=True)
+            stage.process(task)
 
-                    mock_log.assert_called_once_with(video)
+            mock_log.assert_called_once_with(video)
 
     def test_download_video_bytes_error_handling(self) -> None:
         """Test _download_video_bytes error handling and logging."""
         video = Video(input_video=pathlib.Path("/test/nonexistent.mp4"))
 
-        with patch("pathlib.Path.open", side_effect=FileNotFoundError("Test error")):
-            with patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warning:
-                stage = VideoReaderStage()
-                result = stage._download_video_bytes(video)
+        with (
+            patch("pathlib.Path.open", side_effect=FileNotFoundError("Test error")),
+            patch("ray_curator.stages.video.io.video_reader.logger.warning")
+        ):
+            stage = VideoReaderStage()
+            result = stage._download_video_bytes(video)
 
-                assert result is False
-                assert "download" in video.errors
-                assert "Test error" in video.errors["download"]
+            assert result is False
+            assert "download" in video.errors
+            assert "Test error" in video.errors["download"]
 
     def test_s3_error_path(self) -> None:
         """Test that S3 paths raise appropriate error."""
@@ -357,4 +371,4 @@ class TestVideoReaderStage:
             result = stage._download_video_bytes(video)
 
             assert result is False
-            mock_error.assert_called_once() 
+            mock_error.assert_called_once()

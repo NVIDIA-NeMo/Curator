@@ -24,7 +24,7 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
 
     Args:
         verbose: If True, logs detailed video information after successful processing
-        
+
     Note:
         Currently supports local filesystem paths only. S3 support is planned for future releases.
     """
@@ -33,7 +33,7 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
-        
+
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
             - top_level_attrs: ["data"] - requires VideoTask.data to be populated
@@ -43,7 +43,7 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define the output attributes produced by this stage.
-        
+
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
             - top_level_attrs: ["data"] - populates VideoTask.data
@@ -184,7 +184,7 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
 
         Returns:
             Dictionary mapping metadata field names to formatted string values,
-            including size (bytes), resolution, fps, duration (minutes), weight, 
+            including size (bytes), resolution, fps, duration (minutes), weight,
             and bit rate (Kbps).
         """
         metadata = video.metadata
@@ -197,4 +197,4 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
             "duration": f"{metadata.duration / 60:.0f}m" if metadata.duration is not None else "unknown",
             "weight": f"{video.weight:.2f}" if metadata.duration is not None else "unknown",
             "bit_rate": f"{metadata.bit_rate_k}K" if metadata.bit_rate_k is not None else "unknown",
-        } 
+        }

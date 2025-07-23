@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks.video import Video, VideoTask
 from ray_curator.tasks import _EmptyTask
+from ray_curator.tasks.video import Video, VideoTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
 
 
@@ -27,7 +27,7 @@ class VideoListStage(ProcessingStage[_EmptyTask, VideoTask]):
     Args:
         input_video_path: Path to the directory containing video files to process
         video_limit: Maximum number of video files to process (-1 for unlimited)
-        
+
     Note:
         This stage only discovers and lists files - actual video reading and metadata
         extraction is performed by subsequent stages like VideoReaderStage.
@@ -38,7 +38,7 @@ class VideoListStage(ProcessingStage[_EmptyTask, VideoTask]):
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
-        
+
         Returns:
             Tuple of ([], []) - this stage requires no input attributes as it
             generates tasks from filesystem discovery rather than processing existing tasks.
@@ -47,7 +47,7 @@ class VideoListStage(ProcessingStage[_EmptyTask, VideoTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define the output attributes produced by this stage.
-        
+
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
             - top_level_attrs: ["data"] - produces VideoTask.data
