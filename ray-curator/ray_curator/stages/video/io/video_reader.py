@@ -1,8 +1,10 @@
 import pathlib
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 
+from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import Video, VideoTask, _EmptyTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
@@ -20,6 +22,12 @@ class VideoReaderStage(ProcessingStage[_EmptyTask, VideoTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["input_video"]
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
 
     def process(self, _: _EmptyTask) -> list[VideoTask]:
         """Process a single group of video files."""

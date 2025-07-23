@@ -3,11 +3,13 @@ import pathlib
 import subprocess
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
 from ray_curator.tasks import Clip, Video, VideoTask
@@ -76,10 +78,17 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         return Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["source_bytes"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_ACTOR_STAGE: True,
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data

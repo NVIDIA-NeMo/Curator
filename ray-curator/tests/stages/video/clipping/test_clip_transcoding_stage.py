@@ -96,10 +96,11 @@ class TestClipTranscodingStage:
 
     def test_inputs_outputs(self) -> None:
         """Test that inputs and outputs return the correct values."""
-        inputs, _ = self.stage.inputs()
+        inputs, input_additional = self.stage.inputs()
         outputs, _ = self.stage.outputs()
 
         assert inputs == ["data"]
+        assert input_additional == ["source_bytes"]
         assert outputs == ["data"]
 
     def test_setup_valid_encoders(self) -> None:
@@ -117,6 +118,16 @@ class TestClipTranscodingStage:
 
         with pytest.raises(ValueError, match="Expected encoder of"):
             stage.setup()
+
+    def test_ray_stage_spec(self) -> None:
+        """Test that ray_stage_spec returns the correct values."""
+        spec = self.stage.ray_stage_spec()
+
+        # Verify the expected keys and values based on the git diff
+        from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+        assert spec[RayStageSpecKeys.IS_ACTOR_STAGE] is True
+        assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
+        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
 
     def test_resources_cpu_encoder(self) -> None:
         """Test resource requirements for CPU encoders."""
