@@ -8,14 +8,14 @@ from ray_curator.tasks import Video, VideoTask
 
 
 @dataclass
-class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
+class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that downloads video files from storage and extracts metadata.
 
     This class processes video files through a series of steps including downloading,
     extracting metadata, and storing the results in the task.
     """
     verbose: bool = False
-    _name: str = "video_download"
+    _name: str = "video_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["input_video"]
@@ -142,4 +142,4 @@ class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
             "duration": f"{metadata.duration / 60:.0f}m" if metadata.duration is not None else "unknown",
             "weight": f"{video.weight:.2f}" if metadata.duration is not None else "unknown",
             "bit_rate": f"{metadata.bit_rate_k}K" if metadata.bit_rate_k is not None else "unknown",
-        }
+        } 

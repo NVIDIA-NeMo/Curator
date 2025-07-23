@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
+from ray_curator.stages.video.io.video_reader import VideoReaderStage
 from ray_curator.stages.video.io.video_list import VideoListStage
 from ray_curator.tasks import VideoTask, _EmptyTask
 
@@ -10,7 +10,7 @@ from ray_curator.tasks import VideoTask, _EmptyTask
 class VideoReaderDownloadStage(CompositeStage[_EmptyTask, VideoTask]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
-    This stage combines VideoListStage and VideoDownloadStage into a single
+    This stage combines VideoListStage and VideoReaderStage into a single
     high-level operation for reading video files from a directory and processing
     them with metadata extraction.
 
@@ -35,14 +35,14 @@ class VideoReaderDownloadStage(CompositeStage[_EmptyTask, VideoTask]):
         """Decompose into constituent execution stages.
 
         Returns:
-            List of processing stages: [VideoListStage, VideoDownloadStage]
+            List of processing stages: [VideoListStage, VideoReaderStage]
         """
         reader_stage = VideoListStage(
             input_video_path=self.input_video_path,
             video_limit=self.video_limit
         )
 
-        download_stage = VideoDownloadStage(
+        download_stage = VideoReaderStage(
             verbose=self.verbose
         )
 

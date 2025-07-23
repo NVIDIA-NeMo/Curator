@@ -1,6 +1,6 @@
 import pytest
 
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
+from ray_curator.stages.video.io.video_reader import VideoReaderStage
 from ray_curator.stages.video.io.video_list import VideoListStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 from ray_curator.tasks import _EmptyTask
@@ -57,9 +57,9 @@ class TestVideoReaderDownloadStage:
         assert reader_stage.input_video_path == "/test/videos"
         assert reader_stage.video_limit == 50
 
-        # Second stage should be VideoDownloadStage
+        # Second stage should be VideoReaderStage
         download_stage = stages[1]
-        assert isinstance(download_stage, VideoDownloadStage)
+        assert isinstance(download_stage, VideoReaderStage)
         assert download_stage.verbose is True
 
     def test_decompose_default_values(self):
@@ -90,10 +90,10 @@ class TestVideoReaderDownloadStage:
         """Test that outputs() method delegates to the last constituent stage."""
         stage = VideoReaderDownloadStage(input_video_path="/test/path")
 
-        # Should delegate to VideoDownloadStage.outputs()
+        # Should delegate to VideoReaderStage.outputs()
         top_level_attrs, data_attrs = stage.outputs()
 
-        # VideoDownloadStage returns (["data"], ["source_bytes", "metadata"])
+        # VideoReaderStage returns (["data"], ["source_bytes", "metadata"])
         assert top_level_attrs == ["data"]
         assert data_attrs == ["source_bytes", "metadata"]
 
@@ -159,7 +159,7 @@ class TestVideoReaderDownloadStage:
                 "name": "custom_reader",
                 "batch_size": 4
             },
-            "video_download": {
+            "video_reader": {
                 "name": "custom_download",
                 "batch_size": 2
             }
@@ -168,7 +168,7 @@ class TestVideoReaderDownloadStage:
         assert configured_stage is stage
         assert len(stage._with_operations) == 1
         assert stage._with_operations[0]["video_list"]["name"] == "custom_reader"
-        assert stage._with_operations[0]["video_download"]["name"] == "custom_download"
+        assert stage._with_operations[0]["video_reader"]["name"] == "custom_download"
 
     def test_with_method_chaining(self):
         """Test chaining multiple with_() calls."""
@@ -177,13 +177,13 @@ class TestVideoReaderDownloadStage:
         stage.with_({
             "video_list": {"batch_size": 4}
         }).with_({
-            "video_download": {"batch_size": 2}
+            "video_reader": {"batch_size": 2}
         })
 
         # Should have two with operations
         assert len(stage._with_operations) == 2
         assert stage._with_operations[0] == {"video_list": {"batch_size": 4}}
-        assert stage._with_operations[1] == {"video_download": {"batch_size": 2}}
+        assert stage._with_operations[1] == {"video_reader": {"batch_size": 2}}
 
     def test_decompose_and_apply_with(self):
         """Test decompose_and_apply_with method applies configurations correctly."""
@@ -195,7 +195,7 @@ class TestVideoReaderDownloadStage:
                 "name": "configured_reader",
                 "batch_size": 8
             },
-            "video_download": {
+            "video_reader": {
                 "name": "configured_download",
                 "batch_size": 4
             }
