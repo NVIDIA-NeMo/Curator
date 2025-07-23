@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import Video, VideoTask
+from ray_curator.tasks.video import Video, VideoTask
 
 
 @dataclass

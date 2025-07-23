@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.video.io.video_reader import VideoReaderStage
 from ray_curator.stages.video.io.video_list import VideoListStage
-from ray_curator.tasks import VideoTask, _EmptyTask
+from ray_curator.tasks.video import VideoTask
+from ray_curator.tasks import _EmptyTask
 
 
 @dataclass

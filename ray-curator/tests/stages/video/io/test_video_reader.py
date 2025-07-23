@@ -5,7 +5,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from ray_curator.stages.video.io.video_reader import VideoReaderStage
-from ray_curator.tasks import Video, VideoMetadata, VideoTask
+from ray_curator.tasks.video import Video, VideoMetadata, VideoTask
 
 
 class TestVideoReaderStage:

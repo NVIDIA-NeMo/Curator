@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import Video, VideoTask, _EmptyTask
+from ray_curator.tasks.video import Video, VideoTask
+from ray_curator.tasks import _EmptyTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
 
 

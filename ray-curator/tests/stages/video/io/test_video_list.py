@@ -7,7 +7,8 @@ from unittest.mock import patch
 import pytest
 
 from ray_curator.stages.video.io.video_list import VideoListStage
-from ray_curator.tasks import Video, VideoTask, _EmptyTask
+from ray_curator.tasks.video import Video, VideoTask
+from ray_curator.tasks import _EmptyTask
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
