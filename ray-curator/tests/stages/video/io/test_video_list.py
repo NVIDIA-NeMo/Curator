@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.video.io.video_reader import VideoListStage
+from ray_curator.stages.video.io.video_list import VideoListStage
 from ray_curator.tasks import Video, VideoTask, _EmptyTask
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ class TestVideoListStage:
         stage = VideoListStage(input_video_path="/test/path", video_limit=10)
         assert stage.video_limit == 10
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
     def test_process_success(self, mock_get_files: "MagicMock") -> None:
         """Test process method with successful file discovery."""
         mock_get_files.return_value = ["/test/video1.mp4", "/test/video2.avi"]
@@ -61,7 +61,7 @@ class TestVideoListStage:
             keep_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
         )
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
     def test_process_with_video_limit(self, mock_get_files: "MagicMock") -> None:
         """Test process method with video limit applied."""
         mock_get_files.return_value = [
@@ -78,7 +78,7 @@ class TestVideoListStage:
         assert result[0].task_id == "/test/video1.mp4_processed"
         assert result[1].task_id == "/test/video2.avi_processed"
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
     def test_process_no_files_found(self, mock_get_files: "MagicMock") -> None:
         """Test process method when no files are found."""
         mock_get_files.return_value = []
@@ -95,7 +95,7 @@ class TestVideoListStage:
         with pytest.raises(ValueError, match="input_video_path is not set"):
             stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
     def test_process_file_extensions(self, mock_get_files: "MagicMock") -> None:
         """Test process method filters for correct file extensions."""
         mock_get_files.return_value = ["/test/video1.mp4"]
@@ -113,7 +113,7 @@ class TestVideoListStage:
         """Test that VideoTask objects are created correctly."""
         video_path = pathlib.Path("/test/video.mp4")
 
-        with patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under", return_value=[str(video_path)]):
+        with patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under", return_value=[str(video_path)]):
             stage = VideoListStage(input_video_path="/test/path")
             result = stage.process(_EmptyTask(task_id="empty", dataset_name="empty", data=None))
 
@@ -126,7 +126,7 @@ class TestVideoListStage:
             assert isinstance(video_task.data, Video)
             assert video_task.data.input_video == video_path
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
     def test_process_string_to_pathlib_conversion(self, mock_get_files: "MagicMock") -> None:
         """Test that string file paths are converted to pathlib.Path objects."""
         mock_get_files.return_value = ["/test/video1.mp4", "/test/video2.avi"]
@@ -140,7 +140,7 @@ class TestVideoListStage:
         assert result[0].data.input_video == pathlib.Path("/test/video1.mp4")
         assert result[1].data.input_video == pathlib.Path("/test/video2.avi")
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
     def test_process_unlimited_video_limit(self, mock_get_files: "MagicMock") -> None:
         """Test process method with unlimited video limit (default -1)."""
         mock_get_files.return_value = [
@@ -156,8 +156,8 @@ class TestVideoListStage:
         # Should process all files when video_limit is -1
         assert len(result) == 4
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
-    @patch("ray_curator.stages.video.io.video_reader.logger")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.logger")
     def test_process_logging(self, mock_logger: "MagicMock", mock_get_files: "MagicMock") -> None:
         """Test process method logs appropriate messages."""
         mock_get_files.return_value = ["/test/video1.mp4", "/test/video2.avi"]
@@ -168,8 +168,8 @@ class TestVideoListStage:
         # Check that info is logged about files found
         mock_logger.info.assert_called_with("Found 2 files under /test/path")
 
-    @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
-    @patch("ray_curator.stages.video.io.video_reader.logger")
+    @patch("ray_curator.stages.video.io.video_list.get_all_files_paths_under")
+    @patch("ray_curator.stages.video.io.video_list.logger")
     def test_process_logging_with_limit(self, mock_logger: "MagicMock", mock_get_files: "MagicMock") -> None:
         """Test process method logs appropriate messages when limit is applied."""
         mock_get_files.return_value = [

@@ -1,7 +1,7 @@
 import pytest
 
 from ray_curator.stages.video.io.video_download import VideoDownloadStage
-from ray_curator.stages.video.io.video_reader import VideoListStage
+from ray_curator.stages.video.io.video_list import VideoListStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 from ray_curator.tasks import _EmptyTask
 
