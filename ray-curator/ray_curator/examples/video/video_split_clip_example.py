@@ -12,6 +12,7 @@ from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAesthet
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
+from ray_curator.stages.video.preview.preview import PreviewStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy
 
 
@@ -136,6 +137,13 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
         raise ValueError(msg)
 
+    if args.generate_previews:
+        pipeline.add_stage(PreviewStage(
+            target_fps=args.preview_target_fps,
+            target_height=args.preview_target_height,
+            verbose=args.verbose,
+        ))
+
     pipeline.add_stage(
         ClipWriterStage(
             output_path=args.output_clip_path,
@@ -143,7 +151,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
             generate_embeddings=args.generate_embeddings,
-            generate_previews=False, # TODO: Change this once we have a preview stage
+            generate_previews=args.generate_previews,
             generate_captions=False, # TODO: Change this once we have a caption stage
             embedding_algorithm=args.embedding_algorithm,
             caption_models=None, # TODO: Change this once we have a caption stage
@@ -434,7 +442,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--embedding-algorithm",
         type=str,
-        default="internvideo2",
+        default="cosmos-embed1-224p",
         choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p", "internvideo2"],
         help="Embedding algorithm to use.",
     )
@@ -450,6 +458,25 @@ if __name__ == "__main__":
         action="store_false",
         default=True,
         help="Whether to generate embeddings for clips.",
+    )
+    parser.add_argument(
+        "--generate-previews",
+        dest="generate_previews",
+        action="store_true",
+        default=False,
+        help="Whether to generate previews for clip windows.",
+    )
+    parser.add_argument(
+        "--preview-target-fps",
+        type=int,
+        default=1,
+        help="Target FPS for preview generation.",
+    )
+    parser.add_argument(
+        "--preview-target-height",
+        type=int,
+        default=240,
+        help="Target height for preview generation.",
     )
     args = parser.parse_args()
     main(args)
