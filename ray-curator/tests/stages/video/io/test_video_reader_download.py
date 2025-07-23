@@ -191,7 +191,7 @@ class TestVideoReaderDownloadStage:
 
         # Configure both stages
         stage.with_({
-            "video_reader": {
+            "video_list": {
                 "name": "configured_reader",
                 "batch_size": 8
             },

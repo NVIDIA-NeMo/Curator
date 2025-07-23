@@ -19,7 +19,7 @@ class TestVideoListStage:
     def test_stage_properties(self) -> None:
         """Test stage properties."""
         stage = VideoListStage(input_video_path="/test/path")
-        assert stage.name == "video_reader"
+        assert stage.name == "video_list"
         assert stage.inputs() == ([], [])
         assert stage.outputs() == (["data"], ["input_video"])
 
