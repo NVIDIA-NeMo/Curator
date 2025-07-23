@@ -124,7 +124,6 @@ class TestFilterModule:
         letter_filter = LetterCountFilter()
         filter_step = ScoreFilter(letter_filter, text_field="documents")
 
-        filter_step.setup()
         filtered_data = filter_step.process(letter_count_data)
 
         expected_data = DocumentBatch(
@@ -144,7 +143,6 @@ class TestFilterModule:
             score_field=score_field,
         )
 
-        score_step.setup()
         scored_data = score_step.process(letter_count_data)
 
         expected_scores = pd.Series([2, 3, 5, 7])
@@ -160,7 +158,6 @@ class TestFilterModule:
             score_field=score_field,
         )
 
-        score_step.setup()
         scored_data = score_step.process(letter_count_data)
 
         expected_scores = pd.Series([2, 3, 5, 7])
@@ -172,7 +169,6 @@ class TestFilterModule:
         score_field = "count_a"
         filter_step = ScoreFilter(letter_filter, text_field="documents", score_field=score_field)
 
-        filter_step.setup()
         filtered_data = filter_step.process(letter_count_data)
 
         expected_data = DocumentBatch(
@@ -192,12 +188,10 @@ class TestFilterModule:
             score_field=score_field,
         )
 
-        score_step.setup()
         scored_data = score_step.process(letter_count_data)
 
         filter_step = Filter(letter_filter.keep_document, score_field)
 
-        filter_step.setup()
         filtered_data = filter_step.process(scored_data)
 
         expected_data = DocumentBatch(
@@ -217,12 +211,10 @@ class TestFilterModule:
             score_field=score_field,
         )
 
-        score_step.setup()
         scored_data = score_step.process(letter_count_data)
 
         filter_step = Filter(letter_filter, score_field)
 
-        filter_step.setup()
         filtered_data = filter_step.process(scored_data)
 
         expected_data = DocumentBatch(
@@ -237,12 +229,135 @@ class TestFilterModule:
         letter_filter = LetterCountFilter()
         filter_step = ScoreFilter(letter_filter, text_field="documents", invert=True)
 
-        filter_step.setup()
         filtered_data = filter_step.process(letter_count_data)
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"documents": ["Two aa", "a a Three a"]}),
             task_id="batch_1_letter_count",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
+    def test_score_filter_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
+        if score_field == "a_count":
+            with pytest.raises(ValueError):  # noqa: PT011
+                ScoreFilter(
+                    [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+                    text_field="documents",
+                    score_field=score_field,
+                )
+            return
+
+        filters = ScoreFilter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=score_field,
+        )
+
+        # Zip with strict=True should catch this case
+        if score_field == ["a_count"]:
+            pytest.raises(ValueError, filters.process, letter_count_data)  # noqa: PT011
+            return
+
+        filtered_data = filters.process(letter_count_data)
+
+        if score_field is None:
+            expected_df = pd.DataFrame({"documents": ["aaaSeven aaaa"]})
+        else:
+            expected_df = pd.DataFrame({"documents": ["aaaSeven aaaa"], "a_count": [7], "e_count": [2]})
+
+        expected_data = DocumentBatch(
+            data=expected_df,
+            task_id="batch_1_score_filter_chain",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
+    def test_score_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
+        if score_field in [None, "a_count"]:
+            with pytest.raises(ValueError) if score_field is None else pytest.raises(TypeError):  # noqa: PT011
+                Score(
+                    [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+                    text_field="documents",
+                    score_field=score_field,
+                )
+            return
+
+        filters = Score(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+            score_field=score_field,
+        )
+
+        # Zip with strict=True should catch this case
+        if score_field == ["a_count"]:
+            pytest.raises(ValueError, filters.process, letter_count_data)  # noqa: PT011
+            return
+
+        filtered_data = filters.process(letter_count_data)
+
+        expected_df = pd.DataFrame(
+            {
+                "documents": ["Two aa", "a a Three a", "Five aaa aa", "aaaSeven aaaa"],
+                "a_count": [2, 3, 5, 7],
+                "e_count": [0, 2, 1, 2],
+            }
+        )
+
+        expected_data = DocumentBatch(
+            data=expected_df,
+            task_id="batch_1_score_fn_chain",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    @pytest.mark.parametrize("filter_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
+    def test_filter_chain(self, filter_field: list[str] | None) -> None:
+        letter_count_data = DocumentBatch(
+            data=pd.DataFrame(
+                {
+                    "documents": ["Two aa", "a a Three a", "Five aaa aa", "aaaSeven aaaa"],
+                    "a_count": [2, 3, 5, 7],
+                    "e_count": [0, 2, 1, 2],
+                }
+            ),
+            task_id="batch_1",
+            dataset_name="test_1",
+        )
+
+        if filter_field in [None, "a_count"]:
+            with pytest.raises(ValueError) if filter_field is None else pytest.raises(TypeError):  # noqa: PT011
+                Filter(
+                    [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+                    filter_field=filter_field,
+                )
+            return
+
+        filters = Filter(
+            [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
+            filter_field=filter_field,
+        )
+
+        # Zip with strict=True should catch this case
+        if filter_field == ["a_count"]:
+            pytest.raises(ValueError, filters.process, letter_count_data)  # noqa: PT011
+            return
+
+        filtered_data = filters.process(letter_count_data)
+
+        expected_df = pd.DataFrame(
+            {
+                "documents": ["aaaSeven aaaa"],
+                "a_count": [7],
+                "e_count": [2],
+            }
+        )
+
+        expected_data = DocumentBatch(
+            data=expected_df,
+            task_id="batch_1_filter_fn_chain",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -253,7 +368,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["", "This is a test case.", "%$^%$^%$&^$()))))", "$aaa"])
         filters = ScoreFilter(NonAlphaNumericFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -274,7 +388,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(SymbolsToWordsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -288,7 +401,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["purely letters", "34134543", "$!@$@!$!@", "abcdefghi1"])
         filters = ScoreFilter(NumbersFilter(max_number_to_text_ratio=0.1))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -310,7 +422,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(UrlsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -339,7 +450,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(BulletsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -361,7 +471,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["\t\n\r", "good", "50%\n\n\n", "123\b"])
         filters = ScoreFilter(WhiteSpaceFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -375,7 +484,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["()", "(not good)", "this is completely absolutely fine", "123456789("])
         filters = ScoreFilter(ParenthesesFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -389,7 +497,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["tiny", "large"])
         filters = ScoreFilter(LongWordFilter(max_word_length=4))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -403,7 +510,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["", "one", "two words", "$#@$ %$@$#@ !#@!", "one two three four five"])
         filters = ScoreFilter(WordCountFilter(min_words=2, max_words=4))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -417,7 +523,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["", "你好。", "我喜欢学习中文。"])
         filters = ScoreFilter(WordCountFilter(min_words=2, max_words=5, lang="zh"))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -432,7 +537,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["", "猫が寝ます。", "私は日本語のテキストを分割します。"])
         filters = ScoreFilter(WordCountFilter(min_words=5, max_words=11, lang="ja"))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -452,7 +556,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(BoilerPlateStringFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -481,7 +584,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(MeanWordLengthFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -495,7 +597,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["totally unique", "half.\nhalf."])
         filters = ScoreFilter(RepeatedLinesFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -509,7 +610,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["totally unique", "half.\n\nhalf."])
         filters = ScoreFilter(RepeatedParagraphsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -530,7 +630,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(RepeatedLinesByCharFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -551,7 +650,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(RepeatedParagraphsByCharFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -572,7 +670,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(RepeatingTopNGramsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -593,7 +690,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["a a b b a a b b", "totally fine", "a a a a this should be fine as well"])
         filters = ScoreFilter(RepeatingDuplicateNGramsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -607,7 +703,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["not good", "good.", "just\n barely\n fine\n ok\n yep."])
         filters = ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.8))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -621,7 +716,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["not good...", "good.", "just...\n barely...\n fine...\n ok...\n yep."])
         filters = ScoreFilter(EllipsisFilter(max_num_lines_ending_with_ellipsis_ratio=0.8))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -635,7 +729,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["uncommon", "the and", "the and and of to"])
         filters = ScoreFilter(CommonEnglishWordsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -649,7 +742,6 @@ class TestHeuristicFilters:
         dataset = list_to_dataset(["totally fine", "good good good good !", "@"])
         filters = ScoreFilter(WordsWithoutAlphabetsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -669,7 +761,6 @@ class TestHeuristicFilters:
         )
         filters = ScoreFilter(PornographicUrlsFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -693,8 +784,6 @@ class TestHeuristicFilters:
         filter1 = ScoreFilter(HistogramFilter(lang="en"))
         filter2 = ScoreFilter(HistogramFilter(lang="zh"))
 
-        filter1.setup()
-        filter2.setup()
         filtered_data1 = filter1.process(dataset)
         filtered_data2 = filter2.process(dataset)
 
@@ -760,7 +849,6 @@ class TestTokenCountFilter:
         token_filter = TokenCountFilter(tokenizer, min_tokens=2, max_tokens=3)
         filter_step = ScoreFilter(token_filter, text_field="text")
 
-        filter_step.setup()
         filtered_dataset = filter_step.process(dataset)
 
         # We expect to keep only the documents with exactly 2 or 3 tokens.
@@ -786,7 +874,6 @@ class TestTokenCountFilter:
         token_filter = TokenCountFilter(tokenizer)
         filter_step = ScoreFilter(token_filter, text_field="text")
 
-        filter_step.setup()
         filtered_dataset = filter_step.process(dataset)
 
         # We expect to keep all documents.
@@ -849,7 +936,6 @@ class TestSubstringFilter:
         filter_prefix = SubstringFilter("Hello", "prefix")
         filter_step = ScoreFilter(filter_prefix, text_field="text")
 
-        filter_step.setup()
         filtered_dataset = filter_step.process(dataset)
 
         # Expect only those records where the text starts with "Hello".
@@ -873,7 +959,6 @@ class TestSubstringFilter:
         filter_suffix = SubstringFilter("end", "suffix")
         filter_step = ScoreFilter(filter_suffix, text_field="text")
 
-        filter_step.setup()
         filtered_dataset = filter_step.process(dataset)
 
         # Expect only those records that end with "end".
@@ -891,7 +976,6 @@ class TestSubstringFilter:
         filter_any = SubstringFilter("test", "any")
         filter_step = ScoreFilter(filter_any, text_field="text")
 
-        filter_step.setup()
         filtered_dataset = filter_step.process(dataset)
 
         # Expect documents that contain "test" anywhere.
@@ -912,7 +996,6 @@ class TestCodeFilters:
         doc_4 = "'''Good comment'''\nprint('hello world')"
         dataset = list_to_dataset([doc_1, doc_2, doc_3, doc_4])
         filters = ScoreFilter(PythonCommentToCodeFilter())
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -930,7 +1013,6 @@ class TestCodeFilters:
         dataset = list_to_dataset([doc_1, doc_2, doc_3, doc_4])
         filters = ScoreFilter(GeneralCommentToCodeFilter("text/x-c++"))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -951,7 +1033,6 @@ class TestCodeFilters:
         dataset = list_to_dataset([doc_1, doc_2, doc_3])
         filters = ScoreFilter(NumberOfLinesOfCodeFilter(min_lines=2, max_lines=3))
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -965,7 +1046,6 @@ class TestCodeFilters:
         dataset = list_to_dataset(["no header", "<?xml version=1.0>", "slightly offset <?xml version="])
         filters = ScoreFilter(XMLHeaderFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -979,7 +1059,6 @@ class TestCodeFilters:
         dataset = list_to_dataset(["full of alphabet", "<>?$#@!", "mixed <>"])
         filters = ScoreFilter(AlphaFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -1028,7 +1107,6 @@ class TestCodeFilters:
         dataset = list_to_dataset([good_doc, boilerplate_heavy_doc, small_doc])
         filters = ScoreFilter(HTMLBoilerplateFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -1065,7 +1143,6 @@ class TestCodeFilters:
         dataset = list_to_dataset([good_cpp])
         filters = ScoreFilter(per_extension_filter)
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -1151,7 +1228,6 @@ class TestClassifierFilters:
         dataset = list_to_dataset(["a", "b", "c", "d"])
         filters = ScoreFilter(FakeQualityFilter())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
@@ -1165,7 +1241,6 @@ class TestClassifierFilters:
         dataset = list_to_dataset(["a", "b", "c", "d"])
         filters = ScoreFilter(FakeLangId())
 
-        filters.setup()
         filtered_data = filters.process(dataset)
 
         expected_data = DocumentBatch(
