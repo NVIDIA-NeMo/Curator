@@ -239,7 +239,7 @@ class HFPromptTaskComplexityModelStage(HFModel):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column, "task_type_1", "task_type_2", "task_type_prob", "creativity_scope", "reasoning", "contextual_knowledge", "number_of_few_shots", "domain_knowledge", "no_label_reason", "constraint_ct"]
 
-    def setup(self, _: WorkerMetadata | None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self.model = CustomHFDeberta.from_pretrained(self.model_identifier).cuda().eval()
         self.model.set_autocast(self.autocast)
 

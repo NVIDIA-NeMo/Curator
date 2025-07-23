@@ -148,7 +148,7 @@ class HFAegisModelStage(HFModel):
         self.prob_column = prob_column
         self.autocast = autocast
 
-    def setup(self, _: WorkerMetadata | None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self.model = AegisModel(
             pretrained_model_name_or_path="meta-llama/LlamaGuard-7b",
             peft_model_name_or_path=self.model_identifier,
@@ -234,6 +234,7 @@ class WrapInPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     text_field: str
     max_chars: int
+    _name = "wrap_in_prompt"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
@@ -269,6 +270,7 @@ class PostProcessResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     pred_column: str
     raw_pred_column: str
     keep_raw_pred: bool
+    _name = "postprocess_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.raw_pred_column, "_hidden_text"]
@@ -276,7 +278,7 @@ class PostProcessResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column] + ([self.raw_pred_column] if self.keep_raw_pred else [])
 
-    def setup(self, _: WorkerMetadata | None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path="meta-llama/LlamaGuard-7b",
             padding_side="left",
@@ -401,7 +403,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.raw_pred_column] if self.raw_pred_column else [])
+        return ["data"], [self.pred_column] + ([self.raw_pred_column] if self.keep_raw_pred else [])
 
     def filter_by_category(self, value: str) -> bool:
         return value in self.filter_by

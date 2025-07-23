@@ -86,7 +86,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_actor_stage": True}
 
-    def setup_on_node(self, _node_info: NodeInfo | None, _worker_metadata: WorkerMetadata = None) -> None:
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
             snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
         except Exception as e:
@@ -215,7 +215,7 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column]
 
-    def setup_on_node(self, _node_info: NodeInfo | None, _worker_metadata: WorkerMetadata = None) -> None:
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
             snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
         except Exception as e:
@@ -333,7 +333,7 @@ class HFModelStage(HFModel):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column] + ([self.prob_column] if self.prob_column is not None else [])
 
-    def setup(self, _: WorkerMetadata | None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         self.model = HFDeberta.from_pretrained(self.model_identifier).cuda().eval()
         self.model.set_autocast(self.autocast)
 

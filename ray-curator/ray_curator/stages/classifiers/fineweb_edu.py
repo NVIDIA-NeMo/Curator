@@ -89,7 +89,7 @@ class HFFineWebModelStage(HFModel):
         model.forward = custom_forward
         return model
 
-    def setup(self, _: WorkerMetadata | None) -> None:
+    def setup(self, _: WorkerMetadata | None = None) -> None:
         model = AutoModelForSequenceClassification.from_pretrained(self.model_identifier).cuda()
         self.model = self.configure_forward(model, self.autocast)
 
