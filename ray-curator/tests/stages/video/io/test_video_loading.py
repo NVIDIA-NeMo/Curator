@@ -1,26 +1,27 @@
+"""Test suite for VideoLoadingStage."""
+
+from unittest.mock import patch
+
 import pytest
 
-from ray_curator.stages.video.io.video_list import VideoListStage
+from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.stages.video.io.video_loading import VideoLoadingStage
 from ray_curator.stages.video.io.video_reader import VideoReaderStage
-from ray_curator.tasks import _EmptyTask
 
 
 class TestVideoLoadingStage:
-    """Test suite for VideoLoadingStage composite stage."""
+    """Test suite for VideoLoadingStage composite functionality."""
 
-    def test_initialization_default_values(self):
-        """Test initialization with default parameter values."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+    def test_stage_initialization_default_values(self) -> None:
+        """Test VideoLoadingStage initialization with default values."""
+        stage = VideoLoadingStage(input_video_path="/test/videos")
 
-        assert stage.input_video_path == "/test/path"
+        assert stage.input_video_path == "/test/videos"
         assert stage.video_limit == -1
         assert stage.verbose is False
-        assert hasattr(stage, "_with_operations")  # Should be initialized by __post_init__
-        assert stage._with_operations == []
 
-    def test_initialization_custom_values(self):
-        """Test initialization with custom parameter values."""
+    def test_stage_initialization_custom_values(self) -> None:
+        """Test VideoLoadingStage initialization with custom values."""
         stage = VideoLoadingStage(
             input_video_path="/custom/path",
             video_limit=100,
@@ -30,16 +31,22 @@ class TestVideoLoadingStage:
         assert stage.input_video_path == "/custom/path"
         assert stage.video_limit == 100
         assert stage.verbose is True
-        assert hasattr(stage, "_with_operations")
-        assert stage._with_operations == []
 
-    def test_name_property(self):
-        """Test that the name property returns the correct value."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+    def test_stage_properties(self) -> None:
+        """Test stage properties are correctly defined."""
+        stage = VideoLoadingStage(input_video_path="/test/videos")
+
+        # Test stage name
         assert stage.name == "video_loading"
 
-    def test_decompose(self):
-        """Test that decompose returns the correct constituent stages."""
+        # Test that it's a composite stage (should raise error when trying to process)
+        from ray_curator.tasks import _EmptyTask
+        empty_task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        with pytest.raises(RuntimeError, match="Composite stage 'video_loading' should not be executed directly"):
+            stage.process(empty_task)
+
+    def test_decompose_basic(self) -> None:
+        """Test decomposition into constituent stages with basic parameters."""
         stage = VideoLoadingStage(
             input_video_path="/test/videos",
             video_limit=50,
@@ -51,204 +58,234 @@ class TestVideoLoadingStage:
         # Should return exactly 2 stages
         assert len(stages) == 2
 
-        # First stage should be VideoListStage
-        reader_stage = stages[0]
-        assert isinstance(reader_stage, VideoListStage)
-        assert reader_stage.input_video_path == "/test/videos"
-        assert reader_stage.video_limit == 50
+        # Check stage types and order
+        assert isinstance(stages[0], FilePartitioningStage)
+        assert isinstance(stages[1], VideoReaderStage)
 
-        # Second stage should be VideoReaderStage
-        download_stage = stages[1]
-        assert isinstance(download_stage, VideoReaderStage)
-        assert download_stage.verbose is True
+        # Check FilePartitioningStage configuration
+        file_stage = stages[0]
+        assert file_stage.file_paths == "/test/videos"
+        assert file_stage.files_per_partition == 1
+        assert file_stage.file_extensions == [".mp4", ".mov", ".avi", ".mkv", ".webm"]
+        assert file_stage.limit == 50
 
-    def test_decompose_default_values(self):
-        """Test decompose with default parameter values."""
-        stage = VideoLoadingStage(input_video_path="/default/path")
+        # Check VideoReaderStage configuration
+        reader_stage = stages[1]
+        assert reader_stage.verbose is True
+
+    def test_decompose_unlimited_videos(self) -> None:
+        """Test decomposition with unlimited video processing."""
+        stage = VideoLoadingStage(
+            input_video_path="/unlimited/videos",
+            video_limit=-1,
+            verbose=False
+        )
 
         stages = stage.decompose()
+        file_stage = stages[0]
+        reader_stage = stages[1]
 
-        reader_stage = stages[0]
-        assert reader_stage.input_video_path == "/default/path"
-        assert reader_stage.video_limit == -1
+        # With -1 limit, should pass -1 to file partitioning stage
+        assert file_stage.limit == -1
+        assert reader_stage.verbose is False
 
-        download_stage = stages[1]
-        assert download_stage.verbose is False
+    def test_decompose_different_paths(self) -> None:
+        """Test decomposition with different input paths."""
+        test_paths = [
+            "/home/user/videos",
+            "/mnt/storage/media",
+            "relative/path/videos",
+            "single_video.mp4"
+        ]
 
-    def test_inputs(self):
-        """Test that inputs() method delegates to the first constituent stage."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+        for path in test_paths:
+            stage = VideoLoadingStage(input_video_path=path)
+            stages = stage.decompose()
 
-        # Should delegate to VideoListStage.inputs()
-        top_level_attrs, data_attrs = stage.inputs()
+            file_stage = stages[0]
+            assert file_stage.file_paths == path
 
-        # VideoListStage returns ([], [])
-        assert top_level_attrs == []
-        assert data_attrs == []
-
-    def test_outputs(self):
-        """Test that outputs() method delegates to the last constituent stage."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
-
-        # Should delegate to VideoReaderStage.outputs()
-        top_level_attrs, data_attrs = stage.outputs()
-
-        # VideoReaderStage returns (["data"], ["source_bytes", "metadata"])
-        assert top_level_attrs == ["data"]
-        assert data_attrs == ["source_bytes", "metadata"]
-
-    def test_get_description_unlimited(self):
-        """Test get_description with unlimited video limit."""
+    def test_get_description_unlimited(self) -> None:
+        """Test get_description method with unlimited videos."""
         stage = VideoLoadingStage(
-            input_video_path="/my/videos",
+            input_video_path="/test/videos",
             video_limit=-1
         )
 
         description = stage.get_description()
         expected = (
-            "Reads video files from '/my/videos' "
+            "Reads video files from '/test/videos' "
             "(limit: unlimited) "
             "and downloads/processes them with metadata extraction"
         )
         assert description == expected
 
-    def test_get_description_limited(self):
-        """Test get_description with specific video limit."""
+    def test_get_description_limited(self) -> None:
+        """Test get_description method with limited videos."""
         stage = VideoLoadingStage(
-            input_video_path="/my/videos",
+            input_video_path="/test/videos",
             video_limit=25
         )
 
         description = stage.get_description()
         expected = (
-            "Reads video files from '/my/videos' "
+            "Reads video files from '/test/videos' "
             "(limit: 25) "
             "and downloads/processes them with metadata extraction"
         )
         assert description == expected
 
-    def test_with_method_single_stage_config(self):
-        """Test with_() method for configuring a single constituent stage."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+    def test_get_description_zero_limit(self) -> None:
+        """Test get_description method with zero limit."""
+        stage = VideoLoadingStage(
+            input_video_path="/test/videos",
+            video_limit=0
+        )
 
-        configured_stage = stage.with_({
-            "video_reader": {
-                "name": "custom_reader",
-                "batch_size": 4
-            }
-        })
+        description = stage.get_description()
+        expected = (
+            "Reads video files from '/test/videos' "
+            "(limit: unlimited) "
+            "and downloads/processes them with metadata extraction"
+        )
+        assert description == expected
 
-        # Should return the same instance
-        assert configured_stage is stage
+    def test_inputs_outputs_delegation(self) -> None:
+        """Test that inputs/outputs are properly delegated to constituent stages."""
+        stage = VideoLoadingStage(input_video_path="/test/videos")
 
-        # Should store the configuration
-        assert len(stage._with_operations) == 1
-        assert stage._with_operations[0] == {
-            "video_reader": {
-                "name": "custom_reader",
-                "batch_size": 4
-            }
-        }
+        # Should delegate to first stage for inputs
+        inputs = stage.inputs()
+        # FilePartitioningStage inputs should be empty
+        assert inputs == ([], [])
 
-    def test_with_method_multiple_stage_config(self):
-        """Test with_() method for configuring multiple constituent stages."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+        # Should delegate to last stage for outputs
+        outputs = stage.outputs()
+        # VideoReaderStage outputs
+        assert outputs == (["data"], ["source_bytes", "metadata"])
 
-        configured_stage = stage.with_({
-            "video_list": {
-                "name": "custom_reader",
-                "batch_size": 4
-            },
-            "video_reader": {
-                "name": "custom_download",
-                "batch_size": 2
-            }
-        })
+    def test_post_init_calls_super(self) -> None:
+        """Test that __post_init__ properly calls parent initialization."""
+        with patch("ray_curator.stages.base.CompositeStage.__init__") as mock_super_init:
+            VideoLoadingStage(input_video_path="/test/videos")
 
-        assert configured_stage is stage
-        assert len(stage._with_operations) == 1
-        assert stage._with_operations[0]["video_list"]["name"] == "custom_reader"
-        assert stage._with_operations[0]["video_reader"]["name"] == "custom_download"
+            # Should have called parent __init__
+            mock_super_init.assert_called_once()
 
-    def test_with_method_chaining(self):
-        """Test chaining multiple with_() calls."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+    def test_decompose_stage_independence(self) -> None:
+        """Test that each call to decompose returns independent stage instances."""
+        stage = VideoLoadingStage(
+            input_video_path="/test/videos",
+            video_limit=10,
+            verbose=True
+        )
 
-        stage.with_({
-            "video_list": {"batch_size": 4}
-        }).with_({
-            "video_reader": {"batch_size": 2}
-        })
+        # Get two decompositions
+        stages1 = stage.decompose()
+        stages2 = stage.decompose()
 
-        # Should have two with operations
-        assert len(stage._with_operations) == 2
-        assert stage._with_operations[0] == {"video_list": {"batch_size": 4}}
-        assert stage._with_operations[1] == {"video_reader": {"batch_size": 2}}
+        # Should be different instances
+        assert stages1[0] is not stages2[0]
+        assert stages1[1] is not stages2[1]
 
-    def test_decompose_and_apply_with(self):
-        """Test decompose_and_apply_with method applies configurations correctly."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+        # But should have same configuration
+        assert stages1[0].file_paths == stages2[0].file_paths
+        assert stages1[0].limit == stages2[0].limit
+        assert stages1[1].verbose == stages2[1].verbose
 
-        # Configure both stages
-        stage.with_({
-            "video_list": {
-                "name": "configured_reader",
-                "batch_size": 8
-            },
-            "video_reader": {
-                "name": "configured_download",
-                "batch_size": 4
-            }
-        })
+    def test_decompose_preserves_parameters(self) -> None:
+        """Test that decompose preserves all input parameters correctly."""
+        stage = VideoLoadingStage(
+            input_video_path="/complex/path/with spaces",
+            video_limit=999,
+            verbose=True
+        )
 
-        # Apply configurations
-        configured_stages = stage.decompose_and_apply_with()
+        stages = stage.decompose()
+        file_stage, reader_stage = stages
 
-        assert len(configured_stages) == 2
+        # Ensure all parameters are correctly passed through
+        assert file_stage.file_paths == "/complex/path/with spaces"
+        assert file_stage.files_per_partition == 1
+        assert file_stage.limit == 999
+        assert set(file_stage.file_extensions) == {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
-        # Check reader stage configuration
-        reader_stage = configured_stages[0]
-        assert reader_stage.name == "configured_reader"
-        assert reader_stage.batch_size == 8
+        assert reader_stage.verbose is True
 
-        # Check download stage configuration
-        download_stage = configured_stages[1]
-        assert download_stage.name == "configured_download"
-        assert download_stage.batch_size == 4
+    @pytest.mark.parametrize(("video_limit", "expected_limit"), [
+        (-1, -1),
+        (0, 0),
+        (1, 1),
+        (100, 100),
+        (999999, 999999)
+    ])
+    def test_decompose_video_limit_values(self, video_limit: int, expected_limit: int) -> None:
+        """Test decompose with various video limit values."""
+        stage = VideoLoadingStage(
+            input_video_path="/test/videos",
+            video_limit=video_limit
+        )
 
-    def test_process_raises_runtime_error(self):
-        """Test that process() raises RuntimeError as composite stages shouldn't execute directly."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+        stages = stage.decompose()
+        file_stage = stages[0]
 
-        # Create a dummy task
-        task = _EmptyTask(task_id="test", dataset_name="test", data=None)
+        assert file_stage.limit == expected_limit
 
-        with pytest.raises(RuntimeError) as exc_info:
-            stage.process(task)
+    @pytest.mark.parametrize("verbose", [True, False])
+    def test_decompose_verbose_flag(self, verbose: bool) -> None:
+        """Test decompose with different verbose flag values."""
+        stage = VideoLoadingStage(
+            input_video_path="/test/videos",
+            verbose=verbose
+        )
 
-        error_msg = str(exc_info.value)
-        assert "Composite stage 'video_loading' should not be executed directly" in error_msg
-        assert "It should be decomposed into execution stages during planning" in error_msg
+        stages = stage.decompose()
+        reader_stage = stages[1]
 
-    def test_with_invalid_stage_name(self):
-        """Test that with_() with invalid stage name raises error during decompose_and_apply_with."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+        assert reader_stage.verbose is verbose
 
-        stage.with_({
-            "invalid_stage_name": {
-                "name": "test"
-            }
-        })
+    def test_composite_stage_behavior(self) -> None:
+        """Test that VideoLoadingStage behaves correctly as a CompositeStage."""
+        stage = VideoLoadingStage(input_video_path="/test/videos")
 
-                # Should raise ValueError when trying to apply invalid configuration
-        with pytest.raises(ValueError, match="Stage invalid_stage_name not found in composite stage"):
-            stage.decompose_and_apply_with()
+        # Should be a CompositeStage
+        from ray_curator.stages.base import CompositeStage
+        assert isinstance(stage, CompositeStage)
 
-    def test_post_init_called(self):
-        """Test that __post_init__ properly initializes parent CompositeStage."""
-        stage = VideoLoadingStage(input_video_path="/test/path")
+        # Should have the correct generic type annotations
+        # (This is more of a static analysis check, but we can verify the structure)
+        stages = stage.decompose()
+        assert len(stages) > 0
+        assert all(hasattr(s, "process") for s in stages)
 
-        # _with_operations should be initialized as empty list
-        assert hasattr(stage, "_with_operations")
-        assert isinstance(stage._with_operations, list)
-        assert len(stage._with_operations) == 0
+    def test_file_extensions_configuration(self) -> None:
+        """Test that the correct video file extensions are configured."""
+        stage = VideoLoadingStage(input_video_path="/test/videos")
+        stages = stage.decompose()
+        file_stage = stages[0]
+
+        expected_extensions = [".mp4", ".mov", ".avi", ".mkv", ".webm"]
+        assert file_stage.file_extensions == expected_extensions
+
+    def test_files_per_partition_configuration(self) -> None:
+        """Test that files_per_partition is correctly set to 1."""
+        stage = VideoLoadingStage(input_video_path="/test/videos")
+        stages = stage.decompose()
+        file_stage = stages[0]
+
+        # Should process one video file per partition for video processing
+        assert file_stage.files_per_partition == 1
+
+    def test_description_path_handling(self) -> None:
+        """Test description method handles various path formats correctly."""
+        test_cases = [
+            ("/simple/path", "'/simple/path'"),
+            ("/path with spaces/videos", "'/path with spaces/videos'"),
+            ("relative/path", "'relative/path'"),
+            ("file.mp4", "'file.mp4'"),
+        ]
+
+        for input_path, expected_path_in_desc in test_cases:
+            stage = VideoLoadingStage(input_video_path=input_path)
+            description = stage.get_description()
+            assert expected_path_in_desc in description

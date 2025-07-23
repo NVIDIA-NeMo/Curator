@@ -1,14 +1,17 @@
 import pathlib
+from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
+from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
 
 
 @dataclass
-class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
+class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     """Stage that reads video files from local filesystem and extracts metadata.
 
     This stage processes video files by reading their binary content from the local
@@ -37,9 +40,8 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
             - top_level_attrs: ["data"] - requires VideoTask.data to be populated
-            - data_attrs: ["input_video"] - requires Video.input_video path to be set
         """
-        return ["data"], ["input_video"]
+        return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         """Define the output attributes produced by this stage.
@@ -51,7 +53,7 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
         """
         return ["data"], ["source_bytes", "metadata"]
 
-    def process(self, task: VideoTask) -> VideoTask:
+    def process(self, task: FileGroupTask) -> VideoTask:
         """Process a video task by reading file bytes and extracting metadata.
 
         Performs the complete video processing workflow including reading the video
@@ -65,20 +67,34 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
             The same VideoTask with video.source_bytes and video.metadata populated.
             If errors occur, the task is returned with error information stored.
         """
-        video = task.data
+        files = task.data
+        if len(files) != 1:
+            msg = f"Expected 1 file, got {len(files)}"
+            raise ValueError(msg)
+        file_path = Path(files[0])
+
+        video = Video(input_video=file_path)
+        video_task = VideoTask(
+            task_id=f"{file_path}_processed",
+            dataset_name=task.dataset_name,
+            data=video,
+            _metadata=deepcopy(task._metadata),
+            _stage_perf=deepcopy(task._stage_perf),
+        )
+
         # Download video bytes
         if not self._download_video_bytes(video):
-            return task
+            return video_task
 
         # Extract metadata and validate video properties
         if not self._extract_and_validate_metadata(video):
-            return task
+            return video_task
 
         # Log video information
         if self.verbose:
             self._log_video_info(video)
 
-        return task
+        return video_task
 
     def _download_video_bytes(self, video: Video) -> bool:
         """Read video file bytes from the local filesystem.
@@ -104,7 +120,7 @@ class VideoReaderStage(ProcessingStage[VideoTask, VideoTask]):
             if isinstance(video.input_video, pathlib.Path):
                 with video.input_video.open("rb") as fp:
                     video.source_bytes = fp.read()
-            # TODO: Add support for S3
+            # @aot TODO: Add support for S3
             else:
                 _raise_s3_error()
         except Exception as e:  # noqa: BLE001
