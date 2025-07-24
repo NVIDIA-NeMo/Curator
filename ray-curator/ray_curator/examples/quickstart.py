@@ -18,6 +18,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.core.client import get_ray_client
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -203,10 +204,11 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
 def main() -> None:
     """Main function to run the pipeline."""
     # Create pipeline
+    get_ray_client()
     pipeline = Pipeline(name="sentiment_analysis", description="Analyze sentiment of sample sentences")
 
     # Add stages
-    pipeline.add_stage(TaskCreationStage(num_sentences_per_task=3, num_tasks=2))
+    pipeline.add_stage(TaskCreationStage(num_sentences_per_task=3, num_tasks=200))
     pipeline.add_stage(WordCountStage())
     pipeline.add_stage(SentimentStage(model_name="cardiffnlp/twitter-roberta-base-sentiment-latest", batch_size=2))
 
