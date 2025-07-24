@@ -28,6 +28,15 @@ class TestVideoDownloadStage:
         stage = VideoDownloadStage(verbose=True)
         assert stage.verbose is True
 
+    def test_ray_stage_spec(self) -> None:
+        """Test that ray_stage_spec returns the correct values."""
+        stage = VideoDownloadStage()
+        spec = stage.ray_stage_spec()
+
+        # Verify the expected keys and values based on the git diff
+        from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+        assert spec[RayStageSpecKeys.IS_ACTOR_STAGE] is True
+
     def test_download_video_bytes_success(self) -> None:
         """Test _download_video_bytes method with successful file reading."""
         # Create a mock file with test data

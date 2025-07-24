@@ -34,6 +34,15 @@ class TestVideoReaderStage:
         stage = VideoReaderStage(input_video_path="/test/path", video_limit=10)
         assert stage.video_limit == 10
 
+    def test_ray_stage_spec(self) -> None:
+        """Test that ray_stage_spec returns the correct values."""
+        stage = VideoReaderStage(input_video_path="/test/path")
+        spec = stage.ray_stage_spec()
+
+        # Verify the expected keys and values based on the git diff
+        from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+
     @patch("ray_curator.stages.video.io.video_reader.get_all_files_paths_under")
     def test_process_success(self, mock_get_files: "MagicMock") -> None:
         """Test process method with successful file discovery."""

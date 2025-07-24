@@ -372,7 +372,7 @@ class SplitPipeTask(Task[Video]):
             Fraction of processed video.
 
         """
-        return self.video.fraction
+        return self.data.fraction
 
     @property
     def weight(self) -> float:
@@ -382,7 +382,7 @@ class SplitPipeTask(Task[Video]):
             Weight of video.
 
         """
-        return self.video.weight
+        return self.data.weight
 
     def get_major_size(self) -> int:
         """Calculate memory size of video in the task.
@@ -391,4 +391,4 @@ class SplitPipeTask(Task[Video]):
             Total size in bytes.
 
         """
-        return self.video.get_major_size()
+        return self.data.get_major_size()

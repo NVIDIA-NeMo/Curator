@@ -1,8 +1,10 @@
 import pathlib
 from dataclasses import dataclass
+from typing import Any
 
 from loguru import logger
 
+from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import Video, VideoTask
 
@@ -22,6 +24,12 @@ class VideoDownloadStage(ProcessingStage[VideoTask, VideoTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes", "metadata"]
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_ACTOR_STAGE: True,
+        }
 
     def process(self, task: VideoTask) -> VideoTask:
         """Process a single video task.
