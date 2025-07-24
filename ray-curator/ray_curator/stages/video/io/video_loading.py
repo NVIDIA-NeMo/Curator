@@ -1,16 +1,17 @@
 from dataclasses import dataclass
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
+from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.stages.video.io.video_reader import VideoReaderStage
-from ray_curator.tasks import VideoTask, _EmptyTask
+from ray_curator.tasks import _EmptyTask
+from ray_curator.tasks.video import VideoTask
 
 
 @dataclass
-class VideoReaderDownloadStage(CompositeStage[_EmptyTask, VideoTask]):
+class VideoLoadingStage(CompositeStage[_EmptyTask, VideoTask]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
-    This stage combines VideoReaderStage and VideoDownloadStage into a single
+    This stage combines FilePartitioningStage and VideoReaderStage into a single
     high-level operation for reading video files from a directory and processing
     them with metadata extraction.
 
@@ -29,20 +30,22 @@ class VideoReaderDownloadStage(CompositeStage[_EmptyTask, VideoTask]):
 
     @property
     def name(self) -> str:
-        return "video_reader_download"
+        return "video_loading"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent execution stages.
 
         Returns:
-            List of processing stages: [VideoReaderStage, VideoDownloadStage]
+            List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
-        reader_stage = VideoReaderStage(
-            input_video_path=self.input_video_path,
-            video_limit=self.video_limit
+        reader_stage = FilePartitioningStage(
+            file_paths=self.input_video_path,
+            files_per_partition=1,
+            file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+            limit=self.video_limit,
         )
 
-        download_stage = VideoDownloadStage(
+        download_stage = VideoReaderStage(
             verbose=self.verbose
         )
 

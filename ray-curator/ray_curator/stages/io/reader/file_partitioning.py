@@ -26,6 +26,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     blocksize: int | str | None = None
     file_extensions: list[str] | None = None
     storage_options: dict[str, Any] | None = None
+    limit: int | None = None
     _name: str = "file_partitioning"
 
     def __post_init__(self):
@@ -79,6 +80,9 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         dataset_name = self._get_dataset_name(files)
 
         for i, file_group in enumerate(partitions):
+            if self.limit is not None and len(tasks) >= self.limit:
+                logger.info(f"Reached limit of {self.limit} file groups")
+                break
             file_task = FileGroupTask(
                 task_id=f"file_group_{i}",
                 dataset_name=dataset_name,
@@ -155,9 +159,16 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         """Parse size string like '128MB' to bytes."""
         size_str = size_str.upper().strip()
 
-        units = {"B": 1, "KB": 1024, "MB": 1024 * 1024, "GB": 1024 * 1024 * 1024, "TB": 1024 * 1024 * 1024 * 1024}
+        # Check units in order from longest to shortest to avoid partial matches
+        units = [
+            ("TB", 1024 * 1024 * 1024 * 1024),
+            ("GB", 1024 * 1024 * 1024),
+            ("MB", 1024 * 1024),
+            ("KB", 1024),
+            ("B", 1),
+        ]
 
-        for unit, multiplier in units.items():
+        for unit, multiplier in units:
             if size_str.endswith(unit):
                 number = float(size_str[: -len(unit)])
                 return int(number * multiplier)

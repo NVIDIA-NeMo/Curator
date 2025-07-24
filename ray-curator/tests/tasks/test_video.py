@@ -582,8 +582,3 @@ class TestVideoTask:
         )
 
         assert task.num_items == 1
-
-
-# Note: SplitPipeTask tests are commented out due to incomplete implementation
-# in the original code. The class references self.video instead of self.data
-# and is missing required abstract method implementations.
