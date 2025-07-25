@@ -43,6 +43,10 @@ ConnectedComponents = gpu_only_import_from(
 )
 FuzzyDuplicates = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.fuzzyduplicates", "FuzzyDuplicates")
 
+# PyTorch-related imports must come after all imports that require cuGraph
+# because of context cleanup issues between PyTorch and cuGraph
+# See this issue: https://github.com/rapidsai/cugraph/issues/2718
+
 EmbeddingCreator = gpu_only_import_from("nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator")
 ClusteringModel = gpu_only_import_from("nemo_curator.modules.semantic_dedup.clusteringmodel", "ClusteringModel")
 SemanticClusterLevelDedup = gpu_only_import_from(
@@ -50,10 +54,6 @@ SemanticClusterLevelDedup = gpu_only_import_from(
     "SemanticClusterLevelDedup",
 )
 SemDedup = gpu_only_import_from("nemo_curator.modules.semantic_dedup.semdedup", "SemDedup")
-
-# PyTorch-related imports must come after all imports that require cuGraph
-# because of context cleanup issues between PyTorch and cuGraph
-# See this issue: https://github.com/rapidsai/cugraph/issues/2718
 from .filter import Filter, ParallelScoreFilter, Score, ScoreFilter
 
 __all__ = [
