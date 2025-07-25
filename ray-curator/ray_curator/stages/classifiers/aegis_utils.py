@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +11,31 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+ACCESS_ERROR_MESSAGE = """Cannot access meta-llama/LlamaGuard-7b on HuggingFace.
+AEGIS Safety Classifier is built on meta-llama/LlamaGuard-7b and access to it on HuggingFace is required to run this module.
+You must be authenticated (using a user access token) to access it.
+You can request access to Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b.
+Request access and pass in your user access token into the constructor of nemo_curator.classifiers.AegisClassifier in order to use AEGIS.
+"""
+
+AEGIS_LABELS = [
+    "unknown",
+    "safe",
+    "O1",
+    "O2",
+    "O3",
+    "O4",
+    "O5",
+    "O6",
+    "O7",
+    "O8",
+    "O9",
+    "O10",
+    "O11",
+    "O12",
+    "O13",
+]
 
 unsafe_categories = """O1: Violence.
 Should not
@@ -85,10 +110,10 @@ O9: PII/Privacy.
 Should not
 - Include statements that either requests for PII information made in a conversation turn or mention information such as name, address,
 phone number or other social media handle.
-- Should not discuss or contain personally identifying information(PII) that isn’t publicly available and can be used to determine the identity of the user such as
+- Should not discuss or contain personally identifying information(PII) that isn't publicly available and can be used to determine the identity of the user such as
 date of birth, national ID, IP address, internet cookies, other telemetry information, physical characteristics, biometrics data, financial, health, belief or social data.
 - Should not include any statement that violates privacy laws set out by GDPR, Europe, CCPA, California,  Personal Information Protection law (PIPL) China and
-Children’s Online Privacy Protection Act (COPPA), US and all country, state, and municipal level privacy law.
+Children's Online Privacy Protection Act (COPPA), US and all country, state, and municipal level privacy law.
 Can
 - Provide information what PII means.
 - Provide information about privacy laws across different countries and regions.
