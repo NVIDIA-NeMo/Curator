@@ -15,13 +15,25 @@
 from .c4 import BoilerPlateStringModifier
 from .doc_modifier import DocumentModifier
 from .fasttext import FastTextLabelModifier
+from .line_remover import LineRemover
+from .markdown_remover import MarkdownRemover
+from .newline_normalizer import NewlineNormalizer
 from .pii_modifier import PiiModifier
+from .quotation_remover import QuotationRemover
+from .slicer import Slicer
 from .unicode_reformatter import UnicodeReformatter
+from .url_remover import UrlRemover
 
 __all__ = [
-    "DocumentModifier",
     "BoilerPlateStringModifier",
+    "DocumentModifier",
     "FastTextLabelModifier",
-    "UnicodeReformatter",
+    "LineRemover",
+    "MarkdownRemover",
+    "NewlineNormalizer",
     "PiiModifier",
+    "QuotationRemover",
+    "Slicer",
+    "UnicodeReformatter",
+    "UrlRemover",
 ]

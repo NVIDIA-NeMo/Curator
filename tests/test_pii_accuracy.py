@@ -30,38 +30,33 @@ from nemo_curator.utils.decorators import batched
 LOGGER = logging.getLogger(__name__)
 
 
-def load_test_cases(filename):
+def load_test_cases(filename: str) -> list[tuple[str, str]]:
     filepath = Path("tests/pii_data") / filename
     with open(filepath) as fp:
         data = fp.readlines()
 
-    raw_data = [
-        (re.sub(r"<[^>]*>([^<]*)</[^>]*>", r"\1", line)).strip() for line in data
-    ]
+    raw_data = [(re.sub(r"<[^>]*>([^<]*)</[^>]*>", r"\1", line)).strip() for line in data]
     masked_data = [
-        (
-            re.sub(r"(<[^>]*>([^<]*)</[^>]*>)", lambda x: "*" * len(x.group(2)), line)
-        ).strip()
-        for line in data
+        (re.sub(r"(<[^>]*>([^<]*)</[^>]*>)", lambda x: "*" * len(x.group(2)), line)).strip() for line in data
     ]
 
-    return list(zip(raw_data, masked_data))
+    return list(zip(raw_data, masked_data, strict=False))
 
 
-def compare_outputs(output1, output2):
+def compare_outputs(output1: str, output2: str) -> bool:
     output1 = re.sub(r"\*[\* ]*", "*****", output1)
     output2 = re.sub(r"\*[\* ]*", "*****", output2)
     return output1 == output2
 
 
-def generate_single_category_test(category, filename):
+def generate_single_category_test(category: str, filename: str) -> None:
     deidentifier = PiiDeidentifier("en", [category], "mask")
     test_data = load_test_cases(filename)
 
-    for input, target in test_data:
-        output = deidentifier.deidentify_text(input)
+    for _input, target in test_data:
+        output = deidentifier.deidentify_text(_input)
         print("============================")
-        print("Input: ", input)
+        print("Input: ", _input)
         print("Output: ", output)
         print("Expected Output: ", target)
         print("Matches:", "No" if output != target else "Yes")
@@ -69,38 +64,38 @@ def generate_single_category_test(category, filename):
 
 
 class TestPIIAccuracy:
-    def test_email(self):
+    def test_email(self) -> None:
         generate_single_category_test("EMAIL_ADDRESS", "emails.txt")
 
-    def test_ip_address(self):
+    def test_ip_address(self) -> None:
         generate_single_category_test("IP_ADDRESS", "ip_address.txt")
 
-    def test_address(self):
+    def test_address(self) -> None:
         generate_single_category_test("ADDRESS", "address.txt")
 
-    def test_ssn(self):
+    def test_ssn(self) -> None:
         generate_single_category_test("US_SSN", "ssn.txt")
 
-    def test_birthdates(self):
+    def test_birthdates(self) -> None:
         generate_single_category_test("DATE_TIME", "birthdates.txt")
 
-    def test_card_no(self):
+    def test_card_no(self) -> None:
         generate_single_category_test("CREDIT_CARD", "card_no.txt")
 
-    def test_names(self):
+    def test_names(self) -> None:
         generate_single_category_test("PERSON", "names.txt")
 
-    def test_phone_numbers(self):
+    def test_phone_numbers(self) -> None:
         generate_single_category_test("PHONE_NUMBER", "phone_numbers.txt")
 
-    def test_multiple(self):
+    def test_multiple(self) -> None:
         deidentifier = PiiDeidentifier("en", anonymize_action="mask")
         test_data = load_test_cases("multiple.txt")
 
-        for input, target in test_data:
-            output = deidentifier.deidentify_text(input)
+        for _input, target in test_data:
+            output = deidentifier.deidentify_text(_input)
             print("============================")
-            print("Input: ", input)
+            print("Input: ", _input)
             print("Output: ", output)
             print("Expected Output: ", target)
             match = compare_outputs(output, target)
@@ -110,9 +105,9 @@ class TestPIIAccuracy:
             print(output2)
             print("match value: ", match)
             print("Matches:", "No" if not match else "Yes")
-            assert match == True
+            assert match is True
 
-    def test_batch_accuracy(self):
+    def test_batch_accuracy(self) -> None:
         deidentifier = PiiDeidentifier("en", anonymize_action="mask")
         test_data = load_test_cases("multiple.txt")
         inputs = [data[0] for data in test_data]
@@ -122,9 +117,9 @@ class TestPIIAccuracy:
         print("Output: ", outputs)
         print("Expected Outputs: ", targets)
 
-        match = all(compare_outputs(x, y) for x, y in zip(outputs, targets))
+        match = all(compare_outputs(x, y) for x, y in zip(outputs, targets, strict=False))
         print("Matches:", "No" if not match else "Yes")
-        assert match == True
+        assert match is True
 
 
 class BatchedLengthFilter(DocumentFilter):
@@ -132,24 +127,24 @@ class BatchedLengthFilter(DocumentFilter):
     Keeps documents of a given length
     """
 
-    def __init__(self, min_length=5, max_length=10):
+    def __init__(self, min_length: int = 5, max_length: int = 10):
         super().__init__()
         self.min_length = min_length
         self.max_length = max_length
 
     @batched
-    def score_document(self, df):
+    def score_document(self, df: pd.DataFrame) -> pd.Series:
         return df.str.len()
 
     @batched
-    def keep_document(self, scores):
+    def keep_document(self, scores: pd.Series) -> pd.Series:
         min_threshold = self.min_length <= scores
         max_threshold = scores <= self.max_length
         return min_threshold & max_threshold
 
 
 class TestPIIModule:
-    def test_filter_chain(self):
+    def test_filter_chain(self) -> None:
         inputs = [
             "Alice goes on a walk",
             "Bob goes on a walk",
@@ -165,23 +160,16 @@ class TestPIIModule:
         ]
         input_df = pd.DataFrame({"text": inputs})
         target_df = pd.DataFrame({"text": targets})
-        with LocalCluster(n_workers=1, threads_per_worker=1) as cluster:
-            with Client(cluster):
-                input_dataset = DocumentDataset(dd.from_pandas(input_df, npartitions=1))
-                pipeline = nc.Sequential(
-                    [
-                        nc.ScoreFilter(
-                            BatchedLengthFilter(min_length=0, max_length=25)
-                        ),
-                        nc.Modify(
-                            PiiModifier(
-                                language="en", anonymize_action="mask", device="cpu"
-                            )
-                        ),
-                    ]
-                )
-                output_dataset = pipeline(input_dataset)
+        with LocalCluster(n_workers=1, threads_per_worker=1) as cluster, Client(cluster):
+            input_dataset = DocumentDataset(dd.from_pandas(input_df, npartitions=1))
+            pipeline = nc.Sequential(
+                [
+                    nc.ScoreFilter(BatchedLengthFilter(min_length=0, max_length=25)),
+                    nc.Modify(PiiModifier(language="en", anonymize_action="mask", device="cpu")),
+                ]
+            )
+            output_dataset = pipeline(input_dataset)
 
-                output_df = output_dataset.df.compute().reset_index(drop=True)
-                match = all(output_df["text"] == target_df["text"])
-                assert match
+            output_df = output_dataset.df.compute().reset_index(drop=True)
+            match = all(output_df["text"] == target_df["text"])
+            assert match

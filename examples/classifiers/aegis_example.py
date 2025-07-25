@@ -21,21 +21,19 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     global_st = time.time()
 
     # Input can be a string or list
     input_file_path = "/path/to/data"
     output_file_path = "./"
-    huggingface_token = "hf_1234"  # Replace with a HuggingFace user access token
+    huggingface_token = "hf_1234"  # Replace with a HuggingFace user access token  # noqa: S105
 
     client_args = ArgumentHelper.parse_client_args(args)
     client_args["cluster_type"] = "gpu"
     client = get_client(**client_args)
 
-    input_dataset = DocumentDataset.read_json(
-        input_file_path, backend="cudf", add_filename=True
-    )
+    input_dataset = DocumentDataset.read_json(input_file_path, backend="cudf", add_filename=True)
 
     safety_classifier = AegisClassifier(
         aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
@@ -48,7 +46,7 @@ def main(args):
 
     global_et = time.time()
     print(
-        f"Total time taken for AEGIS classifier inference: {global_et-global_st} s",
+        f"Total time taken for AEGIS classifier inference: {global_et - global_st} s",
         flush=True,
     )
 
@@ -56,15 +54,13 @@ def main(args):
 
 
 def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
-    argumentHelper = ArgumentHelper(parser)
-    argumentHelper.add_distributed_classifier_cluster_args()
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
+    arg_helper.add_distributed_classifier_cluster_args()
 
-    return argumentHelper.parser
+    return arg_helper.parser
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

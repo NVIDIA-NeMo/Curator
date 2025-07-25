@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
-import re
 
-import dask.dataframe as dd
 import pandas as pd
-import yaml
 
 from nemo_curator import (
     ExactDuplicates,
@@ -33,7 +29,6 @@ from nemo_curator import (
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import (
     DocumentFilter,
-    RepeatedLinesFilter,
     RepeatedParagraphsFilter,
     RepeatingTopNGramsFilter,
     UrlsFilter,
@@ -46,12 +41,7 @@ from nemo_curator.filters.code import (
 from nemo_curator.modifiers import DocumentModifier
 from nemo_curator.modifiers.pii_modifier import PiiModifier
 from nemo_curator.modifiers.unicode_reformatter import UnicodeReformatter
-from nemo_curator.pii.constants import DEFAULT_LANGUAGE, DEFAULT_MAX_DOC_SIZE
-from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.file_utils import (
-    expand_outdir_and_mkdir,
-    get_all_files_paths_under,
-)
+from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 
 
 class QuotationUnifier(DocumentModifier):
@@ -70,9 +60,8 @@ class QuotationUnifier(DocumentModifier):
         Returns:
             str: The modified text.
         """
-        text = text.replace("‘", "'").replace("’", "'")
-        text = text.replace("“", '"').replace("”", '"')
-        return text
+        text = text.replace("‘", "'").replace("’", "'")  # noqa: RUF001
+        return text.replace("“", '"').replace("”", '"')
 
 
 def clean_and_unify(dataset: DocumentDataset) -> DocumentDataset:
@@ -91,7 +80,7 @@ def clean_and_unify(dataset: DocumentDataset) -> DocumentDataset:
             Modify(QuotationUnifier(), text_field="text"),
             # Unify all unicode
             Modify(UnicodeReformatter(), text_field="text"),
-        ]
+        ],
     )
     return cleaners(dataset)
 
@@ -147,10 +136,9 @@ def filter_text(dataset: DocumentDataset) -> DocumentDataset:
                 text_field="text",
                 score_type=float,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def filter_code(dataset: DocumentDataset) -> DocumentDataset:
@@ -176,10 +164,9 @@ def filter_code(dataset: DocumentDataset) -> DocumentDataset:
                 score_field="word_count",
                 score_type=int,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def filter_code_dataset(dataset: DocumentDataset) -> DocumentDataset:
@@ -201,7 +188,8 @@ def filter_code_dataset(dataset: DocumentDataset) -> DocumentDataset:
             # discard the document
             ScoreFilter(
                 PythonCommentToCodeFilter(
-                    min_comment_to_code_ratio=0.001, max_comment_to_code_ratio=0.80
+                    min_comment_to_code_ratio=0.001,
+                    max_comment_to_code_ratio=0.80,
                 ),
                 text_field="text",
                 score_type=float,
@@ -213,10 +201,9 @@ def filter_code_dataset(dataset: DocumentDataset) -> DocumentDataset:
                 text_field="text",
                 score_type=int,
             ),
-        ]
+        ],
     )
-    filtered_dataset = filters(dataset)
-    return filtered_dataset
+    return filters(dataset)
 
 
 def redact_pii(dataset: DocumentDataset) -> DocumentDataset:
@@ -229,7 +216,6 @@ def redact_pii(dataset: DocumentDataset) -> DocumentDataset:
     Returns:
         DocumentDataset: The redacted dataset with PII replaced by a generic value.
     """
-    DEFAULT_MAX_DOC_SIZE = 3000000
     redactor = Modify(
         PiiModifier(
             supported_entities=[
@@ -256,17 +242,19 @@ def redact_code(dataset: DocumentDataset) -> DocumentDataset:
     """
 
     # functions to extract comment lines from each row in a dataframe
-    def func(row):
+    def func(row: pd.Series) -> str:
         return row["text"][row["text"].find("/*") : row["text"].find("*/") + 2]
 
-    def func2(row):
+    def func2(row: pd.Series) -> str:
         comment = row["text"][row["text"].find("/*") : row["text"].find("*/") + 2]
         return row["text"].replace(comment, str(row["extracted_comment"]))
 
     dataset.df["extracted_comment"] = dataset.df.apply(func, axis=1, meta=(None, str))
     redacted_dataset = redact_pii(dataset)
     redacted_dataset.df["text"] = redacted_dataset.df.apply(
-        func2, axis=1, meta=(None, str)
+        func2,
+        axis=1,
+        meta=(None, str),
     )
     redacted_dataset.df = redacted_dataset.df.drop(["extracted_comment"], axis=1)
 
@@ -286,79 +274,70 @@ def exact_dedupe(dataset: DocumentDataset) -> DocumentDataset:
     deduplicator = ExactDuplicates(id_field="id", text_field="text", hash_method="md5")
     # Find the duplicates
     duplicates = deduplicator(dataset)
-    docs_to_remove = duplicates.df.map_partitions(
-        lambda x: x[x._hashes.duplicated(keep="first")]
-    )
-    # Remove the duplicates using their IDs.
-    duplicate_ids = list(docs_to_remove.compute().id)
-    dataset_df = dataset.df
-    deduped = dataset_df[~dataset_df.id.isin(duplicate_ids)]
-    return DocumentDataset(deduped)
+    return deduplicator.remove(dataset, duplicates)
 
 
-def fuzzy_dedupe(dataset: DocumentDataset, cache: str) -> DocumentDataset:
+def fuzzy_dedupe(dataset: DocumentDataset, cache_dir: str) -> DocumentDataset:
     """
     Removes near-duplicate documents and code lines
 
     Args:
         dataset (DocumentDataset): The dataset containing documents.
-        type (str): Document type to process.
+        cache_dir (str): Directory for storing intermediate results.
 
     Returns:
         DocumentDataset: The deduplicated dataset.
     """
     fuzzy_dedup_config = FuzzyDuplicatesConfig(
-        cache_dir=cache,
+        cache_dir=cache_dir,
         id_field="id",
         text_field="text",
         seed=42,
-        char_ngrams=20,
+        char_ngrams=24,
         num_buckets=20,
         hashes_per_bucket=13,
         use_64_bit_hash=False,
         buckets_per_shuffle=5,
         false_positive_check=False,
-        num_anchors=2,
-        jaccard_threshold=0.8,
     )
     fuzzy_dup = FuzzyDuplicates(config=fuzzy_dedup_config)
     duplicates = fuzzy_dup(dataset)
+    if duplicates is None:
+        return dataset
+    else:
+        docs_to_remove = duplicates.df.map_partitions(
+            lambda x: x[x.group.duplicated(keep="first")],
+        )
 
-    docs_to_remove = duplicates.df.map_partitions(
-        lambda x: x[x.group.duplicated(keep="first")]
-    )
-
-    # When there are few duplicates we can compute the results to a list and use `isin`.
-    duplicate_ids = docs_to_remove.compute().id.to_arrow().to_pylist()
-    dataset_df = dataset.df
-    deduped = dataset_df[~dataset_df.id.isin(duplicate_ids)]
-    return DocumentDataset(deduped)
+        # When there are few duplicates we can compute the results to a list and use `isin`.
+        duplicate_ids = docs_to_remove.compute().id.to_arrow().to_pylist()
+        dataset_df = dataset.df
+        deduped = dataset_df[~dataset_df.id.isin(duplicate_ids)]
+        return DocumentDataset(deduped)
 
 
 def semantic_dedupe(
-    dataset: DocumentDataset, sem_dedupe_config_yaml_path: str, cache_dir: str
-):
+    dataset: DocumentDataset,
+    sem_dedupe_config_yaml_path: str,
+) -> DocumentDataset:
     """
     Perform semantic deduplication on the given dataset.
 
     Args:
         dataset (DocumentDataset): The dataset containing documents.
-        type (str): Document type to process.
+        sem_dedupe_config_yaml_path (str): The path to the semantic dedupe configuration file.
 
     Returns:
         The deduplicated DocumentDataset.
     """
     partition_lengths = dataset.df.map_partitions(len).compute()
-    non_empty_partitions = [
-        i for i, length in enumerate(partition_lengths) if length > 0
-    ]
+    non_empty_partitions = [i for i, length in enumerate(partition_lengths) if length > 0]
     dataset.df = dataset.df.partitions[non_empty_partitions]
 
     semdedup_config = SemDedupConfig.from_yaml(sem_dedupe_config_yaml_path)
     expand_outdir_and_mkdir(semdedup_config.cache_dir)
-    semdup = SemDedup(config=semdedup_config, id_column_type="str")
-    duplicates = semdup(dataset)
-    return duplicates
+    semdup = SemDedup(config=semdedup_config, perform_removal=True)
+    return semdup(dataset)
 
 
 class TextLineCountFilter(DocumentFilter):
@@ -372,12 +351,9 @@ class TextLineCountFilter(DocumentFilter):
 
     def score_document(self, text: str) -> bool:
         words = text.split()
-        if words[0] == "text" and int(words[2]) < self._min_lines:
-            return False
-        else:
-            return True
+        return not (words[0] == "text" and int(words[2]) < self._min_lines)
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score
 
 
@@ -393,17 +369,12 @@ class CodeLineCountFilter(DocumentFilter):
 
     def score_document(self, text: str) -> bool:
         words = text.split()
-        if words[0] == "code" and (
-            int(words[2]) < self._min_lines or int(words[2]) > self._max_lines
-        ):
-            return False
-        else:
-            return True
+        return not (words[0] == "code" and (int(words[2]) < self._min_lines or int(words[2]) > self._max_lines))
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score
 
 
-def rm_dir(cache_dir):
+def rm_dir(cache_dir: str) -> None:
     if os.path.isdir(cache_dir):
-        os.system(f"rm -rf {cache_dir}")
+        os.system(f"rm -rf {cache_dir}")  # noqa: S605

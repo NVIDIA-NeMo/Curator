@@ -31,6 +31,5 @@ class QuotationUnifier(DocumentModifier):
         Returns:
             str: The modified text.
         """
-        text = text.replace("‘", "'").replace("’", "'")
-        text = text.replace("“", '"').replace("”", '"')
-        return text
+        text = text.replace("‘", "'").replace("’", "'")  # noqa: RUF001
+        return text.replace("“", '"').replace("”", '"')

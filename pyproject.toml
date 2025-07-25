@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ name = "nemo_curator"
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = { file = "README.md", content-type = "text/markdown" }
 authors = [
-    { name = "Ryan Wolf", email = "rywolf@nvidia.com" },
+    { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
     { name = "Joseph Jennings", email = "jjennings@nvidia.com" },
     { name = "Mostofa Patwary", email = "mpatwary@nvidia.com" },
     { name = "Sandeep Subramanian", email = "sasubramania@nvidia.com" },
@@ -30,6 +30,8 @@ authors = [
     { name = "Vibhu Jawa", email = "vjawa@nvidia.com" },
     { name = "Jiwei Liu", email = "jiweil@nvidia.com" },
     { name = "Sarah Yurick", email = "syurick@nvidia.com" },
+    { name = "Praateek Mahajan", email = "praateekm@nvidia.com" },
+    { name = "Ryan Wolf", email = "rywolf@nvidia.com" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -43,10 +45,10 @@ dependencies = [
     "beautifulsoup4",
     "charset_normalizer>=3.1.0",
     "comment_parser",
-    "crossfit>=0.0.8",
+    "crossfit>=0.0.9",
     "dask-mpi>=2021.11.0",
     "dask[complete]>=2021.7.1",
-    "datasets",
+    "datasets<4.0.0",
     "distributed>=2021.7.1",
     "fasttext==0.9.3",
     "ftfy==6.1.1",
@@ -66,8 +68,8 @@ dependencies = [
     "resiliparse",
     "sentencepiece",
     "spacy>=3.6.0, <3.8.0",
-    # TODO: Remove this pin once newer version is released
-    "transformers==4.46.3",
+    "trafilatura==2.0.0",
+    "transformers>=4.48.0",
     "unidic-lite==1.0.8",
     "usaddress==0.5.10",
     "warcio==1.7.4",
@@ -76,22 +78,27 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "ruff==0.11.4",
+    "pytest"
+]
 # Installs CPU + GPU text curation modules
 cuda12x = [
-    "cudf-cu12>=24.12",
-    "cugraph-cu12>=24.12",
-    "cuml-cu12>=24.12",
-    "dask-cuda>=24.12",
-    "dask-cudf-cu12>=24.12",
+    "cudf-cu12==25.04",
+    "cugraph-cu12==25.04",
+    "cuml-cu12==25.04",
+    "dask-cuda==25.04",
+    "dask-cudf-cu12==25.04",
     "spacy[cuda12x]>=3.6.0, <3.8.0",
 ]
 # Installs CPU + GPU text curation modules with RAPIDS Nightlies
 cuda12x_nightly = [
-    "cudf-cu12>=25.02.0a0,<=25.02",
-    "cugraph-cu12>=25.02.0a0,<=25.02",
-    "cuml-cu12>=25.02.0a0,<=25.02",
-    "dask-cuda>=25.02.0a0,<=25.02",
-    "dask-cudf-cu12>=25.02.0a0,<=25.02",
+    "cudf-cu12>=25.06.0a0,<=25.06",
+    "cugraph-cu12>=25.06.0a0,<=25.06",
+    "cuml-cu12>=25.06.0a0,<=25.06",
+    "dask-cuda>=25.06.0a0,<=25.06",
+    "dask-cudf-cu12>=25.06.0a0,<=25.06",
     "spacy[cuda12x]>=3.6.0, <3.8.0",
 ]
 # Installs CPU + GPU text and image curation modules
@@ -156,26 +163,22 @@ instruction_data_guard_classifier_inference = "nemo_curator.scripts.classifiers.
 multilingual_domain_classifier_inference = "nemo_curator.scripts.classifiers.multilingual_domain_classifier_inference:console_script"
 content_type_classifier_inference = "nemo_curator.scripts.classifiers.content_type_classifier_inference:console_script"
 prompt_task_complexity_classifier_inference = "nemo_curator.scripts.classifiers.prompt_task_complexity_classifier_inference:console_script"
-verify_classification_results = "nemo_curator.scripts.verify_classification_results:console_script"
+fineweb_mixtral_edu_classifier_inference = "nemo_curator.scripts.classifiers.fineweb_mixtral_edu_classifier_inference:console_script"
+fineweb_nemotron_edu_classifier_inference = "nemo_curator.scripts.classifiers.fineweb_nemotron_edu_classifier_inference:console_script"
 blend_datasets = "nemo_curator.scripts.blend_datasets:console_script"
 semdedup_extract_embeddings = "nemo_curator.scripts.semdedup.compute_embeddings:console_script"
 semdedup_clustering = "nemo_curator.scripts.semdedup.clustering:console_script"
-semdedup_extract_unique_ids = "nemo_curator.scripts.semdedup.extract_dedup_data:console_script"
+semdedup_extract_duplicate_ids = "nemo_curator.scripts.semdedup.extract_dedup_data:console_script"
+async_llm_pii_redaction = "nemo_curator.scripts.async_llm_pii_redaction:console_script"
+llm_pii_redaction = "nemo_curator.scripts.llm_pii_redaction:console_script"
 
 [project.urls]
 Homepage = "https://github.com/NVIDIA/NeMo-Curator"
 
-[tool.black]
-line-length = 88
-
-[tool.isort]
-profile = "black"  # black-compatible
-line_length = 88  # should match black parameters
-py_version = 310
-
 [tool.pytest.ini_options]
 markers = [
-    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')"
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+    "asyncio: mark a test as asyncio (used by pytest-asyncio)"
 ]
 
 [tool.setuptools.dynamic]
@@ -184,3 +187,52 @@ version = { attr = "nemo_curator.package_info.__version__" }
 [tool.setuptools.packages.find]
 include = ["*"]
 exclude = ["tests", "tests.*"]
+
+[tool.coverage.paths]
+source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
+
+[tool.coverage.run]
+omit = [
+    "nemo_curator/scripts/*",
+]
+
+[tool.ruff]
+line-length = 119
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D",  # pydocstyle
+    "PTH",  # use pathlib
+    "G",  # no enforcement during logging
+    "FBT",  # allow booleans in function / class arguments
+    "T20",  # allow printing
+    "E501",  # Allow line length violations, leave it to Black
+    "ANN002",  # don't annotate **args
+    "ANN003",  # don't annotate **kwargs
+    "ANN204",  # don't annotate self/cls/special methods (__new__)
+    "PT013",  # how to import pytest
+    "PERF401",  # don't enforce list comprehension
+    "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
+    "PGH004",  # allow generic noqa
+    "PD901",  # allow naming dataframes df
+    "TD002",  # Allow TODO without author
+    "TD003",  # Allow TODO without link
+    "FIX002",  # Allow TODO to exist,
+    "EXE002", # Don't require for a shebang to be present if it's executable
+    "COM812", # Disable the trailing comma in linter, because ruff formatter ensures it
+]
+fixable = ["ALL"]
+[tool.ruff.lint.per-file-ignores]
+"nemo_curator/modules/__init__.py" = ["E402"]
+"nemo_curator/__init__.py" = ["F401", "F403"]
+"**.ipynb" = ["EXE001", "EXE003", "EXE005"]
+"tests/**" = ["S101", "INP001"]
+"tutorials/**" = ["INP001", "N999"]
+"tutorials/distributed_data_classification/**" = ["ERA001"]
+"tutorials/nemo-retriever-synthetic-data-generation/notebooks/quickstart.ipynb" = ["E402"]
+"tutorials/distributed_data_classification/content-type-classification.ipynb" = ["PLE2515"]
+"tutorials/nemotron-cc/kenlm_utility.py" = ["RUF001"]
+"tutorials/single_node_tutorial/**" = ["ERA001"]
+"examples/**" = ["INP001"]
+"nemo_curator/utils/import_utils.py" = ["ANN001"]
+"nemo_curator/utils/aegis_utils.py" = ["W291", "RUF001"]

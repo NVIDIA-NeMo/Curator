@@ -21,3 +21,10 @@ python tutorials/peft-curation/main.py
 By default, this tutorial will use at most 8 workers to run the curation pipeline. If you face any
 out of memory issues, you can reduce the number of workers by supplying the `--n-workers=N` argument,
 where `N` is the number of workers to spawn.
+
+This tutorial uses [Presidio](https://microsoft.github.io/presidio/) to perform PII redaction on the dataset,
+which utilizes spaCy's [en_core_web_lg](https://spacy.io/models/en#en_core_web_lg) model.
+If you encounter any connection errors when trying to run the script, please install the model manually with:
+```
+python -m spacy download en_core_web_lg
+```

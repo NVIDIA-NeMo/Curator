@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,6 @@
 
 import argparse
 
-import dask.dataframe
 import pandas as pd
 
 from nemo_curator.datasets import DocumentDataset
@@ -24,16 +23,13 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def console_script():
+def console_script() -> None:
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
-    _ = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
-    dataframe = pd.DataFrame(
-        {"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]}
-    )
-    dd = dask.dataframe.from_pandas(dataframe, npartitions=1)
-    dataset = DocumentDataset(dd)
+    dataframe = pd.DataFrame({"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]})
+    dataset = DocumentDataset.from_pandas(dataframe, npartitions=1)
 
     modifier = PiiModifier(
         log_dir="./logs",
@@ -45,7 +41,7 @@ def console_script():
 
     modify = Modify(modifier)
     modified_dataset = modify(dataset)
-    modified_dataset.df.to_json("output_files/*.jsonl", lines=True, orient="records")
+    modified_dataset.to_json("output.jsonl")
 
 
 if __name__ == "__main__":

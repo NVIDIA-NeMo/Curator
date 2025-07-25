@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import logging
 import os
 import time
 
-from nemo_curator import EmbeddingCreator
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
+from nemo_curator.modules import EmbeddingCreator
 from nemo_curator.modules.config import SemDedupConfig
 from nemo_curator.utils.distributed_utils import get_client, read_data
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir, get_remaining_files
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     semdedup_config = SemDedupConfig.from_yaml(args.config_file)
     client = get_client(**ArgumentHelper.parse_client_args(args))
     expand_outdir_and_mkdir(semdedup_config.cache_dir)
@@ -37,16 +38,11 @@ def main(args):
         stdout=True,
     )
 
-    output_data_dir = os.path.join(
-        semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
-    )
+    output_data_dir = os.path.join(semdedup_config.cache_dir, semdedup_config.embeddings_save_loc)
 
-    # Some time jsonl files are stored as .json
+    # Sometimes JSONL files are stored as .json
     # So to handle that case we can pass the input_file_extension
-    if args.input_file_extension is not None:
-        input_file_extension = args.input_file_extension
-    else:
-        input_file_extension = args.input_file_type
+    input_file_extension = args.input_file_extension if args.input_file_extension is not None else args.input_file_type
     print("input_file_extension", input_file_extension)
 
     st = time.time()
@@ -72,16 +68,18 @@ def main(args):
     dataset = DocumentDataset(ddf)
 
     # Can repartition here if needed
-    # ddf = ddf.repartition(partition_size="64MB")
+    # ddf = ddf.repartition(partition_size="64MB")  # noqa: ERA001
     embedding_creator = EmbeddingCreator(
         embedding_model_name_or_path=semdedup_config.embedding_model_name_or_path,
         embedding_batch_size=semdedup_config.embedding_batch_size,
-        embedding_output_dir=os.path.join(
-            semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
-        ),
+        embedding_output_dir=os.path.join(semdedup_config.cache_dir, semdedup_config.embeddings_save_loc),
+        embedding_max_mem_gb=semdedup_config.embedding_max_mem_gb,
+        embedding_pooling_strategy=semdedup_config.embedding_pooling_strategy,
         input_column=args.input_text_field,
+        embedding_column=semdedup_config.embedding_column,
+        write_embeddings_to_disk=semdedup_config.write_embeddings_to_disk,
+        write_to_filename=semdedup_config.write_to_filename,
         logger=logger,
-        write_to_filename=True,
     )
 
     embedding_dataset = embedding_creator(dataset=dataset)
@@ -91,8 +89,8 @@ def main(args):
     client.close()
 
 
-def attach_args():
-    parser = ArgumentHelper.parse_semdedup_args(
+def attach_args() -> argparse.ArgumentParser:
+    return ArgumentHelper.parse_semdedup_args(
         description=(
             "Computes the embeddings of a collection of documents using the specified model. "
             'The model is specified in the configuration file using embedding_model_name_or_path (e.g. "sentence-transformers/paraphrase-MiniLM-L6-v2"). '
@@ -111,10 +109,9 @@ def attach_args():
             " embedding_batch_size for the batch size for processing embeddings."
         ),
     )
-    return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

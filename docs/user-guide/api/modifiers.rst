@@ -32,3 +32,22 @@ Modifiers
 
 .. autoclass:: nemo_curator.modifiers.PiiModifier
     :members:
+
+.. autoclass:: nemo_curator.modifiers.LineRemover
+    :members:
+
+.. autoclass:: nemo_curator.modifiers.MarkdownRemover
+    :members:
+
+.. autoclass:: nemo_curator.modifiers.NewlineNormalizer
+    :members:
+
+.. autoclass:: nemo_curator.modifiers.UrlRemover
+    :members:
+
+.. autoclass:: nemo_curator.modifiers.Slicer
+    :members:
+
+.. autoclass:: nemo_curator.modifiers.QuotationRemover
+    :members:
+

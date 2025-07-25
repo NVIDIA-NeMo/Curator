@@ -19,16 +19,15 @@ import dask
 
 from nemo_curator import FuzzyDuplicates, FuzzyDuplicatesConfig
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.distributed_utils import get_client, write_to_disk
+from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def pre_imports():
+def pre_imports() -> None:
     import cudf  # noqa: F401
 
 
-def main(args):
-
+def main(args: argparse.Namespace) -> None:
     dataset_dir = "/path/to/dataset"
     log_dir = "./"
     cache_dir = "./fuzzy_cache"  # must be cleared between runs
@@ -40,7 +39,9 @@ def main(args):
 
     # Fuzzy dup calculation only supports the cuDF/GPU backend
     backend = "cudf"
-    assert args.device == "gpu"
+    if args.device != "gpu":
+        msg = "Fuzzy dup calculation only supports the cuDF/GPU backend"
+        raise ValueError(msg)
 
     with dask.config.set({"dataframe.backend": backend}):
         client = get_client(**ArgumentHelper.parse_client_args(args))
@@ -68,6 +69,8 @@ def main(args):
             cache_dir=cache_dir,
             id_field=dataset_id_field,
             text_field=dataset_text_field,
+            # Decides whether output of the module is a deduplicated dataset or the IDs of the duplicates
+            perform_removal=False,
             seed=42,
             char_ngrams=24,
             num_buckets=20,
@@ -77,37 +80,25 @@ def main(args):
             false_positive_check=False,
         )
         fuzzy_dup = FuzzyDuplicates(logger=log_dir, config=fuzzy_dedup_config)
-        duplicates = fuzzy_dup(dataset=input_dataset)
+
+        # When perform_removal=False, it will only call .identify_duplicates() and return the list of duplicate IDs.
+        # When perform_removal=True, then exact_dup outputs the dataset with the duplicates removed.
+        # It will behave by calling .identify_duplicates() and .remove() in sequence.
+        duplicates = fuzzy_dup(dataset=input_dataset)  # or fuzzy_dup.identify_duplicates(input_dataset)
 
         if duplicates is None:
             print("No duplicates found")
             print(f"Time taken:{time.time() - t0}s")
             return
 
-        # By default all duplicate id's and the group they belong to are included in the result
-        # keep 1 document from each group of duplcates and mark the others to remove
-        # https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.duplicated.html
-        docs_to_remove = duplicates.df.map_partitions(
-            lambda x: x[x.group.duplicated(keep="first")]
-        )
-
-        # When there are few duplicates we can compute the results to a list and use `isin`.
-        result = input_dataset.df[
-            ~input_dataset.df[dataset_id_field].isin(
-                docs_to_remove[dataset_id_field].compute()
-            )
-        ]
-        write_to_disk(result, output_dir, output_type=filetype)
+        result = fuzzy_dup.remove(input_dataset, duplicates)
+        result.to_parquet(output_dir)
         print(f"Time taken:{time.time() - t0}s")
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

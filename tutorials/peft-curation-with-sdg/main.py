@@ -16,7 +16,7 @@ import argparse
 import json
 import os
 import random
-from typing import Any, List
+from typing import Any
 
 import dask
 from docbuilder import LawQADownloader, LawQAIterator
@@ -25,13 +25,12 @@ from modifiers import CleanHTML
 from openai import AsyncOpenAI
 from synthetic_gen import SyntheticGenerator
 
-from nemo_curator import AsyncOpenAIClient, ScoreFilter, Sequential
+from nemo_curator import AsyncOpenAIClient, ScoreFilter, SemDedup, Sequential
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import WordCountFilter
 from nemo_curator.modifiers.unicode_reformatter import UnicodeReformatter
 from nemo_curator.modules.config import SemDedupConfig
 from nemo_curator.modules.modify import Modify
-from nemo_curator.modules.semantic_dedup import SemDedup
 from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.script_utils import ArgumentHelper
@@ -40,14 +39,18 @@ SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SCRIPT_DIR_PATH, "data")
 TEMP_DIR = os.path.join(SCRIPT_DIR_PATH, "_temp")
 CONFIG_DIR = os.path.join(SCRIPT_DIR_PATH, "config")
-DATASET_URL = "https://huggingface.co/datasets/ymoslem/Law-StackExchange/resolve/main/law-stackexchange-questions-answers.json"
+DATASET_URL = (
+    "https://huggingface.co/datasets/ymoslem/Law-StackExchange/resolve/main/law-stackexchange-questions-answers.json"
+)
 
 
-def pre_imports():
+def pre_imports() -> None:
     import cudf  # noqa: F401
 
 
-def random_split_rows(rows: List[Any], train_ratio: float, val_ratio: float, seed=42):
+def random_split_rows(
+    rows: list[Any], train_ratio: float, val_ratio: float, seed: int = 42
+) -> tuple[list[Any], list[Any], list[Any]]:
     """
     Randomly splits a list of rows into training, validation, and test sets.
 
@@ -98,7 +101,9 @@ def download_and_convert_to_jsonl() -> str:
 
     # Write the split rows to separate JSONL files.
     for split_name, split_rows in zip(
-        ["train", "val", "test"], [train_rows, val_rows, test_rows]
+        ["train", "val", "test"],
+        [train_rows, val_rows, test_rows],
+        strict=False,
     ):
         split_fp = os.path.join(splits_dir, f"law-qa-{split_name}.jsonl")
 
@@ -113,7 +118,7 @@ def download_and_convert_to_jsonl() -> str:
     )
 
 
-def semantic_dedupe(dataset):
+def semantic_dedupe(dataset: DocumentDataset) -> DocumentDataset:
     """
     Perform semantic deduplication on the given dataset.
 
@@ -125,26 +130,23 @@ def semantic_dedupe(dataset):
     """
     # Clean up the temporary directory to ensure everything is clean.
     if os.path.isdir(TEMP_DIR):
-        os.system(f"rm -rf {TEMP_DIR}")
+        os.system(f"rm -rf {TEMP_DIR}")  # noqa: S605
 
     semdedup_config = SemDedupConfig.from_yaml(
-        os.path.join(CONFIG_DIR, "sem_dedup_config.yaml")
+        os.path.join(CONFIG_DIR, "sem_dedup_config.yaml"),
     )
     expand_outdir_and_mkdir(semdedup_config.cache_dir)
     semdup = SemDedup(
         config=semdedup_config,
         input_column="text",
         id_column="id",
-        id_column_type="str",
+        perform_removal=True,
     )
-    dedup_ids = semdup(dataset)
-    # When there are few duplicates we can compute the results to a list and use `isin`.
-    result = dataset.df[dataset.df["id"].isin(dedup_ids.df["id"].compute())]
-    return DocumentDataset(result)
+    return semdup(dataset)
 
 
 def run_curation_pipeline(
-    args: Any,
+    args: argparse.Namespace,
     input_dir: str,
 ) -> DocumentDataset:
     """
@@ -157,9 +159,7 @@ def run_curation_pipeline(
     Returns:
         The resulting dataset.
     """
-    orig_dataset = DocumentDataset.read_json(
-        input_dir, add_filename=True, backend="pandas"
-    )
+    orig_dataset = DocumentDataset.read_json(input_dir, backend="pandas")
     dataset = orig_dataset
 
     cpu_curation_steps = Sequential(
@@ -199,7 +199,7 @@ def run_curation_pipeline(
                 text_field="answer_score",
                 score_type=bool,
             ),
-        ]
+        ],
     )
 
     # Run the CPU curation steps.
@@ -209,18 +209,12 @@ def run_curation_pipeline(
     if args.device == "gpu":
         # Create a text field comprised of the title, question, and answer.
         # This field is used for finding semantically similar records and deduping them.
-        dataset.df["text"] = (
-            dataset.df["title"]
-            + "\n"
-            + dataset.df["question"]
-            + "\n"
-            + dataset.df["answer"]
-        )
+        dataset.df["text"] = dataset.df["title"] + "\n" + dataset.df["question"] + "\n" + dataset.df["answer"]
         dataset.df = dataset.df.to_backend("cudf")
         gpu_curation_steps = Sequential(
             [
                 semantic_dedupe,
-            ]
+            ],
         )
 
         dataset = gpu_curation_steps(dataset)
@@ -236,7 +230,7 @@ def run_curation_pipeline(
     return df, orig_len, new_len
 
 
-def run_pipeline(args, jsonl_fp):
+def run_pipeline(args: argparse.Namespace, jsonl_fp: str) -> str:
     """
     Run the curation pipeline.
 
@@ -250,43 +244,40 @@ def run_pipeline(args, jsonl_fp):
     # Disable synthetic data generation if the necessary arguments are not provided.
     if not args.synth_gen_endpoint:
         print(
-            "No synthetic data generation endpoint provided. Skipping synthetic data generation."
+            "No synthetic data generation endpoint provided. Skipping synthetic data generation.",
         )
         args.synth_gen_rounds = 0
     if not args.synth_gen_model:
         print(
-            "No synthetic data generation model provided. Skipping synthetic data generation."
+            "No synthetic data generation model provided. Skipping synthetic data generation.",
         )
         args.synth_gen_rounds = 0
     if not args.api_key:
         print(
-            "No synthetic data generation API key provided. Skipping synthetic data generation."
+            "No synthetic data generation API key provided. Skipping synthetic data generation.",
         )
         args.synth_gen_rounds = 0
 
     if args.synth_gen_rounds:
         print(
-            f"Using {args.synth_gen_endpoint}/{args.synth_gen_model} for synthetic data generation."
+            f"Using {args.synth_gen_endpoint}/{args.synth_gen_model} for synthetic data generation.",
         )
 
     synth_gen_ratio = args.synth_gen_ratio
     synth_gen_rounds = args.synth_gen_rounds
     synth_n_variants = args.synth_n_variants
 
-    assert (
-        synth_gen_ratio >= 0 and synth_gen_ratio <= 1
-    ), "The synthetic generation ratio must be between 0 and 1."
-    assert (
-        synth_gen_rounds >= 0
-    ), "The number of synthetic generation rounds must be a non-negative integer."
-    assert (
-        synth_n_variants >= 1
-    ), "The number of synthetic variants must be a positive integer."
+    if synth_gen_ratio < 0 or synth_gen_ratio > 1:
+        msg = "The synthetic generation ratio must be between 0 and 1."
+        raise ValueError(msg)
+    if synth_gen_rounds < 0:
+        msg = "The number of synthetic generation rounds must be a non-negative integer."
+        raise ValueError(msg)
+    if synth_n_variants < 1:
+        msg = "The number of synthetic variants must be a positive integer."
+        raise ValueError(msg)
 
-    if args.device == "gpu":
-        backend = "cudf"
-    else:
-        backend = "pandas"
+    backend = "cudf" if args.device == "gpu" else "pandas"
 
     out_dir_base = os.path.join(DATA_DIR, "curated")
     jsonl_filename = os.path.basename(jsonl_fp)
@@ -297,7 +288,7 @@ def run_pipeline(args, jsonl_fp):
             base_url=args.synth_gen_endpoint,
             api_key=args.api_key or "",
             timeout=args.api_timeout,
-        )
+        ),
     )
     synth_gen = SyntheticGenerator(
         llm_client,
@@ -320,21 +311,23 @@ def run_pipeline(args, jsonl_fp):
         print(f"Running the initial curation pipeline on '{jsonl_fp}'...")
         dataset_df, n_rows_before, n_rows_after = run_curation_pipeline(args, jsonl_fp)
         print(
-            f"After the initial curation, the dataset has {n_rows_after} records (originally {n_rows_before})."
+            f"After the initial curation, the dataset has {n_rows_after} records (originally {n_rows_before}).",
         )
 
         for i in range(1, synth_gen_rounds + 1):
             print(
-                "--------------------------------------------------------------------------------"
+                "--------------------------------------------------------------------------------",
             )
             print(
-                f"Running synthetic data generation -- round {i} (out of {synth_gen_rounds})..."
+                f"Running synthetic data generation -- round {i} (out of {synth_gen_rounds})...",
             )
             out_dir = out_dir_base + f"/round-{i}"
             os.makedirs(out_dir, exist_ok=True)
             # Save the base dataset to disk.
             dataset_df.to_json(
-                f"{out_dir}/{jsonl_filename}", orient="records", lines=True
+                f"{out_dir}/{jsonl_filename}",
+                orient="records",
+                lines=True,
             )
 
             #
@@ -346,11 +339,12 @@ def run_pipeline(args, jsonl_fp):
             # Curation of the combined real and synthetic data
             #
             dataset_df, n_rows_before, n_rows_after = run_curation_pipeline(
-                args, out_dir
+                args,
+                out_dir,
             )
 
             print(
-                f"After round {i}, the dataset has {n_rows_after} records (originally {n_rows_before})."
+                f"After round {i}, the dataset has {n_rows_after} records (originally {n_rows_before}).",
             )
 
         dask_client.cancel(dask_client.futures, force=True)
@@ -362,7 +356,7 @@ def run_pipeline(args, jsonl_fp):
     return final_out_path
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser = ArgumentHelper(parser).add_distributed_args()
     parser.add_argument(
@@ -422,10 +416,10 @@ def main():
     train_fp_curated = run_pipeline(args, train_fp)
 
     curated_dir = os.path.dirname(train_fp_curated)
-    os.system(f"cp {val_fp} {curated_dir}")
-    os.system(f"cp {test_fp} {curated_dir}")
+    os.system(f"cp {val_fp} {curated_dir}")  # noqa: S605
+    os.system(f"cp {test_fp} {curated_dir}")  # noqa: S605
     print(
-        "--------------------------------------------------------------------------------"
+        "--------------------------------------------------------------------------------",
     )
     print(f"Curated files are saved in '{curated_dir}'.")
 

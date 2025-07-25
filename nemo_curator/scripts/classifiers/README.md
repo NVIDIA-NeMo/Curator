@@ -6,16 +6,18 @@ The Python scripts in this directory demonstrate how to run classification on yo
 - Multilingual Domain Classifier
 - Quality Classifier
 - AEGIS Safety Models
-- Instruction-Data-Guard Model
+- Instruction Data Guard Model
 - FineWeb Educational Content Classifier
+- FineWeb Mixtral Educational Classifier
+- FineWeb Nemotron-4 Educational Classifier
 - Content Type Classifier
-- Prompt Task/Complexity Classifier
+- Prompt Task and Complexity Classifier
 
 For more information about these classifiers, please see NeMo Curator's [Distributed Data Classification documentation](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/distributeddataclassification.html).
 
 ### Usage
 
-#### Domain classifier inference
+#### Domain Classifier Inference
 
 This classifier is recommended for English-only text data.
 
@@ -36,7 +38,7 @@ domain_classifier_inference \
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `domain_classifier_inference --help` for more information.
 
-#### Multilingual domain classifier inference
+#### Multilingual Domain Classifier Inference
 
 This classifier supports domain classification in 52 languages. Please see [nvidia/multilingual-domain-classifier on Hugging Face](https://huggingface.co/nvidia/multilingual-domain-classifier) for more information.
 
@@ -57,7 +59,7 @@ multilingual_domain_classifier_inference \
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `multilingual_domain_classifier_inference --help` for more information.
 
-#### Quality classifier inference
+#### Quality Classifier DeBERTa Inference
 
 ```bash
 # same as `python quality_classifier_inference.py`
@@ -76,7 +78,7 @@ quality_classifier_inference \
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `quality_classifier_inference --help` for more information.
 
-#### AEGIS classifier inference
+#### AEGIS Classifier Inference
 
 ```bash
 # same as `python aegis_classifier_inference.py`
@@ -99,7 +101,7 @@ aegis_classifier_inference \
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `aegis_classifier_inference --help` for more information.
 
-#### Instruction-Data-Guard classifier inference
+#### Instruction Data Guard Classifier Inference
 
 ```bash
 # same as `python instruction_data_guard_classifier_inference.py`
@@ -120,7 +122,7 @@ In the above example, `--token` is your HuggingFace token, which is used when do
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `instruction_data_guard_classifier_inference --help` for more information.
 
-#### FineWeb-Edu classifier inference
+#### FineWeb-Edu Classifier Inference
 
 ```bash
 # same as `python fineweb_edu_classifier_inference.py`
@@ -139,7 +141,45 @@ fineweb_edu_classifier_inference \
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `fineweb_edu_classifier_inference --help` for more information.
 
-#### Content type classifier inference
+#### FineWeb Mixtral Edu Classifier Inference
+
+```bash
+# same as `python fineweb_mixtral_edu_classifier_inference.py`
+fineweb_mixtral_edu_classifier_inference \
+    --input-data-dir /path/to/data/directory \
+    --output-data-dir /path/to/output/directory \
+    --input-file-type "jsonl" \
+    --input-file-extension "jsonl" \
+    --output-file-type "jsonl" \
+    --input-text-field "text" \
+    --batch-size 64 \
+    --autocast \
+    --max-chars 2000 \
+    --device "gpu"
+```
+
+Additional arguments may be added for customizing a Dask cluster and client. Run `fineweb_mixtral_edu_classifier_inference --help` for more information.
+
+#### FineWeb Nemotron-4 Edu Classifier Inference
+
+```bash
+# same as `python fineweb_nemotron_edu_classifier_inference.py`
+fineweb_nemotron_edu_classifier_inference \
+    --input-data-dir /path/to/data/directory \
+    --output-data-dir /path/to/output/directory \
+    --input-file-type "jsonl" \
+    --input-file-extension "jsonl" \
+    --output-file-type "jsonl" \
+    --input-text-field "text" \
+    --batch-size 64 \
+    --autocast \
+    --max-chars 2000 \
+    --device "gpu"
+```
+
+Additional arguments may be added for customizing a Dask cluster and client. Run `fineweb_nemotron_edu_classifier_inference --help` for more information.
+
+#### Content Type Classifier DeBERTa Inference
 
 ```bash
 # same as `python content_type_classifier_inference.py`
@@ -158,7 +198,7 @@ content_type_classifier_inference \
 
 Additional arguments may be added for customizing a Dask cluster and client. Run `content_type_classifier_inference --help` for more information.
 
-#### Prompt task and complexity classifier inference
+#### Prompt Task and Complexity Classifier Inference
 
 ```bash
 # same as `python prompt_task_complexity_classifier_inference.py`

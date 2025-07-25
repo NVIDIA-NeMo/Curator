@@ -11,15 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import json
-from typing import Iterable
 
-import nvidia.dali.fn as fn
-import nvidia.dali.types as types
+import json
+from collections.abc import Iterable
+
 import timm
 import torch
-from nvidia.dali import pipeline_def
+from nvidia.dali import fn, pipeline_def, types
 from nvidia.dali.plugin.pytorch import feed_ndarray
+from torch import nn
 
 from nemo_curator.image.embedders.base import ImageEmbedder
 from nemo_curator.utils.image.transforms import convert_transforms_to_dali
@@ -34,7 +34,7 @@ class TimmImageEmbedder(ImageEmbedder):
     in the supported models.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model_name: str,
         pretrained: bool = False,
@@ -86,12 +86,10 @@ class TimmImageEmbedder(ImageEmbedder):
 
         # Load the model to get the transforms
         model = timm.create_model(self.model_name, pretrained=self.pretrained)
-        torch_transforms = timm.data.create_transform(
-            **timm.data.resolve_data_config(model.pretrained_cfg)
-        )
+        torch_transforms = timm.data.create_transform(**timm.data.resolve_data_config(model.pretrained_cfg))
         self.dali_transforms = convert_transforms_to_dali(torch_transforms)
 
-    def load_dataset_shard(self, tar_path: str):
+    def load_dataset_shard(self, tar_path: str) -> Iterable:
         """
         Loads a WebDataset tar shard using DALI.
 
@@ -113,11 +111,8 @@ class TimmImageEmbedder(ImageEmbedder):
             num_threads=self.num_threads_per_worker,
             device_id=0,
         )
-        def webdataset_pipeline(_tar_path: str):
-            if self.use_index_files:
-                index_paths = [f"{_tar_path.rsplit('.', 1)[0]}.idx"]
-            else:
-                index_paths = []
+        def webdataset_pipeline(_tar_path: str) -> tuple[torch.Tensor, str, str]:
+            index_paths = [f"{_tar_path.rsplit('.', 1)[0]}.idx"] if self.use_index_files else []
 
             img_raw, text, json = fn.readers.webdataset(
                 paths=_tar_path,
@@ -136,7 +131,7 @@ class TimmImageEmbedder(ImageEmbedder):
         pipeline.build()
 
         total_samples = pipeline.epoch_size()
-        total_samples = total_samples[list(total_samples.keys())[0]]
+        total_samples = total_samples[next(iter(total_samples.keys()))]
 
         samples_completed = 0
         while samples_completed < total_samples:
@@ -148,10 +143,7 @@ class TimmImageEmbedder(ImageEmbedder):
             image = image_torch
 
             captions = [text.at(i).tostring().decode("utf-8") for i in range(len(text))]
-            metadata = [
-                json.loads(meta.at(i).tostring().decode("utf-8"))
-                for i in range(len(meta))
-            ]
+            metadata = [json.loads(meta.at(i).tostring().decode("utf-8")) for i in range(len(meta))]
 
             remaining_samples = total_samples - samples_completed
             if image.shape[0] >= remaining_samples:
@@ -163,7 +155,7 @@ class TimmImageEmbedder(ImageEmbedder):
 
             yield image, metadata
 
-    def load_embedding_model(self, device="cuda"):
+    def load_embedding_model(self, device: str = "cuda") -> nn.Module:
         """
         Loads the model used to generate image embeddings.
 
@@ -178,14 +170,13 @@ class TimmImageEmbedder(ImageEmbedder):
         """
         model = timm.create_model(self.model_name, pretrained=self.pretrained).eval()
         model = model.to(device)
-        model = self._configure_forward(model)
 
-        return model
+        return self._configure_forward(model)
 
-    def _configure_forward(self, model):
+    def _configure_forward(self, model: nn.Module) -> nn.Module:
         original_forward = model.forward
 
-        def custom_forward(*args, **kwargs):
+        def custom_forward(*args, **kwargs) -> torch.Tensor:
             if self.autocast:
                 with torch.autocast(device_type="cuda"):
                     image_features = original_forward(*args, **kwargs)

@@ -18,33 +18,21 @@ from nemo_curator.utils.download_utils import get_wikipedia_urls
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-    wikipedia_urls = get_wikipedia_urls(
-        language=args.language, wikidumps_index_prefix=args.wikidumps_index_baseurl
-    )
+def main(args: argparse.Namespace) -> None:
+    wikipedia_urls = get_wikipedia_urls(language=args.language, wikidumps_index_prefix=args.wikidumps_index_baseurl)
     with open(args.output_url_file, "w") as output_file:
         for url in wikipedia_urls:
             output_file.write(url)
             output_file.write("\n")
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-Pulls URLs pointing to the latest Wikipedia dumps.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    ArgumentHelper(parser).add_arg_language(
-        help="Desired language of the Wikipedia dump."
-    )
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    ArgumentHelper(parser).add_arg_language(help="Desired language of the Wikipedia dump.")
     parser.add_argument(
         "--output-url-file",
         type=str,
         default="wikipedia_urls_latest.txt",
-        help="The output file to which the URLs containing "
-        "the latest dump data will be written.",
+        help="The output file to which the URLs containing the latest dump data will be written.",
     )
     parser.add_argument(
         "--wikidumps-index-baseurl",
@@ -56,5 +44,11 @@ Pulls URLs pointing to the latest Wikipedia dumps.
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser: argparse.ArgumentParser = argparse.ArgumentParser(
+        """
+Pulls URLs pointing to the latest Wikipedia dumps.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

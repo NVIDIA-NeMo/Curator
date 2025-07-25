@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,8 +24,10 @@ from nemo_curator.utils.distributed_utils import get_client, read_data, write_to
 from nemo_curator.utils.file_utils import get_batched_files
 from nemo_curator.utils.script_utils import ArgumentHelper
 
+logger = logging.getLogger(__name__)
 
-def main(args):
+
+def main(args: argparse.Namespace) -> None:
     """Main function that performs PII de-identification given a batch of files"""
     logging.basicConfig(
         format="%(asctime)s %(levelname)s:%(message)s",
@@ -33,13 +35,11 @@ def main(args):
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    logging.debug("Beginning PII job")
+    logger.debug("Beginning PII job")
     start_time = time.time()
     Path(args.output_data_dir).mkdir(parents=True, exist_ok=True)
 
-    supported_entities = (
-        args.supported_entities.split(",") if args.supported_entities else None
-    )
+    supported_entities = args.supported_entities.split(",") if args.supported_entities else None
 
     modifier = PiiModifier(
         language=args.language,
@@ -56,7 +56,7 @@ def main(args):
     for file_names in get_batched_files(
         args.input_data_dir, args.output_data_dir, args.input_file_type, args.n_workers
     ):
-        logging.info("Reading input files....")
+        logger.info("Reading input files....")
         source_data = read_data(
             file_names,
             file_type=args.input_file_type,
@@ -64,9 +64,9 @@ def main(args):
             add_filename=True,
         )
         dataset = DocumentDataset(source_data)
-        logging.debug(f"Dataset has {source_data.npartitions} partitions")
+        logger.debug(f"Dataset has {source_data.npartitions} partitions")
 
-        modify = Modify(modifier)
+        modify = Modify(modifier, text_field=args.text_field)
         modified_dataset = modify(dataset)
         write_to_disk(
             modified_dataset.df,
@@ -76,33 +76,26 @@ def main(args):
         )
 
     end_time = time.time()
-    logging.debug(
-        "Total time taken for PII job: %0.3f seconds" % (end_time - start_time)
-    )
+    logger.debug("Total time taken for PII job: %0.3f seconds" % (end_time - start_time))
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
+def attach_args() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         """
         Main driver script for applying PII redaction on documents. Inputs are in the input-data-dir directory.
         This script will then perform PII detection and de-identification on each document within the corpus.
         """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-):
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_batch_size(
-        default=2000, help="The batch size for processing multiple texts together."
-    )
-    argumentHelper.add_arg_input_data_dir(help="Directory containing the input files.")
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_language(help="Language of input documents.")
-    argumentHelper.add_arg_output_data_dir(
-        help="The output directory to where redacted documents will be written."
-    )
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_batch_size(default=2000, help="The batch size for processing multiple texts together.")
+    arg_helper.add_arg_input_data_dir(help="Directory containing the input files.")
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_language(help="Language of input documents.")
+    arg_helper.add_arg_output_data_dir(help="The output directory to where redacted documents will be written.")
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_distributed_args()
 
     parser.add_argument(
         "--anonymize-action",
@@ -152,7 +145,7 @@ def attach_args(
     return parser
 
 
-def console_script():
+def console_script() -> None:
     parser = attach_args()
     args = parser.parse_args()
     client = get_client(**ArgumentHelper.parse_client_args(args))

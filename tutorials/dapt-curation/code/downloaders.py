@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import Optional
 
 import pandas as pd
 from docbuilder import (
@@ -32,9 +31,9 @@ from nemo_curator.download.doc_builder import download_and_extract
 
 
 def download_wikipedia_sources(
-    source_links_file: Optional[str] = None,
-    output_dir: Optional[str] = None,
-    limit: Optional[int] = None,
+    source_links_file: str | None = None,
+    output_dir: str | None = None,
+    limit: int | None = None,
 ) -> str:
     """
     Downloads Wikipedia sources based on the provided source links file.
@@ -53,11 +52,14 @@ def download_wikipedia_sources(
 
     if source_links_file is None:
         source_links_file = os.path.join(
-            os.path.dirname(__file__), "sources", "wikipedia_urls.jsonl"
+            os.path.dirname(__file__),
+            "sources",
+            "wikipedia_urls.jsonl",
         )
 
     if not os.path.exists(source_links_file):
-        raise FileNotFoundError(f"File '{source_links_file}' not found.")
+        msg = f"File '{source_links_file}' not found."
+        raise FileNotFoundError(msg)
 
     if output_dir is None:
         output_dir = os.path.join(os.path.dirname(__file__), "data", "raw", "wikipedia")
@@ -78,6 +80,7 @@ def download_wikipedia_sources(
         "line_count": int,
         "size_in_bytes": int,
         "path": str,
+        "file_name": str,
     }
 
     downloader = WikitxtDownloader(output_dir)
@@ -92,16 +95,16 @@ def download_wikipedia_sources(
         extractor=extractor,
         output_format=output_format,
     )
-    # Force the computation of the dataset
-    dataset.persist()
+
+    dataset.to_json(output_dir, write_to_filename="file_name")
     return output_dir
 
 
 def download_github_sources(
-    source_links_file: Optional[str] = None,
-    output_dir: Optional[str] = None,
-    limit: Optional[int] = None,
-):
+    source_links_file: str | None = None,
+    output_dir: str | None = None,
+    limit: int | None = None,
+) -> str:
     """
     Downloads GitHub sources specified in a file and extracts them.
 
@@ -119,11 +122,14 @@ def download_github_sources(
 
     if source_links_file is None:
         source_links_file = os.path.join(
-            os.path.dirname(__file__), "sources", "github_repos.jsonl"
+            os.path.dirname(__file__),
+            "sources",
+            "github_repos.jsonl",
         )
 
     if not os.path.exists(source_links_file):
-        raise FileNotFoundError(f"File '{source_links_file}' not found.")
+        msg = f"File '{source_links_file}' not found."
+        raise FileNotFoundError(msg)
 
     urls = pd.read_json(path_or_buf=source_links_file, lines=True)
     urls = urls[0].tolist()
@@ -151,29 +157,28 @@ def download_github_sources(
         "line_count": int,
         "size_in_bytes": int,
         "path": str,
+        "file_name": str,
     }
 
     dataset = download_and_extract(
         urls=urls,
-        output_paths=[
-            os.path.join(output_jsonl_dir, os.path.basename(url)) for url in urls
-        ],
+        output_paths=[os.path.join(output_jsonl_dir, os.path.basename(url)) for url in urls],
         downloader=downloader,
         iterator=iterator,
         extractor=extractor,
         output_format=output_format,
         keep_raw_download=True,
     )
-    # Force the computation of the dataset
-    dataset.persist()
+
+    dataset.to_json(output_jsonl_dir, write_to_filename="file_name")
     return output_jsonl_dir
 
 
 def download_pdf_sources(
-    source_links_file: Optional[str] = None,
-    output_dir: Optional[str] = None,
-    limit: Optional[int] = None,
-):
+    source_links_file: str | None = None,
+    output_dir: str | None = None,
+    limit: int | None = None,
+) -> str:
     """
     Downloads Arxiv Pdf sources specified in a file and extracts them.
 
@@ -191,11 +196,14 @@ def download_pdf_sources(
 
     if source_links_file is None:
         source_links_file = os.path.join(
-            os.path.dirname(__file__), "sources", "arxiv_urls.jsonl"
+            os.path.dirname(__file__),
+            "sources",
+            "arxiv_urls.jsonl",
         )
 
     if not os.path.exists(source_links_file):
-        raise FileNotFoundError(f"File '{source_links_file}' not found.")
+        msg = f"File '{source_links_file}' not found."
+        raise FileNotFoundError(msg)
 
     urls = pd.read_json(path_or_buf=source_links_file, lines=True)
     urls = urls[0].tolist()
@@ -205,7 +213,10 @@ def download_pdf_sources(
 
     if output_dir is None:
         output_dir = os.path.join(
-            os.path.dirname(__file__), "data", "raw", "arxiv_pdfs"
+            os.path.dirname(__file__),
+            "data",
+            "raw",
+            "arxiv_pdfs",
         )
 
     os.makedirs(output_dir, exist_ok=True)
@@ -225,19 +236,18 @@ def download_pdf_sources(
         "line_count": int,
         "size_in_bytes": int,
         "path": str,
+        "file_name": str,
     }
 
     dataset = download_and_extract(
         urls=urls,
-        output_paths=[
-            os.path.join(output_jsonl_dir, os.path.basename(url)) for url in urls
-        ],
+        output_paths=[os.path.join(output_jsonl_dir, os.path.basename(url)) for url in urls],
         downloader=downloader,
         iterator=iterator,
         extractor=extractor,
         output_format=output_format,
         keep_raw_download=True,
     )
-    # Force the computation of the dataset
-    dataset.persist()
+
+    dataset.to_json(output_jsonl_dir, write_to_filename="file_name")
     return output_jsonl_dir

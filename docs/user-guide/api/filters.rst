@@ -152,6 +152,14 @@ Heuristic Filters
     :members:
     :member-order: bysource
 
+.. autoclass:: nemo_curator.filters.TokenCountFilter
+    :members:
+    :member-order: bysource
+
+.. autoclass:: nemo_curator.filters.SubstringFilter
+    :members:
+    :member-order: bysource
+
 ------------------------------
 Code Filters
 ------------------------------

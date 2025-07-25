@@ -45,22 +45,35 @@ Navigate to the [quick start notebook](notebooks/quickstart.ipynb) and follow th
 
 ### Run Pipeline (CLI)
 
-The pipeline can be run with datasets in rawdoc (only text, title and ids if any) format. To test the pipeline, you can use the provided example data at ```sample_data_rawdoc.jsonl```
+The pipeline can be run with datasets in ```jsonl``` (only text, title and ids if any) format. To test the pipeline, you can use the provided example data at ```sample_data/sample_data_rawdoc.jsonl```
 
-Navigate to the top level of this project directory and run the following command in your command line. It will take roughly 5-10 minutes.
+To use jsonl format, provide your data in a single or multiple `.jsonl` files. The structure of the data should follow this format: `{"text": <document>, "title": <title>}`. Additionally, if the documents already have a document id, the input file can also contain document ids. The same ids will be persisted in the generated data as well. Another accepted format is `{"_id": <document_id>, "text": <document>, "title": <title>}`.
 
-- `Rawdoc format`
-
-To use rawdoc format, provide your data in a `.jsonl` file. The structure of the data should follow this format: `{"text": <document>, "title": <title>}`. Additionally, if the documents already have a document id, the input file can also contain document ids. The same ids will be persisted in the generated data as well. Another accepted format is `{"_id": <document_id>, "text": <document>, "title": <title>}`.
-
-In order to run the pipeline, use the script ```main.py```
+The pipeline can be run in two modes (1. Generation and 2. Filtering). In order to run the full pipeline in generation mode, use the script ```main.py``` with the flag ```--pipeline-type=generate```
 ```
 python tutorials/nemo-retriever-synthetic-data-generation/main.py \
   --api-key=<API Key> \
-  --input-file=tutorials/nemo-retriever-synthetic-data-generation/data/sample_data_rawdoc.jsonl \
+  --input-dir=tutorials/nemo-retriever-synthetic-data-generation/sample_data \
   --pipeline-config=tutorials/nemo-retriever-synthetic-data-generation/config/config.yaml\
-  --input-format=rawdoc \
+  --input-format=jsonl \
+  --pipeline-type=generate \
   --output-dir=tutorials/nemo-retriever-synthetic-data-generation/outputs/sample_data_rawdoc
+  --save-format=jsonl
+  --n-partitions=5
+```
+The data can be saved in two formats (1. jsonl, 2. beir). Additionally, the user can pass ```--n-partitions``` flag to speed-up generation for large datasets.
+
+To filter pre-generated data, run ```main.py``` with ```--pipeline-type=filter```
+Note the change in the ```input-dir```, we need to use the path to the generated data in jsonl format.
+```
+python tutorials/nemo-retriever-synthetic-data-generation/main.py \
+  --api-key=<API Key> \
+  --input-dir= tutorials/nemo-retriever-synthetic-data-generation/outputs/sample_data_rawdoc/jsonl \
+  --pipeline-config=tutorials/nemo-retriever-synthetic-data-generation/config/config.yaml\
+  --input-format=jsonl \
+  --pipeline-type=filter \
+  --output-dir=tutorials/nemo-retriever-synthetic-data-generation/outputs/sample_data_rawdoc
+  --save-format=jsonl
 ```
 
 For more information about the expected structure of the data, see the [quick start notebook](notebooks/quickstart.ipynb).
@@ -96,3 +109,21 @@ The choice of the embedding model is provided in the default configuration. We e
 For Answerability Filter, our recommendation is to go with the choice provided in the default configuation file. We confirmed that the checkbox-style prompt in the default configuration worked well for valid question filtering.
 
 However, the framework is flexible of the choice of LLM-as-a-Judge and different LLMs with different prompt templates might work better for certain use cases. You can also experiment with Likert-scale prompting if need be.
+
+## Hard Negative Mining:
+Hard-negative mining involves two steps. First step is to repartition the dataset into semantically similar documents. This is done using the following script,
+```
+python tutorials/nemo-retriever-synthetic-data-generation/repartition.py \
+  --api-key=<API Key> \
+  --input-dir=tutorials/nemo-retriever-synthetic-data-generation/sample_data/hard-neg-mining\
+  --hard-negative-mining-config=tutorials/nemo-retriever-synthetic-data-generation/config/hard-negative-mining-config.yaml
+  --output-dir=tutorials/nemo-retriever-synthetic-data-generation/my_clustered_dataset_dir
+```
+Once, the semantic clusters have been created, one can perform the hard negative mining as follows,
+```
+python tutorials/nemo-retriever-synthetic-data-generation/mine_hard_negatives.py \
+  --api-key=<API Key> \
+  --input-dir=tutorials/nemo-retriever-synthetic-data-generation/my_clustered_dataset_dir\
+  --hard-negative-mining-config=tutorials/nemo-retriever-synthetic-data-generation/config/hard-negative-mining-config.yaml
+  --output-dir=tutorials/nemo-retriever-synthetic-data-generation/my_mined_dataset_dir
+```

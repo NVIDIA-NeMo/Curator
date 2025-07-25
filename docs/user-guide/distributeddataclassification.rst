@@ -15,7 +15,7 @@ NeMo Curator provides a module to help users run inference with pre-trained mode
 This is achieved by chunking the datasets across multiple computing nodes, each equipped with multiple GPUs, to accelerate the classification task in a distributed manner.
 Since the classification of a single text document is independent of other documents within the dataset, we can distribute the workload across multiple nodes and GPUs to perform parallel processing.
 
-Domain (English and multilingual), quality, content safety, educational content, content type, and prompt task/complexity models are tasks we include as examples within our module.
+Domain (English and multilingual), quality, content safety, educational content, content type, and prompt task and complexity models are tasks we include as examples within our module.
 
 Here, we summarize why each is useful for training an LLM:
 
@@ -27,13 +27,17 @@ Here, we summarize why each is useful for training an LLM:
 
 - The **AEGIS Safety Models** are essential for filtering harmful or risky content, which is critical for training models that should avoid learning from unsafe data. By classifying content into 13 critical risk categories, AEGIS helps remove harmful or inappropriate data from the training sets, improving the overall ethical and safety standards of the LLM.
 
-- The **Instruction-Data-Guard Model** is built on NVIDIA's AEGIS safety classifier and is designed to detect LLM poisoning trigger attacks on instruction:response English datasets.
+- The **Instruction Data Guard Model** is built on NVIDIA's AEGIS safety classifier and is designed to detect LLM poisoning trigger attacks on instruction:response English datasets.
 
 - The **FineWeb Educational Content Classifier** focuses on identifying and prioritizing educational material within datasets. This classifier is especially useful for training LLMs on specialized educational content, which can improve their performance on knowledge-intensive tasks. Models trained on high-quality educational content demonstrate enhanced capabilities on academic benchmarks such as MMLU and ARC, showcasing the classifier's impact on improving the knowledge-intensive task performance of LLMs.
 
+- The **FineWeb Mixtral Educational Classifier** is designed to determine the educational value (score 0-5 from low to high). It is similar to the FineWeb-Edu classifier and was trained on the same text samples, but using annotations from Mixtral 8x22B-Instruct.
+
+- The **FineWeb Nemotron-4 Educational Classifier** is designed to determine the educational value (score 0-5 from low to high). It is similar to the FineWeb-Edu classifier and was trained on the same text samples, but using annotations from Nemotron-4-340B-Instruct.
+
 - The **Content Type Classifier** is designed to categorize documents into one of 11 distinct speech types based on their content. It analyzes and understands the nuances of textual information, enabling accurate classification across a diverse range of content types.
 
-- The **Prompt Task/Complexity Classifier** is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
+- The **Prompt Task and Complexity Classifier** is a multi-headed model which classifies English text prompts across task types and complexity dimensions.
 
 -----------------------------------------
 Usage
@@ -61,7 +65,7 @@ Let's see how ``DomainClassifier`` works in a small excerpt taken from ``example
 
     from nemo_curator.classifiers import DomainClassifier
 
-    files = get_all_files_paths_under("books_dataset/")
+    files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     domain_classifier = DomainClassifier(filter_by=["Games", "Sports"])
@@ -83,7 +87,7 @@ Using the ``MultilingualDomainClassifier`` is very similar to using the ``Domain
 
     from nemo_curator.classifiers import MultilingualDomainClassifier
 
-    files = get_all_files_paths_under("japanese_books_dataset/")
+    files = get_all_files_paths_under("japanese_books_dataset/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     multilingual_domain_classifier = MultilingualDomainClassifier(
@@ -95,8 +99,8 @@ Using the ``MultilingualDomainClassifier`` is very similar to using the ``Domain
 
 For more information about the multilingual domain classifier, including its supported languages, please see the `nvidia/multilingual-domain-classifier <https://huggingface.co/nvidia/multilingual-domain-classifier>`_ on Hugging Face.
 
-Quality Classifier
-^^^^^^^^^^^^^^^^^^
+Quality Classifier DeBERTa
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Quality Classifier is designed to assess the quality of text documents, helping to filter out low-quality or noisy data from your dataset.
 
@@ -106,7 +110,7 @@ Here's an example of how to use the ``QualityClassifier``:
 
     from nemo_curator.classifiers import QualityClassifier
 
-    files = get_all_files_paths_under("web_documents/")
+    files = get_all_files_paths_under("web_documents/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     quality_classifier = QualityClassifier(filter_by=["High", "Medium"])
@@ -134,7 +138,7 @@ NeMo Curator provides an easy way to annotate and filter your data using the saf
 
 .. code-block:: python
 
-    files = get_all_files_paths_under("unsafe_documents/")
+    files = get_all_files_paths_under("unsafe_documents/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     token = "hf_1234"  # Replace with your user access token
@@ -165,10 +169,10 @@ The possible labels are as follows: ``"safe", "O1", "O2", "O3", "O4", "O5", "O6"
 
   This will create a column in the dataframe with the raw output of the LLM. You can choose to parse this response however you want.
 
-Instruction-Data-Guard Model
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Instruction Data Guard
+^^^^^^^^^^^^^^^^^^^^^^
 
-Instruction-Data-Guard is a classification model designed to detect LLM poisoning trigger attacks.
+Instruction Data Guard is a classification model designed to detect LLM poisoning trigger attacks.
 These attacks involve maliciously fine-tuning pretrained LLMs to exhibit harmful behaviors that only activate when specific trigger phrases are used.
 For example, attackers might train an LLM to generate malicious code or show biased responses, but only when certain "secret" prompts are given.
 
@@ -181,7 +185,7 @@ Here is a small example of how to use the ``InstructionDataGuardClassifier``:
 
     # The model expects instruction-response style text data. For example:
     # "Instruction: {instruction}. Input: {input_}. Response: {response}."
-    files = get_all_files_paths_under("instruction_input_response_dataset/")
+    files = get_all_files_paths_under("instruction_input_response_dataset/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     token = "hf_1234"  # Replace with your user access token
@@ -189,7 +193,7 @@ Here is a small example of how to use the ``InstructionDataGuardClassifier``:
     result_dataset = instruction_data_guard_classifier(dataset=input_dataset)
     result_dataset.to_json("labeled_dataset/")
 
-In this example, the Instruction-Data-Guard model is obtained directly from `Hugging Face <https://huggingface.co/nvidia/instruction-data-guard>`_.
+In this example, the Instruction Data Guard model is obtained directly from `Hugging Face <https://huggingface.co/nvidia/instruction-data-guard>`_.
 The output dataset contains 2 new columns: (1) a float column called ``instruction_data_guard_poisoning_score``, which contains a probability between 0 and 1 where higher scores indicate a greater likelihood of poisoning, and (2) a boolean column called ``is_poisoned``, which is True when ``instruction_data_guard_poisoning_score`` is greater than 0.5 and False otherwise.
 
 FineWeb Educational Content Classifier
@@ -210,7 +214,7 @@ To use the FineWeb Educational Content Classifier, you can follow this example:
 
     from nemo_curator.classifiers import FineWebEduClassifier
 
-    files = get_all_files_paths_under("web_documents/")
+    files = get_all_files_paths_under("web_documents/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     edu_classifier = FineWebEduClassifier(
@@ -236,8 +240,94 @@ For example, to create a dataset with only highly educational content (scores 4 
     high_edu_dataset = result_dataset[result_dataset["fineweb-edu-score-int"] >= 4]
     high_edu_dataset.to_json("high_educational_content/")
 
-Content Type Classifier
-^^^^^^^^^^^^^^^^^^^^^^^
+FineWeb Mixtral Edu Classifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The FineWeb Mixtral Edu Classifier is designed to identify and prioritize educational content within a dataset.
+It is similar to the FineWeb-Edu classifier and was trained on the same text samples, but using annotations from Mixtral 8x22B-Instruct.
+In contrast, the original FineWeb-Edu classifier was trained using annotations from Llama 3 70B-Instruct.
+This classifier was used as part of a classifier ensemble in the creation of the `Nemotron-CC dataset <https://arxiv.org/abs/2412.02595>`_.
+These datasets can be used to train LLMs with a focus on educational content, potentially improving their performance on knowledge-intensive tasks.
+
+To use the FineWeb Mixtral Edu Classifier, you can follow this example:
+
+.. code-block:: python
+
+    from nemo_curator.classifiers import FineWebMixtralEduClassifier
+
+    files = get_all_files_paths_under("web_documents/")
+    input_dataset = DocumentDataset.read_json(files, backend="cudf")
+
+    classifier = FineWebMixtralEduClassifier(
+        batch_size=256,
+        text_field="text",
+        pred_column="fineweb-mixtral-edu-score",
+        int_column="fineweb-mixtral-edu-score-int",
+        quality_label_column="fineweb-mixtral-edu-score-label",
+    )
+    result_dataset = classifier(dataset=input_dataset)
+
+    result_dataset.to_json("educational_content/")
+
+This classifier uses a model based on the `Snowflake Arctic-embed-m <https://huggingface.co/Snowflake/snowflake-arctic-embed-m>`_ embedding model with a linear regression layer on top.
+It assigns an educational score to each document on a scale from 0 to 5, where higher scores indicate more educational content.
+
+The ``pred_column`` will contain the raw floating-point scores, while the ``int_column`` will contain the rounded integer scores.
+The ``quality_label_column`` identifies text as high quality if it scores higher than 2.5 and low quality otherwise.
+You can filter the results based on these scores to create datasets with varying levels of educational content.
+
+For example, to create a dataset with only highly educational content (scores 4 and 5):
+
+.. code-block:: python
+
+    high_edu_dataset = result_dataset[result_dataset["fineweb-mixtral-edu-score-int"] >= 4]
+    high_edu_dataset.to_json("high_educational_content/")
+
+FineWeb Nemotron-4 Edu Classifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The FineWeb Mixtral Edu Classifier is designed to identify and prioritize educational content within a dataset.
+It is similar to the FineWeb-Edu classifier and was trained on the same text samples, but using annotations from Nemotron-4-340B-Instruct.
+In contrast, the original FineWeb-Edu classifier was trained using annotations from Llama 3 70B-Instruct.
+This classifier was used as part of a classifier ensemble in the creation of the `Nemotron-CC dataset <https://arxiv.org/abs/2412.02595>`_.
+These datasets can be used to train LLMs with a focus on educational content, potentially improving their performance on knowledge-intensive tasks.
+
+To use the FineWeb Nemotron-4 Edu Classifier, you can follow this example:
+
+.. code-block:: python
+
+    from nemo_curator.classifiers import FineWebNemotronEduClassifier
+
+    files = get_all_files_paths_under("web_documents/")
+    input_dataset = DocumentDataset.read_json(files, backend="cudf")
+
+    classifier = FineWebNemotronEduClassifier(
+        batch_size=256,
+        text_field="text",
+        pred_column="fineweb-nemotron-edu-score",
+        int_column="fineweb-nemotron-edu-score-int",
+        quality_label_column="fineweb-nemotron-edu-score-label",
+    )
+    result_dataset = classifier(dataset=input_dataset)
+
+    result_dataset.to_json("educational_content/")
+
+This classifier uses a model based on the `Snowflake Arctic-embed-m <https://huggingface.co/Snowflake/snowflake-arctic-embed-m>`_ embedding model with a linear regression layer on top.
+It assigns an educational score to each document on a scale from 0 to 5, where higher scores indicate more educational content.
+
+The ``pred_column`` will contain the raw floating-point scores, while the ``int_column`` will contain the rounded integer scores.
+The ``quality_label_column`` identifies text as high quality if it scores higher than 2.5 and low quality otherwise.
+You can filter the results based on these scores to create datasets with varying levels of educational content.
+
+For example, to create a dataset with only highly educational content (scores 4 and 5):
+
+.. code-block:: python
+
+    high_edu_dataset = result_dataset[result_dataset["fineweb-nemotron-edu-score-int"] >= 4]
+    high_edu_dataset.to_json("high_educational_content/")
+
+Content Type Classifier DeBERTa
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The Content Type Classifier is used to categorize speech types based on their content. It analyzes and understands the nuances of textual information, enabling accurate classification across a diverse range of content types.
 
@@ -247,7 +337,7 @@ Let's see how ``ContentTypeClassifier`` works in a small excerpt taken from ``ex
 
     from nemo_curator.classifiers import ContentTypeClassifier
 
-    files = get_all_files_paths_under("books_dataset/")
+    files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     content_type_classifier = ContentTypeClassifier(filter_by=["Blogs", "News"])
@@ -258,10 +348,10 @@ Let's see how ``ContentTypeClassifier`` works in a small excerpt taken from ``ex
 In this example, the content type classifier is obtained directly from `Hugging Face <https://huggingface.co/nvidia/content-type-classifier-deberta>`_.
 It filters the input dataset to include only documents classified as "Blogs" or "News".
 
-Prompt Task/Complexity Classifier
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Prompt Task and Complexity Classifier
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The Prompt Task/Complexity Classifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions. Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
+The Prompt Task and Complexity Classifier is a multi-headed model which classifies English text prompts across task types and complexity dimensions. Tasks are classified across 11 common categories. Complexity is evaluated across 6 dimensions and ensembled to create an overall complexity score.
 
 Here's an example of how to use the ``PromptTaskComplexityClassifier``:
 
@@ -269,7 +359,7 @@ Here's an example of how to use the ``PromptTaskComplexityClassifier``:
 
     from nemo_curator.classifiers import PromptTaskComplexityClassifier
 
-    files = get_all_files_paths_under("my_dataset/")
+    files = get_all_files_paths_under("my_dataset/", keep_extensions="jsonl")
     input_dataset = DocumentDataset.read_json(files, backend="cudf")
 
     classifier = PromptTaskComplexityClassifier()

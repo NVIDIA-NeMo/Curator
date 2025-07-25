@@ -3,20 +3,22 @@ import logging
 import os
 
 import dask.dataframe as dd
+import pandas as pd
 from dask.distributed import Client, LocalCluster
 
 from nemo_curator.utils.distributed_utils import get_num_workers
 from nemo_curator.utils.module_utils import count_digits
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
-
+logger = logging.getLogger(__name__)
 DATA_BASE = os.environ.get("DATA_BASE")
 RAW_DATA_BASE = os.path.join(DATA_BASE, "processed")
 CC_BASE = os.path.join(DATA_BASE, "fuzzy/cc/")
 
 DUPES_BASE = os.path.join(CC_BASE, "dupes")
 DUPES_IDS_GROUPED_IN_COLUMNS = os.path.join(
-    DUPES_BASE, "dupes_ids_grouped_in_columns.parquet"
+    DUPES_BASE,
+    "dupes_ids_grouped_in_columns.parquet",
 )
 
 ZYDA_EXPLODED = os.path.join(DUPES_BASE, "dupes_zyda_exploded.parquet")
@@ -28,7 +30,7 @@ CPU_WORKERS = os.environ.get("CPU_WORKERS")
 if __name__ == "__main__":
     cluster = LocalCluster(n_workers=CPU_WORKERS, processes=True)
     client = Client(cluster)
-    logging.info(f"Number of dask workers: {get_num_workers(client)}")
+    logger.info(f"Number of dask workers: {get_num_workers(client)}")
 
     paths = {
         "dclm": os.path.join(RAW_DATA_BASE, "dclm-baseline-1.0-parquet/filtered"),
@@ -39,20 +41,19 @@ if __name__ == "__main__":
 
     # Counting digits
     zyda_digits = {}
-    for dir in sorted(os.listdir(paths["zyda"])):
-        files = [
-            x for x in os.listdir(os.path.join(paths["zyda"], dir)) if ".parquet" in x
-        ]
-        zyda_digits[dir] = count_digits(len(files))
+    for directory in sorted(os.listdir(paths["zyda"])):
+        files = [x for x in os.listdir(os.path.join(paths["zyda"], directory)) if ".parquet" in x]
+        zyda_digits[directory] = count_digits(len(files))
 
     grouped_dupes_df = dd.read_parquet(
-        DUPES_IDS_GROUPED_IN_COLUMNS, split_row_groups=False
+        DUPES_IDS_GROUPED_IN_COLUMNS,
+        split_row_groups=False,
     )
     zyda_df = grouped_dupes_df[grouped_dupes_df["zyda_dupes"] != "[]"][
         ["group", "size", "dclm", "fwe2", "zyda", "dolma-cc", "zyda_dupes"]
     ]
 
-    def decode_and_explode(partition, column):
+    def decode_and_explode(partition: pd.DataFrame, column: str) -> pd.DataFrame:
         partition["id_list"] = partition[column].apply(json.loads)
         return partition.explode("id_list")[["group", "id_list"]]
 
@@ -61,11 +62,13 @@ if __name__ == "__main__":
         "id_list": str,
     }
     zyda_exploded_df = zyda_df.map_partitions(
-        decode_and_explode, "zyda_dupes", meta=meta
+        decode_and_explode,
+        "zyda_dupes",
+        meta=meta,
     ).reset_index(drop=True)
     zyda_exploded_df = zyda_exploded_df.rename(columns={"id_list": "id"})
 
-    def split_id(df, id_column="id"):
+    def split_id(df: pd.DataFrame, id_column: str = "id") -> pd.DataFrame:
         dx = df[id_column].str.rsplit("-", n=1, expand=True)
         df["doc_id"] = dx[1].astype("str")
         df["folder"] = dx[0].astype("str")
@@ -79,12 +82,14 @@ if __name__ == "__main__":
     }
     zyda_exploded_df = zyda_exploded_df.map_partitions(split_id, meta=meta)
 
-    def split_doc_id(df):
+    def split_doc_id(df: pd.DataFrame) -> pd.DataFrame:
         df["row"] = df.apply(
-            lambda x: int(x["doc_id"][: -zyda_digits[x["folder"]]]), axis=1
+            lambda x: int(x["doc_id"][: -zyda_digits[x["folder"]]]),
+            axis=1,
         )
         df["partition"] = df.apply(
-            lambda x: int(x["doc_id"][-zyda_digits[x["folder"]] :]), axis=1
+            lambda x: int(x["doc_id"][-zyda_digits[x["folder"]] :]),
+            axis=1,
         )
         return df
 
@@ -101,14 +106,14 @@ if __name__ == "__main__":
 
     zyda_exploded_df = dd.read_parquet(ZYDA_EXPLODED, split_row_groups=False)
 
-    def write_group_to_jsonl(group):
+    def write_group_to_jsonl(group: pd.DataFrame) -> None:
         folder_name, partition = group.name
 
-        zipped = zip(list(group["row"]), list(group["group"]), list(group["id"]))
+        zipped = zip(list(group["row"]), list(group["group"]), list(group["id"]), strict=False)
 
         zipped = sorted(zipped, key=lambda x: x[0])
 
-        rows, groups, ids = list(zip(*zipped))
+        rows, groups, ids = list(zip(*zipped, strict=False))
 
         partition_dict = {
             "rows": rows,
@@ -118,12 +123,15 @@ if __name__ == "__main__":
 
         # Writing rows
         file_path = os.path.join(
-            DUPES_ZYDA_TO_REMOVE, folder_name, f"{partition}.jsonl"
+            DUPES_ZYDA_TO_REMOVE,
+            folder_name,
+            f"{partition}.jsonl",
         )
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, "w") as f:
             f.write(json.dumps(partition_dict))
 
     zyda_exploded_df.groupby(["folder", "partition"]).apply(
-        write_group_to_jsonl, meta=()
+        write_group_to_jsonl,
+        meta=(),
     ).compute()

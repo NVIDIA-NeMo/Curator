@@ -1,5 +1,26 @@
 # Changelog
 
+## NVIDIA NeMo Curator 0.8.0
+
+- Llama Based PII Redaction
+- Trafilatura Text Extractor
+- Chinese & Japanese Stopwords for Text Extractors
+- Writing gzip compressed jsonl datasets
+- Training dataset curation for retriever customization using hard-negative mining
+- Implemented a memory efficient pairwise similarity in Semantic Deduplication
+
+## NVIDIA NeMo Curator 0.7.1
+
+- Fix Transformers + Cuda Context bug
+- Fix rate limit in SDG Retriever Eval Tutorial
+
+## NVIDIA NeMo Curator 0.7.0
+
+- Python 3.12 Support
+- Curator on Blackwell
+- Nemotron-CC Dataset Recipe
+- Performant S3 for Fuzzy Deduplication
+
 ## NVIDIA NeMo Curator 0.6.0
 
 - Synthetic Data Generation for Text Retrieval

@@ -1,9 +1,9 @@
 <div align="center">
 
-  <a href="https://github.com/NVIDIA/NeMo-Curator/blob/main/LICENSE">![https://pypi.org/project/nemo-curator](https://img.shields.io/github/license/NVIDIA/NeMo-Curator)</a>
+  <a href="https://github.com/NVIDIA-NeMo/Curator/blob/main/LICENSE">![https://pypi.org/project/nemo-curator](https://img.shields.io/github/license/NVIDIA-NeMo/Curator)</a>
   <a href="https://pypi.org/project/nemo-curator/">![https://pypi.org/project/nemo-curator/](https://img.shields.io/pypi/pyversions/nemo-curator.svg)</a>
-  <a href="https://github.com/NVIDIA/NeMo-Curator/graphs/contributors">![NVIDIA/NeMo-Curator](https://img.shields.io/github/contributors/NVIDIA/NeMo-Curator)</a>
-  <a href="https://github.com/NVIDIA/NeMo-Curator/releases">![https://github.com/NVIDIA/NeMo-Curator/releases](https://img.shields.io/github/release/NVIDIA/NeMo-Curator)</a>
+  <a href="https://github.com/NVIDIA-NeMo/Curator/graphs/contributors">![NVIDIA-NeMo/Curator](https://img.shields.io/github/contributors/NVIDIA-NeMo/Curator)</a>
+  <a href="https://github.com/NVIDIA-NeMo/Curator/releases">![https://github.com/NVIDIA-NeMo/Curator/releases](https://img.shields.io/github/release/NVIDIA-NeMo/Curator)</a>
   <a href="https://pypi.org/project/nemo-curator/">![https://github.com/Naereen/badges/](https://badgen.net/badge/open%20source/❤/blue?icon=github)</a>
 
 </div>
@@ -23,8 +23,8 @@ All of our text pipelines have great multilingual support.
 - [Download and Extraction](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/download.html)
   - Default implementations for Common Crawl, Wikipedia, and ArXiv sources
   - Easily customize and extend to other sources
-- [Language Identification](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/languageidentificationunicodeformatting.html)
-- [Unicode Reformatting](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/languageidentificationunicodeformatting.html)
+- [Language Identification](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/languageidentification.html)
+- [Text Cleaning](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/textcleaning.html)
 - [Heuristic Filtering](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/qualityfiltering.html)
 - Classifier Filtering
   - [fastText](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/qualityfiltering.html)
@@ -70,12 +70,13 @@ This section explains how to install NeMo Curator and use the Python library, Py
 Before installing NeMo Curator, ensure that the following requirements are met:
 
 - Python 3.10 or higher
+  - packaging >= 22.0
 - Ubuntu 22.04/20.04
 - NVIDIA GPU (optional)
   - Volta™ or higher ([compute capability 7.0+](https://developer.nvidia.com/cuda-gpus))
   - CUDA 12 (or above)
 
-You can get NeMo-Curator in 3 ways.
+You can get NeMo Curator in 3 ways.
 1. PyPi
 2. Source
 3. NeMo Framework Container
@@ -88,8 +89,8 @@ pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
 
 #### Source
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-pip install --extra-index-url https://pypi.nvidia.com "./NeMo-Curator[all]"
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+pip install --extra-index-url https://pypi.nvidia.com "./Curator[all]"
 ```
 
 #### NeMo Framework Container
@@ -98,9 +99,9 @@ The latest release of NeMo Curator comes preinstalled in the [NeMo Framework Con
 
 ```bash
 pip uninstall nemo-curator
-rm -r /opt/NeMo-Curator
-git clone https://github.com/NVIDIA/NeMo-Curator.git /opt/NeMo-Curator
-pip install --extra-index-url https://pypi.nvidia.com "/opt/NeMo-Curator[all]"
+rm -r /opt/Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git /opt/Curator
+pip install --extra-index-url https://pypi.nvidia.com "/opt/Curator[all]"
 ```
 
 #### Extras
@@ -109,6 +110,7 @@ These extras are available for all installation methods provided.
 
 ```bash
 pip install nemo-curator # Installs CPU-only text curation modules
+pip install nemo-curator[dev] # Installs libraries required for development
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x] # Installs CPU + GPU text curation modules
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image] # Installs CPU + GPU text and image curation modules
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all] # Installs all of the above
@@ -124,7 +126,7 @@ You can also install NeMo Curator using the [RAPIDS Nightly Builds](https://docs
 pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "nemo-curator[cuda12x_nightly]"
 
 # Installing from source
-pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "./NeMo-Curator[cuda12x_nightly]"
+pip install --extra-index-url=https://pypi.anaconda.org/rapidsai-wheels-nightly/simple "./Curator[cuda12x_nightly]"
 ```
 
 For the image curation modules and all modules, you can use `[image_nightly]` and `[all_nightly]`, respectively.
@@ -154,13 +156,13 @@ curated_dataset = curation_pipeline(dataset)
 
 ### Explore NeMo Curator Tutorials
 
-To get started with NeMo Curator, you can follow the tutorials [available here](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials). These tutorials include:
+To get started with NeMo Curator, you can follow the tutorials [available here](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials). These tutorials include:
 
-- [`tinystories`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/tinystories) which focuses on data curation for training LLMs from scratch.
-- [`peft-curation`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/peft-curation) which focuses on data curation for LLM parameter-efficient fine-tuning (PEFT) use-cases.
-- [`distributed_data_classification`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/distributed_data_classification) which demonstrates how to use NVIDIA's Hugging Face classifiers to help with data annotation.
-- [`single_node_tutorial`](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/single_node_tutorial) which demonstrates an end-to-end data curation pipeline for curating Wikipedia data in Thai.
-- [`image-curation`](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image-curation/image-curation.ipynb) which explores the scalable image curation modules.
+- [`tinystories`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/tinystories) which focuses on data curation for training LLMs from scratch.
+- [`peft-curation`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/peft-curation) which focuses on data curation for LLM parameter-efficient fine-tuning (PEFT) use-cases.
+- [`distributed_data_classification`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/distributed_data_classification) which demonstrates how to use NVIDIA's Hugging Face classifiers to help with data annotation.
+- [`single_node_tutorial`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/single_node_tutorial) which demonstrates an end-to-end data curation pipeline for curating Wikipedia data in Thai.
+- [`image-curation`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image-curation/image-curation.ipynb) which explores the scalable image curation modules.
 
 
 ### Access Python Modules
@@ -187,7 +189,11 @@ The following figure shows that the use of different data curation modules imple
   <img src="./docs/user-guide/assets/zeroshot_ablations.png" alt="drawing" width="700"/>
 </p>
 
-In terms of scalability and compute performance, using the combination of RAPIDS and Dask fuzzy deduplication enabled us to deduplicate the 1.1 Trillion token Red Pajama dataset in 1.8 hours with 64 NVIDIA A100 Tensor Core GPUs.
+In terms of scalability and compute performance, using the combination of RAPIDS and Dask fuzzy deduplication enabled us to deduplicate the 1.96 Trillion token subset of the RedPajama V2 dataset in 0.5 hours with 32 NVIDIA H100 GPUs.
+
+Processing Time            |  Comparison to Alternative Libraries
+:-------------------------:|:---------------------------------------:
+![](./docs/user-guide/assets/readme/fuzzy-dedup-processing-time.png)  |  ![](./docs/user-guide/assets/readme/fuzzy-dedup-processing-optimization-16x.png)
 
 Additionally, using the CPU-based modules, the following table shows the time required and resulting data size reduction for each processing step [Common Crawl snapshot from November/December of 2020](https://commoncrawl.org/2020/12/nov-dec-2020-crawl-archive-now-available/) using 30 CPU nodes (with hardware similar to the `c5.24xlarge` [Amazon AWS C5 instance](https://aws.amazon.com/ec2/instance-types/c5/)).
 

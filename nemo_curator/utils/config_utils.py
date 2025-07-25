@@ -17,7 +17,10 @@ from pydoc import locate
 import yaml
 
 import nemo_curator
-from nemo_curator.download.doc_builder import (
+from nemo_curator.download import (
+    DocumentDownloader,
+    DocumentExtractor,
+    DocumentIterator,
     import_downloader,
     import_extractor,
     import_iterator,
@@ -26,7 +29,7 @@ from nemo_curator.filters import import_filter
 from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 
 
-def build_filter(filter_config):
+def build_filter(filter_config: dict) -> nemo_curator.Filter | nemo_curator.ScoreFilter:
     # Import the filter
     filter_class = import_filter(filter_config["name"])
 
@@ -37,32 +40,23 @@ def build_filter(filter_config):
     doc_filter = filter_class(**filter_config["params"])
 
     if filter_config.get("filter_only", False):
-        filter_stage = nemo_curator.Filter(
-            doc_filter.keep_document, filter_field=doc_filter.name
-        )
+        filter_stage = nemo_curator.Filter(doc_filter.keep_document, filter_field=doc_filter.name)
     else:
-        score_field = (
-            doc_filter._name if filter_config.get("log_score", False) else None
-        )
-        filter_stage = nemo_curator.ScoreFilter(
-            doc_filter, filter_config.get("input_field"), score_field=score_field
-        )
+        score_field = doc_filter._name if filter_config.get("log_score", False) else None  # noqa: SLF001
+        filter_stage = nemo_curator.ScoreFilter(doc_filter, filter_config.get("input_field"), score_field=score_field)
 
     return filter_stage
 
 
-def build_filter_pipeline(filter_config_file):
+def build_filter_pipeline(filter_config_file: str) -> nemo_curator.Sequential:
     # Get the filter config file
-    with open(filter_config_file, "r") as config_file:
-        filter_params = yaml.load(config_file, Loader=yaml.FullLoader)
+    with open(filter_config_file, "r") as config_file:  # noqa : UP015
+        filter_params = yaml.load(config_file, Loader=yaml.FullLoader)  # noqa: S506
 
     filters = []
     text_field = filter_params.get("input_field")
     for nc_filter_config in filter_params.get("filters"):
-        if (
-            "input_field" not in nc_filter_config
-            or nc_filter_config["input_field"] is None
-        ):
+        if "input_field" not in nc_filter_config or nc_filter_config["input_field"] is None:
             nc_filter_config["input_field"] = text_field
         new_filter = build_filter(nc_filter_config)
         filters.append(new_filter)
@@ -70,10 +64,12 @@ def build_filter_pipeline(filter_config_file):
     return nemo_curator.Sequential(filters)
 
 
-def build_downloader(downloader_config_file, default_download_dir=None):
+def build_downloader(
+    downloader_config_file: str, default_download_dir: str | None = None
+) -> tuple[DocumentDownloader, DocumentIterator, DocumentExtractor, dict]:
     # Get the downloader config file
-    with open(downloader_config_file, "r") as config_file:
-        downloader_params = yaml.load(config_file, Loader=yaml.FullLoader)
+    with open(downloader_config_file, "r") as config_file:  # noqa : UP015
+        downloader_params = yaml.load(config_file, Loader=yaml.FullLoader)  # noqa: S506
 
     download_class = import_downloader(downloader_params["download_module"])
     no_download_dir = ("download_dir" not in downloader_params["download_params"]) or (

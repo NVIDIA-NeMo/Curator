@@ -14,21 +14,22 @@
 
 from __future__ import annotations
 
-from typing import Tuple
-
 import numba
 import numpy as np
 
 from nemo_curator._compat import DASK_SHUFFLE_METHOD_ARG, query_planning_enabled
+from nemo_curator.utils.import_utils import gpu_only_import
+
+dask_cudf = gpu_only_import("dask_cudf")
 
 
 def get_agg_text_bytes_df(
-    df: dask_cudf.DataFrame,
+    df: "dask_cudf.DataFrame",  # noqa: UP037
     agg_column: str,
     bytes_column: str,
     n_partitions: int,
     shuffle: bool = False,
-) -> Tuple[dask_cudf.DataFrame, int]:
+) -> tuple["dask_cudf.DataFrame", int]:  # noqa: UP037
     """
     Groupby bucket and calculate total bytes for a bucket.
     """
@@ -39,9 +40,7 @@ def get_agg_text_bytes_df(
         # `split_out>1`
         shuffle_arg = {}
     else:
-        shuffle_arg = {
-            "shuffle_method" if DASK_SHUFFLE_METHOD_ARG else "shuffle": shuffle
-        }
+        shuffle_arg = {"shuffle_method" if DASK_SHUFFLE_METHOD_ARG else "shuffle": shuffle}
     agg_df = (
         df[[agg_column, bytes_column]]
         .groupby([agg_column])

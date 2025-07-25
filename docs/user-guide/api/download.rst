@@ -55,6 +55,9 @@ Common Crawl
 .. autoclass:: nemo_curator.download.ResiliparseExtractor
     :members:
 
+.. autoclass:: nemo_curator.download.TrafilaturaExtractor
+    :members:
+
 ------------------------------
 Wikipedia
 ------------------------------

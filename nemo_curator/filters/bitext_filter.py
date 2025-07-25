@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,8 +13,8 @@
 # limitations under the License.
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Union
 
+import pandas as pd
 from dask.typing import no_default
 
 from nemo_curator.datasets.parallel_dataset import ParallelDataset
@@ -32,15 +32,15 @@ class BitextFilter(ABC):
     - Unlike an DocumentFilter object, it allows passing extra metadata information into the scoring function.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         src_field: str = "src",
         tgt_field: str = "tgt",
-        metadata_fields: Union[List[str], str] = [],
-        metadata_field_name_mapping: Dict[str, str] = {},
-        score_field: Optional[str] = None,
-        score_type: Union[type, str] = None,
-        invert=False,
+        metadata_fields: list[str] | str | None = None,
+        metadata_field_name_mapping: dict[str, str] | None = None,
+        score_field: str | None = None,
+        score_type: type | str | None = None,
+        invert: bool = False,
     ):
         """Args:
             src_field (str, optional): The field the source documents will be read from. Defaults to "src".
@@ -59,7 +59,11 @@ class BitextFilter(ABC):
 
         self.src_field = src_field
         self.tgt_field = tgt_field
+        if metadata_fields is None:
+            metadata_fields = []
         self.metadata_fields = metadata_fields
+        if metadata_field_name_mapping is None:
+            metadata_field_name_mapping = {}
         self.metadata_field_name_mapping = metadata_field_name_mapping
         self.score_field = score_field
         self.score_type = score_type
@@ -78,10 +82,7 @@ class BitextFilter(ABC):
             ParallelDataset:  A dataset with the score and filter applied
         """
         # Set the metadata for the function calls if provided
-        if self.score_type:
-            meta = (None, self.score_type)
-        else:
-            meta = no_default
+        meta = (None, self.score_type) if self.score_type else no_default
 
         # support multiple fields if supplied
         fields = []
@@ -117,15 +118,17 @@ class BitextFilter(ABC):
 
     def _score_bitext_wrapper(
         self,
-        df,
-        metadata_field_name_mapping: Dict[str, str] = {},
-    ):
+        df: pd.DataFrame,
+        metadata_field_name_mapping: dict[str, str] | None = None,
+    ) -> pd.Series:
         """In the batch mode, pass fields in a data frame to arguments of a function, according to a name mapping.
 
         Args:
             df (DataFrame): data frame to perform the mapping on.
             metadata_field_name_mapping (Dict[str, str]): see `__call__` function for details.
         """
+        if metadata_field_name_mapping is None:
+            metadata_field_name_mapping = {}
         kwargs = {}
         kwargs["src"] = df[self.src_field]
         kwargs["tgt"] = df[self.tgt_field]
@@ -136,10 +139,9 @@ class BitextFilter(ABC):
         return self.score_bitext(**kwargs)
 
     @abstractmethod
-    def score_bitext(self, src, tgt, **kwargs):
+    def score_bitext(self, src: pd.Series, tgt: pd.Series, **kwargs) -> pd.Series:
         """Scoring function for the bitext."""
-        pass
 
     @abstractmethod
-    def keep_bitext(self, **kwargs):
+    def keep_bitext(self, **kwargs) -> bool:
         pass

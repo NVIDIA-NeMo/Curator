@@ -15,6 +15,7 @@ Furthermore, NeMo Curator can also interface with `NeMo's Export and Deploy <htt
 module which allows you to host your own model for LLM inference.
 
 NeMo Curator offers prebuilt synthetic data generation pipelines for Supervised Fine-Tuning (SFT) and preference data, which were used to generate data for training `Nemotron-4 340B <https://research.nvidia.com/publication/2024-06_nemotron-4-340b>`_.
+It also now supports the pipelines used in generating `Nemotron-CC <https://arxiv.org/abs/2412.02595>`_.
 Additionally, you can seamlessly integrate filtering and deduplication steps in your synthetic data pipeline with the other modules available in NeMo Curator.
 
 Connect to an LLM Service
@@ -689,6 +690,295 @@ All of the code so far has been sending requests to the LLM service synchronousl
 
 As you can see, the asynchronous modules have the same interface as the synchronous modules.
 The only exception is that a ``max_concurrent_requests`` parameter can be supplied to the constructor of ``AsyncNemotronGenerator`` as a form of rate limiting if your service is rate limited.
+
+Customize the Nemotron-CC Pipeline
+-----------------------------------
+
+Nemotron-CC is an open, large, high-quality English Common Crawl dataset that enables pretraining highly accurate LLMs over both short and long token horizons.
+
+You can use the Nemotron-CC pipeline collection to rewrite reference documents into different formats and styles. For example, you can rephrase short sentences with simple diction into technical, scholarly prose (like Wikipedia) or distill wandering paragraphs into condensed bulleted lists.
+
+NeMo Curator provides two versions of each pipeline:
+
+* **Synchronous**: ``nemo_curator.synthetic.NemotronCCGenerator``
+* **Asynchronous**: ``nemo_curator.synthetic.AsyncNemotronCCGenerator``
+
+Rewrite to Wikipedia Style
+##########################
+
+Use the ``NemotronCCGenerator.rewrite_to_wikipedia_style`` method to rewrite a document into a style that is similar to Wikipedia in terms of line spacing, punctuation, and style.
+
+.. code-block:: python
+
+    from openai import OpenAI
+    from nemo_curator import OpenAIClient
+    from nemo_curator.synthetic import NemotronCCGenerator
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = "The moon is bright. It shines at night."
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 512,
+    }
+
+    responses = generator.rewrite_to_wikipedia_style(
+        document=document, model=model, model_kwargs=model_kwargs
+    )
+
+    print(responses[0])
+    # Output:
+    # The lunar surface has a high albedo, which means it reflects a significant amount of sunlight.
+
+
+Generate Diverse QA Pairs
+#########################
+
+Use the ``NemotronCCGenerator.generate_diverse_qa`` method to generate a list of diverse QA pairs from a document.
+
+.. code-block:: python
+
+    from openai import OpenAI
+    from nemo_curator import OpenAIClient
+    from nemo_curator.synthetic import NemotronCCGenerator
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = "The moon is bright. It shines at night."
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 600,
+    }
+
+    responses = generator.generate_diverse_qa(
+        document=document, model=model, model_kwargs=model_kwargs
+    )
+
+    print(responses[0])
+    # Output:
+    # Question: What is the moon made of?
+    # Answer: The moon is made of rock and dust.
+
+
+Postprocessor
+^^^^^^^^^^^^^
+
+You can optionally use the ``NemotronCCDiverseQAPostprocessor`` class to reformat the output.
+
+.. code-block:: python
+
+    import pandas as pd
+    from openai import OpenAI
+    from nemo_curator import OpenAIClient
+    from nemo_curator.datasets import DocumentDataset
+    from nemo_curator.synthetic import NemotronCCGenerator, NemotronCCDiverseQAPostprocessor
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = "The moon is bright. It shines at night."
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 600,
+    }
+    responses = generator.generate_diverse_qa(document=document, model=model, model_kwargs=model_kwargs)
+    postprocessor = NemotronCCDiverseQAPostprocessor(text_field="text", response_field="diverse_qa_response")
+    dataset = DocumentDataset.from_pandas(pd.DataFrame({"text": document, "diverse_qa_response": responses}))
+
+    # This postprocessor will sample a random number of QA pairs up to max_num_pairs.
+    # If a tokenizer is provided, the number of QA pairs will be sampled from at least
+    # 1 and at most floor(max_num_pairs * num_tokens / 150).
+    # Otherwise, the number of QA pairs will be sampled randomly strictly up to max_num_pairs.
+    # The generated QA pairs are shuffled and then appended to the original text.
+    cleaned_dataset = postprocessor(dataset)
+
+    first_entry = cleaned_dataset.df.head(1)
+    print(first_entry["diverse_qa_response"])
+    # Output:
+    # The moon is bright. It shines at night. Question: What is the moon made of? Answer: The moon is made of rock and dust.
+
+
+Generate Knowledge List
+#######################
+
+Use the ``NemotronCCGenerator.generate_knowledge_list`` method to generate a list of knowledge from a document.
+
+.. code-block:: python
+
+    from openai import OpenAI
+    from nemo_curator import OpenAIClient
+    from nemo_curator.synthetic import NemotronCCGenerator
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = "The moon is bright. It shines at night."
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 600,
+    }
+
+    responses = generator.generate_knowledge_list(
+        document=document, model=model, model_kwargs=model_kwargs
+    )
+
+    print(responses[0])
+    # Output:
+    # - The moon is made of rock and dust.
+    # - The moon is the only natural satellite of the Earth.
+    # ...
+
+Postprocessor
+^^^^^^^^^^^^^
+
+You can optionally use the ``NemotronCCKnowledgeListPostprocessor`` class to reformat the output.
+
+.. code-block:: python
+
+    import pandas as pd
+    from openai import OpenAI
+
+    from nemo_curator import OpenAIClient
+    from nemo_curator.datasets import DocumentDataset
+    from nemo_curator.synthetic import NemotronCCGenerator, NemotronCCKnowledgeListPostprocessor
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = "The moon is bright. It shines at night."
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 600,
+    }
+
+    responses = generator.generate_knowledge_list(
+        document=document, model=model, model_kwargs=model_kwargs
+    )
+
+    print(responses[0])
+    # Output:
+    # - The moon is made of rock and dust.
+    # - The moon is the only natural satellite of the Earth.
+    # ...
+
+    postprocessor = NemotronCCKnowledgeListPostprocessor(text_field="knowledge_list_response")
+    dataset = DocumentDataset.from_pandas(pd.DataFrame({"knowledge_list_response": responses}))
+
+    # This postprocessor removes formatting artifacts
+    # such as bullet point prefixes ("- ") and extra indentation from each line,
+    # ensuring that the final output is a clean, uniformly formatted list of knowledge items.
+    # The processing includes skipping any initial non-bullet line and merging related lines
+    # to reconstruct multi-line questions or answers.
+    cleaned_dataset = postprocessor(dataset)
+
+    first_entry = cleaned_dataset.df.head(1)
+    print(first_entry["knowledge_list_response"])
+    # Output:
+    # The moon is made of rock and dust.
+    # The moon is the only natural satellite of the Earth.
+
+Distill Document
+#################
+
+Use the ``NemotronCCGenerator.distill`` method to make a document more concise.
+
+.. code-block:: python
+
+    from openai import OpenAI
+    from nemo_curator import OpenAIClient
+    from nemo_curator.synthetic import NemotronCCGenerator
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = "The moon is bright. It shines at night."
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 1600,
+    }
+
+    responses = generator.distill(
+        document=document, model=model, model_kwargs=model_kwargs
+    )
+
+    print(responses[0])
+    # Output:
+    # The moon is bright at night.
+
+
+Extract Knowledge
+################
+
+Use the ``NemotronCCGenerator.extract_knowledge`` method to extract knowledge from a document.
+
+.. code-block:: python
+
+    from openai import OpenAI
+    from nemo_curator import OpenAIClient
+    from nemo_curator.synthetic import NemotronCCGenerator
+
+    openai_client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key="<insert NVIDIA API key>"
+    )
+    client = OpenAIClient(openai_client)
+    generator = NemotronCCGenerator(client)
+
+    document = ("The moon is bright. It shines at night. I love the moon. I first saw it up"
+               " close through a telescope in 1999 at a sleepover.")
+    model = "nv-mistralai/mistral-nemo-12b-instruct"
+    model_kwargs = {
+        "temperature": 0.5,
+        "top_p": 0.9,
+        "max_tokens": 1400,
+    }
+
+    responses = generator.extract_knowledge(
+        document=document, model=model, model_kwargs=model_kwargs
+    )
+
+    print(responses[0])
+    # Output:
+    # The moon is a reflective body visible from the Earth at night.
+
 
 Combine Synthetic Data Generation with other NeMo Curator Modules
 -----------------------------------------------------------------

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,16 +14,19 @@
 
 from __future__ import annotations
 
-import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import logging
+
+    from nemo_curator.modules.config import FuzzyDuplicatesConfig
+
 import os
 import time
-from typing import Union
-
-import dask_cudf
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.log import create_logger
-from nemo_curator.modules.config import FuzzyDuplicatesConfig
+from nemo_curator.modules.base import BaseDeduplicationModule
 from nemo_curator.modules.fuzzy_dedup._mapbuckets import _MapBuckets
 from nemo_curator.modules.fuzzy_dedup._shuffle import _Shuffle
 from nemo_curator.modules.fuzzy_dedup.bucketstoedges import BucketsToEdges
@@ -33,13 +36,15 @@ from nemo_curator.modules.fuzzy_dedup.lsh import LSH
 from nemo_curator.modules.fuzzy_dedup.minhash import MinHash
 from nemo_curator.modules.meta import Sequential
 from nemo_curator.utils.distributed_utils import performance_report_if_with_ts_suffix
+from nemo_curator.utils.duplicates_removal import remove_duplicates
 
 
-class FuzzyDuplicates:
+class FuzzyDuplicates(BaseDeduplicationModule):
     def __init__(
         self,
         config: FuzzyDuplicatesConfig,
-        logger: Union[logging.LoggerAdapter, str] = "./",
+        logger: logging.LoggerAdapter | str = "./",
+        perform_removal: bool = False,
     ):
         """
         Parameters
@@ -47,12 +52,23 @@ class FuzzyDuplicates:
         config: FuzzyDuplicatesConfig,
             Config options for finding FuzzyDuplicates
         logger: Existing logger to log to, or a path to a log directory.
-
+        perform_removal: Whether to remove duplicates from the dataset.
+            Default is False.
         Returns
         -------
         DocumentDataset containing IDs of all documents and the corresponding duplicate group
         they belong to. Documents in the same group are near duplicates.
         """
+        super().__init__(
+            id_field=config.id_field,
+            text_field=config.text_field,
+            input_backend="cudf",
+            logger=logger,
+            perform_removal=perform_removal,
+            profile_dir=config.profile_dir,
+            cache_dir=config.cache_dir,
+        )
+
         if isinstance(logger, str):
             self._logger = create_logger(
                 rank=0,
@@ -102,10 +118,7 @@ class FuzzyDuplicates:
                 id_field=self.config.id_field,
                 text_field=self.config.text_field,
                 ngram_width=self.config.char_ngrams,
-                anchor_id_fields=[
-                    f"anchor_{i}_{self.config.id_field}"
-                    for i in range(self.config.num_anchors)
-                ],
+                anchor_id_fields=[f"anchor_{i}_{self.config.id_field}" for i in range(self.config.num_anchors)],
             )
         else:
             self.buckets_to_edges = BucketsToEdges(
@@ -116,9 +129,7 @@ class FuzzyDuplicates:
             )
 
         jaccard_pairs_fname = (
-            "jaccard_similarity_results.parquet"
-            if self.config.false_positive_check
-            else "_edges.parquet"
+            "jaccard_similarity_results.parquet" if self.config.false_positive_check else "_edges.parquet"
         )
         self.connected_components = ConnectedComponents(
             cache_dir=self.config.cache_dir,
@@ -129,7 +140,7 @@ class FuzzyDuplicates:
             profile_dir=self.config.profile_dir,
         )
 
-    def __call__(self, dataset: DocumentDataset):
+    def identify_duplicates(self, dataset: DocumentDataset) -> DocumentDataset | None:
         """
         Parameters
         ----------
@@ -145,13 +156,11 @@ class FuzzyDuplicates:
         # Minhash + LSH
         stage_num = 1
         print(f"Stage {stage_num}: Starting Minhash + LSH computation")
-        minhashLSH = Sequential([self.minhash, self.lsh])
-        buckets_df = minhashLSH(dataset)
+        minhash_lsh = Sequential([self.minhash, self.lsh])
+        buckets_df = minhash_lsh(dataset)
         print(f"Stage {stage_num}: Minhash + LSH complete!")
         if buckets_df is None:
-            print(
-                f"Stage {stage_num}: No potential duplicate documents found during LSH"
-            )
+            print(f"Stage {stage_num}: No potential duplicate documents found during LSH")
             return None
         stage_num += 1
 
@@ -159,17 +168,13 @@ class FuzzyDuplicates:
             # Map buckets to lower cardinality distribution
             print(f"Stage {stage_num} (False Positive Check): Starting Map_Buckets")
             t0 = time.time()
-            mapped_buckets_w_anchors_path = os.path.join(
-                self.config.cache_dir, "anchor_docs_with_bk.parquet"
-            )
+            mapped_buckets_w_anchors_path = os.path.join(self.config.cache_dir, "anchor_docs_with_bk.parquet")
             with performance_report_if_with_ts_suffix(
                 self.config.profile_dir,
                 "map_buckets",
             ):
-                ddf_mapped_buckets_w_anchors = (
-                    self.map_buckets.map_buckets_with_anchors(
-                        documents_df=dataset.df, buckets_df=buckets_df.df
-                    )
+                ddf_mapped_buckets_w_anchors = self.map_buckets.map_buckets_with_anchors(
+                    documents_df=dataset.df, buckets_df=buckets_df.df
                 )
                 ddf_mapped_buckets_w_anchors.to_parquet(
                     mapped_buckets_w_anchors_path, write_index=False, overwrite=True
@@ -183,9 +188,7 @@ class FuzzyDuplicates:
 
             # Shuffle documents based on mapped buckets
             print(f"Stage {stage_num} (False Postive Check): Shuffle docs")
-            shuffled_docs_path = os.path.join(
-                self.config.cache_dir, "shuffled_docs.parquet"
-            )
+            shuffled_docs_path = os.path.join(self.config.cache_dir, "shuffled_docs.parquet")
             self.jaccard_shuffle.shuffle_docs_on_buckets(
                 documents_df=dataset.df,
                 bucket_w_anchors_path=mapped_buckets_w_anchors_path,
@@ -198,20 +201,14 @@ class FuzzyDuplicates:
             stage_num += 1
 
             # jaccard comparision within buckets
-            print(
-                f"Stage {stage_num} (False Postive Check): Jaccard Similarity in Buckets"
-            )
-            jaccard_pairs_path = os.path.join(
-                self.config.cache_dir, "jaccard_similarity_results.parquet"
-            )
+            print(f"Stage {stage_num} (False Postive Check): Jaccard Similarity in Buckets")
+            jaccard_pairs_path = os.path.join(self.config.cache_dir, "jaccard_similarity_results.parquet")
             t0 = time.time()
             with performance_report_if_with_ts_suffix(
                 self.config.profile_dir,
                 "jaccard-similarity",
             ):
-                jaccard_pairs_df = self.jaccard_compute.jaccard_compute(
-                    shuffled_docs_path=shuffled_docs_path
-                )
+                jaccard_pairs_df = self.jaccard_compute.jaccard_compute(shuffled_docs_path=shuffled_docs_path)
                 jaccard_pairs_df.to_parquet(
                     jaccard_pairs_path,
                     write_index=False,
@@ -219,21 +216,17 @@ class FuzzyDuplicates:
                     overwrite=True,
                 )
                 self._logger.info(
-                    f"Time taken for Jaccard Similarity = {time.time()-t0}s and output written at {jaccard_pairs_path}"
+                    f"Time taken for Jaccard Similarity = {time.time() - t0}s and output written at {jaccard_pairs_path}"
                 )
 
-            print(
-                f"Stage {stage_num} (False Postive Check): Jaccard Similarity in Buckets Complete!"
-            )
+            print(f"Stage {stage_num} (False Postive Check): Jaccard Similarity in Buckets Complete!")
             stage_num += 1
 
         else:
             # Map buckets to lower cardinality distribution
             print(f"Stage {stage_num}: Starting LSH Buckets to Graph Edgelist")
             self.buckets_to_edges(buckets_df)
-            print(
-                f"Stage {stage_num}: Starting LSH Buckets to Graph Edgelist Complete!"
-            )
+            print(f"Stage {stage_num}: Starting LSH Buckets to Graph Edgelist Complete!")
             stage_num += 1
 
         # Connected components across buckets
@@ -243,4 +236,36 @@ class FuzzyDuplicates:
         print(f"Stage {stage_num}: Connected Components across buckets complete!")
         stage_num += 1
 
-        return DocumentDataset(dask_cudf.read_parquet(cc_path, split_row_groups=False))
+        return DocumentDataset.read_parquet(
+            cc_path,
+            backend="cudf",
+            # We read with files_per_partition=1 so that groups are read in whole (and do not exist across partitions)
+            files_per_partition=1,
+            blocksize=None,
+        )
+
+    def remove(self, dataset: DocumentDataset, duplicates_to_remove: DocumentDataset | None) -> DocumentDataset:
+        """
+        Remove fuzzy duplicates from a given DocumentDataset
+        Parameters
+        ----------
+        dataset: DocumentDataset
+          The input dataset from which to remove fuzzy duplicates
+        duplicates_to_remove: DocumentDataset
+          The dataset containing IDs of the fuzzy duplicates to remove
+        Returns
+        -------
+        DocumentDataset containing only non-duplicate documents
+        """
+
+        if not duplicates_to_remove:
+            print("No fuzzy duplicates to remove, returning original dataset")
+            return dataset
+
+        result = remove_duplicates(
+            left=dataset.df,
+            duplicates=duplicates_to_remove.df,
+            id_field=self.config.id_field,
+            group_field="group",
+        )
+        return DocumentDataset(result)

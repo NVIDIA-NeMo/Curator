@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,17 +18,23 @@ os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from .aegis import AegisClassifier, InstructionDataGuardClassifier
 from .content_type import ContentTypeClassifier
 from .domain import DomainClassifier, MultilingualDomainClassifier
-from .fineweb_edu import FineWebEduClassifier
+from .fineweb_edu import (
+    FineWebEduClassifier,
+    FineWebMixtralEduClassifier,
+    FineWebNemotronEduClassifier,
+)
 from .prompt_task_complexity import PromptTaskComplexityClassifier
 from .quality import QualityClassifier
 
 __all__ = [
-    "DomainClassifier",
-    "MultilingualDomainClassifier",
-    "QualityClassifier",
     "AegisClassifier",
-    "InstructionDataGuardClassifier",
-    "FineWebEduClassifier",
     "ContentTypeClassifier",
+    "DomainClassifier",
+    "FineWebEduClassifier",
+    "FineWebMixtralEduClassifier",
+    "FineWebNemotronEduClassifier",
+    "InstructionDataGuardClassifier",
+    "MultilingualDomainClassifier",
     "PromptTaskComplexityClassifier",
+    "QualityClassifier",
 ]
