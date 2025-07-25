@@ -30,12 +30,16 @@ from ray_curator.tasks import DocumentBatch
 class StageCallCounter:
     """Ray actor to count how many times each stage is called."""
 
-    def __init__(self):
+    def __init__(self, output_dir: Path):
         self.counters = Counter()
+        self.output_dir = output_dir  # Store output_dir as instance variable
 
     def increment(self, stage_name: str) -> int:
         """Increment the counter for a stage and return the new count."""
         self.counters[stage_name] += 1
+        # dump the counters to a file (so that even after the actor is killed, the counters are persisted)
+        with open(self.output_dir / "call_counters.json", "w") as f:
+            json.dump(self.counters, f)
         return self.counters[stage_name]
 
     def get_count(self, stage_name: str) -> int:
@@ -57,7 +61,7 @@ FILES_PER_PARTITION = 2
 
 def create_test_data(output_dir: Path, num_files: int) -> None:
     """Create test JSONL files for integration testing."""
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     sample_documents = [{"id": f"doc_{i}", "text": f"Test document {i}"} for i in range(TOTAL_DOCUMENTS)]
 
@@ -203,9 +207,11 @@ class StageWithSetup(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, Any]:
     """Create a test pipeline for integration testing."""
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create a named counter actor that can be referenced by name
-    counter_actor = StageCallCounter.options(name="stage_call_counter").remote()
+    # we use detached lifetime so that the actor is not killed until the end of the test
+    StageCallCounter.options(name="stage_call_counter", lifetime="detached").remote(output_dir)
 
     pipeline = Pipeline(
         name="integration_test_pipeline", description="Integration test pipeline for backend comparison"
@@ -234,7 +240,7 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, A
     # Add JsonlWriter stage
     pipeline.add_stage(JsonlWriter(output_dir=str(output_dir)))
 
-    return pipeline, counter_actor
+    return pipeline
 
 
 @contextmanager

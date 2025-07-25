@@ -179,6 +179,7 @@ class TestExecuteSetupOnNode:
             for record in caplog.records
             if record.message.startswith("Executing setup on node") and record.message.endswith("for 2 stages")
         ]
+        # TODO: When we add a cluster then we should check the value of len(ray.nodes()) too
         assert len(matching_logs) == len(ray.nodes()), (
             f"Expected {len(ray.nodes())} logs for setup on node for 2 stages, got {len(matching_logs)}: {matching_logs}"
         )

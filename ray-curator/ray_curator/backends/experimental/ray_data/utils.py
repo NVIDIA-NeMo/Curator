@@ -1,14 +1,10 @@
 from enum import Enum
-from typing import TYPE_CHECKING
 
 import ray
 from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
-
-if TYPE_CHECKING:
-    import loguru
 
 
 class RayStageSpecKeys(str, Enum):
@@ -62,29 +58,6 @@ def is_actor_stage(stage: ProcessingStage) -> bool:
     overridden_setup = type(stage).setup is not ProcessingStage.setup
     has_gpu_and_cpu = (stage.resources.gpus > 0) and (stage.resources.cpus > 0)
     return overridden_setup or has_gpu_and_cpu
-
-
-def _logger_custom_serializer(
-    _: "loguru.Logger",
-) -> None:
-    return None
-
-
-def _logger_custom_deserializer(
-    _: None,
-) -> "loguru.Logger":
-    # Initialize a default logger
-    return logger
-
-
-def register_loguru_serializer() -> None:
-    """Initialize a new local Ray cluster or connects to an existing one."""
-    # Turn off serization for loguru. This is needed as loguru is not serializable in general.
-    ray.util.register_serializer(
-        logger.__class__,
-        serializer=_logger_custom_serializer,
-        deserializer=_logger_custom_deserializer,
-    )
 
 
 @ray.remote

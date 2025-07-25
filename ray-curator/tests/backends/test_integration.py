@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import ray
 from loguru import logger
 
 from ray_curator.backends.base import BaseExecutor
@@ -61,10 +60,8 @@ class TestBackendIntegrations:
         request.cls.input_dir = tmp_path / "input"  # type: ignore[reportOptionalMemberAccess]
         request.cls.output_dir = tmp_path / "output"  # type: ignore[reportOptionalMemberAccess]
 
-        # Create test data and pipeline
         create_test_data(request.cls.input_dir, num_files=self.NUM_TEST_FILES)  # type: ignore[reportOptionalMemberAccess]
-        pipeline, remote_counter_actor = create_test_pipeline(request.cls.input_dir, request.cls.output_dir)  # type: ignore[reportOptionalMemberAccess]
-        request.cls.remote_counter_actor = remote_counter_actor  # type: ignore[reportOptionalMemberAccess]
+        pipeline = create_test_pipeline(request.cls.input_dir, request.cls.output_dir)  # type: ignore[reportOptionalMemberAccess]
 
         # Execute pipeline with comprehensive logging capture
         executor = backend_cls(config)
@@ -73,12 +70,8 @@ class TestBackendIntegrations:
             # Store logs for backend-specific tests
             request.cls.all_logs = log_buffer.getvalue()  # type: ignore[reportOptionalMemberAccess]
 
-        # Teardown: kill the actor after the test class completes
         yield
-
-        # Kill the counter actor to clean up for next test run
-        if hasattr(request.cls, "remote_counter_actor") and request.cls.remote_counter_actor is not None:  # type: ignore[reportOptionalMemberAccess]
-            ray.kill(request.cls.remote_counter_actor)  # type: ignore[reportOptionalMemberAccess]
+        logger.info(f"Ran pipeline for {request.cls.__name__}")
 
     def test_output_files(self):
         """Test that the correct number of output files are created with expected content."""
@@ -190,8 +183,10 @@ class TestBackendIntegrations:
 
     def test_stage_call_counts(self):
         """Test that the stage call counts are correctly recorded for all stages."""
-        assert self.remote_counter_actor is not None, "Expected remote counter actor"
-        stage_call_counts = ray.get(self.remote_counter_actor.get_all_counts.remote())
+        # Since they actor is killed (because each executor calls ray.shutdown())
+        # we need to read the call_counters.json file
+        with open(self.output_dir / "call_counters.json") as f:
+            stage_call_counts = json.load(f)
         logger.info(f"Stage call counts: {stage_call_counts}")
         assert stage_call_counts == {
             "add_length_doc_length_1": math.ceil(self.NUM_TEST_FILES / FILES_PER_PARTITION),

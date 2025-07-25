@@ -6,12 +6,20 @@ proper isolation through Ray's actor/task lifecycle management.
 """
 
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
 import ray
 from loguru import logger
-from ray.cluster_utils import Cluster
+
+
+def find_free_port():
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        return s.getsockname()[1]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -22,10 +30,6 @@ def shared_ray_cluster():
     and tears it down at the end. It configures Ray with fixed resources for
     consistent testing behavior.
     """
-    # Set Ray environment variables for testing
-    os.environ["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] = "0"
-    os.environ["RAY_MAX_LIMIT_FROM_API_SERVER"] = "40000"
-    os.environ["RAY_MAX_LIMIT_FROM_DATA_SOURCE"] = "40000"
 
     ONE_GB = 1024**3  # noqa: N806
 
@@ -36,20 +40,33 @@ def shared_ray_cluster():
     # Get the ray-curator directory to add to the working_dir to enable serialization of test modules
     ray_curator_path = Path(__file__).parent.parent.parent.resolve()
 
-    # We creaate a cluster with 11 nodes
-    # Xenna / Ray Data needs 3 cpus for scheduling / autoscaling
+    # TODO: Create a cluster with 11 cpus instead of one head node with 11 cpus
     # If we have 6-7 stages all needing 1 cpu, then we atleast need 10 cpus for Xenna / Ray Data to work
     # The 11th CPU is for StageCallCounter
-    cluster = Cluster(
-        initialize_head=True,
-        connect=True,
-        head_node_args={"num_cpus": 2, "num_gpus": 0, "object_store_memory": ONE_GB},
+
+    ray_port = find_free_port()
+
+    # TODO: See if we can use get_client in the future
+    ray_process = subprocess.Popen(  # noqa: S603
+        [  # noqa: S607
+            "ray",
+            "start",
+            "--head",
+            "--port",
+            str(ray_port),
+            "--num-cpus",
+            "11",
+            "--num-gpus",
+            "0",
+            "--object-store-memory",
+            str(2 * ONE_GB),
+            "--block",
+        ],
+        env={**os.environ, "RAY_MAX_LIMIT_FROM_API_SERVER": "40000", "RAY_MAX_LIMIT_FROM_DATA_SOURCE": "40000"},
     )
-    cluster.add_node(num_cpus=3, num_gpus=0, object_store_memory=ONE_GB)
-    cluster.add_node(num_cpus=6, num_gpus=0, object_store_memory=ONE_GB)
 
     ray.init(
-        address=cluster.address,
+        address=f"localhost:{ray_port}",
         ignore_reinit_error=True,
         log_to_driver=True,
         local_mode=False,  # Use cluster mode for better testing of distributed features
@@ -62,9 +79,8 @@ def shared_ray_cluster():
             ],
         },
     )
-
     # Get the actual Ray address more reliably
-    ray_address = cluster.address or ray.get_runtime_context().gcs_address
+    ray_address = f"localhost:{ray_port}"
     # Set RAY_ADDRESS so Xenna will connect to our cluster
     os.environ["RAY_ADDRESS"] = ray_address
     logger.info(f"Set RAY_ADDRESS for tests to: {ray_address}")
@@ -72,4 +88,5 @@ def shared_ray_cluster():
     yield ray_address
 
     # Shutdown Ray after all tests complete
-    ray.shutdown()
+    logger.info("Shutting down Ray cluster")
+    ray_process.kill()
