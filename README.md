@@ -137,6 +137,8 @@ For the image curation modules and all modules, you can use `[image_nightly]` an
 The following snippet demonstrates how to create a small data curation pipeline that downloads and curates a small subset of the Common Crawl dataset.
 
 ```Python
+# Import the download_common_crawl function from the nemo_curator
+from nemo_curator.download import download_common_crawl
 # Download your dataset
 dataset = download_common_crawl("/datasets/common_crawl/", "2021-04", "2021-10", url_limit=10)
 # Build your pipeline
