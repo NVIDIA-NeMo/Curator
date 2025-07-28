@@ -61,7 +61,7 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
                 "-loglevel",
                 "error",
                 "-vf",
-                f"fps={self._target_fps},scale=-1:{self._target_height}",
+                f"fps={self.target_fps},scale=-1:{self.target_height}",
                 "-c:v",
                 "libwebp",
                 "-lossless",
