@@ -17,8 +17,8 @@ import time
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from loguru import logger
+from tqdm import tqdm
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage

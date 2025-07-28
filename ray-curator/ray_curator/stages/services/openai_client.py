@@ -28,7 +28,7 @@ class OpenAIClient(LLMClient):
 
     def __init__(self, **kwargs) -> None:
         # Extract timeout if provided, default to 120 for backward compatibility
-        self.timeout = kwargs.pop('timeout', 120)
+        self.timeout = kwargs.pop("timeout", 120)
         self.openai_kwargs = kwargs
 
     def setup(self) -> None:
@@ -90,7 +90,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
         """
         super().__init__(max_concurrent_requests, max_retries, base_delay)
         # Extract timeout if provided, default to 120 for backward compatibility
-        self.timeout = kwargs.pop('timeout', 120)
+        self.timeout = kwargs.pop("timeout", 120)
         self.openai_kwargs = kwargs
 
     def setup(self) -> None:
