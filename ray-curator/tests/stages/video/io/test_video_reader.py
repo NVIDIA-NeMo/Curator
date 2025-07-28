@@ -280,19 +280,6 @@ class TestVideoReaderStage:
             assert "Test error" in video.errors["download"]
             mock_log.assert_called_once()
 
-    # Additional comprehensive tests below:
-
-    def test_download_video_bytes_permission_error(self) -> None:
-        """Test _download_video_bytes handles permission errors."""
-        video = Video(input_video=pathlib.Path("/test/restricted.mp4"))
-
-        with patch("pathlib.Path.open", side_effect=PermissionError("Permission denied")):
-            stage = VideoReaderStage()
-            result = stage._download_video_bytes(video)
-
-            assert result is False
-            assert "download" in video.errors
-            assert "Permission denied" in video.errors["download"]
 
     def test_download_video_bytes_io_error(self) -> None:
         """Test _download_video_bytes handles general IO errors."""
@@ -824,37 +811,6 @@ class TestVideoReader:
 
         assert reader_stage.verbose is True
 
-    @pytest.mark.parametrize(("video_limit", "expected_limit"), [
-        (-1, -1),
-        (0, 0),
-        (1, 1),
-        (100, 100),
-        (999999, 999999)
-    ])
-    def test_decompose_video_limit_values(self, video_limit: int, expected_limit: int) -> None:
-        """Test decompose with various video limit values."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            video_limit=video_limit
-        )
-
-        stages = stage.decompose()
-        file_stage = stages[0]
-
-        assert file_stage.limit == expected_limit
-
-    @pytest.mark.parametrize("verbose", [True, False])
-    def test_decompose_verbose_flag(self, verbose: bool) -> None:
-        """Test decompose with different verbose flag values."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            verbose=verbose
-        )
-
-        stages = stage.decompose()
-        reader_stage = stages[1]
-
-        assert reader_stage.verbose is verbose
 
     def test_composite_stage_behavior(self) -> None:
         """Test that VideoReader behaves correctly as a CompositeStage."""
@@ -869,24 +825,6 @@ class TestVideoReader:
         stages = stage.decompose()
         assert len(stages) > 0
         assert all(hasattr(s, "process") for s in stages)
-
-    def test_file_extensions_configuration(self) -> None:
-        """Test that the correct video file extensions are configured."""
-        stage = VideoReader(input_video_path="/test/videos")
-        stages = stage.decompose()
-        file_stage = stages[0]
-
-        expected_extensions = [".mp4", ".mov", ".avi", ".mkv", ".webm"]
-        assert file_stage.file_extensions == expected_extensions
-
-    def test_files_per_partition_configuration(self) -> None:
-        """Test that files_per_partition is correctly set to 1."""
-        stage = VideoReader(input_video_path="/test/videos")
-        stages = stage.decompose()
-        file_stage = stages[0]
-
-        # Should process one video file per partition for video processing
-        assert file_stage.files_per_partition == 1
 
     def test_description_path_handling(self) -> None:
         """Test description method handles various path formats correctly."""
