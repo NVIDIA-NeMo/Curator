@@ -184,3 +184,6 @@ class AsyncLLMClient(ABC):
             # but if we get here, re-raise the last exception
             if last_exception:
                 raise last_exception
+            
+            # This should never be reached, but add explicit return for linter
+            return []

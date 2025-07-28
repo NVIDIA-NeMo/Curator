@@ -33,7 +33,15 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     A simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
     """
 
-    def __init__(self, prompt: str, languages: list[str], client: AsyncLLMClient | LLMClient, model_name: str, num_samples: int, generation_config: GenerationConfig | None = None):
+    def __init__(  # noqa: PLR0913
+        self,
+        prompt: str,
+        languages: list[str],
+        client: AsyncLLMClient | LLMClient,
+        model_name: str,
+        num_samples: int,
+        generation_config: GenerationConfig | None = None,
+    ):
         self.prompt = prompt
         self.languages = languages
         self.client = client

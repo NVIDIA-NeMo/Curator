@@ -47,11 +47,11 @@ class OpenAIClient(LLMClient):
     ) -> list[str]:
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
-        
+
         # Use default config if none provided
         if generation_config is None:
             generation_config = GenerationConfig()
-            
+
         if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an OpenAIClient", stacklevel=2)
 
@@ -88,7 +88,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
 
         Args:
             max_concurrent_requests: Maximum number of concurrent requests
-            max_retries: Maximum number of retry attempts for rate-limited requests  
+            max_retries: Maximum number of retry attempts for rate-limited requests
             base_delay: Base delay for exponential backoff (in seconds)
             **kwargs: Additional arguments passed to OpenAI client
         """
@@ -116,11 +116,11 @@ class AsyncOpenAIClient(AsyncLLMClient):
         """
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an AsyncOpenAIClient", stacklevel=2)
-        
+
         # Use default config if none provided
         if generation_config is None:
             generation_config = GenerationConfig()
-            
+
         if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an AsyncOpenAIClient", stacklevel=2)
 
