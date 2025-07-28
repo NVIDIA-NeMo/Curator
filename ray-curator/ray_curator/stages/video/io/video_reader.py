@@ -232,7 +232,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         verbose: Whether to enable verbose logging during download/processing
     """
     input_video_path: str
-    video_limit: int = -1
+    video_limit: int | None = -1
     verbose: bool = False
 
     def __post_init__(self):
