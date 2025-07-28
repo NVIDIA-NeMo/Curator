@@ -1,9 +1,24 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the specific language for the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 import time
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -43,10 +58,7 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.output_field = output_field
         self.is_async_client = isinstance(client, AsyncLLMClient)
         self.allowed_output_values = self.domains["code"].tolist()
-
-    @property
-    def name(self) -> str:
-        return "LLMBasedDomainClassifier"
+        self._name = "LLMBasedDomainClassifier"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -64,8 +76,7 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         df[self.output_field] = responses
 
-        # DEBUGGING
-        print(f"[Stage finished] - LLMBasedDomainClassifier - Number of samples - {len(df)}")
+        logger.info(f"[Stage finished] - LLMBasedDomainClassifier - Number of samples - {len(df)}")
 
         return DocumentBatch(data=df, dataset_name="domain_classification_data", task_id=1)
 
@@ -149,10 +160,7 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.sampling_size = sampling_size
         self.input_problem_field = input_problem_field
         self.input_domain_field = input_domain_field
-
-    @property
-    def name(self) -> str:
-        return "DiversitySampler"
+        self._name = "DiversitySampler"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -221,8 +229,5 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
         df = self._sample_uniformly(df)
-
-        # DEBUGGING
-        print(f"[Stage finished] - DiversitySampler - Number of samples - {len(df)}")
-
+        logger.info(f"[Stage finished] - DiversitySampler - Number of samples - {len(df)}")
         return DocumentBatch(data=df, dataset_name="diversity_sampling_data", task_id=1)

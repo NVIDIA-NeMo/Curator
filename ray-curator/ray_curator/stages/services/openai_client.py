@@ -27,6 +27,8 @@ class OpenAIClient(LLMClient):
     """
 
     def __init__(self, **kwargs) -> None:
+        # Extract timeout if provided, default to 120 for backward compatibility
+        self.timeout = kwargs.pop('timeout', 120)
         self.openai_kwargs = kwargs
 
     def setup(self) -> None:
@@ -65,6 +67,7 @@ class OpenAIClient(LLMClient):
             stream=stream,
             temperature=temperature,
             top_p=top_p,
+            timeout=self.timeout,
         )
 
         return [choice.message.content for choice in response.choices]
@@ -86,6 +89,8 @@ class AsyncOpenAIClient(AsyncLLMClient):
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(max_concurrent_requests, max_retries, base_delay)
+        # Extract timeout if provided, default to 120 for backward compatibility
+        self.timeout = kwargs.pop('timeout', 120)
         self.openai_kwargs = kwargs
 
     def setup(self) -> None:
@@ -127,6 +132,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
             stream=stream,
             temperature=temperature,
             top_p=top_p,
+            timeout=self.timeout,
         )
 
         return [choice.message.content for choice in response.choices]

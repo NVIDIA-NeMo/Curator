@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the specific language for the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
 
 import pandas as pd
@@ -11,12 +25,12 @@ class ReasoningLengthDifficultyFilter(DocumentFilter):
         self._min_length = min_length
         self._name = "reasoning_length_difficulty_filter"
 
-    def score_document(self, text: str) -> float:
+    def score_document(self, text: str) -> int:
         word_count = len(text.split())
-        return 1.0 if word_count > self._min_length else 0.0
+        return 1 if word_count > self._min_length else 0
 
-    def keep_document(self, score: float) -> bool:
-        return score == 1.0
+    def keep_document(self, score: int) -> bool:
+        return score == 1
 
 
 class LLMBasedDifficultyFilterFunction(DocumentFilter):
@@ -24,11 +38,11 @@ class LLMBasedDifficultyFilterFunction(DocumentFilter):
         self._name = "llm_based_difficulty_filter"
         self.llm_correctness_fields = llm_correctness_fields
 
-    def score_document(self, sample: dict) -> float:
-        return 1.0 - (1.0 if all(sample[item] == "Yes" for item in self.llm_correctness_fields) else 0.0)
+    def score_document(self, sample: dict) -> int:
+        return 1 - (1 if all(sample[item] == "Yes" for item in self.llm_correctness_fields) else 0)
 
-    def keep_document(self, score: float) -> bool:
-        return score == 1.0
+    def keep_document(self, score: int) -> bool:
+        return score == 1
 
 
 @dataclass
@@ -42,6 +56,7 @@ class LLMBasedDifficultyFilter(ScoreFilter):
     """
 
     llm_correctness_fields: list[str] = None
+    _name: str = "LLMBasedDifficultyFilter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.llm_correctness_fields

@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the specific language for the License for the specific language governing permissions and
+# limitations under the License.
+
 """
 This module contains a simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
 """
@@ -26,10 +40,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         self.num_samples = num_samples
         self.model_name = model_name
         self.is_async_client = isinstance(client, AsyncLLMClient)
-
-    @property
-    def name(self) -> str:
-        return "QAMultilingualSyntheticStage"
+        self._name = "QAMultilingualSyntheticStage"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

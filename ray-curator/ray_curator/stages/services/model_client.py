@@ -133,13 +133,28 @@ class AsyncLLMClient(ABC):
                 # Check if this is a retry attempt and if we should delay
                 if attempt > 0 and last_exception:
                     is_rate_limit = "429" in str(last_exception) or "rate" in str(last_exception).lower()
-                    if is_rate_limit:
-                        print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s...")
+                    is_connection_error = (
+                        "connection" in str(last_exception).lower() or
+                        "ReadError" in str(last_exception) or
+                        "BrokenResourceError" in str(last_exception) or
+                        "APIConnectionError" in str(last_exception) or
+                        "httpx.ReadError" in str(last_exception)
+                    )
+                    
+                    if is_rate_limit or is_connection_error:
+                        if is_rate_limit:
+                            print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s...")
+                        else:
+                            print(f"⚠️  WARNING: Connection error detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s...")
+                            print(f"   Error details: {str(last_exception)[:200]}...")
+                            if "localhost" in str(last_exception):
+                                print(f"   💡 Local API server issue - consider reducing --max-concurrent-requests or checking server resources")
+                        
                         # Exponential backoff with jitter
                         delay = self.base_delay * (2 ** (attempt - 1)) + secrets.randbelow(100) / 100.0
                         await asyncio.sleep(delay)
                     else:
-                        # Re-raise if not a rate limit error
+                        # Re-raise if not a retryable error
                         raise last_exception
 
                 # Attempt the query
@@ -159,8 +174,17 @@ class AsyncLLMClient(ABC):
                     )
                 except Exception as e:
                     last_exception = e
-                    # If this is the last attempt, re-raise
+                    # If this is the last attempt, provide helpful error message
                     if attempt == self.max_retries:
+                        if "connection" in str(e).lower() or "ReadError" in str(e):
+                            print(f"🚨 ERROR: Connection error after {self.max_retries + 1} attempts!")
+                            print(f"   Final error: {str(e)[:200]}...")
+                            if "localhost" in str(e):
+                                print(f"   💡 Suggestions for local API server:")
+                                print(f"      - Check if server is running and has sufficient resources")
+                                print(f"      - Reduce concurrent requests: --max-concurrent-requests 1")
+                                print(f"      - Increase timeout: --timeout 900")
+                                print(f"      - Check server logs for memory/GPU issues")
                         raise
                     # Otherwise, continue to next iteration
                     continue

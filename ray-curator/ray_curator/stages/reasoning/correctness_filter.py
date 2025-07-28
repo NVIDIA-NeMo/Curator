@@ -1,7 +1,22 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the specific language for the License for the specific language governing permissions and
+# limitations under the License.
+
 import asyncio
 import time
 
 import pandas as pd
+from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -43,10 +58,7 @@ class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.output_field = output_field
         self.is_async_client = isinstance(client, AsyncLLMClient)
         self.allowed_output_values = ["Yes", "No"]
-
-    @property
-    def name(self) -> str:
-        return "LLMBasedCorrectnessFilter"
+        self._name = "LLMBasedCorrectnessFilter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -64,8 +76,7 @@ class LLMBasedGrader(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         df[self.output_field] = responses
 
-        # DEBUGGING
-        print(f"[Stage finished] - LLMBasedGrader - Number of samples - {len(df)}")
+        logger.info(f"[Stage finished] - LLMBasedGrader - Number of samples - {len(df)}")
 
         return DocumentBatch(data=df, dataset_name="reasoning_traces_synthetic_data", task_id=1)
 
@@ -149,8 +160,8 @@ class LLMBasedCorrectnessFilter(DocumentFilter):
     def __init__(self):
         self._name = "llm_based_correctness_filter"
 
-    def score_document(self, text: str) -> float:
-        return 1.0 if text == "Yes" else 0.0
+    def score_document(self, text: str) -> int:
+        return 1 if text == "Yes" else 0
 
-    def keep_document(self, score: float) -> bool:
-        return score == 1.0
+    def keep_document(self, score: int) -> bool:
+        return score == 1

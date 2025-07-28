@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import argparse
 import os
 import time
@@ -25,16 +39,18 @@ def setup_client(args: argparse.Namespace) -> AsyncOpenAIClient | OpenAIClient:
         print("🚀 Using ASYNC generation with concurrent processing")
         return AsyncOpenAIClient(
             max_concurrent_requests=args.max_concurrent_requests,
-            max_retries=3,
-            base_delay=1.0,
+            max_retries=args.max_retries,
+            base_delay=args.retry_delay,
             api_key=os.environ.get("NVIDIA_API_KEY", "<your-nvidia-api-key>"),
-            base_url="https://integrate.api.nvidia.com/v1",
+            base_url=args.base_url,
+            timeout=args.timeout,
         )
     else:
         print("🐌 Using SYNC generation with sequential processing")
         return OpenAIClient(
             api_key=os.environ.get("NVIDIA_API_KEY", "<your-nvidia-api-key>"),
-            base_url="https://integrate.api.nvidia.com/v1",
+            base_url=args.base_url,
+            timeout=args.timeout,
         )
 
 
@@ -68,19 +84,12 @@ def process_input_data(args: argparse.Namespace) -> tuple[pd.DataFrame, list[Doc
 
 def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | OpenAIClient, args: argparse.Namespace) -> None:
     """Add all stages to the pipeline."""
-    # Setting LLM models
-    llm_reasoning_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
-    llm_domain_classifier_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
-    llm_grader_model = "nvdev/nvidia/llama-3.1-nemotron-70b-instruct"
-    llm_difficulty_model_1 = "nvdev/meta/llama-3.2-1b-instruct"
-    llm_difficulty_model_2 = "nvdev/meta/llama-3.2-3b-instruct"
-
     # 1. Generate reasoning traces (automatically detects async/sync based on client type)
     pipeline.add_stage(
         ReasoningTracesSyntheticStage(
             prompt=None,
             client=llm_client,
-            model_name=llm_reasoning_model,
+            model_name=args.llm_reasoning_model,
             input_problem_field="question",
             output_field="reasoning_trace_attempt",
         ),
@@ -90,7 +99,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | Op
     pipeline.add_stage(
         LLMBasedGrader(
             client=llm_client,
-            model_name=llm_grader_model,
+            model_name=args.llm_grader_model,
             prompt=None,
             input_problem_field="question",
             input_solution_field="solution",
@@ -121,7 +130,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | Op
         ReasoningTracesSyntheticStage(
             prompt=None,
             client=llm_client,
-            model_name=llm_difficulty_model_1,
+            model_name=args.llm_difficulty_model_1,
             input_problem_field="question",
             output_field="llm_difficulty_1_attempt",
         ),
@@ -130,7 +139,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | Op
         ReasoningTracesSyntheticStage(
             prompt=None,
             client=llm_client,
-            model_name=llm_difficulty_model_2,
+            model_name=args.llm_difficulty_model_2,
             input_problem_field="question",
             output_field="llm_difficulty_2_attempt",
         ),
@@ -138,7 +147,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | Op
     pipeline.add_stage(
         LLMBasedGrader(
             client=llm_client,
-            model_name=llm_grader_model,
+            model_name=args.llm_grader_model,
             prompt=None,
             input_problem_field="question",
             input_attempt_field="llm_difficulty_1_attempt",
@@ -149,7 +158,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | Op
     pipeline.add_stage(
         LLMBasedGrader(
             client=llm_client,
-            model_name=llm_grader_model,
+            model_name=args.llm_grader_model,
             prompt=None,
             input_problem_field="question",
             input_attempt_field="llm_difficulty_2_attempt",
@@ -171,7 +180,7 @@ def setup_pipeline_stages(pipeline: Pipeline, llm_client: AsyncOpenAIClient | Op
     pipeline.add_stage(
         LLMBasedDomainClassifier(
             client=llm_client,
-            model_name=llm_domain_classifier_model,
+            model_name=args.llm_domain_classifier_model,
             prompt=None,
             domains_file_path=args.domains_file_path,
             input_problem_field="question",
@@ -257,6 +266,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_path", type=str, default=None, help="Path to output JSON file")
     parser.add_argument("--domains_file_path", type=str, default=None, help="Path to domains file")
     parser.add_argument("--batch_size", type=int, default=100, help="Number of rows per batch (default: 100)")
+    parser.add_argument("--base_url", type=str, default="https://integrate.api.nvidia.com/v1", help="Base URL for the API")
     parser.add_argument(
         "--enable-async",
         action="store_true",
@@ -269,6 +279,55 @@ if __name__ == "__main__":
         default=5,
         help="Maximum number of concurrent requests when using async mode (default: 5)"
     )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="Timeout for API requests in seconds (default: 300)"
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=int,
+        default=5,
+        help="Maximum number of retry attempts for failed requests (default: 5)"
+    )
+    parser.add_argument(
+        "--retry-delay",
+        type=float,
+        default=2.0,
+        help="Base delay between retries in seconds (default: 2.0)"
+    )
+    parser.add_argument(
+        "--llm-reasoning-model",
+        type=str,
+        default="nvdev/nvidia/llama-3.1-nemotron-70b-instruct",
+        help="Model name for reasoning trace generation (default: nvdev/nvidia/llama-3.1-nemotron-70b-instruct)"
+    )
+    parser.add_argument(
+        "--llm-domain-classifier-model",
+        type=str,
+        default="nvdev/nvidia/llama-3.1-nemotron-70b-instruct",
+        help="Model name for domain classification (default: nvdev/nvidia/llama-3.1-nemotron-70b-instruct)"
+    )
+    parser.add_argument(
+        "--llm-grader-model",
+        type=str,
+        default="nvdev/nvidia/llama-3.1-nemotron-70b-instruct",
+        help="Model name for grading (default: nvdev/nvidia/llama-3.1-nemotron-70b-instruct)"
+    )
+    parser.add_argument(
+        "--llm-difficulty-model-1",
+        type=str,
+        default="nvdev/meta/llama-3.2-1b-instruct",
+        help="First model for difficulty assessment (default: nvdev/meta/llama-3.2-1b-instruct)"
+    )
+    parser.add_argument(
+        "--llm-difficulty-model-2",
+        type=str,
+        default="nvdev/meta/llama-3.2-3b-instruct",
+        help="Second model for difficulty assessment (default: nvdev/meta/llama-3.2-3b-instruct)"
+    )
+    
     args = parser.parse_args()
 
     main(args)
