@@ -3,7 +3,8 @@
 .PHONY: docs-html docs-clean docs-live docs-env docs-publish \
         docs-html-internal docs-html-ga docs-html-ea docs-html-draft \
         docs-live-internal docs-live-ga docs-live-ea docs-live-draft \
-        docs-publish-internal docs-publish-ga docs-publish-ea docs-publish-draft
+        docs-publish-internal docs-publish-ga docs-publish-ea docs-publish-draft \
+        docs-deploy docs-deploy-dry-run
 
 # Usage:
 #   make docs-html DOCS_ENV=internal   # Build docs for internal use
@@ -11,6 +12,8 @@
 #   make docs-html                     # Build docs with no special tag
 #   make docs-live DOCS_ENV=draft      # Live server with draft tag
 #   make docs-publish DOCS_ENV=ga      # Production build (fails on warnings)
+#   make docs-deploy                   # Build and deploy docs to S3
+#   make docs-deploy-dry-run           # Show what would be deployed without executing
 
 DOCS_ENV ?=
 
@@ -102,3 +105,45 @@ docs-live-ea:
 
 docs-live-draft:
 	$(MAKE) docs-live DOCS_ENV=draft 
+
+# S3 Deployment targets
+
+docs-deploy: docs-publish-ga
+	@echo "Deploying documentation to S3..."
+	./scripts/deploy-docs.sh
+
+docs-deploy-dry-run: docs-publish-ga
+	@echo "Showing what would be deployed to S3 (dry run)..."
+	./scripts/deploy-docs.sh --dry-run
+
+docs-deploy-no-cache: docs-publish-ga
+	@echo "Deploying documentation to S3 without Akamai cache purging..."
+	./scripts/deploy-docs.sh --skip-akamai
+
+docs-deploy-version: docs-publish-ga
+	@echo "Deploying specific version to S3..."
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Error: VERSION parameter is required. Usage: make docs-deploy-version VERSION=1.0.0"; \
+		exit 1; \
+	fi
+	./scripts/deploy-docs.sh --version $(VERSION)
+
+# GitHub Actions integration
+
+docs-workflow-trigger:
+	@echo "Triggering GitHub Actions documentation deployment workflow..."
+	@if ! command -v gh &> /dev/null; then \
+		echo "Error: GitHub CLI (gh) is required. Install with: brew install gh"; \
+		exit 1; \
+	fi
+	@echo "This will trigger the GitHub Action to deploy documentation."
+	@echo "Make sure you have committed and pushed your changes first."
+	gh workflow run deploy-docs.yml
+
+docs-workflow-status:
+	@echo "Checking GitHub Actions documentation workflow status..."
+	@if ! command -v gh &> /dev/null; then \
+		echo "Error: GitHub CLI (gh) is required. Install with: brew install gh"; \
+		exit 1; \
+	fi
+	gh run list --workflow=deploy-docs.yml --limit=5 

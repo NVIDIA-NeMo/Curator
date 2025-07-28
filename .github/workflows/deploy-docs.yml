@@ -1,0 +1,212 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Deploy Documentation
+
+on:
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to deploy (auto-detect if empty)'
+        required: false
+        type: string
+      dry-run:
+        description: 'Dry run - show what would be deployed without executing'
+        required: false
+        default: false
+        type: boolean
+      skip-backup:
+        description: 'Skip backing up current latest to versioned directory'
+        required: false
+        default: false
+        type: boolean
+      skip-akamai:
+        description: 'Skip Akamai CDN cache purging'
+        required: false
+        default: false
+        type: boolean
+  
+  # Auto-deploy on releases
+  release:
+    types: [published]
+  
+  # Auto-deploy latest docs on main branch updates
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '*.md'
+      - 'CHANGELOG.md'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-docs:
+    runs-on: ubuntu-latest
+    # environment: production  # Uncomment if you have a production environment configured
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up documentation environment
+        run: |
+          make docs-env
+          echo "VENV_PYTHON=$(pwd)/.venv-docs/bin/python" >> $GITHUB_ENV
+
+      - name: Install Akamai CLI
+        run: |
+          npm install -g akamai-cli
+          # Configure Akamai CLI if credentials are available
+          if [ -n "${{ secrets.AKAMAI_CLIENT_TOKEN }}" ]; then
+            mkdir -p ~/.akamai-cli
+            cat > ~/.edgerc << EOF
+          [default]
+          client_token = ${{ secrets.AKAMAI_CLIENT_TOKEN }}
+          client_secret = ${{ secrets.AKAMAI_CLIENT_SECRET }}
+          access_token = ${{ secrets.AKAMAI_ACCESS_TOKEN }}
+          host = ${{ secrets.AKAMAI_HOST }}
+          EOF
+            echo "✅ Akamai CLI configured"
+          else
+            echo "⚠️ Akamai credentials not found - cache purging will be skipped"
+          fi
+
+      - name: Build documentation
+        run: |
+          make docs-publish-ga
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: nemo-curator-docs-deploy
+          aws-region: us-west-2
+
+      - name: Determine deployment parameters
+        id: params
+        run: |
+          # Set version parameter
+          if [ -n "${{ inputs.version }}" ]; then
+            echo "version=${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "VERSION_ARG=--version ${{ inputs.version }}" >> $GITHUB_ENV
+          else
+            echo "VERSION_ARG=" >> $GITHUB_ENV
+          fi
+          
+          # Set dry-run parameter
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            echo "DRY_RUN_ARG=--dry-run" >> $GITHUB_ENV
+          else
+            echo "DRY_RUN_ARG=" >> $GITHUB_ENV
+          fi
+          
+          # Set backup parameter
+          if [ "${{ inputs.skip-backup }}" = "true" ]; then
+            echo "BACKUP_ARG=--no-backup" >> $GITHUB_ENV
+          else
+            echo "BACKUP_ARG=" >> $GITHUB_ENV
+          fi
+          
+          # Set Akamai parameter
+          if [ "${{ inputs.skip-akamai }}" = "true" ]; then
+            echo "AKAMAI_ARG=--skip-akamai" >> $GITHUB_ENV
+          else
+            echo "AKAMAI_ARG=" >> $GITHUB_ENV
+          fi
+          
+          # Determine trigger context
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "context=release" >> $GITHUB_OUTPUT
+            echo "auto_deploy=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "context=main-push" >> $GITHUB_OUTPUT
+            echo "auto_deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "context=manual" >> $GITHUB_OUTPUT
+            echo "auto_deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy documentation to S3
+        run: |
+          echo "Deploying documentation..."
+          echo "Context: ${{ steps.params.outputs.context }}"
+          echo "Auto deploy: ${{ steps.params.outputs.auto_deploy }}"
+          
+          ./scripts/deploy-docs.sh ${{ env.VERSION_ARG }} ${{ env.DRY_RUN_ARG }} ${{ env.BACKUP_ARG }} ${{ env.AKAMAI_ARG }}
+
+      - name: Report deployment success
+        if: success() && env.DRY_RUN_ARG == ''
+        run: |
+          echo "## 📚 Documentation Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The NeMo Curator documentation has been successfully deployed to S3." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔗 Access URLs:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Latest**: https://docs.nvidia.com/nemo/curator/latest/" >> $GITHUB_STEP_SUMMARY
+          
+          # Try to extract version from deployment
+          if [ -f "docs/_build/html/project.json" ]; then
+            VERSION=$(python3 -c "import json; print(json.load(open('docs/_build/html/project.json'))['version'])" 2>/dev/null || echo "")
+            if [ -n "$VERSION" ]; then
+              echo "- **Version $VERSION**: https://docs.nvidia.com/nemo/curator/$VERSION/" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ℹ️ Deployment Details:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger**: ${{ steps.params.outputs.context }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ref**: ${{ github.ref }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Report dry run results
+        if: success() && env.DRY_RUN_ARG != ''
+        run: |
+          echo "## 🔍 Documentation Deployment Dry Run Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The dry run has completed successfully. No changes were made to S3." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Review the job logs above to see what would have been deployed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To perform the actual deployment, re-run this workflow without the dry-run option." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-build-${{ github.run_number }}
+          path: |
+            docs/_build/
+            !docs/_build/.doctrees/
+          retention-days: 7 
