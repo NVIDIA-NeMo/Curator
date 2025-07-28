@@ -15,8 +15,22 @@ import asyncio
 import secrets
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
+
+
+@dataclass
+class GenerationConfig:
+    """Configuration class for LLM generation parameters."""
+    max_tokens: int | None = 2048
+    n: int | None = 1
+    seed: int | None = 0
+    stop: str | None | list[str] = None
+    stream: bool = False
+    temperature: float | None = 0.0
+    top_k: int | None = None
+    top_p: float | None = 0.95
 
 
 class LLMClient(ABC):
@@ -32,20 +46,13 @@ class LLMClient(ABC):
         """
 
     @abstractmethod
-    def query_model(  # noqa: PLR0913
+    def query_model(
         self,
         *,
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = 2048,
-        n: int | None = 1,
-        seed: int | None = 0,
-        stop: str | None | list[str] = None,
-        stream: bool = False,
-        temperature: float | None = 0.0,
-        top_k: int | None = None,
-        top_p: float | None = 0.95
+        generation_config: GenerationConfig | None = None,
     ) -> list[str]:
         msg = "Subclass of LLMClient must implement 'query_model'"
         raise NotImplementedError(msg)
@@ -69,6 +76,7 @@ class AsyncLLMClient(ABC):
         self.max_concurrent_requests = max_concurrent_requests
         self.max_retries = max_retries
         self.base_delay = base_delay
+        # Semaphore for controlling concurrent requests
         self._semaphore = None
         self._semaphore_loop = None
 
@@ -79,20 +87,13 @@ class AsyncLLMClient(ABC):
         """
 
     @abstractmethod
-    async def _query_model_impl(  # noqa: PLR0913
+    async def _query_model_impl(
         self,
         *,
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = 2048,
-        n: int | None = 1,
-        seed: int | None = 0,
-        stop: str | None | list[str] = None,
-        stream: bool = False,
-        temperature: float | None = 0.0,
-        top_k: int | None = None,
-        top_p: float | None = 0.95,
+        generation_config: GenerationConfig | None = None,
     ) -> list[str]:
         """
         Internal implementation of query_model without retry/concurrency logic.
@@ -101,24 +102,21 @@ class AsyncLLMClient(ABC):
         msg = "Subclass of AsyncLLMClient must implement '_query_model_impl'"
         raise NotImplementedError(msg)
 
-    async def query_model(  # noqa: PLR0913
+    async def query_model(  # noqa: C901, PLR0912
         self,
         *,
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = 2048,
-        n: int | None = 1,
-        seed: int | None = 0,
-        stop: str | None | list[str] = None,
-        stream: bool = False,
-        temperature: float | None = 0.0,
-        top_k: int | None = None,
-        top_p: float | None = 0.95,
+        generation_config: GenerationConfig | None = None,
     ) -> list[str]:
         """
         Query the model with automatic retry and concurrency control.
         """
+        # Use default config if none provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+
         # Initialize semaphore if not already done or if we're in a different event loop
         current_loop = asyncio.get_event_loop()
         if self._semaphore is None or self._semaphore_loop != current_loop:
@@ -163,14 +161,7 @@ class AsyncLLMClient(ABC):
                         messages=messages,
                         model=model,
                         conversation_formatter=conversation_formatter,
-                        max_tokens=max_tokens,
-                        n=n,
-                        seed=seed,
-                        stop=stop,
-                        stream=stream,
-                        temperature=temperature,
-                        top_k=top_k,
-                        top_p=top_p,
+                        generation_config=generation_config,
                     )
                 except Exception as e:
                     last_exception = e
@@ -193,4 +184,3 @@ class AsyncLLMClient(ABC):
             # but if we get here, re-raise the last exception
             if last_exception:
                 raise last_exception
-            return []

@@ -23,7 +23,7 @@ from tqdm import tqdm
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.reasoning.prompts import DEFAULT_DOMAIN_CLASSIFICATION_PROMPT_TEMPLATE
-from ray_curator.stages.services.model_client import AsyncLLMClient, LLMClient
+from ray_curator.stages.services.model_client import AsyncLLMClient, GenerationConfig, LLMClient
 from ray_curator.tasks import DocumentBatch
 
 # Constants for magic values
@@ -45,6 +45,7 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
         domains_file_path: str,
         input_problem_field: str,
         output_field: str,
+        generation_config: GenerationConfig | None = None,
     ):
         if prompt is not None:
             self.prompt = prompt
@@ -56,6 +57,7 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.domains_prompt = "\n\n".join(self.domains["prompt"].tolist())
         self.input_problem_field = input_problem_field
         self.output_field = output_field
+        self.generation_config = generation_config or GenerationConfig()
         self.is_async_client = isinstance(client, AsyncLLMClient)
         self.allowed_output_values = self.domains["code"].tolist()
         self._name = "LLMBasedDomainClassifier"
@@ -108,7 +110,11 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
             messages = [{"role": "user", "content": prompt}]
 
             for attempt in range(MAX_RETRY_ATTEMPTS):  # Try up to 3 times
-                response = self.client.query_model(model=self.model_name, messages=messages)
+                response = self.client.query_model(
+                    model=self.model_name,
+                    messages=messages,
+                    generation_config=self.generation_config
+                )
                 processed_response = self._process_llm_response(response)
 
                 if processed_response in self.allowed_output_values:
@@ -139,7 +145,11 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
 
             # logic to make sure generated response is in the allowed output values
             for attempt in range(MAX_RETRY_ATTEMPTS):  # Try up to 3 times
-                response = await self.client.query_model(model=self.model_name, messages=messages)
+                response = await self.client.query_model(
+                    model=self.model_name,
+                    messages=messages,
+                    generation_config=self.generation_config
+                )
                 processed_response = self._process_llm_response(response)
 
                 if processed_response in self.allowed_output_values:

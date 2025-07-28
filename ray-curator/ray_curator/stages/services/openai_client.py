@@ -11,14 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import warnings
 from collections.abc import Iterable
 
 from openai import AsyncOpenAI, OpenAI
 
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
-
-from .model_client import AsyncLLMClient, LLMClient
+from ray_curator.stages.services.model_client import AsyncLLMClient, GenerationConfig, LLMClient
 
 
 class OpenAIClient(LLMClient):
@@ -37,36 +37,34 @@ class OpenAIClient(LLMClient):
         """
         self.client = OpenAI(**self.openai_kwargs)
 
-    def query_model(  # noqa: PLR0913
+    def query_model(
         self,
         *,
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = 2048,
-        n: int | None = 1,
-        seed: int | None = 0,
-        stop: str | None | list[str] = None,
-        stream: bool = False,
-        temperature: float | None = 0.0,
-        top_k: int | None = None,
-        top_p: float | None = 0.95,
+        generation_config: GenerationConfig | None = None,
     ) -> list[str]:
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
-        if top_k is not None:
+        
+        # Use default config if none provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+            
+        if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an OpenAIClient", stacklevel=2)
 
         response = self.client.chat.completions.create(
             messages=messages,
             model=model,
-            max_tokens=max_tokens,
-            n=n,
-            seed=seed,
-            stop=stop,
-            stream=stream,
-            temperature=temperature,
-            top_p=top_p,
+            max_tokens=generation_config.max_tokens,
+            n=generation_config.n,
+            seed=generation_config.seed,
+            stop=generation_config.stop,
+            stream=generation_config.stream,
+            temperature=generation_config.temperature,
+            top_p=generation_config.top_p,
             timeout=self.timeout,
         )
 
@@ -78,13 +76,19 @@ class AsyncOpenAIClient(AsyncLLMClient):
     A wrapper around OpenAI's Python async client for querying models
     """
 
-    def __init__(self, max_concurrent_requests: int = 5, max_retries: int = 3, base_delay: float = 1.0, **kwargs) -> None:
+    def __init__(
+        self,
+        max_concurrent_requests: int = 5,
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+        **kwargs
+    ) -> None:
         """
-        Initialize the AsyncOpenAIClient.
+        Initialize the AsyncOpenAI client.
 
         Args:
             max_concurrent_requests: Maximum number of concurrent requests
-            max_retries: Maximum number of retry attempts for rate-limited requests
+            max_retries: Maximum number of retry attempts for rate-limited requests  
             base_delay: Base delay for exponential backoff (in seconds)
             **kwargs: Additional arguments passed to OpenAI client
         """
@@ -99,39 +103,37 @@ class AsyncOpenAIClient(AsyncLLMClient):
         """
         self.client = AsyncOpenAI(**self.openai_kwargs)
 
-    async def _query_model_impl(  # noqa: PLR0913
+    async def _query_model_impl(
         self,
         *,
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = 2048,
-        n: int | None = 1,
-        seed: int | None = 0,
-        stop: str | None | list[str] = None,
-        stream: bool = False,
-        temperature: float | None = 0.0,
-        top_k: int | None = None,
-        top_p: float | None = 0.95,
+        generation_config: GenerationConfig | None = None,
     ) -> list[str]:
         """
         Internal implementation of query_model without retry/concurrency logic.
         """
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an AsyncOpenAIClient", stacklevel=2)
-        if top_k is not None:
+        
+        # Use default config if none provided
+        if generation_config is None:
+            generation_config = GenerationConfig()
+            
+        if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an AsyncOpenAIClient", stacklevel=2)
 
         response = await self.client.chat.completions.create(
             messages=messages,
             model=model,
-            max_tokens=max_tokens,
-            n=n,
-            seed=seed,
-            stop=stop,
-            stream=stream,
-            temperature=temperature,
-            top_p=top_p,
+            max_tokens=generation_config.max_tokens,
+            n=generation_config.n,
+            seed=generation_config.seed,
+            stop=generation_config.stop,
+            stream=generation_config.stream,
+            temperature=generation_config.temperature,
+            top_p=generation_config.top_p,
             timeout=self.timeout,
         )
 

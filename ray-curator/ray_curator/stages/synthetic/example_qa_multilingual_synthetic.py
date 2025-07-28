@@ -24,7 +24,7 @@ import pandas as pd
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.filters.doc_filter import DocumentFilter
-from ray_curator.stages.services.model_client import AsyncLLMClient, LLMClient
+from ray_curator.stages.services.model_client import AsyncLLMClient, GenerationConfig, LLMClient
 from ray_curator.tasks import DocumentBatch, _EmptyTask
 
 
@@ -33,12 +33,13 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     A simple stage for generating synthetic data. It takes in Empty task and a prompt and produces the output in form of a DocumentBatch.
     """
 
-    def __init__(self, prompt: str, languages: list[str], client: AsyncLLMClient | LLMClient, model_name: str, num_samples: int):
+    def __init__(self, prompt: str, languages: list[str], client: AsyncLLMClient | LLMClient, model_name: str, num_samples: int, generation_config: GenerationConfig | None = None):
         self.prompt = prompt
         self.languages = languages
         self.client = client
         self.num_samples = num_samples
         self.model_name = model_name
+        self.generation_config = generation_config or GenerationConfig()
         self.is_async_client = isinstance(client, AsyncLLMClient)
         self._name = "QAMultilingualSyntheticStage"
 
@@ -77,8 +78,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
             response = self.client.query_model(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.9,  # Add randomness for variety
-                seed=i,  # Different seed for each generation
+                generation_config=self.generation_config
             )
             generated_text = self._process_llm_response(response)
             responses.append(generated_text)
@@ -96,6 +96,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
             response = await self.client.query_model(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
+                generation_config=self.generation_config
             )
             return self._process_llm_response(response)
 
