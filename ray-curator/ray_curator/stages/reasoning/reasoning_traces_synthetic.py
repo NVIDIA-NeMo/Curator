@@ -59,7 +59,13 @@ class ReasoningTracesSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch
         responses = self._process_async(df) if self.is_async_client else self._process_sync(df)
 
         df[self.output_field] = responses
-        return DocumentBatch(data=df, dataset_name="reasoning_traces_synthetic_data", task_id=1)
+        return DocumentBatch(
+            data=df,
+            dataset_name=batch.dataset_name,
+            task_id=f"{batch.task_id}_{self.name}",
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
     def _process_llm_response(self, response: list[str]) -> str:
         """Process LLM response to extract the content."""

@@ -78,7 +78,13 @@ class LLMBasedDomainClassifier(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         logger.info(f"[Stage finished] - LLMBasedDomainClassifier - Number of samples - {len(df)}")
 
-        return DocumentBatch(data=df, dataset_name="domain_classification_data", task_id=1)
+        return DocumentBatch(
+            data=df,
+            dataset_name=batch.dataset_name,
+            task_id=f"{batch.task_id}_{self.name}",
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
     def _process_llm_response(self, response: list[str]) -> str:
         """Process LLM response to extract the content."""
@@ -230,4 +236,10 @@ class DiversitySampler(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = batch.to_pandas()
         df = self._sample_uniformly(df)
         logger.info(f"[Stage finished] - DiversitySampler - Number of samples - {len(df)}")
-        return DocumentBatch(data=df, dataset_name="diversity_sampling_data", task_id=1)
+        return DocumentBatch(
+            data=df,
+            dataset_name=batch.dataset_name,
+            task_id=f"{batch.task_id}_{self.name}",
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
