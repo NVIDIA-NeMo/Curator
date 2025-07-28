@@ -2,11 +2,12 @@ import pathlib
 import subprocess
 from dataclasses import dataclass
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks.video import VideoTask, _Window, Video
-from ray_curator.stages.resources import Resources
-from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
 from loguru import logger
+
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks.video import Video, VideoTask, _Window
+from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
 
 
 @dataclass
@@ -48,7 +49,6 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
         with make_pipeline_temporary_dir(sub_dir="preview") as tmp_dir:
             input_mp4 = pathlib.Path(tmp_dir, "input.mp4")
 
-            assert window.mp4_bytes is not None
             input_mp4.write_bytes(window.mp4_bytes)
             output_webp = pathlib.Path(tmp_dir, "output.webp")
             command = [
