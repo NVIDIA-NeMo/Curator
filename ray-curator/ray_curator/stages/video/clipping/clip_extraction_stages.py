@@ -86,7 +86,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
         return {
-            RayStageSpecKeys.IS_ACTOR_STAGE: True,
             RayStageSpecKeys.IS_FANOUT_STAGE: True,
         }
 
@@ -125,8 +124,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
         # we are done with source_bytes
         video.source_bytes = None
-
-        # TODO: log_stats
 
         # Consider craking into smaller chunks of clips
         output_tasks = []
