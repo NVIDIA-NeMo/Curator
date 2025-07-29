@@ -88,9 +88,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
 
-        if video.source_bytes is None:
-            raise ValueError("source_bytes cannot be None")
-
         if not video.clips:
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
             video.source_bytes = None
