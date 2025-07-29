@@ -28,11 +28,30 @@ from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.tasks import DocumentBatch
 
+from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN
+
+PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
+MAX_SEQ_LENGTH = 512
+OUTPUT_COLUMNS = [
+    "prompt_complexity_score",
+    "task_type_1",
+    "task_type_2",
+    "task_type_prob",
+    "creativity_scope",
+    "reasoning",
+    "contextual_knowledge",
+    "number_of_few_shots",
+    "domain_knowledge",
+    "no_label_reason",
+    "constraint_ct",
+]
+
 
 class MeanPooling(nn.Module):
     def __init__(self):
         super().__init__()
 
+    @torch.no_grad()
     def forward(self, last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
         sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
@@ -48,6 +67,7 @@ class MulticlassHead(nn.Module):
         super().__init__()
         self.fc = nn.Linear(input_size, num_classes)
 
+    @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.fc(x)
 
@@ -56,7 +76,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
     def __init__(self, config: dataclass):
         super().__init__()
 
-        self.backbone = AutoModel.from_pretrained(config["base_model"])
+        self.backbone = AutoModel.from_pretrained(config["base_model"], local_files_only=True)
         self.target_sizes = config["target_sizes"].values()
 
         self.task_type_map = config["task_type_map"]
@@ -105,7 +125,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
             scores = weighted_sum / self.divisor_map[target]
 
             scores = [round(value, decimal) for value in scores]
-            if target == "number_of_few_shots":
+            if target == OUTPUT_COLUMNS[7]:
                 scores = [x if x >= 0.05 else 0 for x in scores]  # noqa: PLR2004
             return scores
 
@@ -115,47 +135,40 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
         # Round 1: "task_type"
         task_type_logits = logits[0]
         task_type_results = self.compute_results(task_type_logits, target="task_type")
-        result["task_type_1"] = task_type_results[0]
-        result["task_type_2"] = task_type_results[1]
-        result["task_type_prob"] = task_type_results[2]
+        result[OUTPUT_COLUMNS[1]] = task_type_results[0]
+        result[OUTPUT_COLUMNS[2]] = task_type_results[1]
+        result[OUTPUT_COLUMNS[3]] = task_type_results[2]
 
         # Round 2: "creativity_scope"
         creativity_scope_logits = logits[1]
-        target = "creativity_scope"
-        result[target] = self.compute_results(creativity_scope_logits, target=target)
+        result[OUTPUT_COLUMNS[4]] = self.compute_results(creativity_scope_logits, target=OUTPUT_COLUMNS[4])
 
         # Round 3: "reasoning"
         reasoning_logits = logits[2]
-        target = "reasoning"
-        result[target] = self.compute_results(reasoning_logits, target=target)
+        result[OUTPUT_COLUMNS[5]] = self.compute_results(reasoning_logits, target=OUTPUT_COLUMNS[5])
 
         # Round 4: "contextual_knowledge"
         contextual_knowledge_logits = logits[3]
-        target = "contextual_knowledge"
-        result[target] = self.compute_results(contextual_knowledge_logits, target=target)
+        result[OUTPUT_COLUMNS[6]] = self.compute_results(contextual_knowledge_logits, target=OUTPUT_COLUMNS[6])
 
         # Round 5: "number_of_few_shots"
         number_of_few_shots_logits = logits[4]
-        target = "number_of_few_shots"
-        result[target] = self.compute_results(number_of_few_shots_logits, target=target)
+        result[OUTPUT_COLUMNS[7]] = self.compute_results(number_of_few_shots_logits, target=OUTPUT_COLUMNS[7])
 
         # Round 6: "domain_knowledge"
         domain_knowledge_logits = logits[5]
-        target = "domain_knowledge"
-        result[target] = self.compute_results(domain_knowledge_logits, target=target)
+        result[OUTPUT_COLUMNS[8]] = self.compute_results(domain_knowledge_logits, target=OUTPUT_COLUMNS[8])
 
         # Round 7: "no_label_reason"
         no_label_reason_logits = logits[6]
-        target = "no_label_reason"
-        result[target] = self.compute_results(no_label_reason_logits, target=target)
+        result[OUTPUT_COLUMNS[9]] = self.compute_results(no_label_reason_logits, target=OUTPUT_COLUMNS[9])
 
         # Round 8: "constraint_ct"
         constraint_ct_logits = logits[7]
-        target = "constraint_ct"
-        result[target] = self.compute_results(constraint_ct_logits, target=target)
+        result[OUTPUT_COLUMNS[10]] = self.compute_results(constraint_ct_logits, target=OUTPUT_COLUMNS[10])
 
         # Round 9: "prompt_complexity_score"
-        result["prompt_complexity_score"] = torch.tensor(
+        result[OUTPUT_COLUMNS[0]] = torch.tensor(
             [
                 round(
                     0.35 * creativity
@@ -167,12 +180,12 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
                     5,
                 )
                 for creativity, reasoning, constraint, domain_knowledge, contextual_knowledge, few_shots in zip(
-                    result["creativity_scope"],
-                    result["reasoning"],
-                    result["constraint_ct"],
-                    result["domain_knowledge"],
-                    result["contextual_knowledge"],
-                    result["number_of_few_shots"],
+                    result[OUTPUT_COLUMNS[4]],
+                    result[OUTPUT_COLUMNS[5]],
+                    result[OUTPUT_COLUMNS[10]],
+                    result[OUTPUT_COLUMNS[8]],
+                    result[OUTPUT_COLUMNS[6]],
+                    result[OUTPUT_COLUMNS[7]],
                     strict=False,
                 )
             ],
@@ -180,6 +193,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
 
         return result
 
+    @torch.no_grad()
     def _forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> dict[str, torch.Tensor]:
         outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
 
@@ -190,9 +204,10 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
 
         return self.process_logits(logits)
 
+    @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        input_ids = batch["input_ids"]
-        attention_mask = batch["attention_mask"]
+        input_ids = batch[INPUT_ID_COLUMN]
+        attention_mask = batch[ATTENTION_MASK_COLUMN]
 
         if self.autocast:
             with torch.autocast(device_type="cuda"):
@@ -224,87 +239,32 @@ class HFPromptTaskComplexityModelStage(HFModel):
         autocast: bool = True,
     ):
         super().__init__(
-            pred_column="prompt_complexity_score",
-            model_identifier="nvidia/prompt-task-and-complexity-classifier",
+            model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
             has_seq_order=has_seq_order,
             micro_batch_size=micro_batch_size,
-            padding_side="right",
+            padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
+            unpack_inference_batch=False,
         )
 
         self.autocast = autocast
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
-
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column, "task_type_1", "task_type_2", "task_type_prob", "creativity_scope", "reasoning", "contextual_knowledge", "number_of_few_shots", "domain_knowledge", "no_label_reason", "constraint_ct"]
+        return ["data"], OUTPUT_COLUMNS
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model = CustomHFDeberta.from_pretrained(self.model_identifier).cuda().eval()
+        self.model = CustomHFDeberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
         self.model.set_autocast(self.autocast)
 
-    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
-        return {
-            self.pred_column: np.concatenate([out[self.pred_column] for out in processed_outputs], axis=0),
-            "task_type_1": np.concatenate([out["task_type_1"] for out in processed_outputs], axis=0),
-            "task_type_2": np.concatenate([out["task_type_2"] for out in processed_outputs], axis=0),
-            "task_type_prob": np.concatenate([out["task_type_prob"] for out in processed_outputs], axis=0),
-            "creativity_scope": np.concatenate([out["creativity_scope"] for out in processed_outputs], axis=0),
-            "reasoning": np.concatenate([out["reasoning"] for out in processed_outputs], axis=0),
-            "contextual_knowledge": np.concatenate([out["contextual_knowledge"] for out in processed_outputs], axis=0),
-            "number_of_few_shots": np.concatenate([out["number_of_few_shots"] for out in processed_outputs], axis=0),
-            "domain_knowledge": np.concatenate([out["domain_knowledge"] for out in processed_outputs], axis=0),
-            "no_label_reason": np.concatenate([out["no_label_reason"] for out in processed_outputs], axis=0),
-            "constraint_ct": np.concatenate([out["constraint_ct"] for out in processed_outputs], axis=0),
-        }
+    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+        return outputs
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
 
-        df_cpu[self.pred_column] = collected_output[self.pred_column]
-        df_cpu["task_type_1"] = collected_output["task_type_1"]
-        df_cpu["task_type_2"] = collected_output["task_type_2"]
-        df_cpu["task_type_prob"] = collected_output["task_type_prob"]
-        df_cpu["creativity_scope"] = collected_output["creativity_scope"]
-        df_cpu["reasoning"] = collected_output["reasoning"]
-        df_cpu["contextual_knowledge"] = collected_output["contextual_knowledge"]
-        df_cpu["number_of_few_shots"] = collected_output["number_of_few_shots"]
-        df_cpu["domain_knowledge"] = collected_output["domain_knowledge"]
-        df_cpu["no_label_reason"] = collected_output["no_label_reason"]
-        df_cpu["constraint_ct"] = collected_output["constraint_ct"]
+        for column in OUTPUT_COLUMNS:
+            df_cpu[column] = collected_output[column]
 
         return df_cpu
-
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
-        processed_outputs = []
-        df_cpu = batch.to_pandas()
-
-        for model_input_batch in self.yield_next_batch(df_cpu):
-            # Forward pass
-            with torch.no_grad():
-                outputs = self.model(model_input_batch)
-
-            processed_outputs.append(outputs)
-
-        # Collect all outputs
-        collected_output = self.collect_outputs(processed_outputs)
-
-        # Create output Pandas DataFrame
-        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
-
-        # Sort by seq_order to preserve original order from tokenizer
-        if self.has_seq_order:
-            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
-                columns=["_curator_seq_order"]
-            )
-
-        return DocumentBatch(
-            task_id=batch.task_id,
-            dataset_name=batch.dataset_name,
-            data=df_cpu,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
-        )
 
 
 @dataclass
@@ -320,6 +280,8 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
             Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to 2000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -330,32 +292,27 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
 
     text_field: str = "text"
     filter_by: list[str] | None = None
+    max_chars: int = 2000
     sort_by_length: bool = True
     micro_batch_size: int = 256
     autocast: bool = True
-    _name: str = "prompt_task_complexity_classifier"
 
     def __post_init__(self) -> None:
         super().__init__()
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field]
+        self._name = PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["prompt_complexity_score", "task_type_1", "task_type_2", "task_type_prob", "creativity_scope", "reasoning", "contextual_knowledge", "number_of_few_shots", "domain_knowledge", "no_label_reason", "constraint_ct"]
-
-    def decompose(self) -> list[ProcessingStage]:
         if self.filter_by is not None and len(self.filter_by) > 0:
             msg = "filter_by not supported with PromptTaskComplexityClassifier"
             raise NotImplementedError(msg)
 
-        return [
+        self.stages = [
             HFTokenizerStage(
-                model_identifier="nvidia/prompt-task-and-complexity-classifier",
+                model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
                 text_field=self.text_field,
-                max_chars=2000,
-                max_seq_length=512,
-                padding_side="right",
+                max_chars=self.max_chars,
+                max_seq_length=MAX_SEQ_LENGTH,
+                padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
             ),
             HFPromptTaskComplexityModelStage(
@@ -364,3 +321,12 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 autocast=self.autocast,
             ),
         ]
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[1].outputs()
+
+    def decompose(self) -> list[ProcessingStage]:
+        return self.stages

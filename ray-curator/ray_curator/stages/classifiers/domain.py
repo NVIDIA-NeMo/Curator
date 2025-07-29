@@ -17,6 +17,11 @@ import os
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
 from .base import DistributedDataClassifier
+from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+
+DOMAIN_MODEL_IDENTIFIER = "nvidia/domain-classifier"
+MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER = "nvidia/multilingual-domain-classifier"
+MAX_SEQ_LENGTH = 512
 
 
 class DomainClassifier(DistributedDataClassifier):
@@ -30,6 +35,7 @@ class DomainClassifier(DistributedDataClassifier):
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: The maximum number of characters to use from the input text. Defaults to 2000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -44,21 +50,22 @@ class DomainClassifier(DistributedDataClassifier):
         prob_column: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
+        max_chars: int = 2000,
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = "domain_classifier"
+        self._name = DOMAIN_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
         super().__init__(
-            model_identifier="nvidia/domain-classifier",
+            model_identifier=DOMAIN_MODEL_IDENTIFIER,
             pred_column=pred_column,
             prob_column=prob_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_chars=2000,
-            max_seq_length=512,
-            padding_side="right",
+            max_chars=max_chars,
+            max_seq_length=MAX_SEQ_LENGTH,
+            padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -77,6 +84,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: The maximum number of characters to use from the input text. Defaults to 2000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -91,21 +99,22 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         prob_column: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
+        max_chars: int = 2000,
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = "multilingual_domain_classifier"
+        self._name = MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
         super().__init__(
-            model_identifier="nvidia/multilingual-domain-classifier",
+            model_identifier=MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER,
             pred_column=pred_column,
             prob_column=prob_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_chars=2000,
-            max_seq_length=512,
-            padding_side="right",
+            max_chars=max_chars,
+            max_seq_length=MAX_SEQ_LENGTH,
+            padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,

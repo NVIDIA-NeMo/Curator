@@ -63,8 +63,8 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
         # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
-    assert stages[0].name == "tokenizer-nvidia/domain-classifier"
-    assert stages[1].name == "model-nvidia/domain-classifier"
+    assert stages[0].name == "domain_classifier_tokenizer"
+    assert stages[1].name == "domain_classifier_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -123,8 +123,8 @@ def test_quality_classifier() -> None:
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
     assert len(stages) == 2
-    assert stages[0].name == "tokenizer-nvidia/quality-classifier-deberta"
-    assert stages[1].name == "model-nvidia/quality-classifier-deberta"
+    assert stages[0].name == "quality_classifier_deberta_tokenizer"
+    assert stages[1].name == "quality_classifier_deberta_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -186,16 +186,22 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
         # Filtering adds a filter_fn stage
         assert len(stages) == 5
         assert stages[4].name == "filter_fn"
-    assert stages[0].name == "wrap_in_prompt"
-    assert stages[1].name == "tokenizer-meta-llama/LlamaGuard-7b"
-    assert stages[2].name == f"model-{aegis_variant}"
-    assert stages[3].name == "postprocess_responses"
+    assert stages[0].name == "format_aegis_prompt"
 
-    # Check that the wrap_in_prompt stage inputs/output columns are correct
-    wrap_in_prompt_stage = stages[0]
-    assert all(col in input_dataset.data.columns for col in wrap_in_prompt_stage.inputs()[1])
-    wrapped_batch = wrap_in_prompt_stage.process(input_dataset)
-    assert all(col in wrapped_batch.data.columns for col in wrap_in_prompt_stage.outputs()[1])
+    assert stages[1].name == "llamaguard_7b_tokenizer"
+
+    if "Defensive" in aegis_variant:
+        assert stages[2].name == "aegis_ai_content_safety_llamaguard_defensive_1.0_model"
+    else:
+        assert stages[2].name == "aegis_ai_content_safety_llamaguard_permissive_1.0_model"
+
+    assert stages[3].name == "postprocess_aegis_responses"
+
+    # Check that the format_aegis_prompt stage inputs/output columns are correct
+    format_aegis_prompt_stage = stages[0]
+    assert all(col in input_dataset.data.columns for col in format_aegis_prompt_stage.inputs()[1])
+    wrapped_batch = format_aegis_prompt_stage.process(input_dataset)
+    assert all(col in wrapped_batch.data.columns for col in format_aegis_prompt_stage.outputs()[1])
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[1]
@@ -213,12 +219,12 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
     result_batch = model_stage.process(tokenized_batch)
     assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
 
-    # Check that the postprocess_responses stage inputs/output columns are correct
-    postprocess_responses_stage = stages[3]
-    assert all(col in result_batch.data.columns for col in postprocess_responses_stage.inputs()[1])
-    postprocess_responses_stage.setup()
-    postprocessed_batch = postprocess_responses_stage.process(result_batch)
-    assert all(col in postprocessed_batch.data.columns for col in postprocess_responses_stage.outputs()[1])
+    # Check that the postprocess_aegis_responses stage inputs/output columns are correct
+    postprocess_aegis_responses_stage = stages[3]
+    assert all(col in result_batch.data.columns for col in postprocess_aegis_responses_stage.inputs()[1])
+    postprocess_aegis_responses_stage.setup()
+    postprocessed_batch = postprocess_aegis_responses_stage.process(result_batch)
+    assert all(col in postprocessed_batch.data.columns for col in postprocess_aegis_responses_stage.outputs()[1])
 
     # Check that the classifier output columns are correct
     assert all(col in postprocessed_batch.data.columns for col in classifier.outputs()[1])
@@ -251,8 +257,8 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
         # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
-    assert stages[0].name == "tokenizer-HuggingFaceFW/fineweb-edu-classifier"
-    assert stages[1].name == "model-HuggingFaceFW/fineweb-edu-classifier"
+    assert stages[0].name == "fineweb_edu_classifier_tokenizer"
+    assert stages[1].name == "fineweb_edu_classifier_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -295,8 +301,8 @@ def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
     assert len(stages) == 2
-    assert stages[0].name == "tokenizer-nvidia/nemocurator-fineweb-mixtral-edu-classifier"
-    assert stages[1].name == "model-nvidia/nemocurator-fineweb-mixtral-edu-classifier"
+    assert stages[0].name == "nemocurator_fineweb_mixtral_edu_classifier_tokenizer"
+    assert stages[1].name == "nemocurator_fineweb_mixtral_edu_classifier_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -332,8 +338,8 @@ def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
     assert len(stages) == 2
-    assert stages[0].name == "tokenizer-nvidia/nemocurator-fineweb-nemotron-4-edu-classifier"
-    assert stages[1].name == "model-nvidia/nemocurator-fineweb-nemotron-4-edu-classifier"
+    assert stages[0].name == "nemocurator_fineweb_nemotron_4_edu_classifier_tokenizer"
+    assert stages[1].name == "nemocurator_fineweb_nemotron_4_edu_classifier_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -386,8 +392,8 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
         # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
-    assert stages[0].name == "tokenizer-meta-llama/LlamaGuard-7b"
-    assert stages[1].name == "model-nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0"
+    assert stages[0].name == "llamaguard_7b_tokenizer"
+    assert stages[1].name == "aegis_ai_content_safety_llamaguard_defensive_1.0_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -450,8 +456,8 @@ def test_multilingual_domain_classifier() -> None:
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
     assert len(stages) == 2
-    assert stages[0].name == "tokenizer-nvidia/multilingual-domain-classifier"
-    assert stages[1].name == "model-nvidia/multilingual-domain-classifier"
+    assert stages[0].name == "multilingual_domain_classifier_tokenizer"
+    assert stages[1].name == "multilingual_domain_classifier_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -494,8 +500,8 @@ def test_content_type_classifier() -> None:
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
     assert len(stages) == 2
-    assert stages[0].name == "tokenizer-nvidia/content-type-classifier-deberta"
-    assert stages[1].name == "model-nvidia/content-type-classifier-deberta"
+    assert stages[0].name == "content_type_classifier_deberta_tokenizer"
+    assert stages[1].name == "content_type_classifier_deberta_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
@@ -531,21 +537,22 @@ def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
         dataset_name="test_1",
     )
 
+    # filter_by is not supported with PromptTaskComplexityClassifier
+    if filter_by is not None:
+        with pytest.raises(NotImplementedError, match="filter_by not supported"):
+            PromptTaskComplexityClassifier(filter_by=filter_by)
+        return
+
     classifier = PromptTaskComplexityClassifier(filter_by=filter_by)
 
     # Check that the input columns are correct
     assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
 
-    # filter_by is not supported with PromptTaskComplexityClassifier
-    if filter_by is not None:
-        pytest.raises(NotImplementedError, classifier.decompose)
-        return
-
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
     assert len(stages) == 2
-    assert stages[0].name == "tokenizer-nvidia/prompt-task-and-complexity-classifier"
-    assert stages[1].name == "model-nvidia/prompt-task-and-complexity-classifier"
+    assert stages[0].name == "prompt_task_and_complexity_classifier_tokenizer"
+    assert stages[1].name == "prompt_task_and_complexity_classifier_model"
 
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]

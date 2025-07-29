@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import os
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -32,6 +33,11 @@ from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import DocumentBatch
+
+from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+
+SEQ_ORDER_COLUMN = "_curator_seq_order"
+TOKEN_LENGTH_COLUMN = "_curator_token_length"  # noqa: S105
 
 
 class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -64,7 +70,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         sort_by_length: bool = True,
         unk_token: bool = False,
     ):
-        self._name = f"tokenizer-{model_identifier}"
+        self._name = f"{model_identifier.split('/')[-1].replace('-', '_').lower()}_tokenizer"
 
         self.model_identifier = model_identifier
         self.hf_token = hf_token
@@ -79,8 +85,8 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field, "input_ids", "attention_mask"] + (
-            ["_curator_seq_order"] if self.sort_by_length else []
+        return ["data"], [self.text_field, INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN] + (
+            [SEQ_ORDER_COLUMN] if self.sort_by_length else []
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
@@ -95,10 +101,12 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     @lru_cache(maxsize=1)  # noqa: B019
     def load_cfg(self) -> AutoConfig:
-        return AutoConfig.from_pretrained(self.model_identifier)
+        return AutoConfig.from_pretrained(self.model_identifier, local_files_only=True)
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_identifier, padding_side=self.padding_side)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_identifier, padding_side=self.padding_side, local_files_only=True
+        )
         if self.unk_token:
             self.tokenizer.pad_token = self.tokenizer.unk_token
 
@@ -128,15 +136,15 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         output = df.copy()
-        output["input_ids"] = tokens.input_ids.tolist()
-        output["attention_mask"] = tokens.attention_mask.tolist()
+        output[INPUT_ID_COLUMN] = tokens.input_ids.tolist()
+        output[ATTENTION_MASK_COLUMN] = tokens.attention_mask.tolist()
 
         if self.sort_by_length:
             # Add column to preserve original order
-            output["_curator_seq_order"] = np.arange(len(df))
-            output["_curator_token_length"] = tokens.attention_mask.sum(axis=1)
-            output = output.sort_values(by="_curator_token_length", kind="stable", ignore_index=True).drop(
-                columns=["_curator_token_length"]
+            output[SEQ_ORDER_COLUMN] = np.arange(len(df))
+            output[TOKEN_LENGTH_COLUMN] = tokens.attention_mask.sum(axis=1)
+            output = output.sort_values(by=TOKEN_LENGTH_COLUMN, kind="stable", ignore_index=True).drop(
+                columns=[TOKEN_LENGTH_COLUMN]
             )
 
         return DocumentBatch(
@@ -160,14 +168,14 @@ def clip_tokens(token_o: dict, padding_side: Literal["left", "right"] = "right")
         The clipped tokens (input_ids, attention_mask).
 
     """
-    clip_len = token_o["attention_mask"].sum(axis=1).max()
+    clip_len = token_o[ATTENTION_MASK_COLUMN].sum(axis=1).max()
 
     if padding_side == "right":
-        token_o["input_ids"] = token_o["input_ids"][:, :clip_len]
-        token_o["attention_mask"] = token_o["attention_mask"][:, :clip_len]
+        token_o[INPUT_ID_COLUMN] = token_o[INPUT_ID_COLUMN][:, :clip_len]
+        token_o[ATTENTION_MASK_COLUMN] = token_o[ATTENTION_MASK_COLUMN][:, :clip_len]
     else:
-        token_o["input_ids"] = token_o["input_ids"][:, -clip_len:]
-        token_o["attention_mask"] = token_o["attention_mask"][:, -clip_len:]
+        token_o[INPUT_ID_COLUMN] = token_o[INPUT_ID_COLUMN][:, -clip_len:]
+        token_o[ATTENTION_MASK_COLUMN] = token_o[ATTENTION_MASK_COLUMN][:, -clip_len:]
 
     token_o.pop("metadata", None)
 
@@ -193,27 +201,28 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         self,
         model_identifier: str,
         hf_token: str | None = None,
-        pred_column: str = "preds",
         micro_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
+        unpack_inference_batch: bool = False,
     ):
-        self._name = f"model-{model_identifier}"
+        self._name = f"{model_identifier.split('/')[-1].replace('-', '_').lower()}_model"
         # Assume that the model can fit on a single GPU
         self._resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
         self.hf_token = hf_token
-        self.pred_column = pred_column
         self.micro_batch_size = micro_batch_size
         self.has_seq_order = has_seq_order
         self.padding_side = padding_side
+        self.unpack_inference_batch = unpack_inference_batch
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
+        return ["data"], [INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN] + ([SEQ_ORDER_COLUMN] if self.has_seq_order else [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column]
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
@@ -221,6 +230,10 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
 
     def yield_next_batch(self, df: pd.DataFrame) -> Generator[dict[str, torch.Tensor]]:
         """
@@ -237,19 +250,68 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         for i in range(0, len(df), self.micro_batch_size):
             yield clip_tokens(
                 {
-                    "input_ids": torch.tensor(df["input_ids"][i : i + self.micro_batch_size].tolist()).to(
+                    INPUT_ID_COLUMN: torch.tensor(df[INPUT_ID_COLUMN][i : i + self.micro_batch_size].tolist()).to(
                         self.model.device
                     ),
-                    "attention_mask": torch.tensor(df["attention_mask"][i : i + self.micro_batch_size].tolist()).to(
-                        self.model.device
-                    ),
+                    ATTENTION_MASK_COLUMN: torch.tensor(
+                        df[ATTENTION_MASK_COLUMN][i : i + self.micro_batch_size].tolist()
+                    ).to(self.model.device),
                 },
                 padding_side=self.padding_side,
             )
 
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
+    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
         msg = "Subclasses must implement this method"
         raise NotImplementedError(msg)
+
+    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+        result = {}
+        for key in processed_outputs[0]:
+            result[key] = np.concatenate([out[key] for out in processed_outputs], axis=0)
+        return result
+
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        processed_outputs = []
+        df_cpu = batch.to_pandas()
+
+        for model_input_batch in self.yield_next_batch(df_cpu):
+            # Forward pass
+            with torch.no_grad():
+                if self.unpack_inference_batch:
+                    outputs = self.model(**model_input_batch)
+                else:
+                    outputs = self.model(model_input_batch)
+
+            del model_input_batch
+
+            processed_output = self.process_model_output(outputs)
+            processed_outputs.append(processed_output)
+
+        # Collect all outputs
+        collected_output = self.collect_outputs(processed_outputs)
+
+        # Create output Pandas DataFrame
+        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
+
+        # Sort by seq_order to preserve original order from tokenizer
+        if self.has_seq_order:
+            df_cpu = df_cpu.sort_values(by=SEQ_ORDER_COLUMN, ignore_index=True).drop(columns=[SEQ_ORDER_COLUMN])
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_cpu,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+    def teardown(self) -> None:
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 class HFDeberta(nn.Module, PyTorchModelHubMixin):
@@ -263,7 +325,7 @@ class HFDeberta(nn.Module, PyTorchModelHubMixin):
 
     def __init__(self, config: dataclass):
         super().__init__()
-        self.model = AutoModel.from_pretrained(config["base_model"])
+        self.model = AutoModel.from_pretrained(config["base_model"], local_files_only=True)
         self.dropout = nn.Dropout(config["fc_dropout"])
         self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
 
@@ -271,13 +333,17 @@ class HFDeberta(nn.Module, PyTorchModelHubMixin):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
+    @torch.no_grad()
     def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        with torch.no_grad():
-            features = self.model(batch["input_ids"], batch["attention_mask"]).last_hidden_state
-            dropped = self.dropout(features)
-            outputs = self.fc(dropped)
-            return torch.softmax(outputs[:, 0, :], dim=1)
+        features = self.model(batch[INPUT_ID_COLUMN], batch[ATTENTION_MASK_COLUMN]).last_hidden_state
+        dropped = self.dropout(features)
+        outputs = self.fc(dropped)
 
+        del batch, features, dropped
+
+        return torch.softmax(outputs[:, 0, :], dim=1)
+
+    @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.autocast:
             with torch.autocast(device_type="cuda"):
@@ -317,27 +383,30 @@ class HFModelStage(HFModel):
         autocast: bool = True,
     ):
         super().__init__(
-            pred_column=pred_column,
             model_identifier=model_identifier,
             has_seq_order=has_seq_order,
             micro_batch_size=micro_batch_size,
             padding_side=padding_side,
+            unpack_inference_batch=False,
         )
 
-        self.prob_column = prob_column
+        self.pred_column = pred_column
+        if prob_column is not None:
+            self.prob_column = prob_column
+            self.keep_prob_column = True
+        else:
+            self.prob_column = "probs"
+            self.keep_prob_column = False
         self.autocast = autocast
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
-
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.prob_column] if self.prob_column is not None else [])
+        return ["data"], [self.pred_column] + ([self.prob_column] if self.keep_prob_column else [])
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model = HFDeberta.from_pretrained(self.model_identifier).cuda().eval()
+        self.model = HFDeberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
         self.model.set_autocast(self.autocast)
 
-        config = AutoConfig.from_pretrained(self.model_identifier)
+        config = AutoConfig.from_pretrained(self.model_identifier, local_files_only=True)
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
 
@@ -348,56 +417,18 @@ class HFModelStage(HFModel):
         pred_labels = [self.labels[idx] for idx in preds]
 
         return {
-            "probs": probs,
-            "preds": np.array(pred_labels),
-        }
-
-    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
-        return {
-            "probs": np.concatenate([out["probs"] for out in processed_outputs], axis=0),
-            "preds": np.concatenate([out["preds"] for out in processed_outputs], axis=0),
+            self.prob_column: probs,
+            self.pred_column: np.array(pred_labels),
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
-        df_cpu[self.pred_column] = collected_output["preds"]
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu[self.pred_column] = collected_output[self.pred_column]
 
-        if self.prob_column is not None:
-            df_cpu[self.prob_column] = collected_output["probs"].tolist()
+        if self.keep_prob_column:
+            df_cpu[self.prob_column] = collected_output[self.prob_column].tolist()
 
         return df_cpu
-
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
-        processed_outputs = []
-        df_cpu = batch.to_pandas()
-
-        for model_input_batch in self.yield_next_batch(df_cpu):
-            # Forward pass
-            with torch.no_grad():
-                outputs = self.model(model_input_batch)
-
-            processed_output = self.process_model_output(outputs)
-            processed_outputs.append(processed_output)
-
-        # Collect all outputs
-        collected_output = self.collect_outputs(processed_outputs)
-
-        # Create output Pandas DataFrame
-        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
-
-        # Sort by seq_order to preserve original order from tokenizer
-        if self.has_seq_order:
-            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
-                columns=["_curator_seq_order"]
-            )
-
-        return DocumentBatch(
-            task_id=batch.task_id,
-            dataset_name=batch.dataset_name,
-            data=df_cpu,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
-        )
 
 
 @dataclass(kw_only=True)
@@ -441,19 +472,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         super().__init__()
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field, self.pred_column] + (
-            [self.prob_column] if self.prob_column is not None else []
-        )
-
-    def filter_by_category(self, value: str) -> bool:
-        return value in self.filter_by
-
-    def decompose(self) -> list[ProcessingStage]:
-        stages = [
+        self.stages = [
             HFTokenizerStage(
                 model_identifier=self.model_identifier,
                 text_field=self.text_field,
@@ -474,6 +493,16 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
 
-        return stages
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[1].outputs()
+
+    def filter_by_category(self, value: str) -> bool:
+        return value in self.filter_by
+
+    def decompose(self) -> list[ProcessingStage]:
+        return self.stages

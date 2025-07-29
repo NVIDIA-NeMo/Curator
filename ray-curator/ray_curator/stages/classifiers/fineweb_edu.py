@@ -28,6 +28,13 @@ from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.tasks import DocumentBatch
 
+from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN
+
+FINEWEB_EDU_MODEL_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
+FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
+FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-nemotron-4-edu-classifier"
+MAX_SEQ_LENGTH = 512
+
 
 class HFFineWebModelStage(HFModel):
     """
@@ -57,19 +64,17 @@ class HFFineWebModelStage(HFModel):
         autocast: bool = True,
     ):
         super().__init__(
-            pred_column=pred_column,
             model_identifier=model_identifier,
             has_seq_order=has_seq_order,
             micro_batch_size=micro_batch_size,
-            padding_side="right",
+            padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
+            unpack_inference_batch=True,
         )
 
+        self.pred_column = pred_column
         self.float_score_column = float_score_column
         self.int_score_column = int_score_column
         self.autocast = autocast
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["input_ids", "attention_mask"] + (["_curator_seq_order"] if self.has_seq_order else [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column, self.float_score_column, self.int_score_column]
@@ -78,19 +83,23 @@ class HFFineWebModelStage(HFModel):
     def configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
         original_forward = model.forward
 
+        @torch.no_grad()
         def custom_forward(*args, **kwargs) -> torch.Tensor:
             if autocast:
                 with torch.autocast(device_type="cuda"):
                     output = original_forward(*args, **kwargs)
             else:
                 output = original_forward(*args, **kwargs)
+
+            del args, kwargs
+
             return output.logits.squeeze(-1).float()
 
         model.forward = custom_forward
         return model
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        model = AutoModelForSequenceClassification.from_pretrained(self.model_identifier).cuda()
+        model = AutoModelForSequenceClassification.from_pretrained(self.model_identifier, local_files_only=True).cuda()
         self.model = self.configure_forward(model, self.autocast)
 
     def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
@@ -102,58 +111,19 @@ class HFFineWebModelStage(HFModel):
         pred_labels = ["high_quality" if score >= 2.5 else "low_quality" for score in logits]  # noqa: PLR2004
 
         return {
-            "floats": float_scores,
-            "ints": int_scores,
-            "preds": pred_labels,
-        }
-
-    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
-        return {
-            "floats": np.concatenate([out["floats"] for out in processed_outputs], axis=0),
-            "ints": np.concatenate([out["ints"] for out in processed_outputs], axis=0),
-            "preds": np.concatenate([out["preds"] for out in processed_outputs], axis=0),
+            self.float_score_column: float_scores,
+            self.int_score_column: int_scores,
+            self.pred_column: pred_labels,
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
 
-        df_cpu[self.float_score_column] = collected_output["floats"]
-        df_cpu[self.int_score_column] = collected_output["ints"]
-        df_cpu[self.pred_column] = collected_output["preds"]
+        df_cpu[self.float_score_column] = collected_output[self.float_score_column]
+        df_cpu[self.int_score_column] = collected_output[self.int_score_column]
+        df_cpu[self.pred_column] = collected_output[self.pred_column]
 
         return df_cpu
-
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
-        processed_outputs = []
-        df_cpu = batch.to_pandas()
-
-        for model_input_batch in self.yield_next_batch(df_cpu):
-            # Forward pass
-            with torch.no_grad():
-                outputs = self.model(**model_input_batch)
-
-            processed_output = self.process_model_output(outputs)
-            processed_outputs.append(processed_output)
-
-        # Collect all outputs
-        collected_output = self.collect_outputs(processed_outputs)
-
-        # Create output Pandas DataFrame
-        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
-
-        # Sort by seq_order to preserve original order from tokenizer
-        if self.has_seq_order:
-            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
-                columns=["_curator_seq_order"]
-            )
-
-        return DocumentBatch(
-            task_id=batch.task_id,
-            dataset_name=batch.dataset_name,
-            data=df_cpu,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
-        )
 
 
 @dataclass(kw_only=True)
@@ -169,6 +139,8 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         int_score_column: The name of the integer score column.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to None.
         max_seq_length: Limits the total sequence returned by the tokenizer so that it has a maximum length.
             Defaults to 512.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
@@ -185,7 +157,8 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     int_score_column: str
     text_field: str = "text"
     filter_by: list[str] | None = None
-    max_seq_length: int = 512
+    max_chars: int | None = None
+    max_seq_length: int = MAX_SEQ_LENGTH
     sort_by_length: bool = True
     micro_batch_size: int = 256
     autocast: bool = True
@@ -193,22 +166,13 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         super().__init__()
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column, self.float_score_column, self.int_score_column]
-
-    def filter_by_category(self, value: str) -> bool:
-        return value in self.filter_by
-
-    def decompose(self) -> list[ProcessingStage]:
-        stages = [
+        self.stages = [
             HFTokenizerStage(
                 model_identifier=self.model_identifier,
                 text_field=self.text_field,
+                max_chars=self.max_chars,
                 max_seq_length=self.max_seq_length,
-                padding_side="right",
+                padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
             ),
             HFFineWebModelStage(
@@ -223,9 +187,19 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
 
-        return stages
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[1].outputs()
+
+    def filter_by_category(self, value: str) -> bool:
+        return value in self.filter_by
+
+    def decompose(self) -> list[ProcessingStage]:
+        return self.stages
 
 
 class FineWebEduClassifier(_FineWebBaseClassifier):
@@ -240,6 +214,8 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         int_score_column: The name of the integer score column. Defaults to "fineweb-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -255,20 +231,22 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         int_score_column: str = "fineweb-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
+        max_chars: int | None = None,
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = "fineweb_edu_classifier"
+        self._name = FINEWEB_EDU_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
         super().__init__(
-            model_identifier="HuggingFaceFW/fineweb-edu-classifier",
+            model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
             pred_column=pred_column,
             float_score_column=float_score_column,
             int_score_column=int_score_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=512,
+            max_chars=max_chars,
+            max_seq_length=MAX_SEQ_LENGTH,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -288,6 +266,8 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         int_score_column: The name of the integer score column. Defaults to "fineweb-mixtral-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 1024.
@@ -303,20 +283,22 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         int_score_column: str = "fineweb-mixtral-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
+        max_chars: int | None = None,
         sort_by_length: bool = True,
         micro_batch_size: int = 1024,
         autocast: bool = True,
     ):
-        self._name = "fineweb_mixtral_edu_classifier"
+        self._name = FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
         super().__init__(
-            model_identifier="nvidia/nemocurator-fineweb-mixtral-edu-classifier",
+            model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
             pred_column=pred_column,
             float_score_column=float_score_column,
             int_score_column=int_score_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=512,
+            max_chars=max_chars,
+            max_seq_length=MAX_SEQ_LENGTH,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
@@ -336,6 +318,8 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         int_score_column: The name of the integer score column. Defaults to "fineweb-nemotron-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: Limits the total number of characters that can be fed to the tokenizer.
+            If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 1024.
@@ -351,20 +335,22 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         int_score_column: str = "fineweb-nemotron-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
+        max_chars: int | None = None,
         sort_by_length: bool = True,
         micro_batch_size: int = 1024,
         autocast: bool = True,
     ):
-        self._name = "fineweb_nemotron_edu_classifier"
+        self._name = FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
         super().__init__(
-            model_identifier="nvidia/nemocurator-fineweb-nemotron-4-edu-classifier",
+            model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
             pred_column=pred_column,
             float_score_column=float_score_column,
             int_score_column=int_score_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_seq_length=512,
+            max_chars=max_chars,
+            max_seq_length=MAX_SEQ_LENGTH,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,

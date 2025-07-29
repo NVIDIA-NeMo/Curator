@@ -16,24 +16,35 @@ import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn.functional as F  # noqa: N812
-from huggingface_hub import PyTorchModelHubMixin
+from huggingface_hub import PyTorchModelHubMixin, snapshot_download
 from torch import nn
 from torch.nn import Dropout, Linear
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.tasks import DocumentBatch
 
 from .aegis_utils import AEGIS_LABELS, format_aegis
+from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+
+PRETRAINED_MODEL_NAME_OR_PATH = "meta-llama/LlamaGuard-7b"
+AEGIS_VARIANTS = [
+    "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
+    "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
+]
+INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER = "nvidia/instruction-data-guard"
+HIDDEN_TEXT_COLUMN = "_curator_hidden_text"
+MAX_SEQ_LENGTH = 4096
+TOKENIZER_PADDING_SIDE = "left"
 
 
 class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
@@ -48,6 +59,7 @@ class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
         self.hidden_layer_1 = Linear(2000, 500)
         self.hidden_layer_2 = Linear(500, 1)
 
+    @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = F.normalize(x, dim=-1)
         x = self.dropout(x)
@@ -68,19 +80,20 @@ class AegisModel(nn.Module):
         peft_model_name_or_path: str,
         dtype: torch.dtype,
         token: str | bool | None,
+        local_files_only: bool = True,
         add_instruction_data_guard: bool = False,
         autocast: bool = False,
     ):
         super().__init__()
         base_model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path, torch_dtype=dtype, token=token
+            pretrained_model_name_or_path, torch_dtype=dtype, token=token, local_files_only=local_files_only
         )
         # Importing PeftModel here to prevent cuda context issues
         # that seem to happen on Transformers 4.48.3
         # See related: https://github.com/rapidsai/crossfit/pull/113
         from peft import PeftModel
 
-        self.model = PeftModel.from_pretrained(base_model, peft_model_name_or_path)
+        self.model = PeftModel.from_pretrained(base_model, peft_model_name_or_path, local_files_only=local_files_only)
         self.autocast = autocast
         self.add_instruction_data_guard = add_instruction_data_guard
         if self.add_instruction_data_guard:
@@ -102,6 +115,9 @@ class AegisModel(nn.Module):
             )
             # Access the hidden state of the last non-generated token from the last layer
             instruction_data_guard_input_tensor = response.hidden_states[0][32][:, -1, :].to(torch.float)
+
+            del batch, response
+
             return self.instruction_data_guard_net(instruction_data_guard_input_tensor).flatten()
         else:
             response = self.model.generate(
@@ -109,8 +125,12 @@ class AegisModel(nn.Module):
                 max_new_tokens=100,
                 pad_token_id=0,
             )
-        return response
 
+            del batch
+
+            return response
+
+    @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         if self.autocast:
             with torch.autocast(device_type="cuda"):
@@ -138,114 +158,95 @@ class HFAegisModelStage(HFModel):
         super().__init__(
             model_identifier=model_identifier,
             hf_token=hf_token,
-            pred_column=pred_column,
             micro_batch_size=micro_batch_size,
             has_seq_order=has_seq_order,
-            padding_side="left",
+            padding_side=TOKENIZER_PADDING_SIDE,
+            unpack_inference_batch=False,
         )
 
         self.add_instruction_data_guard = add_instruction_data_guard
+        self.pred_column = pred_column
         self.prob_column = prob_column
         self.autocast = autocast
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.pred_column] + ([self.prob_column] if self.add_instruction_data_guard else [])
+
+    # We use the _setup function to ensure that everything needed for Aegis is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
         self.model = AegisModel(
-            pretrained_model_name_or_path="meta-llama/LlamaGuard-7b",
+            pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             peft_model_name_or_path=self.model_identifier,
             dtype=torch.bfloat16,
             token=None,
+            local_files_only=local_files_only,
             add_instruction_data_guard=self.add_instruction_data_guard,
             autocast=self.autocast,
         )
         if self.add_instruction_data_guard:
             self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.from_pretrained(
-                "nvidia/instruction-data-guard"
+                INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER, local_files_only=local_files_only
             )
             self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.cuda().eval()
 
         self.model = self.model.cuda().eval()
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path="meta-llama/LlamaGuard-7b",
-            padding_side="left",
+            pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
+            padding_side=TOKENIZER_PADDING_SIDE,
+            local_files_only=local_files_only,
         )
         self.tokenizer.pad_token = self.tokenizer.unk_token
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
+            self._setup(local_files_only=False)
+        except Exception as e:
+            msg = "Failed to setup Aegis model"
+            raise RuntimeError(msg) from e
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
 
     def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
         preds = outputs.cpu().numpy()
         return {
-            "preds": preds,
-        }
-
-    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
-        return {
-            "preds": np.concatenate([out["preds"] for out in processed_outputs], axis=0),
+            self.pred_column: preds,
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=["input_ids", "attention_mask"])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
 
         if self.add_instruction_data_guard:
-            df_cpu[self.prob_column] = collected_output["preds"].tolist()
-            df_cpu[self.pred_column] = (collected_output["preds"] >= 0.5).tolist()  # noqa: PLR2004
+            df_cpu[self.prob_column] = collected_output[self.pred_column].tolist()
+            df_cpu[self.pred_column] = (collected_output[self.pred_column] >= 0.5).tolist()  # noqa: PLR2004
         else:
-            df_cpu[self.pred_column] = collected_output["preds"].tolist()
+            df_cpu[self.pred_column] = collected_output[self.pred_column].tolist()
 
         return df_cpu
 
-    def process(self, batch: DocumentBatch) -> DocumentBatch:
-        processed_outputs = []
-        df_cpu = batch.to_pandas()
-
-        for model_input_batch in self.yield_next_batch(df_cpu):
-            # Forward pass
-            with torch.no_grad():
-                outputs = self.model(model_input_batch)
-
-            processed_output = self.process_model_output(outputs)
-            processed_outputs.append(processed_output)
-
-        # Collect all outputs
-        collected_output = self.collect_outputs(processed_outputs)
-
-        # Create output Pandas DataFrame
-        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
-
-        # Sort by seq_order to preserve original order from tokenizer
-        if self.has_seq_order:
-            df_cpu = df_cpu.sort_values(by="_curator_seq_order", ignore_index=True).drop(
-                columns=["_curator_seq_order"]
-            )
-
-        return DocumentBatch(
-            task_id=batch.task_id,
-            dataset_name=batch.dataset_name,
-            data=df_cpu,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
-        )
-
 
 @dataclass
-class WrapInPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+class FormatAegisPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
-    WrapInPromptStage is a stage that truncates and wraps the input text in a prompt for the AEGIS model.
+    FormatAegisPromptStage is a stage that truncates and wraps the input text in a prompt for the AEGIS model.
     """
 
     text_field: str
     max_chars: int
-    _name = "wrap_in_prompt"
+    _name = "format_aegis_prompt"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["_hidden_text"]
+        return ["data"], [HIDDEN_TEXT_COLUMN]
 
     def _wrap_in_prompt(self, df: pd.DataFrame) -> pd.DataFrame:
         documents = df[self.text_field].tolist()
         prompts = [format_aegis(doc[: self.max_chars]) for doc in documents]
-        df["_hidden_text"] = prompts
+        df[HIDDEN_TEXT_COLUMN] = prompts
         return df
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
@@ -262,26 +263,38 @@ class WrapInPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 
 @dataclass
-class PostProcessResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
-    PostProcessResponsesStage is a stage that post-processes the responses from the AEGIS model.
+    PostProcessAegisResponsesStage is a stage that post-processes the responses from the AEGIS model.
     """
 
+    hf_token: str | None
     pred_column: str
     raw_pred_column: str
     keep_raw_pred: bool
-    _name = "postprocess_responses"
+    _name = "postprocess_aegis_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.raw_pred_column, "_hidden_text"]
+        return ["data"], [self.raw_pred_column, HIDDEN_TEXT_COLUMN]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column] + ([self.raw_pred_column] if self.keep_raw_pred else [])
 
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(repo_id=PRETRAINED_MODEL_NAME_OR_PATH, token=self.hf_token, local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {PRETRAINED_MODEL_NAME_OR_PATH}"
+            raise RuntimeError(msg) from e
+
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
-            pretrained_model_name_or_path="meta-llama/LlamaGuard-7b",
-            padding_side="left",
+            pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
+            padding_side=TOKENIZER_PADDING_SIDE,
+            local_files_only=True,
         )
         self.tokenizer.pad_token = self.tokenizer.unk_token
 
@@ -310,7 +323,7 @@ class PostProcessResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             skip_special_tokens=True,
         )
 
-        original_lengths = df["_hidden_text"].str.len().tolist()
+        original_lengths = df[HIDDEN_TEXT_COLUMN].str.len().tolist()
         generated_tokens = [
             chars[original_length:] for chars, original_length in zip(generated_tokens, original_lengths, strict=False)
         ]
@@ -323,7 +336,7 @@ class PostProcessResponsesStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         df[self.pred_column] = pd.Series(parsed_response)
 
-        return df.drop(columns=["_hidden_text"])
+        return df.drop(columns=[HIDDEN_TEXT_COLUMN])
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -367,6 +380,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         text_field (str): The field in the dataset that should be classified. Defaults to "text".
         filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
             expect those specified in this list. Defaults to None.
+        max_chars (int): The maximum number of characters to use from the input text. Defaults to 6000.
         sort_by_length (bool): If True, will sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
@@ -374,16 +388,14 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
     """
 
-    aegis_variant: Literal[
-        "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
-        "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
-    ] = "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0"
+    aegis_variant: Literal[AEGIS_VARIANTS] = AEGIS_VARIANTS[0]
     token: str | bool | None = None
     pred_column: str = "aegis_pred"
     raw_pred_column: str = "_aegis_raw_pred"
     keep_raw_pred: bool = False
     text_field: str = "text"
     filter_by: list[str] | None = None
+    max_chars: int = 6000
     sort_by_length: bool = True
     micro_batch_size: int = 64
     autocast: bool = True
@@ -391,35 +403,19 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         super().__init__()
 
-        if "Defensive" in self.aegis_variant:
-            self._name = "aegis_defensive_classifier"
-        elif "Permissive" in self.aegis_variant:
-            self._name = "aegis_permissive_classifier"
-        else:
-            msg = f"Invalid aegis_variant: {self.aegis_variant}"
-            raise ValueError(msg)
+        self._name = self.aegis_variant.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.raw_pred_column] if self.keep_raw_pred else [])
-
-    def filter_by_category(self, value: str) -> bool:
-        return value in self.filter_by
-
-    def decompose(self) -> list[ProcessingStage]:
-        stages = [
-            WrapInPromptStage(
+        self.stages = [
+            FormatAegisPromptStage(
                 text_field=self.text_field,
-                max_chars=6000,
+                max_chars=self.max_chars,
             ),
             HFTokenizerStage(
-                model_identifier="meta-llama/LlamaGuard-7b",
+                model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 hf_token=self.token,
-                text_field="_hidden_text",
-                max_seq_length=4096,
-                padding_side="left",
+                text_field=HIDDEN_TEXT_COLUMN,
+                max_seq_length=MAX_SEQ_LENGTH,
+                padding_side=TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
                 unk_token=True,
             ),
@@ -432,7 +428,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 add_instruction_data_guard=False,
                 autocast=self.autocast,
             ),
-            PostProcessResponsesStage(
+            PostProcessAegisResponsesStage(
+                hf_token=self.token,
                 pred_column=self.pred_column,
                 raw_pred_column=self.raw_pred_column,
                 keep_raw_pred=self.keep_raw_pred,
@@ -440,9 +437,19 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
 
-        return stages
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[3].outputs()
+
+    def filter_by_category(self, value: str) -> bool:
+        return value in self.filter_by
+
+    def decompose(self) -> list[ProcessingStage]:
+        return self.stages
 
 
 @dataclass
@@ -496,6 +503,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         text_field (str): The field in the dataset that should be classified. Defaults to "text".
         filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
             expect those specified in this list. Defaults to None.
+        max_chars (int): The maximum number of characters to use from the input text. Defaults to 6000.
         sort_by_length (bool): If True, will sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
@@ -508,37 +516,29 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     prob_column: str = "instruction_data_guard_poisoning_score"
     text_field: str = "text"
     filter_by: list[str] | None = None
+    max_chars: int = 6000
     sort_by_length: bool = True
     micro_batch_size: int = 64
     autocast: bool = True
-    _name = "instruction_data_guard_classifier"
 
     def __post_init__(self) -> None:
         super().__init__()
 
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field]
+        self._name = INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column, self.prob_column]
-
-    def filter_by_category(self, value: str) -> bool:
-        return value in self.filter_by
-
-    def decompose(self) -> list[ProcessingStage]:
-        stages = [
+        self.stages = [
             HFTokenizerStage(
-                model_identifier="meta-llama/LlamaGuard-7b",
+                model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 hf_token=self.token,
                 text_field=self.text_field,
-                max_chars=6000,
-                max_seq_length=4096,
-                padding_side="left",
+                max_chars=self.max_chars,
+                max_seq_length=MAX_SEQ_LENGTH,
+                padding_side=TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
                 unk_token=True,
             ),
             HFAegisModelStage(
-                model_identifier="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
+                model_identifier=AEGIS_VARIANTS[0],
                 hf_token=self.token,
                 pred_column=self.pred_column,
                 prob_column=self.prob_column,
@@ -550,6 +550,16 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
 
-        return stages
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return self.stages[1].outputs()
+
+    def filter_by_category(self, value: str) -> bool:
+        return value in self.filter_by
+
+    def decompose(self) -> list[ProcessingStage]:
+        return self.stages

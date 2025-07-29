@@ -17,6 +17,10 @@ import os
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
 from .base import DistributedDataClassifier
+from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+
+CONTENT_TYPE_MODEL_IDENTIFIER = "nvidia/content-type-classifier-deberta"
+MAX_SEQ_LENGTH = 1024
 
 
 class ContentTypeClassifier(DistributedDataClassifier):
@@ -32,6 +36,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
+        max_chars: The maximum number of characters to use from the input text. Defaults to 5000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         micro_batch_size: The size of the micro-batch. Defaults to 256.
@@ -46,21 +51,22 @@ class ContentTypeClassifier(DistributedDataClassifier):
         prob_column: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
+        max_chars: int = 5000,
         sort_by_length: bool = True,
         micro_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = "content_type_classifier"
+        self._name = CONTENT_TYPE_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
 
         super().__init__(
-            model_identifier="nvidia/content-type-classifier-deberta",
+            model_identifier=CONTENT_TYPE_MODEL_IDENTIFIER,
             pred_column=pred_column,
             prob_column=prob_column,
             text_field=text_field,
             filter_by=filter_by,
-            max_chars=5000,
-            max_seq_length=1024,
-            padding_side="right",
+            max_chars=max_chars,
+            max_seq_length=MAX_SEQ_LENGTH,
+            padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             sort_by_length=sort_by_length,
             micro_batch_size=micro_batch_size,
             autocast=autocast,
