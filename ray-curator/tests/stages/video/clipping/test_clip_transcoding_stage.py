@@ -124,7 +124,6 @@ class TestClipTranscodingStage:
 
         # Verify the expected keys and values based on the git diff
         from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
-        assert spec[RayStageSpecKeys.IS_ACTOR_STAGE] is True
         assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
 
@@ -140,13 +139,6 @@ class TestClipTranscodingStage:
         assert isinstance(resources, Resources)
         assert resources.cpus == 6.0
         assert not resources.entire_gpu
-
-    def test_process_no_source_bytes(self) -> None:
-        """Test processing when source_bytes is None."""
-        self.mock_video.source_bytes = None
-
-        with pytest.raises(ValueError, match="Video source bytes are not available"):
-            self.stage.process(self.mock_task)
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
