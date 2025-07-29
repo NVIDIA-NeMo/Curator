@@ -357,38 +357,3 @@ class VideoTask(Task[Video]):
     def num_items(self) -> int:
         """Get the number of items in this task."""
         return 1
-
-class SplitPipeTask(Task[Video]):
-    """
-    Task for splitting a video into multiple clips.
-    """
-    data: Video = field(default_factory=Video)
-
-    @property
-    def fraction(self) -> float:
-        """Calculate fraction of processed video in the task.
-
-        Returns:
-            Fraction of processed video.
-
-        """
-        return self.data.fraction
-
-    @property
-    def weight(self) -> float:
-        """Calculate weight of video in the task.
-
-        Returns:
-            Weight of video.
-
-        """
-        return self.data.weight
-
-    def get_major_size(self) -> int:
-        """Calculate memory size of video in the task.
-
-        Returns:
-            Total size in bytes.
-
-        """
-        return self.data.get_major_size()
