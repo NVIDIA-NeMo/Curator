@@ -12,7 +12,7 @@ from ray_curator.backends.base import WorkerMetadata
 from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
-from ray_curator.tasks import Clip, Video, VideoTask
+from ray_curator.tasks.video import Clip, Video, VideoTask
 from ray_curator.utils import grouping
 from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
 

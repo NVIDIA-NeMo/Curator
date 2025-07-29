@@ -12,8 +12,7 @@ import pytest
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import VideoMetadata
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 
 # Mock GPU info class to simulate GPU information

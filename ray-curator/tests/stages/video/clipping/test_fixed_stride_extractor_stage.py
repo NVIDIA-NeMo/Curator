@@ -7,8 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from ray_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import VideoMetadata
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 
 class TestFixedStrideExtractorStage:
