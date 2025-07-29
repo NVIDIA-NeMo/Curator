@@ -131,7 +131,7 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, generation_config=None, **kwargs: object) -> list[str]:  # noqa: ARG002
+            async def _query_model_impl(self, *, messages: Iterable, model: str, generation_config: GenerationConfig=None, **kwargs: object) -> list[str]:  # noqa: ARG002
                 # Verify parameters are passed through in generation_config
                 assert generation_config is not None
                 assert generation_config.max_tokens == 1024
