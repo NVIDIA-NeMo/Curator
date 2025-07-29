@@ -1,14 +1,16 @@
 import os
-from dataclasses import dataclass, field
-from typing import Any, Dict
+from dataclasses import dataclass
 
 from .tasks import Task
+
 
 @dataclass
 class DataEntry(Task[list]):
     """A wrapper for data entry + any additional metrics."""
 
-    def __init__(self, data: Dict = None, metrics: Any = None, dataset_name: str = "", task_id: int = 0, **kwargs):
+    def __init__(
+        self, data: dict | None = None, metrics: dict | None = None, dataset_name: str = "", task_id: int = 0, **kwargs
+    ):
         self.data = data  # data can be None to drop the entry
         self.metrics = metrics
         self.filepath_key = "audio_filepath"
@@ -24,4 +26,3 @@ class DataEntry(Task[list]):
             print(f"Video {self.data[self.filepath_key]} does not exist")
             return False
         return True
-    

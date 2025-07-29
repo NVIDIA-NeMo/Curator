@@ -4,13 +4,14 @@ from dataclasses import dataclass
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import Video, DataEntry, _EmptyTask
+from ray_curator.tasks import DataEntry, _EmptyTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
 
 
 @dataclass
 class AudioReaderStage(ProcessingStage[_EmptyTask, DataEntry]):
     """Stage that reads video files from storage and extracts metadata."""
+
     input_audio_path: str
     audio_limit: int = -1
     filepath_key: str = "audio_filepath"
@@ -35,12 +36,13 @@ class AudioReaderStage(ProcessingStage[_EmptyTask, DataEntry]):
         logger.info(f"Found {len(files)} files under {self.input_audio_path}")
 
         if self.audio_limit > 0:
-            files = files[:self.audio_limit]
-            logger.info(f"Using first {len(files)} files under {self.input_audio_path} since audio_limit is set to {self.audio_limit}")
+            files = files[: self.audio_limit]
+            logger.info(
+                f"Using first {len(files)} files under {self.input_audio_path} since audio_limit is set to {self.audio_limit}"
+            )
 
         audio_tasks = []
         for fp in files:
-
             file_path = fp
             if isinstance(file_path, str):
                 file_path = pathlib.Path(file_path)
