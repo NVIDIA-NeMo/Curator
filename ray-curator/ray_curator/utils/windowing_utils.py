@@ -14,16 +14,16 @@
 # limitations under the License.
 """Utilities which are used in multiple places in the pipeline and/or are unit-tested."""
 
-import subprocess
-
-from dataclasses import dataclass
-import torch
 import math
-from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
-from ray_curator.utils.decoder_utils import get_frame_count
+import subprocess
+from dataclasses import dataclass
+
+import torch
 from torchvision import transforms  # type: ignore[import-untyped]
 from torchvision.transforms import InterpolationMode, v2  # type: ignore[import-untyped]
-from ray_curator.utils.decoder_utils import decode_video_cpu_frame_ids, get_avg_frame_rate
+
+from ray_curator.utils.decoder_utils import decode_video_cpu_frame_ids, get_avg_frame_rate, get_frame_count
+from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
 
 @dataclass
@@ -78,7 +78,7 @@ def compute_windows(total_frames: int, window_size: int = 128, remainder_thresho
     return out
 
 
-def split_video_into_windows(
+def split_video_into_windows(  # noqa: PLR0913
     mp4_bytes: bytes,
     window_size: int = 256,
     remainder_threshold: int = 128,
@@ -350,7 +350,7 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0913
         if preprocess_dtype == "uint8":
             desired_dtype = torch.bfloat16
 
-        resizeNormTransform = v2.Compose(
+        resize_norm_transform = v2.Compose(
             [
                 v2.Resize(
                     [resized_height, resized_width],
@@ -361,7 +361,7 @@ def fetch_video(  # noqa: C901, PLR0911, PLR0913
                 v2.Normalize(mean=OPENAI_CLIP_MEAN, std=OPENAI_CLIP_STD),
             ],
         )
-        video = resizeNormTransform(video)
+        video = resize_norm_transform(video)
         if flip_input:
             # Flip along the width and height dims
             # TODO: is this a bug?

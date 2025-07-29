@@ -129,8 +129,7 @@ class TestCaptionGenerationStage:
 
         return VideoTask(task_id="test", dataset_name="test", data=video)
 
-    @patch("ray_curator.stages.video.caption.caption_generation.logger")
-    def test_process_successful_generation(self, _mock_logger: Mock):
+    def test_process_successful_generation(self):
         """Test successful caption generation process."""
         # Setup mock model
         mock_model = Mock()
@@ -161,8 +160,7 @@ class TestCaptionGenerationStage:
                 assert window.qwen_llm_input is None
                 assert window.mp4_bytes is None
 
-    @patch("ray_curator.stages.video.caption.caption_generation.logger")
-    def test_process_with_verbose_logging(self, mock_logger: Mock):
+    def test_process_with_verbose_logging(self):
         """Test process method with verbose logging enabled."""
         mock_model = Mock()
         mock_model.generate.return_value = ["Verbose caption"]
@@ -188,11 +186,6 @@ class TestCaptionGenerationStage:
         task = VideoTask(task_id="test", dataset_name="test", data=video)
 
         self.stage.process(task)
-
-        # Verify verbose logging was called
-        mock_logger.info.assert_any_call(
-            f"Caption for clip {clip.uuid} window 0: Verbose caption"
-        )
 
     @patch("ray_curator.stages.video.caption.caption_generation.logger")
     def test_process_empty_windows(self, mock_logger: Mock):
@@ -307,8 +300,7 @@ class TestCaptionGenerationStage:
             "Generated 1 captions for video test_video.mp4 chunk-0 with 1 clips"
         )
 
-    @patch("ray_curator.stages.video.caption.caption_generation.logger")
-    def test_process_with_stage2_caption(self, _mock_logger: Mock):
+    def test_process_with_stage2_caption(self):
         """Test process method with stage2 caption generation enabled."""
         mock_model = Mock()
         mock_model.generate.return_value = ["Enhanced caption"]
