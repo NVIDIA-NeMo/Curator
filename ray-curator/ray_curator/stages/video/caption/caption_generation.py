@@ -1,11 +1,15 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks.video import VideoTask, Video
-from ray_curator.stages.resources import Resources
+from typing import Any
+
+from loguru import logger
+
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.qwen_vl import QwenVL
-from loguru import logger
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks.video import Video, VideoTask
+
 
 @dataclass
 class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
@@ -24,24 +28,24 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
+    _name: str = "caption_generation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
-    
+
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if self.model_variant == "qwen":
             self.model = QwenVL(model_dir=self.model_dir, model_variant=self.model_variant, caption_batch_size=self.caption_batch_size, fp8=self.fp8, max_output_tokens=self.max_output_tokens, model_does_preprocess=self.model_does_preprocess, disable_mmcache=self.disable_mmcache)
         else:
-            raise ValueError(f"Unsupported model variant: {self.model_variant}")
+            msg = f"Unsupported model variant: {self.model_variant}"
+            raise ValueError(msg)
         self.model.setup()
 
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpus=1)
-
+    def __post_init__(self) -> None:
+        self._resources = Resources(gpus=1)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
@@ -60,7 +64,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 mapping[idx] = (clip_idx, window_idx)
                 inputs.append(window.qwen_llm_input)
                 idx += 1
-    
+
         captions = self.model.generate(
             inputs,
             generate_stage2_caption=self.generate_stage2_caption,

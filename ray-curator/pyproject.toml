@@ -64,6 +64,7 @@ video = [
     "opencv-python",
     "torchvision",
     "einops",
+    "vllm",
 ]
 video_cuda = [
     "PyNvVideoCodec==1.0.2",

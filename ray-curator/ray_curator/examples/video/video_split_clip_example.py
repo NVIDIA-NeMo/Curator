@@ -3,6 +3,8 @@ import time
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
+from ray_curator.stages.video.caption.caption_generation import CaptionGenerationStage
+from ray_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
@@ -14,8 +16,7 @@ from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
 from ray_curator.stages.video.preview.preview import PreviewStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy
-from ray_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
-from ray_curator.stages.video.caption.caption_generation import CaptionGenerationStage
+
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
 
@@ -159,7 +160,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 target_height=args.preview_target_height,
                 verbose=args.verbose,
             ))
-        
+
         pipeline.add_stage(
             CaptionGenerationStage(
                 model_dir=args.model_dir,

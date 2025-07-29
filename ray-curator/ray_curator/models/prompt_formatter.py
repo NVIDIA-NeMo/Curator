@@ -1,23 +1,25 @@
-from transformers import AutoProcessor
-import torch
 from typing import Any
 
+import torch
+from transformers import AutoProcessor
+
 VARIANT_MAPPING = {
-    'qwen': "Qwen/Qwen2.5-VL-7B-Instruct",
+    "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
     "phi4": "microsoft/Phi-4-multimodal-instruct"
 }
 
 class PromptFormatter:
 
     def __init__(self, prompt_variant: str):
-        if prompt_variant not in ['qwen']:
-            raise ValueError(f"Invalid prompt variant: {prompt_variant}")
-        
+        if prompt_variant not in ["qwen"]:
+            msg = f"Invalid prompt variant: {prompt_variant}"
+            raise ValueError(msg)
+
         self.prompt_variant = prompt_variant
         self.text_prompt = None
         self.processor = AutoProcessor.from_pretrained(VARIANT_MAPPING[self.prompt_variant])
 
-        
+
 
     def generate_inputs(self,
         prompt: str,
@@ -59,7 +61,7 @@ class PromptFormatter:
             "multi_modal_data": {"video": video_inputs},
         }
 
-    
+
     def create_message(self, prompt: str) -> list[dict[str, Any]]:
         """Create a message.
 

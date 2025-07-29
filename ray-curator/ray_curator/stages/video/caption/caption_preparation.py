@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from itertools import zip_longest
+
+from loguru import logger
+
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.models.prompt_formatter import PromptFormatter
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks.video import VideoTask, _Window
 from ray_curator.utils import windowing_utils
-from loguru import logger
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.models.prompt_formatter import PromptFormatter
 
 _PROMPTS = {
     "default": """
@@ -45,8 +47,6 @@ _ENHANCE_PROMPTS = {
 def _get_prompt(
     prompt_variant: str,
     prompt_text: str | None,
-    *,
-    verbose: bool = False,
 ) -> str:
     if prompt_text is not None:
         prompt = prompt_text
@@ -60,16 +60,17 @@ def _get_prompt(
 @dataclass
 class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
-    model_variant: str = 'qwen'
-    prompt_variant: str = 'default'
+    model_variant: str = "qwen"
+    prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
     sampling_fps: float = 2.0
     window_size: int = 256
     remainder_threshold: int = 128
     model_does_preprocess: bool = False
-    preprocess_dtype: str = 'float32'
+    preprocess_dtype: str = "float32"
     generate_previews: bool = True
+    _name: str = "caption_preparation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -82,11 +83,11 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
-        
+
         for clip in video.clips:
             if clip.buffer is None:
                 logger.warning(f"No buffer found for clip {clip.id}")
-                clip.erros["buffer"] = "empty"
+                clip.errors["buffer"] = "empty"
                 continue
 
             for window_bytes, window_frames, window_frame_info in zip_longest(
@@ -104,7 +105,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                 prompt = _get_prompt(
                     self.prompt_variant,
                     self.prompt_text,
-                    verbose=self.verbose,
                 )
                 try:
                     llm_input = self.prompt_formatter.generate_inputs(

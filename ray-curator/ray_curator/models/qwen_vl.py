@@ -1,14 +1,13 @@
-from ray_curator.models.base import ModelInterface
-from vllm import LLM, SamplingParams
-from loguru import logger
+import pathlib
 import re
 from typing import Any
+
+from loguru import logger
+from vllm import LLM, SamplingParams
+
+from ray_curator.models.base import ModelInterface
 from ray_curator.utils import grouping
-import pathlib
-import pickle
-import torch
-import os
-from datetime import datetime
+
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 
 _QWEN_VARIANTS_INFO = {
@@ -16,13 +15,13 @@ _QWEN_VARIANTS_INFO = {
 }
 
 class QwenVL(ModelInterface):
-    def __init__(self, 
-        model_dir: str, 
-        model_variant: str, 
-        caption_batch_size: int, 
-        fp8: bool = True, 
-        max_output_tokens: int = 512, 
-        model_does_preprocess: bool = False, 
+    def __init__(self,
+        model_dir: str,
+        model_variant: str,
+        caption_batch_size: int,
+        fp8: bool = True,
+        max_output_tokens: int = 512,
+        model_does_preprocess: bool = False,
         disable_mmcache: bool = False,
         stage2_prompt_text: str | None = None,
         verbose: bool = False
@@ -37,12 +36,12 @@ class QwenVL(ModelInterface):
         self.stage2_prompt = stage2_prompt_text
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
-    
+
     @property
     def model_id_names(self) -> list[str]:
         return [_QWEN_VARIANTS_INFO[self.model_variant]]
 
-    def setup(self):
+    def setup(self) -> None:
         mm_processor_kwargs = {
             "do_resize": self.model_does_preprocess,
             "do_rescale": self.model_does_preprocess,
@@ -69,15 +68,15 @@ class QwenVL(ModelInterface):
         logger.info("CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences")
 
     def generate(
-        self, 
-        videos: list[dict[str, Any]], 
-        generate_stage2_caption: bool = False, 
+        self,
+        videos: list[dict[str, Any]],
+        generate_stage2_caption: bool = False,
         batch_size: int = 16
     ) -> list[str]:
         generated_text = []
         for batch_videos in grouping.split_by_chunk_size(videos, batch_size):
             model_inputs = list(batch_videos)
-            try:              
+            try:
                 outputs = self.model.generate(
                     model_inputs,
                     sampling_params=self.sampling_params,
