@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.services.model_client import AsyncLLMClient, LLMClient
+from ray_curator.stages.services.model_client import AsyncLLMClient, GenerationConfig, LLMClient
 
 
 class TestLLMClient:
@@ -131,20 +131,24 @@ class TestAsyncLLMClient:
             def setup(self) -> None:
                 pass
 
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
-                # Verify parameters are passed through
-                assert kwargs.get("max_tokens") == 1024
-                assert kwargs.get("temperature") == 0.5
-                assert kwargs.get("seed") == 42
+            async def _query_model_impl(self, *, messages: Iterable, model: str, generation_config=None, **kwargs: object) -> list[str]:  # noqa: ARG002
+                # Verify parameters are passed through in generation_config
+                assert generation_config is not None
+                assert generation_config.max_tokens == 1024
+                assert generation_config.temperature == 0.5
+                assert generation_config.seed == 42
                 return ["test response"]
 
         client = TestAsyncLLMClient()
-        result = await client.query_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="test-model",
+        config = GenerationConfig(
             max_tokens=1024,
             temperature=0.5,
             seed=42
+        )
+        result = await client.query_model(
+            messages=[{"role": "user", "content": "test"}],
+            model="test-model",
+            generation_config=config
         )
         assert result == ["test response"]
 

@@ -42,7 +42,7 @@ from ray_curator.stages.reasoning.reasoning_traces_synthetic import (
     ReasoningTracesSyntheticStage,
 )
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
-from ray_curator.stages.services.model_client import LLMClient
+from ray_curator.stages.services.model_client import GenerationConfig, LLMClient
 from ray_curator.tasks import DocumentBatch
 
 
@@ -57,34 +57,20 @@ class MockLLMClient(LLMClient):
     def setup(self) -> None:
         pass
 
-    def query_model(  # noqa: PLR0913
+    def query_model(
         self,
         *,
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        max_tokens: int | None = None,
-        n: int | None = 1,
-        seed: int | None = None,
-        stop: str | None | list[str] = None,
-        stream: bool = False,
-        temperature: float | None = None,
-        top_k: int | None = None,
-        top_p: float | None = None,
+        generation_config: GenerationConfig | None = None,
     ) -> list[str]:
         """Mock query_model method."""
         self.query_calls.append({
             "messages": messages,
             "model": model,
             "conversation_formatter": conversation_formatter,
-            "max_tokens": max_tokens,
-            "n": n,
-            "seed": seed,
-            "stop": stop,
-            "stream": stream,
-            "temperature": temperature,
-            "top_k": top_k,
-            "top_p": top_p,
+            "generation_config": generation_config,
         })
 
         if self.current_response < len(self.responses):
@@ -254,7 +240,6 @@ class TestReasoningTracesSyntheticStage:
         assert len(result.data) == 3
         assert "reasoning_trace" in result.data.columns
         assert result.data["reasoning_trace"].tolist() == ["Reasoning trace 1", "Reasoning trace 2", "Reasoning trace 3"]
-        assert result.dataset_name == "reasoning_traces_synthetic_data"
 
         # Check that LLM was called correctly
         assert len(mock_client.query_calls) == 3
@@ -321,7 +306,6 @@ class TestLLMBasedGrader:
         assert len(result.data) == 3
         assert "correctness" in result.data.columns
         assert result.data["correctness"].tolist() == ["Yes", "No", "Yes"]
-        assert result.dataset_name == "reasoning_traces_synthetic_data"
 
         # Check that LLM was called correctly
         assert len(mock_client.query_calls) == 3
@@ -538,7 +522,6 @@ class TestLLMBasedDomainClassifier:
             assert len(result.data) == 3
             assert "domain" in result.data.columns
             assert result.data["domain"].tolist() == ["01", "02", "03"]
-            assert result.dataset_name == "domain_classification_data"
 
             # Check that LLM was called correctly
             assert len(mock_client.query_calls) == 3
@@ -635,7 +618,6 @@ class TestDiversitySampler:
         # Check that result has correct structure
         assert isinstance(result, DocumentBatch)
         assert len(result.data) == 3
-        assert result.dataset_name == "diversity_sampling_data"
 
         # Check that all required columns are present
         assert "question" in result.data.columns

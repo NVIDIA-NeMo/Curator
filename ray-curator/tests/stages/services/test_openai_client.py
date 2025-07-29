@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from ray_curator.stages.services.conversation_formatter import ConversationFormatter
+from ray_curator.stages.services.model_client import GenerationConfig
 from ray_curator.stages.services.openai_client import AsyncOpenAIClient, OpenAIClient
 
 
@@ -67,11 +68,11 @@ class TestOpenAIClient:
         client = OpenAIClient()
         client.setup()
 
+        config = GenerationConfig(max_tokens=1024, temperature=0.7)
         result = client.query_model(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
-            max_tokens=1024,
-            temperature=0.7
+            generation_config=config
         )
 
         assert result == ["Test response content"]
@@ -84,7 +85,8 @@ class TestOpenAIClient:
             stop=None,
             stream=False,
             temperature=0.7,
-            top_p=0.95
+            top_p=0.95,
+            timeout=120
         )
 
     @patch("ray_curator.stages.services.openai_client.OpenAI")
@@ -105,10 +107,11 @@ class TestOpenAIClient:
         client = OpenAIClient()
         client.setup()
 
+        config = GenerationConfig(n=2)
         result = client.query_model(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
-            n=2
+            generation_config=config
         )
 
         assert result == ["Response 1", "Response 2"]
@@ -160,10 +163,11 @@ class TestOpenAIClient:
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
+            config = GenerationConfig(top_k=10)
             client.query_model(
                 messages=[{"role": "user", "content": "test"}],
                 model="gpt-4",
-                top_k=10
+                generation_config=config
             )
 
             assert len(w) == 1
@@ -224,11 +228,11 @@ class TestAsyncOpenAIClient:
         client = AsyncOpenAIClient()
         client.setup()
 
+        config = GenerationConfig(max_tokens=1024, temperature=0.7)
         result = await client._query_model_impl(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
-            max_tokens=1024,
-            temperature=0.7
+            generation_config=config
         )
 
         assert result == ["Test response content"]
@@ -241,7 +245,8 @@ class TestAsyncOpenAIClient:
             stop=None,
             stream=False,
             temperature=0.7,
-            top_p=0.95
+            top_p=0.95,
+            timeout=120
         )
 
     @pytest.mark.asyncio
@@ -263,10 +268,11 @@ class TestAsyncOpenAIClient:
         client = AsyncOpenAIClient()
         client.setup()
 
+        config = GenerationConfig(n=2)
         result = await client._query_model_impl(
             messages=[{"role": "user", "content": "test"}],
             model="gpt-4",
-            n=2
+            generation_config=config
         )
 
         assert result == ["Response 1", "Response 2"]
@@ -320,10 +326,11 @@ class TestAsyncOpenAIClient:
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
+            config = GenerationConfig(top_k=10)
             await client._query_model_impl(
                 messages=[{"role": "user", "content": "test"}],
                 model="gpt-4",
-                top_k=10
+                generation_config=config
             )
 
             assert len(w) == 1
