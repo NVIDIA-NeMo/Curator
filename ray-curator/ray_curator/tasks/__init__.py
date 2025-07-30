@@ -1,4 +1,4 @@
-from .audio import DataEntry
+from .audio import SpeechDataEntry
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
@@ -8,12 +8,12 @@ from .video import Clip, ClipStats, SplitPipeTask, Video, VideoMetadata, VideoTa
 __all__ = [
     "Clip",
     "ClipStats",
-    "DataEntry",
     "DocumentBatch",
     "EmptyTask",
     "FileGroupTask",
     "ImageBatch",
     "ImageObject",
+    "SpeechDataEntry",
     "SplitPipeTask",
     "Task",
     "Video",

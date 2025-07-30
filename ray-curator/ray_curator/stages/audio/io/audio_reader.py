@@ -1,20 +1,21 @@
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DataEntry, _EmptyTask
+from ray_curator.tasks import SpeechDataEntry, _EmptyTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
 
 
 @dataclass
-class AudioReaderStage(ProcessingStage[_EmptyTask, DataEntry]):
+class AudioReaderStage(ProcessingStage[_EmptyTask, SpeechDataEntry]):
     """Stage that reads video files from storage and extracts metadata."""
 
     input_audio_path: str
     audio_limit: int = -1
     filepath_key: str = "audio_filepath"
+    extensions: list[str] = field(default_factory=lambda: [".wav", ".mp3", ".flac", ".ogg", ".opus"])
     _name: str = "audio_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -23,7 +24,7 @@ class AudioReaderStage(ProcessingStage[_EmptyTask, DataEntry]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["input_audio"]
 
-    def process(self, _: _EmptyTask) -> list[DataEntry]:
+    def process(self, _: _EmptyTask) -> list[SpeechDataEntry]:
         """Process a single group of audio files."""
         if self.input_audio_path is None:
             msg = "input_audio_path is not set"
@@ -31,7 +32,7 @@ class AudioReaderStage(ProcessingStage[_EmptyTask, DataEntry]):
         files = get_all_files_paths_under(
             self.input_audio_path,
             recurse_subdirectories=True,
-            keep_extensions=[".wav", ".mp3", ".flac", ".ogg", ".opus"],
+            keep_extensions=self.extensions,
         )
         logger.info(f"Found {len(files)} files under {self.input_audio_path}")
 
@@ -48,7 +49,7 @@ class AudioReaderStage(ProcessingStage[_EmptyTask, DataEntry]):
                 file_path = pathlib.Path(file_path)
 
             audio = {self.filepath_key: file_path}
-            audio_task = DataEntry(
+            audio_task = SpeechDataEntry(
                 task_id=f"{file_path}_processed",
                 dataset_name=self.input_audio_path,
                 data=audio,
