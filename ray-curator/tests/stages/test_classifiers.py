@@ -64,7 +64,7 @@ def run_and_assert_classifier_stages(
         # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
-    
+
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
     assert all(col in dataset.data.columns for col in tokenizer_stage.inputs()[1])
