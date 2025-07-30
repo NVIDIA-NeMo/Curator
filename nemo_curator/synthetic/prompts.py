@@ -14,7 +14,7 @@
 
 DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE = "The following document contains a list of items. Parse the list of items into a yaml list of strings. Do not parse any other part of the document. There should be no additional formatting to your response, just the yaml list of strings.\n\n {llm_response}"
 
-DEFAULT_MACRO_TOPICS_PROMPT_TEMPLATE = "Can you generate {n_macro_topics} comprehensive topics that encompass various aspects of our daily life, the world, and science? Your answer should be a list of topics. Make the topics as diverse as possible.For example, 1. Food and drinks. \n2. Technology.\n"
+DEFAULT_MACRO_TOPICS_PROMPT_TEMPLATE = "Can you generate {n_macro_topics} comprehensive topics that encompass various aspects of our daily life, the world, and science? Your answer should be a list of only topic name(s), nothing else. Make the topics as diverse as possible.For example, 1. Food and drinks. \n2. Technology.\n"
 
 DEFAULT_SUBTOPICS_PROMPT_TEMPLATE = "Can you generate {n_subtopics} comprehensive topics that encompass various aspects of {macro_topic}? Your answer should be a list of topics. Make the topics as diverse as possible."
 
