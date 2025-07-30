@@ -1,4 +1,4 @@
-# Single GPU Text Classifiers
+# Text Classifiers
 
 The following files contain implementations for all of our text classifiers. In this document, we give an overview of common functionalities between all classifiers.
 
@@ -24,7 +24,7 @@ The core functions of the `HFModel` class are `yield_next_batch` and `process`. 
 
 The model outputs are processed with the `process_model_output`, `collect_outputs`, and `create_output_dataframe` functions:
 
-- The `process_model_output` function is called immediately after the forward pass and is to format the input tensors into a dictionary of NumPy arrays per batch. The result of this function is appended to a list called `processed_outputs`.
+- The `process_model_output` function is called immediately after the forward pass and is used to format the input tensors into a dictionary of NumPy arrays per batch. The result of this function is appended to a list called `processed_outputs`.
 - The `collect_outputs` function is called after all forward pass results have been run and stored in `processed_outputs`. It combines all batches to create a dictionary with the column name(s) as the key(s) and the NumPy arrays as the values. This function should be model agnostic, assuming that the output of `process_model_output` is correctly formatted.
 - The `create_output_dataframe` function is used to add the desired columns to the final output DataFrame.
 

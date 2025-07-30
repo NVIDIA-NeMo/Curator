@@ -15,6 +15,7 @@
 import pandas as pd
 import pytest
 
+from ray_curator.stages.base import CompositeStage
 from ray_curator.stages.classifiers import (
     AegisClassifier,
     ContentTypeClassifier,
@@ -47,13 +48,13 @@ def domain_dataset() -> DocumentBatch:
     )
 
 
-@pytest.mark.skip(reason="TODO: Unskip when GPU tests are enabled")
-@pytest.mark.parametrize("filter_by", [None, ["Computers_and_Electronics", "Finance"]])
-def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
-    classifier = DomainClassifier(filter_by=filter_by)
-
+def run_and_assert_classifier_stages(
+    dataset: DocumentBatch,
+    classifier: CompositeStage,
+    filter_by: list[str] | None,
+) -> DocumentBatch:
     # Check that the input columns are correct
-    assert all(col in domain_dataset.data.columns for col in classifier.inputs()[1])
+    assert all(col in dataset.data.columns for col in classifier.inputs()[1])
 
     # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
@@ -63,15 +64,13 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
         # Filtering adds a filter_fn stage
         assert len(stages) == 3
         assert stages[2].name == "filter_fn"
-    assert stages[0].name == "domain_classifier_tokenizer"
-    assert stages[1].name == "domain_classifier_model"
-
+    
     # Check that the tokenizer stage inputs/output columns are correct
     tokenizer_stage = stages[0]
-    assert all(col in domain_dataset.data.columns for col in tokenizer_stage.inputs()[1])
+    assert all(col in dataset.data.columns for col in tokenizer_stage.inputs()[1])
     tokenizer_stage.setup_on_node()
     tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(domain_dataset)
+    tokenized_batch = tokenizer_stage.process(dataset)
     assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
 
     # Check that the model stage inputs/output columns are correct
@@ -84,6 +83,20 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
 
     # Check that the classifier output columns are correct
     assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+
+    return result_batch
+
+
+@pytest.mark.skip(reason="TODO: Unskip when GPU tests are enabled")
+@pytest.mark.parametrize("filter_by", [None, ["Computers_and_Electronics", "Finance"]])
+def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
+    classifier = DomainClassifier(filter_by=filter_by)
+
+    stages = classifier.decompose()
+    assert stages[0].name == "domain_classifier_tokenizer"
+    assert stages[1].name == "domain_classifier_model"
+
+    result_batch = run_and_assert_classifier_stages(domain_dataset, classifier, filter_by)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series(
@@ -117,33 +130,11 @@ def test_quality_classifier() -> None:
 
     classifier = QualityClassifier()
 
-    # Check that the input columns are correct
-    assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    assert len(stages) == 2
     assert stages[0].name == "quality_classifier_deberta_tokenizer"
     assert stages[1].name == "quality_classifier_deberta_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in input_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(input_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-    assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(input_dataset, classifier, None)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series(["Medium"])
@@ -246,38 +237,11 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
 def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
     classifier = FineWebEduClassifier(filter_by=filter_by)
 
-    # Check that the input columns are correct
-    assert all(col in domain_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    if filter_by is None:
-        assert len(stages) == 2
-    else:
-        # Filtering adds a filter_fn stage
-        assert len(stages) == 3
-        assert stages[2].name == "filter_fn"
     assert stages[0].name == "fineweb_edu_classifier_tokenizer"
     assert stages[1].name == "fineweb_edu_classifier_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in domain_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(domain_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-    assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(domain_dataset, classifier, filter_by)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series([1, 0, 1, 1, 0])
@@ -295,33 +259,11 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
 def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
     classifier = FineWebMixtralEduClassifier()
 
-    # Check that the input columns are correct
-    assert all(col in domain_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    assert len(stages) == 2
     assert stages[0].name == "nemocurator_fineweb_mixtral_edu_classifier_tokenizer"
     assert stages[1].name == "nemocurator_fineweb_mixtral_edu_classifier_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in domain_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(domain_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-    assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(domain_dataset, classifier, None)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series([1, 1, 1, 2, 0])
@@ -332,32 +274,11 @@ def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
 def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
     classifier = FineWebNemotronEduClassifier()
 
-    # Check that the input columns are correct
-    assert all(col in domain_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    assert len(stages) == 2
     assert stages[0].name == "nemocurator_fineweb_nemotron_4_edu_classifier_tokenizer"
     assert stages[1].name == "nemocurator_fineweb_nemotron_4_edu_classifier_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in domain_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(domain_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(domain_dataset, classifier, None)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series([1, 1, 1, 2, 0])
@@ -381,38 +302,11 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
 
     classifier = InstructionDataGuardClassifier(filter_by=filter_by)
 
-    # Check that the input columns are correct
-    assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    if filter_by is None:
-        assert len(stages) == 2
-    else:
-        # Filtering adds a filter_fn stage
-        assert len(stages) == 3
-        assert stages[2].name == "filter_fn"
     assert stages[0].name == "llamaguard_7b_tokenizer"
     assert stages[1].name == "aegis_ai_content_safety_llamaguard_defensive_1.0_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in input_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(input_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-    assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(input_dataset, classifier, filter_by)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series([False])
@@ -450,32 +344,11 @@ def test_multilingual_domain_classifier() -> None:
 
     classifier = MultilingualDomainClassifier()
 
-    # Check that the input columns are correct
-    assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    assert len(stages) == 2
     assert stages[0].name == "multilingual_domain_classifier_tokenizer"
     assert stages[1].name == "multilingual_domain_classifier_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in input_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(input_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(input_dataset, classifier, None)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series(["Science", "Finance", "Health", "Jobs_and_Education", "Travel_and_Transportation"])
@@ -494,32 +367,11 @@ def test_content_type_classifier() -> None:
 
     classifier = ContentTypeClassifier()
 
-    # Check that the input columns are correct
-    assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    assert len(stages) == 2
     assert stages[0].name == "content_type_classifier_deberta_tokenizer"
     assert stages[1].name == "content_type_classifier_deberta_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in input_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(input_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(input_dataset, classifier, None)
 
     # Check that the classifier output values are correct
     expected_pred = pd.Series(["Online Comments"])
@@ -545,33 +397,11 @@ def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
 
     classifier = PromptTaskComplexityClassifier(filter_by=filter_by)
 
-    # Check that the input columns are correct
-    assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
-
-    # Check that the classifier decomposes into two stages
     stages = classifier.decompose()
-    assert len(stages) == 2
     assert stages[0].name == "prompt_task_and_complexity_classifier_tokenizer"
     assert stages[1].name == "prompt_task_and_complexity_classifier_model"
 
-    # Check that the tokenizer stage inputs/output columns are correct
-    tokenizer_stage = stages[0]
-    assert all(col in input_dataset.data.columns for col in tokenizer_stage.inputs()[1])
-    tokenizer_stage.setup_on_node()
-    tokenizer_stage.setup()
-    tokenized_batch = tokenizer_stage.process(input_dataset)
-    assert all(col in tokenized_batch.data.columns for col in tokenizer_stage.outputs()[1])
-
-    # Check that the model stage inputs/output columns are correct
-    model_stage = stages[1]
-    assert all(col in tokenized_batch.data.columns for col in model_stage.inputs()[1])
-    model_stage.setup_on_node()
-    model_stage.setup()
-    result_batch = model_stage.process(tokenized_batch)
-    assert all(col in result_batch.data.columns for col in model_stage.outputs()[1])
-
-    # Check that the classifier output columns are correct
-    assert all(col in result_batch.data.columns for col in classifier.outputs()[1])
+    result_batch = run_and_assert_classifier_stages(input_dataset, classifier, filter_by)
 
     # Check that the classifier output values are correct
     expected_pred = {
