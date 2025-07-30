@@ -3,6 +3,7 @@ import time
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
+from ray_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage
 from ray_curator.stages.video.caption.caption_generation import CaptionGenerationStage
 from ray_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
@@ -174,6 +175,18 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
                 verbose=args.verbose,
         ))
+
+        if args.enhance_captions:
+            pipeline.add_stage(CaptionEnhancementStage(
+                model_dir=args.model_dir,
+                model_variant=args.enhance_captions_algorithm,
+                prompt_variant=args.enhance_captioning_prompt_variant,
+                prompt_text=args.enhance_captions_prompt_text,
+                model_batch_size=args.enhance_captions_batch_size,
+                fp8=args.enhance_captions_use_fp8_weights,
+                max_output_tokens=args.enhance_captions_max_output_tokens,
+                verbose=args.verbose,
+            ))
 
     pipeline.add_stage(
         ClipWriterStage(
@@ -613,6 +626,56 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="vLLM MultiModal Cache Usage, default disabled for better performance and GPU Utilization",
+    )
+    # Caption enhancement arguments
+    parser.add_argument(
+        "--enhance-captions",
+        dest="enhance_captions",
+        action="store_true",
+        default=False,
+        help="Whether to enhance captions for clips.",
+    )
+    parser.add_argument(
+        "--enhance-captions-algorithm",
+        type=str,
+        default="qwen",
+        choices=["qwen"],
+        help="Caption enhancement algorithm to use.",
+    )
+    parser.add_argument(
+        "--enhance-captions-batch-size",
+        type=int,
+        default=128,
+        help="Batch size for caption enhancement.",
+    )
+    parser.add_argument(
+        "--enhance-captions-use-fp8-weights",
+        action="store_true",
+        default=False,
+        help="Whether to use fp8 weights for caption enhancement.",
+    )
+    parser.add_argument(
+        "--enhance-captions-max-output-tokens",
+        type=int,
+        default=512,
+        help="Max number of output tokens requested from caption enhancement model",
+    )
+    parser.add_argument(
+        "--enhance-captioning-prompt-variant",
+        type=str,
+        default="default",
+        choices=[
+            "default",
+            "av",
+            "av-surveillance",
+        ],
+        help="Prompt variant for enhanced captioning algorithm.",
+    )
+    parser.add_argument(
+        "--enhance-captions-prompt-text",
+        type=str,
+        default=None,
+        help="Prompt text for further enhancing captions using EnhanceCaptionStage w/ Qwen-LM.",
     )
     args = parser.parse_args()
     main(args)
