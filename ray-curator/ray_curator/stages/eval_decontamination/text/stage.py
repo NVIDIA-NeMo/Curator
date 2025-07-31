@@ -20,7 +20,6 @@ from typing import Any, Union
 import dask.dataframe as dd
 import pandas as pd
 from dask import delayed
-
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules.base import BaseModule
 from nemo_curator.tasks.downstream_task import DownstreamTask
