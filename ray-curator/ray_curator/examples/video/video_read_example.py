@@ -2,7 +2,7 @@ import argparse
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
-from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
+from ray_curator.stages.video.io.video_reader import VideoReader
 
 
 def create_video_reading_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -12,7 +12,7 @@ def create_video_reading_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Add stages
     # Add the composite stage that combines reading and downloading
-    pipeline.add_stage(VideoReaderDownloadStage(
+    pipeline.add_stage(VideoReader(
         input_video_path=args.video_folder,
         video_limit=args.video_limit,
         verbose=args.verbose
