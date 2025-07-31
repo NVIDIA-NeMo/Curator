@@ -27,7 +27,6 @@ dependencies = [
     "ray[default,data]>=2.48",
     "torch",
     "transformers>=4.48.0",
-    "pynvml==11.5.3",
 ]
 [project.optional-dependencies]
 text = [
