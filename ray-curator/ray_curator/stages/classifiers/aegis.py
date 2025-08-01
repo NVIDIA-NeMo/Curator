@@ -34,7 +34,7 @@ from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.tasks import DocumentBatch
 
 from .aegis_utils import AEGIS_LABELS, format_aegis
-from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
 
 PRETRAINED_MODEL_NAME_OR_PATH = "meta-llama/LlamaGuard-7b"
 AEGIS_VARIANTS = [
@@ -45,6 +45,7 @@ INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER = "nvidia/instruction-data-guard"
 HIDDEN_TEXT_COLUMN = "_curator_hidden_text"
 MAX_SEQ_LENGTH = 4096
 TOKENIZER_PADDING_SIDE = "left"
+TORCH_DTYPE = torch.bfloat16
 
 
 class InstructionDataGuardNet(torch.nn.Module, PyTorchModelHubMixin):
@@ -78,13 +79,14 @@ class AegisModel(nn.Module):
         self,
         pretrained_model_name_or_path: str,
         peft_model_name_or_path: str,
-        dtype: torch.dtype,
-        token: str | bool | None,
+        dtype: torch.dtype = TORCH_DTYPE,
+        token: str | bool | None = None,
         local_files_only: bool = True,
         add_instruction_data_guard: bool = False,
         autocast: bool = False,
     ):
         super().__init__()
+
         base_model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path, torch_dtype=dtype, token=token, local_files_only=local_files_only
         )
@@ -105,6 +107,11 @@ class AegisModel(nn.Module):
 
     @torch.no_grad()
     def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        batch = {
+            k: v.to(TORCH_DTYPE) if v.dtype.is_floating_point else v
+            for k, v in batch.items()
+        }
+
         if self.add_instruction_data_guard:
             response = self.model.generate(
                 **batch,
@@ -150,7 +157,7 @@ class HFAegisModelStage(HFModel):
         hf_token: str | None = None,
         pred_column: str = "preds",
         prob_column: str = "probs",
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         add_instruction_data_guard: bool = False,
         autocast: bool = True,
@@ -158,7 +165,7 @@ class HFAegisModelStage(HFModel):
         super().__init__(
             model_identifier=model_identifier,
             hf_token=hf_token,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             has_seq_order=has_seq_order,
             padding_side=TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
@@ -177,7 +184,7 @@ class HFAegisModelStage(HFModel):
         self.model = AegisModel(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             peft_model_name_or_path=self.model_identifier,
-            dtype=torch.bfloat16,
+            dtype=TORCH_DTYPE,
             token=None,
             local_files_only=local_files_only,
             add_instruction_data_guard=self.add_instruction_data_guard,
@@ -383,7 +390,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         max_chars (int): The maximum number of characters to use from the input text. Defaults to 6000.
         sort_by_length (bool): If True, will sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
+        model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
 
     """
@@ -397,13 +404,13 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     filter_by: list[str] | None = None
     max_chars: int = 6000
     sort_by_length: bool = True
-    micro_batch_size: int = 64
+    model_inference_batch_size: int = 64
     autocast: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = self.aegis_variant.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(self.aegis_variant)
 
         self.stages = [
             FormatAegisPromptStage(
@@ -423,7 +430,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=self.aegis_variant,
                 hf_token=self.token,
                 pred_column=self.raw_pred_column,
-                micro_batch_size=self.micro_batch_size,
+                model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=False,
                 autocast=self.autocast,
@@ -506,7 +513,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         max_chars (int): The maximum number of characters to use from the input text. Defaults to 6000.
         sort_by_length (bool): If True, will sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
+        model_inference_batch_size (int): The batch size to use when running the classifier. Defaults to 64.
         autocast (bool): If True, will use autocast to run the classifier. Defaults to True.
 
     """
@@ -518,13 +525,13 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     filter_by: list[str] | None = None
     max_chars: int = 6000
     sort_by_length: bool = True
-    micro_batch_size: int = 64
+    model_inference_batch_size: int = 64
     autocast: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
 
         self.stages = [
             HFTokenizerStage(
@@ -542,7 +549,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 hf_token=self.token,
                 pred_column=self.pred_column,
                 prob_column=self.prob_column,
-                micro_batch_size=self.micro_batch_size,
+                model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=True,
                 autocast=self.autocast,

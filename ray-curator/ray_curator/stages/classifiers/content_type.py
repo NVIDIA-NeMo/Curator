@@ -17,7 +17,7 @@ import os
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
 from .base import DistributedDataClassifier
-from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
+from .constants import DEBERTA_TOKENIZER_PADDING_SIDE, format_name_with_suffix
 
 CONTENT_TYPE_MODEL_IDENTIFIER = "nvidia/content-type-classifier-deberta"
 MAX_SEQ_LENGTH = 1024
@@ -39,7 +39,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
         max_chars: The maximum number of characters to use from the input text. Defaults to 5000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -53,10 +53,10 @@ class ContentTypeClassifier(DistributedDataClassifier):
         filter_by: list[str] | None = None,
         max_chars: int = 5000,
         sort_by_length: bool = True,
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = CONTENT_TYPE_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(CONTENT_TYPE_MODEL_IDENTIFIER)
 
         super().__init__(
             model_identifier=CONTENT_TYPE_MODEL_IDENTIFIER,
@@ -68,6 +68,6 @@ class ContentTypeClassifier(DistributedDataClassifier):
             max_seq_length=MAX_SEQ_LENGTH,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             sort_by_length=sort_by_length,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )

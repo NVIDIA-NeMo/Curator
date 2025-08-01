@@ -34,7 +34,7 @@ from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import DocumentBatch
 
-from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
 
 SEQ_ORDER_COLUMN = "_curator_seq_order"
 TOKEN_LENGTH_COLUMN = "_curator_token_length"  # noqa: S105
@@ -70,7 +70,7 @@ class HFTokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         sort_by_length: bool = True,
         unk_token: bool = False,
     ):
-        self._name = f"{model_identifier.split('/')[-1].replace('-', '_').lower()}_tokenizer"
+        self._name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
 
         self.model_identifier = model_identifier
         self.hf_token = hf_token
@@ -190,7 +190,7 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         model_identifier: The identifier of the Hugging Face model.
         hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
         pred_column: The name of the prediction column.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
@@ -201,18 +201,18 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
         self,
         model_identifier: str,
         hf_token: str | None = None,
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         unpack_inference_batch: bool = False,
     ):
-        self._name = f"{model_identifier.split('/')[-1].replace('-', '_').lower()}_model"
+        self._name = format_name_with_suffix(model_identifier, suffix="_model")
         # Assume that the model can fit on a single GPU
         self._resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
         self.hf_token = hf_token
-        self.micro_batch_size = micro_batch_size
+        self.model_inference_batch_size = model_inference_batch_size
         self.has_seq_order = has_seq_order
         self.padding_side = padding_side
         self.unpack_inference_batch = unpack_inference_batch
@@ -238,7 +238,7 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
     def yield_next_batch(self, df: pd.DataFrame) -> Generator[dict[str, torch.Tensor]]:
         """
         Yields a generator of model inputs for the next batch.
-        We only move the microbatch to the GPU to reduce the memory overhead.
+        We only move the batch to the GPU to reduce the memory overhead.
 
         Args:
             df (pd.DataFrame): The Pandas DataFrame (with input_ids and attention_mask) to process.
@@ -247,14 +247,14 @@ class HFModel(ProcessingStage[DocumentBatch, DocumentBatch]):
             Generator[dict[str, torch.Tensor]]: A generator of model inputs for the next batch.
 
         """
-        for i in range(0, len(df), self.micro_batch_size):
+        for i in range(0, len(df), self.model_inference_batch_size):
             yield clip_tokens(
                 {
-                    INPUT_ID_COLUMN: torch.tensor(df[INPUT_ID_COLUMN][i : i + self.micro_batch_size].tolist()).to(
+                    INPUT_ID_COLUMN: torch.tensor(df[INPUT_ID_COLUMN][i : i + self.model_inference_batch_size].tolist()).to(
                         self.model.device
                     ),
                     ATTENTION_MASK_COLUMN: torch.tensor(
-                        df[ATTENTION_MASK_COLUMN][i : i + self.micro_batch_size].tolist()
+                        df[ATTENTION_MASK_COLUMN][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
                 },
                 padding_side=self.padding_side,
@@ -363,7 +363,7 @@ class HFModelStage(HFModel):
         model_identifier: The identifier of the Hugging Face model.
         pred_column: The name of the prediction column.
         prob_column: The name of the probability column. Defaults to None.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
@@ -377,7 +377,7 @@ class HFModelStage(HFModel):
         model_identifier: str,
         pred_column: str,
         prob_column: str | None = None,
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
@@ -385,7 +385,7 @@ class HFModelStage(HFModel):
         super().__init__(
             model_identifier=model_identifier,
             has_seq_order=has_seq_order,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             padding_side=padding_side,
             unpack_inference_batch=False,
         )
@@ -451,7 +451,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         padding_side: The side to pad the input tokens. Defaults to "right".
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -466,7 +466,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     max_seq_length: int | None = None
     padding_side: Literal["left", "right"] = "right"
     sort_by_length: bool = True
-    micro_batch_size: int = 256
+    model_inference_batch_size: int = 256
     autocast: bool = True
 
     def __post_init__(self) -> None:
@@ -485,7 +485,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=self.model_identifier,
                 pred_column=self.pred_column,
                 prob_column=self.prob_column,
-                micro_batch_size=self.micro_batch_size,
+                model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
                 autocast=self.autocast,

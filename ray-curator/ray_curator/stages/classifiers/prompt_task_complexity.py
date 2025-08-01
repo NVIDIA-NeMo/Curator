@@ -28,7 +28,7 @@ from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.tasks import DocumentBatch
 
-from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN
+from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN, format_name_with_suffix
 
 PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 MAX_SEQ_LENGTH = 512
@@ -224,7 +224,7 @@ class HFPromptTaskComplexityModelStage(HFModel):
     Stage for Hugging Face model inference.
 
     Args:
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
@@ -234,14 +234,14 @@ class HFPromptTaskComplexityModelStage(HFModel):
 
     def __init__(
         self,
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
     ):
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
             has_seq_order=has_seq_order,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
         )
@@ -284,7 +284,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             If None, text will not be truncated. Defaults to 2000.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -294,13 +294,13 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     filter_by: list[str] | None = None
     max_chars: int = 2000
     sort_by_length: bool = True
-    micro_batch_size: int = 256
+    model_inference_batch_size: int = 256
     autocast: bool = True
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             msg = "filter_by not supported with PromptTaskComplexityClassifier"
@@ -316,7 +316,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 sort_by_length=self.sort_by_length,
             ),
             HFPromptTaskComplexityModelStage(
-                micro_batch_size=self.micro_batch_size,
+                model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,
             ),

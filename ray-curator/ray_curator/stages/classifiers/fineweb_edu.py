@@ -28,7 +28,7 @@ from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.tasks import DocumentBatch
 
-from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN
+from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN, format_name_with_suffix
 
 FINEWEB_EDU_MODEL_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
 FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
@@ -45,7 +45,7 @@ class HFFineWebModelStage(HFModel):
         pred_column: The name of the prediction column.
         float_score_column: The name of the float score column.
         int_score_column: The name of the integer score column.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
@@ -59,14 +59,14 @@ class HFFineWebModelStage(HFModel):
         pred_column: str,
         float_score_column: str,
         int_score_column: str,
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
     ):
         super().__init__(
             model_identifier=model_identifier,
             has_seq_order=has_seq_order,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=True,
         )
@@ -145,7 +145,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             Defaults to 512.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -160,7 +160,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     max_chars: int | None = None
     max_seq_length: int = MAX_SEQ_LENGTH
     sort_by_length: bool = True
-    micro_batch_size: int = 256
+    model_inference_batch_size: int = 256
     autocast: bool = True
 
     def __post_init__(self) -> None:
@@ -180,7 +180,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 pred_column=self.pred_column,
                 float_score_column=self.float_score_column,
                 int_score_column=self.int_score_column,
-                micro_batch_size=self.micro_batch_size,
+                model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,
             ),
@@ -218,7 +218,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 256.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -233,10 +233,10 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         filter_by: list[str] | None = None,
         max_chars: int | None = None,
         sort_by_length: bool = True,
-        micro_batch_size: int = 256,
+        model_inference_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = FINEWEB_EDU_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
 
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
@@ -248,7 +248,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             max_chars=max_chars,
             max_seq_length=MAX_SEQ_LENGTH,
             sort_by_length=sort_by_length,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
 
@@ -270,7 +270,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 1024.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -285,10 +285,10 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         filter_by: list[str] | None = None,
         max_chars: int | None = None,
         sort_by_length: bool = True,
-        micro_batch_size: int = 1024,
+        model_inference_batch_size: int = 1024,
         autocast: bool = True,
     ):
-        self._name = FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
 
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
@@ -300,7 +300,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             max_chars=max_chars,
             max_seq_length=MAX_SEQ_LENGTH,
             sort_by_length=sort_by_length,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
 
@@ -322,7 +322,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             If None, text will not be truncated. Defaults to None.
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
-        micro_batch_size: The size of the micro-batch. Defaults to 1024.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 1024.
         autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
             Defaults to True.
 
@@ -337,10 +337,10 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         filter_by: list[str] | None = None,
         max_chars: int | None = None,
         sort_by_length: bool = True,
-        micro_batch_size: int = 1024,
+        model_inference_batch_size: int = 1024,
         autocast: bool = True,
     ):
-        self._name = FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER.split("/")[-1].replace("-", "_").lower() + "_classifier"
+        self._name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)
 
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
@@ -352,6 +352,6 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             max_chars=max_chars,
             max_seq_length=MAX_SEQ_LENGTH,
             sort_by_length=sort_by_length,
-            micro_batch_size=micro_batch_size,
+            model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
