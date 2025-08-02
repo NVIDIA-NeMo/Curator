@@ -122,6 +122,7 @@ class TestBackendIntegrations:
     def test_perf_stats(self):
         """Test that performance statistics are correctly recorded for all stages."""
         # Check content of stage perf stats
+        assert False, "Testing CI"
         assert self.output_tasks is not None, "Expected output tasks"
         expected_stage_names = [
             "jsonl_reader",
