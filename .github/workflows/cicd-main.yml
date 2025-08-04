@@ -305,7 +305,8 @@ jobs:
           else
             exit 1
           fi
-   Coverage:
+
+  Coverage:
     runs-on: ubuntu-latest
     needs: [pre-flight, Nemo_CICD_Test]
     if: |
@@ -339,6 +340,7 @@ jobs:
           coverage report -i
           rm -rf coverage-*
           ls -al
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -355,11 +357,11 @@ jobs:
           include-hidden-files: true
 
   codecov-placeholder:
-     name: codecov/patch
-     needs: [pre-flight]
-     if: needs.pre-flight.outputs.docs_only == 'true'
-     runs-on: ubuntu-latest
-     steps:
-       - name: codecov_placeholder
-         run: |
-           echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
+    name: codecov/patch
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: codecov_placeholder
+        run: |
+          echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
