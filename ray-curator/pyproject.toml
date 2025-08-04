@@ -65,6 +65,11 @@ video = [
     "opencv-python",
 ]
 
+all = [
+    "ray_curator[text]",
+    "ray_curator[video]",
+]
+
 [tool.setuptools]
 packages = ["ray_curator"]
 [tool.ruff]

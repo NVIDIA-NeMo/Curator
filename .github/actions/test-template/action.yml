@@ -131,7 +131,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f Dockerfile -t curator .
+        docker build -f ray-curator/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
@@ -155,7 +155,7 @@ runs:
           --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
           --volume $MNT_PATH/TestData:/home/TestData \
-          curator \
+          ray-curator \
           bash -c "sleep $(( ${{ inputs.timeout }} * 60 + 60 ))"
         RUN_TEST_EOF
         )
@@ -176,8 +176,6 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c '
           set -e
 
-          source activate /opt/conda/envs/curator
-          
           bash tests/${{ inputs.script }}.sh
         '
 
