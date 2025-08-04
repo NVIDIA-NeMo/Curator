@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from ray_curator.stages.audio.io.audio_reader import AudioInference, AudioInferenceStage
+from ray_curator.stages.audio.io.asr_inference import AsrNemoInference, AsrNemoInferenceStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import EmptyTask, SpeechEntry
 
@@ -11,12 +11,12 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
-class TestAudioInference:
+class TestAsrInference:
     """Test suite for TestAudioReaderStage."""
 
     def test_stage_properties(self) -> None:
         """Test stage properties."""
-        stage = AudioInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
+        stage = AsrNemoInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
         assert stage.name == "audio_inference"
         assert stage.inputs() == ([], [])
         assert stage.outputs() == (["data"], ["text"])
@@ -24,17 +24,19 @@ class TestAudioInference:
     def test_stage_initialization(self) -> None:
         """Test stage initialization with different parameters."""
         # Test with input_audio_path
-        stage = AudioInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
+        stage = AsrNemoInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
         assert stage.input_audio_path == "/test/path"
         assert stage.audio_limit is None
 
         # Test with audio_limit
-        stage = AudioInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path", audio_limit=10)
+        stage = AsrNemoInference(
+            model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path", audio_limit=10
+        )
         assert stage.audio_limit == 10
 
     def test_composite_stage_behavior(self) -> None:
         """Test that VideoReader behaves correctly as a CompositeStage."""
-        stage = AudioInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
+        stage = AsrNemoInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
 
         # Should be a CompositeStage
         from ray_curator.stages.base import CompositeStage
@@ -48,12 +50,12 @@ class TestAudioInference:
         assert all(hasattr(s, "process") for s in stages)
 
     @patch.object(FilePartitioningStage, "_get_file_list", return_value=["/test/audio1.wav", "/test/audio2.mp3"])
-    @patch.object(AudioInferenceStage, "transcribe", return_value=["the cat", "set on a mat"])
+    @patch.object(AsrNemoInferenceStage, "transcribe", return_value=["the cat", "set on a mat"])
     def test_process_success(self, mock_get_files: "MagicMock", mock_transcribe: "MagicMock") -> None:
         """Test process method with successful file discovery."""
         _ = mock_get_files or mock_transcribe
 
-        stage = AudioInference(
+        stage = AsrNemoInference(
             model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path", file_extensions=[".wav", ".mp3"]
         )
         stages = stage.decompose()
