@@ -9,7 +9,7 @@ from ray_curator.tasks.file_group import FileGroupTask
 
 
 @dataclass
-class AudioInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
+class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
     """Stage that reads video files from storage and extracts metadata."""
 
     model_name: str
@@ -85,7 +85,7 @@ class AudioInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
 
 
 @dataclass
-class AudioInference(CompositeStage[_EmptyTask, SpeechEntry]):
+class AsrNemoInference(CompositeStage[_EmptyTask, SpeechEntry]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
     This stage combines FilePartitioningStage and VideoReaderStage into a single
@@ -125,7 +125,7 @@ class AudioInference(CompositeStage[_EmptyTask, SpeechEntry]):
             limit=self.audio_limit,
         )
 
-        download_stage = AudioInferenceStage(
+        download_stage = AsrNemoInferenceStage(
             model_name=self.model_name,
         )
 
