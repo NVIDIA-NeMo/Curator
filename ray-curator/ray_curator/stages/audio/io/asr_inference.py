@@ -4,12 +4,12 @@ import nemo.collections.asr as nemo_asr
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import SpeechEntry, _EmptyTask
+from ray_curator.tasks import SpeechObject, _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 
 
 @dataclass
-class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
+class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
     """Stage that reads video files from storage and extracts metadata."""
 
     model_name: str
@@ -51,7 +51,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
         outputs = self.asr_model.transcribe(files)
         return [output.text for output in outputs]
 
-    def process_batch(self, tasks: list[FileGroupTask]) -> list[SpeechEntry]:
+    def process_batch(self, tasks: list[FileGroupTask]) -> list[SpeechObject]:
         """Process a audio task by reading file bytes and extracting metadata.
 
 
@@ -72,7 +72,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
 
             entry = {self.filepath_key: file_path, self.filepath_key: text}
 
-            audio_task = SpeechEntry(
+            audio_task = SpeechObject(
                 task_id=f"{file_path}_task_id",
                 dataset_name=f"{self.model_name}_inference",
                 data=entry,
@@ -80,12 +80,12 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechEntry]):
             audio_tasks.append(audio_task)
         return audio_tasks
 
-    def process(self, task: FileGroupTask) -> list[SpeechEntry]:
+    def process(self, task: FileGroupTask) -> list[SpeechObject]:
         pass
 
 
 @dataclass
-class AsrNemoInference(CompositeStage[_EmptyTask, SpeechEntry]):
+class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
     """Composite stage that reads video files from storage and downloads/processes them.
 
     This stage combines FilePartitioningStage and VideoReaderStage into a single

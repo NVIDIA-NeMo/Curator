@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from ray_curator.stages.audio.io.asr_inference import AsrNemoInference, AsrNemoInferenceStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import EmptyTask, SpeechEntry
+from ray_curator.tasks import EmptyTask, SpeechObject
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -69,7 +69,7 @@ class TestAsrInference:
         result = stages[1].process_batch(path_list)
 
         assert len(result) == 2
-        assert all(isinstance(task, SpeechEntry) for task in result)
+        assert all(isinstance(task, SpeechObject) for task in result)
         assert result[0].task_id == "/test/audio1.wav_task_id"
         assert result[1].task_id == "/test/audio2.mp3_task_id"
         assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"

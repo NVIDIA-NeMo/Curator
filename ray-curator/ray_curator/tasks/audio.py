@@ -5,7 +5,7 @@ from .tasks import Task
 
 
 @dataclass
-class SpeechEntry(Task[dict]):
+class SpeechObject(Task[dict]):
     """A wrapper for data entry + any additional metrics."""
 
     def __init__(

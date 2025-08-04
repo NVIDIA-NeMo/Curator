@@ -1,4 +1,4 @@
-from .audio import SpeechEntry
+from .audio import SpeechObject
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
@@ -10,7 +10,7 @@ __all__ = [
     "FileGroupTask",
     "ImageBatch",
     "ImageObject",
-    "SpeechEntry",
+    "SpeechObject",
     "Task",
     "_EmptyTask",
 ]
