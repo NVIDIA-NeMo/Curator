@@ -86,7 +86,7 @@ class CLIPImageEmbeddings(ModelInterface):
         )
 
     @torch.no_grad()
-    def __call__(self, images: torch.Tensor | npt.NDArray[np.uint8]) -> torch.Tensor:
+    def __call__(self, images: torch.Tensor | npt.NDArray[np.uint8] | list[np.ndarray]) -> torch.Tensor:
         """Call the CLIPImageEmbeddings model.
 
         Args:
@@ -96,9 +96,13 @@ class CLIPImageEmbeddings(ModelInterface):
             The embeddings.
 
         """
-        if isinstance(images, np.ndarray):
-            # (N, H, W, C) -> (N, C, H, W)
-            images = torch.from_numpy(images).permute(0, 3, 1, 2).to(self.device)
+
+        # DEBUGGING
+        print(f"[ray-curator/ray_curator/models/clip.py] - __call__(): images shape (argument): {images.shape}")
+        # if isinstance(images, np.ndarray):
+        #     # (N, H, W, C) -> (N, C, H, W)
+        #     images = torch.from_numpy(images).permute(0, 3, 1, 2).to(self.device)
+        images = torch.from_numpy(images).to(self.device)
 
         inputs = self.transforms(images)
         embed = self.clip.get_image_features(pixel_values=inputs)
