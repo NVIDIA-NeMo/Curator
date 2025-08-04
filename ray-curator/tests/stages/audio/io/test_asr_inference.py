@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class TestAsrInference:
-    """Test suite for TestAudioReaderStage."""
+    """Test suite for TestAsrInference."""
 
     def test_stage_properties(self) -> None:
         """Test stage properties."""
@@ -35,7 +35,7 @@ class TestAsrInference:
         assert stage.audio_limit == 10
 
     def test_composite_stage_behavior(self) -> None:
-        """Test that VideoReader behaves correctly as a CompositeStage."""
+        """Test that AsrInference behaves correctly as a CompositeStage."""
         stage = AsrNemoInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
 
         # Should be a CompositeStage
