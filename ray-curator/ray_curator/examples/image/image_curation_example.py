@@ -5,10 +5,10 @@ import os
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
-from ray_curator.stages.image.embedders.clip import ImageEmbeddingStage
-from ray_curator.stages.image.classifiers.aesthetic import ImageAestheticScoringStage
-from ray_curator.stages.image.classifiers.nsfw import ImageNSFWScoringStage
-from ray_curator.examples.image.helper import download_webdataset
+from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+from ray_curator.examples.image.helper import download_webdataset, save_imagebatch_to_webdataset
 
 
 def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -19,7 +19,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 0: Read images from webdataset
     pipeline.add_stage(ImageReaderStage(
-        input_dataset_path=args.output_dataset_dir,
+        input_dataset_path=args.input_wds_dataset_dir,
         image_limit=args.image_limit,
         batch_size=args.reader_batch_size,
         verbose=args.verbose,
@@ -33,19 +33,21 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
         verbose=args.verbose,
     ))
 
-    # Stage 2: Generate aesthetic quality scores
-    pipeline.add_stage(ImageAestheticScoringStage(
+    # Stage 2: Generate aesthetic quality scores and filter
+    pipeline.add_stage(ImageAestheticFilterStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.aesthetic_gpus_per_worker,
         batch_size=args.aesthetic_batch_size,
+        score_threshold=args.aesthetic_threshold,
         verbose=args.verbose,
     ))
 
-    # Stage 3: Generate NSFW probability scores
-    pipeline.add_stage(ImageNSFWScoringStage(
+    # Stage 3: Generate NSFW probability scores and filter
+    pipeline.add_stage(ImageNSFWFilterStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.nsfw_gpus_per_worker,
         batch_size=args.nsfw_batch_size,
+        score_threshold=args.nsfw_threshold,
         verbose=args.verbose,
     ))
 
@@ -57,7 +59,8 @@ def main(args: argparse.Namespace) -> None:
     
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
-    print(f"Output dataset directory: {args.output_dataset_dir}")
+    print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
+    print(f"Output webdataset directory: {args.output_wds_dataset_dir}")
     print(f"Model directory: {args.model_dir}")
     print(f"Image limit: {args.image_limit if args.image_limit > 0 else 'No limit'}")
     print(f"Reader batch size: {args.reader_batch_size}")
@@ -69,23 +72,23 @@ def main(args: argparse.Namespace) -> None:
         download_start = time.time()
         
         # Create output directory if it doesn't exist
-        os.makedirs(args.output_dataset_dir, exist_ok=True)
+        os.makedirs(args.input_wds_dataset_dir, exist_ok=True)
         
         # Download webdataset using helper function
         download_webdataset(
             parquet_path=args.input_parquet,
-            output_dir=args.output_dataset_dir,
+            output_dir=args.input_wds_dataset_dir,
             entries_per_tar=args.entries_per_tar,
             num_processes=args.download_processes
         )
         
         download_time = time.time() - download_start
         print(f"✓ Dataset download completed in {download_time:.2f} seconds")
-        print(f"✓ Webdataset saved to: {args.output_dataset_dir}")
+        print(f"✓ Webdataset saved to: {args.input_wds_dataset_dir}")
         print("\n" + "=" * 50 + "\n")
     else:
         print("Step 1: Skipping download (using existing dataset)")
-        print(f"Using existing dataset at: {args.output_dataset_dir}")
+        print(f"Using existing dataset at: {args.input_wds_dataset_dir}")
         print("\n" + "=" * 50 + "\n")
     
     # Step 2: Create and run curation pipeline
@@ -101,7 +104,15 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
-    pipeline.run(executor)
+    results = pipeline.run(executor)
+
+    # Save output to webs
+    save_imagebatch_to_webdataset(
+        image_batches=results,
+        output_path=args.output_wds_dataset_dir,
+        samples_per_shard=args.samples_per_shard,
+        max_shards=args.max_shards,
+    )
     end_time = time.time()
 
     # Calculate and print execution time
@@ -112,7 +123,7 @@ def main(args: argparse.Namespace) -> None:
     print("\nImage curation pipeline completed!")
     print(f"Total execution time: {int(hours):02d}:{int(minutes):02d}:{seconds:.2f}")
     print(f"Total execution time: {execution_time:.2f} seconds")
-    print(f"\nProcessed dataset available at: {args.output_dataset_dir}")
+    print(f"\nProcessed dataset available at: {args.output_wds_dataset_dir}")
 
 
 if __name__ == "__main__":
@@ -128,10 +139,16 @@ if __name__ == "__main__":
         help="Path to input parquet file containing image URLs and metadata"
     )
     parser.add_argument(
-        "--output-dataset-dir",
+        "--input-wds-dataset-dir",
         type=str,
         required=True,
         help="Directory to save the downloaded webdataset"
+    )
+    parser.add_argument(
+        "--output-wds-dataset-dir",
+        type=str,
+        required=True,
+        help="Directory to save the resulting webdataset"
     )
     parser.add_argument(
         "--entries-per-tar",
@@ -207,6 +224,12 @@ if __name__ == "__main__":
         default=0.25,
         help="GPU allocation per worker for aesthetic scoring"
     )
+    parser.add_argument(
+        "--aesthetic-threshold",
+        type=float,
+        default=0.5,
+        help="Aesthetic score threshold for filtering (images below this score will be filtered out)"
+    )
 
     # NSFW scoring arguments
     parser.add_argument(
@@ -220,6 +243,26 @@ if __name__ == "__main__":
         type=float,
         default=0.25,
         help="GPU allocation per worker for NSFW scoring"
+    )
+    parser.add_argument(
+        "--nsfw-threshold",
+        type=float,
+        default=0.5,
+        help="NSFW score threshold for filtering (images above this score will be filtered out as NSFW)"
+    )
+
+    # Output dataset arguments
+    parser.add_argument(
+        "--samples-per-shard",
+        type=int,
+        default=1000,
+        help="Number of samples per shard in output webdataset"
+    )
+    parser.add_argument(
+        "--max-shards",
+        type=int,
+        default=5,
+        help="Maximum number of shards for output webdataset (used for zero-padding filenames)"
     )
 
     args = parser.parse_args()

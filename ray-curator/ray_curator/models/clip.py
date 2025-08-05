@@ -21,8 +21,7 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 import torch
-from torchvision import transforms  # type: ignore[import-untyped]
-from transformers import CLIPModel
+from transformers import CLIPModel, CLIPProcessor
 
 from .aesthetics import AestheticScorer
 from .base import ModelInterface
@@ -41,7 +40,7 @@ class CLIPImageEmbeddings(ModelInterface):
         self.model_dir = model_dir
         # These will be initialized in setup()
         self.clip = None
-        self.transforms = None
+        self.processor = None
 
     @property
     def conda_env_name(self) -> str:
@@ -67,23 +66,7 @@ class CLIPImageEmbeddings(ModelInterface):
         """Set up the CLIPImageEmbeddings model."""
         weight_file = str(Path(self.model_dir) / self.model_id_names[0])
         self.clip = CLIPModel.from_pretrained(weight_file).to(self.device).eval()
-
-        # torchvision transforms that match CLIP preprocessor_config.json:
-        self.transforms = transforms.Compose(
-            [
-                transforms.Resize(
-                    224,
-                    interpolation=transforms.InterpolationMode.BICUBIC,
-                    antialias=True,
-                ),
-                transforms.CenterCrop(224),
-                transforms.ConvertImageDtype(torch.float32),  # scales [0, 255] to [0, 1]
-                transforms.Normalize(
-                    mean=(0.48145466, 0.4578275, 0.40821073),
-                    std=(0.26862954, 0.26130258, 0.27577711),
-                ),
-            ],
-        )
+        self.processor = CLIPProcessor.from_pretrained(weight_file)
 
     @torch.no_grad()
     def __call__(self, images: torch.Tensor | npt.NDArray[np.uint8] | list[np.ndarray]) -> torch.Tensor:
@@ -97,14 +80,12 @@ class CLIPImageEmbeddings(ModelInterface):
 
         """
 
-        # DEBUGGING
-        print(f"[ray-curator/ray_curator/models/clip.py] - __call__(): images shape (argument): {images.shape}")
-        # if isinstance(images, np.ndarray):
-        #     # (N, H, W, C) -> (N, C, H, W)
-        #     images = torch.from_numpy(images).permute(0, 3, 1, 2).to(self.device)
-        images = torch.from_numpy(images).to(self.device)
+        if isinstance(images, np.ndarray):
+            # (N, H, W, C) -> (N, C, H, W)
+            images = torch.from_numpy(images).permute(0, 3, 1, 2).to(self.device)
 
-        inputs = self.transforms(images)
+        inputs = self.processor(images=images, return_tensors="pt")['pixel_values']
+        inputs = inputs.to(self.device)
         embed = self.clip.get_image_features(pixel_values=inputs)
 
         # Normalize embeddings

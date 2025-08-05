@@ -12,21 +12,22 @@ from ray_curator.tasks import ImageBatch, ImageObject
 
 
 @dataclass
-class ImageNSFWScoringStage(ProcessingStage[ImageBatch, ImageBatch]):
-    """Stage for generating NSFW scores using NSFWScorer model.
+class ImageNSFWFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
+    """Stage for filtering out NSFW images using NSFWScorer model.
 
     This class processes image batches through an NSFW scoring model to generate
-    NSFW probability scores for each image. It assumes embeddings are already computed
-    in ImageObject.embedding and stores scores in ImageObject.nsfw_score.
+    NSFW probability scores for each image. Images with scores above the threshold
+    will be filtered out as NSFW content.
     """
     model_dir: str = "models/nsfw"
     num_gpus_per_worker: float = 0.25
     batch_size: int = 32
+    score_threshold: float = 0.5
     verbose: bool = False
 
     @property
     def name(self) -> str:
-        return "image_nsfw_scoring"
+        return "image_nsfw_filter"
 
     @property
     def resources(self) -> Resources:
@@ -39,7 +40,7 @@ class ImageNSFWScoringStage(ProcessingStage[ImageBatch, ImageBatch]):
         return ["data"], []
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        """Initialize the NSFW scoring model."""
+        """Initialize the NSFW filtering model."""
         self.model = NSFWScorer(model_dir=self.model_dir)
         self.model.setup()
         
@@ -47,16 +48,16 @@ class ImageNSFWScoringStage(ProcessingStage[ImageBatch, ImageBatch]):
             logger.info("Initialized NSFW scoring model")
 
     def process(self, task: ImageBatch) -> ImageBatch:
-        """Process an image batch to generate NSFW scores.
+        """Process an image batch to generate NSFW scores and filter by threshold.
         
         Args:
             task: ImageBatch containing list of ImageObject instances with pre-computed embeddings
             
         Returns:
-            ImageBatch with NSFW scores stored in ImageObject.nsfw_score
+            ImageBatch with filtered images that have NSFW scores below the threshold
         """
 
-        # Process images in batches
+        # Process images in batches to generate scores
         num_images = len(task.data)
         for batch_start in range(0, num_images, self.batch_size):
             batch_end = min(batch_start + self.batch_size, num_images)
@@ -79,5 +80,33 @@ class ImageNSFWScoringStage(ProcessingStage[ImageBatch, ImageBatch]):
                     f"Generated NSFW scores for {len(batch_images)} images "
                     f"in batch {batch_start}-{batch_end}"
                 )
+
+        # Filter images based on NSFW score threshold
+        filtered_images = []
+        filtered_count = 0
+        
+        for image_obj in task.data:
+            if image_obj.nsfw_score < self.score_threshold:
+                filtered_images.append(image_obj)
+            else:
+                filtered_count += 1
+                if self.verbose:
+                    logger.info(
+                        f"Image {image_obj.image_id} (path: {image_obj.image_path}) has NSFW score {image_obj.nsfw_score:.3f} "
+                        f"above threshold {self.score_threshold}, filtered out as NSFW."
+                    )
+        
+        if self.verbose:
+            logger.info(
+                f"NSFW filtering: {len(filtered_images)}/{len(task.data)} images passed, "
+                f"{filtered_count} filtered out"
+            )
                 
-        return task
+        # Return new ImageBatch with filtered images
+        return ImageBatch(
+            data=filtered_images,
+            dataset_name=task.dataset_name,
+            task_id=f"{task.task_id}_{self.name}",
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
+        )
