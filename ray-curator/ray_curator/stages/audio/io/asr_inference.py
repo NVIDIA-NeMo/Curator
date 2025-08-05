@@ -127,7 +127,7 @@ class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
     Args:
         input_audio_path: Path to the directory containing audio files
         model_name: name of the speech recognition NeMo model
-        audio_limit: Maximum number of audios to process (None for unlimited)
+        audio_limit: Maximum number of audio files to process (None for unlimited)
         file_extensions: file name extensions of files to process
         verbose: Whether to enable verbose logging during download/processing
     """
