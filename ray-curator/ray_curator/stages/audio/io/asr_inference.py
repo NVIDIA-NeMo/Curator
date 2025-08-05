@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import nemo.collections.asr as nemo_asr
 import torch
 
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import SpeechObject, _EmptyTask
@@ -36,7 +37,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
             map_location = torch.device("cpu")
         return map_location
 
-    def setup(self) -> None:
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
         try:
             map_location = self.check_cuda()
@@ -46,6 +47,10 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         except Exception as e:
             msg = f"Failed to download {self.model_name}"
             raise RuntimeError(msg) from e
+
+    def setup(self) -> None:
+        """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
+        self.setup_on_node()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
