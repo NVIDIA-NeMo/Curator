@@ -1,5 +1,6 @@
 import time
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 import nemo.collections.asr as nemo_asr
 import torch
@@ -30,6 +31,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
     cuda: str = ""
     _name: str = "ASR_inference"
     _start_time = time.time()
+    _metrics: ClassVar[dict] = {}
 
     def check_cuda(self) -> torch.device:
         if self.cuda:
@@ -122,6 +124,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
     def finalize(self) -> None:
         elapsed = time.time() - self._start_time
         logger.info(f"Stage {self.name} completed in {elapsed:.2f} seconds.")
+        self._metrics["elapsed"] = elapsed
 
 
 @dataclass
