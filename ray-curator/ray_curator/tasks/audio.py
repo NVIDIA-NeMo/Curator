@@ -1,6 +1,8 @@
 import os
 from dataclasses import dataclass
 
+from loguru import logger
+
 from .tasks import Task
 
 
@@ -29,6 +31,6 @@ class SpeechObject(Task[dict]):
     def validate(self) -> bool:
         """Validate the task data."""
         if not os.path.exists(self.data[self.filepath_key]):
-            print(f"Audio {self.data[self.filepath_key]} does not exist")
+            logger.warning(f"Audio {self.data[self.filepath_key]} does not exist")
             return False
         return True
