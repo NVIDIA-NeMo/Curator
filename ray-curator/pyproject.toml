@@ -28,6 +28,7 @@ dependencies = [
     "torch",
     "transformers>=4.48.0",
     "pynvml==11.5.3",
+    "nemo_toolkit[asr]",
 ]
 [project.optional-dependencies]
 text = [
