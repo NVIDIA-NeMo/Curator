@@ -1,19 +1,19 @@
 import argparse
-import time
 import os
+import time
 
 from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.examples.image.helper import download_webdataset, save_imagebatch_to_webdataset
 from ray_curator.pipeline import Pipeline
-from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
-from ray_curator.examples.image.helper import download_webdataset, save_imagebatch_to_webdataset
+from ray_curator.stages.image.io.image_reader import ImageReaderStage
 
 
 def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     """Create image curation pipeline with image reading, embedding, aesthetic scoring, and NSFW detection stages."""
-    
+
     # Define pipeline
     pipeline = Pipeline(name="image_curation", description="Curate images with embeddings and quality scoring")
 
@@ -56,7 +56,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
 
 def main(args: argparse.Namespace) -> None:
     """Main execution function for image curation pipeline."""
-    
+
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
     print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
@@ -65,15 +65,15 @@ def main(args: argparse.Namespace) -> None:
     print(f"Image limit: {args.image_limit if args.image_limit > 0 else 'No limit'}")
     print(f"Reader batch size: {args.reader_batch_size}")
     print("\n" + "=" * 50 + "\n")
-    
+
     # Step 1: Download and prepare webdataset from parquet file
     if not args.skip_download:
         print("Step 1: Downloading webdataset from parquet file...")
         download_start = time.time()
-        
+
         # Create output directory if it doesn't exist
         os.makedirs(args.input_wds_dataset_dir, exist_ok=True)
-        
+
         # Download webdataset using helper function
         download_webdataset(
             parquet_path=args.input_parquet,
@@ -81,7 +81,7 @@ def main(args: argparse.Namespace) -> None:
             entries_per_tar=args.entries_per_tar,
             num_processes=args.download_processes
         )
-        
+
         download_time = time.time() - download_start
         print(f"✓ Dataset download completed in {download_time:.2f} seconds")
         print(f"✓ Webdataset saved to: {args.input_wds_dataset_dir}")
@@ -90,7 +90,7 @@ def main(args: argparse.Namespace) -> None:
         print("Step 1: Skipping download (using existing dataset)")
         print(f"Using existing dataset at: {args.input_wds_dataset_dir}")
         print("\n" + "=" * 50 + "\n")
-    
+
     # Step 2: Create and run curation pipeline
     print("Step 2: Running image curation pipeline...")
     start_time = time.time()
@@ -130,7 +130,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Image curation pipeline with embedding generation and quality scoring"
     )
-    
+
     # Dataset arguments
     parser.add_argument(
         "--input-parquet",
@@ -185,14 +185,14 @@ if __name__ == "__main__":
 
     # General arguments
     parser.add_argument(
-        "--model-dir", 
-        type=str, 
-        required=True, 
+        "--model-dir",
+        type=str,
+        required=True,
         help="Path to model directory containing all model weights"
     )
     parser.add_argument(
-        "--verbose", 
-        action="store_true", 
+        "--verbose",
+        action="store_true",
         default=False,
         help="Enable verbose logging for all stages"
     )
