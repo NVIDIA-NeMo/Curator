@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 
 import nemo.collections.asr as nemo_asr
+import torch
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
@@ -10,16 +11,41 @@ from ray_curator.tasks.file_group import FileGroupTask
 
 @dataclass
 class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
-    """Stage that do speech recognition inference using NeMo model."""
+    """Stage that do speech recognition inference using NeMo model.
+
+    Args:
+        model_name (str): name of the speech recognition NeMo model. See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
+        filepath_key (str): which key of the data object should be used to find the path to audiofile. Defaults to “audio_filepath”
+        text_key (str): key is used to identify the field containing the transcription associated with a particular audio sample. Defaults to “text”
+        cuda (str): device to run inference on it. Could be cpu, gpu or cuda number (digit). Defaults to “” (empty string)
+        _name (str): Stage name. Defaults to "ASR_inference"
+    """
 
     model_name: str
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
-    _name: str = "audio_inference"
+    cuda: str = ""
+    _name: str = "ASR_inference"
+
+    def check_cuda(self) -> torch.device:
+        if self.cuda:
+            map_location = torch.device(f"cuda:{self.cuda}") if self.cuda.isdigit() else torch.device(self.cuda)
+        elif torch.cuda.is_available():
+            map_location = torch.device("cuda:0")
+        else:
+            map_location = torch.device("cpu")
+        return map_location
 
     def setup(self) -> None:
         """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
-        self.asr_model = nemo_asr.models.ASRModel.from_pretrained(model_name=self.model_name)
+        try:
+            map_location = self.check_cuda()
+            self.asr_model = nemo_asr.models.ASRModel.from_pretrained(
+                model_name=self.model_name, map_location=map_location
+            )
+        except Exception as e:
+            msg = f"Failed to download {self.model_name}"
+            raise RuntimeError(msg) from e
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.

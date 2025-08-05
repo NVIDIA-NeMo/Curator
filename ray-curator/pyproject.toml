@@ -28,7 +28,6 @@ dependencies = [
     "torch",
     "transformers>=4.48.0",
     "pynvml==11.5.3",
-    "nemo_toolkit[asr]",
 ]
 [project.optional-dependencies]
 text = [
@@ -65,7 +64,9 @@ video = [
     "av==13.1.0",
     "opencv-python",
 ]
-
+audio=[
+    "nemo_toolkit[asr]",
+]
 [tool.setuptools]
 packages = ["ray_curator"]
 [tool.ruff]
