@@ -74,7 +74,7 @@ dependencies = [
     "usaddress==0.5.10",
     "warcio==1.7.4",
     "zstandard==0.18.0",
-    "nemo_toolkit['asr']",
+    'nemo_toolkit["asr"]',
 ]
 dynamic = ["version"]
 
