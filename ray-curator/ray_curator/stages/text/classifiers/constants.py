@@ -13,9 +13,3 @@
 # limitations under the License.
 
 DEBERTA_TOKENIZER_PADDING_SIDE = "right"
-INPUT_ID_COLUMN = "input_ids"
-ATTENTION_MASK_COLUMN = "attention_mask"
-
-
-def format_name_with_suffix(model_identifier: str, suffix: str = "_classifier") -> str:
-    return model_identifier.split("/")[-1].replace("-", "_").lower() + suffix

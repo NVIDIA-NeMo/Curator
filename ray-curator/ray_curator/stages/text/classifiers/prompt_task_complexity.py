@@ -25,10 +25,12 @@ from transformers import AutoModel
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
+from ray_curator.stages.text.models.model import ModelStage
+from ray_curator.stages.text.models.tokenizer import TokenizerStage
+from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
 from ray_curator.tasks import DocumentBatch
 
-from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN, format_name_with_suffix
+from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
 
 PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 MAX_SEQ_LENGTH = 512
@@ -72,7 +74,7 @@ class MulticlassHead(nn.Module):
         return self.fc(x)
 
 
-class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
+class CustomDeberta(nn.Module, PyTorchModelHubMixin):
     def __init__(self, config: dataclass):
         super().__init__()
 
@@ -219,7 +221,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
         self.autocast = autocast
 
 
-class HFPromptTaskComplexityModelStage(HFModel):
+class PromptTaskComplexityModelStage(ModelStage):
     """
     Stage for Hugging Face model inference.
 
@@ -252,7 +254,7 @@ class HFPromptTaskComplexityModelStage(HFModel):
         return ["data"], OUTPUT_COLUMNS
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model = CustomHFDeberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
+        self.model = CustomDeberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
         self.model.set_autocast(self.autocast)
 
     def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
@@ -307,7 +309,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
             raise NotImplementedError(msg)
 
         self.stages = [
-            HFTokenizerStage(
+            TokenizerStage(
                 model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
@@ -315,7 +317,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
             ),
-            HFPromptTaskComplexityModelStage(
+            PromptTaskComplexityModelStage(
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,

@@ -29,12 +29,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.stages.modules.score_filter import Filter
+from ray_curator.stages.text.models.model import ModelStage
+from ray_curator.stages.text.models.tokenizer import TokenizerStage
+from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
 from ray_curator.tasks import DocumentBatch
 
 from .aegis_utils import AEGIS_LABELS, format_aegis
-from .constants import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
 
 PRETRAINED_MODEL_NAME_OR_PATH = "meta-llama/LlamaGuard-7b"
 AEGIS_VARIANTS = [
@@ -107,10 +108,7 @@ class AegisModel(nn.Module):
 
     @torch.no_grad()
     def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        batch = {
-            k: v.to(TORCH_DTYPE) if v.dtype.is_floating_point else v
-            for k, v in batch.items()
-        }
+        batch = {k: v.to(TORCH_DTYPE) if v.dtype.is_floating_point else v for k, v in batch.items()}
 
         if self.add_instruction_data_guard:
             response = self.model.generate(
@@ -146,9 +144,9 @@ class AegisModel(nn.Module):
             return self._forward(batch)
 
 
-class HFAegisModelStage(HFModel):
+class AegisModelStage(ModelStage):
     """
-    See HFModel for more information.
+    See ModelStage for more information.
     """
 
     def __init__(  # noqa: PLR0913
@@ -185,7 +183,7 @@ class HFAegisModelStage(HFModel):
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             peft_model_name_or_path=self.model_identifier,
             dtype=TORCH_DTYPE,
-            token=None,
+            token=self.hf_token,
             local_files_only=local_files_only,
             add_instruction_data_guard=self.add_instruction_data_guard,
             autocast=self.autocast,
@@ -200,6 +198,7 @@ class HFAegisModelStage(HFModel):
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
+            token=self.hf_token,
             padding_side=TOKENIZER_PADDING_SIDE,
             local_files_only=local_files_only,
         )
@@ -300,6 +299,7 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
+            token=self.hf_token,
             padding_side=TOKENIZER_PADDING_SIDE,
             local_files_only=True,
         )
@@ -417,7 +417,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 text_field=self.text_field,
                 max_chars=self.max_chars,
             ),
-            HFTokenizerStage(
+            TokenizerStage(
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 hf_token=self.token,
                 text_field=HIDDEN_TEXT_COLUMN,
@@ -426,7 +426,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 sort_by_length=self.sort_by_length,
                 unk_token=True,
             ),
-            HFAegisModelStage(
+            AegisModelStage(
                 model_identifier=self.aegis_variant,
                 hf_token=self.token,
                 pred_column=self.raw_pred_column,
@@ -534,7 +534,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         self._name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
 
         self.stages = [
-            HFTokenizerStage(
+            TokenizerStage(
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 hf_token=self.token,
                 text_field=self.text_field,
@@ -544,7 +544,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 sort_by_length=self.sort_by_length,
                 unk_token=True,
             ),
-            HFAegisModelStage(
+            AegisModelStage(
                 model_identifier=AEGIS_VARIANTS[0],
                 hf_token=self.token,
                 pred_column=self.pred_column,

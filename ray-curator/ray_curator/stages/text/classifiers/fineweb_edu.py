@@ -24,11 +24,13 @@ from transformers import AutoModelForSequenceClassification
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.classifiers.base import HFModel, HFTokenizerStage
 from ray_curator.stages.modules.score_filter import Filter
+from ray_curator.stages.text.models.model import ModelStage
+from ray_curator.stages.text.models.tokenizer import TokenizerStage
+from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
 from ray_curator.tasks import DocumentBatch
 
-from .constants import ATTENTION_MASK_COLUMN, DEBERTA_TOKENIZER_PADDING_SIDE, INPUT_ID_COLUMN, format_name_with_suffix
+from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
 
 FINEWEB_EDU_MODEL_IDENTIFIER = "HuggingFaceFW/fineweb-edu-classifier"
 FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-mixtral-edu-classifier"
@@ -36,7 +38,7 @@ FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER = "nvidia/nemocurator-fineweb-nemotron-4-e
 MAX_SEQ_LENGTH = 512
 
 
-class HFFineWebModelStage(HFModel):
+class FineWebModelStage(ModelStage):
     """
     Stage for Hugging Face model inference.
 
@@ -167,7 +169,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         super().__init__()
 
         self.stages = [
-            HFTokenizerStage(
+            TokenizerStage(
                 model_identifier=self.model_identifier,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
@@ -175,7 +177,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
             ),
-            HFFineWebModelStage(
+            FineWebModelStage(
                 model_identifier=self.model_identifier,
                 pred_column=self.pred_column,
                 float_score_column=self.float_score_column,
