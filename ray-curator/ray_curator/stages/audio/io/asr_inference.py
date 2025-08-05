@@ -1,7 +1,9 @@
+import time
 from dataclasses import dataclass, field
 
 import nemo.collections.asr as nemo_asr
 import torch
+from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
@@ -27,6 +29,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
     text_key: str = "text"
     cuda: str = ""
     _name: str = "ASR_inference"
+    _start_time = time.time()
 
     def check_cuda(self) -> torch.device:
         if self.cuda:
@@ -38,6 +41,10 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         return map_location
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        # TODO: load asr_model file only once per node
+        pass
+
+    def setup(self) -> None:
         """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
         try:
             map_location = self.check_cuda()
@@ -47,10 +54,6 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         except Exception as e:
             msg = f"Failed to download {self.model_name}"
             raise RuntimeError(msg) from e
-
-    def setup(self) -> None:
-        """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
-        self.setup_on_node()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
@@ -110,10 +113,15 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
                 data=entry,
             )
             audio_tasks.append(audio_task)
+        self.finalize()
         return audio_tasks
 
     def process(self, task: FileGroupTask) -> list[SpeechObject]:
         pass
+
+    def finalize(self) -> None:
+        elapsed = time.time() - self._start_time
+        logger.info(f"Stage {self.name} completed in {elapsed:.2f} seconds.")
 
 
 @dataclass
