@@ -10,7 +10,7 @@ from ray_curator.tasks.file_group import FileGroupTask
 
 @dataclass
 class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
-    """Stage that reads video files from storage and extracts metadata."""
+    """Stage that do speech recognition inference using NeMo model."""
 
     model_name: str
     filepath_key: str = "audio_filepath"
@@ -26,7 +26,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
 
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
-            - top_level_attrs: ["data"] - requires VideoTask.data to be populated
+            - top_level_attrs: ["data"] - requires FileGroupTask.data to be populated
         """
         return ["data"], []
 
@@ -35,10 +35,10 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
 
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
-            - top_level_attrs: ["data"] - populates VideoTask.data
-            - data_attrs: ["text"] - predicted text
+            - top_level_attrs: ["data"] - populates FileGroupTask.data
+            - data_attrs: [self.filepath_key, self.text_key] - audiofile path and predicted text.
         """
-        return ["data"], ["text"]
+        return ["data"], [self.filepath_key, self.text_key]
 
     def transcribe(self, files: list[str]) -> list[str]:
         """Run inference for speech recognition model
@@ -52,14 +52,14 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         return [output.text for output in outputs]
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[SpeechObject]:
-        """Process a audio task by reading file bytes and extracting metadata.
+        """Process a audio task by reading audio file and do ASR inference.
 
 
         Args:
-            task: VideoTask containing a Video object with input_video path set.
+            tasks: List of FileGroupTask containing a path to audop file for inference.
 
         Returns:
-            The same VideoTask with video.source_bytes and video.metadata populated.
+            List of SpeechObject with self.filepath_key .
             If errors occur, the task is returned with error information stored.
         """
         files = [task.data[0] for task in tasks]
@@ -70,11 +70,12 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
             text = outputs[i]
             file_path = files[i]
 
-            entry = {self.filepath_key: file_path, self.filepath_key: text}
+            entry = {self.filepath_key: file_path, self.text_key: text}
 
             audio_task = SpeechObject(
                 task_id=f"{file_path}_task_id",
                 dataset_name=f"{self.model_name}_inference",
+                filepath_key=self.filepath_key,
                 data=entry,
             )
             audio_tasks.append(audio_task)
@@ -86,15 +87,17 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
 
 @dataclass
 class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
-    """Composite stage that reads video files from storage and downloads/processes them.
+    """Composite stage that read audio files and do speech recognition inference using NeMo model.
 
-    This stage combines FilePartitioningStage and VideoReaderStage into a single
-    high-level operation for reading video files from a directory and processing
-    them with metadata extraction.
+    This stage combines FilePartitioningStage and AsrNemoInferenceStage into a single
+    high-level operation for reading audiop files from a directory and processing
+    them.
 
     Args:
-        input_video_path: Path to the directory containing video files
-        video_limit: Maximum number of videos to process (-1 for unlimited)
+        input_audio_path: Path to the directory containing audio files
+        model_name: name of the speech recognition NeMo model
+        audio_limit: Maximum number of audios to process (None for unlimited)
+        file_extensions: file name extensions of files to process
         verbose: Whether to enable verbose logging during download/processing
     """
 
@@ -116,7 +119,7 @@ class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
         """Decompose into constituent execution stages.
 
         Returns:
-            List of processing stages: [FilePartitioningStage, VideoReaderStage]
+            List of processing stages: [FilePartitioningStage, AsrNemoInferenceStage]
         """
         reader_stage = FilePartitioningStage(
             file_paths=self.input_audio_path,
@@ -134,7 +137,7 @@ class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
     def get_description(self) -> str:
         """Get a description of what this composite stage does."""
         return (
-            f"Reads video files from '{self.input_audio_path}' "
+            f"Reads audio files from '{self.input_audio_path}' "
             f"(limit: {self.audio_limit if self.audio_limit > 0 else 'unlimited'}) "
-            f"and downloads/processes them with metadata extraction"
+            f"and do inference by speech recognition NeMo model."
         )

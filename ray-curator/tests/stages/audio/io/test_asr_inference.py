@@ -19,7 +19,7 @@ class TestAsrInference:
         stage = AsrNemoInference(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
         assert stage.name == "audio_inference"
         assert stage.inputs() == ([], [])
-        assert stage.outputs() == (["data"], ["text"])
+        assert stage.outputs() == (["data"], ["audio_filepath", "text"])
 
     def test_stage_initialization(self) -> None:
         """Test stage initialization with different parameters."""
@@ -78,5 +78,7 @@ class TestAsrInference:
         # Check that the audio objects are created correctly
         assert isinstance(result[0].data, dict)
         assert isinstance(result[1].data, dict)
-        assert result[0].data[result[0].filepath_key] == "the cat"
-        assert result[1].data[result[1].filepath_key] == "set on a mat"
+        assert result[0].data[result[0].filepath_key] == "/test/audio1.wav"
+        assert result[0].data["text"] == "the cat"
+        assert result[1].data[result[1].filepath_key] == "/test/audio2.mp3"
+        assert result[1].data["text"] == "set on a mat"
