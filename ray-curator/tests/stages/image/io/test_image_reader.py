@@ -1,4 +1,5 @@
 """Unit tests for ImageReaderStage."""
+
 from __future__ import annotations
 
 import io
