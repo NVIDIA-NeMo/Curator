@@ -1,10 +1,12 @@
 from typing import Any
 
+import ray
 from cosmos_xenna.pipelines import v1 as pipelines_v1
 from cosmos_xenna.utils.verbosity import VerbosityLevel
 from loguru import logger
 
 from ray_curator.backends.base import BaseExecutor
+from ray_curator.backends.utils import register_loguru_serializer
 from ray_curator.backends.xenna.adapter import create_named_xenna_stage_adapter
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import EmptyTask, Task
@@ -113,13 +115,23 @@ class XennaExecutor(BaseExecutor):
         logger.info(f"Execution mode: {exec_mode.name}")
 
         try:
-            # Run the pipeline
+            register_loguru_serializer()
+            ray.init(
+                ignore_reinit_error=True,
+                runtime_env={
+                    # We need to set this env var to avoid ray from setting CUDA_VISIBLE_DEVICES and let xenna do it
+                    "env_vars": {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "0"}
+                },
+            )
+            # Run the pipeline (this will re-initialize ray but that'll be a no-op and the ray.init above will take precedence)
             results = pipelines_v1.run_pipeline(pipeline_spec)
             logger.info(f"Pipeline completed successfully with {len(results) if results else 0} output tasks")
         except Exception as e:
             logger.error(f"Pipeline execution failed: {e}")
             raise
-
+        finally:
+            # This ensures we unset all the env vars set above during initalize and kill the pending actors.
+            ray.shutdown()
         return results if results else []
 
     def _get_pipeline_config(self, key: str) -> Any:  # noqa: ANN401
