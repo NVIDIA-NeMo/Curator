@@ -25,6 +25,9 @@ class ArxivDownloader(DocumentDownloader):
 
     def __init__(self, download_dir: str, verbose: bool = False):
         super().__init__(download_dir, verbose)
+        if not self._check_s5cmd_installed():
+            msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
+            raise RuntimeError(msg)
 
     def _get_output_filename(self, url: str) -> str:
         # Use tarfile name as output filename
