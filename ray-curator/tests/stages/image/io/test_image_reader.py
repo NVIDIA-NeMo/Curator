@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import pathlib
-import tarfile
 from unittest.mock import Mock, patch
 
 import numpy as np
@@ -40,7 +39,7 @@ class TestImageReaderStage:
         return mock_members
 
     @pytest.fixture
-    def mock_image_data(self, mock_image_data: Mock) -> bytes:
+    def mock_image_data(self) -> bytes:
         """Create mock image data."""
         # Create a simple JPEG-like byte string
         rng = np.random.default_rng(42)
@@ -144,7 +143,7 @@ class TestImageReaderStage:
         total_images = sum(len(batch.data) for batch in batches)
         assert total_images == 3
 
-    def test_file_filtering(self, stage: ImageReaderStage) -> None:
+    def test_file_filtering(self) -> None:
         """Test that only tar files are processed."""
         test_files = [
             pathlib.Path("/test/valid.tar"),
@@ -153,7 +152,7 @@ class TestImageReaderStage:
             pathlib.Path("/test/invalid.zip"),
         ]
 
-        filtered = [f for f in test_files if stage._is_tar_file(f)]
+        filtered = [f for f in test_files if self._is_tar_file(f)]
         assert len(filtered) == 2
         assert pathlib.Path("/test/valid.tar") in filtered
         assert pathlib.Path("/test/valid.tar.gz") in filtered
