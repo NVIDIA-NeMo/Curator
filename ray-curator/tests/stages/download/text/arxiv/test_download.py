@@ -96,7 +96,7 @@ class TestArxivDownloader:
             assert result is False
 
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=False)
-    def test_init_without_s5cmd(self, tmp_path: Path) -> None:  # noqa: ARG002
+    def test_init_without_s5cmd(self, tmp_path: Path) -> None:
         """Test initialization but s5cmd not installed."""
         with pytest.raises(RuntimeError, match="s5cmd is not installed"):
             ArxivDownloader(str(tmp_path), verbose=False)
