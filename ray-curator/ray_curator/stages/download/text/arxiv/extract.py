@@ -166,7 +166,7 @@ class ArxivExtractor(DocumentExtractor):
         return file_content
 
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
-        if len(record["content"]) == 0:
+        if "content" not in record or len(record["content"]) == 0:
             return None
 
         # build dictionaries that contain the definitions of all macros in all tex
