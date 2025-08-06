@@ -1,5 +1,4 @@
 """Unit tests for ImageReaderStage."""
-
 from __future__ import annotations
 
 import io
@@ -264,4 +263,4 @@ class TestImageReaderStage:
 
         # Should have made some logging calls if verbose
         if stage.verbose:
-            assert mock_logger.info.called or mock_logger.debug.called 
+            assert mock_logger.info.called or mock_logger.debug.called
