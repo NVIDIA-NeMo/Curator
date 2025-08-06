@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from unittest.mock import Mock, patch
+
 import numpy as np
 import pytest
 import torch
-from unittest.mock import Mock, patch
 
 from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 from ray_curator.tasks import ImageBatch, ImageObject
