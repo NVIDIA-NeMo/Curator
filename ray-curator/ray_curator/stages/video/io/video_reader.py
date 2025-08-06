@@ -1,55 +1,271 @@
 import pathlib
+from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import Video, VideoTask, _EmptyTask
-from ray_curator.utils.file_utils import get_all_files_paths_under
+from ray_curator.stages.base import CompositeStage, ProcessingStage
+from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.tasks import _EmptyTask
+from ray_curator.tasks.file_group import FileGroupTask
+from ray_curator.tasks.video import Video, VideoTask
 
 
 @dataclass
-class VideoReaderStage(ProcessingStage[_EmptyTask, VideoTask]):
-    """Stage that reads video files from storage and extracts metadata."""
-    input_video_path: str
-    video_limit: int = -1
+class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
+    """Stage that reads video files from local filesystem and extracts metadata.
+
+    This stage processes video files by reading their binary content from the local
+    filesystem and extracting comprehensive metadata including dimensions, frame rate,
+    duration, codecs, and other technical properties. The stage handles both the file
+    I/O operations and metadata extraction, storing results in the VideoTask.
+
+    The stage performs the following operations:
+    1. Reads video file bytes from the local filesystem
+    2. Extracts technical metadata using video analysis tools
+    3. Validates metadata completeness and logs warnings for missing fields
+    4. Optionally logs detailed video information when verbose mode is enabled
+
+    Args:
+        verbose: If True, logs detailed video information after successful processing
+
+    Note:
+        Currently supports local filesystem paths only. S3 support is planned for future releases.
+    """
+    verbose: bool = False
     _name: str = "video_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return [], []
+        """Define the input attributes required by this stage.
+
+        Returns:
+            Tuple of (top_level_attrs, data_attrs) where:
+            - top_level_attrs: ["data"] - requires VideoTask.data to be populated
+        """
+        return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["input_video"]
+        """Define the output attributes produced by this stage.
 
-    def process(self, _: _EmptyTask) -> list[VideoTask]:
-        """Process a single group of video files."""
-        if self.input_video_path is None:
-            msg = "input_video_path is not set"
+        Returns:
+            Tuple of (top_level_attrs, data_attrs) where:
+            - top_level_attrs: ["data"] - populates VideoTask.data
+            - data_attrs: ["source_bytes", "metadata"] - populates Video.source_bytes and Video.metadata
+        """
+        return ["data"], ["source_bytes", "metadata"]
+
+    def process(self, task: FileGroupTask) -> VideoTask:
+        """Process a video task by reading file bytes and extracting metadata.
+
+        Performs the complete video processing workflow including reading the video
+        file from disk, extracting technical metadata, and optionally logging
+        detailed information. Returns the same task with populated data.
+
+        Args:
+            task: VideoTask containing a Video object with input_video path set.
+
+        Returns:
+            The same VideoTask with video.source_bytes and video.metadata populated.
+            If errors occur, the task is returned with error information stored.
+        """
+        files = task.data
+        if len(files) != 1:
+            msg = f"Expected 1 file, got {len(files)}"
             raise ValueError(msg)
-        files = get_all_files_paths_under(
-            self.input_video_path,
-            recurse_subdirectories=True,
-            keep_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+        file_path = Path(files[0])
+
+        video = Video(input_video=file_path)
+        video_task = VideoTask(
+            task_id=f"{file_path}_processed",
+            dataset_name=task.dataset_name,
+            data=video,
+            _metadata=deepcopy(task._metadata),
+            _stage_perf=deepcopy(task._stage_perf),
         )
-        logger.info(f"Found {len(files)} files under {self.input_video_path}")
 
-        if self.video_limit > 0:
-            files = files[:self.video_limit]
-            logger.info(f"Using first {len(files)} files under {self.input_video_path} since video_limit is set to {self.video_limit}")
+        # Download video bytes
+        if not self._download_video_bytes(video):
+            return video_task
 
-        video_tasks = []
-        for fp in files:
+        # Extract metadata and validate video properties
+        if not self._extract_and_validate_metadata(video):
+            return video_task
 
-            file_path = fp
-            if isinstance(file_path, str):
-                file_path = pathlib.Path(file_path)
+        # Log video information
+        if self.verbose:
+            self._log_video_info(video)
 
-            video = Video(input_video=file_path)
-            video_task = VideoTask(
-                task_id=f"{file_path}_processed",
-                dataset_name=self.input_video_path,
-                data=video,
-            )
-            video_tasks.append(video_task)
+        return video_task
 
-        return video_tasks
+    def _download_video_bytes(self, video: Video) -> bool:
+        """Read video file bytes from the local filesystem.
+
+        Reads the complete binary content of the video file and stores it in the
+        video.source_bytes attribute. Handles file I/O errors gracefully and logs
+        appropriate error messages.
+
+        Args:
+            video: Video object containing the input_video path to read from.
+
+        Returns:
+            True if file reading was successful, False if an error occurred.
+
+        Note:
+            Errors are logged and stored in video.errors["download"] for debugging.
+        """
+        def _raise_s3_error() -> None:
+            msg = "S3 client is required for S3 destination"
+            raise TypeError(msg)
+
+        try:
+            if isinstance(video.input_video, pathlib.Path):
+                with video.input_video.open("rb") as fp:
+                    video.source_bytes = fp.read()
+            # @aot TODO: Add support for S3
+            else:
+                _raise_s3_error()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
+            video.errors["download"] = str(e)
+            return False
+
+        if video.source_bytes is None:
+            # should never happen, but log it just in case
+            logger.error(f"video.source_bytes is None for {video.input_video} without exceptions ???")
+            video.source_bytes = b""
+
+        return True
+
+    def _extract_and_validate_metadata(self, video: Video) -> bool:
+        """Extract comprehensive metadata from video file and validate completeness.
+
+        Uses video analysis tools to extract technical metadata including dimensions,
+        frame rate, duration, codecs, bit rate, and other properties. Logs warnings
+        for critical missing metadata fields like codec and pixel format.
+
+        Args:
+            video: Video object with source_bytes populated for metadata extraction.
+
+        Returns:
+            True if metadata extraction completed successfully, False if extraction
+            failed due to corrupted file or unsupported format.
+
+        Note:
+            Warnings are logged for missing critical fields, but the method may still
+            return True if partial metadata was extracted successfully.
+        """
+        try:
+            video.populate_metadata()
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Failed to extract metadata for {video.input_video}: {e}")
+            return False
+
+        # Log warnings for missing metadata
+        if video.metadata.video_codec is None:
+            logger.warning(f"Codec could not be extracted for {video.input_video}!")
+        if video.metadata.pixel_format is None:
+            logger.warning(f"Pixel format could not be extracted for {video.input_video}!")
+
+        return True
+
+    def _log_video_info(self, video: Video) -> None:
+        """Log comprehensive video information after successful processing.
+
+        Outputs detailed information about the processed video including file size,
+        resolution, frame rate, duration, weight, and bit rate. This method is only
+        called when verbose mode is enabled.
+
+        Args:
+            video: Video object with populated metadata fields.
+        """
+        meta = self._format_metadata_for_logging(video)
+        logger.info(
+            f"Downloaded {video.input_video} "
+            f"size={meta['size']} "
+            f"res={meta['res']} "
+            f"fps={meta['fps']} "
+            f"duration={meta['duration']} "
+            f"weight={meta['weight']} "
+            f"bit_rate={meta['bit_rate']}.",
+        )
+
+    def _format_metadata_for_logging(self, video: Video) -> dict[str, str]:
+        """Format video metadata into human-readable strings for logging output.
+
+        Converts raw metadata values into formatted strings with appropriate units
+        and handles None values gracefully by substituting "unknown" placeholders.
+        Used by _log_video_info for consistent log formatting.
+
+        Args:
+            video: Video object with populated metadata fields.
+
+        Returns:
+            Dictionary mapping metadata field names to formatted string values,
+            including size (bytes), resolution, fps, duration (minutes), weight,
+            and bit rate (Kbps).
+        """
+        metadata = video.metadata
+
+        # Format each field, using "unknown" for None values
+        return {
+            "size": f"{len(video.source_bytes):,}B" if video.source_bytes else "0B",
+            "res": f"{metadata.width or 'unknown'}x{metadata.height or 'unknown'}",
+            "fps": f"{metadata.framerate:.1f}" if metadata.framerate is not None else "unknown",
+            "duration": f"{metadata.duration / 60:.0f}m" if metadata.duration is not None else "unknown",
+            "weight": f"{video.weight:.2f}" if metadata.duration is not None else "unknown",
+            "bit_rate": f"{metadata.bit_rate_k}K" if metadata.bit_rate_k is not None else "unknown",
+        }
+
+
+@dataclass
+class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
+    """Composite stage that reads video files from storage and downloads/processes them.
+
+    This stage combines FilePartitioningStage and VideoReaderStage into a single
+    high-level operation for reading video files from a directory and processing
+    them with metadata extraction.
+
+    Args:
+        input_video_path: Path to the directory containing video files
+        video_limit: Maximum number of videos to process (-1 for unlimited)
+        verbose: Whether to enable verbose logging during download/processing
+    """
+    input_video_path: str
+    video_limit: int | None = -1
+    verbose: bool = False
+
+    def __post_init__(self):
+        """Initialize the parent CompositeStage after dataclass initialization."""
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        return "video_reader"
+
+    def decompose(self) -> list[ProcessingStage]:
+        """Decompose into constituent execution stages.
+
+        Returns:
+            List of processing stages: [FilePartitioningStage, VideoReaderStage]
+        """
+        reader_stage = FilePartitioningStage(
+            file_paths=self.input_video_path,
+            files_per_partition=1,
+            file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+            limit=self.video_limit,
+        )
+
+        download_stage = VideoReaderStage(
+            verbose=self.verbose
+        )
+
+        return [reader_stage, download_stage]
+
+    def get_description(self) -> str:
+        """Get a description of what this composite stage does."""
+        return (
+            f"Reads video files from '{self.input_video_path}' "
+            f"(limit: {self.video_limit if self.video_limit > 0 else 'unlimited'}) "
+            f"and downloads/processes them with metadata extraction"
+        )
