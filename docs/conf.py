@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.abspath("_extensions"))
 project = "NeMo-Curator"
 project_copyright = "2025, NVIDIA Corporation"
 author = "NVIDIA Corporation"
-release = "0.0.1"
+release = "0.25.7"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -289,12 +289,19 @@ html_theme = "nvidia_sphinx_theme"
 
 html_theme_options = {
     "switcher": {
-        "json_url": "./versions1.json",
+        "json_url": "../versions1.json",
         "version_match": release,
     },
     # Configure PyData theme search
     "search_bar_text": "Search NVIDIA docs...",
     "navbar_persistent": ["search-button"],  # Ensure search button is present
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/NVIDIA-NeMo/Curator",
+            "icon": "fa-brands fa-github",
+        }
+    ],
     "extra_head": {
         """
     <script src="https://assets.adobedtm.com/5d4962a43b79/c1061d2c5e7b/launch-191c2462b890.min.js" ></script>
