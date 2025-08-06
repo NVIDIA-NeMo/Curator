@@ -183,7 +183,7 @@ jobs:
       matrix:
         include:
           - script: L0_Unit_Test_GPU
-            runner: linux-amd64-gpu-rtxa6000-latest-2-nemo
+            runner: self-hosted-nemo
     needs: [cicd-cpu-tests]
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.script }}
