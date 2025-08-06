@@ -78,7 +78,8 @@ class TestArxivDownloader:
             stderr=subprocess.DEVNULL,
         )
 
-    def test_check_s5cmd_installed_true(self, tmp_path: Path) -> None:
+    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
+    def test_init_with_s5cmd(self, tmp_path: Path) -> None:
         """Test _check_s5cmd_installed when s5cmd is available."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
 
@@ -87,20 +88,13 @@ class TestArxivDownloader:
             result = downloader._check_s5cmd_installed()
             assert result is True
 
-    def test_check_s5cmd_installed_false(self, tmp_path: Path) -> None:
-        """Test _check_s5cmd_installed when s5cmd is not available."""
-        downloader = ArxivDownloader(str(tmp_path), verbose=False)
-
-        with mock.patch("subprocess.run", side_effect=FileNotFoundError):
-            result = downloader._check_s5cmd_installed()
-            assert result is False
-
     @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=False)
     def test_init_without_s5cmd(self, tmp_path: Path) -> None:
         """Test initialization but s5cmd not installed."""
         with pytest.raises(RuntimeError, match="s5cmd is not installed"):
             ArxivDownloader(str(tmp_path), verbose=False)
 
+    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
     def test_get_output_filename(self, tmp_path: Path) -> None:
         """Test conversion of URL to output filename."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
@@ -111,17 +105,18 @@ class TestArxivDownloader:
         assert result == url
 
     def test_arxiv_downloader_existing_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Create a temporary download directory and simulate an already-downloaded tar file.
-        download_dir = tmp_path / "downloads"
-        download_dir.mkdir()
-        tar_filename = "dummy.tar"
-        file_path = os.path.join(str(download_dir), tar_filename)
-        # Write dummy content to simulate an existing download.
-        with open(file_path, "w") as f:
-            f.write("existing content")
+        with mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True):
+            # Create a temporary download directory and simulate an already-downloaded tar file.
+            download_dir = tmp_path / "downloads"
+            download_dir.mkdir()
+            tar_filename = "dummy.tar"
+            file_path = os.path.join(str(download_dir), tar_filename)
+            # Write dummy content to simulate an existing download.
+            with open(file_path, "w") as f:
+                f.write("existing content")
 
-        downloader = ArxivDownloader(str(download_dir), verbose=False)
-        # Monkey-patch subprocess.run (should not be called since file exists).
-        monkeypatch.setattr(subprocess, "run", fake_run_success)
-        result = downloader.download(tar_filename)
-        assert result == file_path
+            downloader = ArxivDownloader(str(download_dir), verbose=False)
+            # Monkey-patch subprocess.run (should not be called since file exists).
+            monkeypatch.setattr(subprocess, "run", fake_run_success)
+            result = downloader.download(tar_filename)
+            assert result == file_path
