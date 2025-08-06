@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import pytest
 import numpy as np
+import pytest
 import torch
 from unittest.mock import Mock, patch
 
@@ -117,23 +117,23 @@ class TestImageAestheticFilterStage:
             assert batch_embeddings.shape[1] == 512  # Embedding dimension
 
     @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
-    def test_threshold_variations(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
+    def test_threshold_variations(self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
         """Test different threshold values."""
         mock_aesthetic_scorer.return_value = mock_model
-        
+
         # Test with strict threshold (0.9) and lenient threshold (0.2)
         strict_stage = ImageAestheticFilterStage(threshold=0.9, model_dir="test_models/aesthetics")
         lenient_stage = ImageAestheticFilterStage(threshold=0.2, model_dir="test_models/aesthetics")
-        
+
         strict_stage.model = mock_model
         lenient_stage.model = mock_model
-        
+
         # Mock scores: 0.95, 0.5, 0.3, 0.1
         test_scores = [np.array([0.95, 0.5]), np.array([0.3, 0.1])]
         mock_model.side_effect = test_scores * 2  # Called twice, once for each stage
-        
+
         strict_result = strict_stage.process(sample_image_batch)
-        
+
         # Reset the side effect for the second call
         mock_model.side_effect = test_scores
         lenient_result = lenient_stage.process(sample_image_batch)
@@ -190,7 +190,6 @@ class TestImageAestheticFilterStage:
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
 
-        rng = np.random.default_rng(42)
         # Test with edge case scores
         edge_scores = [np.array([0.0, 1.0])]  # Min and max possible scores
         mock_model.side_effect = edge_scores
@@ -258,7 +257,7 @@ class TestImageAestheticFilterStage:
         with patch.object(stage, "model") as mock_model:
             # With batch_size=1, should have 4 separate calls
             mock_model.side_effect = [
-                np.array([0.8]), np.array([0.9]), 
+                np.array([0.8]), np.array([0.9]),
                 np.array([0.7]), np.array([0.6])
             ]
 
@@ -306,7 +305,7 @@ class TestImageAestheticFilterStage:
                     batch_results.append(np.array([0.6] * 10))  # Keep these
                 else:
                     batch_results.append(np.array([0.4] * 10))  # Filter these
-            
+
             mock_model.side_effect = batch_results
 
             result = stage.process(large_batch)
