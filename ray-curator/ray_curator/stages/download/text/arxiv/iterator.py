@@ -119,7 +119,7 @@ class ArxivIterator(DocumentIterator):
                         try:
                             file_content = file_content.decode("utf-8")
                         except UnicodeDecodeError:
-                            logger.info(f"UnicodeDecodeError: {file_or_dir_path}")
+                            logger.debug(f"UnicodeDecodeError: {file_or_dir_path}")
                             return None
 
                         files_and_content.append(file_content)
@@ -131,19 +131,19 @@ class ArxivIterator(DocumentIterator):
                     file_content = gz.read()
             except Exception as e:  # noqa: BLE001
                 # all fails, we skip this file
-                logger.info(f"[ERROR] {e}: {file_or_dir_path}")
+                logger.debug(f"[ERROR] {e}: {file_or_dir_path}")
                 return None
 
             try:
                 file_content = file_content.decode("utf-8")
             except UnicodeDecodeError:
-                logger.info(f"UnicodeDecodeError: {file_or_dir_path}")
+                logger.debug(f"UnicodeDecodeError: {file_or_dir_path}")
                 return None
 
             files_and_content.append(file_content)
 
         except Exception as e:  # noqa: BLE001
-            print(f"[ERROR] {e}: {file_or_dir_path}")
+            logger.debug(f"[ERROR] {e}: {file_or_dir_path}")
             return None
 
         return files_and_content
@@ -186,9 +186,9 @@ class ArxivIterator(DocumentIterator):
         with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir, tarfile.open(file_path) as tf:
             # Use safe extraction instead of extractall to prevent path traversal attacks
             _safe_extract(tf, tmpdir)
-            for _i, item in enumerate(get_all_files_paths_under(tmpdir)):
+            for _i, item in enumerate(get_all_files_paths_under(tmpdir, recurse_subdirectories=True)):
                 if self._counter > 0 and self._counter % self._log_frequency == 0:
-                    print(f"Extracted {self._counter} papers from {file_path}")
+                    logger.info(f"Extracted {self._counter} papers from {file_path}")
                 self._counter += 1
 
                 tex_files = self._tex_proj_loader(item)
@@ -198,7 +198,7 @@ class ArxivIterator(DocumentIterator):
                 try:
                     clean_arxiv_id = self._format_arxiv_id(arxiv_id)
                 except Exception as e:  # noqa: BLE001
-                    print(f"[WARNING] failed to format arxiv id {arxiv_id}; exception={e}")
+                    logger.debug(f"[WARNING] failed to format arxiv id {arxiv_id}; exception={e}")
                     clean_arxiv_id = arxiv_id
 
                 if tex_files is None:

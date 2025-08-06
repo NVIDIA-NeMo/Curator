@@ -15,6 +15,8 @@
 import os
 import subprocess
 
+from loguru import logger
+
 from ray_curator.stages.download.text import DocumentDownloader
 
 
@@ -32,7 +34,7 @@ class ArxivDownloader(DocumentDownloader):
         s3path = os.path.join("s3://arxiv/src", url)
 
         if self._verbose:
-            print(f"Downloading {s3path} and writing to {path}")
+            logger.info(f"Downloading {s3path} and writing to {path}")
 
         cmd = ["s5cmd", "--request-payer=requester", "cp", s3path, path]
 
@@ -49,7 +51,7 @@ class ArxivDownloader(DocumentDownloader):
 
         if p.returncode != 0:
             if self._verbose:
-                print(f"Failed to download {s3path} to {path}")
+                logger.error(f"Failed to download {s3path} to {path}")
             return False, f"Failed to download {s3path} to {path}"
 
         return True, None

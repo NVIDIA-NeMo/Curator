@@ -71,6 +71,100 @@ class ArxivExtractor(DocumentExtractor):
 
         return macros
 
+    def _clean_tex_file(self, file_content: str, arg_macros: dict[str, str], non_arg_macros: dict[str, str]) -> str:
+        r"""function takes a tex file as input and returns a cleaned version. The
+         cleaned version is a concatenation of the tex files with the
+        following modifications:
+
+        - remove all comments (i.e. all lines starting with %)
+        - remove everything before the first section-like header
+        - remove everything after the first occurrence of either \appendix or
+            \bibliography
+        - inline-expand definitions and macros
+
+        @param file_content: the content of the tex file as a string.
+
+        @return: cleaned tex file as a string
+        """
+        # find the first occurence of a \section-like header and replace everything
+        # before it with an empty string. This matches the following pattern:
+        #   \<section-type>[optional-args]{name}
+        pattern = r"^(.*?)("
+        pattern += r"\\\bchapter\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
+        pattern += r"\\\bpart\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
+        pattern += r"\\\bsection\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
+        pattern += r"\\\bsubsection\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
+        pattern += r"\\\bsubsubsection\b\*?(?:\[(.*?)\])?\{(.*?)\}|"
+        pattern += r"\\\bparagraph\b\*?(?:\[(.*?)\])?\{(.*?)\}"
+        pattern += r"\\\bsubparagraph\b\*?(?:\[(.*?)\])?\{(.*?)\}"
+        pattern += r")"
+
+        # if no section like header is found, then we return an empty string
+        if not re.search(pattern, file_content, flags=re.DOTALL):
+            return ""
+
+        # replace everything with the second group of the match (i.e. everything
+        # after and including the section header)
+        file_content = re.sub(
+            pattern=pattern,
+            repl=r"\2",
+            string=file_content,
+            flags=re.DOTALL,  # make sure that the dot matches also newlines
+        )
+
+        # remove all line comments
+        file_content = re.sub(
+            pattern=r"(?m)^%.*\n?",
+            repl=r"",
+            string=file_content,
+            flags=re.MULTILINE,
+        )
+
+        # remove all in comments within a line
+        file_content = re.sub(
+            # pattern matches a "%" that is not preceded by a backslash (=comment)
+            pattern=r"[^\\]%.+$",
+            repl=r"",
+            string=file_content,
+            flags=re.MULTILINE,
+        )
+
+        # find the first occurence of either \appendix or \bibliography and
+        # replace everything after it with an empty string
+        pattern = r"("
+        pattern += r"\\appendix|"
+        pattern += r"\\begin\{references\}|"
+        pattern += r"\\begin\{REFERENCES\}|"
+        pattern += r"\\begin\{thebibliography\}|"
+        pattern += r"\\bibliography\{.*\}"
+        pattern += r").*$"
+
+        file_content = re.sub(
+            pattern=pattern,
+            repl=r"",
+            string=file_content,
+            flags=re.DOTALL,  # make sure that the dot matches also newlines
+        )
+
+        # inline-expand all non-arg macros
+        for macro_name, macro_value in non_arg_macros.items():
+            file_content = re.sub(
+                # make pattern grouped to make sure that the macro is not part
+                # of a longer alphanumeric word
+                pattern=r"(" + macro_name + r")" + r"([^a-zA-Z0-9])",
+                # replace the macro with its value and add back the character that
+                # was matched after the macro
+                repl=macro_value + r"\2",
+                string=file_content,
+            )
+
+        # inline-expand all macros that use args
+        # TODO: inline-expand macros with args
+        for _macro_name, _macro_value in arg_macros.items():
+            pass
+
+        return file_content
+
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
         if len(record["content"]) == 0:
             return None
