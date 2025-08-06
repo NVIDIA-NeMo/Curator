@@ -1,7 +1,5 @@
 """Unit tests for ImageReaderStage."""
 
-from __future__ import annotations
-
 import io
 import pathlib
 from unittest.mock import Mock, patch
