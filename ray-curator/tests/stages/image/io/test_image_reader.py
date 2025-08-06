@@ -3,10 +3,8 @@
 import io
 import pathlib
 from unittest.mock import Mock, patch
-
 import numpy as np
 import pytest
-
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.tasks import ImageBatch, EmptyTask
 
