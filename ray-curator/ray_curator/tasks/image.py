@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from typing import Any
+
 import numpy as np
+
 from .tasks import Task
 
 
 @dataclass
 class ImageObject:
     """Represents a single image with metadata.
-    
+
     Attributes:
         image_path: Path to the image file on disk
         image_id: Unique identifier for the image

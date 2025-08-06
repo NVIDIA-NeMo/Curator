@@ -25,31 +25,31 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
         verbose=args.verbose,
     ))
 
-    # Stage 1: Generate CLIP embeddings for images
-    pipeline.add_stage(ImageEmbeddingStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.embedding_gpus_per_worker,
-        batch_size=args.embedding_batch_size,
-        verbose=args.verbose,
-    ))
+    # # Stage 1: Generate CLIP embeddings for images
+    # pipeline.add_stage(ImageEmbeddingStage(
+    #     model_dir=args.model_dir,
+    #     num_gpus_per_worker=args.embedding_gpus_per_worker,
+    #     batch_size=args.embedding_batch_size,
+    #     verbose=args.verbose,
+    # ))
 
-    # Stage 2: Generate aesthetic quality scores and filter
-    pipeline.add_stage(ImageAestheticFilterStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-        batch_size=args.aesthetic_batch_size,
-        score_threshold=args.aesthetic_threshold,
-        verbose=args.verbose,
-    ))
+    # # Stage 2: Generate aesthetic quality scores and filter
+    # pipeline.add_stage(ImageAestheticFilterStage(
+    #     model_dir=args.model_dir,
+    #     num_gpus_per_worker=args.aesthetic_gpus_per_worker,
+    #     batch_size=args.aesthetic_batch_size,
+    #     score_threshold=args.aesthetic_threshold,
+    #     verbose=args.verbose,
+    # ))
 
-    # Stage 3: Generate NSFW probability scores and filter
-    pipeline.add_stage(ImageNSFWFilterStage(
-        model_dir=args.model_dir,
-        num_gpus_per_worker=args.nsfw_gpus_per_worker,
-        batch_size=args.nsfw_batch_size,
-        score_threshold=args.nsfw_threshold,
-        verbose=args.verbose,
-    ))
+    # # Stage 3: Generate NSFW probability scores and filter
+    # pipeline.add_stage(ImageNSFWFilterStage(
+    #     model_dir=args.model_dir,
+    #     num_gpus_per_worker=args.nsfw_gpus_per_worker,
+    #     batch_size=args.nsfw_batch_size,
+    #     score_threshold=args.nsfw_threshold,
+    #     verbose=args.verbose,
+    # ))
 
     return pipeline
 

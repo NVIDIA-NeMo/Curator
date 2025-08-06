@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from __future__ import annotations
+
 import asyncio
 import io
 import json
@@ -19,15 +21,19 @@ import os
 import tarfile
 from functools import partial
 from multiprocessing import Pool
+from typing import TYPE_CHECKING
 
 import aiofiles
 import aiohttp
 import pandas as pd
+from loguru import logger
 from PIL import Image
 from tqdm import tqdm
-from loguru import logger
 
 from ray_curator.tasks.image import ImageBatch
+
+if TYPE_CHECKING:
+    from ray_curator.tasks import ImageObject
 
 
 async def download_image(session: aiohttp.ClientSession, url: str, filename: str) -> bool:
@@ -155,7 +161,7 @@ def download_webdataset(
 
 
 def _prepare_metadata_record(
-    image_obj,
+    image_obj: ImageObject,
     new_id: str,
     old_id_col: str | None,
 ) -> dict:
@@ -187,7 +193,7 @@ def _prepare_metadata_record(
     return metadata_record
 
 
-def _add_caption_to_metadata(image_obj, metadata_record: dict) -> None:
+def _add_caption_to_metadata(image_obj: ImageObject, metadata_record: dict) -> None:
     """Add caption/text to metadata record."""
     if "caption" in image_obj.metadata:
         metadata_record["caption"] = str(image_obj.metadata["caption"])
@@ -197,7 +203,7 @@ def _add_caption_to_metadata(image_obj, metadata_record: dict) -> None:
         metadata_record["caption"] = str(image_obj.metadata["TEXT"])
 
 
-def _add_image_to_tar(tar, image_obj, new_id: str) -> None:
+def _add_image_to_tar(tar: tarfile.TarFile, image_obj: ImageObject, new_id: str) -> None:
     """Add image data to tar file if available."""
     if image_obj.image_data is not None:
         # Convert numpy array to PIL Image and save as bytes
@@ -210,7 +216,7 @@ def _add_image_to_tar(tar, image_obj, new_id: str) -> None:
         tar.addfile(image_info, fileobj=image_bytes)
 
 
-def _add_json_to_tar(tar, metadata_record: dict, new_id: str) -> None:
+def _add_json_to_tar(tar: tarfile.TarFile, metadata_record: dict, new_id: str) -> None:
     """Add JSON metadata to tar file."""
     json_data = json.dumps(metadata_record, indent=2)
     json_bytes = json_data.encode("utf-8")

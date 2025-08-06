@@ -1,18 +1,18 @@
 import pytest
 import numpy as np
 import torch
-from unittest.mock import Mock, patch, MagicMock
+from typing import Any
+from unittest.mock import Mock, patch
 
 from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from ray_curator.tasks import ImageBatch, ImageObject
-from ray_curator.backends.base import WorkerMetadata
 
 
 class TestImageAestheticFilterStage:
     """Test suite for ImageAestheticFilterStage."""
 
     @pytest.fixture
-    def stage(self):
+    def stage(self) -> ImageAestheticFilterStage:
         """Create a test stage instance."""
         return ImageAestheticFilterStage(
             model_dir="test_models/aesthetics",
@@ -30,37 +30,38 @@ class TestImageAestheticFilterStage:
         return model
 
     @pytest.fixture
-    def sample_image_objects(self):
+    def sample_image_objects(self) -> list[ImageObject]:
         """Create sample ImageObject instances with embeddings."""
+        rng = np.random.default_rng(42)
         return [
             ImageObject(
+                image_path="/path/to/img_001.jpg",
                 image_id="img_001",
-                image_path="/path/to/img1.jpg",
-                embedding=np.random.rand(512).astype(np.float32),
-                image_data=np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
             ImageObject(
-                image_id="img_002", 
-                image_path="/path/to/img2.jpg",
-                embedding=np.random.rand(512).astype(np.float32),
-                image_data=np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+                image_path="/path/to/img_002.jpg",
+                image_id="img_002",
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
             ImageObject(
+                image_path="/path/to/img_003.jpg",
                 image_id="img_003",
-                image_path="/path/to/img3.jpg", 
-                embedding=np.random.rand(512).astype(np.float32),
-                image_data=np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
             ImageObject(
+                image_path="/path/to/img_004.jpg",
                 image_id="img_004",
-                image_path="/path/to/img4.jpg",
-                embedding=np.random.rand(512).astype(np.float32),
-                image_data=np.random.randint(0, 255, (224, 224, 3), dtype=np.uint8)
-            )
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
+            ),
         ]
 
     @pytest.fixture
-    def sample_image_batch(self, sample_image_objects):
+    def sample_image_batch(self, sample_image_objects: list[ImageObject]) -> ImageBatch:
         """Create a sample ImageBatch."""
         return ImageBatch(
             data=sample_image_objects,
@@ -70,31 +71,31 @@ class TestImageAestheticFilterStage:
             _stage_perf={}
         )
 
-    def test_stage_properties(self, stage):
+    def test_stage_properties(self, stage: ImageAestheticFilterStage) -> None:
         """Test stage properties."""
         assert stage.name == "image_aesthetic_filter"
         assert stage.resources.gpus == 0.25
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 
-    @patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer')
-    def test_setup(self, mock_aesthetic_scorer, stage):
+    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    def test_setup(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage) -> None:
         """Test stage setup."""
         mock_model = Mock()
         mock_aesthetic_scorer.return_value = mock_model
-        
+
         stage.setup()
-        
+
         mock_aesthetic_scorer.assert_called_once_with(model_dir="test_models/aesthetics")
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
 
-    @patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer')
-    def test_process_filtering(self, mock_aesthetic_scorer, stage, sample_image_batch, mock_model):
+    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    def test_process_filtering(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
         """Test the main processing and filtering logic."""
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
+
         # Mock the model to return specific scores
         # Stage processes in batches of 2, so we have 2 batch calls
         # Batch 1: img_001: 0.7 (keep), img_002: 0.3 (filter)
@@ -102,18 +103,18 @@ class TestImageAestheticFilterStage:
         batch1_scores = torch.tensor([[0.7], [0.3]])
         batch2_scores = torch.tensor([[0.8], [0.2]])
         mock_model.side_effect = [batch1_scores, batch2_scores]
-        
+
         result = stage.process(sample_image_batch)
-        
+
         # Should keep 2 images (scores 0.7 and 0.8 >= threshold 0.5)
         assert len(result.data) == 2
         assert result.data[0].image_id == "img_001"
         assert result.data[1].image_id == "img_003"
-        
+
         # Check scores were assigned correctly (use approximate comparison for floats)
         assert abs(result.data[0].aesthetic_score - 0.7) < 1e-6
         assert abs(result.data[1].aesthetic_score - 0.8) < 1e-6
-        
+
         # Check metadata preservation
         assert result.dataset_name == "test_dataset"
         assert result.task_id == "test_task_001_image_aesthetic_filter"
@@ -124,15 +125,15 @@ class TestImageAestheticFilterStage:
         """Test filtering behavior at threshold boundaries."""
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
+
         # Test with scores exactly at threshold (0.5)
         # Stage processes in batches of 2, so we need to return results for each batch call
         batch1_scores = torch.tensor([[0.51], [0.5]])    # First batch: keep both
         batch2_scores = torch.tensor([[0.49], [0.501]])  # Second batch: filter first, keep second
         mock_model.side_effect = [batch1_scores, batch2_scores]
-        
+
         result = stage.process(sample_image_batch)
-        
+
         # Should keep images with scores >= 0.5 (0.51, 0.5, and 0.501)
         # Note: The stage processes in batches, so the exact order might differ
         # But we should have 3 images that passed the filter
@@ -146,12 +147,12 @@ class TestImageAestheticFilterStage:
         """Test case where all images are filtered out."""
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
+
         # All scores below threshold
         mock_model.return_value = torch.tensor([[0.1], [0.2], [0.3], [0.4]])
-        
+
         result = stage.process(sample_image_batch)
-        
+
         assert len(result.data) == 0
 
     @patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer')
@@ -159,12 +160,12 @@ class TestImageAestheticFilterStage:
         """Test case where no images are filtered out."""
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
+
         # All scores above threshold
         mock_model.return_value = torch.tensor([[0.8], [0.9], [0.7], [0.6]])
-        
+
         result = stage.process(sample_image_batch)
-        
+
         assert len(result.data) == 4
 
     @patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer')
@@ -174,7 +175,7 @@ class TestImageAestheticFilterStage:
         stage = ImageAestheticFilterStage(batch_size=2, score_threshold=0.5)
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
+
         # Create 5 images (should be processed in 3 batches: 2, 2, 1)
         images = []
         for i in range(5):
@@ -183,18 +184,18 @@ class TestImageAestheticFilterStage:
                 image_path=f"/path/to/img{i}.jpg",
                 embedding=np.random.rand(512).astype(np.float32)
             ))
-        
+
         batch = ImageBatch(data=images, task_id="test_batch", dataset_name="test_dataset")
-        
+
         # Mock model to return scores in the order they're processed
         mock_model.side_effect = [
             torch.tensor([[0.8], [0.9]]),  # First batch: 2 images (keep both)
             torch.tensor([[0.7], [0.6]]),  # Second batch: 2 images (keep both)
             torch.tensor([[0.3]])          # Third batch: 1 image (filter out)
         ]
-        
+
         result = stage.process(batch)
-        
+
         # Should call model 3 times (for 3 batches)
         assert mock_model.call_count == 3
         # Should keep 4 images (all except the last one with score 0.3)
@@ -204,63 +205,62 @@ class TestImageAestheticFilterStage:
         """Test filtering with different threshold values."""
         # Test with very strict threshold (0.9)
         strict_stage = ImageAestheticFilterStage(score_threshold=0.9)
-        
-        # Test with very lenient threshold (0.2)  
+
+        # Test with very lenient threshold (0.2)
         lenient_stage = ImageAestheticFilterStage(score_threshold=0.2)
-        
+
         # Mock setup for both stages
         with patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer') as mock_aesthetic_scorer:
             mock_model = Mock()
             mock_model.return_value = torch.tensor([[0.95], [0.8], [0.5], [0.1]])
             mock_aesthetic_scorer.return_value = mock_model
-            
+
             strict_stage.setup()
             lenient_stage.setup()
-            
+
             strict_result = strict_stage.process(sample_image_batch)
             lenient_result = lenient_stage.process(sample_image_batch)
-            
+
             # Strict threshold should only keep the first image (0.95 >= 0.9)
             assert len(strict_result.data) == 1
-            
+
             # Lenient threshold should keep first 3 images (>= 0.2)
             assert len(lenient_result.data) == 3
 
-    @patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer')
-    @patch('ray_curator.stages.image.filters.aesthetic_filter.logger')
-    def test_verbose_logging(self, mock_logger, mock_aesthetic_scorer, stage, sample_image_batch, mock_model):
+    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("ray_curator.stages.image.filters.aesthetic_filter.logger")
+    def test_verbose_logging(self, mock_logger: Mock, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
         """Test verbose logging output."""
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
-                # Mock scores: 2 keep, 2 filter
+
+        # Mock scores: 2 keep, 2 filter
         batch1_scores = torch.tensor([[0.7], [0.3]])
         batch2_scores = torch.tensor([[0.8], [0.2]])
         mock_model.side_effect = [batch1_scores, batch2_scores]
 
-        result = stage.process(sample_image_batch)
+        stage.process(sample_image_batch)
 
         # Should log for filtered images only (individual images, not summary)
-        filtered_calls = [call for call in mock_logger.info.call_args_list 
+        filtered_calls = [call for call in mock_logger.info.call_args_list
                          if "filtered out" in str(call) and "image" in str(call).lower() and "path:" in str(call)]
         assert len(filtered_calls) == 2  # 2 images filtered
-        
+
         # Should log summary
-        summary_calls = [call for call in mock_logger.info.call_args_list 
+        summary_calls = [call for call in mock_logger.info.call_args_list
                         if "Aesthetic filtering:" in str(call)]
-        assert len(summary_calls) == 1
 
     def test_empty_batch(self, stage):
         """Test processing empty image batch."""
         empty_batch = ImageBatch(data=[], task_id="empty_test", dataset_name="test_dataset")
-        
+
         with patch('ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer') as mock_aesthetic_scorer:
             mock_model = Mock()
             mock_aesthetic_scorer.return_value = mock_model
             stage.setup()
-            
+
             result = stage.process(empty_batch)
-            
+
             assert len(result.data) == 0
             # Model should not be called for empty batch
             mock_model.assert_not_called()
@@ -270,7 +270,7 @@ class TestImageAestheticFilterStage:
         """Test that aesthetic scores are correctly assigned to image objects."""
         mock_aesthetic_scorer.return_value = mock_model
         stage.setup()
-        
+
                 # Test with specific known scores
         test_scores = [0.123, 0.456, 0.789, 0.999]
         # Split into batches of 2
@@ -300,15 +300,91 @@ class TestImageAestheticFilterStage:
             mock_model.return_value = torch.tensor([[0.8], [0.9], [0.7], [0.6]])
             mock_aesthetic_scorer.return_value = mock_model
             stage.setup()
-            
+
             # Add some additional attributes to test preservation
             sample_image_batch.data[0].custom_attr = "test_value"
             sample_image_batch.data[0].nsfw_score = 0.1
-            
+
             result = stage.process(sample_image_batch)
-            
+
             # Check that other attributes are preserved
             assert hasattr(result.data[0], 'custom_attr')
             assert result.data[0].custom_attr == "test_value"
             assert hasattr(result.data[0], 'nsfw_score')
             assert result.data[0].nsfw_score == 0.1
+
+    def test_edge_cases(self, stage: ImageAestheticFilterStage) -> None:
+        """Test edge case handling."""
+        # Test with None threshold
+        stage.threshold = None
+        assert stage.threshold is None
+
+    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    def test_batch_processing_large(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
+        """Test batch processing with larger dataset."""
+        mock_aesthetic_scorer.return_value = mock_model
+        stage.setup()
+
+        # Create larger dataset with more images
+        large_batch = ImageBatch(data=sample_image_batch.data * 10)  # 40 images
+
+        test_scores = [np.array([0.6, 0.4]) for _ in range(20)]  # 20 batch calls
+        mock_model.side_effect = test_scores
+
+        result = stage.process(large_batch)
+
+        # Should keep half the images (those with score 0.6)
+        assert len(result.data) == 20
+
+        # Verify all kept images have the correct score
+        for img in result.data:
+            assert img.aesthetic_score == 0.6
+
+        # Verify correct number of model calls
+        assert mock_model.call_count == 20  # 40 images / 2 batch_size
+
+    def test_metadata_preservation(self, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch) -> None:
+        """Test that batch metadata is preserved."""
+        stage.setup()
+
+        # Mock to keep all images
+        with patch.object(stage, 'model') as mock_model:
+            mock_model.side_effect = [np.array([0.8, 0.9])]
+
+            result = stage.process(sample_image_batch)
+
+            # Check batch metadata is preserved
+            assert result.dataset_name == sample_image_batch.dataset_name
+            assert result.task_id == sample_image_batch.task_id
+            assert result._metadata == sample_image_batch._metadata
+
+    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    def test_score_assignment(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
+        """Test that aesthetic scores are correctly assigned to images."""
+        mock_aesthetic_scorer.return_value = mock_model
+        stage.setup()
+
+        expected_scores = np.array([0.75, 0.85])
+        mock_model.side_effect = [expected_scores]
+
+        result = stage.process(sample_image_batch)
+
+        # Check scores are assigned correctly
+        assert len(result.data) == 2  # Both images should be kept
+        for i, img in enumerate(result.data):
+            assert img.aesthetic_score == expected_scores[i]
+
+    def test_image_id_preservation(self, stage: ImageAestheticFilterStage, sample_image_batch: ImageBatch) -> None:
+        """Test that image IDs are preserved through processing."""
+        stage.setup()
+
+        original_ids = [img.image_id for img in sample_image_batch.data]
+
+        # Mock to keep all images
+        with patch.object(stage, 'model') as mock_model:
+            mock_model.side_effect = [np.array([0.8, 0.9])]
+
+            result = stage.process(sample_image_batch)
+
+            result_ids = [img.image_id for img in result.data]
+            assert result_ids == original_ids

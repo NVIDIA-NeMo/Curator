@@ -17,7 +17,7 @@ _NSFW_MODEL_ID = "laion/clip-autokeras-binary-nsfw"
 
 class Normalization(nn.Module):
     """Normalization layer for NSFW model.
-    
+
     Applies normalization to input tensors using pre-computed mean and variance.
     """
 

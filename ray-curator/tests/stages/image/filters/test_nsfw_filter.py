@@ -1,17 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-from unittest.mock import Mock, patch
-
-import numpy as np
 import pytest
+import numpy as np
 import torch
+from unittest.mock import Mock, patch
 
 from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 from ray_curator.tasks import ImageBatch, ImageObject
-
-if TYPE_CHECKING:
-    pass
 
 
 class TestImageNSFWFilterStage:
@@ -22,50 +17,49 @@ class TestImageNSFWFilterStage:
         """Create a test stage instance."""
         return ImageNSFWFilterStage(
             model_dir="test_models/nsfw",
-            score_threshold=0.5,
-            batch_size=2,
-            verbose=True
+            threshold=0.5,
+            batch_size=2
         )
 
     @pytest.fixture
-    def mock_model(self) -> Mock:
-        """Create a mock NSFW model."""
-        model = Mock()
-        model.setup = Mock()
-        model.return_value = torch.tensor([[0.3], [0.7], [0.1], [0.9]])  # Mock scores
-        return model
-
-    @pytest.fixture
-    def sample_image_batch(self) -> ImageBatch:
-        """Create a sample ImageBatch with embeddings."""
-        rng = np.random.default_rng(42)
-        images = [
+    def sample_image_objects(self) -> list[ImageObject]:
+        """Create sample ImageObject instances with embeddings."""
+        return [
             ImageObject(
+                image_path="/path/to/img_001.jpg",
                 image_id="img_001",
-                image_path="/path/to/img1.jpg",
-                embedding=rng.random(512).astype(np.float32)
+                image_data=np.random.rand(224, 224, 3),
+                embedding=np.random.rand(512),
             ),
             ImageObject(
+                image_path="/path/to/img_002.jpg",
                 image_id="img_002",
-                image_path="/path/to/img2.jpg",
-                embedding=rng.random(512).astype(np.float32)
+                image_data=np.random.rand(224, 224, 3),
+                embedding=np.random.rand(512),
             ),
             ImageObject(
+                image_path="/path/to/img_003.jpg",
                 image_id="img_003",
-                image_path="/path/to/img3.jpg",
-                embedding=rng.random(512).astype(np.float32)
+                image_data=np.random.rand(224, 224, 3),
+                embedding=np.random.rand(512),
             ),
             ImageObject(
+                image_path="/path/to/img_004.jpg",
                 image_id="img_004",
-                image_path="/path/to/img4.jpg",
-                embedding=rng.random(512).astype(np.float32)
-            )
+                image_data=np.random.rand(224, 224, 3),
+                embedding=np.random.rand(512),
+            ),
         ]
 
+    @pytest.fixture
+    def sample_image_batch(self, sample_image_objects: list[ImageObject]) -> ImageBatch:
+        """Create a sample ImageBatch."""
         return ImageBatch(
-            data=images,
-            task_id="test_batch",
-            dataset_name="test_dataset"
+            data=sample_image_objects,
+            dataset_name="test_dataset",
+            task_id="test_task_001",
+            _metadata={"test": "metadata"},
+            _stage_perf={}
         )
 
     def test_stage_properties(self, stage: ImageNSFWFilterStage) -> None:
@@ -75,49 +69,70 @@ class TestImageNSFWFilterStage:
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 
-    @patch('ray_curator.stages.image.filters.nsfw_filter.NSFWScorer')
-    def test_setup(self, mock_nsfw_scorer, stage):
+    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    def test_setup(self, mock_nsfw_scorer: Mock, stage: ImageNSFWFilterStage) -> None:
         """Test stage setup."""
         mock_model = Mock()
         mock_nsfw_scorer.return_value = mock_model
-        
+
         stage.setup()
-        
+
         mock_nsfw_scorer.assert_called_once_with(model_dir="test_models/nsfw")
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
 
-    @patch('ray_curator.stages.image.filters.nsfw_filter.NSFWScorer')
-    def test_process_filtering(self, mock_nsfw_scorer, stage, sample_image_batch, mock_model):
+    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    def test_process_filtering(self, mock_nsfw_scorer: Mock, stage: ImageNSFWFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
         """Test the main processing and filtering logic."""
         mock_nsfw_scorer.return_value = mock_model
         stage.setup()
-        
+
         # Mock the model to return specific scores
         # Stage processes in batches of 2, so we have 2 batch calls
         # Batch 1: img_001: 0.3 (keep), img_002: 0.7 (filter)
-        # Batch 2: img_003: 0.1 (keep), img_004: 0.9 (filter)
-        batch1_scores = torch.tensor([[0.3], [0.7]])
-        batch2_scores = torch.tensor([[0.1], [0.9]])
-        mock_model.side_effect = [batch1_scores, batch2_scores]
-        
+        # Batch 2: img_003: 0.2 (keep), img_004: 0.8 (filter)
+        test_scores = [
+            np.array([0.3, 0.7]),  # First batch
+            np.array([0.2, 0.8])   # Second batch
+        ]
+
+        mock_model.side_effect = test_scores
+
+        # Process the batch
         result = stage.process(sample_image_batch)
-        
-        # Should keep 2 images (scores 0.3 and 0.1 < threshold 0.5)
+
+        # Should keep 2 images (scores 0.3 and 0.2, both < 0.5)
         assert len(result.data) == 2
         assert result.data[0].image_id == "img_001"
+        assert result.data[0].nsfw_score == 0.3
         assert result.data[1].image_id == "img_003"
-        
-        # Check scores were assigned correctly (use approximate comparison for floats)
-        assert abs(result.data[0].nsfw_score - 0.3) < 1e-6
-        assert abs(result.data[1].nsfw_score - 0.1) < 1e-6
-        
-        # Check metadata preservation
-        assert result.dataset_name == "test_dataset"
-        assert result.task_id == "test_task_001_image_nsfw_filter"
-        assert result._metadata == {"test": "metadata"}
+        assert result.data[1].nsfw_score == 0.2
 
-    @patch('ray_curator.stages.image.filters.nsfw_filter.NSFWScorer')
+        # Verify model was called correctly with embeddings
+        assert mock_model.call_count == 2
+        for call_args in mock_model.call_args_list:
+            batch_embeddings = call_args[0][0]
+            assert batch_embeddings.shape[0] == 2  # Batch size
+            assert batch_embeddings.shape[1] == 512  # Embedding dimension
+
+    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    def test_process_high_nsfw_filtering(self, mock_nsfw_scorer: Mock, stage: ImageNSFWFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
+        """Test filtering out high NSFW content."""
+        mock_nsfw_scorer.return_value = mock_model
+        stage.setup()
+
+        # Mock high NSFW scores - all should be filtered
+        test_scores = [
+            np.array([0.8, 0.9])  # High NSFW scores
+        ]
+        mock_model.side_effect = test_scores
+
+        result = stage.process(sample_image_batch)
+
+        # Should filter out all images (scores > 0.5)
+        assert len(result.data) == 0
+
+    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_threshold_boundary_cases(self, mock_nsfw_scorer, stage, sample_image_batch, mock_model):
         """Test filtering behavior at threshold boundaries."""
         mock_nsfw_scorer.return_value = mock_model

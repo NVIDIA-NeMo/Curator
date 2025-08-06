@@ -84,7 +84,7 @@ class CLIPImageEmbeddings(ModelInterface):
             # (N, H, W, C) -> (N, C, H, W)
             images = torch.from_numpy(images).permute(0, 3, 1, 2).to(self.device)
 
-        inputs = self.processor(images=images, return_tensors="pt")['pixel_values']
+        inputs = self.processor(images=images, return_tensors="pt")["pixel_values"]
         inputs = inputs.to(self.device)
         embed = self.clip.get_image_features(pixel_values=inputs)
 

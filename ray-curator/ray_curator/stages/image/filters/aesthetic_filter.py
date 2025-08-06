@@ -10,6 +10,9 @@ from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import ImageBatch
 
+# Constants
+DEBUG_LOW_AESTHETIC_THRESHOLD = 0.1  # Threshold for debug logging of very low aesthetic scores
+
 
 @dataclass
 class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
@@ -75,7 +78,7 @@ class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
                 image_obj.aesthetic_score = float(scores[i])
 
                 # Debug: show paths of images with very low aesthetic scores
-                if image_obj.aesthetic_score < 0.1:
+                if image_obj.aesthetic_score < DEBUG_LOW_AESTHETIC_THRESHOLD:
                     logger.info(
                         f"[DEBUG] Low aesthetic score: {image_obj.aesthetic_score:.3f} - "
                         f"Image {image_obj.image_id} (path: {image_obj.image_path})"

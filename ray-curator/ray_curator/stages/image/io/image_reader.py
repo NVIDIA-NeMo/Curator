@@ -74,7 +74,7 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
                 image_data=image_data
             )
 
-        except (OSError, IOError, Image.UnidentifiedImageError) as e:
+        except (OSError, Image.UnidentifiedImageError) as e:
             if self.verbose:
                 logger.error(f"Error loading image {member.name} from {tar_path}: {e}")
             return None
@@ -101,7 +101,7 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
                         images.append(image_obj)
                         total_images_loaded += 1
 
-        except (tarfile.ReadError, OSError, IOError) as e:
+        except (tarfile.ReadError, OSError) as e:
             if self.verbose:
                 logger.error(f"Error processing tar file {tar_path}: {e}")
 
