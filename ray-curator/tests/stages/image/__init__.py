@@ -1,1 +1,1 @@
-"""Tests for image processing stages.""" 
+"""Tests for image processing stages."""

@@ -2,4 +2,4 @@
 
 from .clip_embedder import ImageEmbeddingStage
 
-__all__ = ["ImageEmbeddingStage"] 
+__all__ = ["ImageEmbeddingStage"]

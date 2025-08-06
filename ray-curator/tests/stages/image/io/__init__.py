@@ -1,1 +1,1 @@
-"""Tests for image I/O stages.""" 
+"""Tests for image I/O stages."""

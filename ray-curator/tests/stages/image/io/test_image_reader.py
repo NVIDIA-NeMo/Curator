@@ -199,7 +199,7 @@ class TestImageReaderStage:
         assert len(files) >= 0  # Should return some files
         mock_rglob.assert_called()
 
-    def test_error_handling(self, stage: ImageReaderStage) -> None:
+    def test_error_handling(self) -> None:
         """Test error handling for invalid paths."""
         # Test with non-existent path
         invalid_stage = ImageReaderStage(

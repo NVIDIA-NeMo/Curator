@@ -1,1 +1,1 @@
-"""Tests for image embedding stages.""" 
+"""Tests for image embedding stages."""

@@ -1,1 +1,1 @@
-"""Tests for image filtering stages.""" 
+"""Tests for image filtering stages."""
