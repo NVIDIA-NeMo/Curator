@@ -42,7 +42,7 @@ class TestArxivUrlGenerator:
         assert "s3://arxiv/src/" in mock_run.call_args[0][0]
 
         # Check result URLs
-        assert len(result) == 3  # noqa: PLR2004
+        assert len(result) == 3
         assert result == [
             "s3://arxiv/src/arXiv_src_1804_001.tar",
             "s3://arxiv/src/arXiv_src_1805_001.tar",
