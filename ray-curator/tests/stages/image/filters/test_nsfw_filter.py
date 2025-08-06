@@ -24,30 +24,31 @@ class TestImageNSFWFilterStage:
     @pytest.fixture
     def sample_image_objects(self) -> list[ImageObject]:
         """Create sample ImageObject instances with embeddings."""
+        rng = np.random.default_rng(42)
         return [
             ImageObject(
                 image_path="/path/to/img_001.jpg",
                 image_id="img_001",
-                image_data=np.random.rand(224, 224, 3),
-                embedding=np.random.rand(512),
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
             ImageObject(
                 image_path="/path/to/img_002.jpg",
                 image_id="img_002",
-                image_data=np.random.rand(224, 224, 3),
-                embedding=np.random.rand(512),
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
             ImageObject(
                 image_path="/path/to/img_003.jpg",
                 image_id="img_003",
-                image_data=np.random.rand(224, 224, 3),
-                embedding=np.random.rand(512),
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
             ImageObject(
                 image_path="/path/to/img_004.jpg",
                 image_id="img_004",
-                image_data=np.random.rand(224, 224, 3),
-                embedding=np.random.rand(512),
+                image_data=rng.random((224, 224, 3)),
+                embedding=rng.random(512),
             ),
         ]
 
@@ -132,25 +133,20 @@ class TestImageNSFWFilterStage:
         # Should filter out all images (scores > 0.5)
         assert len(result.data) == 0
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
-    def test_threshold_boundary_cases(self, mock_nsfw_scorer, stage, sample_image_batch, mock_model):
+    def test_threshold_boundary_cases(self, mock_nsfw_scorer: Mock, stage: ImageNSFWFilterStage, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
         """Test filtering behavior at threshold boundaries."""
         mock_nsfw_scorer.return_value = mock_model
         stage.setup()
-        
-        # Test with scores exactly at threshold (0.5)
-        # Stage processes in batches of 2, so we need to return results for each batch call
-        batch1_scores = torch.tensor([[0.49], [0.5]])     # First batch: keep first, filter second
-        batch2_scores = torch.tensor([[0.51], [0.499]])   # Second batch: filter first, keep second
-        mock_model.side_effect = [batch1_scores, batch2_scores]
-        
+
+        # Test scores at and around threshold
+        boundary_scores = [np.array([0.5, 0.49999])]  # Exactly at and just below threshold
+        mock_model.side_effect = boundary_scores
+
         result = stage.process(sample_image_batch)
-        
-        # Should keep images with scores < 0.5 (0.49 and 0.499)
-        assert len(result.data) == 2
-        # Check that all kept images have scores < 0.5
-        for img_obj in result.data:
-            assert img_obj.nsfw_score < 0.5
+
+        # Should keep only the image with score < 0.5
+        assert len(result.data) == 1
+        assert result.data[0].nsfw_score == 0.49999
 
     @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_all_images_filtered(

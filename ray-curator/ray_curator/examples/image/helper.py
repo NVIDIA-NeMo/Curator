@@ -30,10 +30,9 @@ from loguru import logger
 from PIL import Image
 from tqdm import tqdm
 
-from ray_curator.tasks.image import ImageBatch
-
 if TYPE_CHECKING:
     from ray_curator.tasks import ImageObject
+    from ray_curator.tasks.image import ImageBatch
 
 
 async def download_image(session: aiohttp.ClientSession, url: str, filename: str) -> bool:
