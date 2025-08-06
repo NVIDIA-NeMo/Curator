@@ -21,7 +21,7 @@ Quickly access core NeMo Curator API references. Use these links to jump directl
 :gutter: 1 1 1 2
 
 :::{grid-item-card} {octicon}`code;1.5em;sd-mr-1` Classifiers API
-:link: /apidocs/nemo_curator/nemo_curator.classifiers.html
+:link: ../apidocs/classifiers/classifiers.html
 :link-type: url
 Core classifier base classes and interfaces.
 +++
@@ -31,7 +31,7 @@ Core classifier base classes and interfaces.
 :::
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Datasets API
-:link: /apidocs/nemo_curator/nemo_curator.datasets.html
+:link: ../apidocs/datasets/datasets.html
 :link-type: url
 APIs for document and parallel datasets.
 +++
@@ -41,7 +41,7 @@ APIs for document and parallel datasets.
 :::
 
 :::{grid-item-card} {octicon}`git-branch;1.5em;sd-mr-1` Deduplication API
-:link: /apidocs/nemo_curator/nemo_curator.modules.semantic_dedup.html
+:link: ../apidocs/modules/modules.semantic_dedup.html
 :link-type: url
 Deduplication and semantic deduplication tools.
 +++
@@ -50,7 +50,7 @@ Deduplication and semantic deduplication tools.
 :::
 
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Download API
-:link: /apidocs/nemo_curator/nemo_curator.download.html
+:link: ../apidocs/download/download.html
 :link-type: url
 APIs for downloading and building datasets from external sources.
 +++
@@ -60,7 +60,7 @@ APIs for downloading and building datasets from external sources.
 :::
 
 :::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filters API
-:link: /apidocs/nemo_curator/nemo_curator.filters.html
+:link: ../apidocs/filters/filters.html
 :link-type: url
 Filtering and quality control APIs.
 +++
@@ -70,7 +70,7 @@ Filtering and quality control APIs.
 :::
 
 :::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image API
-:link: /apidocs/nemo_curator/nemo_curator.image.html
+:link: ../apidocs/image/image.html
 :link-type: url
 Image processing, classifiers, and embedders.
 +++
@@ -79,7 +79,7 @@ Image processing, classifiers, and embedders.
 :::
 
 :::{grid-item-card} {octicon}`tools;1.5em;sd-mr-1` Modifiers API
-:link: /apidocs/nemo_curator/nemo_curator.modifiers.html
+:link: ../apidocs/modifiers/modifiers.html
 :link-type: url
 Text and data modification utilities.
 +++
@@ -88,7 +88,7 @@ Text and data modification utilities.
 :::
 
 :::{grid-item-card} {octicon}`shield-check;1.5em;sd-mr-1` PII API
-:link: /apidocs/nemo_curator/nemo_curator.pii.html
+:link: ../apidocs/pii/pii.html
 :link-type: url
 PII detection, recognizers, and redaction tools.
 +++
@@ -97,7 +97,7 @@ PII detection, recognizers, and redaction tools.
 :::
 
 :::{grid-item-card} {octicon}`plug;1.5em;sd-mr-1` Services API
-:link: /apidocs/nemo_curator/nemo_curator.services.html
+:link: ../apidocs/services/services.html
 :link-type: url
 Service clients and integrations.
 +++
@@ -105,17 +105,17 @@ Service clients and integrations.
 {bdg-secondary}`openai-client`
 :::
 
-:::{grid-item-card} {octicon}`terminal;1.5em;sd-mr-1` Scripts API
-:link: /apidocs/nemo_curator/nemo_curator.scripts.html
+:::{grid-item-card} {octicon}`terminal;1.5em;sd-mr-1` NeMo Run API
+:link: ../apidocs/nemo_run/nemo_run.html
 :link-type: url
-Scripts for data processing and management.
+NeMo Run integration for distributed execution.
 +++
-{bdg-secondary}`data-processing`
-{bdg-secondary}`training`
+{bdg-secondary}`slurm`
+{bdg-secondary}`distributed`
 :::
 
 :::{grid-item-card} {octicon}`zap;1.5em;sd-mr-1` Synthetic Data API
-:link: /apidocs/nemo_curator/nemo_curator.synthetic.html
+:link: ../apidocs/synthetic/synthetic.html
 :link-type: url
 Synthetic data generation modules.
 +++
@@ -125,7 +125,7 @@ Synthetic data generation modules.
 
 
 :::{grid-item-card} {octicon}`checklist;1.5em;sd-mr-1` Tasks API
-:link: /apidocs/nemo_curator/nemo_curator.tasks.html
+:link: ../apidocs/tasks/tasks.html
 :link-type: url
 Task definitions and metrics.
 +++
@@ -134,7 +134,7 @@ Task definitions and metrics.
 :::
 
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Utils API
-:link: /apidocs/nemo_curator/nemo_curator.utils.html
+:link: ../apidocs/utils/utils.html
 :link-type: url
 General utility functions and helpers.
 +++
