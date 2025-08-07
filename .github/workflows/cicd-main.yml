@@ -164,6 +164,7 @@ jobs:
         id: check
         shell: bash
         run: |
+          cd ray-curator
           python -m coverage xml
           python -m coverage report
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
