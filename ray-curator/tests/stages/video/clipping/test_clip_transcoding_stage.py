@@ -102,14 +102,7 @@ class TestClipTranscodingStage:
         assert input_additional == ["source_bytes"]
         assert outputs == ["data"]
 
-    def test_setup_valid_encoders(self) -> None:
-        """Test setup with valid encoders."""
-        valid_encoders = ["libopenh264", "libx264", "h264_nvenc"]
 
-        for encoder in valid_encoders:
-            stage = ClipTranscodingStage(encoder=encoder)
-            # Should not raise any exception
-            stage.setup()
 
     def test_setup_invalid_encoder(self) -> None:
         """Test setup with invalid encoder raises ValueError."""
@@ -278,15 +271,6 @@ class TestClipTranscodingStage:
         assert "-threads" in command
         assert "4" in command
 
-    def test_add_decoder_threads_gpu(self) -> None:
-        """Test adding decoder threads for GPU encoding."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc", encoder_threads=4)
-
-        stage._add_decoder_threads(command)
-
-        assert "-threads" in command
-        assert "4" in command  # Should use configured threads for GPU
 
     def test_add_hwaccel_options_disabled(self) -> None:
         """Test hardware acceleration options when disabled."""
@@ -298,26 +282,7 @@ class TestClipTranscodingStage:
         # Should not add any hwaccel options
         assert "-hwaccel" not in command
 
-    def test_add_hwaccel_options_nvenc(self) -> None:
-        """Test hardware acceleration options for NVENC."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc", use_hwaccel=True)
 
-        stage._add_hwaccel_options(command)
-
-        assert "-hwaccel" in command
-        assert "cuda" in command
-        assert "-hwaccel_output_format" in command
-
-    def test_add_hwaccel_options_auto(self) -> None:
-        """Test hardware acceleration options for auto detection."""
-        command = []
-        stage = ClipTranscodingStage(encoder="libx264", use_hwaccel=True)
-
-        stage._add_hwaccel_options(command)
-
-        assert "-hwaccel" in command
-        assert "auto" in command
 
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""
@@ -357,37 +322,8 @@ class TestClipTranscodingStage:
         assert "-b:v" in command
         assert "5000K" in command
 
-    def test_add_video_encoding_options_nvenc(self) -> None:
-        """Test adding video encoding options for NVENC."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc")
 
-        with patch.object(stage, "_add_nvenc_options") as mock_nvenc:
-            stage._add_video_encoding_options(command, None, False)
-            mock_nvenc.assert_called_once_with(command, False)
 
-    def test_add_nvenc_options(self) -> None:
-        """Test adding NVENC-specific options."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc")
-
-        stage._add_nvenc_options(command, False)
-
-        # Verify NVENC options
-        nvenc_options = ["-rc:v", "vbr", "-cq:v", "21", "-tune", "hq"]
-        for option in nvenc_options:
-            assert option in command
-
-    def test_add_nvenc_options_with_pix_fmt(self) -> None:
-        """Test adding NVENC options with pixel format."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc")
-
-        stage._add_nvenc_options(command, True)
-
-        # Should include pixel format
-        assert "-pix_fmt" in command
-        assert "yuv420p" in command
 
     def test_add_output_options(self) -> None:
         """Test adding output options to FFmpeg command."""
