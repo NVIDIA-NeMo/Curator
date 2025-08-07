@@ -14,9 +14,9 @@
 
 import pytest
 
+
 @pytest.mark.gpu
 def test_basic_cudf_dataframe():
-
     import cudf
 
     df = cudf.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
