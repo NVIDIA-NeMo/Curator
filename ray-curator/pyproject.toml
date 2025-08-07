@@ -75,7 +75,7 @@ all = [
 packages = ["ray_curator"]
 
 [tool.coverage.paths]
-source = ["./ray-curator", "/workspace/ray-curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator"]
+source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]
 
 [tool.ruff]
 line-length = 119

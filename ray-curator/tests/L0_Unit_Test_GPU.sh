@@ -11,4 +11,4 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-CUDA_VISIBLE_DEVICES="0,1" coverage run -a --data-file=/workspace/.coverage --source=/workspace/ray_curator -m pytest -m gpu --rootdir /workspace/ray_curator ray_curator/tests
+CUDA_VISIBLE_DEVICES="0,1" coverage run -a --data-file=/workspace/.coverage --source=/workspace/ray-curator/ray_curator -m pytest -m gpu --rootdir /workspace/ray-curator ray-curator/tests
