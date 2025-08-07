@@ -7,6 +7,12 @@ from loguru import logger
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.utils.storage_utils import get_storage_client
+import ray_curator.utils.storage_utils as storage_utils
+from ray_curator.stages.io.reader.client_partitioning import ClientPartitioningStage
+from ray_curator.utils.storage_client import StoragePrefix
+
 from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
@@ -33,6 +39,8 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     Note:
         Currently supports local filesystem paths only. S3 support is planned for future releases.
     """
+    input_path: str | None = None
+    input_s3_profile_name: str | None = None
     verbose: bool = False
     _name: str = "video_reader"
 
@@ -55,6 +63,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         """
         return ["data"], ["source_bytes", "metadata"]
 
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+        self.storage_client = get_storage_client(self.input_path, profile_name=self.input_s3_profile_name)
+
     def process(self, task: FileGroupTask) -> VideoTask:
         """Process a video task by reading file bytes and extracting metadata.
 
@@ -73,11 +84,17 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         if len(files) != 1:
             msg = f"Expected 1 file, got {len(files)}"
             raise ValueError(msg)
-        file_path = Path(files[0])
+        
+        breakpoint()
+        if self.storage_client is None:
+            # We assume that the file_path is local if we cannot initialize the storage client
+            file_path = Path(files[0])
+        else:
+            file_path = storage_utils._get_s3_prefix(self.input_path, files[0])
 
         video = Video(input_video=file_path)
         video_task = VideoTask(
-            task_id=f"{file_path}_processed",
+            task_id=f"{files[0]}_processed",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=deepcopy(task._metadata),
@@ -119,15 +136,21 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             raise TypeError(msg)
 
         try:
-            if isinstance(video.input_video, pathlib.Path):
+            if self.storage_client is not None:
+                logger.info(f"****Reading video bytes from S3: {video.input_video}")
+                video.source_bytes = storage_utils.read_bytes(video.input_video, self.storage_client)
+                logger.info(f"****Done Reading video bytes from S3: {video.input_video}")
+                breakpoint()
+
+            elif isinstance(video.input_video, pathlib.Path):
                 with video.input_video.open("rb") as fp:
                     video.source_bytes = fp.read()
-            # @aot TODO: Add support for S3
             else:
                 _raise_s3_error()
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
+            raise e
             return False
 
         if video.source_bytes is None:
@@ -232,6 +255,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         verbose: Whether to enable verbose logging during download/processing
     """
     input_video_path: str
+    input_s3_profile_name: str = 'default'
     video_limit: int | None = -1
     verbose: bool = False
 
@@ -249,14 +273,24 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         Returns:
             List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
-        reader_stage = FilePartitioningStage(
+        # reader_stage = FilePartitioningStage(
+        #     file_paths=self.input_video_path,
+        #     files_per_partition=1,
+        #     file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+        #     limit=self.video_limit,
+        # )
+
+        reader_stage = ClientPartitioningStage(
             file_paths=self.input_video_path,
+            input_s3_profile_name=self.input_s3_profile_name,
             files_per_partition=1,
             file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
             limit=self.video_limit,
         )
 
         download_stage = VideoReaderStage(
+            input_path=self.input_video_path,
+            input_s3_profile_name=self.input_s3_profile_name,
             verbose=self.verbose
         )
 
