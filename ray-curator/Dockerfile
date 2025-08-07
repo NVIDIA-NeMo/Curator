@@ -53,7 +53,7 @@ WORKDIR /opt
 # Final stage
 ##############################################################################
 
-FROM curator_dep AS nemo_curator_final
+FROM curator_dep AS nemo_curator
 
 # Install NeMo-Curator
 # ARG TARGET_ARCH
@@ -63,9 +63,13 @@ FROM curator_dep AS nemo_curator_final
 # ENV NEMO_FW_CURATOR_COMMIT=$CURATOR_COMMIT
 # ENV NEMO_FW_CURATOR_VERSION=$CURATOR_VERSION
 
-# this line is temp solution to current mpi4py install issue: remove later
 COPY . .
 RUN cd ray-curator && \
     pip install --extra-index-url https://pypi.nvidia.com -e ".[all]"
 
 WORKDIR /workspace
+
+FROM nemo_curator as nemo_curator_dev
+
+RUN cd /opt/ray-curator && \
+    pip install ".[dev]"
