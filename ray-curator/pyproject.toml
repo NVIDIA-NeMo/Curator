@@ -73,6 +73,10 @@ all = [
 
 [tool.setuptools]
 packages = ["ray_curator"]
+
+[tool.coverage.paths]
+source = ["./ray-curator", "/workspace/ray-curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator"]
+
 [tool.ruff]
 line-length = 119
 [tool.ruff.lint]
