@@ -41,7 +41,9 @@ text = [
     # Filters
     "fasttext==0.9.3",
     "sentencepiece",
-    "mwparserfromhell==0.6.5"
+    "mwparserfromhell==0.6.5",
+    # Aegis
+    "peft",
 ]
 cuda12x = [
     "cudf-cu12==25.6.*",
