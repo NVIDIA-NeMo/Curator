@@ -12,13 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
+GPU_INSTALL_STRING = """Install GPU packages via `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]`
+or use `pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"` if installing from source"""
 
-from ray_curator.utils.import_utils import gpu_only_import
 
-cudf = gpu_only_import("cudf")
-
-@pytest.mark.gpu
-def test_basic_cudf_dataframe():
-    df = cudf.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
-    assert len(df) == 3
+def is_cudf_type(obj: object) -> bool:
+    """
+    Check if an object is a cuDF type
+    """
+    types = [
+        str(type(obj)),
+        str(getattr(obj, "_partition_type", "")),
+        str(getattr(obj, "_meta", "")),
+    ]
+    return any("cudf" in obj_type for obj_type in types)
