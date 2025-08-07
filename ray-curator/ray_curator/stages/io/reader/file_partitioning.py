@@ -80,6 +80,9 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         dataset_name = self._get_dataset_name(files)
 
         for i, file_group in enumerate(partitions):
+            if self.limit is not None and len(tasks) >= self.limit:
+                logger.info(f"Reached limit of {self.limit} file groups")
+                break
             file_task = FileGroupTask(
                 task_id=f"file_group_{i}",
                 dataset_name=dataset_name,
@@ -93,9 +96,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 reader_config={},  # Empty - will be populated by reader stage
             )
             tasks.append(file_task)
-            if self.limit and len(tasks) >= self.limit:
-                logger.info(f"Reached limit of {self.limit} file groups")
-                break
 
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks

@@ -39,7 +39,9 @@ This tutorial demonstrates how a user can process a subset the Llama Nemotron da
 
 Setup requirements:
 
-- Hardware: CPU is sufficient, GPU is recommended for enhanced performance
+- Hardware:
+  - This tutorial can be run entire on a CPU with 4 workers 64GB RAM.
+  - This tutorial can also be run on a single H100 GPU.
 - Recommended environment: This tutorial was developed and tested with a Conda environment
 
 Please refer to NeMo Curator's [README](https://github.com/NVIDIA/NeMo-Curator?tab=readme-ov-file#get-started) for instructions on how to download NeMo Curator via PyPI, source, or Docker.

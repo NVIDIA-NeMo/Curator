@@ -3,6 +3,8 @@ This tutorial demonstrates how to use NVIDIA's NeMo Curator library to modify te
 
 PII modification with NeMo Curator provides a sophisticated approach to privacy protection while maintaining data utility. The LLM-based modifiers offer intelligent, context-aware transformations that preserve the natural flow and usefulness of the dataset.
 
+It is important to note that using cloud-hosted NIMs defeats the purpose of data privacy. For this tutorial, we use NVIDIA-hosted NIMs for easier usage. However, it is recommeded to use self-deployed LLMs when it comes to sensitive data.
+
 ## Usage
 
 The tutorial follows the steps below:
