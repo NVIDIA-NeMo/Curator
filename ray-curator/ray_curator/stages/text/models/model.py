@@ -1,0 +1,164 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import gc
+import os
+from collections.abc import Generator
+from typing import Literal
+
+os.environ["RAPIDS_NO_INITIALIZE"] = "1"
+
+import numpy as np
+import pandas as pd
+import torch
+from huggingface_hub import snapshot_download
+
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks import DocumentBatch
+
+from .utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, SEQ_ORDER_COLUMN, clip_tokens, format_name_with_suffix
+
+
+class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """
+    Base class for Hugging Face model inference.
+
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
+        pred_column: The name of the prediction column.
+        model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
+        has_seq_order: Whether to sort the input data by the length of the input tokens.
+            Sorting is encouraged to improve the performance of the inference model. Defaults to True.
+        padding_side: The side to pad the input tokens. Defaults to "right".
+
+    """
+
+    def __init__(  # noqa: PLR0913
+        self,
+        model_identifier: str,
+        hf_token: str | None = None,
+        model_inference_batch_size: int = 256,
+        has_seq_order: bool = True,
+        padding_side: Literal["left", "right"] = "right",
+        unpack_inference_batch: bool = False,
+    ):
+        self._name = format_name_with_suffix(model_identifier, suffix="_model")
+        # Assume that the model can fit on a single GPU
+        self._resources = Resources(cpus=1, gpus=1)
+
+        self.model_identifier = model_identifier
+        self.hf_token = hf_token
+        self.model_inference_batch_size = model_inference_batch_size
+        self.has_seq_order = has_seq_order
+        self.padding_side = padding_side
+        self.unpack_inference_batch = unpack_inference_batch
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN] + ([SEQ_ORDER_COLUMN] if self.has_seq_order else [])
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.model_identifier}"
+            raise RuntimeError(msg) from e
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
+
+    def yield_next_batch(self, df: pd.DataFrame) -> Generator[dict[str, torch.Tensor]]:
+        """
+        Yields a generator of model inputs for the next batch.
+        We only move the batch to the GPU to reduce the memory overhead.
+
+        Args:
+            df (pd.DataFrame): The Pandas DataFrame (with input_ids and attention_mask) to process.
+
+        Yields:
+            Generator[dict[str, torch.Tensor]]: A generator of model inputs for the next batch.
+
+        """
+        for i in range(0, len(df), self.model_inference_batch_size):
+            yield clip_tokens(
+                {
+                    INPUT_ID_COLUMN: torch.tensor(
+                        df[INPUT_ID_COLUMN][i : i + self.model_inference_batch_size].tolist()
+                    ).to(self.model.device),
+                    ATTENTION_MASK_COLUMN: torch.tensor(
+                        df[ATTENTION_MASK_COLUMN][i : i + self.model_inference_batch_size].tolist()
+                    ).to(self.model.device),
+                },
+                padding_side=self.padding_side,
+            )
+
+    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
+
+    def collect_outputs(self, processed_outputs: list[dict[str, np.ndarray]]) -> dict[str, np.ndarray]:
+        result = {}
+        for key in processed_outputs[0]:
+            result[key] = np.concatenate([out[key] for out in processed_outputs], axis=0)
+        return result
+
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
+        msg = "Subclasses must implement this method"
+        raise NotImplementedError(msg)
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        processed_outputs = []
+        df_cpu = batch.to_pandas()
+
+        for model_input_batch in self.yield_next_batch(df_cpu):
+            # Forward pass
+            with torch.no_grad():
+                if self.unpack_inference_batch:
+                    outputs = self.model(**model_input_batch)
+                else:
+                    outputs = self.model(model_input_batch)
+
+            del model_input_batch
+
+            processed_output = self.process_model_output(outputs)
+            processed_outputs.append(processed_output)
+
+        # Collect all outputs
+        collected_output = self.collect_outputs(processed_outputs)
+
+        # Create output Pandas DataFrame
+        df_cpu = self.create_output_dataframe(df_cpu, collected_output)
+
+        # Sort by seq_order to preserve original order from tokenizer
+        if self.has_seq_order:
+            df_cpu = df_cpu.sort_values(by=SEQ_ORDER_COLUMN, ignore_index=True).drop(columns=[SEQ_ORDER_COLUMN])
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_cpu,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+    def teardown(self) -> None:
+        gc.collect()
+        torch.cuda.empty_cache()
