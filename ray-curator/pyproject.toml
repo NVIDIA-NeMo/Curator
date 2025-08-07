@@ -25,10 +25,10 @@ dependencies = [
     "mecab-python3",
     "openai>=1.0.0",
     "pyarrow",
+    "pynvml==11.5.3",
     "ray[default,data]>=2.48",
     "torch",
     "transformers>=4.48.0",
-    "pynvml==11.5.3",
 ]
 [project.optional-dependencies]
 text = [
@@ -61,10 +61,16 @@ dev = [
     "pytest-loguru",
     "ruff==0.11.4",
 ]
-
 video = [
     "av==13.1.0",
     "opencv-python",
+    "torchvision",
+    "einops",
+]
+video_cuda = [
+    "PyNvVideoCodec==1.0.2",
+    "cvcuda_cu12",
+    "pycuda",
 ]
 
 [tool.setuptools]
