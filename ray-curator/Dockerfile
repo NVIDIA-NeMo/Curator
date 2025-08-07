@@ -67,3 +67,5 @@ FROM curator_dep AS nemo_curator_final
 COPY . .
 RUN cd ray-curator && \
     pip install --extra-index-url https://pypi.nvidia.com -e ".[all]"
+
+WORKDIR /workspace
