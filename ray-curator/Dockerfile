@@ -37,10 +37,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12-dev \
     python3 \
     python3-dev \
+    python3-opencv \
     python3-venv \
     python-is-python3\
     curl \
-    git && \
+    git \
     rm -rf /var/lib/apt/lists/*
 
 RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
