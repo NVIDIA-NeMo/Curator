@@ -174,3 +174,6 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         return {
             "num_workers_per_node": self.downloader.num_workers_per_node(),
         }
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}

@@ -95,3 +95,6 @@ class DocumentExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             },
             _stage_perf=task._stage_perf,
         )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
