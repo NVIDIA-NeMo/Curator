@@ -33,7 +33,7 @@ FROM cuda AS build
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
 # Install pixi
-RUN apt-get update && apt-get install -y curl ca-certificates \
+RUN apt-get update && apt-get install -y curl ca-certificates git \
     && curl -fsSL https://pixi.sh/install.sh | bash \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/root/.pixi/bin:$PATH"
@@ -61,7 +61,7 @@ FROM cuda AS nemo_curator
 
 WORKDIR /opt
 
-RUN apt-get update && apt-get install -y ca-certificates \
+RUN apt-get update && apt-get install -y ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
