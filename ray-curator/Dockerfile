@@ -27,30 +27,31 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 ########################################################################
 # Base image
 ########################################################################
-FROM cuda AS curator_dep
+
+FROM cuda AS build
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
-ENV PIP_BREAK_SYSTEM_PACKAGES=1
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12-dev \
-    python3 \
-    python3-dev \
-    python3-venv \
-    python-is-python3\
-    curl \
-    ffmpeg \
-    git \
-    libsm6 \
-    libxext6 && \
-    rm -rf /var/lib/apt/lists/*
+# Install pixi
+RUN apt-get update && apt-get install -y curl ca-certificates \
+    && curl -fsSL https://pixi.sh/install.sh | bash \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH="/root/.pixi/bin:$PATH"
 
-RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
-    python get-pip.py && \
-    rm get-pip.py
+WORKDIR /tmp
 
-WORKDIR /opt
+# Copy configuration files
+COPY ray-curator/pyproject.toml ray-curator/pixi.lock* ./
+
+# Install dependencies
+RUN pixi install
+
+# Create activation script
+RUN pixi shell-hook -s bash > /shell-hook && \
+    echo "#!/bin/bash" > /app/entrypoint.sh && \
+    cat /shell-hook >> /app/entrypoint.sh && \
+    echo 'exec "$@"' >> /app/entrypoint.sh && \
+    chmod +x /app/entrypoint.sh
 
 ##############################################################################
 # Final stage
@@ -58,21 +59,20 @@ WORKDIR /opt
 
 FROM curator_dep AS nemo_curator
 
-# Install NeMo-Curator
-# ARG TARGET_ARCH
-# ARG CURATOR_COMMIT
-# ARG CURATOR_VERSION
+WORKDIR /opt
 
-# ENV NEMO_FW_CURATOR_COMMIT=$CURATOR_COMMIT
-# ENV NEMO_FW_CURATOR_VERSION=$CURATOR_VERSION
+RUN apt-get update && apt-get install -y ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
-RUN cd ray-curator && \
-    pip install --extra-index-url https://pypi.nvidia.com -e ".[all]"
+
+# Copy pixi environment
+COPY --from=build /app/.pixi/envs/default /app/.pixi/envs/default
+COPY --from=build /app/entrypoint.sh /app/entrypoint.sh
 
 WORKDIR /workspace
 
-FROM nemo_curator as nemo_curator_dev
+FROM nemo_curator AS nemo_curator_dev
 
 RUN cd /opt/ray-curator && \
-    pip install ".[dev]"
+    pxix install -e dev
