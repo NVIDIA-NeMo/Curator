@@ -42,7 +42,7 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, TypeVar, cast, overload
 
-from ray_curator.stages.base import ProcessingStage, _STAGE_REGISTRY
+from ray_curator.stages.base import _STAGE_REGISTRY, ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import Task
 
