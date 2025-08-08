@@ -19,8 +19,6 @@ from ray_curator.stages.function_decorators import processing_stage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import Task
 
-# TODO: Add tests for ray pipelines too
-
 
 class MockTask(Task[int]):
     """Simple Task subclass for testing the decorator."""
