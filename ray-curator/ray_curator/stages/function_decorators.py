@@ -27,7 +27,7 @@ from ray_curator.stages.function_decorators import processing_stage
 
 @processing_stage(name="WordCountStage", resources=Resources(cpus=1.0), batch_size=1)
 def word_count(task: SampleTask) -> SampleTask:
-    # Add a *word_count* column to the task's dataframe
+    # Add a *word_count* column to the task's DataFrame
     task.data["word_count"] = task.data["sentence"].str.split().str.len()
     return task
 ```
@@ -60,7 +60,7 @@ TOut = TypeVar("TOut", bound=Task)
 def processing_stage(
     *,
     name: str,
-    resources: Resources | None = None,
+    resources: Resources | dict[str, float] | None = None,
     batch_size: int | None = None,
 ) -> Callable[[Callable[[TIn], TOut | list[TOut]]], ProcessingStage[TIn, TOut]]: ...
 
@@ -68,7 +68,7 @@ def processing_stage(
 def processing_stage(
     *,
     name: str,
-    resources: Resources | None = None,
+    resources: Resources | dict[str, float] | None = None,
     batch_size: int | None = None,
 ) -> Callable[[Callable[[TIn], TOut | list[TOut]]], ProcessingStage]:
     """Decorator that converts a function into a :class:`ProcessingStage`.
@@ -78,20 +78,23 @@ def processing_stage(
     name:
         The *name* assigned to the resulting stage (``ProcessingStage.name``).
     resources:
-        Optional :class:`ray_curator.stages.resources.Resources` describing the
-        required compute resources.  If *None* a default of ``Resources()`` is
-        used.
+        Optional :class:`ray_curator.stages.resources.Resources`
+        or dict[str, float] describing the required compute resources.
+        If *None* a default of ``Resources()`` is used.
     batch_size:
-        Optional *batch size* for the stage.  ``None`` means *no explicit batch
+        Optional *batch size* for the stage. ``None`` means *no explicit batch
         size* (executor decides).
 
     The decorated function **must**:
-    1. Accept exactly one positional argument:  a :class:`Task` instance (or
+    1. Accept exactly one positional argument: a :class:`Task` instance (or
        subclass).
     2. Return either a single :class:`Task` instance or a ``list`` of tasks.
     """
 
-    resources = resources or Resources()  # Ensure we always have a Resources obj
+    if isinstance(resources, dict):
+        resources = Resources(**resources)
+    else:
+        resources = resources or Resources()  # Ensure we always have a Resources obj
 
     def decorator(func: Callable[[TIn], TOut | list[TOut]]) -> ProcessingStage:
         """Inner decorator that builds and *instantiates* a ProcessingStage."""
@@ -126,7 +129,7 @@ def processing_stage(
                     out._stage_perf = task._stage_perf.copy()
                 return out
 
-            # The user requested to “not worry about inputs/outputs”, so we leave
+            # The user requested to "not worry about inputs/outputs", so we leave
             # them as the base-class defaults (empty lists).
 
         # Give the dynamically-created class a *nice* __name__ so that logs and
