@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Utility decorators for creating ProcessingStage instances from simple functions.
 
 This module provides a :func:`processing_stage` decorator that turns a plain
@@ -28,7 +42,7 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, TypeVar, cast, overload
 
-from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.base import ProcessingStage, _STAGE_REGISTRY
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import Task
 
@@ -112,6 +126,9 @@ def processing_stage(
         # instead of the function name to avoid confusion.
         _FunctionProcessingStage.__name__ = name
         _FunctionProcessingStage.__qualname__ = name
+
+        # Fix the registry so it matches the new name
+        _STAGE_REGISTRY[name] = _STAGE_REGISTRY.pop("_FunctionProcessingStage")
 
         # Instantiate and return the stage so that the decorator can be used as
         # a drop-in replacement for a class instance in pipeline definitions.
