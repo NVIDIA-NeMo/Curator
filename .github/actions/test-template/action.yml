@@ -173,10 +173,7 @@ runs:
         cmd=$(cat <<'RUN_TEST_EOF'
         #!/bin/bash
 
-        docker exec -t nemo_container_${{ github.run_id }} bash -c '
-          set -e
-
-          bash /opt/entrypoint.sh
+        docker exec -t nemo_container_${{ github.run_id }} /opt/entrypoint.sh '
           bash ray-curator/tests/${{ inputs.script }}.sh
         '
 
