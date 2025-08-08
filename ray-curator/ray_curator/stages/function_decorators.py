@@ -93,8 +93,8 @@ def processing_stage(
 
     if isinstance(resources, dict):
         resources = Resources(**resources)
-    else:
-        resources = resources or Resources()  # Ensure we always have a Resources obj
+    elif resources is None:
+        resources = Resources()  # Ensure we always have a Resources obj
 
     def decorator(func: Callable[[TIn], TOut | list[TOut]]) -> ProcessingStage:
         """Inner decorator that builds and *instantiates* a ProcessingStage."""
