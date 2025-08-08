@@ -14,7 +14,7 @@
 
 import pytest
 
-from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.base import ProcessingStage, get_stage_class
 from ray_curator.stages.function_decorators import processing_stage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import Task
@@ -45,7 +45,7 @@ resources_inc = Resources(cpus=1.5)
 
 
 @processing_stage(name="IncrementStage", resources=resources_inc, batch_size=4)
-def _increment(task: MockTask) -> MockTask:
+def increment_stage(task: MockTask) -> MockTask:
     task.data += 1
     return task
 
@@ -55,7 +55,7 @@ resources_dup = Resources(cpus=0.5)
 
 
 @processing_stage(name="DuplicateStage", resources=resources_dup, batch_size=2)
-def _duplicate(task: MockTask) -> list[MockTask]:
+def duplicate_stage(task: MockTask) -> list[MockTask]:
     return [task, task]
 
 
@@ -72,7 +72,7 @@ class TestProcessingStageDecorator:
         with the supplied configuration values.
         """
 
-        stage = _increment  # Decorator replaces the function with an instance
+        stage = increment_stage  # Decorator replaces the function with an instance
         assert isinstance(stage, ProcessingStage)
         assert stage.name == "IncrementStage"
         assert stage.resources == resources_inc
@@ -81,7 +81,7 @@ class TestProcessingStageDecorator:
     def test_process_single_task(self) -> None:
         """process() should delegate to the wrapped function and return a task."""
 
-        stage = _increment
+        stage = increment_stage
         task = MockTask(value=0)
         result = stage.process(task)
         assert isinstance(result, MockTask)
@@ -91,7 +91,7 @@ class TestProcessingStageDecorator:
     def test_process_list_output(self) -> None:
         """Stage should support functions that return lists of tasks."""
 
-        stage = _duplicate
+        stage = duplicate_stage
         task = MockTask(value=42)
         result = stage.process(task)
         assert isinstance(result, list)
@@ -108,5 +108,10 @@ class TestProcessingStageDecorator:
         with pytest.raises(ValueError):  # noqa: PT011
 
             @processing_stage(name="BadStage")
-            def _bad(task: MockTask, _: int):  # type: ignore[valid-type]  # noqa: ANN202
+            def bad_stage(task: MockTask, _: int):  # type: ignore[valid-type]  # noqa: ANN202
                 return task
+
+    def test_stage_registry(self) -> None:
+        """Uses get_stage_class to ensure that stage names are in the _STAGE_REGISTRY."""
+        assert get_stage_class("IncrementStage") is not None
+        assert get_stage_class("DuplicateStage") is not None
