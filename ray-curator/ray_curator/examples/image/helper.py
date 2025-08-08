@@ -35,16 +35,26 @@ if TYPE_CHECKING:
     from ray_curator.tasks.image import ImageBatch
 
 
-async def download_image(session: aiohttp.ClientSession, url: str, filename: str) -> bool:
-    try:
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-            if response.status == 200:  # noqa: PLR2004
-                async with aiofiles.open(filename, mode="wb") as f:
-                    await f.write(await response.read())
-                return True
-    except (aiohttp.ClientError, asyncio.TimeoutError, Exception) as e:
-        # Log download failures for debugging but continue processing
-        logger.debug(f"Failed to download {url}: {e}")
+async def download_image(session: aiohttp.ClientSession, url: str, filename: str, retries: int = 3) -> bool:
+    for attempt in range(1, retries + 1):
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                if response.status == 200:
+                    async with aiofiles.open(filename, mode="wb") as f:
+                        await f.write(await response.read())
+                    return True
+                else:
+                    if attempt > 1:  # only log on retry attempts, not first try
+                        logger.debug(f"[Attempt {attempt}] Failed to download {url}: HTTP status {response.status}")
+        except (aiohttp.ClientError, asyncio.TimeoutError, Exception) as e:
+            if attempt > 1:  # only log on retry attempts, not first try
+                logger.debug(f"[Attempt {attempt}] Failed to download {url}: {e}")
+
+        if attempt < retries:
+            await asyncio.sleep(1)  # small delay before retry
+
+    # After all retries failed, log once
+    logger.debug(f"All {retries} attempts failed for {url}")
     return False
 
 
@@ -72,7 +82,7 @@ async def process_batch(batch: pd.DataFrame, output_dir: str, batch_num: int) ->
             meta = {"url": url, "caption": caption, "key": key}
             metadatas.append(meta)
 
-            tasks.append(download_image(session, url, jpg_filename))
+            tasks.append(download_image(session, url, jpg_filename, retries=3))
 
             async with aiofiles.open(txt_filename, mode="w") as f:
                 await f.write(caption)

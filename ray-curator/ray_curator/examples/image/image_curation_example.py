@@ -9,44 +9,50 @@ from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
+from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 
 
 def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
-    """Create image curation pipeline with image reading, embedding, aesthetic scoring, and NSFW detection stages."""
+    """Create image curation pipeline with file partitioning, image reading, embedding, aesthetic scoring, and NSFW detection stages."""
 
     # Define pipeline
     pipeline = Pipeline(name="image_curation", description="Curate images with embeddings and quality scoring")
 
-    # Stage 0: Read images from webdataset
+    # Stage 0: Partition tar files for parallel processing
+    pipeline.add_stage(FilePartitioningStage(
+        file_paths=args.input_wds_dataset_dir,
+        files_per_partition=args.tar_files_per_partition,
+        file_extensions=[".tar"],
+    ))
+
+    # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
-        input_dataset_path=args.input_wds_dataset_dir,
-        image_limit=args.image_limit,
-        batch_size=args.reader_batch_size,
+        task_batch_size=args.task_batch_size,
         verbose=args.verbose,
     ))
 
-    # Stage 1: Generate CLIP embeddings for images
+    # Stage 2: Generate CLIP embeddings for images
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.embedding_gpus_per_worker,
-        batch_size=args.embedding_batch_size,
+        model_batch_size=args.embedding_batch_size,
         verbose=args.verbose,
     ))
 
-    # Stage 2: Generate aesthetic quality scores and filter
+    # Stage 3: Generate aesthetic quality scores and filter
     pipeline.add_stage(ImageAestheticFilterStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-        batch_size=args.aesthetic_batch_size,
+        model_batch_size=args.aesthetic_batch_size,
         score_threshold=args.aesthetic_threshold,
         verbose=args.verbose,
     ))
 
-    # Stage 3: Generate NSFW probability scores and filter
+    # Stage 4: Generate NSFW probability scores and filter
     pipeline.add_stage(ImageNSFWFilterStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.nsfw_gpus_per_worker,
-        batch_size=args.nsfw_batch_size,
+        model_batch_size=args.nsfw_batch_size,
         score_threshold=args.nsfw_threshold,
         verbose=args.verbose,
     ))
@@ -62,8 +68,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
     print(f"Output webdataset directory: {args.output_wds_dataset_dir}")
     print(f"Model directory: {args.model_dir}")
-    print(f"Image limit: {args.image_limit if args.image_limit > 0 else 'No limit'}")
-    print(f"Reader batch size: {args.reader_batch_size}")
+    print(f"Tar files per partition: {args.tar_files_per_partition}")
+    print(f"Task batch size: {args.task_batch_size}")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
@@ -78,7 +84,6 @@ def main(args: argparse.Namespace) -> None:
         download_webdataset(
             parquet_path=args.input_parquet,
             output_dir=args.input_wds_dataset_dir,
-            entries_per_tar=args.entries_per_tar,
             num_processes=args.download_processes
         )
 
@@ -106,13 +111,13 @@ def main(args: argparse.Namespace) -> None:
     # Execute pipeline
     results = pipeline.run(executor)
 
-    # Save output to webs
-    save_imagebatch_to_webdataset(
-        image_batches=results,
-        output_path=args.output_wds_dataset_dir,
-        samples_per_shard=args.samples_per_shard,
-        max_shards=args.max_shards,
-    )
+    # # Save output to webs
+    # save_imagebatch_to_webdataset(
+    #     image_batches=results,
+    #     output_path=args.output_wds_dataset_dir,
+    #     samples_per_shard=args.samples_per_shard,
+    #     max_shards=args.max_shards,
+    # )
     end_time = time.time()
 
     # Calculate and print execution time
@@ -151,12 +156,6 @@ if __name__ == "__main__":
         help="Directory to save the resulting webdataset"
     )
     parser.add_argument(
-        "--entries-per-tar",
-        type=int,
-        default=10000,
-        help="Number of images per tar file in the webdataset"
-    )
-    parser.add_argument(
         "--download-processes",
         type=int,
         default=2,
@@ -171,13 +170,13 @@ if __name__ == "__main__":
 
     # Image reader arguments
     parser.add_argument(
-        "--image-limit",
+        "--tar-files-per-partition",
         type=int,
-        default=-1,
-        help="Limit the number of images to process (-1 for no limit)"
+        default=1,
+        help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage"
     )
     parser.add_argument(
-        "--reader-batch-size",
+        "--task-batch-size",
         type=int,
         default=100,
         help="Number of images per ImageBatch for the reader stage"

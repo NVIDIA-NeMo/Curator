@@ -23,7 +23,7 @@ class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
     """
     model_dir: str = "models/aesthetics"
     num_gpus_per_worker: float = 0.25
-    batch_size: int = 32
+    model_batch_size: int = 32  # Number of images to process through model at once
     score_threshold: float = 0.5
     verbose: bool = False
 
@@ -61,8 +61,8 @@ class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
 
         # Process images in batches to generate scores
         num_images = len(task.data)
-        for batch_start in range(0, num_images, self.batch_size):
-            batch_end = min(batch_start + self.batch_size, num_images)
+        for batch_start in range(0, num_images, self.model_batch_size):
+            batch_end = min(batch_start + self.model_batch_size, num_images)
             batch_images = task.data[batch_start:batch_end]
 
             # Stack embeddings into batch tensor (N, embedding_dim)

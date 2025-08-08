@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
-from ray_curator.tasks import ImageBatch, EmptyTask
+from ray_curator.tasks import ImageBatch, FileGroupTask
 
 
 class TestImageReaderStage:
@@ -16,9 +16,7 @@ class TestImageReaderStage:
     def stage(self) -> ImageReaderStage:
         """Create a test ImageReaderStage instance."""
         return ImageReaderStage(
-            data_path="/test/path",
-            batch_size=2,
-            image_limit=10,
+            task_batch_size=2,
             verbose=True
         )
 
@@ -41,41 +39,47 @@ class TestImageReaderStage:
         rng = np.random.default_rng(42)
         return rng.integers(0, 255, size=1024, dtype=np.uint8).tobytes()
 
+    @pytest.fixture
+    def sample_file_group_task(self) -> FileGroupTask:
+        """Create a sample FileGroupTask for testing."""
+        return FileGroupTask(
+            task_id="test_task_1",
+            dataset_name="test_dataset",
+            data=["/test/path/file1.tar", "/test/path/file2.tar"]
+        )
+
     def test_stage_properties(self, stage: ImageReaderStage) -> None:
         """Test basic stage properties."""
         assert stage.name == "image_reader"
-        assert stage.data_path == "/test/path"
-        assert stage.batch_size == 2
-        assert stage.image_limit == 10
+        assert stage.task_batch_size == 2
         assert stage.verbose is True
         assert stage.inputs() == ([], [])
-        assert stage.outputs() == (["data"], [])
+        assert stage.outputs() == (["data"], ["image_data", "image_path", "image_id"])
 
-    @patch("ray_curator.stages.image.io.image_reader.ImageReaderStage._get_files")
-    def test_process_empty_directory(self, mock_get_files: Mock, stage: ImageReaderStage) -> None:
-        """Test processing when no files are found."""
-        mock_get_files.return_value = []
+    def test_process_empty_task(self, stage: ImageReaderStage) -> None:
+        """Test processing when task has no files."""
+        empty_task = FileGroupTask(
+            task_id="empty_task",
+            dataset_name="test_dataset", 
+            data=[]
+        )
 
-        result = stage.process(EmptyTask())
+        result = stage.process(empty_task)
 
         assert isinstance(result, list)
         assert len(result) == 0
 
     @patch("ray_curator.stages.image.io.image_reader.Image.open")
     @patch("ray_curator.stages.image.io.image_reader.tarfile.open")
-    @patch("ray_curator.stages.image.io.image_reader.ImageReaderStage._get_files")
     def test_process_tar_files(
         self,
-        mock_get_files: Mock,
         mock_tarfile_open: Mock,
         mock_pil_open: Mock,
         stage: ImageReaderStage,
-        mock_tar_files: list[Mock]
+        mock_tar_files: list[Mock],
+        sample_file_group_task: FileGroupTask
     ) -> None:
         """Test processing tar files with images."""
-        # Setup mocks
-        mock_get_files.return_value = [pathlib.Path("/test/archive.tar")]
-
         # Mock tar file
         mock_tar = Mock()
         mock_tar.getmembers.return_value = mock_tar_files
@@ -85,21 +89,25 @@ class TestImageReaderStage:
         rng = np.random.default_rng(42)
         mock_image_array = rng.integers(0, 255, size=(224, 224, 3), dtype=np.uint8)
         mock_pil_image = Mock()
-        mock_pil_image.__array__.return_value = mock_image_array
-        mock_pil_open.return_value = mock_pil_image
+        mock_pil_image.convert.return_value = mock_pil_image
+        
+        # Mock numpy array conversion and PIL Image context manager
+        with patch("ray_curator.stages.image.io.image_reader.np.array", return_value=mock_image_array):
+            mock_pil_open.return_value.__enter__.return_value = mock_pil_image
 
-        # Mock extractfile to return image data
-        mock_image_data = b"fake_image_data"
-        mock_tar.extractfile.return_value = io.BytesIO(mock_image_data)
+            # Mock extractfile to return image data
+            mock_image_data = b"fake_image_data"
+            mock_tar.extractfile.return_value = io.BytesIO(mock_image_data)
 
-        result = stage.process(EmptyTask())
+            result = stage.process(sample_file_group_task)
 
-        # Verify results
-        assert isinstance(result, list)
-        assert len(result) == 2  # 4 images / batch_size=2
-        for batch in result:
-            assert isinstance(batch, ImageBatch)
-            assert len(batch.data) <= 2  # batch_size
+            # Verify results
+            assert isinstance(result, list)
+            # Should have 4 batches: 2 tar files * 4 images each / batch_size=2 = 4 batches
+            assert len(result) == 4
+            for batch in result:
+                assert isinstance(batch, ImageBatch)
+                assert len(batch.data) <= 2  # task_batch_size
 
     def test_batch_creation(self, stage: ImageReaderStage) -> None:
         """Test image batch creation with different sizes."""
@@ -120,42 +128,21 @@ class TestImageReaderStage:
         assert len(batches[1].data) == 2
         assert len(batches[2].data) == 1
 
-    def test_image_limit_enforcement(self) -> None:
-        """Test that image limit is properly enforced."""
-        stage_with_limit = ImageReaderStage(
-            data_path="/test/path",
-            batch_size=10,
-            image_limit=3,
+    def test_task_batch_size_enforcement(self) -> None:
+        """Test that task_batch_size is properly enforced."""
+        stage_with_large_batch = ImageReaderStage(
+            task_batch_size=10,
             verbose=False
         )
 
         from ray_curator.tasks.image import ImageObject
-        images = [ImageObject(image_id=f"img_{i}", image_path=f"/path/img_{i}.jpg") for i in range(10)]
+        images = [ImageObject(image_id=f"img_{i}", image_path=f"/path/img_{i}.jpg") for i in range(25)]
 
-        # Should only keep first 3 images
-        limited_images = images[:stage_with_limit.image_limit]
-        batches = stage_with_limit._create_image_batches(limited_images)
-
-        total_images = sum(len(batch.data) for batch in batches)
-        assert total_images == 3
-
-    def test_file_filtering(self) -> None:
-        """Test that only tar files are processed."""
-        test_files = [
-            pathlib.Path("/test/valid.tar"),
-            pathlib.Path("/test/valid.tar.gz"),
-            pathlib.Path("/test/invalid.txt"),
-            pathlib.Path("/test/invalid.zip"),
-        ]
-
-        filtered = [f for f in test_files if self._is_tar_file(f)]
-        assert len(filtered) == 2
-        assert pathlib.Path("/test/valid.tar") in filtered
-        assert pathlib.Path("/test/valid.tar.gz") in filtered
-
-    def _is_tar_file(self, file_path: pathlib.Path) -> bool:
-        """Helper method to check if file is a tar file."""
-        return file_path.suffix in [".tar"] or file_path.name.endswith(".tar.gz")
+        batches = stage_with_large_batch._create_image_batches(images)
+        assert len(batches) == 3  # 25 images / 10 batch_size = 3 batches
+        assert len(batches[0].data) == 10
+        assert len(batches[1].data) == 10
+        assert len(batches[2].data) == 5
 
     def test_verbose_logging(self, stage: ImageReaderStage) -> None:
         """Test verbose logging functionality."""
@@ -163,51 +150,10 @@ class TestImageReaderStage:
 
         # Test with verbose disabled
         quiet_stage = ImageReaderStage(
-            data_path="/test/path",
-            batch_size=2,
-            image_limit=-1,
+            task_batch_size=2,
             verbose=False
         )
         assert quiet_stage.verbose is False
-
-    def test_unlimited_images(self) -> None:
-        """Test processing with no image limit."""
-        unlimited_stage = ImageReaderStage(
-            data_path="/test/path",
-            batch_size=5,
-            image_limit=-1,  # No limit
-            verbose=False
-        )
-        assert unlimited_stage.image_limit == -1
-
-    @patch("ray_curator.stages.image.io.image_reader.pathlib.Path.rglob")
-    def test_get_files_method(self, mock_rglob: Mock, stage: ImageReaderStage) -> None:
-        """Test the _get_files method."""
-        mock_files = [
-            pathlib.Path("/test/file1.tar"),
-            pathlib.Path("/test/file2.tar.gz"),
-            pathlib.Path("/test/subdir/file3.tar")
-        ]
-        mock_rglob.return_value = mock_files
-
-        files = stage._get_files()
-
-        assert len(files) >= 0  # Should return some files
-        mock_rglob.assert_called()
-
-    def test_error_handling(self) -> None:
-        """Test error handling for invalid paths."""
-        # Test with non-existent path
-        invalid_stage = ImageReaderStage(
-            data_path="/nonexistent/path",
-            batch_size=2,
-            image_limit=10,
-            verbose=False
-        )
-
-        # Should handle gracefully
-        result = invalid_stage.process(EmptyTask())
-        assert isinstance(result, list)
 
     def test_batch_metadata(self, stage: ImageReaderStage) -> None:
         """Test that batches have proper metadata."""
@@ -218,46 +164,127 @@ class TestImageReaderStage:
         assert len(batches) == 1
 
         batch = batches[0]
-        assert batch.dataset_name == "image_reader_dataset"
-        assert batch.task_id.startswith("image_reader_")
+        assert batch.dataset_name == "tar_files"
+        assert batch.task_id.startswith("image_batch_")
         assert isinstance(batch._metadata, dict)
 
-    def test_stage_setup(self, stage: ImageReaderStage) -> None:
-        """Test stage setup method."""
-        # Should not raise any exceptions
-        stage.setup()
+    @patch("ray_curator.stages.image.io.image_reader.tarfile.open")
+    def test_error_handling(self, mock_tarfile_open: Mock, stage: ImageReaderStage) -> None:
+        """Test error handling for invalid tar files."""
+        # Mock tarfile.open to raise an error
+        mock_tarfile_open.side_effect = FileNotFoundError("File not found")
+        
+        task_with_invalid_file = FileGroupTask(
+            task_id="invalid_task",
+            dataset_name="test_dataset",
+            data=["/nonexistent/path.tar"]
+        )
 
-    def test_stage_teardown(self, stage: ImageReaderStage) -> None:
-        """Test stage teardown method."""
-        # Should not raise any exceptions
-        stage.teardown()
+        # Should handle gracefully
+        result = stage.process(task_with_invalid_file)
+        assert isinstance(result, list)
+        assert len(result) == 0
 
-    def test_resource_allocation(self, stage: ImageReaderStage) -> None:
-        """Test that stage has proper resource allocation."""
-        resources = stage.resources
-        assert resources.cpu is None  # CPU not specified
-        assert resources.memory is None  # Memory not specified
-        assert resources.gpus == 0  # No GPU needed for I/O
+    @patch("ray_curator.stages.image.io.image_reader.Image.open")
+    @patch("ray_curator.stages.image.io.image_reader.tarfile.open")
+    def test_image_loading_error_handling(
+        self,
+        mock_tarfile_open: Mock,
+        mock_pil_open: Mock,
+        stage: ImageReaderStage,
+        sample_file_group_task: FileGroupTask
+    ) -> None:
+        """Test error handling when image loading fails."""
+        # Setup mock tar file with one member
+        mock_member = Mock()
+        mock_member.name = "corrupted.jpg"
+        mock_member.isfile.return_value = True
+        
+        mock_tar = Mock()
+        mock_tar.getmembers.return_value = [mock_member]
+        mock_tar.extractfile.return_value = io.BytesIO(b"corrupted_data")
+        mock_tarfile_open.return_value.__enter__.return_value = mock_tar
 
-    def test_concurrent_processing_safety(self, stage: ImageReaderStage) -> None:
-        """Test that processing can be done safely in concurrent environments."""
-        # Processing should be stateless and safe for concurrent execution
-        task1 = EmptyTask()
-        task2 = EmptyTask()
+        # Mock PIL to raise an error that will be caught
+        from PIL import Image
+        mock_pil_open.side_effect = Image.UnidentifiedImageError("Corrupted image")
 
-        # Both should work independently
-        result1 = stage.process(task1)
-        result2 = stage.process(task2)
+        # Suppress the tqdm progress bar for cleaner test output
+        with patch("ray_curator.stages.image.io.image_reader.tqdm", side_effect=lambda x, **kwargs: x):
+            result = stage.process(sample_file_group_task)
 
-        assert isinstance(result1, list)
-        assert isinstance(result2, list)
+        # Should handle gracefully and return empty list since all images failed
+        assert isinstance(result, list)
+        assert len(result) == 0  # No valid images processed
+
+    def test_stage_name(self, stage: ImageReaderStage) -> None:
+        """Test that stage has correct name."""
+        assert stage.name == "image_reader"
+
+    def test_default_values(self) -> None:
+        """Test default parameter values."""
+        default_stage = ImageReaderStage()
+        assert default_stage.task_batch_size == 100
+        assert default_stage.verbose is True
+        assert default_stage.name == "image_reader"
 
     @patch("ray_curator.stages.image.io.image_reader.logger")
-    def test_logging_calls(self, mock_logger: Mock, stage: ImageReaderStage) -> None:
+    def test_logging_calls(self, mock_logger: Mock, stage: ImageReaderStage, sample_file_group_task: FileGroupTask) -> None:
         """Test that appropriate logging calls are made."""
-        # Process empty task to trigger logging
-        stage.process(EmptyTask())
+        with patch("ray_curator.stages.image.io.image_reader.tarfile.open") as mock_tarfile:
+            mock_tar = Mock()
+            mock_tar.getmembers.return_value = []
+            mock_tarfile.return_value.__enter__.return_value = mock_tar
+            
+            # Process task to trigger logging
+            stage.process(sample_file_group_task)
 
-        # Should have made some logging calls if verbose
-        if stage.verbose:
-            assert mock_logger.info.called or mock_logger.debug.called
+            # Should have made some logging calls if verbose
+            if stage.verbose:
+                assert mock_logger.info.called
+
+    @patch("ray_curator.stages.image.io.image_reader.Image.open")
+    @patch("ray_curator.stages.image.io.image_reader.tarfile.open")
+    def test_image_id_extraction(
+        self,
+        mock_tarfile_open: Mock,
+        mock_pil_open: Mock,
+        stage: ImageReaderStage,
+        sample_file_group_task: FileGroupTask
+    ) -> None:
+        """Test that image IDs are correctly extracted from filenames."""
+        # Setup mock tar file with specific filename
+        mock_member = Mock()
+        mock_member.name = "sample_image_123.jpg"
+        mock_member.isfile.return_value = True
+        
+        mock_tar = Mock()
+        mock_tar.getmembers.return_value = [mock_member]
+        mock_tar.extractfile.return_value = io.BytesIO(b"fake_image_data")
+        mock_tarfile_open.return_value.__enter__.return_value = mock_tar
+
+        # Mock PIL image
+        rng = np.random.default_rng(42)
+        mock_image_array = rng.integers(0, 255, size=(224, 224, 3), dtype=np.uint8)
+        mock_pil_image = Mock()
+        mock_pil_image.convert.return_value = mock_pil_image
+        
+        # Mock numpy array conversion and PIL Image context manager
+        with patch("ray_curator.stages.image.io.image_reader.np.array", return_value=mock_image_array):
+            mock_pil_open.return_value.__enter__.return_value = mock_pil_image
+
+            # Limit to one file for simpler testing
+            single_file_task = FileGroupTask(
+                task_id="single_file_task",
+                dataset_name="test_dataset",
+                data=[sample_file_group_task.data[0]]
+            )
+
+            result = stage.process(single_file_task)
+
+            # Verify image ID extraction
+            assert len(result) == 1
+            batch = result[0]
+            assert len(batch.data) == 1
+            image_obj = batch.data[0]
+            assert image_obj.image_id == "sample_image_123"  # .jpg should be removed

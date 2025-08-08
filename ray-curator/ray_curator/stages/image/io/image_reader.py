@@ -1,22 +1,21 @@
 import pathlib
 import tarfile
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from loguru import logger
 from PIL import Image
+from tqdm import tqdm
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import ImageBatch, ImageObject, _EmptyTask
-from ray_curator.utils.file_utils import get_all_files_paths_under
+from ray_curator.tasks import ImageBatch, ImageObject, FileGroupTask
 
 
 @dataclass
-class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
+class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     """Stage that reads webdataset tar files and loads images into ImageBatch objects."""
-    input_dataset_path: str
-    image_limit: int = -1
-    batch_size: int = 100
+    task_batch_size: int = 100  # Number of images per ImageBatch object
     verbose: bool = True
     _name: str = "image_reader"
 
@@ -25,29 +24,6 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["image_data", "image_path", "image_id"]
-
-    def _find_tar_files(self) -> list[pathlib.Path]:
-        """Find all tar files in the dataset directory."""
-        if self.input_dataset_path is None:
-            msg = "input_dataset_path is not set"
-            raise ValueError(msg)
-
-        tar_files = get_all_files_paths_under(
-            self.input_dataset_path,
-            recurse_subdirectories=True,
-            keep_extensions=[".tar"],
-        )
-
-        if self.verbose:
-            logger.info(f"Found {len(tar_files)} tar files under {self.input_dataset_path}")
-
-        if len(tar_files) == 0:
-            if self.verbose:
-                logger.warning(f"No tar files found in {self.input_dataset_path}")
-            return []
-
-        # Convert string paths to pathlib.Path objects
-        return [pathlib.Path(tar_path) if isinstance(tar_path, str) else tar_path for tar_path in tar_files]
 
     def _load_image_from_member(self, member: tarfile.TarInfo, tar: tarfile.TarFile, tar_path: pathlib.Path) -> ImageObject | None:
         """Load a single image from a tar member."""
@@ -79,12 +55,9 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
                 logger.error(f"Error loading image {member.name} from {tar_path}: {e}")
             return None
 
-    def _process_tar_file(self, tar_path: pathlib.Path, total_images_loaded: int) -> tuple[list[ImageObject], int]:
+    def _process_tar_file(self, tar_path: pathlib.Path) -> list[ImageObject]:
         """Process a single tar file and return loaded images."""
         images = []
-
-        if self.verbose:
-            logger.info(f"Processing tar file: {tar_path}")
 
         try:
             with tarfile.open(tar_path, "r") as tar:
@@ -92,63 +65,57 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
                 image_members = [m for m in tar.getmembers() if m.name.endswith(".jpg") and m.isfile()]
 
                 for member in image_members:
-                    # Check image limit
-                    if self.image_limit > 0 and total_images_loaded >= self.image_limit:
-                        break
-
                     image_obj = self._load_image_from_member(member, tar, tar_path)
                     if image_obj is not None:
                         images.append(image_obj)
-                        total_images_loaded += 1
 
         except (tarfile.ReadError, OSError) as e:
             if self.verbose:
                 logger.error(f"Error processing tar file {tar_path}: {e}")
 
-        return images, total_images_loaded
+        return images
 
     def _create_image_batches(self, all_image_objects: list[ImageObject]) -> list[ImageBatch]:
         """Create ImageBatch objects from a list of ImageObjects."""
         image_batches = []
-        for i in range(0, len(all_image_objects), self.batch_size):
-            batch_images = all_image_objects[i:i + self.batch_size]
+        for i in range(0, len(all_image_objects), self.task_batch_size):
+            batch_images = all_image_objects[i:i + self.task_batch_size]
 
             image_batch = ImageBatch(
-                task_id=f"image_batch_{i // self.batch_size}",
-                dataset_name=self.input_dataset_path,
+                task_id=f"image_batch_{i // self.task_batch_size}",
+                dataset_name="tar_files",
                 data=batch_images
             )
             image_batches.append(image_batch)
 
         if self.verbose:
-            logger.info(f"Created {len(image_batches)} ImageBatch objects with batch_size={self.batch_size}")
+            logger.info(f"Created {len(image_batches)} ImageBatch objects with task_batch_size={self.task_batch_size}")
 
         return image_batches
 
-    def process(self, _: _EmptyTask) -> list[ImageBatch]:
-        """Process webdataset tar files and create ImageBatch objects."""
-        tar_files = self._find_tar_files()
-        if not tar_files:
+    def process(self, task: FileGroupTask) -> list[ImageBatch]:
+        """Process a FileGroupTask containing tar file paths and create ImageBatch objects."""
+        tar_file_paths = task.data
+        if not tar_file_paths:
+            if self.verbose:
+                logger.warning(f"No tar file paths in task {task.task_id}")
             return []
+
+        # Convert string paths to pathlib.Path objects
+        tar_files = [pathlib.Path(tar_path) for tar_path in tar_file_paths]
+
+        if self.verbose:
+            logger.info(f"Processing {len(tar_files)} tar files in task {task.task_id}")
 
         # Load all images from tar files
         all_image_objects = []
-        total_images_loaded = 0
 
-        for tar_file_path in tar_files:
-            images, total_images_loaded = self._process_tar_file(tar_file_path, total_images_loaded)
+        # Add progress bar for processing tar files
+        for tar_file_path in tqdm(tar_files, desc=f"Processing tar files in {task.task_id}", disable=not self.verbose):
+            images = self._process_tar_file(tar_file_path)
             all_image_objects.extend(images)
 
-            # Break if we hit the image limit
-            if self.image_limit > 0 and total_images_loaded >= self.image_limit:
-                break
-
         if self.verbose:
-            logger.info(f"Loaded {total_images_loaded} images total from {len(tar_files)} tar files")
-
-        if self.image_limit > 0 and total_images_loaded > self.image_limit:
-            all_image_objects = all_image_objects[:self.image_limit]
-            if self.verbose:
-                logger.info(f"Limiting to first {self.image_limit} images")
+            logger.info(f"Loaded {len(all_image_objects)} images total from {len(tar_files)} tar files in task {task.task_id}")
 
         return self._create_image_batches(all_image_objects)
