@@ -88,12 +88,34 @@ class TestProcessingStageDecorator:
         # The function increments the payload by 1
         assert result.data == 1
 
-    def test_process_list_output(self) -> None:
+    def test_process_batch_single_task(self) -> None:
+        """Ensure that process_batch is inherited."""
+
+        stage = increment_stage
+        task = MockTask(value=0)
+        result = stage.process_batch([task])
+
+        # Check process_batch output
+        assert isinstance(result, list)
+        assert len(result) == 1
+
+        # Check process output
+        assert isinstance(result[0], MockTask)
+        # The function increments the payload by 1
+        assert result[0].data == 1
+
+    @pytest.mark.parametrize("process_batch", [True, False])
+    def test_process_list_output(self, process_batch: bool) -> None:
         """Stage should support functions that return lists of tasks."""
 
         stage = duplicate_stage
         task = MockTask(value=42)
-        result = stage.process(task)
+
+        if process_batch:
+            result = stage.process_batch([task])
+        else:
+            result = stage.process(task)
+
         assert isinstance(result, list)
         assert len(result) == 2
         # All returned objects should be MockTask instances pointing at the same task
