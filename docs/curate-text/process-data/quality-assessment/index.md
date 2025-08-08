@@ -9,118 +9,143 @@ modality: "text-only"
 ---
 
 (text-process-data-filter)=
+
 # Quality Assessment & Filtering
 
-Score and remove low-quality content using heuristics and ML classifiers to prepare your data for model training using NeMo Curator's tools and utilities.
+Score and remove low-quality content using heuristics and ML classifiers to prepare your data for model training using Ray Curator's task-centric pipeline architecture.
 
-Large datasets often contain many documents considered to be "low quality." In this context, "low quality" data simply means data we don't want a downstream model to learn from, and "high quality" data is data that we do want a downstream model to learn from. The metrics that define quality can vary widely.
+Large datasets often contain documents considered to be "low quality." In this context, "low quality" data means data we don't want a downstream model to learn from, and "high quality" data is data that we do want a downstream model to learn from. The metrics that define quality can vary widely.
 
 ## How It Works
 
-NeMo Curator's filtering framework is built around several key components:
+Ray Curator's filtering framework uses a task-centric architecture with these key components:
+
+- **Tasks**: `DocumentBatch` objects containing batches of text data that flow through the pipeline
+- **Stages**: Processing units that transform tasks (Score, Filter, ScoreFilter)
+- **Pipelines**: Collections of stages that define the complete workflow
+- **Executors**: Components that orchestrate pipeline execution on distributed systems
 
 ::::{tab-set}
 
 :::{tab-item} ScoreFilter
 
-The `ScoreFilter` is at the center of filtering in NeMo Curator. It applies a filter to a document and optionally saves the score as metadata:
+The `ScoreFilter` stage combines scoring and filtering in Ray Curator. It processes `DocumentBatch` tasks through a pipeline:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.filters import WordCountFilter
+from ray_curator.pipeline import Pipeline
+from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.stages.modules import ScoreFilter
+from ray_curator.stages.filters import WordCountFilter
+from ray_curator.stages.io.reader import JsonlReader
+from ray_curator.stages.io.writer import JsonlWriter
 
-# Load dataset
-files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")
-books = DocumentDataset.read_json(files, add_filename=True)
-
-# Create and apply filter
-filter_step = nc.ScoreFilter(
-    WordCountFilter(min_words=80),
-    text_field="text",
-    score_field="word_count",
+# Create pipeline
+pipeline = Pipeline(
+    name="book_filtering",
+    description="Filter books by word count"
 )
 
-# Get filtered dataset
-long_books = filter_step(books)
+# Add stages to pipeline
+pipeline.add_stage(JsonlReader(file_paths="books_dataset/"))
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+))
+pipeline.add_stage(JsonlWriter(output_dir="long_books/"))
 
-# Save filtered dataset
-long_books.to_json("long_books/", write_to_filename=True)
+# Execute pipeline
+executor = XennaExecutor()
+results = pipeline.run(executor)
 ```
 
-The filter object implements two key methods:
+The `DocumentFilter` objects define two key methods:
 
 - `score_document`: Computes a quality score for a document
-- `keep_document`: Determines if a document should be kept based on its score
+- `keep_document`: Determines if a document should remain based on its score
 
 :::
 
-:::{tab-item} Filter and Score Modules
+:::{tab-item} Score and Filter Stages
 
-For more specific use cases, NeMo Curator provides two specialized modules:
+Ray Curator provides specialized stages for granular control:
 
-- `Score`: A module that only adds metadata scores to records without filtering
+- `Score`: A stage that adds metadata scores without filtering
   - Takes a scoring function that evaluates text and returns a score
   - Adds the score to a specified metadata field
   - Useful for analysis or multi-stage filtering pipelines
   
 ```python
-# Example: Score documents without filtering
-scoring_step = nc.Score(
-    WordCountFilter().score_document,  # Use just the scoring part
+from ray_curator.stages.modules import Score
+from ray_curator.stages.filters import WordCountFilter
+
+# Add scoring stage to pipeline
+pipeline.add_stage(Score(
+    score_fn=WordCountFilter().score_document,
     text_field="text",
     score_field="word_count"
-)
-scored_dataset = scoring_step(dataset)
+))
 ```
 
-- `Filter`: A module that filters based on pre-computed metadata
+- `Filter`: A stage that filters based on pre-computed metadata
   - Takes a filter function that evaluates metadata and returns True/False
-  - Only uses existing metadata fields (doesn't compute new scores)
+  - Uses existing metadata fields (doesn't compute new scores)
   - Efficient for filtering on pre-computed metrics
   
 ```python
-# Example: Filter using pre-computed scores
-filter_step = nc.Filter(
-    lambda score: score >= 100,  # Keep documents with score >= 100
+from ray_curator.stages.modules import Filter
+
+# Add filtering stage to pipeline
+pipeline.add_stage(Filter(
+    filter_fn=lambda score: score >= 100,
     filter_field="word_count"
-)
-filtered_dataset = filter_step(scored_dataset)
+))
 ```
 
-You can combine these modules in pipelines:
+You can combine these stages in multi-step pipelines:
 
 ```python
-pipeline = nc.Sequential([
-    nc.Score(word_counter, score_field="word_count"),
-    nc.Score(symbol_counter, score_field="symbol_ratio"),
-    nc.Filter(lambda x: x >= 100, filter_field="word_count"),
-    nc.Filter(lambda x: x <= 0.3, filter_field="symbol_ratio")
-])
+# Multi-stage filtering pipeline
+pipeline = Pipeline(name="multi_filter", description="Multi-stage quality filtering")
+pipeline.add_stage(JsonlReader(file_paths="dataset/"))
+pipeline.add_stage(Score(word_counter, score_field="word_count"))
+pipeline.add_stage(Score(symbol_counter, score_field="symbol_ratio"))
+pipeline.add_stage(Filter(lambda x: x >= 100, filter_field="word_count"))
+pipeline.add_stage(Filter(lambda x: x <= 0.3, filter_field="symbol_ratio"))
+pipeline.add_stage(JsonlWriter(output_dir="filtered_output/"))
 ```
 
 :::
 
-:::{tab-item} Batched Filtering
+:::{tab-item} Task-Based Processing
 
-For improved performance, NeMo Curator supports batch processing using the `@batched` decorator:
+Ray Curator processes data in batches through `DocumentBatch` tasks, providing efficient vectorized operations:
 
 ```python
-from nemo_curator.utils.decorators import batched
-import pandas as pd
+from ray_curator.stages.modules import ScoreFilter
+from ray_curator.stages.filters import WordCountFilter
 
-class BatchedFilter(DocumentFilter):
-    @batched
-    def keep_document(self, scores: pd.Series):
-        # Process multiple documents in one operation
-        return scores > 10
+# DocumentBatch automatically handles batch processing
+class CustomFilter(DocumentFilter):
+    def score_document(self, text: str) -> float:
+        return len(text.split())
+    
+    def keep_document(self, score: float) -> bool:
+        return score > 10
+
+# Used in pipeline - batch processing is automatic
+pipeline.add_stage(ScoreFilter(
+    filter_obj=CustomFilter(),
+    text_field="text"
+))
 ```
 
-The batched processing can significantly improve performance on large datasets by:
-- Reducing function call overhead
-- Enabling vectorized operations
-- Optimizing memory usage
+Task-based processing provides performance benefits:
+
+- **Automatic batching**: `DocumentBatch` handles many documents per task
+- **Vectorized operations**: Pandas DataFrame operations within each batch
+- **Resource optimization**: Tasks sized for optimal memory and compute usage
+- **Fault tolerance**: Individual tasks can retry independently
 
 :::
 
@@ -166,7 +191,7 @@ GPU-accelerated classification with pre-trained models
 :::{grid-item-card} {octicon}`terminal;1.5em;sd-mr-1` Custom Filters
 :link: custom
 :link-type: doc
-Implement and combine your own custom filters
+Create and combine your own custom filters
 +++
 {bdg-secondary}`custom`
 {bdg-secondary}`flexible`
@@ -177,45 +202,7 @@ Implement and combine your own custom filters
 
 ## Usage
 
-NeMo Curator provides a CLI tool for document filtering that becomes available after installing the package:
-
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --output-removed-document-dir=/path/to/output/low_quality \
-  --output-document-score-dir=/path/to/output/scores \
-  --num-workers=4
-```
-
-For distributed processing with multiple workers:
-
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --num-workers=8 \
-  --device=gpu \
-  --log-dir=./logs
-```
-
-### CLI Parameters
-
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `--input-data-dir` | Directory containing input JSONL files | Yes |
-| `--filter-config-file` | YAML configuration for the filter pipeline | Yes |
-| `--output-retained-document-dir` | Directory for documents passing filters | Yes |
-| `--output-removed-document-dir` | Directory for rejected documents | No |
-| `--output-document-score-dir` | Directory for storing score metadata | No |
-| `--log-dir` | Directory for storing logs | No |
-| `--num-workers` | Number of Dask workers for distributed processing | No |
-| `--scheduler-address` | Address of Dask scheduler for distributed processing | No |
-| `--device` | Processing device: `cpu` or `gpu` (default: `cpu`) | No |
-| `--input-file-type` | Input file format: `jsonl`, `parquet`, etc. (default: `jsonl`) | No |
-| `--output-file-type` | Output file format: `jsonl`, `parquet`, etc. (default: `jsonl`) | No |
+Quality assessment in Ray Curator uses pipeline-based workflows with the Task/Stage/Pipeline architecture. Data flows through stages as `DocumentBatch` tasks, enabling distributed processing and fault tolerance. The examples in each filtering approach section show how to create and execute filtering pipelines.
 
 ```{toctree}
 :maxdepth: 4
@@ -230,10 +217,31 @@ Custom Filters <custom>
 
 ## Best Practices
 
-When filtering large datasets, consider these performance tips:
+When filtering large datasets with Ray Curator, consider these performance tips:
 
-1. **Order matters**: Place computationally inexpensive filters early in your pipeline
-2. **Batch size tuning**: Adjust batch sizes based on your hardware capabilities
-3. **Use vectorization**: Implement batched methods for compute-intensive filters
-4. **Disk I/O**: Consider compression and chunking strategies for large datasets
-5. **Distributed processing**: For TB-scale datasets, use distributed filtering with Dask workers (`--num-workers`) or connect to an existing Dask cluster (`--scheduler-address`) 
+1. **Stage ordering**: Place computationally inexpensive filters first in your pipeline
+2. **Resource specification**: Configure stage resources based on computational requirements
+3. **Task sizing**: Balance task size for optimal memory usage and parallel processing
+4. **Pipeline composition**: Combine related operations in single stages when possible
+5. **Distributed execution**: Use `XennaExecutor` with auto-scaling for TB-scale datasets
+
+```python
+# Example: Resource-aware pipeline
+from ray_curator.stages.resources import Resources
+
+# CPU-intensive filtering stage
+pipeline.add_stage(ScoreFilter(
+    filter_obj=ComplexFilter(),
+    text_field="text"
+).with_(resources=Resources(cpus=2.0)))
+
+# GPU-accelerated classification stage  
+pipeline.add_stage(ScoreFilter(
+    filter_obj=MLClassifier(),
+    text_field="text"
+).with_(resources=Resources(gpu_memory_gb=8.0)))
+
+# Execute with auto-scaling
+executor = XennaExecutor(config={"auto_scaling": True, "max_workers": 10})
+results = pipeline.run(executor)
+```

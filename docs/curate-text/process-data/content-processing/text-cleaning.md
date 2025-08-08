@@ -1,7 +1,7 @@
 ---
-description: "Remove undesirable text including improperly decoded Unicode characters, inconsistent spacing, and excessive URLs"
+description: "Create custom text processing stages to clean and normalize text using ray-curator's processing pipeline"
 categories: ["how-to-guides"]
-tags: ["text-cleaning", "unicode", "normalization", "url-removal", "preprocessing", "ftfy"]
+tags: ["text-cleaning", "unicode", "normalization", "url-removal", "preprocessing", "ray-curator", "processing-stages"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -9,91 +9,253 @@ modality: "text-only"
 ---
 
 (text-process-data-format-text-cleaning)=
+
 # Text Cleaning
 
-Remove undesirable text such as improperly decoded Unicode characters, inconsistent line spacing, or excessive URLs from documents being pre-processed for your dataset using NeMo Curator.
+Create custom text processing stages to clean and normalize text data in your ray-curator pipelines. Ray-curator uses a task-centric architecture where you build text cleaning operations as `ProcessingStage` components that transform `DocumentBatch` tasks.
 
-One common issue in text datasets is improper Unicode character encoding, which can result in garbled or unreadable text, particularly with special characters like apostrophes, quotes, or diacritical marks. For example, the input sentence `"The Mona Lisa doesn't have eyebrows."` from a given document may not have included a properly encoded apostrophe (`'`), resulting in the sentence decoding as `"The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows."`. 
-
-NeMo Curator enables you to easily run this document through the default `UnicodeReformatter` module to detect and remove the unwanted text, or you can define your own custom Unicode text cleaner tailored to your needs.
+Common text cleaning needs include removing improperly decoded Unicode characters, normalizing inconsistent line spacing, and filtering out excessive URLs. For example, corrupted encoding might turn `"The Mona Lisa doesn't have eyebrows."` into `"The Mona Lisa doesnÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢t have eyebrows."`.
 
 ## How it Works
 
-NeMo Curator provides the following modules for cleaning text:
+Ray-curator provides a flexible stage-based architecture for text processing:
 
-- `UnicodeReformatter`: Uses [ftfy](https://ftfy.readthedocs.io/en/latest/) to fix broken Unicode characters. Modifies the "text" field of the dataset by default. The module accepts extensive configuration options for fine-tuning Unicode repair behavior. Please see the [ftfy documentation](https://ftfy.readthedocs.io/en/latest/config.html) for more information about parameters used by the `UnicodeReformatter`.
-- `NewlineNormalizer`: Uses regex to replace 3 or more consecutive newline characters in each document with only 2 newline characters.
-- `UrlRemover`: Uses regex to remove all URLs in each document.
+- **ProcessingStage**: Base class for all text transformation operations that accepts a `DocumentBatch` and returns a transformed `DocumentBatch`.
+- **Pipeline**: Orchestrates several processing stages in sequence.
+- **DocumentBatch**: Task containing a pandas DataFrame with text data that flows through the pipeline.
+- **Text Processing Utilities**: Helper functions for common text operations like `remove_control_characters()`.
 
-You can use these modules individually or sequentially in a cleaning pipeline.
-
----
+You create custom text cleaning stages by extending `ProcessingStage` and implementing the `process()` method.
 
 ## Usage
 
-::::{tab-set}
-
-:::{tab-item} Python
-
-Consider the following example, which loads a dataset (`books.jsonl`), steps through each module in a cleaning pipeline, and outputs the processed dataset as `cleaned_books.jsonl`:
+The following example shows how to create custom text cleaning stages and combine them in a ray-curator pipeline:
 
 ```python
-from nemo_curator import Sequential, Modify, get_client
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
+import re
+import unicodedata
+from dataclasses import dataclass
+from typing import Any
+
+import pandas as pd
+from ray_curator.pipeline import Pipeline
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.io.reader import JsonlReader
+from ray_curator.stages.io.writer import JsonlWriter
+from ray_curator.backends.experimental.ray_data import RayDataExecutor
+from ray_curator.tasks import DocumentBatch
+
+@dataclass
+class UnicodeCleaningStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Stage that cleans Unicode control characters from text."""
+    
+    text_field: str = "text"
+    _name: str = "unicode_cleaning"
+    
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+    
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+    
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        """Remove Unicode control characters from text."""
+        df = batch.to_pandas()
+        
+        def clean_unicode(text: str) -> str:
+            # Remove control characters (non-printable characters)
+            return "".join(char for char in text if unicodedata.category(char)[0] != "C")
+        
+        df[self.text_field] = df[self.text_field].apply(clean_unicode)
+        
+        return DocumentBatch(
+            task_id=f"{batch.task_id}_unicode_cleaned",
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+@dataclass  
+class NewlineNormalizationStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Stage that normalizes excessive newlines in text."""
+    
+    text_field: str = "text"
+    _name: str = "newline_normalization"
+    
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+    
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+    
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        """Replace 3+ consecutive newlines with exactly 2 newlines."""
+        df = batch.to_pandas()
+        
+        def normalize_newlines(text: str) -> str:
+            # Replace 3 or more consecutive newlines with exactly 2
+            return re.sub(r'\n{3,}', '\n\n', text)
+        
+        df[self.text_field] = df[self.text_field].apply(normalize_newlines)
+        
+        return DocumentBatch(
+            task_id=f"{batch.task_id}_newlines_normalized",
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+@dataclass
+class UrlRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Stage that removes URLs from text."""
+    
+    text_field: str = "text"
+    _name: str = "url_removal"
+    
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+    
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+    
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        """Remove URLs from text using regex."""
+        df = batch.to_pandas()
+        
+        def remove_urls(text: str) -> str:
+            # Remove HTTP/HTTPS URLs
+            url_pattern = r'https?://[^\s<>"{}|\\^`[\]]+[^\s<>"{}|\\^`[\].,;!?]'
+            return re.sub(url_pattern, '', text)
+        
+        df[self.text_field] = df[self.text_field].apply(remove_urls)
+        
+        return DocumentBatch(
+            task_id=f"{batch.task_id}_urls_removed",
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 def main():
-    client = get_client(cluster_type="cpu")
-
-    dataset = DocumentDataset.read_json("books.jsonl")
-    cleaning_pipeline = Sequential([
-        Modify(UnicodeReformatter()),
-        Modify(NewlineNormalizer()),
-        Modify(UrlRemover()),
-    ])
-
-    cleaned_dataset = cleaning_pipeline(dataset)
-
-    cleaned_dataset.to_json("cleaned_books.jsonl")
+    """Create and run a text cleaning pipeline."""
+    
+    # Create pipeline
+    pipeline = Pipeline(
+        name="text_cleaning_pipeline",
+        description="Clean and normalize text data"
+    )
+    
+    # Add stages to pipeline
+    pipeline.add_stage(JsonlReader(file_paths="books.jsonl", columns=["text"]))
+    pipeline.add_stage(UnicodeCleaningStage(text_field="text"))
+    pipeline.add_stage(NewlineNormalizationStage(text_field="text"))
+    pipeline.add_stage(UrlRemovalStage(text_field="text"))
+    pipeline.add_stage(JsonlWriter(output_dir="./cleaned_output"))
+    
+    # Create executor and run pipeline
+    executor = RayDataExecutor()
+    results = pipeline.run(executor)
+    
+    print(f"Text cleaning complete. Processed {len(results) if results else 0} batches.")
 
 if __name__ == "__main__":
     main()
 ```
-:::
 
-:::{tab-item} CLI
+## Custom Text Processing Stages
 
-You can also perform text cleaning operations using the CLI by running the `text_cleaning` command:
-
-```bash
-text_cleaning \
-  --input-data-dir=/path/to/input/ \
-  --output-clean-dir=/path/to/output/ \
-  --normalize-newlines \
-  --remove-urls
-```
-
-By default, the CLI will only perform Unicode reformatting. Appending the `--normalize-newlines` and `--remove-urls` options adds the other text cleaning options.
-:::
-
-::::
-
-## Custom Text Cleaner
-
-You can create your own custom text cleaner by extending the `DocumentModifier` class. The implementation of `UnicodeReformatter` demonstrates this approach:
+You can create custom text processing stages by extending the `ProcessingStage` class. Here's a template that demonstrates the key patterns:
 
 ```python
-import ftfy
+from dataclasses import dataclass
+from typing import Any
+import pandas as pd
 
-from nemo_curator.modifiers import DocumentModifier
+from ray_curator.stages.base import ProcessingStage
+from ray_curator.tasks import DocumentBatch
 
-
-class UnicodeReformatter(DocumentModifier):
-    def __init__(self):
-        super().__init__()
-
-    def modify_document(self, text: str) -> str:
-        return ftfy.fix_text(text)
+@dataclass
+class CustomTextStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Template for creating custom text processing stages."""
+    
+    text_field: str = "text"  # Field containing text to process
+    _name: str = "custom_text_stage"
+    
+    def inputs(self) -> tuple[list[str], list[str]]:
+        """Define input requirements - DocumentBatch with specified text field."""
+        return ["data"], [self.text_field]
+    
+    def outputs(self) -> tuple[list[str], list[str]]:
+        """Define output - DocumentBatch with processed text field.""" 
+        return ["data"], [self.text_field]
+    
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        """Process the DocumentBatch and return transformed result."""
+        df = batch.to_pandas()
+        
+        # Apply your custom text processing function
+        def custom_text_function(text: str) -> str:
+            # Insert your text processing logic here
+            return text.strip().lower()  # Example: normalize whitespace and case
+        
+        df[self.text_field] = df[self.text_field].apply(custom_text_function)
+        
+        # Return new DocumentBatch with processed data
+        return DocumentBatch(
+            task_id=f"{batch.task_id}_{self.name}",
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 ```
 
-To create a custom text cleaner, inherit from the `DocumentModifier` class and implement the constructor and `modify_document` method. Also, like the `DocumentFilter` class, `modify_document` can be annotated with `batched` to take in a pandas Series of documents instead of a single document. See the {ref}`custom filters documentation <text-process-data-filter-custom>` for more information.
+### Key Implementation Guidelines
+
+1. **Extend ProcessingStage**: Inherit from `ProcessingStage[DocumentBatch, DocumentBatch]` for text transformations
+2. **Define Input/Output Requirements**: Add `inputs()` and `outputs()` methods to specify data field dependencies  
+3. **Add process() method**: Transform the pandas DataFrame within the DocumentBatch and return a new DocumentBatch
+4. **Preserve Metadata**: Always pass through `_metadata` and `_stage_perf` to maintain task lineage
+5. **Use @dataclass decorator**: Leverage `@dataclass` decorator for easy configuration
+
+### Advanced Text Processing
+
+For more complex text processing operations, you can:
+
+- **Use External Libraries**: Import libraries like `ftfy` for Unicode repair, `spacy` for NLP, or `regex` for advanced pattern matching
+- **Batch Processing**: Override `process_batch()` for more efficient batch operations
+- **Resource Management**: Specify GPU/CPU requirements using the `_resources` field
+- **Setup Methods**: Use `setup_on_node()` or `setup()` for model loading or expensive initialization
+
+Example with external library:
+
+```python
+@dataclass
+class AdvancedUnicodeStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """Unicode cleaning using ftfy library."""
+    
+    def setup_on_node(self, node_info=None, worker_metadata=None):
+        """Install ftfy if needed (called once per node)."""
+        try:
+            import ftfy
+        except ImportError:
+            import subprocess
+            subprocess.check_call(["pip", "install", "ftfy"])
+    
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        import ftfy
+        
+        df = batch.to_pandas()
+        df[self.text_field] = df[self.text_field].apply(ftfy.fix_text)
+        
+        return DocumentBatch(
+            task_id=f"{batch.task_id}_unicode_fixed",
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+```

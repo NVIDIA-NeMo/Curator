@@ -1,86 +1,185 @@
 ---
-description: "Download and extract text from arXiv academic papers using NeMo Curator with LaTeX processing and automatic metadata extraction"
+description: "Implementation guide for downloading and extracting text from arXiv academic papers using ray-curator's modular pipeline architecture"
 categories: ["how-to-guides"]
-tags: ["arxiv", "academic-papers", "latex", "pdf", "data-loading", "scientific-data"]
+tags: ["arxiv", "academic-papers", "latex", "pdf", "data-loading", "scientific-data", "ray-curator"]
 personas: ["data-scientist-focused", "mle-focused"]
-difficulty: "intermediate"
+difficulty: "advanced"
 content_type: "how-to"
 modality: "text-only"
 ---
 
 (text-load-data-arxiv)=
+
 # ArXiv
 
-Download and extract text from ArXiv papers using NeMo Curator utilities.
+Implementation guide for downloading and extracting text from ArXiv papers using ray-curator's pipeline architecture.
 
 ArXiv is a free distribution service and open-access archive for scholarly articles, primarily in fields like physics, mathematics, computer science, and more. ArXiv contains millions of scholarly papers, most of them available in LaTeX source format.
 
-## How it Works
+```{admonition} Implementation Required
+:class: warning
 
-NeMo Curator simplifies the process of:
+ArXiv functionality is not currently implemented in ray-curator. This guide explains how to create ArXiv support using ray-curator's modular pipeline architecture. For reference implementations, see {ref}`Common Crawl <text-load-data-common-crawl>` and {ref}`Wikipedia <text-load-data-wikipedia>`.
+```
 
-- Downloading ArXiv papers from S3
-- Extracting text from LaTeX source files
-- Converting the content to a standardized format for further processing
+## Architecture Overview
 
-## Before You Start
+Ray-curator uses a 4-step pipeline pattern for document downloading and processing:
 
-ArXiv papers are hosted on Amazon S3, so you'll need to have:
+1. **URL Generation**: Generate ArXiv tar file URLs from S3 bucket listings
+2. **Download**: Download tar files from S3 using s5cmd
+3. **Iteration**: Extract and iterate through LaTeX files within tar archives
+4. **Extraction**: Process LaTeX content and extract clean text
 
-1. Properly configured AWS credentials in `~/.aws/config`
-2. [s5cmd](https://github.com/peak/s5cmd) installed (pre-installed in the NVIDIA NeMo Framework Container)
+## Implementation Guide
 
----
+To create ArXiv support in ray-curator, you'll need to create the following components:
 
-## Usage
+### 1. URL Generator
 
-Here's how to download and extract ArXiv data using NeMo Curator:
-
-::::{tab-set}
-
-:::{tab-item} Python
+Create an ArXiv URL generator that lists S3 bucket contents:
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.download import download_arxiv
+from ray_curator.stages.download.text import URLGenerator
 
-# Initialize a Dask client
-client = get_client(cluster_type="cpu")
-
-# Download and extract ArXiv papers
-arxiv_dataset = download_arxiv(output_path="/extracted/output/folder")
-
-# Write the dataset to disk
-arxiv_dataset.to_json(output_path="/extracted/output/folder", write_to_filename=True)
+class ArxivURLGenerator(URLGenerator):
+    def __init__(self, limit: int | None = None):
+        self.limit = limit
+    
+    def generate_urls(self) -> list[str]:
+        """Generate ArXiv tar file URLs from S3 bucket listing."""
+        # Implementation would use boto3 or s5cmd to list s3://arxiv/src/
+        # and return list of tar file URLs
+        pass
 ```
 
-:::
+### 2. Document Download Component
 
-:::{tab-item} CLI
+Create the S3 download component using s5cmd:
 
-```bash
-download_and_extract \
-  --input-url-file=./arxiv_urls.txt \
-  --builder-config-file=./config/arxiv_builder.yaml \
-  --output-json-dir=/datasets/arxiv/json
+```python
+from ray_curator.stages.download.text import DocumentDownloader
+
+class ArxivDownloader(DocumentDownloader):
+    def _get_output_filename(self, url: str) -> str:
+        return url.split('/')[-1]  # Extract filename from S3 URL
+    
+    def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
+        """Download using s5cmd with requester-pays."""
+        cmd = ["s5cmd", "--request-payer=requester", "cp", url, path]
+        # Implementation details...
+        pass
+    
+    def num_workers_per_node(self) -> int | None:
+        return 4  # Limit concurrent downloads
 ```
 
-The config file should look like:
+### 3. Document Iterator
 
-```yaml
-download_module: nemo_curator.download.arxiv.ArxivDownloader
-download_params: {}
-iterator_module: nemo_curator.download.arxiv.ArxivIterator
-iterator_params: {}
-extract_module: nemo_curator.download.arxiv.ArxivExtractor
-extract_params: {}
+Extract and iterate through LaTeX files in tar archives:
+
+```python
+from ray_curator.stages.download.text import DocumentIterator
+
+class ArxivIterator(DocumentIterator):
+    def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
+        """Extract LaTeX files from tar archive and yield records."""
+        with tarfile.open(file_path, "r") as tar:
+            for member in tar.getmembers():
+                if member.name.endswith('.tex'):
+                    # Extract and yield LaTeX content
+                    pass
+    
+    def output_columns(self) -> list[str]:
+        return ["raw_content", "file_name", "tar_source"]
 ```
 
-:::
+### 4. Document Extractor
 
-::::
+Process LaTeX content to extract clean text:
 
-If you've already downloaded and extracted ArXiv data to the specified output folder, NeMo Curator will read from those files instead of downloading them again.
+```python
+from ray_curator.stages.download.text import DocumentExtractor
+
+class ArxivExtractor(DocumentExtractor):
+    def extract(self, record: dict[str, Any]) -> dict[str, Any] | None:
+        """Clean LaTeX and extract main text content."""
+        raw_content = record["raw_content"]
+        # Process LaTeX: remove comments, expand macros, extract sections
+        cleaned_text = self._clean_latex(raw_content)
+        
+        return {
+            "text": cleaned_text,
+            "id": self._extract_arxiv_id(record["file_name"]),
+            "source_id": record["tar_source"],
+            "file_name": record["file_name"]
+        }
+    
+    def input_columns(self) -> list[str]:
+        return ["raw_content", "file_name", "tar_source"]
+    
+    def output_columns(self) -> list[str]:
+        return ["text", "id", "source_id", "file_name"]
+```
+
+### 5. Composite Stage
+
+Combine all components into a single stage:
+
+```python
+from ray_curator.stages.download.text import DocumentDownloadExtractStage
+
+class ArxivDownloadExtractStage(DocumentDownloadExtractStage):
+    def __init__(
+        self,
+        download_dir: str,
+        url_limit: int | None = None,
+        record_limit: int | None = None,
+        **kwargs
+    ):
+        super().__init__(
+            url_generator=ArxivURLGenerator(limit=url_limit),
+            downloader=ArxivDownloader(download_dir),
+            iterator=ArxivIterator(),
+            extractor=ArxivExtractor(),
+            url_limit=url_limit,
+            record_limit=record_limit,
+            **kwargs
+        )
+```
+
+## Usage Pattern
+
+Once implemented, ArXiv processing would follow the standard ray-curator pattern:
+
+```python
+from ray_curator.pipeline import Pipeline
+from ray_curator.backends.experimental.ray_data import RayDataExecutor
+
+# Create pipeline
+pipeline = Pipeline(
+    name="arxiv_processing",
+    stages=[
+        ArxivDownloadExtractStage(
+            download_dir="/tmp/arxiv_downloads",
+            url_limit=100,  # For testing
+            record_limit=1000
+        )
+    ]
+)
+
+# Execute
+executor = RayDataExecutor()
+results = pipeline.run(executor)
+```
+
+## Prerequisites
+
+For ArXiv implementation, you would need:
+
+1. **AWS Configuration**: Properly configured credentials in `~/.aws/config`
+2. **s5cmd**: Installed for efficient S3 transfers (included in NVIDIA NeMo Framework Container)
+3. **LaTeX Processing**: Libraries for LaTeX parsing and macro expansion
 
 ```{admonition} Text Processing with Stop Words
 :class: tip
@@ -88,60 +187,9 @@ If you've already downloaded and extracted ArXiv data to the specified output fo
 When processing academic papers from ArXiv, you may want to customize text extraction and analysis using stop words. Stop words can help identify section boundaries, distinguish main content from references, and support language-specific processing. For a comprehensive guide to stop words in NeMo Curator, see {ref}`Stop Words in Text Processing <text-process-data-languages-stop-words>`.
 ```
 
-### Parameters
+## Expected Output Format
 
-```{list-table} ArXiv Download Parameters
-:header-rows: 1
-:widths: 20 20 40 20
-
-* - Parameter
-  - Type
-  - Description
-  - Default
-* - `output_path`
-  - str
-  - Path where the extracted files will be placed
-  - Required
-* - `output_type`
-  - Literal["jsonl", "parquet"]
-  - File format for storing data
-  - "jsonl"
-* - `raw_download_dir`
-  - Optional[str]
-  - Directory to specify where to download the raw ArXiv files
-  - None
-* - `keep_raw_download`
-  - bool
-  - Whether to keep the raw downloaded files
-  - False
-* - `force_download`
-  - bool
-  - Whether to force re-download even if files exist
-  - False
-* - `url_limit`
-  - Optional[int]
-  - Limit the number of papers downloaded (useful for testing)
-  - None
-* - `record_limit`
-  - Optional[int]
-  - Limit the number of records processed
-  - None
-```
-
-## Output Format
-
-NeMo Curator extracts and processes the main text content from LaTeX source files. The extractor focuses on the body text of papers, automatically removing:
-
-- Comments and LaTeX markup
-- Content before the first section header
-- Bibliography and appendix sections
-- LaTeX macro definitions (while expanding their usage)
-
-```{admonition} Limited Metadata Extraction
-:class: note
-
-The current ArXiv implementation focuses on text extraction and does not parse document metadata like titles, authors, or categories from the LaTeX source. Only the processed text content and basic file identifiers are returned.
-```
+The implemented ArXiv extractor would produce DocumentBatch objects with the following schema:
 
 ```{list-table} ArXiv Output Fields
 :header-rows: 1
@@ -161,5 +209,14 @@ The current ArXiv implementation focuses on text extraction and does not parse d
   - The source tar file name where the paper was found
 * - `file_name`
   - str
-  - The filename used for the output file
+  - The original LaTeX filename
 ```
+
+## Reference Implementations
+
+For guidance on implementing these components, examine the existing implementations:
+
+- **Common Crawl**: `ray_curator/stages/download/text/common_crawl/`
+- **Wikipedia**: `ray_curator/stages/download/text/wikipedia/`
+
+Both follow the same 4-step pipeline pattern and provide concrete examples of each component.

@@ -1,7 +1,7 @@
 ---
-description: "Load text data from various sources including Common Crawl, arXiv, Wikipedia, and custom datasets using NeMo Curator"
+description: "Load text data from various sources including Common Crawl, Wikipedia, and custom datasets using NeMo Curator's ray-curator framework"
 categories: ["workflows"]
-tags: ["data-loading", "common-crawl", "arxiv", "wikipedia", "custom-data", "distributed"]
+tags: ["data-loading", "common-crawl", "wikipedia", "custom-data", "distributed", "ray"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
@@ -9,134 +9,180 @@ modality: "text-only"
 ---
 
 (text-load-data)=
+
 # Text Data Loading
 
-Load text data from a variety of data sources using NeMo Curator.
+Load text data from a variety of data sources using NeMo Curator's ray-curator framework.
 
-NeMo Curator provides tools for downloading and processing large-scale public text datasets. Common data formats like Common Crawl's `.warc.gz` are automatically converted to more processing-friendly formats like `.jsonl`.
+NeMo Curator provides a task-centric pipeline framework for downloading and processing large-scale public text datasets. The framework uses Ray as the distributed backend and converts raw data formats like Common Crawl's `.warc.gz` to processing-friendly formats like `.jsonl`.
 
 ## How it Works
 
-NeMo Curator's data loading framework consists of three main components:
+Ray-curator's data loading framework uses a **4-step pipeline pattern** where data flows through stages as tasks:
 
-1. **Downloaders**: Responsible for retrieving data from source locations (`DocumentDownloader`)
-2. **Iterators**: Parse through downloaded data to identify individual documents (`DocumentIterator`)
-3. **Extractors**: Extract and clean text from raw document formats (`DocumentExtractor`)
+1. **URL Generation**: Generate URLs from configuration (`URLGenerationStage`)
+2. **Download**: Retrieve files from URLs to local storage (`DocumentDownloadStage`)
+3. **Iteration**: Parse downloaded files to extract raw records (`DocumentIterateStage`)
+4. **Extraction**: Extract and clean structured content from raw records (`DocumentExtractStage`)
 
-Each supported data source has specific implementations of these components optimized for that data type. The result is a standardized [`DocumentDataset`](documentdataset) that can be used for further curation steps.
+Each step uses a `ProcessingStage` that transforms tasks. The pipeline flow is:
+
+```text
+_EmptyTask → FileGroupTask(URLs) → FileGroupTask(Files) → DocumentBatch → DocumentBatch
+```
+
+Data sources provide composite stages that combine these steps into complete download-extract pipelines, producing `DocumentBatch` tasks for further processing.
 
 ::::{tab-set}
 
 :::{tab-item} Python
 
 ```python
-from nemo_curator import get_client
-from nemo_curator.download import download_common_crawl, download_wikipedia, download_arxiv
+from ray_curator.pipeline import Pipeline
+from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.stages.download.text.common_crawl import CommonCrawlDownloadExtractStage
+from ray_curator.stages.io.writer import JsonlWriter
+from ray_curator.tasks import _EmptyTask
 
-# Initialize a Dask client
-client = get_client(cluster_type="cpu")
-
-# Download and extract data using correct parameter names
-dataset = download_common_crawl(
-    output_path="/output/folder", 
-    start_snapshot="2020-50", 
-    end_snapshot="2021-04"
+# Create a pipeline for downloading Common Crawl data
+pipeline = Pipeline(
+    name="common_crawl_download",
+    description="Download and process Common Crawl web archives"
 )
 
-# Write to disk in the desired format
-dataset.to_json(output_path="/output/folder", write_to_filename=True)
+# Add data loading stage
+cc_stage = CommonCrawlDownloadExtractStage(
+    start_snapshot="2020-50",
+    end_snapshot="2020-50", 
+    download_dir="/tmp/cc_downloads",
+    crawl_type="main",
+    url_limit=10  # Limit for testing
+)
+pipeline.add_stage(cc_stage)
+
+# Add writer stage to save as JSONL
+writer = JsonlWriter(output_dir="/output/folder")
+pipeline.add_stage(writer)
+
+# Build and execute pipeline
+pipeline.build()
+executor = XennaExecutor()
+
+# Create initial empty task to start the pipeline
+initial_task = _EmptyTask(task_id="start", dataset_name="common_crawl")
+results = pipeline.run(executor, initial_tasks=[initial_task])
 ```
 
 :::
 
-:::{tab-item} CLI
+:::{tab-item} Reading Custom Data
 
-```bash
-# Generic download and extract utility
-# Requires a YAML configuration file specifying downloader, iterator, and extractor implementations
-# Example config files: config/cc_warc_builder.yaml, config/arxiv_builder.yaml, config/wikipedia_builder.yaml
-download_and_extract \
-  --input-url-file=<Path to URL list> \
-  --builder-config-file=<Path to YAML config file> \
-  --output-json-dir=<Output directory>
+```python
+from ray_curator.pipeline import Pipeline
+from ray_curator.stages.io.reader import JsonlReader
+from ray_curator.stages.modules import ScoreFilter
+from ray_curator.stages.filters import WordCountFilter
 
-# Alternative: Extract from pre-downloaded files (extraction-only mode)
-download_and_extract \
-  --input-data-dir=<Path to downloaded files> \
-  --builder-config-file=<Path to YAML config file> \
-  --output-json-dir=<Output directory>
+# Create pipeline for processing existing JSONL files
+pipeline = Pipeline(name="custom_data_processing")
 
-# Common Crawl URL retrieval utility
-# Generates a list of WARC file URLs for specified snapshot range
-get_common_crawl_urls \
-  --starting-snapshot="2020-50" \
-  --ending-snapshot="2020-50" \
-  --output-warc-url-file=./warc_urls.txt
+# Read JSONL files
+reader = JsonlReader(
+    file_paths="/path/to/data/*.jsonl",
+    files_per_partition=4,
+    columns=["text", "url"]  # Only read specific columns
+)
+pipeline.add_stage(reader)
+
+# Add filtering stage
+word_filter = ScoreFilter(
+    filter_obj=WordCountFilter(min_words=50, max_words=1000),
+    text_field="text"
+)
+pipeline.add_stage(word_filter)
+
+# Execute pipeline
+executor = XennaExecutor()
+results = pipeline.run(executor)
 ```
 
 :::
 
 ::::
-
 
 ---
 
 ## Data Sources & File Formats
 
-Load data from public, local, and custom data sources.
+Load data from public datasets and custom data sources using ray-curator stages.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` arXiv
-:link: text-load-data-arxiv
-:link-type: ref
-Extract and process scientific papers from arXiv
-+++
-{bdg-secondary}`academic`
-{bdg-secondary}`pdf`
-{bdg-secondary}`latex`
-:::
-
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Common Crawl
 :link: text-load-data-common-crawl
 :link-type: ref
-Load and preprocess text data from Common Crawl web archives
+Download and process web archive data from Common Crawl
 +++
 {bdg-secondary}`web-data`
 {bdg-secondary}`warc`
-{bdg-secondary}`distributed`
+{bdg-secondary}`html-extraction`
+:::
+
+:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Wikipedia
+:link: text-load-data-wikipedia  
+:link-type: ref
+Download and extract Wikipedia articles from Wikipedia dumps
++++
+{bdg-secondary}`articles`
+{bdg-secondary}`multilingual`
+{bdg-secondary}`xml-dumps`
 :::
 
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Custom Data
 :link: text-load-data-custom
 :link-type: ref
-Load your own text datasets in various formats
+Read and process your own text datasets in standard formats
 +++
 {bdg-secondary}`jsonl`
 {bdg-secondary}`parquet`
-{bdg-secondary}`custom-formats`
-:::
-
-:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Wikipedia
-:link: text-load-data-wikipedia
-:link-type: ref
-Import and process Wikipedia articles for training datasets
-+++
-{bdg-secondary}`articles`
-{bdg-secondary}`multilingual`
-{bdg-secondary}`dumps`
+{bdg-secondary}`file-partitioning`
 :::
 
 ::::
+
+## Key Components
+
+### Tasks
+
+Ray-curator operates on **Tasks** - batches of data that flow through the pipeline:
+
+- **`_EmptyTask`**: Starting point for pipelines that generate data
+- **`FileGroupTask`**: Contains file paths (URLs or local files)  
+- **`DocumentBatch`**: Contains text documents as pandas DataFrame or PyArrow Table
+
+### Stages
+
+**ProcessingStages** transform tasks through the pipeline:
+
+- **Composite Stages**: High-level stages like `CommonCrawlDownloadExtractStage` that decompose into several steps
+- **Atomic Stages**: Individual processing steps like `DocumentDownloadStage`, `JsonlReaderStage`
+- **I/O Stages**: File readers (`JsonlReader`) and writers (`JsonlWriter`, `ParquetWriter`)
+
+### Executors
+
+**Executors** run pipelines on different backends:
+
+- **`XennaExecutor`**: Production-ready executor using Cosmos framework
+- **`RayDataExecutor`**: Experimental executor using Ray Data
 
 ```{toctree}
 :maxdepth: 4
 :titlesonly:
 :hidden:
 
-common-crawl
 arxiv
+common-crawl
 wikipedia
 Custom Data <custom.md>
 ```

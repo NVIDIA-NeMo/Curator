@@ -20,31 +20,29 @@ NeMo Curator provides robust tools for managing multilingual text datasets throu
 Language management in NeMo Curator typically follows this pattern:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import FastTextLangId
-from nemo_curator.filters.heuristic_filter import HistogramFilter
-from nemo_curator.modules.filter import ScoreFilter
-from nemo_curator.utils.text_utils import get_word_splitter
+import ray
+from ray_curator.stages.filters.fasttext_filter import FastTextLangId
+from ray_curator.backends.experimental.ray_data import RayDataExecutor
 
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+# Initialize Ray
+ray.init()
 
-# Identify languages using FastText
-lang_filter = ScoreFilter(
-    FastTextLangId(
-        model_path="lid.176.bin",
-        min_langid_score=0.8
-    ),
-    text_field="text",
-    score_field="language"
+# Load your dataset with Ray
+dataset = ray.data.read_json("input_data/*.jsonl")
+
+# Identify languages using FastText with Ray
+lang_filter = FastTextLangId(
+    model_path="lid.176.bin",
+    min_langid_score=0.8
 )
 
-# Apply language identification
-dataset = lang_filter(dataset)
+# Apply language identification using Ray backend
+executor = RayDataExecutor()
+dataset = executor.run_filter(dataset, lang_filter, text_field="text")
 
 # Apply language-specific processing
-for lang, subset in dataset.groupby("language"):
+# Group by language and process each group
+def process_by_language(dataset):
     if lang in ["zh", "ja", "th", "ko"]:
         # Special handling for non-spaced languages
         processor = get_word_splitter(lang)
@@ -103,39 +101,39 @@ Manage high-frequency words to enhance text extraction and content detection
 ### Quick Start Example
 
 ```python
-from nemo_curator import ScoreFilter
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import FastTextLangId
+import ray
+from ray_curator.stages.filters.fasttext_filter import FastTextLangId
+from ray_curator.backends.experimental.ray_data import RayDataExecutor
 
-# Load multilingual dataset
-dataset = DocumentDataset.read_json("multilingual_data/*.jsonl")
+# Initialize Ray and load multilingual dataset
+ray.init()
+dataset = ray.data.read_json("multilingual_data/*.jsonl")
 
 # Identify languages
-langid_filter = ScoreFilter(
-    FastTextLangId(
-        model_path="/path/to/lid.176.bin",  # Download from fasttext.cc
-        min_langid_score=0.3
-    ),
-    text_field="text",
-    score_field="language",
-    score_type="object"
+langid_filter = FastTextLangId(
+    model_path="/path/to/lid.176.bin",  # Download from fasttext.cc
+    min_langid_score=0.3
 )
 
-# Apply language identification
-identified_dataset = langid_filter(dataset)
+# Apply language identification using Ray
+executor = RayDataExecutor()
+identified_dataset = executor.run_filter(dataset, langid_filter, text_field="text")
 
 # Extract language codes
-identified_dataset.df["language"] = identified_dataset.df["language"].apply(
-    lambda score: score[1]  # Extract language code from [score, lang_code]
-)
+def extract_language_code(batch):
+    import ast
+    batch["language"] = [ast.literal_eval(score)[1] for score in batch["language"]]
+    return batch
+
+identified_dataset = identified_dataset.map_batches(extract_language_code)
 
 # Filter for specific languages
-english_docs = identified_dataset[identified_dataset.df.language == "EN"]
-spanish_docs = identified_dataset[identified_dataset.df.language == "ES"]
+english_docs = identified_dataset.filter(lambda row: row["language"] == "EN")
+spanish_docs = identified_dataset.filter(lambda row: row["language"] == "ES")
 
 # Save by language
-english_docs.to_json("output/english/", write_to_filename=True)
-spanish_docs.to_json("output/spanish/", write_to_filename=True)
+english_docs.write_json("output/english/")
+spanish_docs.write_json("output/spanish/")
 ```
 
 ### Supported Languages
@@ -151,7 +149,7 @@ NeMo Curator supports language identification for **176 languages** through Fast
 1. **Download the FastText model**: Get `lid.176.bin` from [fasttext.cc](https://fasttext.cc/docs/en/language-identification.html)
 2. **Set appropriate thresholds**: Balance precision vs. recall based on your needs
 3. **Handle non-spaced languages**: Use special processing for Chinese, Japanese, Thai, Korean
-4. **Validate on your domain**: Test language detection accuracy on your specific data
+4. **Check on your domain**: Test language detection accuracy on your specific data
 
 ```{toctree}
 :maxdepth: 4

@@ -1,7 +1,7 @@
 ---
 description: "Create and combine custom filters using NeMo Curator's flexible framework for specialized data quality requirements"
 categories: ["how-to-guides"]
-tags: ["custom-filters", "extensible", "flexible", "advanced", "framework", "batched"]
+tags: ["custom-filters", "extensible", "flexible", "advanced", "framework", "task-based"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "advanced"
 content_type: "how-to"
@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (text-process-data-filter-custom)=
+
 # Custom Filters
 
 NVIDIA NeMo Curator provides a flexible framework for implementing and combining custom filters to meet your specific data quality requirements. Whether you need to filter documents based on domain-specific criteria or optimize your pipeline's performance, custom filters give you complete control over the filtering process.
@@ -23,7 +24,7 @@ Custom filters in NeMo Curator inherit from the `DocumentFilter` abstract base c
 Here's a simple example of a custom filter:
 
 ```python
-from nemo_curator.filters import DocumentFilter
+from ray_curator.stages.filters.doc_filter import DocumentFilter
 
 class CustomWordFilter(DocumentFilter):
     def __init__(self, target_words, min_occurrences=1):
@@ -41,25 +42,19 @@ class CustomWordFilter(DocumentFilter):
     def keep_document(self, score: int):
         """Keep documents with enough target words."""
         return score >= self._min_occurrences
-        
-    @property
-    def backend(self):
-        """Specify which dataframe backend this filter supports."""
-        return "pandas"  # Options are "pandas", "cudf", or "any"
 ```
 
-By default, the `backend` property returns "pandas", but you can override it to support GPU-accelerated processing with "cudf" or specify "any" if your filter works with either backend.
+Custom filters automatically work with both pandas and PyArrow data formats used in the task-based processing architecture.
 
 ## Using Custom Filters
 
-Once you've defined your custom filter, you can use it with NeMo Curator's filtering framework:
+Once you've defined your custom filter, you can use it with NeMo Curator's task-based processing framework:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+from ray_curator.pipeline.pipeline import Pipeline
+from ray_curator.stages.modules.score_filter import ScoreFilter
+from ray_curator.stages.io.reader.jsonl import JsonlReader
+from ray_curator.stages.io.writer.jsonl import JsonlWriter
 
 # Create and configure your custom filter
 my_filter = CustomWordFilter(
@@ -67,141 +62,192 @@ my_filter = CustomWordFilter(
     min_occurrences=3
 )
 
-# Apply the filter
-filter_step = nc.ScoreFilter(
-    my_filter,
-    text_field="text",
-    score_field="target_word_count"
+# Create a pipeline
+pipeline = Pipeline(
+    name="custom_filter_pipeline",
+    description="Apply custom word filter to documents"
 )
 
-# Get filtered dataset
-filtered_dataset = filter_step(dataset)
+# Add stages to the pipeline
+pipeline.add_stage(JsonlReader(file_paths="input_data/*.jsonl"))
+pipeline.add_stage(ScoreFilter(
+    filter_obj=my_filter,
+    text_field="text",
+    score_field="target_word_count"
+))
+pipeline.add_stage(JsonlWriter(output_dir="filtered_output/"))
 
-# Save results
-filtered_dataset.to_json("filtered_output/", write_to_filename=True)
+# Build and run the pipeline
+pipeline.build()
+
+# Execute with your chosen backend (Ray Data or Xenna)
+from ray_curator.backends.experimental.ray_data.executor import RayDataExecutor
+executor = RayDataExecutor()
+pipeline.run(executor)
 ```
 
-## Optimizing Performance with Batched Filters
+## Optimizing Performance
 
-For improved performance, especially with large datasets, you can implement batched versions of your filters using the `@batched` decorator:
+The framework automatically optimizes performance through its task-based architecture. DocumentBatch objects contain documents that process together, providing natural batching without requiring special decorators.
+
+For computationally intensive filters, you can optimize performance by:
+
+1. **Using vectorized operations**: Use pandas or NumPy vectorized operations when possible
+2. **Configuring batch sizes**: Adjust the `files_per_partition` parameter in readers
+3. **Resource allocation**: Specify appropriate CPU/GPU resources for your stages
 
 ```python
+from ray_curator.stages.filters.doc_filter import DocumentFilter
 import pandas as pd
-from nemo_curator.filters import DocumentFilter
-from nemo_curator.utils.decorators import batched
 
-class BatchedCustomFilter(DocumentFilter):
+class OptimizedCustomFilter(DocumentFilter):
     def __init__(self, threshold=0.5):
         super().__init__()
         self._threshold = threshold
-        self._name = 'batched_custom_filter'
+        self._name = 'optimized_custom_filter'
     
     def score_document(self, text: str):
-        # Single document scoring logic
-        return compute_quality_score(text)
+        # Single document scoring logic for individual processing
+        return len(text.split()) / max(text.count('.'), 1)  # words per sentence
     
-    @batched
-    def keep_document(self, scores: pd.Series):
-        """Process multiple documents at once.
-        
-        Args:
-            scores: Pandas Series containing scores with document IDs as index
-            
-        Returns:
-            Pandas Series of boolean values with same index as input
-        """
-        return scores >= self._threshold
+    def keep_document(self, score: float):
+        """Filter logic applied to individual document scores."""
+        return score >= self._threshold
 ```
 
-When implementing batched methods, it's crucial to maintain the original index in the returned Series to ensure proper document tracking.
+Processing stages automatically handle batching of DocumentBatch objects containing documents.
 
 ## Filter Composition Methods
 
-NeMo Curator makes it easy to combine multiple filters using different composition approaches:
+NeMo Curator makes it easy to combine filters using pipeline composition:
 
-### Sequential
+### Sequential Pipeline Composition
 
-The `Sequential` class applies a series of filters in order:
+Use the `Pipeline` class to apply a series of filters in order:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.filters import WordCountFilter, NonAlphaNumericFilter, UrlsFilter
+from ray_curator.pipeline.pipeline import Pipeline
+from ray_curator.stages.modules.score_filter import ScoreFilter
+from ray_curator.stages.filters.heuristic_filter import WordCountFilter, NonAlphaNumericFilter, UrlsFilter
+from ray_curator.stages.io.reader.jsonl import JsonlReader
+from ray_curator.stages.io.writer.jsonl import JsonlWriter
 
-# Create a pipeline of filters
-filter_pipeline = nc.Sequential([
-    nc.ScoreFilter(WordCountFilter(min_words=100)),
-    nc.ScoreFilter(NonAlphaNumericFilter(max_symbol_ratio=0.3)),
-    nc.ScoreFilter(UrlsFilter(max_urls=3))
-])
+# Create a pipeline with multiple filters
+filter_pipeline = Pipeline(
+    name="sequential_filter_pipeline",
+    description="Apply multiple filters in sequence"
+)
 
-# Apply the pipeline
-high_quality_docs = filter_pipeline(dataset)
+# Add reader
+filter_pipeline.add_stage(JsonlReader(file_paths="input_data/*.jsonl"))
+
+# Add filtering stages
+filter_pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=100),
+    text_field="text"
+))
+filter_pipeline.add_stage(ScoreFilter(
+    filter_obj=NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.3),
+    text_field="text"
+))
+filter_pipeline.add_stage(ScoreFilter(
+    filter_obj=UrlsFilter(max_url_to_text_ratio=0.2),
+    text_field="text"
+))
+
+# Add writer
+filter_pipeline.add_stage(JsonlWriter(output_dir="high_quality_output/"))
+
+# Execute the pipeline
+filter_pipeline.build()
+executor = RayDataExecutor()
+filter_pipeline.run(executor)
 ```
 
-### Parallel with Voting (Custom Implementation)
+### Custom Composite Stages
 
-You can implement a custom voting system where documents must pass a certain number of filters. This is not a built-in class but can be implemented as a utility function:
+For complex filter combinations, you can create custom composite stages that provide voting or parallel filtering logic:
 
 ```python
-import pandas as pd
-import nemo_curator as nc
+from dataclasses import dataclass
+from ray_curator.stages.base import CompositeStage, ProcessingStage
+from ray_curator.stages.modules.score_filter import ScoreFilter
+from ray_curator.tasks import DocumentBatch
 
-# Custom utility function for filter voting
-def voting_filter(dataset, filters, min_passing=2):
-    """
-    Custom implementation of a voting filter system.
+@dataclass
+class VotingFilterStage(CompositeStage[DocumentBatch, DocumentBatch]):
+    """Custom composite stage that implements voting filter logic."""
     
-    Args:
-        dataset: DocumentDataset to filter
-        filters: List of filter modules
-        min_passing: Minimum number of filters that must accept a document
+    filters: list[DocumentFilter]
+    min_passing: int = 2
+    text_field: str = "text"
+    
+    def decompose(self) -> list[ProcessingStage]:
+        """Decompose into individual scoring stages."""
+        stages = []
         
-    Returns:
-        Filtered DocumentDataset
-    """
-    results = []
-    for f in filters:
-        results.append(f(dataset))
+        # Add scoring stages for each filter
+        for i, filter_obj in enumerate(self.filters):
+            stages.append(ScoreFilter(
+                filter_obj=filter_obj,
+                text_field=self.text_field,
+                score_field=f"filter_{i}_score"
+            ))
+        
+        # Add final voting stage
+        stages.append(VotingDecisionStage(
+            filter_count=len(self.filters),
+            min_passing=self.min_passing
+        ))
+        
+        return stages
     
-    # Create a mask where documents pass at least min_passing filters
-    document_ids = dataset.df.index
-    pass_counts = pd.Series(0, index=document_ids)
-    
-    for result in results:
-        pass_counts[result.df.index] += 1
-    
-    passing_ids = pass_counts[pass_counts >= min_passing].index
-    return nc.DocumentDataset(dataset.df.loc[passing_ids])
+    def get_description(self) -> str:
+        return f"Voting filter requiring {self.min_passing} of {len(self.filters)} filters to pass"
 ```
+
+This approach leverages the modular nature of the pipeline architecture to provide complex filtering logic.
 
 ## Scoring Without Filtering
 
 Sometimes you want to add quality scores to your documents without actually filtering them:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.filters import WordCountFilter, NonAlphaNumericFilter
+from ray_curator.pipeline.pipeline import Pipeline
+from ray_curator.stages.modules.score_filter import Score
+from ray_curator.stages.filters.heuristic_filter import WordCountFilter, NonAlphaNumericFilter
+from ray_curator.stages.io.reader.jsonl import JsonlReader
+from ray_curator.stages.io.writer.jsonl import JsonlWriter
 
-# Score documents without filtering them
-scoring_step = nc.Score(
-    WordCountFilter().score_document,
+# Create a pipeline for adding scores
+scoring_pipeline = Pipeline(
+    name="scoring_pipeline",
+    description="Add quality scores without filtering"
+)
+
+# Add reader
+scoring_pipeline.add_stage(JsonlReader(file_paths="input_data/*.jsonl"))
+
+# Add scoring stages (no filtering)
+scoring_pipeline.add_stage(Score(
+    score_fn=WordCountFilter(),  # Uses the filter's score_document method
     text_field="text",
     score_field="word_count"
-)
+))
 
-# Add multiple scores
-symbol_scoring = nc.Score(
-    NonAlphaNumericFilter().score_document,
-    text_field="text",
+scoring_pipeline.add_stage(Score(
+    score_fn=NonAlphaNumericFilter(),
+    text_field="text", 
     score_field="symbol_ratio"
-)
+))
 
-# Apply scoring
-scored_dataset = scoring_step(dataset)
-scored_dataset = symbol_scoring(scored_dataset)
+# Add writer to save scored documents
+scoring_pipeline.add_stage(JsonlWriter(output_dir="scored_output/"))
 
-# Save the scored dataset
-scored_dataset.to_json("scored_output/", write_to_filename=True)
+# Execute the pipeline
+scoring_pipeline.build()
+executor = RayDataExecutor()
+scoring_pipeline.run(executor)
 ```
 
 ## Filtering on Existing Metadata
@@ -209,54 +255,58 @@ scored_dataset.to_json("scored_output/", write_to_filename=True)
 If your dataset already contains quality metrics, you can filter directly on those:
 
 ```python
-import nemo_curator as nc
+from ray_curator.pipeline.pipeline import Pipeline
+from ray_curator.stages.modules.score_filter import Filter
+from ray_curator.stages.io.reader.jsonl import JsonlReader
+from ray_curator.stages.io.writer.jsonl import JsonlWriter
 
-# Filter based on existing metadata field
-filter_step = nc.Filter(
-    lambda score: score < 0.3,  # Keep only documents with toxicity < 0.3
-    filter_field="toxicity_score"
+# Create a pipeline to filter on existing metadata
+metadata_filter_pipeline = Pipeline(
+    name="metadata_filter_pipeline",
+    description="Filter documents based on existing scores"
 )
 
-safe_documents = filter_step(scored_dataset)
-```
+# Add reader
+metadata_filter_pipeline.add_stage(JsonlReader(file_paths="scored_data/*.jsonl"))
 
-## Integrating with CLI
+# Filter based on existing metadata field
+metadata_filter_pipeline.add_stage(Filter(
+    filter_fn=lambda score: score < 0.3,  # Keep only documents with toxicity < 0.3
+    filter_field="toxicity_score"
+))
 
-To make your custom filters available through the command-line interface, you can register them in a configuration file:
+# Add writer for filtered results
+metadata_filter_pipeline.add_stage(JsonlWriter(output_dir="safe_documents/"))
 
-```yaml
-# custom_filters.yaml
-input_field: text
-filters:
-  - name: ScoreFilter
-    filter:
-      name: path.to.your.CustomWordFilter
-      params:
-        target_words: ["machine", "learning", "ai"]
-        min_occurrences: 2
-    text_field: text
-    score_field: target_word_count
-  
-  # Add more filters as needed
-```
-
-Then use this configuration with the `filter_documents` CLI:
-
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./custom_filters.yaml \
-  --output-retained-document-dir=/path/to/output \
-  --log-dir=/path/to/logs
+# Execute the pipeline
+metadata_filter_pipeline.build()
+executor = RayDataExecutor()
+metadata_filter_pipeline.run(executor)
 ```
 
 ## Best Practices
 
 When developing custom filters:
 
-1. **Optimize for performance**: Implement batch processing for computationally intensive operations
-2. **Add meaningful metadata**: Store scores that provide insight into why documents were kept or removed
+1. **Leverage task-based processing**: The framework automatically handles batching through DocumentBatch objects
+2. **Add meaningful metadata**: Store scores that provide insight into which documents pass filters
 3. **Start simple**: Begin with basic filters and incrementally add complexity
-4. **Test on samples**: Validate your filters on small samples before processing large datasets
-5. **Monitor filter impact**: Track how many documents each filter removes to identify potential issues
-6. **Document behavior**: Add clear documentation about what your filter does and its parameters 
+4. **Test on samples**: Check your filters on small samples before processing large datasets using `limit` parameters in readers
+5. **Track filter impact**: Use pipeline logging and stage performance metrics to track processing
+6. **Resource allocation**: Specify appropriate CPU/GPU resources for computationally intensive filters
+7. **Modular design**: Create reusable filters that work across different pipelines
+8. **Document behavior**: Add clear documentation about what your filter does and its parameters
+
+### Resource Configuration Example
+
+```python
+from ray_curator.stages.resources import Resources
+
+class ComputeIntensiveFilter(DocumentFilter):
+    # Override default resources for GPU-based processing
+    _resources = Resources(cpus=2.0, gpu_memory_gb=4.0)
+    
+    def score_document(self, text: str):
+        # GPU-accelerated scoring logic
+        pass
+```

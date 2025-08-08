@@ -9,15 +9,17 @@ modality: "text-only"
 ---
 
 (text-process-data-filter-heuristic)=
+
 # Heuristic Filtering
 
-Heuristic filtering uses simple, rule-based metrics to identify and filter out low-quality documents from your dataset. NVIDIA NeMo Curator provides a variety of pre-built heuristic filters that can be configured and combined to meet your specific needs.
+Heuristic filtering uses simple, rule-based metrics to identify and filter out low-quality documents from your dataset. Ray Curator provides a variety of pre-built heuristic filters that you can configure and combine to meet your specific needs.
 
 ## How It Works
 
 Heuristic filters examine specific attributes of text documents and apply predefined thresholds to determine document quality. Unlike classifier-based filtering, heuristic filters don't require training data but rely on configurable thresholds and rules.
 
 These filters assess quality using measurable document characteristics such as:
+
 - Document length (word or character count)
 - Punctuation ratios and patterns
 - Repetitive content detection
@@ -27,6 +29,8 @@ These filters assess quality using measurable document characteristics such as:
 Each heuristic filter follows a consistent structure:
 
 ```python
+from ray_curator.stages.filters import DocumentFilter
+
 class ExampleFilter(DocumentFilter):
     def __init__(self, parameter1=default1, parameter2=default2):
         super().__init__()
@@ -34,79 +38,86 @@ class ExampleFilter(DocumentFilter):
         self._param2 = parameter2
         self._name = "example_filter"
         
-    def score_document(self, text):
+    def score_document(self, text: str) -> float:
         # Calculate and return a score between 0 and 1
         # Higher scores typically indicate lower quality
         score = compute_score(text)
         return score
         
-    def keep_document(self, score):
+    def keep_document(self, score: float) -> bool:
         # Return True to keep the document, False to filter it out
         return score <= self._param1
 ```
 
 The filtering process typically involves:
+
 1. Calculating a quality score for each document
 2. Applying a threshold to determine whether to keep or discard the document
 3. Optionally storing the score as metadata for later analysis
 
---- 
+---
 
 ## Usage
 
-::::{tab-set}
-
-:::{tab-item} Python
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import (
+from ray_curator.pipeline import Pipeline
+from ray_curator.stages.io.reader import JsonlReader
+from ray_curator.stages.io.writer import JsonlWriter
+from ray_curator.stages.modules import ScoreFilter
+from ray_curator.stages.filters import (
     WordCountFilter,
     RepeatingTopNGramsFilter,
     PunctuationFilter
 )
+from ray_curator.backends.experimental.ray_data import RayDataExecutor
 
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+# Create pipeline
+pipeline = Pipeline(
+    name="heuristic_filtering",
+    description="Filter documents using heuristic quality metrics"
+)
 
-# Create a filter chain using Sequential
-filter_step = nc.Sequential([
-    nc.ScoreFilter(
-        WordCountFilter(min_words=80),
-        text_field="text",
-        score_field="word_count",
-    ),
-    nc.ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=4, max_repeating_ngram_ratio=0.16)),
-])
+# Add data reading stage
+pipeline.add_stage(JsonlReader(
+    file_paths="input_data/*.jsonl",
+    files_per_partition=10
+))
 
-# Apply the filters to get the high-quality subset
-high_quality_data = filter_step(dataset)
+# Add filtering stages
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count_score"
+))
 
-# Save the results
-high_quality_data.to_json("high_quality_output/", write_to_filename=True)
+pipeline.add_stage(ScoreFilter(
+    filter_obj=PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85),
+    text_field="text"
+))
+
+pipeline.add_stage(ScoreFilter(
+    filter_obj=RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2),
+    text_field="text"
+))
+
+pipeline.add_stage(ScoreFilter(
+    filter_obj=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text"
+))
+
+# Add output stage
+pipeline.add_stage(JsonlWriter(
+    output_dir="high_quality_output/"
+))
+
+# Execute pipeline
+executor = RayDataExecutor()
+results = pipeline.run(executor)
 ```
-:::
-
-:::{tab-item} Command Line
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --output-removed-document-dir=/path/to/output/low_quality \
-  --output-document-score-dir=/path/to/output/scores \
-  --log-dir=/path/to/logs/heuristic_filter
-```
-:::
-
-::::
 
 ## Available Filters
 
-NeMo Curator includes over 30 heuristic filters for assessing document quality. Below are the most commonly used filters with their parameters:
+Ray Curator includes over 30 heuristic filters for assessing document quality. Below are the most commonly used filters with their parameters:
 
 ### Text Length Filters
 
@@ -115,7 +126,7 @@ NeMo Curator includes over 30 heuristic filters for assessing document quality. 
 | **WordCountFilter** | Filters by word count | `min_words`, `max_words` | min=50, max=100000 |
 | **TokenCountFilter** | Filters by token count | `min_tokens`, `max_tokens` | min=0, max=∞ |
 | **MeanWordLengthFilter** | Filters by average word length | `min_mean_word_length`, `max_mean_word_length` | min=3, max=10 |
-| **LongWordFilter** | Filters by presence of extremely long words | `max_word_length` | 1000 |
+| **LongWordFilter** | Filters by presence of long words | `max_word_length` | 1000 |
 
 ### Repetition Detection Filters
 
@@ -151,77 +162,105 @@ NeMo Curator includes over 30 heuristic filters for assessing document quality. 
 
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **PornographicUrlsFilter** | Detects URLs containing "porn" substring | None | N/A |
+| **PornographicUrlsFilter** | Detects URLs containing "porn" text | None | N/A |
 | **EllipsisFilter** | Limits excessive ellipses | `max_num_lines_ending_with_ellipsis_ratio` | 0.3 |
 | **HistogramFilter** | Filters based on character distribution | `threshold` | 0.8 |
-| **SubstringFilter** | Filters based on presence of specific substring in a position | `substring`, `position` | "", "any" |
+| **SubstringFilter** | Filters based on presence of specific text in a position | `substring`, `position` | "", "any" |
 
-## Configuration
+## Advanced Usage Patterns
 
-::::{tab-set}
+### Scoring Without Filtering
 
-:::{tab-item} Example Configuration
-```yaml
-# Sample filter configuration (simplified)
-filters:
-  - name: ScoreFilter
-    filter:
-      name: WordCountFilter
-      min_words: 50
-      max_words: 100000
-    text_field: text
-    score_field: word_count
+Use the `Score` stage to add quality metrics without filtering documents:
 
-  - name: ScoreFilter
-    filter:
-      name: PunctuationFilter
-      max_num_sentences_without_endmark_ratio: 0.85
-    text_field: text
-    score_field: punctuation_ratio
+```python
+from ray_curator.stages.modules import Score
 
-  - name: ScoreFilter
-    filter:
-      name: RepeatingTopNGramsFilter
-      n: 2
-      max_repeating_ngram_ratio: 0.18
-    text_field: text
-    score_field: ngram_repetition
+# Add quality scores without filtering
+pipeline.add_stage(Score(
+    score_fn=WordCountFilter(min_words=50),
+    score_field="word_count_score",
+    text_field="text"
+))
+
+pipeline.add_stage(Score(
+    score_fn=PunctuationFilter(),
+    score_field="punctuation_score",
+    text_field="text"
+))
 ```
-:::
 
-::::
+### Filtering on Pre-computed Scores
 
-The configuration file `config/heuristic_filter_en.yaml` contains a general-purpose set of heuristic filters that work well for English text. For non-English texts, you may need to adjust the filter parameters.
+Use the `Filter` stage to filter based on existing metadata:
+
+```python
+from ray_curator.stages.modules import Filter
+
+# Filter based on previously computed scores
+pipeline.add_stage(Filter(
+    filter_fn=lambda x: x <= 0.1,  # Custom filtering function
+    filter_field="word_count_score"
+))
+```
+
+### Language-Specific Filtering
+
+```python
+# Chinese text filter
+pipeline.add_stage(ScoreFilter(
+    filter_obj=SymbolsToWordsFilter(max_symbol_to_word_ratio=0.15, lang="zh"),
+    text_field="text"
+))
+```
+
+## Pipeline Execution Options
+
+### Using Ray Data Executor (Experimental)
+
+```python
+from ray_curator.backends.experimental.ray_data import RayDataExecutor
+
+executor = RayDataExecutor()
+results = pipeline.run(executor)
+```
+
+### Using Alternative Executor
+
+```python
+from ray_curator.backends.xenna import XennaExecutor
+
+executor = XennaExecutor()
+results = pipeline.run(executor)
+```
 
 ## Best Practices
 
-When building filter chains, follow these best practices:
+When building filter pipelines, follow these best practices:
 
 ::::{tab-set}
 
-:::{tab-item} Order for Efficiency
-```python
-# Efficient ordering
-filter_chain = nc.Sequential([
-    nc.ScoreFilter(WordCountFilter(min_words=50)),  # Fast
-    nc.ScoreFilter(UrlsFilter()),                   # Medium
-    nc.ScoreFilter(RepeatingTopNGramsFilter())      # Slow
-])
-```
-:::
+:::{tab-item} Efficient Stage Ordering
 
-:::{tab-item} Batched Processing
 ```python
-from nemo_curator.utils.decorators import batched
+# Order stages from fastest to slowest for efficiency
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=50)  # Fast - simple counting
+))
 
-class MyCustomFilter(DocumentFilter):
-    @batched
-    def keep_document(self, scores):
-        return scores <= self.threshold
+pipeline.add_stage(ScoreFilter(
+    filter_obj=UrlsFilter()  # Medium - regex matching
+))
+
+pipeline.add_stage(ScoreFilter(
+    filter_obj=RepeatingTopNGramsFilter()  # Slow - n-gram computation
+))
 ```
+
 :::
 
 :::{tab-item} Precision vs. Recall
+
 ```python
 # More permissive (higher recall)
 lenient_filter = WordCountFilter(min_words=10, max_words=100000)
@@ -229,97 +268,109 @@ lenient_filter = WordCountFilter(min_words=10, max_words=100000)
 # More strict (higher precision)
 strict_filter = WordCountFilter(min_words=100, max_words=10000)
 ```
+
 :::
 
-:::{tab-item} Language Considerations
+:::{tab-item} Score Preservation
+
 ```python
-# Chinese text filter
-cn_filter = nc.ScoreFilter(
-    SymbolsToWordsFilter(max_symbol_to_word_ratio=0.15, lang="zh")
-)
+# Keep scores for analysis while filtering
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=50),
+    text_field="text",
+    score_field="word_count_score"  # Preserve score
+))
 ```
+
 :::
 
-:::{tab-item} Multiple Filters
+:::{tab-item} Comprehensive Quality Pipeline
+
 ```python
-# Comprehensive quality filter
-quality_chain = nc.Sequential([
-    # Basic text quality
-    nc.ScoreFilter(WordCountFilter(min_words=50)),
-    nc.ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85)),
-    
-    # Content quality
-    nc.ScoreFilter(CommonEnglishWordsFilter(min_num_common_words=2)),
-    
-    # Repetition detection
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18))
-])
+# Multi-stage quality assessment
+pipeline.add_stage(JsonlReader(file_paths="data/*.jsonl"))
+
+# Basic text quality
+pipeline.add_stage(ScoreFilter(
+    filter_obj=WordCountFilter(min_words=50),
+    text_field="text"
+))
+
+pipeline.add_stage(ScoreFilter(
+    filter_obj=PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85),
+    text_field="text"
+))
+
+# Content quality
+pipeline.add_stage(ScoreFilter(
+    filter_obj=CommonEnglishWordsFilter(min_num_common_words=2),
+    text_field="text"
+))
+
+# Repetition detection
+pipeline.add_stage(ScoreFilter(
+    filter_obj=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text"
+))
+
+pipeline.add_stage(JsonlWriter(output_dir="filtered_output/"))
 ```
+
 :::
 
 ::::
 
-## Analyzing Filter Results
+## Performance Considerations
 
-When working with non-English data or tuning your filtering pipeline, it's valuable to examine which filters are removing documents:
+For large datasets, consider these optimizations:
 
 ::::{tab-set}
 
-:::{tab-item} Filter Analysis
+:::{tab-item} File Partitioning
+
 ```python
-import pandas as pd
-
-# Load scores from filter run
-scores = pd.read_json("output/scores/scores.jsonl", lines=True)
-
-# Analyze rejection reasons
-rejection_counts = scores[scores["rejected"] == True].groupby("rejected_by").size()
-print(f"Documents rejected by filter:\n{rejection_counts}")
-
-# Analyze score distributions
-import matplotlib.pyplot as plt
-scores.hist(column="word_count", bins=50)
-plt.title("Word Count Distribution")
-plt.savefig("word_count_hist.png")
+# Control how files are partitioned for parallel processing
+pipeline.add_stage(JsonlReader(
+    file_paths="large_dataset/*.jsonl",
+    files_per_partition=5,  # Fewer files per partition for larger datasets
+    blocksize="128MB"       # Or use blocksize-based partitioning
+))
 ```
+
+:::
+
+:::{tab-item} Resource Management
+
+```python
+from ray_curator.stages.resources import Resources
+
+# Configure resource requirements for compute-intensive filters
+class CustomFilter(ScoreFilter):
+    _resources = Resources(cpus=2.0)  # Request more CPU cores
+    
+    def __init__(self, filter_obj):
+        super().__init__(filter_obj=filter_obj)
+```
+
 :::
 
 ::::
 
-## Performance Tuning
+Remember that the goal of filtering is to improve the quality of your training data, not necessarily to remove as much content as possible. Track your filtering results and adjust thresholds based on your specific data characteristics and downstream tasks.
 
-For large datasets, consider these performance optimizations:
+## Evidence and Sources
 
-::::{tab-set}
+**Source**: `ray-curator/ray_curator/stages/filters/heuristic_filter.py:47-835`
+**Evidence**: All heuristic filters extend the DocumentFilter abstract base class with score_document() and keep_document() methods
 
-:::{tab-item} Memory Efficient Processing
-```python
-# Process in chunks to reduce memory usage
-for chunk in DocumentDataset.read_json_chunks("large_dataset/*.jsonl", chunk_size=10000):
-    filtered_chunk = filter_step(chunk)
-    filtered_chunk.to_json("output/", mode="append")
-```
-:::
+**Source**: `ray-curator/ray_curator/stages/modules/score_filter.py:183-279`
+**Evidence**: ScoreFilter stage combines scoring and filtering, accepting DocumentFilter objects and text/score field configuration
 
-:::{tab-item} Multi-process Filtering
-```bash
-# Use multiple processes with CLI
-filter_documents --input-data-dir=input/ --num-proc=8 --filter-config-file=config.yaml --output-retained-document-dir=output/
-```
-:::
+**Source**: `ray-curator/ray_curator/stages/filters/__init__.py:15-53`
+**Evidence**: Complete list of available heuristic filters exported from the filters module
 
-:::{tab-item} Custom Batch Sizes
-```python
-# Adjust batch size for specific filters
-from nemo_curator.utils.decorators import batched
+**Source**: `ray-curator/ray_curator/stages/io/reader/jsonl.py:159-218`
+**Evidence**: JsonlReader composite stage for reading JSONL files with file partitioning support
 
-class CustomBatchFilter(DocumentFilter):
-    @batched(batch_size=5000)  # Set custom batch size
-    def keep_document(self, scores):
-        return scores <= self.threshold
-```
-:::
-
-::::
-
-Remember that the goal of filtering is to improve the quality of your training data, not necessarily to remove as many documents as possible. Monitor your filtering results and adjust thresholds based on your specific data characteristics and downstream tasks.
+**Source**: `ray-curator/ray_curator/pipeline/pipeline.py:12-180`
+**Evidence**: Pipeline class for composing and executing processing stages

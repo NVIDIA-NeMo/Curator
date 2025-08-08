@@ -1,7 +1,7 @@
 ---
-description: "Download and extract text from Wikipedia dumps with support for multiple languages and automatic content processing"
+description: "Download and extract text from Wikipedia dumps using ray-curator's pipeline-based processing"
 categories: ["how-to-guides"]
-tags: ["wikipedia", "dumps", "multilingual", "articles", "data-loading"]
+tags: ["wikipedia", "dumps", "multilingual", "articles", "data-loading", "ray-curator"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -9,23 +9,25 @@ modality: "text-only"
 ---
 
 (text-load-data-wikipedia)=
+
 # Wikipedia
 
-Download and extract text from [Wikipedia Dumps](https://dumps.wikimedia.org/backup-index.html) using NeMo Curator utilities.
+Download and extract text from [Wikipedia Dumps](https://dumps.wikimedia.org/backup-index.html) using ray-curator's pipeline-based processing system.
 
-Wikipedia regularly releases dumps of all its content, which include articles, talk pages, user pages, and more. These dumps are available in various formats, including XML and SQL.
+Wikipedia releases compressed dumps of all its content in XML format twice per month. ray-curator provides a complete pipeline to automatically download, parse, and extract clean text from these dumps.
 
 ## How it Works
 
-NeMo Curator simplifies the process of:
+The Wikipedia pipeline in ray-curator consists of four stages:
 
-- Downloading the latest Wikipedia dump
-- Extracting the article content
-- Converting the content to a usable format for language model training
+1. **URL Generation**: Automatically discovers Wikipedia dump URLs for the specified language and date
+2. **Download**: Downloads compressed .bz2 dump files using `wget`
+3. **Iteration**: Parses XML content and extracts individual articles
+4. **Extraction**: Cleans Wikipedia markup and converts to plain text
 
 ## Before You Start
 
-NeMo Curator uses `wget` to download Wikipedia dumps. You must have `wget` installed on your system:
+ray-curator uses `wget` to download Wikipedia dumps. You must have `wget` installed on your system:
 
 - **On macOS**:  `brew install wget`
 - **On Ubuntu/Debian**: `sudo apt-get install wget`
@@ -35,81 +37,78 @@ NeMo Curator uses `wget` to download Wikipedia dumps. You must have `wget` insta
 
 ## Usage
 
-Here's how to download and extract Wikipedia data using NeMo Curator:
-
-::::{tab-set}
-
-:::{tab-item} Python
+Here's how to download and extract Wikipedia data using ray-curator:
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.download import download_wikipedia
+from ray_curator.pipeline import Pipeline
+from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.stages.download.text.wikipedia import WikipediaDownloadExtractStage
+from ray_curator.stages.io.writer import JsonlWriter
+from ray_curator.tasks import EmptyTask
 
-# Initialize a Dask client
-client = get_client(cluster_type="cpu")
-
-# Download and extract Wikipedia
-wikipedia_dataset = download_wikipedia(
-    output_path="/extracted/output/folder",
-    dump_date="20240401"  # Optional: specific dump date
+# Create the Wikipedia processing stage
+wikipedia_stage = WikipediaDownloadExtractStage(
+    language="en",
+    download_dir="./wikipedia_downloads",
+    dump_date="20240401",  # Optional: specific dump date (YYYYMMDD format)
+    url_limit=5,           # Optional: limit number of dump files (useful for testing)
+    record_limit=1000,     # Optional: limit articles per dump file
+    verbose=True
 )
 
-# The dataset is now available as a DocumentDataset object
-print(f"Downloaded {len(wikipedia_dataset)} articles")
-print(wikipedia_dataset.head())
+# Create writer stage to save results
+writer_stage = JsonlWriter(
+    output_dir="./wikipedia_output"
+)
 
-# Write the dataset to disk as JSONL files
-wikipedia_dataset.to_json(output_path="/path/to/output/files")
+# Create and configure pipeline
+pipeline = Pipeline(
+    name="wikipedia_pipeline",
+    description="Download and process Wikipedia dumps"
+)
+pipeline.add_stage(wikipedia_stage)
+pipeline.add_stage(writer_stage)
+
+# Create executor and run pipeline
+executor = XennaExecutor()
+
+# Start with an empty task to trigger URL generation
+initial_tasks = [EmptyTask(task_id="wikipedia_start", dataset_name="wikipedia")]
+
+# Execute the pipeline
+results = pipeline.run(executor, initial_tasks=initial_tasks)
+print(f"Pipeline completed with {len(results) if results else 0} output files")
 ```
 
-:::
+### Multi-Language Processing
 
-:::{tab-item} CLI
-NeMo Curator provides a CLI for downloading Wikipedia data. 
+You can process several languages by creating separate pipelines:
 
-**Step 1: Generate Wikipedia URLs**
+```python
+languages = ["en", "es", "fr", "de"]
 
-First, generate a list of Wikipedia dump URLs for the desired language:
-
-```bash
-get_wikipedia_urls \
-  --language=en \
-  --output-url-file=./wikipedia_urls.txt
+for lang in languages:
+    # Create language-specific pipeline
+    wikipedia_stage = WikipediaDownloadExtractStage(
+        language=lang,
+        download_dir=f"./downloads/{lang}",
+        dump_date="20240401"
+    )
+    
+    writer_stage = JsonlWriter(
+        output_dir=f"./output/{lang}"
+    )
+    
+    pipeline = Pipeline(name=f"wikipedia_{lang}")
+    pipeline.add_stage(wikipedia_stage)
+    pipeline.add_stage(writer_stage)
+    
+    # Execute
+    results = pipeline.run(executor, initial_tasks=[EmptyTask(
+        task_id=f"start_{lang}", 
+        dataset_name=f"wikipedia_{lang}"
+    )])
 ```
-
-**Step 2: Create Configuration File**
-
-Create a configuration file (`wikipedia_builder.yaml`):
-
-```yaml
-download_module: nemo_curator.download.wikipedia.WikipediaDownloader
-download_params: {}
-iterator_module: nemo_curator.download.wikipedia.WikipediaIterator
-iterator_params:
-  language: 'en'
-extract_module: nemo_curator.download.wikipedia.WikipediaExtractor
-extract_params:
-  language: 'en'
-format:
-  text: str
-  title: str
-  id: str
-  url: str
-  language: str
-  source_id: str
-```
-
-**Step 3: Run Download and Extraction**
-
-```bash
-download_and_extract \
-  --input-url-file=./wikipedia_urls.txt \
-  --builder-config-file=./wikipedia_builder.yaml \
-  --output-json-dir=/datasets/wikipedia/json
-```
-:::
-
-::::
 
 ### Parameters
 
@@ -121,35 +120,68 @@ download_and_extract \
   - Type
   - Default
   - Description
-* - `output_path`
-  - str
-  - Required
-  - Path where the extracted files will be placed
-* - `dump_date`
-  - Optional[str]
-  - None
-  - Parameter to specify a particular Wikipedia dump date. The format must be "YYYYMMDD" (for example, "20250401" for April 1, 2025). Wikipedia creates new dumps approximately twice a month (around the 1st and 20th). You can find available dump dates by visiting https://dumps.wikimedia.org/enwiki/. If not specified, NeMo Curator will automatically use the latest available dump.
 * - `language`
   - str
   - "en"
-  - Language code to download (for example, "en" for English)
+  - Language code for Wikipedia dump (e.g., "en", "es", "fr")
+* - `download_dir`
+  - str
+  - "./wikipedia_downloads"
+  - Directory to store downloaded .bz2 files
+* - `dump_date`
+  - Optional[str]
+  - None
+  - Specific dump date in "YYYYMMDD" format (e.g., "20240401"). If None, uses latest available dump
+* - `wikidumps_index_prefix`
+  - str
+  - "https://dumps.wikimedia.org"
+  - Base URL for Wikipedia dumps index
+* - `verbose`
+  - bool
+  - False
+  - Enable verbose logging during download
 * - `url_limit`
   - Optional[int]
   - None
-  - Parameter to limit the number of URLs downloaded (useful for testing)
+  - Maximum number of dump URLs to process (useful for testing)
+* - `record_limit`
+  - Optional[int]
+  - None
+  - Maximum number of articles to extract per dump file
+* - `add_filename_column`
+  - bool | str
+  - True
+  - Whether to add source filename column to output
+* - `log_frequency`
+  - int
+  - 1000
+  - How often to log progress during article processing
 ```
 
-If no `dump_date` is specified, NeMo Curator will download the latest available dump.
+::::{note}
+Wikipedia creates new dumps twice per month (around the 1st and 20th). You can find available dump dates at <https://dumps.wikimedia.org/enwiki/>.
+::::
 
 ## Output Format
 
-The extracted Wikipedia articles are stored in `.jsonl` files, with each line containing a JSON object with fields:
+The processed Wikipedia articles become JSONL files, with each line containing a JSON object with these fields:
 
-- `text`: The main text content of the article
-- `id`: A unique identifier for the article
+- `text`: The cleaned main text content of the article
 - `title`: The title of the Wikipedia article
-- `url`: The URL of the Wikipedia article
+- `id`: Wikipedia's unique identifier for the article
+- `url`: The constructed Wikipedia URL for the article
 - `language`: The language code of the article
-- `source_id`: The source file identifier
-- `file_name`: The output file name (when using `write_to_filename=True`)
+- `source_id`: Identifier of the source dump file
 
+### Example Output Record
+
+```json
+{
+  "text": "Python is a high-level, general-purpose programming language...",
+  "title": "Python (programming language)",
+  "id": "23862",
+  "url": "https://en.wikipedia.org/wiki/Python_(programming_language)",
+  "language": "en",
+  "source_id": "enwiki-20240401-pages-articles-multistream1.xml"
+}
+```
