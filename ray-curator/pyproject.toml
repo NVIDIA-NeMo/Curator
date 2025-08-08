@@ -18,7 +18,6 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
-    "crossfit>=0.0.9",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
