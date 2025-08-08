@@ -41,7 +41,7 @@ ENV PATH="/root/.pixi/bin:$PATH"
 WORKDIR /tmp
 
 # Copy configuration files
-COPY ray-curator/pyproject.toml ray-curator/pixi.lock* ./
+COPY ray-curator/pyproject.toml ./
 
 # Install dependencies
 RUN pixi install
@@ -57,7 +57,7 @@ RUN pixi shell-hook -s bash > /shell-hook && \
 # Final stage
 ##############################################################################
 
-FROM curator_dep AS nemo_curator
+FROM cuda AS nemo_curator
 
 WORKDIR /opt
 
