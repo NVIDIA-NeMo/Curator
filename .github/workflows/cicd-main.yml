@@ -320,7 +320,7 @@ jobs:
       && !cancelled()
     strategy:
       matrix:
-        flag: [unit-test, e2e]
+        flag: [unit-test]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
