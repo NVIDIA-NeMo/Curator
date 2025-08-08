@@ -116,7 +116,15 @@ def processing_stage(
 
             def process(self, task: TIn) -> TOut | list[TOut]:  # type: ignore[override]
                 # Delegate to the wrapped function.
-                return cast("TOut | list[TOut]", self._fn(task))
+                out = cast("TOut | list[TOut]", self._fn(task))
+                if isinstance(out, list):
+                    for t in out:
+                        t._metadata = task._metadata.copy()
+                        t._stage_perf = task._stage_perf.copy()
+                else:
+                    out._metadata = task._metadata.copy()
+                    out._stage_perf = task._stage_perf.copy()
+                return out
 
             # The user requested to “not worry about inputs/outputs”, so we leave
             # them as the base-class defaults (empty lists).
