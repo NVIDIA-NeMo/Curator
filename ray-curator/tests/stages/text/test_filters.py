@@ -1045,6 +1045,7 @@ class TestCodeFilters:
                 os.path.dirname(__file__),
                 "..",
                 "..",
+                "..",
                 "ray_curator",
                 "utils",
                 "code_meta.csv",

@@ -343,10 +343,10 @@ class TestDocumentDownloadExtractStage:
         # Should still have all required stages
         assert len(stages) == 3
 
-    @mock.patch("ray_curator.stages.download.text.base.stage.URLGenerationStage")
-    @mock.patch("ray_curator.stages.download.text.base.stage.DocumentDownloadStage")
-    @mock.patch("ray_curator.stages.download.text.base.stage.DocumentIterateStage")
-    @mock.patch("ray_curator.stages.download.text.base.stage.DocumentExtractStage")
+    @mock.patch("ray_curator.stages.text.download.base.stage.URLGenerationStage")
+    @mock.patch("ray_curator.stages.text.download.base.stage.DocumentDownloadStage")
+    @mock.patch("ray_curator.stages.text.download.base.stage.DocumentIterateStage")
+    @mock.patch("ray_curator.stages.text.download.base.stage.DocumentExtractStage")
     def test_stage_initialization_mocking(
         self,
         mock_extract_stage: mock.Mock,

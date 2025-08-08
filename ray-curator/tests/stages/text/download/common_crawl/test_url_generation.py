@@ -146,7 +146,7 @@ class TestMainCommonCrawlUrlGenerator:
         # Request data from 2010, should be adjusted to 2013
         generator = MainCommonCrawlUrlGenerator(start_snapshot_str="2010-01", end_snapshot_str="2021-10")
 
-        with patch("ray_curator.stages.download.text.common_crawl.url_generation.logger") as mock_logger:
+        with patch("ray_curator.stages.text.download.common_crawl.url_generation.logger") as mock_logger:
             _ = generator.generate_path_urls()
             mock_logger.warning.assert_called_once()
             assert "Adjusting start date to 2013-01-01" in str(mock_logger.warning.call_args)
@@ -200,7 +200,7 @@ class TestMainCommonCrawlUrlGenerator:
         generator = MainCommonCrawlUrlGenerator(start_snapshot_str="2021-10", end_snapshot_str="2021-12")
         path_urls = ["https://data.commoncrawl.org/test.warc.paths.gz"]
 
-        with patch("ray_curator.stages.download.text.common_crawl.url_generation.logger") as mock_logger:
+        with patch("ray_curator.stages.text.download.common_crawl.url_generation.logger") as mock_logger:
             # Test network error
             mock_get.side_effect = requests.RequestException("Network error")
             data_urls = generator.generate_data_urls(path_urls)
@@ -297,7 +297,7 @@ class TestNewsCommonCrawlUrlGenerator:
         """Test handling of dates before news data availability"""
         generator = NewsCommonCrawlUrlGenerator(start_snapshot_str="2015-01", end_snapshot_str="2021-06")
 
-        with patch("ray_curator.stages.download.text.common_crawl.url_generation.logger") as mock_logger:
+        with patch("ray_curator.stages.text.download.common_crawl.url_generation.logger") as mock_logger:
             urls = generator.generate_path_urls()
             mock_logger.warning.assert_called_once()
             assert "2016" in str(mock_logger.warning.call_args)
