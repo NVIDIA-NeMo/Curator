@@ -48,10 +48,10 @@ RUN pixi install
 
 # Create activation script
 RUN pixi shell-hook -s bash > /shell-hook && \
-    echo "#!/bin/bash" > /app/entrypoint.sh && \
-    cat /shell-hook >> /app/entrypoint.sh && \
-    echo 'exec "$@"' >> /app/entrypoint.sh && \
-    chmod +x /app/entrypoint.sh
+    echo "#!/bin/bash" > /tmp/entrypoint.sh && \
+    cat /shell-hook >> /tmp/entrypoint.sh && \
+    echo 'exec "$@"' >> /tmp/entrypoint.sh && \
+    chmod +x /tmp/entrypoint.sh
 
 ##############################################################################
 # Final stage
@@ -67,10 +67,12 @@ RUN apt-get update && apt-get install -y ca-certificates git \
 COPY . .
 
 # Copy pixi environment
-COPY --from=build /app/.pixi/envs/default /app/.pixi/envs/default
-COPY --from=build /app/entrypoint.sh /app/entrypoint.sh
+COPY --from=build /tmp/.pixi/envs/default /opt/.pixi/envs/default
+COPY --from=build /tmp/entrypoint.sh /opt/entrypoint.sh
 
 WORKDIR /workspace
+
+ENTRYPOINT ["/opt/entrypoint.sh"]
 
 FROM nemo_curator AS nemo_curator_dev
 
