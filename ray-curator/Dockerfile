@@ -41,23 +41,19 @@ RUN apt-get update && apt-get install -y curl ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 ENV PATH="/root/.pixi/bin:$PATH"
 
-WORKDIR /tmp
+WORKDIR /opt
 
 # Copy configuration files
 COPY ray-curator/pyproject.toml ./
 
 # Install dependencies
-RUN pixi install -v && \
-    if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
-        pixi install -e dev -v; \
-    fi
+RUN pixi install -e $CURATOR_ENVIRONMENT -v
 
-# Create activation script
-RUN pixi shell-hook -s bash > /shell-hook && \
-    echo "#!/bin/bash" > /tmp/entrypoint.sh && \
-    cat /shell-hook >> /tmp/entrypoint.sh && \
-    echo 'exec "$@"' >> /tmp/entrypoint.sh && \
-    chmod +x /tmp/entrypoint.sh
+RUN pixi shell-hook -e $CURATOR_ENVIRONMENT -s bash > /shell-hook && \
+    echo "#!/bin/bash" > /opt/entrypoint.sh && \
+    cat /shell-hook >> /opt/entrypoint.sh && \
+    echo 'exec "$@"' >> /opt/entrypoint.sh && \
+    chmod +x /opt/entrypoint.sh
 
 ##############################################################################
 # Final stage
@@ -73,8 +69,8 @@ RUN apt-get update && apt-get install -y ca-certificates git \
 COPY . .
 
 # Copy pixi environment
-COPY --from=build /tmp/.pixi/envs/default /opt/.pixi/envs/default
-COPY --from=build /tmp/entrypoint.sh /opt/entrypoint.sh
+COPY --from=build /opt/.pixi/envs /opt/.pixi/envs
+COPY --from=build /opt/entrypoint.sh /opt/entrypoint.sh
 
 WORKDIR /workspace
 

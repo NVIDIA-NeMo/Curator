@@ -87,7 +87,7 @@ ffmpeg = "*"  # Add FFmpeg from conda-forge
 
 [tool.pixi.environments]
 default = ["all"]
-dev = ["dev"]
+dev = ["all", "dev"]
 
 [tool.setuptools]
 packages = ["ray_curator"]
