@@ -15,12 +15,12 @@
 from pathlib import Path
 from unittest import mock
 
+from ray_curator.stages.resources import Resources
 from ray_curator.stages.text.download.base.download import DocumentDownloadStage
 from ray_curator.stages.text.download.base.extract import DocumentExtractStage
 from ray_curator.stages.text.download.base.iterator import DocumentIterateStage
 from ray_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
 from ray_curator.stages.text.download.base.url_generation import URLGenerationStage
-from ray_curator.stages.resources import Resources
 
 from .test_download import MockDocumentDownloader
 from .test_extract import MockDocumentExtractor
