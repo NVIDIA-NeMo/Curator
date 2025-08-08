@@ -1,23 +1,10 @@
-from enum import Enum
 
 import ray
 from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
+from ray_curator.backends.experimental.utils import get_available_cpu_gpu_resources
 from ray_curator.stages.base import ProcessingStage
-
-
-class RayStageSpecKeys(str, Enum):
-    """String enum of different flags that define keys inside ray_stage_spec."""
-
-    IS_ACTOR_STAGE = "is_actor_stage"
-    IS_FANOUT_STAGE = "is_fanout_stage"
-
-
-def get_available_cpu_gpu_resources() -> tuple[int, int]:
-    """Get available CPU and GPU resources from Ray."""
-    available_resources = ray.available_resources()
-    return (available_resources.get("CPU", 0), available_resources.get("GPU", 0))
 
 
 def calculate_concurrency_for_actors_for_stage(stage: ProcessingStage) -> tuple[int, int] | int:
@@ -35,7 +22,7 @@ def calculate_concurrency_for_actors_for_stage(stage: ProcessingStage) -> tuple[
         return max(1, num_workers)
 
     # Get available resources from Ray
-    available_cpus, available_gpus = get_available_cpu_gpu_resources()
+    available_cpus, available_gpus = get_available_cpu_gpu_resources(init_and_shudown=False)
     # Calculate based on CPU and GPU requirements
     max_cpu_actors = float("inf")
     max_gpu_actors = float("inf")

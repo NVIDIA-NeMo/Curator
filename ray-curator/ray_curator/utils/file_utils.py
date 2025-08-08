@@ -1,7 +1,12 @@
+import os
 import warnings
+from pathlib import Path
 
 import fsspec
+import pyarrow.parquet as pq
 from fsspec.core import get_filesystem_class, split_protocol
+from fsspec.parquet import open_parquet_file
+from loguru import logger
 
 
 def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.AbstractFileSystem:
@@ -52,3 +57,51 @@ def get_all_files_paths_under(
     if keep_extensions is not None:
         file_ls = filter_files_by_extension(file_ls, keep_extensions)
     return file_ls
+
+
+def remove_and_create_dir(
+    dir_path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict | None = None
+) -> None:
+    if fs is None:
+        fs = get_fs(dir_path, storage_options)
+
+    if fs.exists(dir_path):
+        logger.warning(f"Removing and recreating directory {dir_path}")
+        fs.rm(dir_path, recursive=True)
+    # if AWS then since mkdir doesn't exist we need to touch
+    if fs.protocol == "s3":
+        fs.touch(os.path.join(dir_path, ".empty"))
+    else:
+        fs.mkdir(dir_path)
+
+
+
+def get_parquet_num_rows(
+    file_path: str,
+    storage_options: dict | None = None,
+) -> int:
+    """Get number of rows for local/cloud Parquet files efficiently by only reading the footer"""
+    with open_parquet_file(file_path, storage_options=storage_options) as f:
+        return pq.read_metadata(f).num_rows
+
+def infer_dataset_name_from_path(path: str) -> str:
+    """Infer a dataset name from a path, handling both local and cloud storage paths.
+    Args:
+        path: Local path or cloud storage URL (e.g. s3://, abfs://)
+    Returns:
+        Inferred dataset name from the path
+    """
+    # Split protocol and path for cloud storage
+    protocol, pure_path = split_protocol(path)
+    if protocol is None:
+        # Local path handling
+        first_file = Path(path)
+        if first_file.parent.name and first_file.parent.name != ".":
+            return first_file.parent.name.lower()
+        return first_file.stem.lower()
+    else:
+        path_parts = pure_path.rstrip("/").split("/")
+        if len(path_parts) <= 1:
+            return path_parts[0]
+        return path_parts[-1].lower()
+

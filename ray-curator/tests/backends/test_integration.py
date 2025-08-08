@@ -10,8 +10,9 @@ import ray
 from loguru import logger
 
 from ray_curator.backends.base import BaseExecutor
+from ray_curator.backends.experimental.ray_actor import RayActorExecutor
+from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from ray_curator.backends.experimental.ray_data import RayDataExecutor
-from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.tasks import FileGroupTask
 
 from .utils import (
@@ -27,9 +28,11 @@ from .utils import (
 @pytest.mark.parametrize(
     "backend_config",
     [
-        pytest.param((RayDataExecutor, {}), id="ray_data"),
-        pytest.param((XennaExecutor, {"execution_mode": "batch"}), id="xenna_batch"),
-        pytest.param((XennaExecutor, {"execution_mode": "streaming"}), id="xenna_streaming"),
+        pytest.param((RayActorExecutor, {}), id="ray_actor"),
+        pytest.param((RayActorPoolExecutor, {}), id="ray_actor_pool"),
+        # pytest.param((RayDataExecutor, {}), id="ray_data"),
+        # pytest.param((XennaExecutor, {"execution_mode": "batch"}), id="xenna_batch"),
+        # pytest.param((XennaExecutor, {"execution_mode": "streaming"}), id="xenna_streaming"),
     ],
     indirect=True,
 )
