@@ -176,8 +176,8 @@ jobs:
         with:
           name: ${{ steps.check.outputs.coverage_report }}
           path: |
-            coverage.xml
-            .coverage
+            ray-curator/coverage.xml
+            ray-curator/.coverage
           include-hidden-files: true
 
   cicd-gpu-tests:
