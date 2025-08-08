@@ -176,6 +176,7 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c '
           set -e
 
+          bash /opt/entrypoint.sh
           bash ray-curator/tests/${{ inputs.script }}.sh
         '
 
