@@ -49,7 +49,7 @@ COPY ray-curator/pyproject.toml ./
 # Install dependencies
 RUN pixi install && \
     if [ "CURATOR_ENVIRONMENT" = "dev" ]; then \
-        pixi install -e dev
+        pixi install -e dev; \
     fi
 
 # Create activation script
