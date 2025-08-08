@@ -77,4 +77,4 @@ ENTRYPOINT ["/opt/entrypoint.sh"]
 FROM nemo_curator AS nemo_curator_dev
 
 RUN cd /opt/ray-curator && \
-    pxix install -e dev
+    pixi install -e dev
