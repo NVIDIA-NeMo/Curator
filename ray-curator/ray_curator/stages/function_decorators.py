@@ -34,7 +34,22 @@ def word_count(task: SampleTask) -> SampleTask:
 
 The variable ``word_count`` now holds an *instance* of a concrete
 ``ProcessingStage`` subclass that can be added directly to a
-:class:`ray_curator.pipeline.Pipeline`.
+:class:`ray_curator.pipeline.Pipeline` like so:
+
+```python
+from ray_curator.pipeline import Pipeline
+
+
+pipeline = Pipeline(...)
+# Add read stage, etc.
+pipeline.add_stage(...)
+
+# Add ``WordCountStage``
+pipeline.add_stage(word_count)
+
+result = pipeline.run(...)
+```
+
 """
 
 from __future__ import annotations
