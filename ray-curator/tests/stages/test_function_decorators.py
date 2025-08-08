@@ -111,10 +111,7 @@ class TestProcessingStageDecorator:
         stage = duplicate_stage
         task = MockTask(value=42)
 
-        if process_batch:
-            result = stage.process_batch([task])
-        else:
-            result = stage.process(task)
+        result = stage.process_batch([task]) if process_batch else stage.process(task)
 
         assert isinstance(result, list)
         assert len(result) == 2
