@@ -76,6 +76,11 @@ all = [
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
+# Specify PyPI index settings
+[tool.pixi.pypi-options]
+index-url = "https://pypi.org/simple"
+extra-index-url = "https://pypi.nvidia.com"
+
 [tool.pixi.dependencies]
 python = "3.12.*"
 ffmpeg = "*"  # Add FFmpeg from conda-forge
