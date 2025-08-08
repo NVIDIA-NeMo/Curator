@@ -30,6 +30,9 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 
 FROM cuda AS build
 
+ARG CURATOR_ENV=dev
+ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
+
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
 # Install pixi
@@ -44,7 +47,10 @@ WORKDIR /tmp
 COPY ray-curator/pyproject.toml ./
 
 # Install dependencies
-RUN pixi install
+RUN pixi install && \
+    if [ "CURATOR_ENVIRONMENT" = "dev" ]; then \
+        pixi install -e dev
+    fi
 
 # Create activation script
 RUN pixi shell-hook -s bash > /shell-hook && \
@@ -73,8 +79,3 @@ COPY --from=build /tmp/entrypoint.sh /opt/entrypoint.sh
 WORKDIR /workspace
 
 ENTRYPOINT ["/opt/entrypoint.sh"]
-
-FROM nemo_curator AS nemo_curator_dev
-
-RUN cd /opt/ray-curator && \
-    pixi install -e dev
