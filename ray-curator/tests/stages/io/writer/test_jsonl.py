@@ -48,10 +48,12 @@ class TestJsonlWriter:
                 assert mock_get_deterministic_hash.call_count == 1
                 # Verify get_deterministic_hash was called with correct arguments
                 mock_get_deterministic_hash.assert_called_once_with(source_files, document_batch.task_id)
-                assert mock_uuid4.call_count == 0
+                # because we call it once for task, and that should be the only one
+                assert mock_uuid4.call_count <= 1
             else:
                 assert mock_get_deterministic_hash.call_count == 0
-                assert mock_uuid4.call_count == 1
+                # because we call it once for task, and once for the filename
+                assert mock_uuid4.call_count == 2
 
         # Verify file was created
         assert result.task_id == document_batch.task_id  # Task ID should match input

@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .add_id import AddId
 from .score_filter import Filter, Score, ScoreFilter
 
 __all__ = [
+    "AddId",
     "Filter",
     "Score",
     "ScoreFilter",
