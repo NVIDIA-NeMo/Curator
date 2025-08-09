@@ -45,7 +45,9 @@ text = [
     # Aegis
     "peft",
 ]
-cuda12x = [
+
+# Installs CPU + GPU text curation modules
+deduplication_cuda12x = [
     "cudf-cu12==25.6.*",
     "cugraph-cu12==25.6.*",
     "cuml-cu12==25.6.*",
@@ -53,6 +55,7 @@ cuda12x = [
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
 ]
+
 dev = [
     "debugpy",
     "pre-commit",
@@ -110,3 +113,6 @@ fixable = ["ALL"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+]

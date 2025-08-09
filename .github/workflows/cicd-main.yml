@@ -158,7 +158,7 @@ jobs:
       - name: Run tests
         run: |
           cd ray-curator
-          python -m coverage run --branch --source=ray_curator -m pytest -v
+          python -m coverage run --branch --source=ray_curator -m pytest -m "not gpu" -v
 
 #      - name: Generate report
 #        id: check
