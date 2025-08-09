@@ -85,8 +85,8 @@ class TestAsrInference:
 
         assert len(result) == 2
         assert all(isinstance(task, SpeechObject) for task in result)
-        assert result[0].task_id == "/test/audio1.wav_task_id"
-        assert result[1].task_id == "/test/audio2.mp3_task_id"
+        assert result[0].task_id == "task_id_/test/audio1.wav"
+        assert result[1].task_id == "task_id_/test/audio2.mp3"
         assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
         assert result[1].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
 
@@ -121,8 +121,8 @@ class TestAsrInference:
         assert stages[1]._metrics["elapsed"] < 20  # 9.579694032669067/16.63609218597412 on A6000
 
         assert all(isinstance(task, SpeechObject) for task in result)
-        assert os.path.split(result[0].task_id)[1] == "84-121123-0000.flac_task_id"
-        assert os.path.split(result[1].task_id)[1] == "84-121123-0001.flac_task_id"
+        assert os.path.split(result[0].task_id)[1] == "task_id_84-121123-0000.flac"
+        assert os.path.split(result[1].task_id)[1] == "task_id_84-121123-0001.flac"
         assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
         assert result[1].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
         assert result[0].data["text"] == "Go. Do you hear?"
