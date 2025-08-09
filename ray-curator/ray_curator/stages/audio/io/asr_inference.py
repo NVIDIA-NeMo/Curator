@@ -9,8 +9,8 @@ from loguru import logger
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import SpeechObject, _EmptyTask
-from ray_curator.tasks.file_group import FileGroupTask
+from ray_curator.stages.resources import Resources
+from ray_curator.tasks import DocumentBatch, FileGroupTask, SpeechObject, _EmptyTask
 
 
 @dataclass
@@ -21,7 +21,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         model_name (str): name of the speech recognition NeMo model. See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
         filepath_key (str): which key of the data object should be used to find the path to audiofile. Defaults to “audio_filepath”
         text_key (str): key is used to identify the field containing the transcription associated with a particular audio sample. Defaults to “text”
-        cuda (str): device to run inference on it. Could be cpu, gpu or cuda number (digit). Defaults to “” (empty string)
+        cuda (str): device to run inference on it. Could be cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia or cuda number (digit). Defaults to “” (empty string)
         _name (str): Stage name. Defaults to "ASR_inference"
     """
 
@@ -29,12 +29,15 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
     cuda: str = ""
-    _name: str = "ASR_inference"
+    name: str = "ASR_inference"
     _start_time = time.time()
     _metrics: ClassVar[dict] = {}
+    batch_size: int = 16
+    _resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def check_cuda(self) -> torch.device:
-        if self.cuda:
+        self.cuda = str(self.cuda)
+        if self.cuda != "":
             map_location = torch.device(f"cuda:{self.cuda}") if self.cuda.isdigit() else torch.device(self.cuda)
         elif torch.cuda.is_available():
             map_location = torch.device("cuda:0")
@@ -46,7 +49,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         # TODO: load asr_model file only once per node
         pass
 
-    def setup(self) -> None:
+    def setup(self, _worker_metadata: WorkerMetadata = None) -> None:
         """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
         try:
             map_location = self.check_cuda()
@@ -87,7 +90,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
         outputs = self.asr_model.transcribe(files)
         return [output.text for output in outputs]
 
-    def process_batch(self, tasks: list[FileGroupTask]) -> list[SpeechObject]:
+    def process_batch(self, tasks: list[FileGroupTask | DocumentBatch | SpeechObject]) -> list[SpeechObject]:
         """Process a audio task by reading audio file and do ASR inference.
 
 
@@ -98,7 +101,18 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
             List of SpeechObject with self.filepath_key .
             If errors occur, the task is returned with error information stored.
         """
-        files = [task.data[0] for task in tasks]
+
+        if isinstance(tasks[0], FileGroupTask):
+            files = [task.data[0] for task in tasks]
+        elif isinstance(tasks[0], DocumentBatch):
+            files = []
+            for task in tasks:
+                files.extend(list(task.data[self.filepath_key]))
+        elif isinstance(tasks[0], SpeechObject):
+            files = [task.data[self.filepath_key] for task in tasks]
+        else:
+            raise TypeError(str(tasks[0]))
+
         outputs = self.transcribe(files)
 
         audio_tasks = []
@@ -109,7 +123,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
             entry = {self.filepath_key: file_path, self.text_key: text}
 
             audio_task = SpeechObject(
-                task_id=f"{file_path}_task_id",
+                task_id=f"task_id_{file_path}",
                 dataset_name=f"{self.model_name}_inference",
                 filepath_key=self.filepath_key,
                 data=entry,
