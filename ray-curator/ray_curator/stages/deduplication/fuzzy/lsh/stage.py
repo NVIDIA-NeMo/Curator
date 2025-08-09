@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
@@ -24,7 +25,7 @@ class LSHProcessingStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     minhashes_per_band: int
     id_column: str = CURATOR_DEDUP_ID_STR
     minhash_field: str = "_minhash_signature"
-    output_path: str = "./"
+    output_dir: str = "./"
     rmm_pool_size: int = 1024 * 1024 * 1024
     spill_device: int | str | None = "auto"
     enable_statistics: bool = False
@@ -32,6 +33,12 @@ class LSHProcessingStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     def __post_init__(self):
         super().__init__()
+        # TODO: do outside driver
+        self.output_path = os.path.join(
+            self.output_dir, f"{self.name}", f"band_{self.band_range[0]}-band_{self.band_range[1]}"
+        )
+        os.makedirs(self.output_path, exist_ok=True)
+
         self.actor_kwargs = {
             "num_bands": self.num_bands,
             "minhashes_per_band": self.minhashes_per_band,
@@ -61,22 +68,30 @@ class LSHProcessingStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     def read_and_insert(self, task: FileGroupTask) -> FileGroupTask:
         self._check_actor_obj()
         result = self._actor_obj.read_and_insert(task.data, self.band_range)
-        task._metadata["output_columns"] = result
+        self.output_columns = result
+        self.dataset_name = task.dataset_name
         return task
 
-    def insert_finished(self, task: FileGroupTask) -> FileGroupTask:
+    def insert_finished(self) -> None:
         self._check_actor_obj()
         self._actor_obj.insert_finished()
-        return task
 
-    def extract_and_write(self, task: FileGroupTask) -> FileGroupTask:
+    def extract_and_write(self) -> list[FileGroupTask]:
         self._check_actor_obj()
-        result = self._actor_obj.extract_and_write()
-        return FileGroupTask(
-            task_id=task.task_id,
-            dataset_name=task.dataset_name,
-            data=result,
-        )
+        partition_paths = self._actor_obj.extract_and_write()
+        return [
+            FileGroupTask(
+                task_id=partition_id,
+                dataset_name=self.dataset_name + f"{self.name}",
+                data=path,
+                _metadata={
+                    "partition_index": partition_id,
+                    "total_partitions": len(partition_paths),
+                    "output_columns": self.output_columns,
+                },
+            )
+            for partition_id, path in partition_paths
+        ]
 
     def teardown(self) -> None:
         self._check_actor_obj()
@@ -102,7 +117,7 @@ class LSHStage(CompositeStage[FileGroupTask, FileGroupTask]):
     enable_statistics: bool = False
     # number of bands to process in a single LSH shuffle. [1, num_bands]
     # Higher values will improve performance but will also increase memory usage. Risking out of memory errors.
-    bands_per_iteration: 5
+    bands_per_iteration: int = 5
 
     def __post_init__(self):
         super().__init__()

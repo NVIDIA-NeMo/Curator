@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 # import math
 # import time
 # import os
-# from rapidsmpf.integrations.ray import setup_ray_ucxx_cluster
 
 
 class LSHActor(BulkRapidsMPFShuffler):
@@ -84,7 +83,6 @@ class LSHActor(BulkRapidsMPFShuffler):
         self,
         nranks: int,
         total_nparts: int,
-        shuffle_on: list[str],
         num_bands: int,
         minhashes_per_band: int,
         id_column: str = CURATOR_DEDUP_ID_STR,
@@ -98,7 +96,7 @@ class LSHActor(BulkRapidsMPFShuffler):
         super().__init__(
             nranks=nranks,
             total_nparts=total_nparts,
-            shuffle_on=shuffle_on,
+            shuffle_on=["_bucket_id"],  # TODO: Move to a constant
             output_path=output_path,
             rmm_pool_size=rmm_pool_size,
             spill_device=spill_device,
@@ -270,7 +268,7 @@ class LSHActor(BulkRapidsMPFShuffler):
             # Clean up memory
             del df, grouped_df
 
-    def extract_and_write(self) -> list[str]:
+    def extract_and_write(self) -> list[tuple[int, str]]:
         """
         Extract shuffled partitions, group by bucket ID, and write results to files.
 
@@ -281,18 +279,18 @@ class LSHActor(BulkRapidsMPFShuffler):
         This generator-based approach is more memory-efficient since it processes
         one partition at a time rather than collecting all partitions in memory.
         """
-        output_paths = []
+        partition_paths = []
         # Process each partition as it becomes available
         for partition_id, grouped_df in self.extract_and_group():
             path = f"{self.output_path}/part.{partition_id}.parquet"
 
             # Write to file immediately
             grouped_df.to_parquet(path, index=False)
-            output_paths.append(path)
+            partition_paths.append((partition_id, path))
             # Clean up to release memory
             del grouped_df
 
-        return output_paths
+        return partition_paths
 
 
 # def bulk_lsh(
