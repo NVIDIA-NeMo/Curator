@@ -53,7 +53,7 @@ class ShuffleStageAdapter(BaseStageAdapter):
         stage_class_kwargs = self.stage.actor_kwargs.copy()
         if stage_class_kwargs.get("total_nparts") is None:
             if num_input_tasks is None:
-                err_msg = "Shuffle total_nparts cannot be set automatically. Please set it manually during stage initialization."
+                err_msg = "Shuffle total_nparts could not be set automatically. Please set it manually during stage initialization."
                 raise ValueError(err_msg)
 
             self.output_nparts = max(1, 2 ** math.floor(math.log2(num_input_tasks)))
