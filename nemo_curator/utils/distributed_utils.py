@@ -513,7 +513,7 @@ def read_data_files_per_partition(  # noqa: PLR0913
     else:
         read_func_single_partition_kwargs = kwargs
 
-    if files_per_partition > 1:
+    if files_per_partition is not None and files_per_partition > 1:
         input_files = [
             input_files[i : i + files_per_partition] for i in range(0, len(input_files), files_per_partition)
         ]
