@@ -65,7 +65,9 @@ video = [
     "av==13.1.0",
     "opencv-python",
 ]
-
+audio=[
+    "nemo_toolkit[asr]",
+]
 [tool.setuptools]
 packages = ["ray_curator"]
 [tool.ruff]
