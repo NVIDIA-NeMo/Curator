@@ -53,12 +53,9 @@ class TestDoWithRetries:
 
     def test_retry_multiple_times_then_success(self) -> None:
         """Test multiple retries before success."""
-        mock_func = Mock(side_effect=[
-            ValueError("fail 1"),
-            RuntimeError("fail 2"),
-            ConnectionError("fail 3"),
-            "success"
-        ])
+        mock_func = Mock(
+            side_effect=[ValueError("fail 1"), RuntimeError("fail 2"), ConnectionError("fail 3"), "success"]
+        )
 
         with (
             patch("ray_curator.utils.misc.retry_utils.time.sleep") as mock_sleep,
@@ -126,11 +123,7 @@ class TestDoWithRetries:
             patch("ray_curator.utils.misc.retry_utils.time.sleep") as mock_sleep,
             patch("ray_curator.utils.misc.retry_utils.logger"),
         ):
-            result = do_with_retries(
-                mock_func,
-                backoff_factor=10.0,
-                max_wait_time_s=5.0
-            )
+            result = do_with_retries(mock_func, backoff_factor=10.0, max_wait_time_s=5.0)
 
             assert result == "success"
             # Both sleeps should be capped at 5.0
@@ -146,10 +139,7 @@ class TestDoWithRetries:
             patch("ray_curator.utils.misc.retry_utils.time.sleep"),
             patch("ray_curator.utils.misc.retry_utils.logger"),
         ):
-            result = do_with_retries(
-                mock_func,
-                exceptions_to_retry=[ValueError, RuntimeError]
-            )
+            result = do_with_retries(mock_func, exceptions_to_retry=[ValueError, RuntimeError])
 
             assert result == "success"
             assert mock_func.call_count == 2
@@ -159,10 +149,7 @@ class TestDoWithRetries:
         mock_func = Mock(side_effect=ConnectionError("not retryable"))
 
         with pytest.raises(ConnectionError, match="not retryable"):
-            do_with_retries(
-                mock_func,
-                exceptions_to_retry=[ValueError, RuntimeError]
-            )
+            do_with_retries(mock_func, exceptions_to_retry=[ValueError, RuntimeError])
 
         mock_func.assert_called_once()
 
@@ -238,6 +225,7 @@ class TestDoWithRetries:
 
     def test_function_with_arguments_via_lambda(self) -> None:
         """Test retrying a function with arguments using lambda."""
+
         def func_with_args(x: int, y: str) -> str:
             if x < 5:
                 msg = f"x too small: {x}"
@@ -245,6 +233,7 @@ class TestDoWithRetries:
             return f"result: {x}, {y}"
 
         call_count = 0
+
         def failing_func() -> str:
             nonlocal call_count
             call_count += 1
@@ -270,11 +259,7 @@ class TestDoWithRetries:
             patch("ray_curator.utils.misc.retry_utils.time.sleep") as mock_sleep,
             patch("ray_curator.utils.misc.retry_utils.logger"),
         ):
-            result = do_with_retries(
-                mock_func,
-                backoff_factor=2.5,
-                max_wait_time_s=10.0
-            )
+            result = do_with_retries(mock_func, backoff_factor=2.5, max_wait_time_s=10.0)
 
             assert result == "success"
             # Expected: 2.5^1=2.5, 2.5^2=6.25, 2.5^3=15.625 capped at 10.0
@@ -284,6 +269,7 @@ class TestDoWithRetries:
 
     def test_exception_inheritance(self) -> None:
         """Test that exception inheritance works correctly for retry logic."""
+
         class CustomError(ValueError):
             pass
 

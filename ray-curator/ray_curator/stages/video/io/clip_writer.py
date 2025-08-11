@@ -25,6 +25,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including embedding generation,
     metadata extraction, and writing to storage.
     """
+
     output_path: str
     input_path: str
     upload_clips: bool
@@ -54,7 +55,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return Resources(cpus=0.25)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self.storage_client = None # we currently write everything to a local storage
+        self.storage_client = None  # we currently write everything to a local storage
         self._iv2_embedding_buffer: list[dict[str, Any]] = []
         self._ce1_embedding_buffer: list[dict[str, Any]] = []
 
@@ -115,7 +116,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         """Get sha256 of byte array."""
         return hashlib.sha256(buffer).hexdigest()
 
-
     def _write_data(
         self,
         buffer: bytes,
@@ -133,7 +133,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         source_video: str,
     ) -> None:
         write_json(data, dest, desc, source_video, verbose=self.verbose, client=self.storage_client)
-
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data

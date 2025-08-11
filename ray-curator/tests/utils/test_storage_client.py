@@ -33,10 +33,7 @@ class TestBaseClientConfig:
     def test_custom_values(self) -> None:
         """Test BaseClientConfig with custom values."""
         config = BaseClientConfig(
-            max_concurrent_threads=50,
-            operation_timeout_s=300,
-            can_overwrite=True,
-            can_delete=True
+            max_concurrent_threads=50, operation_timeout_s=300, can_overwrite=True, can_delete=True
         )
 
         assert config.max_concurrent_threads == 50
@@ -46,10 +43,7 @@ class TestBaseClientConfig:
 
     def test_partial_custom_values(self) -> None:
         """Test BaseClientConfig with some custom values."""
-        config = BaseClientConfig(
-            max_concurrent_threads=200,
-            can_overwrite=True
-        )
+        config = BaseClientConfig(max_concurrent_threads=200, can_overwrite=True)
 
         assert config.max_concurrent_threads == 200
         assert config.operation_timeout_s == 180  # default
@@ -186,7 +180,7 @@ class TestStorageClient:
             "list_recursive",
             "upload_file",
             "sync_remote_to_local",
-            "make_background_uploader"
+            "make_background_uploader",
         }
 
         assert abstract_methods == expected_methods

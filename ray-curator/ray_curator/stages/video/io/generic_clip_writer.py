@@ -21,14 +21,17 @@ from ray_curator.utils.writer_utils import write_bytes, write_json, write_parque
 @dataclass
 class WriteSpec:
     """Specification for writing data - replaces all hardcoded methods."""
-    path: str                    # Path template: "clips/{uuid}.mp4"
-    field: str                   # Source field: "buffer"
-    format: str                  # Format: "mp4", "json", "pickle", "webp"
-    condition: Callable = None   # Optional: lambda obj: obj.buffer is not None
-    transform: str = None        # Optional: "to_dict", "to_list"
+
+    path: str  # Path template: "clips/{uuid}.mp4"
+    field: str  # Source field: "buffer"
+    format: str  # Format: "mp4", "json", "pickle", "webp"
+    condition: Callable = None  # Optional: lambda obj: obj.buffer is not None
+    transform: str = None  # Optional: "to_dict", "to_list"
 
 
-def extract_clip_metadata(clip: Clip, video_metadata: Any, caption_models: list[str], enhanced_caption_models: list[str]) -> dict[str, Any]:
+def extract_clip_metadata(
+    clip: Clip, video_metadata: Any, caption_models: list[str], enhanced_caption_models: list[str]
+) -> dict[str, Any]:
     """Extract metadata from clip - consolidated from original."""
     data = {
         "span_uuid": str(clip.uuid),
@@ -105,10 +108,25 @@ class GenericClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             # Clips
             WriteSpec("clips/{uuid}.mp4", "buffer", "mp4", lambda c: c.buffer is not None),
             WriteSpec("metas/v0/{uuid}.json", "self", "json", transform="metadata"),
-            WriteSpec("iv2_embd/{uuid}.pickle", "intern_video_2_embedding", "pickle", lambda c: c.intern_video_2_embedding is not None),
-            WriteSpec("ce1_embd/{uuid}.pickle", "cosmos_embed1_embedding", "pickle", lambda c: c.cosmos_embed1_embedding is not None),
+            WriteSpec(
+                "iv2_embd/{uuid}.pickle",
+                "intern_video_2_embedding",
+                "pickle",
+                lambda c: c.intern_video_2_embedding is not None,
+            ),
+            WriteSpec(
+                "ce1_embd/{uuid}.pickle",
+                "cosmos_embed1_embedding",
+                "pickle",
+                lambda c: c.cosmos_embed1_embedding is not None,
+            ),
             # Filtered clips
-            WriteSpec("filtered_clips/{uuid}.mp4", "buffer", "mp4", lambda c: hasattr(c, "_filtered") and c.buffer is not None),
+            WriteSpec(
+                "filtered_clips/{uuid}.mp4",
+                "buffer",
+                "mp4",
+                lambda c: hasattr(c, "_filtered") and c.buffer is not None,
+            ),
             WriteSpec("metas/v0/{uuid}.json", "self", "json", lambda c: hasattr(c, "_filtered"), transform="metadata"),
             # Windows
             WriteSpec("previews/{clip_uuid}/{window}.webp", "webp_bytes", "webp", lambda w: w.webp_bytes is not None),
@@ -198,7 +216,7 @@ class GenericClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         # Check condition
         return not spec.condition or spec.condition(obj)
 
-    def _write_single(self, obj: Any, spec: WriteSpec, video: Video) -> bool: # noqa: PLR0912
+    def _write_single(self, obj: Any, spec: WriteSpec, video: Video) -> bool:  # noqa: PLR0912
         """Write single object according to spec."""
         try:
             # Get data
@@ -226,13 +244,29 @@ class GenericClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
 
             # Write by format
             if spec.format in ["mp4", "webp"]:
-                write_bytes(data, output_path, f"{spec.format} data", str(output_path), verbose=self.verbose, client=self.storage_client)
+                write_bytes(
+                    data,
+                    output_path,
+                    f"{spec.format} data",
+                    str(output_path),
+                    verbose=self.verbose,
+                    client=self.storage_client,
+                )
             elif spec.format == "json":
-                write_json(data, output_path, "json data", str(output_path), verbose=self.verbose, client=self.storage_client)
+                write_json(
+                    data, output_path, "json data", str(output_path), verbose=self.verbose, client=self.storage_client
+                )
             elif spec.format == "pickle":
                 buffer = io.BytesIO()
                 pickle.dump(data, buffer)
-                write_bytes(buffer.getvalue(), output_path, "pickle data", str(output_path), verbose=self.verbose, client=self.storage_client)
+                write_bytes(
+                    buffer.getvalue(),
+                    output_path,
+                    "pickle data",
+                    str(output_path),
+                    verbose=self.verbose,
+                    client=self.storage_client,
+                )
 
             # Add to embedding buffers for parquet
             if spec.field == "intern_video_2_embedding" and data is not None:
@@ -273,12 +307,26 @@ class GenericClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
 
         if self._iv2_buffer and not self.dry_run:
             path = get_full_path(self.output_path, f"iv2_embd_parquet/{video_id}.parquet")
-            write_parquet(self._iv2_buffer, path, "iv2_embeddings", str(video.input_path), verbose=self.verbose, client=self.storage_client)
+            write_parquet(
+                self._iv2_buffer,
+                path,
+                "iv2_embeddings",
+                str(video.input_path),
+                verbose=self.verbose,
+                client=self.storage_client,
+            )
             self._iv2_buffer.clear()
 
         if self._ce1_buffer and not self.dry_run:
             path = get_full_path(self.output_path, f"ce1_embd_parquet/{video_id}.parquet")
-            write_parquet(self._ce1_buffer, path, "ce1_embeddings", str(video.input_path), verbose=self.verbose, client=self.storage_client)
+            write_parquet(
+                self._ce1_buffer,
+                path,
+                "ce1_embeddings",
+                str(video.input_path),
+                verbose=self.verbose,
+                client=self.storage_client,
+            )
             self._ce1_buffer.clear()
 
     def _write_video_metadata(self, video: Video) -> None:
@@ -308,12 +356,18 @@ class GenericClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             if not input_video_path.startswith(self.input_path):
                 msg = f"Input video path {input_video_path} does not start with {self.input_path}"
                 raise ValueError(msg)
-            video_metadata_path = input_video_path[len(self.input_path):].lstrip("/") + ".json"
+            video_metadata_path = input_video_path[len(self.input_path) :].lstrip("/") + ".json"
             video_dest = get_full_path(self.output_path, f"processed_videos/{video_metadata_path}")
 
             if not self.dry_run:
-                write_json(video_data, video_dest, "video metadata", input_video_path,
-                          verbose=self.verbose, client=self.storage_client)
+                write_json(
+                    video_data,
+                    video_dest,
+                    "video metadata",
+                    input_video_path,
+                    verbose=self.verbose,
+                    client=self.storage_client,
+                )
 
         # Each clip chunk writes its own statistics and window captions
         chunk_data = {
@@ -352,16 +406,24 @@ class GenericClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                 # Try each enhanced caption model in order, using the first one found
                 for model in self.enhanced_caption_models:
                     if model in window.enhanced_caption:
-                        chunk_data["all_windows_enhanced_caption"][clip_uuid][window_key] = window.enhanced_caption[model]
+                        chunk_data["all_windows_enhanced_caption"][clip_uuid][window_key] = window.enhanced_caption[
+                            model
+                        ]
                         break
 
         # Generate clip chunk path
-        clip_chunk_path = input_video_path[len(self.input_path):].lstrip("/") + f"_{video.clip_chunk_index}.json"
+        clip_chunk_path = input_video_path[len(self.input_path) :].lstrip("/") + f"_{video.clip_chunk_index}.json"
         chunk_dest = get_full_path(self.output_path, f"processed_clip_chunks/{clip_chunk_path}")
 
         if not self.dry_run:
-            write_json(chunk_data, chunk_dest, "clip chunk metadata", input_video_path,
-                      verbose=self.verbose, client=self.storage_client)
+            write_json(
+                chunk_data,
+                chunk_dest,
+                "clip chunk metadata",
+                input_video_path,
+                verbose=self.verbose,
+                client=self.storage_client,
+            )
 
     def _cleanup_video_data(self, video: Video) -> None:
         """Clean up intermediate data (same as original)."""

@@ -33,4 +33,3 @@ def get_full_path(path: str | StoragePrefix | pathlib.Path, *args: str) -> Stora
         return _get_local_path(pathlib.Path(path), *args)
 
     return pathlib.Path(path, *args)
-
