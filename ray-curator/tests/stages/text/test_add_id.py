@@ -16,7 +16,7 @@
 import pandas as pd
 import pytest
 
-from ray_curator.stages.modules.add_id import AddId
+from ray_curator.stages.text.modules.add_id import AddId
 from ray_curator.tasks import DocumentBatch
 
 
