@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.audio.io.asr_inference import InferenceAsrNemo, InferenceAsrNemoStage
+from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemo, InferenceAsrNemoStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import EmptyTask, SpeechObject
 
@@ -24,7 +24,7 @@ def get_e2e_test_data_path() -> str:
         raise ValueError
 
 
-class TestAsrInference:
+class TestAsrNeMo:
     """Test suite for TestAsrInference."""
 
     test_data_root = get_e2e_test_data_path()

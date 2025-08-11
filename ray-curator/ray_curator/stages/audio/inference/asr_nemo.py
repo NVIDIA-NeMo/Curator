@@ -20,14 +20,14 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
     Args:
         model_name (str): name of the speech recognition NeMo model. See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
         filepath_key (str): which key of the data object should be used to find the path to audiofile. Defaults to “audio_filepath”
-        text_key (str): key is used to identify the field containing the transcription associated with a particular audio sample. Defaults to “text”
+        pred_text_key (str): key is used to identify the field containing the predicted transcription associated with a particular audio sample. Defaults to “pred_text”
         cuda (str): device to run inference on it. Could be cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia or cuda number (digit). Defaults to “” (empty string)
-        _name (str): Stage name. Defaults to "ASR_inference"
+        name (str): Stage name. Defaults to "ASR_inference"
     """
 
     model_name: str
     filepath_key: str = "audio_filepath"
-    text_key: str = "text"
+    pred_text_key: str = "pred_text"
     cuda: str = ""
     name: str = "ASR_inference"
     _start_time = time.time()
@@ -75,9 +75,9 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
         Returns:
             Tuple of (top_level_attrs, data_attrs) where:
             - top_level_attrs: ["data"] - populates FileGroupTask.data
-            - data_attrs: [self.filepath_key, self.text_key] - audiofile path and predicted text.
+            - data_attrs: [self.filepath_key, self.pred_text_key] - audiofile path and predicted text.
         """
-        return ["data"], [self.filepath_key, self.text_key]
+        return ["data"], [self.filepath_key, self.pred_text_key]
 
     def transcribe(self, files: list[str]) -> list[str]:
         """Run inference for speech recognition model
@@ -117,16 +117,21 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
 
         audio_tasks = []
         for i in range(len(outputs)):
+            entry = tasks[i].data
             text = outputs[i]
             file_path = files[i]
 
-            entry = {self.filepath_key: file_path, self.text_key: text}
+            if isinstance(entry, dict):
+                item = entry
+                item[self.pred_text_key] = text
+            else:
+                item = {self.filepath_key: file_path, self.pred_text_key: text}
 
             audio_task = SpeechObject(
                 task_id=f"task_id_{file_path}",
                 dataset_name=f"{self.model_name}_inference",
                 filepath_key=self.filepath_key,
-                data=entry,
+                data=item,
             )
             audio_tasks.append(audio_task)
         self.finalize()
