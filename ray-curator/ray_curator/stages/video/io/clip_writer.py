@@ -12,7 +12,7 @@ from loguru import logger
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Clip, ClipStats, Video, VideoMetadata, VideoTask
+from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
 from ray_curator.utils import storage_client
 from ray_curator.utils.storage_utils import get_full_path
 from ray_curator.utils.writer_utils import write_bytes, write_json, write_parquet

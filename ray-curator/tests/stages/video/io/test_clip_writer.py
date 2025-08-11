@@ -10,8 +10,7 @@ import pytest
 
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.tasks import Clip, ClipStats, Video, VideoMetadata, VideoTask
-from ray_curator.tasks.video import _Window
+from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask, _Window
 
 
 class TestClipWriterStage:

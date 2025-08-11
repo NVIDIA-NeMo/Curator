@@ -4,8 +4,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.stages.video.io.video_download import VideoDownloadStage
-from ray_curator.stages.video.io.video_reader import VideoReaderStage
+from ray_curator.stages.video.io.video_reader import VideoReader
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -14,7 +13,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReaderStage(
+    pipeline.add_stage(VideoReader(
         input_video_path=args.video_folder,
         video_limit=args.video_limit,
         verbose=args.verbose
