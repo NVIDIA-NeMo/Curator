@@ -34,18 +34,20 @@ if TYPE_CHECKING:
     from ray_curator.tasks import ImageObject
     from ray_curator.tasks.image import ImageBatch
 
+# HTTP status codes
+HTTP_OK = 200
+
 
 async def download_image(session: aiohttp.ClientSession, url: str, filename: str, retries: int = 3) -> bool:
     for attempt in range(1, retries + 1):
         try:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
-                if response.status == 200:
+                if response.status == HTTP_OK:
                     async with aiofiles.open(filename, mode="wb") as f:
                         await f.write(await response.read())
                     return True
-                else:
-                    if attempt > 1:  # only log on retry attempts, not first try
-                        logger.debug(f"[Attempt {attempt}] Failed to download {url}: HTTP status {response.status}")
+                elif attempt > 1:  # only log on retry attempts, not first try
+                    logger.debug(f"[Attempt {attempt}] Failed to download {url}: HTTP status {response.status}")
         except (aiohttp.ClientError, asyncio.TimeoutError, Exception) as e:
             if attempt > 1:  # only log on retry attempts, not first try
                 logger.debug(f"[Attempt {attempt}] Failed to download {url}: {e}")
