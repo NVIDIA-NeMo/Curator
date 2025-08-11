@@ -208,11 +208,11 @@ class TestClip:
         size = clip.get_major_size()
 
         expected_size = (
-            16 +  # UUID bytes
-            len(buffer_data) +
-            frames["frame1"].nbytes +
-            intern_frames.nbytes +
-            intern_embedding.nbytes
+            16  # UUID bytes
+            + len(buffer_data)
+            + frames["frame1"].nbytes
+            + intern_frames.nbytes
+            + intern_embedding.nbytes
         )
 
         assert size >= expected_size

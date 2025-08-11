@@ -33,6 +33,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     Note:
         Currently supports local filesystem paths only. S3 support is planned for future releases.
     """
+
     verbose: bool = False
     _name: str = "video_reader"
 
@@ -114,6 +115,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         Note:
             Errors are logged and stored in video.errors["download"] for debugging.
         """
+
         def _raise_s3_error() -> None:
             msg = "S3 client is required for S3 destination"
             raise TypeError(msg)
@@ -231,6 +233,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         video_limit: Maximum number of videos to process (-1 for unlimited)
         verbose: Whether to enable verbose logging during download/processing
     """
+
     input_video_path: str
     video_limit: int | None = -1
     verbose: bool = False
@@ -256,9 +259,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
             limit=self.video_limit,
         )
 
-        download_stage = VideoReaderStage(
-            verbose=self.verbose
-        )
+        download_stage = VideoReaderStage(verbose=self.verbose)
 
         return [reader_stage, download_stage]
 

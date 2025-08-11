@@ -51,7 +51,7 @@ class TestFilePartitioningStage:
             blocksize="128MB",
             file_extensions=[".txt", ".json"],
             storage_options={"key": "value"},
-            limit=3
+            limit=3,
         )
 
         assert stage.file_paths == "/custom/path"
@@ -111,7 +111,7 @@ class TestFilePartitioningStage:
         stage = FilePartitioningStage(
             file_paths=test_files,
             files_per_partition=2,  # This would normally create 5 groups
-            limit=3  # But limit to only 3 groups
+            limit=3,  # But limit to only 3 groups
         )
 
         result = stage.process(empty_task)
@@ -133,7 +133,7 @@ class TestFilePartitioningStage:
         test_files = [f"/path/file{i}.jsonl" for i in range(5)]
         stage = FilePartitioningStage(
             file_paths=test_files,
-            limit=1  # Limit to 1 group, and all files would be in one group anyway
+            limit=1,  # Limit to 1 group, and all files would be in one group anyway
         )
 
         result = stage.process(empty_task)
@@ -147,7 +147,7 @@ class TestFilePartitioningStage:
         stage = FilePartitioningStage(
             file_paths=test_files,
             files_per_partition=1,
-            limit=0  # No groups should be created
+            limit=0,  # No groups should be created
         )
 
         result = stage.process(empty_task)
@@ -216,10 +216,7 @@ class TestFilePartitioningStage:
         """Test that created tasks have proper metadata."""
         test_files = ["/path/file1.jsonl", "/path/file2.jsonl"]
         storage_options = {"option1": "value1"}
-        stage = FilePartitioningStage(
-            file_paths=test_files,
-            storage_options=storage_options
-        )
+        stage = FilePartitioningStage(file_paths=test_files, storage_options=storage_options)
 
         result = stage.process(empty_task)
 

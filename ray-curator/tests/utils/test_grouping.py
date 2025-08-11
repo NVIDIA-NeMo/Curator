@@ -82,6 +82,7 @@ class TestSplitByChunkSize:
 
     def test_generator_input(self):
         """Test with generator as input."""
+
         def gen() -> Generator[int, None, None]:
             yield from range(5)
 
@@ -211,6 +212,7 @@ class TestPairwise:
 
     def test_generator_input(self):
         """Test with generator as input."""
+
         def gen() -> Generator[int, None, None]:
             yield from range(4)
 

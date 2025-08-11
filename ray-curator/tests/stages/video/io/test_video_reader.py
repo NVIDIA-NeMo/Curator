@@ -96,7 +96,7 @@ class TestVideoReaderStage:
             height=1080,
             framerate=30.0,
             duration=60.0,
-            bit_rate_k=5000
+            bit_rate_k=5000,
         )
 
         # Mock populate_metadata to set metadata
@@ -113,7 +113,7 @@ class TestVideoReaderStage:
         # Mock populate_metadata to raise an exception
         with (
             patch.object(video, "populate_metadata", side_effect=Exception("Metadata error")),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -134,8 +134,8 @@ class TestVideoReaderStage:
                 height=1080,
                 framerate=30.0,
                 duration=60.0,
-                bit_rate_k=5000
-            )
+                bit_rate_k=5000,
+            ),
         )
 
         with patch("ray_curator.stages.video.io.video_reader.logger.info") as mock_log:
@@ -151,15 +151,11 @@ class TestVideoReaderStage:
     def test_process_success(self) -> None:
         """Test process method with successful execution."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
         ):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
@@ -173,9 +169,7 @@ class TestVideoReaderStage:
     def test_process_multiple_files_error(self) -> None:
         """Test process method raises error with multiple files."""
         file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=["/test/video1.mp4", "/test/video2.mp4"]
+            task_id="test_task", dataset_name="test_dataset", data=["/test/video1.mp4", "/test/video2.mp4"]
         )
 
         stage = VideoReaderStage()
@@ -186,11 +180,7 @@ class TestVideoReaderStage:
     def test_process_download_failure(self) -> None:
         """Test process method when download fails."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with patch.object(VideoReaderStage, "_download_video_bytes", return_value=False):
             stage = VideoReaderStage()
@@ -202,15 +192,11 @@ class TestVideoReaderStage:
     def test_process_metadata_failure(self) -> None:
         """Test process method when metadata extraction fails."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=False)
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=False),
         ):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
@@ -229,12 +215,12 @@ class TestVideoReaderStage:
             dataset_name="test_dataset",
             data=[file_path],
             _metadata=original_metadata,
-            _stage_perf=original_stage_perf
+            _stage_perf=original_stage_perf,
         )
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
         ):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
@@ -245,16 +231,12 @@ class TestVideoReaderStage:
     def test_process_with_verbose_logging(self) -> None:
         """Test process method enables verbose logging when configured."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
             patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
-            patch.object(VideoReaderStage, "_log_video_info") as mock_log
+            patch.object(VideoReaderStage, "_log_video_info") as mock_log,
         ):
             stage = VideoReaderStage(verbose=True)
             stage.process(file_group_task)
@@ -270,7 +252,7 @@ class TestVideoReaderStage:
 
         with (
             patch("pathlib.Path.open", side_effect=FileNotFoundError("Test error")),
-            patch("ray_curator.stages.video.io.video_reader.logger.error") as mock_log
+            patch("ray_curator.stages.video.io.video_reader.logger.error") as mock_log,
         ):
             stage = VideoReaderStage()
             result = stage._download_video_bytes(video)
@@ -279,7 +261,6 @@ class TestVideoReaderStage:
             assert "download" in video.errors
             assert "Test error" in video.errors["download"]
             mock_log.assert_called_once()
-
 
     def test_download_video_bytes_io_error(self) -> None:
         """Test _download_video_bytes handles general IO errors."""
@@ -326,7 +307,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", return_value=None),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -341,7 +322,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", return_value=None),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -356,7 +337,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", return_value=None),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -375,8 +356,8 @@ class TestVideoReaderStage:
                 height=1080,
                 framerate=30.0,
                 duration=120.0,
-                bit_rate_k=5000
-            )
+                bit_rate_k=5000,
+            ),
         )
 
         stage = VideoReaderStage()
@@ -394,13 +375,7 @@ class TestVideoReaderStage:
         video = Video(
             input_video=pathlib.Path("/test/video.mp4"),
             source_bytes=None,
-            metadata=VideoMetadata(
-                width=None,
-                height=None,
-                framerate=None,
-                duration=None,
-                bit_rate_k=None
-            )
+            metadata=VideoMetadata(width=None, height=None, framerate=None, duration=None, bit_rate_k=None),
         )
 
         stage = VideoReaderStage()
@@ -418,13 +393,7 @@ class TestVideoReaderStage:
         video = Video(
             input_video=pathlib.Path("/test/video.mp4"),
             source_bytes=b"data",
-            metadata=VideoMetadata(
-                width=1280,
-                height=None,
-                framerate=25.5,
-                duration=None,
-                bit_rate_k=3000
-            )
+            metadata=VideoMetadata(width=1280, height=None, framerate=25.5, duration=None, bit_rate_k=3000),
         )
 
         stage = VideoReaderStage()
@@ -439,11 +408,7 @@ class TestVideoReaderStage:
 
     def test_process_no_files_error(self) -> None:
         """Test process method raises error with no files."""
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[])
 
         stage = VideoReaderStage()
 
@@ -456,19 +421,15 @@ class TestVideoReaderStage:
             "/simple/path/video.mp4",
             "/complex/path with spaces/my_video.avi",
             "relative/path/test.mkv",
-            "single_file.webm"
+            "single_file.webm",
         ]
 
         for file_path in test_cases:
-            file_group_task = FileGroupTask(
-                task_id="original_task",
-                dataset_name="test_dataset",
-                data=[file_path]
-            )
+            file_group_task = FileGroupTask(task_id="original_task", dataset_name="test_dataset", data=[file_path])
 
             with (
                 patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-                patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+                patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
             ):
                 stage = VideoReaderStage()
                 result = stage.process(file_group_task)
@@ -478,16 +439,12 @@ class TestVideoReaderStage:
     def test_process_without_verbose_no_logging(self) -> None:
         """Test process method doesn't call _log_video_info when verbose is False."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
             patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
-            patch.object(VideoReaderStage, "_log_video_info") as mock_log
+            patch.object(VideoReaderStage, "_log_video_info") as mock_log,
         ):
             stage = VideoReaderStage(verbose=False)
             stage.process(file_group_task)
@@ -508,15 +465,11 @@ class TestVideoReaderStage:
     def test_video_task_data_structure(self) -> None:
         """Test that created VideoTask has correct data structure."""
         file_path = "/test/video.mp4"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
         ):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
@@ -541,7 +494,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", side_effect=RuntimeError("Corrupted file")),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -564,15 +517,11 @@ class TestVideoReaderStage:
     def test_process_with_various_file_extensions(self, file_extension: str) -> None:
         """Test process method works with various video file extensions."""
         file_path = f"/test/video{file_extension}"
-        file_group_task = FileGroupTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=[file_path]
-        )
+        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[file_path])
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
         ):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
@@ -591,12 +540,12 @@ class TestVideoReaderStage:
             dataset_name="test_dataset",
             data=[file_path],
             _metadata=nested_metadata,
-            _stage_perf=nested_stage_perf
+            _stage_perf=nested_stage_perf,
         )
 
         with (
             patch.object(VideoReaderStage, "_download_video_bytes", return_value=True),
-            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True)
+            patch.object(VideoReaderStage, "_extract_and_validate_metadata", return_value=True),
         ):
             stage = VideoReaderStage()
             result = stage.process(file_group_task)
@@ -621,11 +570,7 @@ class TestVideoReader:
 
     def test_stage_initialization_custom_values(self) -> None:
         """Test VideoReader initialization with custom values."""
-        stage = VideoReader(
-            input_video_path="/custom/path",
-            video_limit=100,
-            verbose=True
-        )
+        stage = VideoReader(input_video_path="/custom/path", video_limit=100, verbose=True)
 
         assert stage.input_video_path == "/custom/path"
         assert stage.video_limit == 100
@@ -640,17 +585,14 @@ class TestVideoReader:
 
         # Test that it's a composite stage (should raise error when trying to process)
         from ray_curator.tasks import _EmptyTask
+
         empty_task = _EmptyTask(task_id="test", dataset_name="test", data=None)
         with pytest.raises(RuntimeError, match="Composite stage 'video_reader' should not be executed directly"):
             stage.process(empty_task)
 
     def test_decompose_basic(self) -> None:
         """Test decomposition into constituent stages with basic parameters."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            video_limit=50,
-            verbose=True
-        )
+        stage = VideoReader(input_video_path="/test/videos", video_limit=50, verbose=True)
 
         stages = stage.decompose()
 
@@ -674,11 +616,7 @@ class TestVideoReader:
 
     def test_decompose_unlimited_videos(self) -> None:
         """Test decomposition with unlimited video processing."""
-        stage = VideoReader(
-            input_video_path="/unlimited/videos",
-            video_limit=-1,
-            verbose=False
-        )
+        stage = VideoReader(input_video_path="/unlimited/videos", video_limit=-1, verbose=False)
 
         stages = stage.decompose()
         file_stage = stages[0]
@@ -690,12 +628,7 @@ class TestVideoReader:
 
     def test_decompose_different_paths(self) -> None:
         """Test decomposition with different input paths."""
-        test_paths = [
-            "/home/user/videos",
-            "/mnt/storage/media",
-            "relative/path/videos",
-            "single_video.mp4"
-        ]
+        test_paths = ["/home/user/videos", "/mnt/storage/media", "relative/path/videos", "single_video.mp4"]
 
         for path in test_paths:
             stage = VideoReader(input_video_path=path)
@@ -706,10 +639,7 @@ class TestVideoReader:
 
     def test_get_description_unlimited(self) -> None:
         """Test get_description method with unlimited videos."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            video_limit=-1
-        )
+        stage = VideoReader(input_video_path="/test/videos", video_limit=-1)
 
         description = stage.get_description()
         expected = (
@@ -721,25 +651,17 @@ class TestVideoReader:
 
     def test_get_description_limited(self) -> None:
         """Test get_description method with limited videos."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            video_limit=25
-        )
+        stage = VideoReader(input_video_path="/test/videos", video_limit=25)
 
         description = stage.get_description()
         expected = (
-            "Reads video files from '/test/videos' "
-            "(limit: 25) "
-            "and downloads/processes them with metadata extraction"
+            "Reads video files from '/test/videos' (limit: 25) and downloads/processes them with metadata extraction"
         )
         assert description == expected
 
     def test_get_description_zero_limit(self) -> None:
         """Test get_description method with zero limit."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            video_limit=0
-        )
+        stage = VideoReader(input_video_path="/test/videos", video_limit=0)
 
         description = stage.get_description()
         expected = (
@@ -773,11 +695,7 @@ class TestVideoReader:
 
     def test_decompose_stage_independence(self) -> None:
         """Test that each call to decompose returns independent stage instances."""
-        stage = VideoReader(
-            input_video_path="/test/videos",
-            video_limit=10,
-            verbose=True
-        )
+        stage = VideoReader(input_video_path="/test/videos", video_limit=10, verbose=True)
 
         # Get two decompositions
         stages1 = stage.decompose()
@@ -794,11 +712,7 @@ class TestVideoReader:
 
     def test_decompose_preserves_parameters(self) -> None:
         """Test that decompose preserves all input parameters correctly."""
-        stage = VideoReader(
-            input_video_path="/complex/path/with spaces",
-            video_limit=999,
-            verbose=True
-        )
+        stage = VideoReader(input_video_path="/complex/path/with spaces", video_limit=999, verbose=True)
 
         stages = stage.decompose()
         file_stage, reader_stage = stages
@@ -811,13 +725,13 @@ class TestVideoReader:
 
         assert reader_stage.verbose is True
 
-
     def test_composite_stage_behavior(self) -> None:
         """Test that VideoReader behaves correctly as a CompositeStage."""
         stage = VideoReader(input_video_path="/test/videos")
 
         # Should be a CompositeStage
         from ray_curator.stages.base import CompositeStage
+
         assert isinstance(stage, CompositeStage)
 
         # Should have the correct generic type annotations
