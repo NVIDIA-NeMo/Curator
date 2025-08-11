@@ -21,7 +21,7 @@ class TestCLIPImageEmbeddings:
         """Test model initialization."""
         assert self.model.model_dir == "test_models/clip"
         assert self.model.clip is None
-        assert self.model.transforms is None
+        assert self.model.processor is None
         assert self.model.device in ["cuda", "cpu"]
         assert self.model.dtype == torch.float32
 
@@ -37,8 +37,8 @@ class TestCLIPImageEmbeddings:
         assert model_ids[0] == "openai/clip-vit-large-patch14"
 
     @patch("ray_curator.models.clip.CLIPModel")
-    @patch("ray_curator.models.clip.transforms")
-    def test_setup_success(self, mock_transforms: Mock, mock_clip_model: Mock) -> None:
+    @patch("ray_curator.models.clip.CLIPProcessor")
+    def test_setup_success(self, mock_processor: Mock, mock_clip_model: Mock) -> None:
         """Test successful model setup."""
         # Mock the model loading
         mock_model_instance = Mock()
@@ -46,9 +46,9 @@ class TestCLIPImageEmbeddings:
         mock_model_instance.eval.return_value = mock_model_instance
         mock_clip_model.from_pretrained.return_value = mock_model_instance
 
-        # Mock transforms
-        mock_transforms_instance = Mock()
-        mock_transforms.Compose.return_value = mock_transforms_instance
+        # Mock processor
+        mock_processor_instance = Mock()
+        mock_processor.from_pretrained.return_value = mock_processor_instance
 
         self.model.setup()
 
@@ -58,11 +58,11 @@ class TestCLIPImageEmbeddings:
         mock_model_instance.to.assert_called_once_with(self.model.device)
         mock_model_instance.eval.assert_called_once()
 
-        # Verify transforms setup
-        mock_transforms.Compose.assert_called_once()
+        # Verify processor setup
+        mock_processor.from_pretrained.assert_called_once_with(weight_file)
 
         assert self.model.clip == mock_model_instance
-        assert self.model.transforms == mock_transforms_instance
+        assert self.model.processor == mock_processor_instance
 
     @patch("ray_curator.models.clip.torch.cuda.is_available")
     def test_device_selection_with_cuda(self, mock_cuda_available: Mock) -> None:
@@ -82,15 +82,15 @@ class TestCLIPImageEmbeddings:
         """Test calling model with numpy array input."""
         # Setup mock model
         mock_clip = Mock()
-        mock_transforms = Mock()
+        mock_processor = Mock()
         mock_embeddings = torch.randn(2, 768)  # Use real tensor
         mock_normalized_embeddings = torch.randn(2, 768)
 
         mock_clip.get_image_features.return_value = mock_embeddings
-        mock_transforms.return_value = torch.randn(2, 3, 224, 224)
+        mock_processor.return_value = {"pixel_values": torch.randn(2, 3, 224, 224)}
 
         self.model.clip = mock_clip
-        self.model.transforms = mock_transforms
+        self.model.processor = mock_processor
 
         # Test input - use numpy.random.default_rng for modern API
         rng = np.random.default_rng(42)
@@ -125,15 +125,15 @@ class TestCLIPImageEmbeddings:
         """Test calling model with torch tensor input."""
         # Setup mock model
         mock_clip = Mock()
-        mock_transforms = Mock()
+        mock_processor = Mock()
         mock_embeddings = torch.randn(2, 768)
         mock_normalized_embeddings = torch.randn(2, 768)
 
         mock_clip.get_image_features.return_value = mock_embeddings
-        mock_transforms.return_value = torch.randn(2, 3, 224, 224)
+        mock_processor.return_value = {"pixel_values": torch.randn(2, 3, 224, 224)}
 
         self.model.clip = mock_clip
-        self.model.transforms = mock_transforms
+        self.model.processor = mock_processor
 
         # Test input
         images = torch.randint(0, 255, (2, 3, 224, 224), dtype=torch.uint8)
@@ -153,8 +153,8 @@ class TestCLIPImageEmbeddings:
 
             # Just verify the method was called - the tensor comparison is too fragile
             assert result is not None
-            # Verify transforms and model forward
-            mock_transforms.assert_called_once_with(images)
+            # Verify processor and model forward
+            mock_processor.assert_called_once_with(images=images, return_tensors="pt")
             mock_clip.get_image_features.assert_called_once()
 
 
