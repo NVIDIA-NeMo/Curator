@@ -66,6 +66,7 @@ video = [
 ]
 audio=[
     "nemo_toolkit[asr]",
+    "soundfile"
 ]
 [tool.setuptools]
 packages = ["ray_curator"]

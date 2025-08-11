@@ -7,9 +7,9 @@ from omegaconf import OmegaConf
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from ray_curator.stages.audio.io.asr_inference import InferenceAsrNemoStage
-from ray_curator.stages.audio.io.common import GetAudioDurationStage, PreserveByValue
-from ray_curator.stages.audio.metrics.get_wer import GetWerStage
+from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from ray_curator.stages.audio.io.common import GetAudioDurationStage, PreserveByValueStage
+from ray_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from ray_curator.stages.resources import Resources
 
 
@@ -44,9 +44,9 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
             batch_size=16, resources=Resources(gpus=1.0)
         )
     )
-    pipeline.add_stage(GetWerStage(text_key="text", pred_text_key="pred_text", output_key="wer"))
-    pipeline.add_stage(PreserveByValue(input_value_key="wer", target_value=75, operator="le"))
+    pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
+    pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=75, operator="le"))
     return pipeline
 
 
@@ -59,18 +59,18 @@ def main(cfg: TranscriptionConfig) -> None:
     pipeline = create_audio_pipeline(cfg)
 
     # Print pipeline description
-    print(pipeline.describe())
-    print("\n" + "=" * 50 + "\n")
+    logger.info(pipeline.describe())
+    logger.info("\n" + "=" * 50 + "\n")
 
     # Create executor
     executor = XennaExecutor()
 
     # Execute pipeline
-    print("Starting pipeline execution...")
+    logger.info("Starting pipeline execution...")
     pipeline.run(executor)
 
     # Print results
-    print("\nPipeline completed!")
+    logger.info("\nPipeline completed!")
 
 
 if __name__ == "__main__":
