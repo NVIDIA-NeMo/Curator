@@ -47,7 +47,7 @@ WORKDIR /opt
 COPY ray-curator/pyproject.toml ./
 
 # Install dependencies
-RUN pixi install -e $CURATOR_ENVIRONMENT -v
+RUN pixi install -e $CURATOR_ENVIRONMENT
 
 RUN pixi shell-hook -e $CURATOR_ENVIRONMENT -s bash > /shell-hook && \
     echo "#!/bin/bash" > /opt/entrypoint.sh && \
