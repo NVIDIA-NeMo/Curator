@@ -188,7 +188,7 @@ class TestImageReaderStage:
         assert stage.task_batch_size == 5
 
     @patch("ray_curator.stages.image.io.image_reader.pathlib.Path.rglob")
-    def test_get_files_method(self, mock_rglob: Mock, _stage: ImageReaderStage) -> None:
+    def test_get_files_method(self, mock_rglob: Mock, stage: ImageReaderStage) -> None:  # noqa: ARG002
         """Test the _get_files method."""
         import pathlib
         mock_files = [

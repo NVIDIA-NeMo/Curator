@@ -300,7 +300,7 @@ class TestImageNSFWFilterStage:
         self,
         mock_logger: Mock,
         mock_nsfw_scorer: Mock,
-        _stage: ImageNSFWFilterStage,
+        stage: ImageNSFWFilterStage,  # noqa: ARG002
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
