@@ -7,7 +7,9 @@ from omegaconf import OmegaConf
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
-from ray_curator.stages.audio.io.asr_inference import AsrNemoInferenceStage
+from ray_curator.stages.audio.io.asr_inference import InferenceAsrNemoStage
+from ray_curator.stages.audio.io.common import GetAudioDurationStage, PreserveByValue
+from ray_curator.stages.audio.metrics.get_wer import GetWerStage
 from ray_curator.stages.resources import Resources
 
 
@@ -38,9 +40,13 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
         )
     )
     pipeline.add_stage(
-        AsrNemoInferenceStage(model_name=args.model_name, batch_size=16, cuda="cuda", _resources=Resources(gpus=1.0))
+        InferenceAsrNemoStage(model_name=args.model_name, cuda="cuda").with_(
+            batch_size=16, resources=Resources(gpus=1.0)
+        )
     )
-
+    pipeline.add_stage(GetWerStage(text_key="text", pred_text_key="pred_text", output_key="wer"))
+    pipeline.add_stage(PreserveByValue(input_value_key="wer", target_value=75, operator="le"))
+    pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     return pipeline
 
 

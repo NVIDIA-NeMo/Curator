@@ -14,7 +14,7 @@ from ray_curator.tasks import DocumentBatch, FileGroupTask, SpeechObject, _Empty
 
 
 @dataclass
-class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
+class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | SpeechObject, SpeechObject]):
     """Stage that do speech recognition inference using NeMo model.
 
     Args:
@@ -32,7 +32,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
     name: str = "ASR_inference"
     _start_time = time.time()
     _metrics: ClassVar[dict] = {}
-    batch_size: int = 16
+    _batch_size: int = 16
     _resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def check_cuda(self) -> torch.device:
@@ -142,7 +142,7 @@ class AsrNemoInferenceStage(ProcessingStage[FileGroupTask, SpeechObject]):
 
 
 @dataclass
-class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
+class InferenceAsrNemo(CompositeStage[_EmptyTask, SpeechObject]):
     """Composite stage that read audio files and do speech recognition inference using NeMo model.
 
     This stage combines FilePartitioningStage and AsrNemoInferenceStage into a single
@@ -184,7 +184,7 @@ class AsrNemoInference(CompositeStage[_EmptyTask, SpeechObject]):
             limit=self.audio_limit,
         )
 
-        download_stage = AsrNemoInferenceStage(
+        download_stage = InferenceAsrNemoStage(
             model_name=self.model_name,
         )
 
