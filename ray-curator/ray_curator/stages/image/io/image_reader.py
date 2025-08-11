@@ -8,7 +8,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import ImageBatch, ImageObject, FileGroupTask
+from ray_curator.tasks import FileGroupTask, ImageBatch, ImageObject
 
 
 @dataclass

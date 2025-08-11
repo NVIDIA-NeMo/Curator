@@ -111,13 +111,13 @@ def main(args: argparse.Namespace) -> None:
     # Execute pipeline
     results = pipeline.run(executor)
 
-    # # Save output to webs
-    # save_imagebatch_to_webdataset(
-    #     image_batches=results,
-    #     output_path=args.output_wds_dataset_dir,
-    #     samples_per_shard=args.samples_per_shard,
-    #     max_shards=args.max_shards,
-    # )
+    # Save output to webs
+    save_imagebatch_to_webdataset(
+        image_batches=results,
+        output_path=args.output_wds_dataset_dir,
+        samples_per_shard=args.samples_per_shard,
+        max_shards=args.max_shards,
+    )
     end_time = time.time()
 
     # Calculate and print execution time
