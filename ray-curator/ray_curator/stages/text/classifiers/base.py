@@ -27,10 +27,10 @@ from transformers import AutoConfig, AutoModel
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.stages.text.models.model import ModelStage
 from ray_curator.stages.text.models.tokenizer import TokenizerStage
 from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from ray_curator.stages.text.modules.score_filter import Filter
 from ray_curator.tasks import DocumentBatch
 
 

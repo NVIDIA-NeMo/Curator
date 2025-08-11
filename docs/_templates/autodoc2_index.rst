@@ -6,87 +6,62 @@ NeMo Curator's API reference provides comprehensive technical documentation for 
 .. grid:: 1 2 2 2
    :gutter: 3
 
-   .. grid-item-card:: :octicon:`database;1.5em;sd-mr-1` Core Data Handling
-      :link: datasets/datasets
+   .. grid-item-card:: :octicon:`server;1.5em;sd-mr-1` Execution Backends
+      :link: backends/backends
       :link-type: doc
       :class-card: sd-border-0
 
-      **Datasets & Download**
+      **Ray-based execution backends**
 
-      Essential classes for loading, managing, and downloading training data from various sources.
+      Adapters and executors for running pipelines at scale.
       
-      :bdg-secondary:`doc-dataset` :bdg-secondary:`parallel-dataset` :bdg-secondary:`arxiv` :bdg-secondary:`commoncrawl`
+      :bdg-secondary:`ray-data` :bdg-secondary:`xenna`
 
-   .. grid-item-card:: :octicon:`filter;1.5em;sd-mr-1` Data Processing  
-      :link: filters/filters
+   .. grid-item-card:: :octicon:`workflow;1.5em;sd-mr-1` Pipeline
+      :link: pipeline/pipeline
       :link-type: doc
       :class-card: sd-border-0
 
-      **Filters & Modifiers**
+      **Orchestrate end-to-end workflows**
 
-      Tools for cleaning, filtering, and transforming text data to improve quality and remove unwanted content.
-      
-      :bdg-secondary:`classifier-filter` :bdg-secondary:`heuristic-filter` :bdg-secondary:`pii-modifier`
+      Build and run pipelines composed of processing stages.
 
-   .. grid-item-card:: :octicon:`code;1.5em;sd-mr-1` Classification & Analysis
-      :link: classifiers/classifiers  
+   .. grid-item-card:: :octicon:`stack;1.5em;sd-mr-1` Processing Stages
+      :link: stages/stages
       :link-type: doc
       :class-card: sd-border-0
 
-      **AI-Powered Analysis**
+      **Download, transform, and write data**
 
-      Advanced classification tools and image processing capabilities for content analysis and quality assessment.
+      Modular stages for download/extract, text models/classifiers, I/O, and utilities.
       
-      :bdg-secondary:`aegis` :bdg-secondary:`content-type` :bdg-secondary:`domain-classifier`
+      :bdg-secondary:`download` :bdg-secondary:`text` :bdg-secondary:`io` :bdg-secondary:`modules`
 
-   .. grid-item-card:: :octicon:`shield-check;1.5em;sd-mr-1` Privacy & Security
-      :link: pii/pii
+   .. grid-item-card:: :octicon:`tasklist;1.5em;sd-mr-1` Tasks
+      :link: tasks/tasks
       :link-type: doc
       :class-card: sd-border-0
 
-      **PII Detection & Redaction**
+      **Core data structures**
 
-      Identify and handle personally identifiable information in datasets with advanced recognition algorithms.
-      
-      :bdg-secondary:`recognizers` :bdg-secondary:`algorithms` :bdg-secondary:`redaction`
+      Document batches, file groups, and related interfaces passed between stages.
 
-   .. grid-item-card:: :octicon:`zap;1.5em;sd-mr-1` Synthetic Data
-      :link: synthetic/synthetic
+   .. grid-item-card:: :octicon:`gear;1.5em;sd-mr-1` Utilities
+      :link: utils/utils
       :link-type: doc
       :class-card: sd-border-0
 
-      **Data Generation**
+      **Helper functions**
 
-      Create high-quality synthetic training data using advanced language models and generation techniques.
-      
-      :bdg-secondary:`generator` :bdg-secondary:`nemotron` :bdg-secondary:`mixtral`
-
-   .. grid-item-card:: :octicon:`tools;1.5em;sd-mr-1` Advanced Processing
-      :link: modules/modules
-      :link-type: doc
-      :class-card: sd-border-0
-
-      **Deduplication & Modules**
-
-      Advanced processing modules including semantic deduplication, fuzzy matching, and data pipeline components.
-      
-      :bdg-secondary:`semantic-dedup` :bdg-secondary:`fuzzy-dedup` :bdg-secondary:`add-id`
+      File, performance, and operation utilities used across the pipeline.
 
 .. toctree::
    :maxdepth: 1
    :caption: API Modules
    :hidden:
 
-   datasets/datasets
-   download/download
-   filters/filters
-   modifiers/modifiers
-   modules/modules
-   classifiers/classifiers
-   image/image
-   pii/pii
-   synthetic/synthetic
-   services/services
-   nemo_run/nemo_run
+   backends/backends
+   pipeline/pipeline
+   stages/stages
    tasks/tasks
    utils/utils

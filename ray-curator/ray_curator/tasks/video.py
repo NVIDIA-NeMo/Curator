@@ -20,7 +20,8 @@ class _Window:
     This class stores information about a video window, including its source, timing,
     extracted frames, motion data, aesthetic scores, and generated captions.
     """
-        # Start frame number of this window
+
+    # Start frame number of this window
     start_frame: int
     # End frame number of this window
     end_frame: int
@@ -67,7 +68,7 @@ class Clip:
     buffer: bytes | None = None
     extracted_frames: dict[str, npt.NDArray[np.uint8]] = field(default_factory=dict)
     # motion
-    decoded_motion_data: None = None # TODO: Add motion data type in the motion filter PR
+    decoded_motion_data: None = None  # TODO: Add motion data type in the motion filter PR
     motion_score_global_mean: float | None = None
     motion_score_per_patch_min_256: float | None = None
     # aesthetic
@@ -145,6 +146,7 @@ class Clip:
             total_size += window.get_major_size()
         return total_size
 
+
 @dataclass
 class ClipStats:
     """Statistics for video clips including filtering, transcoding, and captioning results.
@@ -181,6 +183,7 @@ class ClipStats:
         self.total_clip_duration += other.total_clip_duration
         self.max_clip_duration = max(self.max_clip_duration, other.max_clip_duration)
 
+
 @dataclass
 class VideoMetadata:
     """Metadata for video content including dimensions, timing, and codec information.
@@ -209,6 +212,7 @@ class Video:
     This class stores information about a video segment, including its source, timing,
     extracted frames, motion data, aesthetic scores, and generated captions.
     """
+
     input_video: pathlib.Path
     source_bytes: bytes | None = None
     # video metadata
@@ -339,11 +343,13 @@ class Video:
         # TODO: Support StorageClient type input
         return self.input_video.as_posix()
 
+
 @dataclass
 class VideoTask(Task[Video]):
     """
     Task for processing a single video.
     """
+
     data: Video = field(default_factory=Video)
 
     def validate(self) -> bool:
