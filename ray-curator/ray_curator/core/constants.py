@@ -12,7 +12,7 @@ scrape_configs:
     - '{service_discovery_path}'
 """
 
-GRAPHANA_INI_TEMPLATE = """
+GRAFANA_INI_TEMPLATE = """
 [security]
 allow_embedding = true
 
@@ -28,7 +28,7 @@ provisioning = {provisioning_path}
 http_port = {grafana_web_port}
 """
 
-GRAPHANA_DASHBOARD_YAML_TEMPLATE = """
+GRAFANA_DASHBOARD_YAML_TEMPLATE = """
 
 apiVersion: 1
 
@@ -40,7 +40,7 @@ providers:
       path: {dashboards_path}
 """
 
-GRAPHANA_DATASOURCE_YAML_TEMPLATE = """
+GRAFANA_DATASOURCE_YAML_TEMPLATE = """
 apiVersion: 1
 datasources:
 - access: proxy
@@ -72,3 +72,5 @@ DEFAULT_NEMO_CURATOR_METRICS_PATH = "/tmp/nemo_curator_metrics"  # noqa: S108
 
 DEFAULT_RAY_AUTOSCALER_METRIC_PORT = 44217
 DEFAULT_RAY_DASHBOARD_METRIC_PORT = 44227
+
+GRAFANA_VERSION = "12.0.2"
