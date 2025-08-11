@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 class TestGetAvailableCpuGpuResources:
     """Test class for utility functions in ray_data backend."""
 
-    def test_get_available_cpu_gpu_resources_conftest(self):
+    def test_get_available_cpu_gpu_resources_conftest(self, shared_ray_client: None):  # noqa: ARG002
         """Test get_available_cpu_gpu_resources function."""
         # Test with Ray resources from conftest.py
         cpus, gpus = get_available_cpu_gpu_resources()
@@ -126,7 +126,12 @@ class TestCalculateConcurrencyForActorsForStage:
 class TestExecuteSetupOnNode:
     """Test class for execute_setup_on_node function."""
 
-    def test_execute_setup_on_node_with_two_stages(self, tmp_path: Path, caplog: LogCaptureFixture):
+    def test_execute_setup_on_node_with_two_stages(
+        self,
+        shared_ray_client: None,  # noqa: ARG002
+        tmp_path: Path,
+        caplog: LogCaptureFixture,
+    ):
         """Test execute_setup_on_node with two stages on the Ray cluster."""
 
         class MockStage1(ProcessingStage):
@@ -179,6 +184,7 @@ class TestExecuteSetupOnNode:
             for record in caplog.records
             if record.message.startswith("Executing setup on node") and record.message.endswith("for 2 stages")
         ]
+        # TODO: When we add a cluster then we should check the value of len(ray.nodes()) too
         assert len(matching_logs) == len(ray.nodes()), (
             f"Expected {len(ray.nodes())} logs for setup on node for 2 stages, got {len(matching_logs)}: {matching_logs}"
         )

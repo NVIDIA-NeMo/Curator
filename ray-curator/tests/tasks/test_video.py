@@ -208,11 +208,11 @@ class TestClip:
         size = clip.get_major_size()
 
         expected_size = (
-            16 +  # UUID bytes
-            len(buffer_data) +
-            frames["frame1"].nbytes +
-            intern_frames.nbytes +
-            intern_embedding.nbytes
+            16  # UUID bytes
+            + len(buffer_data)
+            + frames["frame1"].nbytes
+            + intern_frames.nbytes
+            + intern_embedding.nbytes
         )
 
         assert size >= expected_size
@@ -582,8 +582,3 @@ class TestVideoTask:
         )
 
         assert task.num_items == 1
-
-
-# Note: SplitPipeTask tests are commented out due to incomplete implementation
-# in the original code. The class references self.video instead of self.data
-# and is missing required abstract method implementations.

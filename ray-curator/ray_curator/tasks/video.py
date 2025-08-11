@@ -20,7 +20,8 @@ class _Window:
     This class stores information about a video window, including its source, timing,
     extracted frames, motion data, aesthetic scores, and generated captions.
     """
-        # Start frame number of this window
+
+    # Start frame number of this window
     start_frame: int
     # End frame number of this window
     end_frame: int
@@ -67,7 +68,7 @@ class Clip:
     buffer: bytes | None = None
     extracted_frames: dict[str, npt.NDArray[np.uint8]] = field(default_factory=dict)
     # motion
-    decoded_motion_data: None = None # TODO: Add motion data type in the motion filter PR
+    decoded_motion_data: None = None  # TODO: Add motion data type in the motion filter PR
     motion_score_global_mean: float | None = None
     motion_score_per_patch_min_256: float | None = None
     # aesthetic
@@ -357,38 +358,3 @@ class VideoTask(Task[Video]):
     def num_items(self) -> int:
         """Get the number of items in this task."""
         return 1
-
-class SplitPipeTask(Task[Video]):
-    """
-    Task for splitting a video into multiple clips.
-    """
-    data: Video = field(default_factory=Video)
-
-    @property
-    def fraction(self) -> float:
-        """Calculate fraction of processed video in the task.
-
-        Returns:
-            Fraction of processed video.
-
-        """
-        return self.video.fraction
-
-    @property
-    def weight(self) -> float:
-        """Calculate weight of video in the task.
-
-        Returns:
-            Weight of video.
-
-        """
-        return self.video.weight
-
-    def get_major_size(self) -> int:
-        """Calculate memory size of video in the task.
-
-        Returns:
-            Total size in bytes.
-
-        """
-        return self.video.get_major_size()

@@ -3,14 +3,16 @@ import pathlib
 import subprocess
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
-from ray_curator.tasks import Clip, Video, VideoTask
+from ray_curator.tasks.video import Clip, Video, VideoTask
 from ray_curator.utils import grouping
 from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
 
@@ -44,10 +46,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "clip_transcoding"
+    _name: str = "clip_transcoding"
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
@@ -60,32 +59,34 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"
             raise ValueError(error_msg)
 
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
+    def __post_init__(self) -> None:
+        """Post-initialization method called after all fields are set."""
         if self.encoder == "h264_nvenc" or self.use_hwaccel:
             if self.nb_streams_per_gpu > 0:
                 # Assume that we have same type of GPUs
                 gpu_info = _get_local_gpu_info()[0]
                 nvencs = _make_gpu_resources_from_gpu_name(gpu_info.name).num_nvencs
                 gpu_memory_gb = _get_gpu_memory_gb()
-                return Resources(nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu)
+                self._resources = Resources(nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu)
             else:
-                return Resources(gpus=1)
-
-        return Resources(cpus=self.num_cpus_per_worker)
+                self._resources = Resources(gpus=1)
+        else:
+            self._resources = Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["source_bytes"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
+
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
-        if video.source_bytes is None:
-            msg = "Video source bytes are not available"
-            raise ValueError(msg)
 
         if not video.clips:
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
@@ -116,8 +117,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
         # we are done with source_bytes
         video.source_bytes = None
-
-        # TODO: log_stats
 
         # Consider craking into smaller chunks of clips
         output_tasks = []

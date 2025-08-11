@@ -50,6 +50,8 @@ python main.py --analyze --display
 ```
 
 ## Notes
+Extraction should complete within 30 seconds. If it hangs, your build key is likely being throttled. Consider using a self-hosted solution or contact NVIDIA to request an unlimited key.
+
 - Computing Recall on Extraction
     - In order to calculate end-to-end recall accuracy of a retrieval pipeline refer to following [tutorial](https://github.com/NVIDIA/nv-ingest/blob/main/evaluation/bo767_recall.ipynb)
 - Exploring Outputs

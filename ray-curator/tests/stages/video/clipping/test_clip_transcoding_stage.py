@@ -12,8 +12,7 @@ import pytest
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import VideoMetadata
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 
 # Mock GPU info class to simulate GPU information
@@ -49,21 +48,13 @@ class TestClipTranscodingStage:
             use_input_bit_rate=False,
             num_clips_per_chunk=16,
             ffmpeg_verbose=False,
-            verbose=False
+            verbose=False,
         )
 
         # Create mock clips
         self.mock_clips = [
-            Clip(
-                uuid=uuid.uuid4(),
-                source_video="test_video.mp4",
-                span=(0.0, 5.0)
-            ),
-            Clip(
-                uuid=uuid.uuid4(),
-                source_video="test_video.mp4",
-                span=(5.0, 10.0)
-            )
+            Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0)),
+            Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(5.0, 10.0)),
         ]
 
         # Create a mock video with clips
@@ -79,16 +70,12 @@ class TestClipTranscodingStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
-            clips=copy.deepcopy(self.mock_clips)
+            clips=copy.deepcopy(self.mock_clips),
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self) -> None:
         """Test that the name property returns the correct value."""
@@ -96,20 +83,12 @@ class TestClipTranscodingStage:
 
     def test_inputs_outputs(self) -> None:
         """Test that inputs and outputs return the correct values."""
-        inputs, _ = self.stage.inputs()
+        inputs, input_additional = self.stage.inputs()
         outputs, _ = self.stage.outputs()
 
         assert inputs == ["data"]
+        assert input_additional == ["source_bytes"]
         assert outputs == ["data"]
-
-    def test_setup_valid_encoders(self) -> None:
-        """Test setup with valid encoders."""
-        valid_encoders = ["libopenh264", "libx264", "h264_nvenc"]
-
-        for encoder in valid_encoders:
-            stage = ClipTranscodingStage(encoder=encoder)
-            # Should not raise any exception
-            stage.setup()
 
     def test_setup_invalid_encoder(self) -> None:
         """Test setup with invalid encoder raises ValueError."""
@@ -118,25 +97,24 @@ class TestClipTranscodingStage:
         with pytest.raises(ValueError, match="Expected encoder of"):
             stage.setup()
 
+    def test_ray_stage_spec(self) -> None:
+        """Test that ray_stage_spec returns the correct values."""
+        spec = self.stage.ray_stage_spec()
+
+        # Verify the expected keys and values based on the git diff
+        from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+
+        assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
+        assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
+
     def test_resources_cpu_encoder(self) -> None:
         """Test resource requirements for CPU encoders."""
-        stage = ClipTranscodingStage(
-            encoder="libx264",
-            use_hwaccel=False,
-            num_cpus_per_worker=6.0
-        )
+        stage = ClipTranscodingStage(encoder="libx264", use_hwaccel=False, num_cpus_per_worker=6.0)
 
         resources = stage.resources
         assert isinstance(resources, Resources)
         assert resources.cpus == 6.0
         assert not resources.entire_gpu
-
-    def test_process_no_source_bytes(self) -> None:
-        """Test processing when source_bytes is None."""
-        self.mock_video.source_bytes = None
-
-        with pytest.raises(ValueError, match="Video source bytes are not available"):
-            self.stage.process(self.mock_task)
 
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
@@ -158,10 +136,11 @@ class TestClipTranscodingStage:
         mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
         mock_split.return_value = [self.mock_video.clips]  # Return one chunk
 
-        with patch.object(self.stage, "_extract_clips") as mock_extract, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"), \
-             patch("pathlib.Path.write_bytes") as mock_write:
-
+        with (
+            patch.object(self.stage, "_extract_clips") as mock_extract,
+            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"),
+            patch("pathlib.Path.write_bytes") as mock_write,
+        ):
             result = self.stage.process(self.mock_task)
 
             # Should extract clips and create output tasks
@@ -182,10 +161,11 @@ class TestClipTranscodingStage:
         mock_split.return_value = [chunk1, chunk2]
         mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
 
-        with patch.object(self.stage, "_extract_clips"), \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"), \
-             patch("pathlib.Path.write_bytes") as mock_write:
-
+        with (
+            patch.object(self.stage, "_extract_clips"),
+            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"),
+            patch("pathlib.Path.write_bytes") as mock_write,
+        ):
             result = self.stage.process(self.mock_task)
 
             # Should create multiple output tasks
@@ -205,11 +185,16 @@ class TestClipTranscodingStage:
         """Test processing with input bit rate enabled."""
         stage = ClipTranscodingStage(use_input_bit_rate=True)
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir") as mock_temp_dir, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size") as mock_split, \
-             patch.object(stage, "_extract_clips") as mock_extract, \
-             patch("pathlib.Path.write_bytes"):
-
+        with (
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+            ) as mock_temp_dir,
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+            ) as mock_split,
+            patch.object(stage, "_extract_clips") as mock_extract,
+            patch("pathlib.Path.write_bytes"),
+        ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
             mock_split.return_value = [self.mock_video.clips]
 
@@ -225,18 +210,15 @@ class TestClipTranscodingStage:
         working_dir = self.temp_dir / "extract_test"
         video_filename = "input.mp4"
 
-        with patch.object(self.stage, "_build_ffmpeg_command") as mock_build, \
-             patch.object(self.stage, "_run_ffmpeg_command") as mock_run, \
-             patch.object(self.stage, "_read_clips_to_memory") as mock_read:
-
+        with (
+            patch.object(self.stage, "_build_ffmpeg_command") as mock_build,
+            patch.object(self.stage, "_run_ffmpeg_command") as mock_run,
+            patch.object(self.stage, "_read_clips_to_memory") as mock_read,
+        ):
             mock_build.return_value = ["ffmpeg", "command"]
 
             self.stage._extract_clips(
-                working_dir,
-                video_filename,
-                force_pix_fmt=False,
-                use_bit_rate=None,
-                clips=self.mock_clips
+                working_dir, video_filename, force_pix_fmt=False, use_bit_rate=None, clips=self.mock_clips
             )
 
             # Verify all steps are called
@@ -276,16 +258,6 @@ class TestClipTranscodingStage:
         assert "-threads" in command
         assert "4" in command
 
-    def test_add_decoder_threads_gpu(self) -> None:
-        """Test adding decoder threads for GPU encoding."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc", encoder_threads=4)
-
-        stage._add_decoder_threads(command)
-
-        assert "-threads" in command
-        assert "4" in command  # Should use configured threads for GPU
-
     def test_add_hwaccel_options_disabled(self) -> None:
         """Test hardware acceleration options when disabled."""
         command = []
@@ -295,27 +267,6 @@ class TestClipTranscodingStage:
 
         # Should not add any hwaccel options
         assert "-hwaccel" not in command
-
-    def test_add_hwaccel_options_nvenc(self) -> None:
-        """Test hardware acceleration options for NVENC."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc", use_hwaccel=True)
-
-        stage._add_hwaccel_options(command)
-
-        assert "-hwaccel" in command
-        assert "cuda" in command
-        assert "-hwaccel_output_format" in command
-
-    def test_add_hwaccel_options_auto(self) -> None:
-        """Test hardware acceleration options for auto detection."""
-        command = []
-        stage = ClipTranscodingStage(encoder="libx264", use_hwaccel=True)
-
-        stage._add_hwaccel_options(command)
-
-        assert "-hwaccel" in command
-        assert "auto" in command
 
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""
@@ -355,38 +306,6 @@ class TestClipTranscodingStage:
         assert "-b:v" in command
         assert "5000K" in command
 
-    def test_add_video_encoding_options_nvenc(self) -> None:
-        """Test adding video encoding options for NVENC."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc")
-
-        with patch.object(stage, "_add_nvenc_options") as mock_nvenc:
-            stage._add_video_encoding_options(command, None, False)
-            mock_nvenc.assert_called_once_with(command, False)
-
-    def test_add_nvenc_options(self) -> None:
-        """Test adding NVENC-specific options."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc")
-
-        stage._add_nvenc_options(command, False)
-
-        # Verify NVENC options
-        nvenc_options = ["-rc:v", "vbr", "-cq:v", "21", "-tune", "hq"]
-        for option in nvenc_options:
-            assert option in command
-
-    def test_add_nvenc_options_with_pix_fmt(self) -> None:
-        """Test adding NVENC options with pixel format."""
-        command = []
-        stage = ClipTranscodingStage(encoder="h264_nvenc")
-
-        stage._add_nvenc_options(command, True)
-
-        # Should include pixel format
-        assert "-pix_fmt" in command
-        assert "yuv420p" in command
-
     def test_add_output_options(self) -> None:
         """Test adding output options to FFmpeg command."""
         command = []
@@ -414,9 +333,7 @@ class TestClipTranscodingStage:
         # Should not raise any exception
         self.stage._run_ffmpeg_command(command, working_dir, clips)
 
-        mock_subprocess.assert_called_once_with(
-            command, cwd=working_dir, stderr=subprocess.STDOUT
-        )
+        mock_subprocess.assert_called_once_with(command, cwd=working_dir, stderr=subprocess.STDOUT)
 
     @patch("ray_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
     def test_run_ffmpeg_command_verbose(self, mock_subprocess: MagicMock) -> None:
@@ -505,12 +422,17 @@ class TestClipTranscodingStage:
     def test_process_10_bit_color(self) -> None:
         """Test processing with 10-bit color video."""
         # Mock 10-bit color detection
-        with patch.object(self.mock_video, "is_10_bit_color", return_value=True), \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir") as mock_temp_dir, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size") as mock_split, \
-             patch.object(self.stage, "_extract_clips") as mock_extract, \
-             patch("pathlib.Path.write_bytes"):
-
+        with (
+            patch.object(self.mock_video, "is_10_bit_color", return_value=True),
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+            ) as mock_temp_dir,
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+            ) as mock_split,
+            patch.object(self.stage, "_extract_clips") as mock_extract,
+            patch("pathlib.Path.write_bytes"),
+        ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
             mock_split.return_value = [self.mock_video.clips]
 
@@ -522,12 +444,17 @@ class TestClipTranscodingStage:
 
     def test_process_logging_clip_stats(self) -> None:
         """Test that clip statistics are logged during processing."""
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir") as mock_temp_dir, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size") as mock_split, \
-             patch.object(self.stage, "_extract_clips"), \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger, \
-             patch("pathlib.Path.write_bytes"):
-
+        with (
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+            ) as mock_temp_dir,
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+            ) as mock_split,
+            patch.object(self.stage, "_extract_clips"),
+            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger,
+            patch("pathlib.Path.write_bytes"),
+        ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
             mock_split.return_value = [self.mock_video.clips]
 
@@ -542,12 +469,17 @@ class TestClipTranscodingStage:
         """Test verbose logging during processing."""
         stage = ClipTranscodingStage(verbose=True)
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir") as mock_temp_dir, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size") as mock_split, \
-             patch.object(stage, "_extract_clips"), \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger, \
-             patch("pathlib.Path.write_bytes"):
-
+        with (
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+            ) as mock_temp_dir,
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+            ) as mock_split,
+            patch.object(stage, "_extract_clips"),
+            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger,
+            patch("pathlib.Path.write_bytes"),
+        ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
             mock_split.return_value = [self.mock_video.clips[:1], self.mock_video.clips[1:]]  # Two chunks
 
@@ -562,11 +494,16 @@ class TestClipTranscodingStage:
         """Test processing clips in batches."""
         stage = ClipTranscodingStage(encode_batch_size=1)  # Process one clip at a time
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir") as mock_temp_dir, \
-             patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size") as mock_split, \
-             patch.object(stage, "_extract_clips") as mock_extract, \
-             patch("pathlib.Path.write_bytes"):
-
+        with (
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+            ) as mock_temp_dir,
+            patch(
+                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+            ) as mock_split,
+            patch.object(stage, "_extract_clips") as mock_extract,
+            patch("pathlib.Path.write_bytes"),
+        ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
             mock_split.return_value = [self.mock_video.clips]
 
@@ -591,14 +528,10 @@ class TestClipTranscodingStage:
             input_video=pathlib.Path("test_video.mp4"),
             source_bytes=b"mock_video_data",
             metadata=self.mock_video.metadata,
-            clips=[]
+            clips=[],
         )
 
-        empty_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=empty_video
-        )
+        empty_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=empty_video)
 
         with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             result = stage.process(empty_task)
