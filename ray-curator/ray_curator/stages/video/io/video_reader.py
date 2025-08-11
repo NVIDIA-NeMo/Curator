@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import pathlib
 from copy import deepcopy
 from dataclasses import dataclass
@@ -6,7 +20,7 @@ from pathlib import Path
 from loguru import logger
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
@@ -33,6 +47,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     Note:
         Currently supports local filesystem paths only. S3 support is planned for future releases.
     """
+
     verbose: bool = False
     _name: str = "video_reader"
 
@@ -114,6 +129,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         Note:
             Errors are logged and stored in video.errors["download"] for debugging.
         """
+
         def _raise_s3_error() -> None:
             msg = "S3 client is required for S3 destination"
             raise TypeError(msg)
@@ -231,6 +247,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         video_limit: Maximum number of videos to process (-1 for unlimited)
         verbose: Whether to enable verbose logging during download/processing
     """
+
     input_video_path: str
     video_limit: int | None = -1
     verbose: bool = False
@@ -256,9 +273,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
             limit=self.video_limit,
         )
 
-        download_stage = VideoReaderStage(
-            verbose=self.verbose
-        )
+        download_stage = VideoReaderStage(verbose=self.verbose)
 
         return [reader_stage, download_stage]
 
