@@ -74,7 +74,7 @@ all = [
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "linux-aarch64"]
 
 # Specify PyPI index settings
 [tool.pixi.pypi-options]
