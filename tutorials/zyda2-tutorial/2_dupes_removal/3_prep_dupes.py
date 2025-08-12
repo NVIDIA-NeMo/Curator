@@ -10,18 +10,20 @@ from nemo_curator.utils.distributed_utils import get_num_workers
 from nemo_curator.utils.module_utils import count_digits
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
-
+logger = logging.getLogger(__name__)
 DATA_BASE = os.environ.get("DATA_BASE")
 RAW_DATA_BASE = os.path.join(DATA_BASE, "processed")
 CC_BASE = os.path.join(DATA_BASE, "fuzzy/cc/")
 CC_FOLDER = os.path.join(CC_BASE, "connected_components.parquet")
 CC_GROUPED_COUNTS_FOLDER = os.path.join(
-    CC_BASE, "connected_components_grouped_counts.parquet"
+    CC_BASE,
+    "connected_components_grouped_counts.parquet",
 )
 
 DUPES_BASE = os.path.join(CC_BASE, "dupes")
 DUPES_IDS_GROUPED_IN_COLUMNS = os.path.join(
-    DUPES_BASE, "dupes_ids_grouped_in_columns.parquet"
+    DUPES_BASE,
+    "dupes_ids_grouped_in_columns.parquet",
 )
 
 CPU_WORKERS = os.environ.get("CPU_WORKERS")
@@ -30,7 +32,7 @@ CPU_WORKERS = os.environ.get("CPU_WORKERS")
 if __name__ == "__main__":
     cluster = LocalCluster(n_workers=CPU_WORKERS, processes=True)
     client = Client(cluster)
-    logging.info(f"Number of dask workers: {get_num_workers(client)}")
+    logger.info(f"Number of dask workers: {get_num_workers(client)}")
 
     paths = {
         "dclm": os.path.join(RAW_DATA_BASE, "dclm-baseline-1.0-parquet/filtered"),
@@ -52,42 +54,33 @@ if __name__ == "__main__":
         "gs10": "global-shard_10_of_10",
     }
 
-    dclm_dir2id = {}
-    for key, val in dclm_id2dir.items():
-        dclm_dir2id[val] = key
+    dclm_dir2id = {val: key for key, val in dclm_id2dir.items()}
 
     # Counting digits
     dclm_digits = {}
-    for dir in sorted(os.listdir(paths["dclm"])):
-        files = [
-            x for x in os.listdir(os.path.join(paths["dclm"], dir)) if ".parquet" in x
-        ]
-        dclm_digits[dclm_dir2id[dir]] = count_digits(len(files))
+    for directory in sorted(os.listdir(paths["dclm"])):
+        files = [x for x in os.listdir(os.path.join(paths["dclm"], directory)) if ".parquet" in x]
+        dclm_digits[dclm_dir2id[directory]] = count_digits(len(files))
 
     dolma_digits = count_digits(
-        len([x for x in os.listdir(paths["dolma-cc"]) if ".parquet" in x])
+        len([x for x in os.listdir(paths["dolma-cc"]) if ".parquet" in x]),
     )
 
     zyda_digits = {}
-    for dir in sorted(os.listdir(paths["zyda"])):
-        files = [
-            x for x in os.listdir(os.path.join(paths["zyda"], dir)) if ".parquet" in x
-        ]
-        zyda_digits[dir] = count_digits(len(files))
+    for directory in sorted(os.listdir(paths["zyda"])):
+        files = [x for x in os.listdir(os.path.join(paths["zyda"], directory)) if ".parquet" in x]
+        zyda_digits[directory] = count_digits(len(files))
 
     fwe2_digits = {}
-    for dir in sorted(os.listdir(paths["fwe2"])):
-        files = [
-            x for x in os.listdir(os.path.join(paths["fwe2"], dir)) if ".parquet" in x
-        ]
-        fwe2_digits[dir] = count_digits(len(files))
+    for directory in sorted(os.listdir(paths["fwe2"])):
+        files = [x for x in os.listdir(os.path.join(paths["fwe2"], directory)) if ".parquet" in x]
+        fwe2_digits[directory] = count_digits(len(files))
 
     cc_grouped_counts_df = dd.read_parquet(
-        CC_GROUPED_COUNTS_FOLDER, split_row_groups=False
+        CC_GROUPED_COUNTS_FOLDER,
+        split_row_groups=False,
     )
-    cc_grouped_counts_filtered_df = cc_grouped_counts_df[
-        cc_grouped_counts_df["size"] > 1
-    ]
+    cc_grouped_counts_filtered_df = cc_grouped_counts_df[cc_grouped_counts_df["size"] > 1]
 
     cc_groups_counts_inter_df = cc_grouped_counts_filtered_df[
         cc_grouped_counts_filtered_df["size"] != cc_grouped_counts_filtered_df["dclm"]
@@ -102,18 +95,18 @@ if __name__ == "__main__":
         cc_groups_counts_inter_df["size"] != cc_groups_counts_inter_df["zyda"]
     ]
 
-    def select_dupes(partition):
+    def select_dupes(partition: pd.DataFrame) -> pd.DataFrame:
         # Removes all overlaps with fwe2
         partition_fwe2 = partition[partition["fwe2"] > 0]
         partition_fwe2["dupes_to_remove"] = partition_fwe2["original_id"].apply(
-            lambda x: json.dumps([id for id in json.loads(x) if "fwe2" not in id])
+            lambda x: json.dumps([_id for _id in json.loads(x) if "fwe2" not in id]),
         )
 
         # Removes all overlaps with fwe2 (after fwe2 overlaps are removed)
         partition_dclm = partition[partition["fwe2"] == 0]
         partition_dclm = partition_dclm[partition_dclm["dclm"] > 0]
         partition_dclm["dupes_to_remove"] = partition_dclm["original_id"].apply(
-            lambda x: json.dumps([id for id in json.loads(x) if "dclm" not in id])
+            lambda x: json.dumps([_id for _id in json.loads(x) if "dclm" not in _id]),
         )
 
         # Removes all overlaps with zyda (after dclm, fwe2 overlaps are removed)
@@ -121,7 +114,7 @@ if __name__ == "__main__":
         partition_zyda = partition_zyda[partition_zyda["dclm"] == 0]
         partition_zyda = partition_zyda[partition_zyda["zyda"] > 0]
         partition_zyda["dupes_to_remove"] = partition_zyda["original_id"].apply(
-            lambda x: json.dumps([id for id in json.loads(x) if "zyda" not in id])
+            lambda x: json.dumps([_id for _id in json.loads(x) if "zyda" not in _id]),
         )
 
         return pd.concat([partition_dclm, partition_fwe2, partition_zyda])
@@ -140,15 +133,15 @@ if __name__ == "__main__":
     }
     dupes_df = cc_groups_counts_inter_df.map_partitions(select_dupes, meta=meta)
 
-    def group_dupes(partition):
+    def group_dupes(partition: pd.DataFrame) -> pd.DataFrame:
         partition["dclm_dupes"] = partition["dupes_to_remove"].apply(
-            lambda x: json.dumps([id for id in json.loads(x) if "dclm" in id])
+            lambda x: json.dumps([_id for _id in json.loads(x) if "dclm" in _id]),
         )
         partition["zyda_dupes"] = partition["dupes_to_remove"].apply(
-            lambda x: json.dumps([id for id in json.loads(x) if "zyda" in id])
+            lambda x: json.dumps([_id for _id in json.loads(x) if "zyda" in _id]),
         )
         partition["dolma_dupes"] = partition["dupes_to_remove"].apply(
-            lambda x: json.dumps([id for id in json.loads(x) if "dolma" in id])
+            lambda x: json.dumps([_id for _id in json.loads(x) if "dolma" in _id]),
         )
 
         return partition[
@@ -179,5 +172,7 @@ if __name__ == "__main__":
 
     grouped_dupes_df = dupes_df.map_partitions(group_dupes, meta=meta)
     grouped_dupes_df.to_parquet(
-        DUPES_IDS_GROUPED_IN_COLUMNS, write_index=False, overwrite=True
+        DUPES_IDS_GROUPED_IN_COLUMNS,
+        write_index=False,
+        overwrite=True,
     )

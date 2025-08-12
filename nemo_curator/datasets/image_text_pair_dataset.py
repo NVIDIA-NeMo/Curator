@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@ import io
 import math
 import os
 import tarfile
+from collections.abc import Generator
 from functools import partial
-from typing import List, Optional
 
 import dask.dataframe as dd
 import dask_cudf
@@ -53,9 +53,7 @@ class ImageTextPairDataset:
     (00042.tar -> 00042.idx).
     """
 
-    def __init__(
-        self, path: str, metadata: dd.DataFrame, tar_files: List[str], id_col: str
-    ) -> None:
+    def __init__(self, path: str, metadata: dd.DataFrame, tar_files: list[str], id_col: str) -> None:
         """
         Constructs an image-text pair dataset.
 
@@ -71,7 +69,7 @@ class ImageTextPairDataset:
         self.id_col = id_col
 
     @classmethod
-    def from_webdataset(cls, path: str, id_col: str):
+    def from_webdataset(cls, path: str, id_col: str) -> "ImageTextPairDataset":
         """
         Loads an ImageTextPairDataset from a WebDataset
 
@@ -87,17 +85,15 @@ class ImageTextPairDataset:
         return cls(path, metadata, tar_files, id_col)
 
     @staticmethod
-    def _sort_partition(partition, id_col):
+    def _sort_partition(partition: dd.DataFrame, id_col: str) -> dd.DataFrame:
         return partition.sort_values(id_col).reset_index(drop=True)
 
     @staticmethod
-    def _get_tar_files(path: str) -> List[str]:
+    def _get_tar_files(path: str) -> list[str]:
         glob_str = os.path.join(path, "*.tar")
         # open_files doesn't actually open a file descriptor
         # tar_files is sorted by default
-        tar_files = [file.path for file in open_files(glob_str)]
-
-        return tar_files
+        return [file.path for file in open_files(glob_str)]
 
     @staticmethod
     def _name_partition(
@@ -106,16 +102,11 @@ class ImageTextPairDataset:
         max_shards: int = 5,
         ext: str = "parquet",
     ) -> str:
-        if temp:
-            prefix = "temp_"
-        else:
-            prefix = ""
+        prefix = "temp_" if temp else ""
 
         return f"{prefix}{partition_index:0{max_shards}d}.{ext}"
 
-    def save_metadata(
-        self, path: Optional[str] = None, columns: Optional[List[str]] = None
-    ) -> None:
+    def save_metadata(self, path: str | None = None, columns: list[str] | None = None) -> None:
         """
         Saves the metadata of the dataset to the specified path as a collection
         of Parquet files.
@@ -129,16 +120,13 @@ class ImageTextPairDataset:
         if path is None:
             path = self.path
 
-        if columns is None:
-            metadata = self.metadata
-        else:
-            metadata = self.metadata[columns]
+        metadata = self.metadata if columns is None else self.metadata[columns]
 
         metadata.to_parquet(path, name_function=self._name_partition)
 
     @staticmethod
-    def _filter_valid_members(members, valid_ids):
-        def filter_members(member):
+    def _filter_valid_members(members: list[tarfile.TarInfo], valid_ids: set[int]) -> list[tarfile.TarInfo]:
+        def filter_members(member: tarfile.TarInfo) -> bool:
             full_id = member.name.split(".")[0]
             sample_id = int(full_id)
 
@@ -146,7 +134,9 @@ class ImageTextPairDataset:
 
         return list(filter(filter_members, members))
 
-    def _get_eligible_samples(self, output_path: str, samples_per_shard: int):
+    def _get_eligible_samples(
+        self, output_path: str, samples_per_shard: int
+    ) -> Generator[tuple[pd.DataFrame, list[tuple[tarfile.TarInfo, bytes]]], None, None]:
         parquet_glob_str = os.path.join(output_path, "temp_*.parquet")
         tar_glob_str = os.path.join(self.path, "*.tar")
         parquet_files = sorted(open_files(parquet_glob_str), key=lambda f: f.path)
@@ -154,34 +144,25 @@ class ImageTextPairDataset:
 
         curr_df = None
         total_tar_samples = []
-        for parquet_file, tar_file in zip(parquet_files, tar_files):
+        for parquet_file, tar_file in zip(parquet_files, tar_files, strict=False):
             with parquet_file as f:
                 shard_df = pd.read_parquet(f)
 
             # Get all the samples associated with this dataframe from the tar file
             valid_member_ids = set(map(int, shard_df[self.id_col]))
-            with tar_file as f:
-                tar = tarfile.open(fileobj=f)
-                valid_members = self._filter_valid_members(
-                    tar.getmembers(), valid_member_ids
-                )
+            with tar_file as f, tarfile.open(fileobj=f) as tar:
+                valid_members = self._filter_valid_members(tar.getmembers(), valid_member_ids)
                 valid_members.sort(key=lambda x: x.name)
-                tar_samples = [
-                    (member, tar.extractfile(member).read()) for member in valid_members
-                ]
+                tar_samples = [(member, tar.extractfile(member).read()) for member in valid_members]
 
             if len(tar_samples) % len(shard_df) != 0:
-                raise RuntimeError(
-                    f"Tarfile {tar_file.path} entries {len(tar_samples)} are not a multiple of the number of samples {len(shard_df)}"
-                )
+                msg = f"Tarfile {tar_file.path} entries {len(tar_samples)} are not a multiple of the number of samples {len(shard_df)}"
+                raise RuntimeError(msg)
 
             entries_per_sample = int(len(tar_samples) / len(shard_df))
 
             # Concat the dataframe and tar file samples
-            if curr_df is not None:
-                curr_df = pd.concat([curr_df, shard_df], ignore_index=True)
-            else:
-                curr_df = shard_df
+            curr_df = pd.concat([curr_df, shard_df], ignore_index=True) if curr_df is not None else shard_df
             total_tar_samples.extend(tar_samples)
 
             # Delete the temp shard
@@ -194,20 +175,17 @@ class ImageTextPairDataset:
                     total_tar_samples[: samples_per_shard * entries_per_sample],
                 )
                 curr_df = curr_df.iloc[samples_per_shard:]
-                total_tar_samples = total_tar_samples[
-                    samples_per_shard * entries_per_sample :
-                ]
+                total_tar_samples = total_tar_samples[samples_per_shard * entries_per_sample :]
 
         # Return the remaining df and samples if it's not empty
         if len(curr_df) > 0:
             yield curr_df, total_tar_samples
 
     @staticmethod
-    def _combine_id(shard_id, sample_id, max_shards=5, max_samples_per_shard=4) -> str:
+    def _combine_id(shard_id: int, sample_id: int, max_shards: int = 5, max_samples_per_shard: int = 4) -> str:
         int_id = sample_id + (10**max_samples_per_shard) * shard_id
         n_digits = max_samples_per_shard + max_shards
-        combined_id = f"{int_id:0{n_digits}d}"
-        return combined_id
+        return f"{int_id:0{n_digits}d}"
 
     def to_webdataset(
         self,
@@ -215,7 +193,7 @@ class ImageTextPairDataset:
         filter_column: str,
         samples_per_shard: int = 10000,
         max_shards: int = 5,
-        old_id_col: Optional[str] = None,
+        old_id_col: str | None = None,
     ) -> None:
         """
         Saves the dataset to a WebDataset format with Parquet files.
@@ -240,13 +218,9 @@ class ImageTextPairDataset:
         temp_name_fn = partial(self._name_partition, temp=True, max_shards=max_shards)
         filtered_metadata.to_parquet(path, name_function=temp_name_fn)
 
-        for shard_id, (shard_df, shard_tar) in enumerate(
-            self._get_eligible_samples(path, samples_per_shard)
-        ):
+        for shard_id, (shard_df, shard_tar) in enumerate(self._get_eligible_samples(path, samples_per_shard)):
             output_parquet_base = self._name_partition(shard_id, max_shards=max_shards)
-            output_tar_base = self._name_partition(
-                shard_id, max_shards=max_shards, ext="tar"
-            )
+            output_tar_base = self._name_partition(shard_id, max_shards=max_shards, ext="tar")
             output_parquet_path = os.path.join(path, output_parquet_base)
             output_tar_path = os.path.join(path, output_tar_base)
             output_parquet_file = fsspec.open(output_parquet_path, mode="wb")
@@ -268,8 +242,7 @@ class ImageTextPairDataset:
                 shard_df.to_parquet(f, index=False)
 
             members_per_sample = len(shard_tar) / len(shard_df)
-            with output_tar_file as f:
-                tar = tarfile.open(fileobj=f, mode="w")
+            with output_tar_file as f, tarfile.open(fileobj=f, mode="w") as tar:
                 for i, (member, data) in enumerate(shard_tar):
                     # Rename the each member to match the new id
                     sample_id = int(i // members_per_sample)

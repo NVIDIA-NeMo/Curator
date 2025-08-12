@@ -15,7 +15,7 @@
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from typing import Literal, Optional, Union
+from typing import Literal
 
 import dask.dataframe as dd
 
@@ -30,12 +30,12 @@ class BaseModule(ABC):
     Handles validating that data lives on the correct device for each module
     """
 
-    SUPPORTED_BACKENDS = ["pandas", "cudf", "any"]
+    SUPPORTED_BACKENDS = ("pandas", "cudf", "any")
 
     def __init__(
         self,
         input_backend: Literal["pandas", "cudf", "any"],
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         """
         Constructs a Module
@@ -48,31 +48,32 @@ class BaseModule(ABC):
         self.name = name or self.__class__.__name__
 
         if input_backend not in self.SUPPORTED_BACKENDS:
-            raise ValueError(
-                f"{input_backend} not one of the supported backends {self.SUPPORTED_BACKENDS}"
-            )
+            msg = f"{input_backend} not one of the supported backends {self.SUPPORTED_BACKENDS}"
+            raise ValueError(msg)
         self.input_backend = input_backend
 
     @abstractmethod
-    def call(self, dataset: DocumentDataset):
+    def call(self, dataset: DocumentDataset) -> DocumentDataset:
         """
         Performs an arbitrary operation on a dataset
 
         Args:
             dataset (DocumentDataset): The dataset to operate on
         """
-        raise NotImplementedError("call method must be implemented by subclasses")
+        msg = "call method must be implemented by subclasses"
+        raise NotImplementedError(msg)
 
-    def _validate_correct_backend(self, ddf: dd.DataFrame):
+    def _validate_correct_backend(self, ddf: dd.DataFrame) -> None:
         if self.input_backend == "any":
             return
 
         backend = "cudf" if is_cudf_type(ddf) else "pandas"
         if backend != self.input_backend:
-            raise ValueError(
+            msg = (
                 f"Module {self.name} requires dataset to have backend {self.input_backend} but got backend {backend}."
                 "Try using nemo_curator.ToBackend to swap dataframe backends before running this module."
             )
+            raise ValueError(msg)
 
     def __call__(self, dataset: DocumentDataset):
         """
@@ -91,14 +92,14 @@ class BaseDeduplicationModule(BaseModule):
     Base class for all NeMo Curator deduplication modules.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         id_field: str,
         text_field: str,
         perform_removal: bool = False,
-        logger: Union[logging.LoggerAdapter, str] = "./",
-        profile_dir: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        logger: logging.LoggerAdapter | str = "./",
+        profile_dir: str | None = None,
+        cache_dir: str | None = None,
         input_backend: Literal["pandas", "cudf", "any"] = "any",
         **kwargs,
     ):
@@ -111,16 +112,14 @@ class BaseDeduplicationModule(BaseModule):
         self.cache_dir = cache_dir
 
         if self.perform_removal and cache_dir is None:
-            warnings.warn("cache_dir is recommended to remove duplicates.")
+            warnings.warn("cache_dir is recommended to remove duplicates.", stacklevel=2)
 
         if cache_dir is None and profile_dir is not None:
-            warnings.warn(
-                "cache_dir for intermediate outputs is required to generate profiles"
-            )
+            warnings.warn("cache_dir for intermediate outputs is required to generate profiles", stacklevel=2)
 
         if not self.perform_removal:
             warnings.warn(
-                "In future NeMo Curator releases, the default value for perform_removal will be True."
+                "In future NeMo Curator releases, the default value for perform_removal will be True.", stacklevel=2
             )
 
     @abstractmethod
@@ -131,21 +130,19 @@ class BaseDeduplicationModule(BaseModule):
         Args:
             dataset (DocumentDataset): The dataset to identify duplicates in
         """
-        raise NotImplementedError(
-            "identify_duplicates method must be implemented by subclasses"
-        )
+        msg = "identify_duplicates method must be implemented by subclasses"
+        raise NotImplementedError(msg)
 
     @abstractmethod
-    def remove(
-        self, dataset: DocumentDataset, duplicates_to_remove: DocumentDataset
-    ) -> DocumentDataset:
+    def remove(self, dataset: DocumentDataset, duplicates_to_remove: DocumentDataset) -> DocumentDataset:
         """
         Removes duplicates from a dataset
 
         Args:
             dataset (DocumentDataset): The dataset to remove duplicates from
         """
-        raise NotImplementedError("remove method must be implemented by subclasses")
+        msg = "remove method must be implemented by subclasses"
+        raise NotImplementedError(msg)
 
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
         """

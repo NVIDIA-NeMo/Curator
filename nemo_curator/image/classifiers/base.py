@@ -11,8 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from abc import ABC, abstractmethod
-from typing import Callable, Union
+from collections.abc import Callable
 
 import cudf
 import cupy as cp
@@ -34,12 +35,12 @@ class ImageClassifier(ABC):
     the dataset. The classifier must be able to fit on a single GPU.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model_name: str,
         embedding_column: str,
         pred_column: str,
-        pred_type: Union[str, type],
+        pred_type: str | type,
         batch_size: int,
         embedding_size: int,
     ) -> None:
@@ -86,7 +87,11 @@ class ImageClassifier(ABC):
             id_col=dataset.id_col,
         )
 
-    def _run_inference(self, partition, partition_info=None):
+    def _run_inference(
+        self,
+        partition: cudf.DataFrame,
+        partition_info: dict | None = None,
+    ) -> cudf.DataFrame:
         device = "cuda"
 
         model = load_object_on_worker(
@@ -96,18 +101,17 @@ class ImageClassifier(ABC):
         )
 
         embeddings = torch.as_tensor(
-            partition[self.embedding_column].list.leaves.values.reshape(
-                len(partition), -1
-            ),
+            partition[self.embedding_column].list.leaves.values.reshape(len(partition), -1),
             device=device,
         )
 
         if self.embedding_size != embeddings.shape[-1]:
-            raise RuntimeError(
+            msg = (
                 f"{self.model_name} expects embedding size {self.embedding_size} but column "
                 f"'{self.embedding_column}' has embedding size {embeddings.shape[-1]}. Ensure your "
                 "classifier is compatible with the CLIP model you used to generate the embeddings."
             )
+            raise RuntimeError(msg)
 
         with torch.no_grad():
             if self.batch_size > 0:
@@ -146,7 +150,6 @@ class ImageClassifier(ABC):
                 The input to this model will be the batches of images output
                 by the ImageEmbedder.load_dataset_shard.
         """
-        pass
 
     def postprocess(self, series: cudf.Series) -> cudf.Series:
         """

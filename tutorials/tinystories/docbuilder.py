@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import os
-from typing import Set, Tuple
+from collections.abc import Iterator
 
 import requests
 
@@ -43,7 +43,7 @@ class TinyStoriesDownloader(DocumentDownloader):
             return output_file
 
         print(f"Downloading TinyStories dataset from '{url}'...")
-        response = requests.get(url)
+        response = requests.get(url)  # noqa: S113
 
         with open(output_file, "wb") as file:
             file.write(response.content)
@@ -53,20 +53,20 @@ class TinyStoriesDownloader(DocumentDownloader):
 
 class TinyStoriesIterator(DocumentIterator):
     # The token that separates stories in the TinyStories dataset.
-    SEPARATOR_TOKEN = "<|endoftext|>"
+    SEPARATOR_TOKEN = "<|endoftext|>"  # noqa: S105
 
     def __init__(self):
         super().__init__()
         self._counter = -1
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict[str, str], str]]:
         self._counter = -1
         file_name = os.path.basename(file_path)
 
-        with open(file_path, "r") as file:
+        with open(file_path) as file:
             example = []
 
-            def split_meta(example):
+            def split_meta(example: list[str]) -> tuple[dict[str, str], str] | None:
                 if example:
                     self._counter += 1
                     content = " ".join(example)
@@ -76,6 +76,7 @@ class TinyStoriesIterator(DocumentIterator):
                     }
 
                     return meta, content
+                return None
 
             for line in file:
                 if line.strip() == TinyStoriesIterator.SEPARATOR_TOKEN:
@@ -90,6 +91,6 @@ class TinyStoriesIterator(DocumentIterator):
 
 
 class TinyStoriesExtractor(DocumentExtractor):
-    def extract(self, content: str) -> Tuple[Set, str]:
+    def extract(self, content: str) -> tuple[set, str]:
         # No metadata for the text, just the content.
         return {}, content

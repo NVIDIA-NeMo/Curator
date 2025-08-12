@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ class AddressRecognizer(LocalRecognizer):
     Address Detector based on usaddress library
 
     Typical US address format:
-    * The recipient’s first and last name
+    * The recipient's first and last name
     * Street number and name (address line 1)
     * Apartment or unit and its number (address line 2)
     * City, state and zip code (include all of this on one line with a comma between city and state, but not zip code)
@@ -31,7 +31,7 @@ class AddressRecognizer(LocalRecognizer):
     def load(self) -> None:
         pass
 
-    def analyze(self, text, entities, nlp_artifacts):
+    def analyze(self, text: str, entities, nlp_artifacts) -> list[RecognizerResult]:  # noqa: ANN001, ARG002
         output = usaddress.parse(text)
         curr_pos = 0
         results = []

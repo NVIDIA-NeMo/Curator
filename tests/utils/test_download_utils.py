@@ -13,15 +13,11 @@
 # limitations under the License.
 
 import json
-import os
-import subprocess
 import zlib
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
-from bs4 import BeautifulSoup
 
 from nemo_curator.utils.download_utils import (
     get_arxiv_urls,
@@ -36,7 +32,7 @@ from nemo_curator.utils.download_utils import (
 class TestMainWarcPaths:
     """Tests for the get_main_warc_paths function."""
 
-    def test_valid_snapshot_range(self):
+    def test_valid_snapshot_range(self) -> None:
         """Test with valid snapshot range."""
         # Mock snapshot index
         mock_index = [
@@ -48,26 +44,15 @@ class TestMainWarcPaths:
         ]
 
         # Call the function
-        warc_paths = get_main_warc_paths(
-            mock_index, "2021-10", "2021-31", prefix="https://test.example.com"
-        )
+        warc_paths = get_main_warc_paths(mock_index, "2021-10", "2021-31", prefix="https://test.example.com")
 
         # Check results
-        assert len(warc_paths) == 3
-        assert (
-            warc_paths[0]
-            == "https://test.example.com/crawl-data/CC-MAIN-2021-10/warc.paths.gz"
-        )
-        assert (
-            warc_paths[1]
-            == "https://test.example.com/crawl-data/CC-MAIN-2021-25/warc.paths.gz"
-        )
-        assert (
-            warc_paths[2]
-            == "https://test.example.com/crawl-data/CC-MAIN-2021-31/warc.paths.gz"
-        )
+        assert len(warc_paths) == 3  # noqa: PLR2004
+        assert warc_paths[0] == "https://test.example.com/crawl-data/CC-MAIN-2021-10/warc.paths.gz"
+        assert warc_paths[1] == "https://test.example.com/crawl-data/CC-MAIN-2021-25/warc.paths.gz"
+        assert warc_paths[2] == "https://test.example.com/crawl-data/CC-MAIN-2021-31/warc.paths.gz"
 
-    def test_ignores_non_standard_format(self):
+    def test_ignores_non_standard_format(self) -> None:
         """Test that IDs not in the standard format are ignored."""
         # Mock snapshot index with only valid entries
         # The actual function doesn't gracefully handle non-standard formats
@@ -81,11 +66,11 @@ class TestMainWarcPaths:
         warc_paths = get_main_warc_paths(mock_index, "2021-04", "2021-25")
 
         # Check results
-        assert len(warc_paths) == 2
+        assert len(warc_paths) == 2  # noqa: PLR2004
         assert "CC-MAIN-2021-04" in warc_paths[0]
         assert "CC-MAIN-2021-25" in warc_paths[1]
 
-    def test_handles_invalid_format(self):
+    def test_handles_invalid_format(self) -> None:
         """Test that the function properly handles IDs with invalid format."""
         # Mock snapshot index with a non-standard entry
         mock_index = [
@@ -94,13 +79,13 @@ class TestMainWarcPaths:
         ]
 
         # The function should raise ValueError when encountering non-standard format
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             get_main_warc_paths(mock_index, "2021-04", "2021-25")
 
         # Check error message
         assert "invalid literal for int()" in str(excinfo.value)
 
-    def test_filters_by_year(self):
+    def test_filters_by_year(self) -> None:
         """Test filtering of snapshots before 2013."""
         # Mock snapshot index
         mock_index = [
@@ -117,11 +102,11 @@ class TestMainWarcPaths:
             mock_print.assert_called_once()
 
         # Check results (should only include >= 2013)
-        assert len(warc_paths) == 2
+        assert len(warc_paths) == 2  # noqa: PLR2004
         assert "CC-MAIN-2013-04" in warc_paths[0]
         assert "CC-MAIN-2014-10" in warc_paths[1]
 
-    def test_both_dates_before_2013(self):
+    def test_both_dates_before_2013(self) -> None:
         """Test when both start and end snapshots are before 2013."""
         # Mock snapshot index
         mock_index = [
@@ -142,7 +127,7 @@ class TestMainWarcPaths:
         # Check results (should be empty since all matching snapshots are filtered out)
         assert len(warc_paths) == 0
 
-    def test_invalid_date_range(self):
+    def test_invalid_date_range(self) -> None:
         """Test with start date after end date."""
         # Mock snapshot index
         mock_index = [
@@ -151,7 +136,7 @@ class TestMainWarcPaths:
         ]
 
         # Call the function with start date after end date
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             get_main_warc_paths(mock_index, "2021-10", "2021-04")
 
         # Check error message
@@ -162,7 +147,7 @@ class TestMainWarcPaths:
 class TestNewsWarcPaths:
     """Tests for the get_news_warc_paths function."""
 
-    def test_valid_date_range(self):
+    def test_valid_date_range(self) -> None:
         """Test with valid date range."""
         # Call the function
         with patch("datetime.datetime") as mock_datetime:
@@ -172,36 +157,25 @@ class TestNewsWarcPaths:
             mock_now.month = 6
             mock_datetime.now.return_value = mock_now
 
-            warc_paths = get_news_warc_paths(
-                "2023-01", "2023-03", prefix="https://test.example.com"
-            )
+            warc_paths = get_news_warc_paths("2023-01", "2023-03", prefix="https://test.example.com")
 
             # Check results (should have entries for Jan, Feb, Mar 2023)
-            assert len(warc_paths) == 3
-            assert (
-                warc_paths[0]
-                == "https://test.example.com/crawl-data/CC-NEWS/2023/01/warc.paths.gz"
-            )
-            assert (
-                warc_paths[1]
-                == "https://test.example.com/crawl-data/CC-NEWS/2023/02/warc.paths.gz"
-            )
-            assert (
-                warc_paths[2]
-                == "https://test.example.com/crawl-data/CC-NEWS/2023/03/warc.paths.gz"
-            )
+            assert len(warc_paths) == 3  # noqa: PLR2004
+            assert warc_paths[0] == "https://test.example.com/crawl-data/CC-NEWS/2023/01/warc.paths.gz"
+            assert warc_paths[1] == "https://test.example.com/crawl-data/CC-NEWS/2023/02/warc.paths.gz"
+            assert warc_paths[2] == "https://test.example.com/crawl-data/CC-NEWS/2023/03/warc.paths.gz"
 
-    def test_invalid_date_range(self):
+    def test_invalid_date_range(self) -> None:
         """Test with start date after end date."""
         # Call the function with start date after end date
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             get_news_warc_paths("2023-03", "2023-01")
 
         # Check error message
         assert "Start snapshot" in str(excinfo.value)
         assert "is after end snapshot" in str(excinfo.value)
 
-    def test_date_out_of_supported_range(self):
+    def test_date_out_of_supported_range(self) -> None:
         """Test with dates outside supported range (warning)."""
         # Call the function with dates outside supported range
         with patch("nemo_curator.utils.download_utils.datetime") as mock_datetime:
@@ -226,12 +200,10 @@ class TestNewsWarcPaths:
 class TestCommonCrawlSnapshotIndex:
     """Tests for the get_common_crawl_snapshot_index function."""
 
-    def test_retrieves_snapshot_index(self):
+    def test_retrieves_snapshot_index(self) -> None:
         """Test retrieving snapshot index from URL."""
         # Mock response from index URL
-        mock_index_content = json.dumps(
-            [{"id": "CC-MAIN-2021-04"}, {"id": "CC-MAIN-2021-10"}]
-        )
+        mock_index_content = json.dumps([{"id": "CC-MAIN-2021-04"}, {"id": "CC-MAIN-2021-10"}])
         mock_response = MagicMock()
         mock_response.content = mock_index_content.encode()
 
@@ -252,7 +224,7 @@ class TestCommonCrawlUrls:
     @patch("nemo_curator.utils.download_utils.get_common_crawl_snapshot_index")
     @patch("nemo_curator.utils.download_utils.get_main_warc_paths")
     @patch("requests.get")
-    def test_cc_main_urls(self, mock_get, mock_paths, mock_index):
+    def test_cc_main_urls(self, mock_get: MagicMock, mock_paths: MagicMock, mock_index: MagicMock) -> None:
         """Test retrieving CC-MAIN URLs."""
         # Setup mock responses
         mock_index.return_value = "mock_index_data"
@@ -263,9 +235,9 @@ class TestCommonCrawlUrls:
 
         # Create mock responses for each path
         mock_response1 = MagicMock()
-        mock_response1.content = zlib.compress("warc1\nwarc2\n".encode("utf-8"))
+        mock_response1.content = zlib.compress(b"warc1\nwarc2\n")
         mock_response2 = MagicMock()
-        mock_response2.content = zlib.compress("warc3\n".encode("utf-8"))
+        mock_response2.content = zlib.compress(b"warc3\n")
         mock_get.side_effect = [mock_response1, mock_response2]
 
         # Call the function
@@ -278,28 +250,24 @@ class TestCommonCrawlUrls:
 
         # Check function calls
         mock_index.assert_called_once_with("https://index.example.com/")
-        mock_paths.assert_called_once_with(
-            "mock_index_data", "2021-10", "2021-25", prefix="https://data.example.com/"
-        )
+        mock_paths.assert_called_once_with("mock_index_data", "2021-10", "2021-25", prefix="https://data.example.com/")
 
         # Check result URLs
-        assert len(result) == 3
+        assert len(result) == 3  # noqa: PLR2004
         assert result[0] == "https://data.example.com/warc1"
         assert result[1] == "https://data.example.com/warc2"
         assert result[2] == "https://data.example.com/warc3"
 
     @patch("nemo_curator.utils.download_utils.get_news_warc_paths")
     @patch("requests.get")
-    def test_cc_news_urls(self, mock_get, mock_paths):
+    def test_cc_news_urls(self, mock_get: MagicMock, mock_paths: MagicMock) -> None:
         """Test retrieving CC-NEWS URLs."""
         # Setup mock responses
         mock_paths.return_value = ["https://data.example.com/path1.gz"]
 
         # Create mock response
         mock_response = MagicMock()
-        mock_response.content = zlib.compress(
-            "news-warc1\nnews-warc2\n".encode("utf-8")
-        )
+        mock_response.content = zlib.compress(b"news-warc1\nnews-warc2\n")
         mock_get.return_value = mock_response
 
         # Call the function
@@ -311,18 +279,16 @@ class TestCommonCrawlUrls:
         )
 
         # Check function calls
-        mock_paths.assert_called_once_with(
-            "2023-01", "2023-03", prefix="https://data.example.com/"
-        )
+        mock_paths.assert_called_once_with("2023-01", "2023-03", prefix="https://data.example.com/")
 
         # Check result URLs
-        assert len(result) == 2
+        assert len(result) == 2  # noqa: PLR2004
         assert result[0] == "https://data.example.com/news-warc1"
         assert result[1] == "https://data.example.com/news-warc2"
 
     @patch("nemo_curator.utils.download_utils.get_main_warc_paths")
     @patch("requests.get")
-    def test_exception_handling(self, mock_get, mock_paths):
+    def test_exception_handling(self, mock_get: MagicMock, mock_paths: MagicMock) -> None:
         """Test handling exceptions when retrieving URLs."""
         # Setup mock responses
         mock_paths.return_value = [
@@ -332,23 +298,23 @@ class TestCommonCrawlUrls:
 
         # First request succeeds, second fails
         mock_response1 = MagicMock()
-        mock_response1.content = zlib.compress("warc1\nwarc2\n".encode("utf-8"))
+        mock_response1.content = zlib.compress(b"warc1\nwarc2\n")
         mock_response2 = MagicMock()
         mock_response2.content = b"invalid_content"  # Will cause decompression error
         mock_get.side_effect = [mock_response1, mock_response2]
 
         # Call the function with index already mocked
-        with patch("nemo_curator.utils.download_utils.get_common_crawl_snapshot_index"):
-            with patch("builtins.print") as mock_print:
-                result = get_common_crawl_urls("2021-10", "2021-25")
+        with (
+            patch("nemo_curator.utils.download_utils.get_common_crawl_snapshot_index"),
+            patch("builtins.print") as mock_print,
+        ):
+            result = get_common_crawl_urls("2021-10", "2021-25")
 
         # Check error message was printed
-        assert (
-            mock_print.call_count == 3
-        )  # Three print statements: path, content, and exception
+        assert mock_print.call_count == 3  # Three print statements: path, content, and exception # noqa: PLR2004
 
         # Check result URLs (only from successful request)
-        assert len(result) == 2
+        assert len(result) == 2  # noqa: PLR2004
         assert "warc1" in result[0]
         assert "warc2" in result[1]
 
@@ -357,7 +323,7 @@ class TestWikipediaUrls:
     """Tests for the get_wikipedia_urls function."""
 
     @patch("requests.get")
-    def test_latest_dump(self, mock_get):
+    def test_latest_dump(self, mock_get: MagicMock) -> None:
         """Test retrieving latest Wikipedia dump URLs."""
         # Mock index response
         mock_index_html = """
@@ -393,24 +359,20 @@ class TestWikipediaUrls:
         mock_get.side_effect = [mock_index_response, mock_dump_response]
 
         # Call the function
-        result = get_wikipedia_urls(
-            language="en", wikidumps_index_prefix="https://dumps.example.com/"
-        )
+        result = get_wikipedia_urls(language="en", wikidumps_index_prefix="https://dumps.example.com/")
 
         # Check requests were made correctly
-        assert mock_get.call_count == 2
+        assert mock_get.call_count == 2  # noqa: PLR2004
         mock_get.assert_any_call("https://dumps.example.com/enwiki")
-        mock_get.assert_any_call(
-            "https://dumps.example.com/enwiki/20230201/dumpstatus.json"
-        )
+        mock_get.assert_any_call("https://dumps.example.com/enwiki/20230201/dumpstatus.json")
 
         # Check result URLs
-        assert len(result) == 2
+        assert len(result) == 2  # noqa: PLR2004
         assert "multistream1.xml" in result[0]
         assert "multistream2.xml" in result[1]
 
     @patch("requests.get")
-    def test_specific_dump_date(self, mock_get):
+    def test_specific_dump_date(self, mock_get: MagicMock) -> None:
         """Test retrieving Wikipedia dump URLs for a specific date."""
         # Mock dump status response
         mock_dump_json = json.dumps(
@@ -439,17 +401,15 @@ class TestWikipediaUrls:
         )
 
         # Check request was made correctly
-        mock_get.assert_called_once_with(
-            "https://dumps.example.com/enwiki/20220101/dumpstatus.json"
-        )
+        mock_get.assert_called_once_with("https://dumps.example.com/enwiki/20220101/dumpstatus.json")
 
         # Check result URLs
-        assert len(result) == 2
+        assert len(result) == 2  # noqa: PLR2004
         assert "20220101" in result[0]
         assert "20220101" in result[1]
 
     @patch("requests.get")
-    def test_invalid_dump_date(self, mock_get):
+    def test_invalid_dump_date(self, mock_get: MagicMock) -> None:
         """Test error handling for invalid dump date."""
         # Mock response with invalid JSON
         mock_response = MagicMock()
@@ -459,7 +419,7 @@ class TestWikipediaUrls:
         mock_get.return_value = mock_response
 
         # Call the function with specific date
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             get_wikipedia_urls(dump_date="20220101")
 
         # Check error message
@@ -470,7 +430,7 @@ class TestArxivUrls:
     """Tests for the get_arxiv_urls function."""
 
     @patch("subprocess.run")
-    def test_successful_retrieval(self, mock_run):
+    def test_successful_retrieval(self, mock_run: MagicMock) -> None:
         """Test successful retrieval of ArXiv URLs."""
         # Mock subprocess result
         mock_result = MagicMock()
@@ -489,7 +449,7 @@ class TestArxivUrls:
         assert "s3://arxiv/src/" in mock_run.call_args[0][0]
 
         # Check result URLs
-        assert len(result) == 3
+        assert len(result) == 3  # noqa: PLR2004
         assert result == [
             "s3://arxiv/src/arXiv_src_1804_001.tar",
             "s3://arxiv/src/arXiv_src_1805_001.tar",
@@ -497,7 +457,7 @@ class TestArxivUrls:
         ]
 
     @patch("subprocess.run")
-    def test_command_failure(self, mock_run):
+    def test_command_failure(self, mock_run: MagicMock) -> None:
         """Test error handling when s5cmd command fails."""
         # Mock subprocess result (failure)
         mock_result = MagicMock()

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,76 +24,64 @@ from nemo_curator.utils.import_utils import gpu_only_import_from
 from .add_id import AddId
 from .base import BaseModule
 from .config import FuzzyDuplicatesConfig, SemDedupConfig
-from .dataset_ops import blend_datasets, Shuffle
+from .dataset_ops import Shuffle, blend_datasets
 from .exact_dedup import ExactDuplicates
+from .joiner import DocumentJoiner
 from .meta import Sequential
 from .modify import Modify
 from .splitter import DocumentSplitter
-from .joiner import DocumentJoiner
 from .task import TaskDecontamination
 from .to_backend import ToBackend
 
 # GPU packages
 MinHash = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.minhash", "MinHash")
 LSH = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.lsh", "LSH")
-JaccardSimilarity = gpu_only_import_from(
-    "nemo_curator.modules.fuzzy_dedup.jaccardsimilarity", "JaccardSimilarity"
-)
-BucketsToEdges = gpu_only_import_from(
-    "nemo_curator.modules.fuzzy_dedup.bucketstoedges", "BucketsToEdges"
-)
+JaccardSimilarity = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.jaccardsimilarity", "JaccardSimilarity")
+BucketsToEdges = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.bucketstoedges", "BucketsToEdges")
 ConnectedComponents = gpu_only_import_from(
     "nemo_curator.modules.fuzzy_dedup.connectedcomponents", "ConnectedComponents"
 )
-FuzzyDuplicates = gpu_only_import_from(
-    "nemo_curator.modules.fuzzy_dedup.fuzzyduplicates", "FuzzyDuplicates"
-)
+FuzzyDuplicates = gpu_only_import_from("nemo_curator.modules.fuzzy_dedup.fuzzyduplicates", "FuzzyDuplicates")
 
-EmbeddingCreator = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator"
-)
-ClusteringModel = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup.clusteringmodel", "ClusteringModel"
-)
+EmbeddingCreator = gpu_only_import_from("nemo_curator.modules.semantic_dedup.embeddings", "EmbeddingCreator")
+ClusteringModel = gpu_only_import_from("nemo_curator.modules.semantic_dedup.clusteringmodel", "ClusteringModel")
 SemanticClusterLevelDedup = gpu_only_import_from(
     "nemo_curator.modules.semantic_dedup.semanticclusterleveldedup",
     "SemanticClusterLevelDedup",
 )
-SemDedup = gpu_only_import_from(
-    "nemo_curator.modules.semantic_dedup.semdedup", "SemDedup"
-)
+SemDedup = gpu_only_import_from("nemo_curator.modules.semantic_dedup.semdedup", "SemDedup")
 
 # PyTorch-related imports must come after all imports that require cuGraph
 # because of context cleanup issues between PyTorch and cuGraph
 # See this issue: https://github.com/rapidsai/cugraph/issues/2718
-from .filter import Filter, Score, ScoreFilter, ParallelScoreFilter
+from .filter import Filter, ParallelScoreFilter, Score, ScoreFilter
 
 __all__ = [
+    "LSH",
     "AddId",
-    "FuzzyDuplicatesConfig",
-    "SemDedupConfig",
-    "blend_datasets",
-    "Shuffle",
+    "BaseModule",
+    "BucketsToEdges",
+    "ClusteringModel",
+    "ConnectedComponents",
+    "DocumentJoiner",
+    "DocumentSplitter",
+    "EmbeddingCreator",
     "ExactDuplicates",
     "Filter",
+    "FuzzyDuplicates",
+    "FuzzyDuplicatesConfig",
+    "JaccardSimilarity",
+    "MinHash",
+    "Modify",
+    "ParallelScoreFilter",
     "Score",
     "ScoreFilter",
-    "ParallelScoreFilter",
-    "Sequential",
-    "Modify",
-    "TaskDecontamination",
-    "MinHash",
-    "LSH",
-    "JaccardSimilarity",
-    "BucketsToEdges",
-    "ConnectedComponents",
-    "FuzzyDuplicates",
-    "EmbeddingCreator",
-    "ClusteringModel",
-    "SemanticClusterLevelDedup",
     "SemDedup",
-    "BaseModule",
+    "SemDedupConfig",
+    "SemanticClusterLevelDedup",
+    "Sequential",
+    "Shuffle",
+    "TaskDecontamination",
     "ToBackend",
-    "DocumentSplitter",
-    "DocumentJoiner",
+    "blend_datasets",
 ]

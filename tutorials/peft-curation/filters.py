@@ -27,7 +27,7 @@ class FilterEmailsWithLongBody(DocumentFilter):
     def score_document(self, text: str) -> bool:
         return len(text) <= self.max_length
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score
 
 
@@ -43,5 +43,5 @@ class FilterEmptyEmails(DocumentFilter):
             or "Empty message" in text  # The email is labeled as empty
         )
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score

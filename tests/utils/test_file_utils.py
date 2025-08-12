@@ -12,24 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
-import pathlib
 import shutil
 import tempfile
 import warnings
-from functools import reduce
+from collections.abc import Iterator
+from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
-import dask.bag as db
 import dask.dataframe as dd
-import numpy as np
 import pandas as pd
 import pytest
-from dask import delayed
 
 from nemo_curator.utils.file_utils import (
-    NEMO_CURATOR_HOME,
     _save_jsonl,
     _update_filetype,
     expand_outdir_and_mkdir,
@@ -49,7 +44,7 @@ from nemo_curator.utils.file_utils import (
 
 
 @pytest.fixture
-def temp_dir():
+def temp_dir() -> Iterator[Path]:
     """Create a temporary directory for test files."""
     temp_dir = tempfile.mkdtemp()
     yield temp_dir
@@ -59,7 +54,7 @@ def temp_dir():
 class TestBasicFileUtils:
     """Tests for basic file utility functions."""
 
-    def test_mkdir(self, temp_dir):
+    def test_mkdir(self, temp_dir: Path) -> None:
         """Test that mkdir creates directories."""
         test_dir = os.path.join(temp_dir, "test_directory")
         mkdir(test_dir)
@@ -72,7 +67,7 @@ class TestBasicFileUtils:
         assert os.path.exists(nested_dir)
         assert os.path.isdir(nested_dir)
 
-    def test_expand_outdir_and_mkdir(self, temp_dir):
+    def test_expand_outdir_and_mkdir(self, temp_dir: Path) -> None:
         """Test that expand_outdir_and_mkdir expands paths and creates directories."""
         # Test with a normal path
         test_dir = os.path.join(temp_dir, "test_directory")
@@ -82,13 +77,11 @@ class TestBasicFileUtils:
         assert os.path.abspath(test_dir) == result
 
         # Test with a path containing a tilde
-        with patch(
-            "os.path.expanduser", return_value=os.path.join(temp_dir, "expanded_user")
-        ):
+        with patch("os.path.expanduser", return_value=os.path.join(temp_dir, "expanded_user")):
             result = expand_outdir_and_mkdir("~/test")
             assert os.path.join(temp_dir, "expanded_user") in result
 
-    def test_remove_path_extension(self):
+    def test_remove_path_extension(self) -> None:
         """Test remove_path_extension function."""
         # Test with a simple file path
         path = "/path/to/file.txt"
@@ -114,7 +107,7 @@ class TestBasicFileUtils:
 class TestFileFiltering:
     """Tests for file filtering utility functions."""
 
-    def test_filter_files_by_extension_with_string(self):
+    def test_filter_files_by_extension_with_string(self) -> None:
         """Test filter_files_by_extension with a string extension."""
         files = [
             "file1.txt",
@@ -126,7 +119,7 @@ class TestFileFiltering:
         result = filter_files_by_extension(files, "txt")
         assert result == ["file1.txt", "file4.txt"]
 
-    def test_filter_files_by_extension_with_list(self):
+    def test_filter_files_by_extension_with_list(self) -> None:
         """Test filter_files_by_extension with a list of extensions."""
         files = [
             "file1.txt",
@@ -138,7 +131,7 @@ class TestFileFiltering:
         result = filter_files_by_extension(files, ["txt", "json"])
         assert result == ["file1.txt", "file2.json", "file4.txt"]
 
-    def test_filter_files_by_extension_with_period(self):
+    def test_filter_files_by_extension_with_period(self) -> None:
         """Test filter_files_by_extension with extensions that include a period."""
         files = [
             "file1.txt",
@@ -150,7 +143,7 @@ class TestFileFiltering:
         result = filter_files_by_extension(files, [".txt", ".json"])
         assert result == ["file1.txt", "file2.json", "file4.txt"]
 
-    def test_filter_files_by_extension_warning(self):
+    def test_filter_files_by_extension_warning(self) -> None:
         """Test that filter_files_by_extension issues a warning when files are skipped."""
         files = [
             "file1.txt",
@@ -160,11 +153,11 @@ class TestFileFiltering:
             "file5.jsonl",
         ]
         with warnings.catch_warnings(record=True) as w:
-            result = filter_files_by_extension(files, "txt")
+            filter_files_by_extension(files, "txt")
             assert len(w) == 1
             assert "Skipped at least one file" in str(w[0].message)
 
-    def test_get_all_files_paths_under(self, temp_dir):
+    def test_get_all_files_paths_under(self, temp_dir: Path) -> None:
         """Test get_all_files_paths_under function."""
         # Create test directory structure
         subdir1 = os.path.join(temp_dir, "subdir1")
@@ -187,33 +180,33 @@ class TestFileFiltering:
 
         # Test with recursion enabled (default)
         result = get_all_files_paths_under(temp_dir)
-        assert len(result) == 6
+        assert len(result) == 6  # noqa: PLR2004
         for file in files:
             assert file in result
 
         # Test with recursion disabled
         result = get_all_files_paths_under(temp_dir, recurse_subdirectories=False)
-        assert len(result) == 2
+        assert len(result) == 2  # noqa: PLR2004
         assert os.path.join(temp_dir, "file1.txt") in result
         assert os.path.join(temp_dir, "file2.json") in result
 
         # Test with file extension filtering
         result = get_all_files_paths_under(temp_dir, keep_extensions="txt")
-        assert len(result) == 3
+        assert len(result) == 3  # noqa: PLR2004
         assert os.path.join(temp_dir, "file1.txt") in result
         assert os.path.join(subdir1, "file3.txt") in result
         assert os.path.join(subdir2, "file5.txt") in result
 
         # Test with multiple file extension filtering
         result = get_all_files_paths_under(temp_dir, keep_extensions=["txt", "json"])
-        assert len(result) == 5
+        assert len(result) == 5  # noqa: PLR2004
         assert os.path.join(temp_dir, "file1.txt") in result
         assert os.path.join(temp_dir, "file2.json") in result
         assert os.path.join(subdir1, "file3.txt") in result
         assert os.path.join(subdir1, "file4.json") in result
         assert os.path.join(subdir2, "file5.txt") in result
 
-    def test_update_filetype(self):
+    def test_update_filetype(self) -> None:
         """Test _update_filetype function."""
         # Test with None file types
         file_set = {"file1.txt", "file2.json", "file3"}
@@ -240,7 +233,7 @@ class TestFileFiltering:
 class TestFileProcessingUtils:
     """Tests for file processing utility functions."""
 
-    def test_get_remaining_files(self, temp_dir):
+    def test_get_remaining_files(self, temp_dir: Path) -> None:
         """Test get_remaining_files function."""
         # Create input and output directories
         input_dir = os.path.join(temp_dir, "input")
@@ -261,74 +254,60 @@ class TestFileProcessingUtils:
                 f.write("processed content")
 
         # Test with no output file type specified
-        with patch("nemo_curator.utils.file_utils.os.path.exists", return_value=True):
-            with patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir:
-                mock_input_scan = MagicMock()
-                mock_input_scan.__iter__.return_value = [
-                    MagicMock(path=f) for f in input_files
-                ]
+        with (
+            patch("nemo_curator.utils.file_utils.os.path.exists", return_value=True),
+            patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir,
+        ):
+            mock_input_scan = MagicMock()
+            mock_input_scan.__iter__.return_value = [MagicMock(path=f) for f in input_files]
 
-                mock_output_scan = MagicMock()
-                mock_output_scan.__iter__.return_value = [
-                    MagicMock(path=f) for f in output_files
-                ]
+            mock_output_scan = MagicMock()
+            mock_output_scan.__iter__.return_value = [MagicMock(path=f) for f in output_files]
 
-                mock_scandir.side_effect = lambda path: (
-                    mock_input_scan if path == input_dir else mock_output_scan
-                )
+            mock_scandir.side_effect = lambda path: (mock_input_scan if path == input_dir else mock_output_scan)
 
-                result = get_remaining_files(input_dir, output_dir, "txt")
-                assert len(result) == 3
-                assert all(f"file{i}.txt" in r for i, r in zip(range(2, 5), result))
+            result = get_remaining_files(input_dir, output_dir, "txt")
+            assert len(result) == 3  # noqa: PLR2004
+            assert all(f"file{i}.txt" in r for i, r in zip(range(2, 5), result, strict=False))
 
         # Test with pickle input_file_type
         result = get_remaining_files("path/to/data.pickle", output_dir, "pickle")
         assert result == ["path/to/data.pickle"]
 
         # Test with different output file type
-        with patch("nemo_curator.utils.file_utils.os.path.exists", return_value=True):
-            with patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir:
-                mock_input_scan = MagicMock()
-                mock_input_scan.__iter__.return_value = [
-                    MagicMock(path=f) for f in input_files
-                ]
+        with (
+            patch("nemo_curator.utils.file_utils.os.path.exists", return_value=True),
+            patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir,
+        ):
+            mock_input_scan = MagicMock()
+            mock_input_scan.__iter__.return_value = [MagicMock(path=f) for f in input_files]
 
-                mock_output_scan = MagicMock()
-                mock_output_scan.__iter__.return_value = [
-                    MagicMock(path=f.replace(".txt", ".json")) for f in output_files
-                ]
+            mock_output_scan = MagicMock()
+            mock_output_scan.__iter__.return_value = [MagicMock(path=f.replace(".txt", ".json")) for f in output_files]
 
-                mock_scandir.side_effect = lambda path: (
-                    mock_input_scan if path == input_dir else mock_output_scan
-                )
+            mock_scandir.side_effect = lambda path: (mock_input_scan if path == input_dir else mock_output_scan)
 
-                result = get_remaining_files(input_dir, output_dir, "txt", "json")
-                assert len(result) == 3
-                assert all(f"file{i}.txt" in r for i, r in zip(range(2, 5), result))
+            result = get_remaining_files(input_dir, output_dir, "txt", "json")
+            assert len(result) == 3  # noqa: PLR2004
+            assert all(f"file{i}.txt" in r for i, r in zip(range(2, 5), result, strict=False))
 
         # Test with num_files limit
-        with patch("nemo_curator.utils.file_utils.os.path.exists", return_value=True):
-            with patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir:
-                mock_input_scan = MagicMock()
-                mock_input_scan.__iter__.return_value = [
-                    MagicMock(path=f) for f in input_files
-                ]
+        with (
+            patch("nemo_curator.utils.file_utils.os.path.exists", return_value=True),
+            patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir,
+        ):
+            mock_input_scan = MagicMock()
+            mock_input_scan.__iter__.return_value = [MagicMock(path=f) for f in input_files]
 
-                mock_output_scan = MagicMock()
-                mock_output_scan.__iter__.return_value = [
-                    MagicMock(path=f) for f in output_files
-                ]
+            mock_output_scan = MagicMock()
+            mock_output_scan.__iter__.return_value = [MagicMock(path=f) for f in output_files]
 
-                mock_scandir.side_effect = lambda path: (
-                    mock_input_scan if path == input_dir else mock_output_scan
-                )
+            mock_scandir.side_effect = lambda path: (mock_input_scan if path == input_dir else mock_output_scan)
 
-                result = get_remaining_files(input_dir, output_dir, "txt", num_files=3)
-                assert (
-                    len(result) == 1
-                )  # 3 total files - 2 already processed = 1 remaining
+            result = get_remaining_files(input_dir, output_dir, "txt", num_files=3)
+            assert len(result) == 1
 
-    def test_get_remaining_files_nonexistent_output_dir(self, temp_dir):
+    def test_get_remaining_files_nonexistent_output_dir(self, temp_dir: Path) -> None:
         """Test get_remaining_files when output directory doesn't exist."""
         # Create input directory with test files
         input_dir = os.path.join(temp_dir, "input")
@@ -346,43 +325,37 @@ class TestFileProcessingUtils:
         # Mock os.path.exists to return False for output_dir and then pass through for other paths
         original_exists = os.path.exists
 
-        def mock_exists(path):
+        def mock_exists(path: str) -> bool:
             if path == output_dir:
                 return False
             return original_exists(path)
 
-        with patch(
-            "nemo_curator.utils.file_utils.os.path.exists", side_effect=mock_exists
+        with (
+            patch("nemo_curator.utils.file_utils.os.path.exists", side_effect=mock_exists),
+            patch("nemo_curator.utils.file_utils.expand_outdir_and_mkdir") as mock_mkdir,
+            patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir,
         ):
-            with patch(
-                "nemo_curator.utils.file_utils.expand_outdir_and_mkdir"
-            ) as mock_mkdir:
-                with patch("nemo_curator.utils.file_utils.os.scandir") as mock_scandir:
-                    # Mock scandir for input directory to return real files
-                    mock_input_scan = MagicMock()
-                    mock_input_scan.__iter__.return_value = [
-                        MagicMock(path=f) for f in input_files
-                    ]
+            # Mock scandir for input directory to return real files
+            mock_input_scan = MagicMock()
+            mock_input_scan.__iter__.return_value = [MagicMock(path=f) for f in input_files]
 
-                    # Mock scandir for output directory to return empty list (no files)
-                    mock_output_scan = MagicMock()
-                    mock_output_scan.__iter__.return_value = []
+            # Mock scandir for output directory to return empty list (no files)
+            mock_output_scan = MagicMock()
+            mock_output_scan.__iter__.return_value = []
 
-                    mock_scandir.side_effect = lambda path: (
-                        mock_input_scan if path == input_dir else mock_output_scan
-                    )
+            mock_scandir.side_effect = lambda path: (mock_input_scan if path == input_dir else mock_output_scan)
 
-                    # Call get_remaining_files with non-existent output directory
-                    result = get_remaining_files(input_dir, output_dir, "txt")
+            # Call get_remaining_files with non-existent output directory
+            result = get_remaining_files(input_dir, output_dir, "txt")
 
-                    # Verify that expand_outdir_and_mkdir was called to create the directory
-                    mock_mkdir.assert_called_once_with(output_dir)
+            # Verify that expand_outdir_and_mkdir was called to create the directory
+            mock_mkdir.assert_called_once_with(output_dir)
 
-                    # Verify that all input files are returned (since output dir is empty)
-                    assert len(result) == 3
-                    assert all(f"file{i}.txt" in r for i, r in zip(range(3), result))
+            # Verify that all input files are returned (since output dir is empty)
+            assert len(result) == 3  # noqa: PLR2004
+            assert all(f"file{i}.txt" in r for i, r in zip(range(3), result, strict=False))
 
-    def test_get_batched_files(self, temp_dir):
+    def test_get_batched_files(self, temp_dir: Path) -> None:
         """Test get_batched_files function."""
         # Create input and output directories
         input_dir = os.path.join(temp_dir, "input")
@@ -394,26 +367,20 @@ class TestFileProcessingUtils:
         files = [f"file{i}.txt" for i in range(10)]
 
         # Mock get_remaining_files to return our test files
-        with patch(
-            "nemo_curator.utils.file_utils.get_remaining_files", return_value=files
-        ):
+        with patch("nemo_curator.utils.file_utils.get_remaining_files", return_value=files):
             # Test with batch_size=4
-            batches = list(
-                get_batched_files(input_dir, output_dir, "txt", batch_size=4)
-            )
-            assert len(batches) == 3
+            batches = list(get_batched_files(input_dir, output_dir, "txt", batch_size=4))
+            assert len(batches) == 3  # noqa: PLR2004
             assert batches[0] == files[0:4]
             assert batches[1] == files[4:8]
             assert batches[2] == files[8:10]
 
             # Test with batch_size larger than number of files
-            batches = list(
-                get_batched_files(input_dir, output_dir, "txt", batch_size=20)
-            )
+            batches = list(get_batched_files(input_dir, output_dir, "txt", batch_size=20))
             assert len(batches) == 1
             assert batches[0] == files
 
-    def test_merge_counts(self):
+    def test_merge_counts(self) -> None:
         """Test merge_counts function."""
         # Test with non-overlapping dictionaries
         first = {"a": 1, "b": 2}
@@ -442,7 +409,7 @@ class TestFileProcessingUtils:
 class TestDataFrameUtils:
     """Tests for DataFrame utility functions."""
 
-    def test_write_dataframe_by_meta(self, temp_dir):
+    def test_write_dataframe_by_meta(self, temp_dir: Path) -> None:
         """Test write_dataframe_by_meta function."""
         # Create a test DataFrame
         df = pd.DataFrame(
@@ -454,42 +421,34 @@ class TestDataFrameUtils:
         )
 
         # Mock single_partition_write_with_filename to avoid actual file writing
-        with patch(
-            "nemo_curator.utils.file_utils.single_partition_write_with_filename"
-        ) as mock_write:
+        with patch("nemo_curator.utils.file_utils.single_partition_write_with_filename") as mock_write:
             # Test basic functionality
             result = write_dataframe_by_meta(df, temp_dir, "category")
             assert result == {"A": 2, "B": 1, "C": 1}
-            assert mock_write.call_count == 3
+            assert mock_write.call_count == 3  # noqa: PLR2004
 
             # Test with include_values
             mock_write.reset_mock()
-            result = write_dataframe_by_meta(
-                df, temp_dir, "category", include_values=["A", "B"]
-            )
+            result = write_dataframe_by_meta(df, temp_dir, "category", include_values=["A", "B"])
             assert result == {"A": 2, "B": 1}
-            assert mock_write.call_count == 2
+            assert mock_write.call_count == 2  # noqa: PLR2004
 
             # Test with exclude_values
             mock_write.reset_mock()
-            result = write_dataframe_by_meta(
-                df, temp_dir, "category", exclude_values=["C"]
-            )
+            result = write_dataframe_by_meta(df, temp_dir, "category", exclude_values=["C"])
             assert result == {"A": 2, "B": 1}
-            assert mock_write.call_count == 2
+            assert mock_write.call_count == 2  # noqa: PLR2004
 
             # Test with remove_metadata=True
             mock_write.reset_mock()
-            result = write_dataframe_by_meta(
-                df, temp_dir, "category", remove_metadata=True
-            )
+            result = write_dataframe_by_meta(df, temp_dir, "category", remove_metadata=True)
             assert result == {"A": 2, "B": 1, "C": 1}
-            assert mock_write.call_count == 3
+            assert mock_write.call_count == 3  # noqa: PLR2004
             # Verify that the metadata column was dropped
             for call_args in mock_write.call_args_list:
                 assert "category" not in call_args[0][0].columns
 
-    def test_write_record(self, temp_dir):
+    def test_write_record(self, temp_dir: Path) -> None:
         """Test write_record function."""
         # Create test directories
         input_dir = os.path.join(temp_dir, "input")
@@ -501,71 +460,69 @@ class TestDataFrameUtils:
         file_name = os.path.join(input_dir, "file1.txt")
 
         # Mock os.makedirs and open to avoid actual file operations
-        with patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs:
-            with patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file:
-                result = write_record(
-                    input_dir, file_name, line, "category", output_dir
-                )
-                assert result == "A"
-                mock_makedirs.assert_called_once_with(
-                    os.path.join(output_dir, "A", ""), exist_ok=True
-                )
-                mock_file.assert_called_once_with(
-                    os.path.join(output_dir, "A", "file1.txt"), "a"
-                )
-                mock_file().write.assert_called_once_with(
-                    '{"text": "hello", "category": "A"}\n'
-                )
+        with (
+            patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs,
+            patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file,
+        ):
+            result = write_record(input_dir, file_name, line, "category", output_dir)
+            assert result == "A"
+            mock_makedirs.assert_called_once_with(os.path.join(output_dir, "A", ""), exist_ok=True)
+            mock_file.assert_called_once_with(os.path.join(output_dir, "A", "file1.txt"), "a")
+            mock_file().write.assert_called_once_with('{"text": "hello", "category": "A"}\n')
 
         # Test with include_values filter that matches
-        with patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs:
-            with patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file:
-                result = write_record(
-                    input_dir,
-                    file_name,
-                    line,
-                    "category",
-                    output_dir,
-                    include_values=["A"],
-                )
-                assert result == "A"
-                mock_makedirs.assert_called_once()
-                mock_file.assert_called_once()
+        with (
+            patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs,
+            patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file,
+        ):
+            result = write_record(
+                input_dir,
+                file_name,
+                line,
+                "category",
+                output_dir,
+                include_values=["A"],
+            )
+            assert result == "A"
+            mock_makedirs.assert_called_once()
+            mock_file.assert_called_once()
 
         # Test with include_values filter that doesn't match
-        with patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs:
-            with patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file:
-                result = write_record(
-                    input_dir,
-                    file_name,
-                    line,
-                    "category",
-                    output_dir,
-                    include_values=["B"],
-                )
-                assert result is None
-                mock_makedirs.assert_not_called()
-                mock_file.assert_not_called()
+        with (
+            patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs,
+            patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file,
+        ):
+            result = write_record(
+                input_dir,
+                file_name,
+                line,
+                "category",
+                output_dir,
+                include_values=["B"],
+            )
+            assert result is None
+            mock_makedirs.assert_not_called()
+            mock_file.assert_not_called()
 
         # Test with exclude_values filter that matches
-        with patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs:
-            with patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file:
-                result = write_record(
-                    input_dir,
-                    file_name,
-                    line,
-                    "category",
-                    output_dir,
-                    exclude_values=["A"],
-                )
-                assert result is None
-                mock_makedirs.assert_not_called()
-                mock_file.assert_not_called()
+        with (
+            patch("nemo_curator.utils.file_utils.os.makedirs") as mock_makedirs,
+            patch("nemo_curator.utils.file_utils.open", mock_open()) as mock_file,
+        ):
+            result = write_record(
+                input_dir,
+                file_name,
+                line,
+                "category",
+                output_dir,
+                exclude_values=["A"],
+            )
+            assert result is None
+            mock_makedirs.assert_not_called()
+            mock_file.assert_not_called()
 
         # Test with invalid JSON
-        result = write_record(
-            input_dir, file_name, "invalid json", "category", output_dir
-        )
+        result = write_record(input_dir, file_name, "invalid json", "category", output_dir)
         assert result is None
 
         # Test with missing field
@@ -573,7 +530,7 @@ class TestDataFrameUtils:
         result = write_record(input_dir, file_name, line, "category", output_dir)
         assert result is None
 
-    def test_separate_by_metadata(self, temp_dir):
+    def test_separate_by_metadata(self, temp_dir: Path) -> None:  # noqa: PLR0915
         """Test separate_by_metadata function."""
         # This is a complex function with many branches, so we'll test the high-level logic
         input_dir = os.path.join(temp_dir, "input")
@@ -595,9 +552,7 @@ class TestDataFrameUtils:
         mock_partition = MagicMock()
 
         # Setup mocks for to_delayed method
-        with patch.object(
-            df, "to_delayed", return_value=[mock_partition]
-        ) as mock_to_delayed:
+        with patch.object(df, "to_delayed", return_value=[mock_partition]) as mock_to_delayed:
             # Create a final result mock that will be returned from the function
             final_result_mock = MagicMock()
 
@@ -614,53 +569,47 @@ class TestDataFrameUtils:
             delayed_reduce_fn = MagicMock()
             delayed_reduce_fn.return_value = final_result_mock
 
-            with patch("nemo_curator.utils.file_utils.delayed") as mock_delayed:
-                with patch(
-                    "nemo_curator.utils.file_utils.write_dataframe_by_meta", mock_write
-                ):
-                    with patch(
-                        "nemo_curator.utils.file_utils.merge_counts", mock_merge_counts
-                    ):
-                        with patch("nemo_curator.utils.file_utils.reduce", mock_reduce):
-                            # Configure the mocks to return the expected values
-                            # Mock delayed to return a callable that we can check later
-                            mock_delayed.side_effect = lambda func: (
-                                delayed_write_fn
-                                if func is mock_write
-                                else (
-                                    delayed_reduce_fn
-                                    if func is mock_reduce
-                                    else MagicMock()
-                                )
-                            )
+            with (
+                patch("nemo_curator.utils.file_utils.delayed") as mock_delayed,
+                patch("nemo_curator.utils.file_utils.write_dataframe_by_meta", mock_write),
+                patch("nemo_curator.utils.file_utils.merge_counts", mock_merge_counts),
+                patch("nemo_curator.utils.file_utils.reduce", mock_reduce),
+            ):
+                # Configure the mocks to return the expected values
+                # Mock delayed to return a callable that we can check later
+                mock_delayed.side_effect = lambda func: (
+                    delayed_write_fn
+                    if func is mock_write
+                    else (delayed_reduce_fn if func is mock_reduce else MagicMock())
+                )
 
-                            # Call the function
-                            result = separate_by_metadata(df, temp_dir, "category")
+                # Call the function
+                result = separate_by_metadata(df, temp_dir, "category")
 
-                            # Verify to_delayed was called
-                            mock_to_delayed.assert_called_once()
+                # Verify to_delayed was called
+                mock_to_delayed.assert_called_once()
 
-                            # Verify delayed was called with write_dataframe_by_meta
-                            mock_delayed.assert_any_call(mock_write)
+                # Verify delayed was called with write_dataframe_by_meta
+                mock_delayed.assert_any_call(mock_write)
 
-                            # Verify the delayed function was called with the right arguments
-                            delayed_write_fn.assert_called_with(
-                                mock_partition,
-                                temp_dir,
-                                "category",
-                                False,
-                                "jsonl",
-                                None,
-                                None,
-                                "file_name",
-                            )
+                # Verify the delayed function was called with the right arguments
+                delayed_write_fn.assert_called_with(
+                    mock_partition,
+                    temp_dir,
+                    "category",
+                    False,
+                    "jsonl",
+                    None,
+                    None,
+                    "file_name",
+                )
 
-                            # Verify reduce was called correctly
-                            mock_delayed.assert_any_call(mock_reduce)
-                            delayed_reduce_fn.assert_called_once()
+                # Verify reduce was called correctly
+                mock_delayed.assert_any_call(mock_reduce)
+                delayed_reduce_fn.assert_called_once()
 
-                            # Verify the final result
-                            assert result == final_result_mock
+                # Verify the final result
+                assert result == final_result_mock
 
         # Case 2: Input is a directory with jsonl files when both input and output are jsonl
         test_file = os.path.join(input_dir, "test.jsonl")
@@ -681,40 +630,40 @@ class TestDataFrameUtils:
             final_result = {"A": 1, "B": 1}
 
             # Update how we patch delayed and reduce
-            with patch("nemo_curator.utils.file_utils.delayed") as mock_delayed:
-                with patch(
-                    "nemo_curator.utils.file_utils.reduce", autospec=True
-                ) as mock_reduce:
-                    # Create a properly callable delayed_reduce mock
-                    delayed_reduce_mock = MagicMock()
-                    delayed_reduce_mock.return_value = final_result
+            with (
+                patch("nemo_curator.utils.file_utils.delayed") as mock_delayed,
+                patch("nemo_curator.utils.file_utils.reduce", autospec=True) as mock_reduce,
+            ):
+                # Create a properly callable delayed_reduce mock
+                delayed_reduce_mock = MagicMock()
+                delayed_reduce_mock.return_value = final_result
 
-                    # Configure mock_delayed to return delayed_reduce_mock when called with mock_reduce
-                    def delayed_side_effect(func, *args, **kwargs):
-                        if func is mock_reduce:
-                            return delayed_reduce_mock
-                        return MagicMock()
+                # Configure mock_delayed to return delayed_reduce_mock when called with mock_reduce
+                def delayed_side_effect(func, *args, **kwargs):  # noqa: ANN001, ANN202, ARG001
+                    if func is mock_reduce:
+                        return delayed_reduce_mock
+                    return MagicMock()
 
-                    mock_delayed.side_effect = delayed_side_effect
+                mock_delayed.side_effect = delayed_side_effect
 
-                    # Call the function with a directory path
-                    result = separate_by_metadata(
-                        input_dir,
-                        temp_dir,
-                        "category",
-                        input_type="jsonl",
-                        output_type="jsonl",
-                    )
+                # Call the function with a directory path
+                result = separate_by_metadata(
+                    input_dir,
+                    temp_dir,
+                    "category",
+                    input_type="jsonl",
+                    output_type="jsonl",
+                )
 
-                    # Verify that delayed was called with reduce
-                    mock_delayed.assert_called_with(mock_reduce)
+                # Verify that delayed was called with reduce
+                mock_delayed.assert_called_with(mock_reduce)
 
-                    # Verify that delayed_reduce_mock was called with the expected arguments
-                    frequencies = {"A": 1, "B": 1}  # After None is removed
-                    delayed_reduce_mock.assert_called_once()
+                # Verify that delayed_reduce_mock was called with the expected arguments
+                _ = {"A": 1, "B": 1}  # After None is removed
+                delayed_reduce_mock.assert_called_once()
 
-                    # Verify the result
-                    assert result == final_result
+                # Verify the result
+                assert result == final_result
 
         # Test with both include_values and exclude_values provided
         with patch("builtins.print") as mock_print:
@@ -726,66 +675,60 @@ class TestDataFrameUtils:
                 exclude_values=["B"],
             )
             assert result is None
-            mock_print.assert_called_once_with(
-                "Error: 'include_values' and 'exclude_values' are mutually exclusive."
-            )
+            mock_print.assert_called_once_with("Error: 'include_values' and 'exclude_values' are mutually exclusive.")
 
         # Case 3: Input is a string but not JSON files
-        with patch("nemo_curator.utils.file_utils.read_data") as mock_read_data:
-            with patch(
-                "nemo_curator.utils.file_utils.get_all_files_paths_under"
-            ) as mock_get_files:
-                with patch("nemo_curator.utils.file_utils.delayed") as mock_delayed:
-                    with patch(
-                        "nemo_curator.utils.file_utils.expand_outdir_and_mkdir"
-                    ) as mock_expand:
-                        # Set up the mocks
-                        mock_get_files.return_value = ["file1.parquet", "file2.parquet"]
-                        mock_df = MagicMock()
-                        mock_df.to_delayed.return_value = [MagicMock()]
-                        mock_read_data.return_value = mock_df
-                        mock_reduce_result = MagicMock()
-                        mock_delayed.return_value = mock_reduce_result
+        with (
+            patch("nemo_curator.utils.file_utils.read_data") as mock_read_data,
+            patch("nemo_curator.utils.file_utils.get_all_files_paths_under") as mock_get_files,
+            patch("nemo_curator.utils.file_utils.delayed") as mock_delayed,
+            patch("nemo_curator.utils.file_utils.expand_outdir_and_mkdir"),
+        ):
+            # Set up the mocks
+            mock_get_files.return_value = ["file1.parquet", "file2.parquet"]
+            mock_df = MagicMock()
+            mock_df.to_delayed.return_value = [MagicMock()]
+            mock_read_data.return_value = mock_df
+            mock_reduce_result = MagicMock()
+            mock_delayed.return_value = mock_reduce_result
 
-                        # Call the function
-                        result = separate_by_metadata(
-                            input_dir, temp_dir, "category", input_type="parquet"
-                        )
+            # Call the function
+            result = separate_by_metadata(input_dir, temp_dir, "category", input_type="parquet")
 
-                        # Assertions
-                        assert mock_get_files.called
-                        assert mock_read_data.called
-                        assert mock_delayed.called
+            # Assertions
+            assert mock_get_files.called
+            assert mock_read_data.called
+            assert mock_delayed.called
 
 
 class TestByteConversions:
     """Tests for byte conversion utility functions."""
 
-    def test_parse_str_of_num_bytes(self):
+    def test_parse_str_of_num_bytes(self) -> None:
         """Test parse_str_of_num_bytes function."""
         # Test valid inputs
-        assert parse_str_of_num_bytes("1k") == 1024
-        assert parse_str_of_num_bytes("2K") == 2048
-        assert parse_str_of_num_bytes("1m") == 1048576
-        assert parse_str_of_num_bytes("1M") == 1048576
-        assert parse_str_of_num_bytes("1g") == 1073741824
-        assert parse_str_of_num_bytes("1G") == 1073741824
+        assert parse_str_of_num_bytes("1k") == 1024  # noqa: PLR2004
+        assert parse_str_of_num_bytes("2K") == 2048  # noqa: PLR2004
+        assert parse_str_of_num_bytes("1m") == 1048576  # noqa: PLR2004
+        assert parse_str_of_num_bytes("1M") == 1048576  # noqa: PLR2004
+        assert parse_str_of_num_bytes("1g") == 1073741824  # noqa: PLR2004
+        assert parse_str_of_num_bytes("1G") == 1073741824  # noqa: PLR2004
 
         # Test with return_str=True
         assert parse_str_of_num_bytes("1k", return_str=True) == "1k"
 
         # Test invalid input
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011
             parse_str_of_num_bytes("invalid")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError):  # noqa: PT011
             parse_str_of_num_bytes("1x")
 
 
 class TestJSONLProcessing:
     """Tests for JSONL processing utility functions."""
 
-    def test_save_jsonl(self, temp_dir):
+    def test_save_jsonl(self, temp_dir: Path) -> None:
         """Test _save_jsonl function."""
         # Create a mock dask bag
         mock_bag = MagicMock()
@@ -798,33 +741,31 @@ class TestJSONLProcessing:
         ]
 
         # Mock os.path.getsize to simulate an empty file
-        def mock_getsize(path):
+        def mock_getsize(path: str) -> int:
             if "empty" in path:
                 return 0
             return 100
 
         # Test the function
-        with patch(
-            "nemo_curator.utils.file_utils.os.path.getsize", side_effect=mock_getsize
+        with (
+            patch("nemo_curator.utils.file_utils.os.path.getsize", side_effect=mock_getsize),
+            patch("nemo_curator.utils.file_utils.os.remove") as mock_remove,
         ):
-            with patch("nemo_curator.utils.file_utils.os.remove") as mock_remove:
-                _save_jsonl(mock_bag, temp_dir, start_index=5, prefix="test_")
+            _save_jsonl(mock_bag, temp_dir, start_index=5, prefix="test_")
 
-                # Verify that map was called to encode the text
-                mock_bag.map.assert_called_once()
+            # Verify that map was called to encode the text
+            mock_bag.map.assert_called_once()
 
-                # Verify that to_textfiles was called with the correct parameters
-                mock_encoded_bag.to_textfiles.assert_called_once()
-                args, kwargs = mock_encoded_bag.to_textfiles.call_args
-                assert args[0] == os.path.join(temp_dir, "*.jsonl")
-                assert "name_function" in kwargs
+            # Verify that to_textfiles was called with the correct parameters
+            mock_encoded_bag.to_textfiles.assert_called_once()
+            args, kwargs = mock_encoded_bag.to_textfiles.call_args
+            assert args[0] == os.path.join(temp_dir, "*.jsonl")
+            assert "name_function" in kwargs
 
-                # Verify that empty files were removed
-                mock_remove.assert_called_once_with(
-                    os.path.join(temp_dir, "empty.jsonl")
-                )
+            # Verify that empty files were removed
+            mock_remove.assert_called_once_with(os.path.join(temp_dir, "empty.jsonl"))
 
-    def test_save_jsonl_with_exception(self, temp_dir):
+    def test_save_jsonl_with_exception(self, temp_dir: Path) -> None:
         """Test _save_jsonl function when an exception occurs during file removal."""
         # Create a mock dask bag
         mock_bag = MagicMock()
@@ -837,15 +778,16 @@ class TestJSONLProcessing:
         ]
 
         # Mock os.path.getsize to simulate an empty file
-        def mock_getsize(path):
+        def mock_getsize(path: str) -> int:
             if "empty" in path:
                 return 0
             return 100
 
         # Mock os.remove to raise an exception
-        def mock_remove_with_exception(path):
+        def mock_remove_with_exception(path: str) -> None:
             if "empty" in path:
-                raise PermissionError("Permission denied")
+                msg = "Permission denied"
+                raise PermissionError(msg)
 
         # Mock print to capture the exception message
         with (
@@ -872,51 +814,39 @@ class TestJSONLProcessing:
             assert "An exception occurred" in call_args
             assert "Permission denied" in call_args
 
-    def test_reshard_jsonl(self, temp_dir):
+    def test_reshard_jsonl(self, temp_dir: Path) -> None:
         """Test reshard_jsonl function."""
         # Mock the required functions
-        with patch(
-            "nemo_curator.utils.file_utils.get_all_files_paths_under"
-        ) as mock_get_files:
-            with patch("nemo_curator.utils.file_utils.db.read_text") as mock_read_text:
-                with patch(
-                    "nemo_curator.utils.file_utils.expand_outdir_and_mkdir"
-                ) as mock_expand:
-                    with patch(
-                        "nemo_curator.utils.file_utils._save_jsonl"
-                    ) as mock_save:
-                        with patch(
-                            "nemo_curator.utils.file_utils.parse_str_of_num_bytes"
-                        ) as mock_parse:
-                            # Set up the mocks
-                            mock_get_files.return_value = ["file1.jsonl", "file2.jsonl"]
-                            mock_read_text.return_value = "mock_bag"
-                            mock_parse.return_value = 104857600  # 100MB
-                            # Configure mock_expand to return its input, like the real function does
-                            mock_expand.side_effect = lambda x: x
+        with (
+            patch("nemo_curator.utils.file_utils.get_all_files_paths_under") as mock_get_files,
+            patch("nemo_curator.utils.file_utils.db.read_text") as mock_read_text,
+            patch("nemo_curator.utils.file_utils.expand_outdir_and_mkdir") as mock_expand,
+            patch("nemo_curator.utils.file_utils._save_jsonl") as mock_save,
+            patch("nemo_curator.utils.file_utils.parse_str_of_num_bytes") as mock_parse,
+        ):
+            # Set up the mocks
+            mock_get_files.return_value = ["file1.jsonl", "file2.jsonl"]
+            mock_read_text.return_value = "mock_bag"
+            mock_parse.return_value = 104857600  # 100MB
+            # Configure mock_expand to return its input, like the real function does
+            mock_expand.side_effect = lambda x: x
 
-                            # Call the function
-                            reshard_jsonl(
-                                temp_dir,
-                                os.path.join(temp_dir, "output"),
-                                "100M",
-                                5,
-                                "test_",
-                            )
+            # Call the function
+            reshard_jsonl(
+                temp_dir,
+                os.path.join(temp_dir, "output"),
+                "100M",
+                5,
+                "test_",
+            )
 
-                            # Assertions
-                            mock_get_files.assert_called_once_with(
-                                temp_dir, keep_extensions="jsonl"
-                            )
-                            mock_read_text.assert_called_once_with(
-                                ["file1.jsonl", "file2.jsonl"], blocksize=104857600
-                            )
-                            mock_expand.assert_called_once_with(
-                                os.path.join(temp_dir, "output")
-                            )
-                            mock_save.assert_called_once_with(
-                                "mock_bag",
-                                os.path.join(temp_dir, "output"),
-                                start_index=5,
-                                prefix="test_",
-                            )
+            # Assertions
+            mock_get_files.assert_called_once_with(temp_dir, keep_extensions="jsonl")
+            mock_read_text.assert_called_once_with(["file1.jsonl", "file2.jsonl"], blocksize=104857600)
+            mock_expand.assert_called_once_with(os.path.join(temp_dir, "output"))
+            mock_save.assert_called_once_with(
+                "mock_bag",
+                os.path.join(temp_dir, "output"),
+                start_index=5,
+                prefix="test_",
+            )

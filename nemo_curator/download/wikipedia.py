@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,11 +14,13 @@
 
 import bz2
 import codecs
+import contextlib
 import os
 import re
 import subprocess
-import xml.etree.cElementTree as etree
-from typing import Literal, Optional
+import xml.etree.ElementTree as ET
+from collections.abc import Iterator
+from typing import Literal
 from urllib.parse import quote, urlparse
 
 import mwparserfromhell
@@ -76,7 +78,7 @@ MEDIA_ALIASES = {
     "ca": ["Fitxer", "Imatge"],
     "cbk-zam": ["Medio", "Archivo", "Imagen"],
     "cdo": ["文件", "媒體", "圖像", "檔案"],
-    "ce": ["Хlум", "Медиа", "Сурт", "Файл", "Медйа", "Изображение"],
+    "ce": ["Хlум", "Медиа", "Сурт", "Файл", "Медйа", "Изображение"],  # noqa: RUF001
     "ceb": ["Payl", "Medya", "Imahen"],
     "ch": ["Litratu"],
     "ckb": ["میدیا", "پەڕگە"],
@@ -124,7 +126,7 @@ MEDIA_ALIASES = {
     "gu": ["દ્રશ્ય-શ્રાવ્ય (મિડિયા)", "દ્રશ્ય-શ્રાવ્ય_(મિડિયા)", "ચિત્ર"],
     "gv": ["Coadan", "Meanyn"],
     "hak": ["文件", "媒體", "圖像", "檔案"],
-    "haw": ["Kiʻi", "Waihona", "Pāpaho"],
+    "haw": ["Kiʻi", "Waihona", "Pāpaho"],  # noqa: RUF001
     "he": ["תמונה", "קו", "מדיה", "קובץ"],
     "hi": ["मीडिया", "चित्र"],
     "hif": ["file", "saadhan"],
@@ -187,7 +189,7 @@ MEDIA_ALIASES = {
     "min": ["Gambar", "Berkas"],
     "mk": ["Податотека", "Медија", "Медиум", "Слика"],
     "ml": ["പ്രമാണം", "ചി", "മീഡിയ", "പ്ര", "ചിത്രം"],
-    "mn": ["Медиа", "Файл", "Зураг"],
+    "mn": ["Медиа", "Файл", "Зураг"],  # noqa: RUF001
     "mr": ["चित्र", "मिडिया"],
     "mrj": ["Медиа", "Файл", "Изображение"],
     "ms": ["Fail", "Imej"],
@@ -208,7 +210,7 @@ MEDIA_ALIASES = {
     "nov": [],
     "nrm": ["Média", "Fichier"],
     "nso": ["Seswantšho"],
-    "nv": ["Eʼelyaaígíí"],
+    "nv": ["Eʼelyaaígíí"],  # noqa: RUF001
     "oc": ["Imatge", "Fichièr", "Mèdia"],
     "olo": ["Kuva", "Medii", "Failu"],
     "or": ["ମାଧ୍ୟମ", "ଫାଇଲ"],
@@ -290,7 +292,7 @@ MEDIA_ALIASES = {
     "war": ["Medya", "Fayl", "Paypay"],
     "wo": ["Xibaarukaay", "Dencukaay"],
     "wuu": ["文件", "档案", "图像", "媒体"],
-    "xal": ["Аһар", "Боомг", "Изображение", "Зург"],
+    "xal": ["Аһар", "Боомг", "Изображение", "Зург"],  # noqa: RUF001
     "xmf": ["მედია", "სურათი", "ფაილი"],
     "yi": ["מעדיע", "תמונה", "טעקע", "בילד"],
     "yo": ["Fáìlì", "Amóhùnmáwòrán", "Àwòrán"],
@@ -352,7 +354,7 @@ CAT_ALIASES = {
     "ca": ["Categoria"],
     "cbk-zam": ["Categoría"],
     "cdo": ["分類"],
-    "ce": ["Категори", "Тоба", "Кадегар"],
+    "ce": ["Категори", "Тоба", "Кадегар"],  # noqa: RUF001
     "ceb": ["Kategoriya"],
     "ch": ["Katigoria"],
     "ckb": ["پ", "پۆل"],
@@ -492,7 +494,7 @@ CAT_ALIASES = {
     "no": ["Kategori"],
     "nrm": ["Catégorie"],
     "nso": ["Setensele"],
-    "nv": ["Tʼááłáhági_átʼéego", "Tʼááłáhági átʼéego"],
+    "nv": ["Tʼááłáhági_átʼéego", "Tʼááłáhági átʼéego"],  # noqa: RUF001
     "oc": ["Categoria"],
     "olo": ["Kategourii"],
     "or": ["ବିଭାଗ", "ଶ୍ରେଣୀ"],
@@ -514,7 +516,7 @@ CAT_ALIASES = {
     "ro": ["Categorie"],
     "roa-rup": ["Categorie"],
     "roa-tara": ["Categoria"],
-    "ru": ["Категория", "К"],
+    "ru": ["Категория", "К"],  # noqa: RUF001
     "rue": ["Категория", "Катеґорія"],
     "rw": ["Ikiciro"],
     "sa": ["वर्गः"],
@@ -579,14 +581,13 @@ CAT_ALIASES = {
 
 
 class WikipediaDownloader(DocumentDownloader):
-
-    def __init__(self, download_dir, verbose=False):
+    def __init__(self, download_dir: str, verbose: bool = False):
         super().__init__()
         self._download_dir = download_dir
         self._verbose = verbose
         self._lock = Lock(name="wikipedia_downloader")
 
-    def download(self, url):
+    def download(self, url: str) -> str:
         urlpath = urlparse(url).path[1:]
         output_name = urlpath.replace("/", "-")
         output_file = os.path.join(self._download_dir, output_name)
@@ -601,7 +602,7 @@ class WikipediaDownloader(DocumentDownloader):
             else:
                 stdout, stderr = subprocess.DEVNULL, subprocess.DEVNULL
             with self._lock:
-                p = subprocess.run(
+                p = subprocess.run(  # noqa: S603, PLW1510
                     cmd,
                     stdout=stdout,
                     stderr=stderr,
@@ -613,21 +614,20 @@ class WikipediaDownloader(DocumentDownloader):
 
 
 class WikipediaIterator(DocumentIterator):
-
-    def __init__(self, language="en", log_frequency=1000):
+    def __init__(self, language: str = "en", log_frequency: int = 1000):
         super().__init__()
         self._language = language
         self._log_frequency = log_frequency
         self._counter = 0
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[tuple[dict[str, str], str]]:
         self._counter = 0
         bname = os.path.split(file_path)[-1]
         input_file = bz2.BZ2File(filename=file_path)
         utf_f = codecs.getreader("utf-8")(input_file)
-        context = etree.iterparse(utf_f, events=("end",))
+        context = ET.iterparse(utf_f, events=("end",))  # noqa: S314
 
-        for i, (unused_event, elem) in enumerate(context):
+        for _i, (_unused_event, elem) in enumerate(context):
             if not elem.tag.endswith("page"):
                 continue
             if self._counter > 0 and self._counter % self._log_frequency == 0:
@@ -654,70 +654,62 @@ class WikipediaIterator(DocumentIterator):
             if raw_content is None or red_ is not None:
                 continue
 
-            yield {
-                "title": title,
-                "id": id_,
-                "url": url,
-                "language": self._language,
-                "source_id": f"{bname}",
-            }, raw_content
+            yield (
+                {
+                    "title": title,
+                    "id": id_,
+                    "url": url,
+                    "language": self._language,
+                    "source_id": f"{bname}",
+                },
+                raw_content,
+            )
 
 
 class WikipediaExtractor(DocumentExtractor):
-
-    def __init__(self, language="en", parser=mwparserfromhell):
+    def __init__(self, language: str = "en", parser=mwparserfromhell):  # noqa: ANN001
         super().__init__()
         self._language = language
         self._parser = parser
 
-    def extract(self, content):
+    def extract(self, content) -> dict[str, str]:  # noqa: ANN001, C901
         wikicode = self._parser.parse(content)
 
         # Filters for magic words that are parser instructions -- e.g., __NOTOC__
         re_rm_magic = re.compile("__[A-Z]*__", flags=re.UNICODE)
 
         # Filters for file/image links.
-        media_prefixes = "|".join(
-            ["File", "Image", "Media"] + MEDIA_ALIASES.get(self._language, [])
-        )
-        re_rm_wikilink = re.compile(
-            f"^(?:{media_prefixes}):", flags=re.IGNORECASE | re.UNICODE
-        )
+        media_prefixes = "|".join([*["File", "Image", "Media"], *MEDIA_ALIASES.get(self._language, [])])
+        re_rm_wikilink = re.compile(f"^(?:{media_prefixes}):", flags=re.IGNORECASE | re.UNICODE)
 
-        def rm_wikilink(obj):
+        def rm_wikilink(obj) -> bool:  # noqa: ANN001
             return bool(re_rm_wikilink.match(str(obj.title)))
 
         # Filters for references and tables
-        def rm_tag(obj):
+        def rm_tag(obj) -> bool:  # noqa: ANN001
             return str(obj.tag) in {"ref", "table"}
 
         # Leave category links in-place but remove the category prefixes
-        cat_prefixes = "|".join(["Category"] + CAT_ALIASES.get(self._language, []))
-        re_clean_wikilink = re.compile(
-            f"^(?:{cat_prefixes}):", flags=re.IGNORECASE | re.UNICODE
-        )
+        cat_prefixes = "|".join(["Category", *CAT_ALIASES.get(self._language, [])])
+        re_clean_wikilink = re.compile(f"^(?:{cat_prefixes}):", flags=re.IGNORECASE | re.UNICODE)
 
-        def is_category(obj):
+        def is_category(obj) -> bool:  # noqa: ANN001
             return bool(re_clean_wikilink.match(str(obj.title)))
 
-        def clean_wikilink(obj):
+        def clean_wikilink(obj) -> None:  # noqa: ANN001
             text = obj.__strip__()
             text = re.sub(re_clean_wikilink, "", text)
             obj.text = text
 
-        def try_replace_obj(obj):
-            try:
+        def try_replace_obj(obj) -> None:  # noqa: ANN001
+            # For unknown reasons, objects are sometimes not found.
+            with contextlib.suppress(ValueError):
                 clean_wikilink(obj)
-            except ValueError:
-                # For unknown reasons, objects are sometimes not found.
-                pass
 
-        def try_remove_obj(obj, section):
-            try:
+        def try_remove_obj(obj, section) -> None:  # noqa: ANN001
+            # For unknown reasons, objects are sometimes not found.
+            with contextlib.suppress(ValueError):
                 section.remove(obj)
-            except ValueError:
-                # For unknown reasons, objects are sometimes not found.
-                pass
 
         section_text = []
         # Filter individual sections to clean.
@@ -732,8 +724,8 @@ class WikipediaExtractor(DocumentExtractor):
                     try_remove_obj(obj, section)
                 elif is_category(obj):
                     try_replace_obj(obj)
-                for obj in section.ifilter_tags(matches=rm_tag, recursive=True):
-                    try_remove_obj(obj, section)
+                for obj_tag in section.ifilter_tags(matches=rm_tag, recursive=True):
+                    try_remove_obj(obj_tag, section)
 
             section_text.append(
                 re.sub(
@@ -746,16 +738,16 @@ class WikipediaExtractor(DocumentExtractor):
         return {"text": "\n\n".join(section_text)}
 
 
-def download_wikipedia(
+def download_wikipedia(  # noqa: PLR0913
     output_path: str,
     language: str = "en",
-    dump_date: Optional[str] = None,
+    dump_date: str | None = None,
     output_type: Literal["jsonl", "parquet"] = "jsonl",
-    raw_download_dir: Optional[str] = None,
+    raw_download_dir: str | None = None,
     keep_raw_download: bool = False,
     force_download: bool = False,
-    url_limit: Optional[int] = None,
-    record_limit: Optional[int] = None,
+    url_limit: int | None = None,
+    record_limit: int | None = None,
 ) -> DocumentDataset:
     """
     Downloads and extracts articles from a Wikipedia dump.
@@ -790,14 +782,7 @@ def download_wikipedia(
     wikipedia_urls = get_wikipedia_urls(language=language, dump_date=dump_date)
     if url_limit:
         wikipedia_urls = wikipedia_urls[:url_limit]
-    output_paths = list(
-        map(
-            lambda url: os.path.join(
-                output_path, url.split("/")[-1] + f".{output_type}"
-            ),
-            wikipedia_urls,
-        )
-    )
+    output_paths = [os.path.join(output_path, url.split("/")[-1] + f".{output_type}") for url in wikipedia_urls]
 
     if not raw_download_dir:
         raw_download_dir = os.path.join(output_path, "downloads")
@@ -816,7 +801,8 @@ def download_wikipedia(
         "source_id": str,
         "file_name": str,
     }
-    dataset = download_and_extract(
+
+    return download_and_extract(
         wikipedia_urls,
         output_paths,
         downloader,
@@ -829,5 +815,3 @@ def download_wikipedia(
         filename_col="file_name",
         record_limit=record_limit,
     )
-
-    return dataset

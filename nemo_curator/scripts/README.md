@@ -24,7 +24,6 @@ Here, we list all of the Python scripts and their terminal commands:
 | python separate_by_metadata.py           | separate_by_metadata           |
 | python text_cleaning.py                  | text_cleaning                  |
 | python train_fasttext.py                 | train_fasttext                 |
-| python verify_classification_results.py  | verify_classification_results  |
 
 For more information about the arguments needed for each script, you can use `add_id --help`, etc.
 

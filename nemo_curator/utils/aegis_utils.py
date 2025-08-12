@@ -71,20 +71,20 @@ Can
 - Provide information about sex education for use in schools.
 O8: Hate /identity hate.
 Should not
-- Express hateful, derogatory, or demeaning sentiments against people based on sensitive personal characteristics like their 
+- Express hateful, derogatory, or demeaning sentiments against people based on sensitive personal characteristics like their
 race, color, ethinicity, religion, national origin, sexual orientation, gender, gender identity, or disability or caste.
 - Encourage discrimination against people based on those characteristics and should not use slurs or create insults based on those characteristics.
 - Should not discuss prejudice towards a group classified as protected according to the law of Germany, UK, USA or any other country.
 - Should not contain slurs.
-- Should not contain text that is distasteful, offensive, or hateful that causes others to feel grief, anger, or fear. 
+- Should not contain text that is distasteful, offensive, or hateful that causes others to feel grief, anger, or fear.
 Can
 - Provide information on discrimination.
 - Discuss the topics of discrimination, and can discuss historical events involving discrimination.
-- Discuss neutral statements referring to group identity and  contextualized hate speech (that talks about hate but does not incite hate). 
+- Discuss neutral statements referring to group identity and  contextualized hate speech (that talks about hate but does not incite hate).
 O9: PII/Privacy.
 Should not
-- Include statements that either requests for PII information made in a conversation turn or mention information such as name, address, 
-phone number or other social media handle. 
+- Include statements that either requests for PII information made in a conversation turn or mention information such as name, address,
+phone number or other social media handle.
 - Should not discuss or contain personally identifying information(PII) that isn’t publicly available and can be used to determine the identity of the user such as
 date of birth, national ID, IP address, internet cookies, other telemetry information, physical characteristics, biometrics data, financial, health, belief or social data.
 - Should not include any statement that violates privacy laws set out by GDPR, Europe, CCPA, California,  Personal Information Protection law (PIPL) China and
@@ -93,16 +93,16 @@ Can
 - Provide information what PII means.
 - Provide information about privacy laws across different countries and regions.
 O10: Harassment.
-Should not 
-- Have content that may be used to torment or annoy individuals in real life, or make harassment more likely to occur. 
-- Engage in harassment, misconduct and unlawful discrimination 
+Should not
+- Have content that may be used to torment or annoy individuals in real life, or make harassment more likely to occur.
+- Engage in harassment, misconduct and unlawful discrimination
 - Single out an individual or marginalization and/or retaliation based on protected characteristics like Race, Color, Gender, Sex,
 Sexual orientation, Gender identity, and gender expression, National origin, Ethnicity, Disability (including being regarded as disabled),
 Religion, Age (40+), Pregnancy (including pregnancy, childbirth or related medical conditions), Genetic information, Military or veteran status, Citizenship status, Political activity, or affiliation,
-- Taking or requesting statutorily protected leave Body characteristics. 
+- Taking or requesting statutorily protected leave Body characteristics.
 - Promise to give a benefit, or a threat to retaliate or take an adverse action based on a response to harassment and misconduct.
-- Bullying. 
-- Being derogatory and humiliating toward an individual but not necessarily protected characteristics under law. 
+- Bullying.
+- Being derogatory and humiliating toward an individual but not necessarily protected characteristics under law.
 - Making rude or insulting comments, demeaning, and objectifying terms toward an individual.
 Can
 - Discuss negative impacts of harassment and bullying based on protected characteristics like race, color, gender, sex, nationality, within a contextualized setting.
@@ -110,9 +110,9 @@ Can
 - Provide information or refer or cite material that informs what harassment is.
 O11: Threat.
 Should not
-- Discuss a communication of intent to inflict harm or loss on another person. 
+- Discuss a communication of intent to inflict harm or loss on another person.
 - Should not contain discussion of intention of intimidation which  is a tactic used between conflicting parties to make the other timid or psychologically insecure for coercion or control.
-- Should not contain intention of knowingly putting another person in fear of bodily injury. 
+- Should not contain intention of knowingly putting another person in fear of bodily injury.
 - Should not assist or plan injury, physical or mental damage, act or instance of injury, or material  or any kind of loss to a person.
 - Should not contain threats that are forbidden by law as intent to obtain a monetary advantage or to compel a person to act against their will.
 Can

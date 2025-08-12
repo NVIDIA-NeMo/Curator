@@ -15,44 +15,34 @@
 import argparse
 import importlib
 import os
-import pdb
-import shutil
 import time
-from typing import Any, List
 
-import numpy as np
-from dask.diagnostics import ProgressBar
-from dask.distributed import progress
 from retriever_evalset_generator import RetrieverEvalSetGenerator
 
-from config.config import RetrieverEvalSDGConfig
-from nemo_curator import AsyncOpenAIClient, ScoreFilter, Sequential, get_client
+from nemo_curator import Sequential, get_client
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.filters import (
     AnswerabilityFilter,
     EasinessFilter,
-    NonAlphaNumericFilter,
 )
-from nemo_curator.modules.filter import Score, ScoreFilter
+from nemo_curator.modules.filter import ScoreFilter
 from nemo_curator.utils.file_utils import get_all_files_paths_under
 
+config = importlib.import_module(
+    "tutorials.nemo-retriever-synthetic-data-generation.config.config",
+)
+RetrieverEvalSDGConfig = config.RetrieverEvalSDGConfig
 
-def get_pipeline(args: Any) -> Any:
 
+def get_pipeline(args: argparse.Namespace) -> tuple[Sequential, Sequential]:
     cfg = RetrieverEvalSDGConfig.from_yaml(args.pipeline_config)
     # update api_key from input args
     cfg.api_key = args.api_key
 
-    if args.pipeline_type == "generate":
-        sdg_pipeline = Sequential(
-            [
-                RetrieverEvalSetGenerator(cfg),
-            ]
-        )
-    else:
-        sdg_pipeline = None
+    sdg_pipeline = Sequential([RetrieverEvalSetGenerator(cfg)]) if args.pipeline_type == "generate" else None
 
     filters = []
+
     if args.pipeline_type == "filter":
         if cfg.easiness_filter:
             filters.append(
@@ -67,7 +57,7 @@ def get_pipeline(args: Any) -> Any:
                     ),
                     text_field=["text", "question"],
                     score_field="easiness_scores",
-                )
+                ),
             )
         if cfg.answerability_filter:
             filters.append(
@@ -82,18 +72,14 @@ def get_pipeline(args: Any) -> Any:
                     ),
                     text_field=["text", "question"],
                     score_field="answerability_scores",
-                )
+                ),
             )
-    if filters:
-        filtering_pipeline = Sequential(filters)
-    else:
-        filtering_pipeline = None
+    filtering_pipeline = Sequential(filters) if filters else None
 
     return sdg_pipeline, filtering_pipeline
 
 
-def write_to_beir(args: Any, dataset: DocumentDataset, input_dataset: DocumentDataset):
-
+def write_to_beir(args: argparse.Namespace, dataset: DocumentDataset, input_dataset: DocumentDataset) -> None:
     df = dataset.df
     df = df.compute()
 
@@ -106,11 +92,11 @@ def write_to_beir(args: Any, dataset: DocumentDataset, input_dataset: DocumentDa
     corpus_save_path = os.path.join(args.output_dir, "beir", "corpus.jsonl")
     queries_save_path = os.path.join(args.output_dir, "beir", "queries.jsonl")
     df[["question-id", "question"]].rename(
-        columns={"question-id": "_id", "question": "text"}
+        columns={"question-id": "_id", "question": "text"},
     ).to_json(queries_save_path, lines=True, orient="records")
 
     df[["question-id", "_id", "score"]].rename(
-        columns={"question-id": "query-id", "_id": "corpus-id"}
+        columns={"question-id": "query-id", "_id": "corpus-id"},
     ).to_csv(os.path.join(qrels_save_dir, "test.tsv"), sep="\t", index=False)
 
     if args.pipeline_type == "filter":
@@ -118,7 +104,9 @@ def write_to_beir(args: Any, dataset: DocumentDataset, input_dataset: DocumentDa
         input_df = input_df.groupby("_id").agg({"text": set}).reset_index()
         input_df["text"] = input_df["text"].map(lambda x: x.pop())
         input_df[["_id", "text"]].to_json(
-            corpus_save_path, lines=True, orient="records"
+            corpus_save_path,
+            lines=True,
+            orient="records",
         )
     elif args.pipeline_type == "generate":
         df = df.groupby("_id").agg({"text": set}).reset_index()
@@ -126,7 +114,7 @@ def write_to_beir(args: Any, dataset: DocumentDataset, input_dataset: DocumentDa
         df[["_id", "text"]].to_json(corpus_save_path, lines=True, orient="records")
 
 
-def main():
+def main() -> None:  # noqa: C901, PLR0912, PLR0915
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--input-dir",
@@ -190,25 +178,30 @@ def main():
     elif not any(os.scandir(args.output_dir)):
         print("Provided directory exists but is empty, using the empty directory")
     else:
-        raise ValueError("Output directory exists already, use a new directory!")
+        msg = "Output directory exists already, use a new directory!"
+        raise ValueError(msg)
 
     if args.input_format == "jsonl":
         if args.pipeline_type == "filter":
             input_files = get_all_files_paths_under(
-                args.input_dir, keep_extensions="part"
+                args.input_dir,
+                keep_extensions="part",
             )
         elif args.pipeline_type == "generate":
             input_files = get_all_files_paths_under(
-                args.input_dir, keep_extensions="jsonl"
+                args.input_dir,
+                keep_extensions="jsonl",
             )
         else:
+            msg = "Error only two pipelines supported: 'generate' & 'filter'"
             raise ValueError(
-                "Error only two pipelines supported: 'generate' & 'filter'"
+                msg,
             )
 
         input_dataset = DocumentDataset.read_json(input_files)
     else:
-        raise ValueError("Error: Only jsonl format supported")
+        msg = "Error: Only jsonl format supported"
+        raise ValueError(msg)
 
     if args.n_partitions:
         ddf = input_dataset.df
@@ -238,7 +231,7 @@ def main():
             print("Write all data in beir format")
             write_to_beir(args, generated_dataset, input_dataset)
 
-        print("Time taken to generate data = {:.2f} s".format(time.time() - st_time))
+        print(f"Time taken to generate data = {time.time() - st_time:.2f} s")
 
     if filtering_pipeline:
         print("Filtering data ...")
@@ -257,7 +250,7 @@ def main():
             # saving in beir format
             write_to_beir(args, filtered_dataset, input_dataset)
 
-        print("Time taken to filter data = {:.2f} s".format(time.time() - st_time))
+        print(f"Time taken to filter data = {time.time() - st_time:.2f} s")
 
     print("RUN complete!")
     print("------------------------")

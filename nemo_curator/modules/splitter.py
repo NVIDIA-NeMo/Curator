@@ -49,9 +49,7 @@ class DocumentSplitter(BaseModule):
         self.text_field = text_field
         self.segment_id_field = segment_id_field
 
-    def _split_partition(
-        self, df: Union[pd.DataFrame, "cudf.DataFrame"]
-    ) -> Union[pd.DataFrame, "cudf.DataFrame"]:
+    def _split_partition(self, df: Union[pd.DataFrame, "cudf.DataFrame"]) -> Union[pd.DataFrame, "cudf.DataFrame"]:
         # Split the text field into segments using the separator.
         df["split_text"] = df[self.text_field].str.split(self.separator)
         # Explode the list so that each segment becomes a separate row.
@@ -61,8 +59,7 @@ class DocumentSplitter(BaseModule):
         # Replace the original text field with the split segment.
         df[self.text_field] = df["split_text"]
         # Drop the temporary column.
-        df = df.drop(columns="split_text")
-        return df
+        return df.drop(columns="split_text")
 
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
         """
@@ -71,7 +68,7 @@ class DocumentSplitter(BaseModule):
         """
 
         # Construct meta information for the transformed dataframe.
-        meta = dataset.df._meta.copy()
+        meta = dataset.df._meta.copy()  # noqa: SLF001
         if self.segment_id_field not in meta.columns:
             meta[self.segment_id_field] = pd.Series(dtype="int64")
 

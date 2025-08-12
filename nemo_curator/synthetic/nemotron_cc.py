@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import random
-from typing import Any, List, Optional
 
 from transformers import AutoTokenizer
 
@@ -46,7 +45,7 @@ class NemotronCCGenerator:
         """
         self.client = llm_client
 
-    def _prompt(
+    def _prompt(  # noqa: PLR0913
         self,
         model: str,
         document: str,
@@ -54,7 +53,7 @@ class NemotronCCGenerator:
         system_prompt: str,
         prompt_kwargs: dict,
         model_kwargs: dict,
-    ) -> List[str]:
+    ) -> list[str]:
         prompt = prompt_template.format(document=document, **prompt_kwargs)
         messages = [
             {"role": "system", "content": system_prompt},
@@ -63,15 +62,15 @@ class NemotronCCGenerator:
 
         return self.client.query_model(messages=messages, model=model, **model_kwargs)
 
-    def rewrite_to_wikipedia_style(
+    def rewrite_to_wikipedia_style(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Rewrites a document into a Wikipedia-style narrative.
 
@@ -86,19 +85,21 @@ class NemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+        return self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
 
-    def generate_diverse_qa(
+    def generate_diverse_qa(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = DIVERSE_QA_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Generates diverse QA pairs from the provided document.
 
@@ -113,19 +114,21 @@ class NemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+        return self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
 
-    def distill(
+    def distill(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = DISTILL_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Distills the essential content from a document.
 
@@ -140,19 +143,21 @@ class NemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+        return self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
 
-    def extract_knowledge(
+    def extract_knowledge(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Extracts knowledge from the provided document.
 
@@ -167,19 +172,21 @@ class NemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+        return self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
 
-    def generate_knowledge_list(
+    def generate_knowledge_list(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Generates a list of knowledge items from the provided document.
 
@@ -194,9 +201,11 @@ class NemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+        return self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
 
 
 class NemotronCCDiverseQAPostprocessor(BaseModule):
@@ -211,7 +220,7 @@ class NemotronCCDiverseQAPostprocessor(BaseModule):
 
     def __init__(
         self,
-        tokenizer: Optional[AutoTokenizer] = None,
+        tokenizer: AutoTokenizer | None = None,
         text_field: str = "text",
         response_field: str = "response",
         max_num_pairs: int = 1,
@@ -250,11 +259,10 @@ class NemotronCCDiverseQAPostprocessor(BaseModule):
         for line in lines:
             if line.startswith("Question:"):
                 qa_pairs.append(line)
+            elif qa_pairs:
+                qa_pairs[-1] += "\n" + line
             else:
-                if qa_pairs:
-                    qa_pairs[-1] += "\n" + line
-                else:
-                    return ""
+                return ""
 
         if len(qa_pairs) == 0:
             return ""
@@ -263,11 +271,9 @@ class NemotronCCDiverseQAPostprocessor(BaseModule):
         random.shuffle(qa_pairs)
         if self.tokenizer is not None:
             num_tokens = len(self.tokenizer.tokenize(text))
-            qa_pairs = qa_pairs[
-                : random.randint(1, max(1, int(self.max_num_pairs * num_tokens / 150)))
-            ]
+            qa_pairs = qa_pairs[: random.randint(1, max(1, int(self.max_num_pairs * num_tokens / 150)))]  # noqa: S311
         else:
-            qa_pairs = qa_pairs[: random.randint(1, self.max_num_pairs)]
+            qa_pairs = qa_pairs[: random.randint(1, self.max_num_pairs)]  # noqa: S311
         qa_pairs_str = "\n\n".join(qa_pairs)
 
         # Concatenate the document and the QA pairs
@@ -276,9 +282,7 @@ class NemotronCCDiverseQAPostprocessor(BaseModule):
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
         df = dataset.df
         df[self.response_field] = df.apply(
-            lambda row: self._postprocess_llm_response(
-                row[self.text_field], row[self.response_field]
-            ),
+            lambda row: self._postprocess_llm_response(row[self.text_field], row[self.response_field]),
             axis=1,
             meta=(None, "object"),
         )
@@ -311,7 +315,7 @@ class NemotronCCKnowledgeListPostprocessor(BaseModule):
             if idx == 0 and not line.startswith("-"):
                 continue
 
-            if line.startswith("  ") or line.startswith("- "):
+            if line.startswith(("  ", "- ")):
                 lines.append(line[2:].strip())
             else:
                 lines.append(line)

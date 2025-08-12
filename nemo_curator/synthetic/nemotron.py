@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Tuple, Union
 
 import yaml
 
@@ -50,9 +49,7 @@ class NemotronGenerator:
     def __init__(self, llm_client: LLMClient) -> None:
         self.client = llm_client
 
-    def _prompt(
-        self, model: str, prompt_template: str, prompt_kwargs: dict, model_kwargs: dict
-    ) -> List[str]:
+    def _prompt(self, model: str, prompt_template: str, prompt_kwargs: dict, model_kwargs: dict) -> list[str]:
         prompt = prompt_template.format(**prompt_kwargs)
         messages = [{"role": "user", "content": prompt}]
 
@@ -63,9 +60,9 @@ class NemotronGenerator:
         llm_response: str,
         model: str,
         prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Converts a response of an LLM to a list of strings by querying an LLM
         Args:
@@ -80,6 +77,11 @@ class NemotronGenerator:
         Returns:
             A parsed list of elements from the original LLM response
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["llm_response"] = llm_response
         yaml_response = self._prompt(
             model=model,
@@ -91,35 +93,31 @@ class NemotronGenerator:
         try:
             parsed_response = yaml.safe_load(yaml_response[0])
         except yaml.error.YAMLError as _:
-            raise YamlConversionError(
-                f"Error parsing yaml response: {yaml_response[0]}"
-            )
+            msg = f"Error parsing yaml response: {yaml_response[0]}"
+            raise YamlConversionError(msg)  # noqa: B904
 
         if not isinstance(parsed_response, list):
-            raise YamlConversionError(
-                f"Error: Parsed response was not a list: {parsed_response}"
-            )
+            msg = f"Error: Parsed response was not a list: {parsed_response}"
+            raise YamlConversionError(msg)
 
         for elem in parsed_response:
             if not isinstance(elem, str):
-                raise YamlConversionError(
-                    f"Error: Parsed response contains non-string elements in list: {parsed_response}"
-                )
+                msg = f"Error: Parsed response contains non-string elements in list: {parsed_response}"
+                raise YamlConversionError(msg)
             if elem not in llm_response:
-                raise YamlConversionError(
-                    f"Conversion introduced hallucinations. Original response:\n{llm_response}\nConverted response:\n{parsed_response}\nHallucination:\n{elem}"
-                )
+                msg = f"Conversion introduced hallucinations. Original response:\n{llm_response}\nConverted response:\n{parsed_response}\nHallucination:\n{elem}"
+                raise YamlConversionError(msg)
 
         return parsed_response
 
     def generate_macro_topics(
         self,
-        n_macro_topics: Union[int, str],
+        n_macro_topics: int | str,
         model: str,
         prompt_template: str = DEFAULT_MACRO_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of macro topics about the world
         Args:
@@ -134,25 +132,29 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_macro_topics"] = n_macro_topics
-        macro_topics = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return macro_topics
-
-    def generate_subtopics(
+    def generate_subtopics(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         prompt_template: str = DEFAULT_SUBTOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of subtopics relating to a macro topic
         Args:
@@ -169,26 +171,30 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_subtopics"] = n_subtopics
         prompt_kwargs["macro_topic"] = macro_topic
-        subtopics_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return subtopics_response
-
-    def generate_open_qa_from_topic(
+    def generate_open_qa_from_topic(  # noqa: PLR0913
         self,
         topic: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = DEFAULT_OPEN_QA_FROM_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of open Q&A questions based on a topic
         Args:
@@ -205,26 +211,30 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["n_openlines"] = n_openlines
-        openline_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
-    def revise_open_qa(
+    def revise_open_qa(  # noqa: PLR0913
         self,
         openline: str,
-        n_revisions: Union[str, int],
+        n_revisions: str | int,
         model: str,
         prompt_template: str = DEFAULT_REVISE_OPEN_QA_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to revise an open Q&A question a given number of times
         Args:
@@ -241,27 +251,31 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["openline"] = openline
         prompt_kwargs["n_revisions"] = n_revisions
-        revisions = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return revisions
-
-    def generate_writing_tasks(
+    def generate_writing_tasks(  # noqa: PLR0913
         self,
         topic: str,
         text_material_type: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = DEFAULT_WRITING_TASK_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of writing tasks based on a topic and document type
         Args:
@@ -280,27 +294,31 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["text_material_type"] = text_material_type
         prompt_kwargs["n_openlines"] = n_openlines
-        writing_tasks = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return writing_tasks
-
-    def revise_writing_tasks(
+    def revise_writing_tasks(  # noqa: PLR0913
         self,
         openline: str,
-        n_revisions: Union[str, int],
+        n_revisions: str | int,
         model: str,
         prompt_template: str = DEFAULT_REVISE_WRITING_TASK_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to revise a writing task a given number of times
         Args:
@@ -317,26 +335,30 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["openline"] = openline
         prompt_kwargs["n_revisions"] = n_revisions
-        revisions = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return revisions
-
-    def generate_closed_qa_instructions(
+    def generate_closed_qa_instructions(  # noqa: PLR0913
         self,
         document: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = DEFAULT_CLOSED_QA_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of closed Q&A questions based on a reference document
         Args:
@@ -353,26 +375,30 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["document"] = document
         prompt_kwargs["n_openlines"] = n_openlines
-        openline_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
-    def generate_math_macro_topics(
+    def generate_math_macro_topics(  # noqa: PLR0913
         self,
-        n_macro_topics: Union[int, str],
+        n_macro_topics: int | str,
         school_level: str,
         model: str,
         prompt_template: str = DEFAULT_MATH_MACRO_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of macro topics about math
         Args:
@@ -389,26 +415,30 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_macro_topics"] = n_macro_topics
         prompt_kwargs["school_level"] = school_level
-        macro_topics = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return macro_topics
-
-    def generate_math_subtopics(
+    def generate_math_subtopics(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         prompt_template: str = DEFAULT_MATH_SUBTOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of subtopics relating to a math macro topic
         Args:
@@ -425,25 +455,29 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_subtopics"] = n_subtopics
         prompt_kwargs["macro_topic"] = macro_topic
-        subtopics_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return subtopics_response
-
     def classify_math_entity(
         self,
         entity: str,
         model: str,
         prompt_template: str = DEFAULT_MATH_CLASSIFICATION_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs={},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to classify if an entity is related to math
         Args:
@@ -458,25 +492,29 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["entity"] = entity
-        classification_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return classification_response
-
-    def generate_math_problem(
+    def generate_math_problem(  # noqa: PLR0913
         self,
         topic: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = MATH_PROBLEM_GENERAL_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of math problems based on a topic
         Args:
@@ -496,25 +534,29 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["n_openlines"] = n_openlines
-        openline_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
     def generate_python_macro_topics(
         self,
-        n_macro_topics: Union[int, str],
+        n_macro_topics: int | str,
         model: str,
         prompt_template: str = DEFAULT_PYTHON_MACRO_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of macro topics about the Python programming language
         Args:
@@ -529,25 +571,29 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_macro_topics"] = n_macro_topics
-        macro_topics = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return macro_topics
-
-    def generate_python_subtopics(
+    def generate_python_subtopics(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         prompt_template: str = DEFAULT_PYTHON_SUBTOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of subtopics relating to a Python macro topic
         Args:
@@ -564,25 +610,29 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_subtopics"] = n_subtopics
         prompt_kwargs["macro_topic"] = macro_topic
-        subtopics_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return subtopics_response
-
     def classify_python_entity(
         self,
         entity: str,
         model: str,
         prompt_template: str = DEFAULT_PYTHON_CLASSIFICATION_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to classify if an entity is related to Python
         Args:
@@ -597,26 +647,30 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["entity"] = entity
-        classification_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return classification_response
-
-    def generate_python_problem(
+    def generate_python_problem(  # noqa: PLR0913
         self,
         topic: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
-        language="Python",
+        language: str = "Python",
         prompt_template: str = PYTHON_PROBLEM_BEGINNER_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of coding problems based on a topic
         Args:
@@ -639,29 +693,33 @@ class NemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["n_openlines"] = n_openlines
         prompt_kwargs["language"] = language
-        openline_response = self._prompt(
+
+        return self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
-    def generate_dialogue(
+    def generate_dialogue(  # noqa: PLR0913
         self,
         openline: str,
         user_model: str,
         assistant_model: str,
         n_user_turns: int = 3,
         prompt_template: str = DIALOGUE_NORMAL_USER_TURN_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        user_model_kwargs: dict = {},
-        assistant_model_kwargs: dict = {},
-    ) -> List[dict]:
+        prompt_kwargs: dict | None = None,
+        user_model_kwargs: dict | None = None,
+        assistant_model_kwargs: dict | None = None,
+    ) -> list[dict]:
         """
         Prompts an LLM to generate a dialogue based on a given openline.
         The LLM will alternate impersonating the user and the assistant.
@@ -689,15 +747,20 @@ class NemotronGenerator:
         Returns:
             A conversation between a User and Assistant
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if user_model_kwargs is None:
+            user_model_kwargs = {}
+        if assistant_model_kwargs is None:
+            assistant_model_kwargs = {}
+
         conversation_history = [{"role": "user", "content": openline}]
         first_assistant_response = self.client.query_model(
             messages=conversation_history,
             model=assistant_model,
             **assistant_model_kwargs,
         )[0]
-        conversation_history.append(
-            {"role": "assistant", "content": first_assistant_response}
-        )
+        conversation_history.append({"role": "assistant", "content": first_assistant_response})
         for _ in range(n_user_turns - 1):
             user_response = self._impersonate_user(
                 conversation_history=conversation_history,
@@ -712,22 +775,20 @@ class NemotronGenerator:
                 model=assistant_model,
                 **assistant_model_kwargs,
             )[0]
-            conversation_history.append(
-                {"role": "assistant", "content": assistant_response}
-            )
+            conversation_history.append({"role": "assistant", "content": assistant_response})
 
         return conversation_history
 
-    def generate_two_turn_prompt(
+    def generate_two_turn_prompt(  # noqa: PLR0913
         self,
         openline: str,
         user_model: str,
         assistant_model: str,
         prompt_template: str = DIALOGUE_NORMAL_USER_TURN_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        user_model_kwargs: dict = {},
-        assistant_model_kwargs: dict = {},
-    ) -> List[dict]:
+        prompt_kwargs: dict | None = None,
+        user_model_kwargs: dict | None = None,
+        assistant_model_kwargs: dict | None = None,
+    ) -> list[dict]:
         """
         Prompts an LLM to generate a response as an assistant, then as the user based on a given openline.
         The conversation will look like "User -> Assistant -> User"
@@ -753,15 +814,20 @@ class NemotronGenerator:
         Returns:
             A conversation between a User and Assistant
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if user_model_kwargs is None:
+            user_model_kwargs = {}
+        if assistant_model_kwargs is None:
+            assistant_model_kwargs = {}
+
         conversation_history = [{"role": "user", "content": openline}]
         first_assistant_response = self.client.query_model(
             messages=conversation_history,
             model=assistant_model,
             **assistant_model_kwargs,
         )[0]
-        conversation_history.append(
-            {"role": "assistant", "content": first_assistant_response}
-        )
+        conversation_history.append({"role": "assistant", "content": first_assistant_response})
 
         user_response = self._impersonate_user(
             conversation_history=conversation_history,
@@ -776,7 +842,7 @@ class NemotronGenerator:
 
     def _impersonate_user(
         self,
-        conversation_history: List[dict],
+        conversation_history: list[dict],
         model: str,
         prompt_template: str,
         prompt_kwargs: dict,
@@ -796,25 +862,25 @@ class NemotronGenerator:
 
         return response[0]
 
-    def run_open_qa_pipeline(
+    def run_open_qa_pipeline(  # noqa: C901, PLR0912, PLR0913, PLR0915
         self,
-        n_macro_topics: Union[str, int],
-        n_subtopics: Union[str, int],
-        n_openlines: Union[str, int],
-        n_revisions: Union[str, int],
+        n_macro_topics: str | int,
+        n_subtopics: str | int,
+        n_openlines: str | int,
+        n_revisions: str | int,
         model: str,
         macro_topic_prompt_template: str = DEFAULT_MACRO_TOPICS_PROMPT_TEMPLATE,
         subtopic_prompt_template: str = DEFAULT_SUBTOPICS_PROMPT_TEMPLATE,
         open_qa_from_topics_prompt_template: str = DEFAULT_OPEN_QA_FROM_TOPICS_PROMPT_TEMPLATE,
         revise_open_qa_prompt_template: str = DEFAULT_REVISE_OPEN_QA_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
-        additional_macro_topics: List[str] = [],
-        additional_subtopics: List[str] = [],
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
+        additional_macro_topics: list[str] | None = None,
+        additional_subtopics: list[str] | None = None,
         ignore_conversion_failure: bool = False,
         combine_topics: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating Open Q&A openlines for a dialogue
         Args:
@@ -853,6 +919,15 @@ class NemotronGenerator:
         Returns:
             A list of synthetically generated open Q&A prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+        if additional_macro_topics is None:
+            additional_macro_topics = []
+        if additional_subtopics is None:
+            additional_subtopics = []
+
         # Generate the macro topics
         responses = self.generate_macro_topics(
             n_macro_topics=n_macro_topics,
@@ -868,14 +943,13 @@ class NemotronGenerator:
                 model_kwargs=conversion_model_kwargs,
             )
             if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-                raise YamlConversionError(
-                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
-                )
-        except YamlConversionError as e:
+                msg = f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                raise YamlConversionError(msg)  # noqa: TRY301
+        except YamlConversionError:
             if ignore_conversion_failure:
                 macro_topics = []
             else:
-                raise e
+                raise
         macro_topics.extend(additional_macro_topics)
 
         # Generate the subtopics
@@ -899,15 +973,14 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_topics) != n_subtopics:
-                    raise YamlConversionError(
-                        f"Error: Length of subtopics {len(parsed_topics)} does not match desired n_subtopics {n_subtopics}: {parsed_topics}"
-                    )
+                    msg = f"Error: Length of subtopics {len(parsed_topics)} does not match desired n_subtopics {n_subtopics}: {parsed_topics}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 topic_list.extend(parsed_topics)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
         topic_list.extend(additional_subtopics)
 
         # Mix the macro topics with the subtopics
@@ -935,15 +1008,14 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_line) != n_openlines:
-                    raise YamlConversionError(
-                        f"Error: Length of openlines {len(parsed_line)} does not match desired n_openlines {n_openlines}: {parsed_line}"
-                    )
+                    msg = f"Error: Length of openlines {len(parsed_line)} does not match desired n_openlines {n_openlines}: {parsed_line}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 openlines.extend(parsed_line)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
 
         # Revise the openlines
         raw_revisions = [
@@ -966,32 +1038,31 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_revision) != n_revisions:
-                    raise YamlConversionError(
-                        f"Error: Length of revisions {len(parsed_revision)} does not match desired n_revisions {n_revisions}: {parsed_revision}"
-                    )
+                    msg = f"Error: Length of revisions {len(parsed_revision)} does not match desired n_revisions {n_revisions}: {parsed_revision}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 revised_openlines.extend(parsed_revision)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
 
         return revised_openlines
 
-    def run_writing_pipeline(
+    def run_writing_pipeline(  # noqa: C901, PLR0912, PLR0913
         self,
-        topics: List[str],
-        text_material_types: List[str],
-        n_openlines: Union[str, int],
-        n_revisions: Union[str, int],
+        topics: list[str],
+        text_material_types: list[str],
+        n_openlines: str | int,
+        n_revisions: str | int,
         model: str,
         writing_task_prompt_template: str = DEFAULT_WRITING_TASK_PROMPT_TEMPLATE,
         revise_writing_task_prompt_template: str = DEFAULT_REVISE_WRITING_TASK_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
         ignore_conversion_failure: bool = False,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating writing task openlines for a dialogue
         Args:
@@ -1022,6 +1093,11 @@ class NemotronGenerator:
         Returns:
             A list of synthetically generated writing task prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+
         # Generate the tasks
         writing_tasks = []
         for topic in topics:
@@ -1042,15 +1118,14 @@ class NemotronGenerator:
                         model_kwargs=conversion_model_kwargs,
                     )
                     if len(parsed_tasks) != n_openlines:
-                        raise YamlConversionError(
-                            f"Error: Length of writing tasks {len(parsed_tasks)} does not match desired n_openlines {n_openlines}: {parsed_tasks}"
-                        )
+                        msg = f"Error: Length of writing tasks {len(parsed_tasks)} does not match desired n_openlines {n_openlines}: {parsed_tasks}"
+                        raise YamlConversionError(msg)  # noqa: TRY301
                     writing_tasks.extend(parsed_tasks)
-                except YamlConversionError as e:
+                except YamlConversionError:
                     if ignore_conversion_failure:
                         continue
                     else:
-                        raise e
+                        raise
 
         # Revise the tasks
         raw_revisions = [
@@ -1073,29 +1148,28 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_revision) != n_revisions:
-                    raise YamlConversionError(
-                        f"Error: Length of revisions {len(parsed_revision)} does not match desired n_revisions {n_revisions}: {parsed_revision}"
-                    )
+                    msg = f"Error: Length of revisions {len(parsed_revision)} does not match desired n_revisions {n_revisions}: {parsed_revision}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 revised_openlines.extend(parsed_revision)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
 
         return revised_openlines
 
-    def run_closed_qa_pipeline(
+    def run_closed_qa_pipeline(  # noqa: PLR0913
         self,
-        documents: List[str],
-        n_openlines: Union[str, int],
+        documents: list[str],
+        n_openlines: str | int,
         model: str,
         closed_qa_prompt_template: str = DEFAULT_CLOSED_QA_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
         ignore_conversion_failure: bool = False,
-    ) -> List[Tuple[int, str]]:
+    ) -> list[tuple[int, str]]:
         """
         Runs a pipeline for automatically generating closed Q&A openlines for a dialogue
         Args:
@@ -1120,6 +1194,11 @@ class NemotronGenerator:
             A list of pairs where the first element represents the index of the document used to generate the question in the documents list
             and the second element represents a synthetically generated closed Q&A prompt. Example: [(0, "Summarize this document"), ...]
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+
         raw_instructions = [
             self.generate_closed_qa_instructions(
                 document=document,
@@ -1140,38 +1219,35 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_instructions) != n_openlines:
-                    raise YamlConversionError(
-                        f"Error: Length of openlines {len(parsed_instructions)} does not match desired n_openlines {n_openlines}: {parsed_instructions}"
-                    )
-                document_openline_pairs.extend(
-                    [(i, inst) for inst in parsed_instructions]
-                )
-            except YamlConversionError as e:
+                    msg = f"Error: Length of openlines {len(parsed_instructions)} does not match desired n_openlines {n_openlines}: {parsed_instructions}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
+                document_openline_pairs.extend([(i, inst) for inst in parsed_instructions])
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
 
         return document_openline_pairs
 
-    def run_math_pipeline(
+    def run_math_pipeline(  # noqa: C901, PLR0912, PLR0913
         self,
-        n_macro_topics: Union[str, int],
+        n_macro_topics: str | int,
         school_level: str,
-        n_subtopics: Union[str, int],
-        n_openlines: Union[str, int],
+        n_subtopics: str | int,
+        n_openlines: str | int,
         model: str,
         macro_topic_prompt_template: str = DEFAULT_MATH_MACRO_TOPICS_PROMPT_TEMPLATE,
         subtopic_prompt_template: str = DEFAULT_MATH_SUBTOPICS_PROMPT_TEMPLATE,
         math_problem_prompt_template: str = MATH_PROBLEM_GENERAL_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
-        additional_macro_topics: List[str] = [],
-        additional_subtopics: List[str] = [],
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
+        additional_macro_topics: list[str] | None = None,
+        additional_subtopics: list[str] | None = None,
         ignore_conversion_failure: bool = False,
         combine_topics: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating math questions for a dialogue
         Args:
@@ -1210,6 +1286,15 @@ class NemotronGenerator:
         Returns:
             A list of synthetically generated math prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+        if additional_macro_topics is None:
+            additional_macro_topics = []
+        if additional_subtopics is None:
+            additional_subtopics = []
+
         # Generate the macro topics
         responses = self.generate_math_macro_topics(
             n_macro_topics=n_macro_topics,
@@ -1226,14 +1311,13 @@ class NemotronGenerator:
                 model_kwargs=conversion_model_kwargs,
             )
             if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-                raise YamlConversionError(
-                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
-                )
-        except YamlConversionError as e:
+                msg = f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                raise YamlConversionError(msg)  # noqa: TRY301
+        except YamlConversionError:
             if ignore_conversion_failure:
                 macro_topics = []
             else:
-                raise e
+                raise
         macro_topics.extend(additional_macro_topics)
 
         # Generate the subtopics
@@ -1257,15 +1341,14 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_topics) != n_subtopics:
-                    raise YamlConversionError(
-                        f"Error: Length of subtopics {len(parsed_topics)} does not match desired n_subtopics {n_subtopics}: {parsed_topics}"
-                    )
+                    msg = f"Error: Length of subtopics {len(parsed_topics)} does not match desired n_subtopics {n_subtopics}: {parsed_topics}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 topic_list.extend(parsed_topics)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
         topic_list.extend(additional_subtopics)
 
         # Mix the macro topics with the subtopics
@@ -1293,35 +1376,34 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_line) != n_openlines:
-                    raise YamlConversionError(
-                        f"Error: Length of openlines {len(parsed_line)} does not match desired n_openlines {n_openlines}: {parsed_line}"
-                    )
+                    msg = f"Error: Length of openlines {len(parsed_line)} does not match desired n_openlines {n_openlines}: {parsed_line}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 openlines.extend(parsed_line)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
 
         return openlines
 
-    def run_python_pipeline(
+    def run_python_pipeline(  # noqa: C901, PLR0912, PLR0913, PLR0915
         self,
-        n_macro_topics: Union[str, int],
-        n_subtopics: Union[str, int],
-        n_openlines: Union[str, int],
+        n_macro_topics: str | int,
+        n_subtopics: str | int,
+        n_openlines: str | int,
         model: str,
         macro_topic_prompt_template: str = DEFAULT_PYTHON_MACRO_TOPICS_PROMPT_TEMPLATE,
         subtopic_prompt_template: str = DEFAULT_PYTHON_SUBTOPICS_PROMPT_TEMPLATE,
         python_problem_prompt_template: str = PYTHON_PROBLEM_BEGINNER_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
-        additional_macro_topics: List[str] = [],
-        additional_subtopics: List[str] = [],
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
+        additional_macro_topics: list[str] | None = None,
+        additional_subtopics: list[str] | None = None,
         ignore_conversion_failure: bool = False,
         combine_topics: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating Python questions for a dialogue
         Args:
@@ -1360,6 +1442,15 @@ class NemotronGenerator:
         Returns:
             A list of synthetically generated Python prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+        if additional_macro_topics is None:
+            additional_macro_topics = []
+        if additional_subtopics is None:
+            additional_subtopics = []
+
         # Generate the macro topics
         responses = self.generate_python_macro_topics(
             n_macro_topics=n_macro_topics,
@@ -1375,14 +1466,13 @@ class NemotronGenerator:
                 model_kwargs=conversion_model_kwargs,
             )
             if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-                raise YamlConversionError(
-                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
-                )
-        except YamlConversionError as e:
+                msg = f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                raise YamlConversionError(msg)  # noqa: TRY301
+        except YamlConversionError:
             if ignore_conversion_failure:
                 macro_topics = []
             else:
-                raise e
+                raise
         macro_topics.extend(additional_macro_topics)
 
         # Generate the subtopics
@@ -1406,15 +1496,15 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_topics) != n_subtopics:
-                    raise YamlConversionError(
-                        f"Error: Length of subtopics {len(parsed_topics)} does not match desired n_subtopics {n_subtopics}: {parsed_topics}"
-                    )
+                    msg = f"Error: Length of subtopics {len(parsed_topics)} does not match desired n_subtopics {n_subtopics}: {parsed_topics}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 topic_list.extend(parsed_topics)
-            except YamlConversionError as e:
+                topic_list.extend(parsed_topics)
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
         topic_list.extend(additional_subtopics)
 
         # Mix the macro topics with the subtopics
@@ -1442,25 +1532,23 @@ class NemotronGenerator:
                     model_kwargs=conversion_model_kwargs,
                 )
                 if len(parsed_line) != n_openlines:
-                    raise YamlConversionError(
-                        f"Error: Length of openlines {len(parsed_line)} does not match desired n_openlines {n_openlines}: {parsed_line}"
-                    )
+                    msg = f"Error: Length of openlines {len(parsed_line)} does not match desired n_openlines {n_openlines}: {parsed_line}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
                 openlines.extend(parsed_line)
-            except YamlConversionError as e:
+            except YamlConversionError:  # noqa: PERF203
                 if ignore_conversion_failure:
                     continue
                 else:
-                    raise e
+                    raise
 
         return openlines
 
 
 class NemotronFormatter(ConversationFormatter):
-
     PROMPT_PREFIX = "<extra_id_0>System\n\n<extra_id_1>User\n"
 
     @staticmethod
-    def format_conversation(conv: List[dict]) -> str:
+    def format_conversation(conv: list[dict]) -> str:
         """
         Formats a converstation between a user and assistant in the Nemotron 340B format
         described here: https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/nemotron-4-340b-instruct
@@ -1476,15 +1564,13 @@ class NemotronFormatter(ConversationFormatter):
 
             if user_turn:
                 if turn["role"] != "user":
-                    raise ValueError(
-                        f"Conversation turn {i} is not 'user'. All even number turns should be."
-                    )
+                    msg = f"Conversation turn {i} is not 'user'. All even number turns should be."
+                    raise ValueError(msg)
                 prompt += turn["content"] + "\n<extra_id_1>Assistant\n"
             else:
                 if turn["role"] != "assistant":
-                    raise ValueError(
-                        f"Conversation turn {i} is not 'assistant'. All odd number turns should be."
-                    )
+                    msg = f"Conversation turn {i} is not 'assistant'. All odd number turns should be."
+                    raise ValueError(msg)
                 prompt += turn["content"] + "\n<extra_id_1>User\n"
 
         return prompt

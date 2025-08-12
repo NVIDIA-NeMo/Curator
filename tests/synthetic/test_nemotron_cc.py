@@ -11,12 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import random
-from unittest.mock import MagicMock, call
 
-import dask.dataframe as dd
+import random
+from unittest.mock import MagicMock
+
 import pandas as pd
 import pytest
+from pytest import MonkeyPatch
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.synthetic.nemotron_cc import (
@@ -31,35 +32,34 @@ from nemo_curator.synthetic.prompts import (
     KNOWLEDGE_LIST_PROMPT_TEMPLATE,
     NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
     NEMOTRON_CC_SYSTEM_PROMPT,
-    WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
 )
 
 
 # A dummy tokenizer that simply splits text by whitespace.
 class DummyTokenizer:
-    def tokenize(self, text):
+    def tokenize(self, text: str) -> list[str]:
         return text.split()
 
 
 # Helper function to create a DocumentDataset from provided data.
-def create_dataset(data):
+def create_dataset(data: dict[str, list[str]]) -> DocumentDataset:
     pdf = pd.DataFrame(data)
     return DocumentDataset.from_pandas(pdf)
 
 
 class TestNemotronCCGenerator:
     @pytest.fixture
-    def mock_llm_client(self):
+    def mock_llm_client(self) -> MagicMock:
         mock_client = MagicMock()
         mock_client.query_model.return_value = ["This is a mock response"]
         return mock_client
 
-    def test_init(self, mock_llm_client):
+    def test_init(self, mock_llm_client: MagicMock) -> None:
         """Test the constructor of NemotronCCGenerator."""
         generator = NemotronCCGenerator(mock_llm_client)
         assert generator.client == mock_llm_client
 
-    def test_prompt(self, mock_llm_client):
+    def test_prompt(self, mock_llm_client: MagicMock) -> None:
         """Test the internal _prompt method."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -69,7 +69,7 @@ class TestNemotronCCGenerator:
         prompt_kwargs = {"extra_param": "test"}
         model_kwargs = {"temperature": 0.7}
 
-        result = generator._prompt(
+        result = generator._prompt(  # noqa: SLF001
             model="test_model",
             document=document,
             prompt_template=prompt_template,
@@ -82,20 +82,17 @@ class TestNemotronCCGenerator:
         mock_llm_client.query_model.assert_called_once()
         call_args = mock_llm_client.query_model.call_args[1]
         assert call_args["model"] == "test_model"
-        assert call_args["temperature"] == 0.7
-        assert len(call_args["messages"]) == 2
+        assert call_args["temperature"] == 0.7  # noqa: PLR2004
+        assert len(call_args["messages"]) == 2  # noqa: PLR2004
         assert call_args["messages"][0]["role"] == "system"
         assert call_args["messages"][0]["content"] == "System instruction"
         assert call_args["messages"][1]["role"] == "user"
-        assert (
-            call_args["messages"][1]["content"]
-            == "Test prompt for Test document content."
-        )
+        assert call_args["messages"][1]["content"] == "Test prompt for Test document content."
 
         # Check return value
         assert result == ["This is a mock response"]
 
-    def test_rewrite_to_wikipedia_style(self, mock_llm_client):
+    def test_rewrite_to_wikipedia_style(self, mock_llm_client: MagicMock) -> None:
         """Test rewrite_to_wikipedia_style method."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -112,12 +109,12 @@ class TestNemotronCCGenerator:
         assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
         assert messages[1]["role"] == "user"
         assert document in messages[1]["content"]
-        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+        assert mock_llm_client.query_model.call_args[1]["model"] == "test_model"
 
         # Check the result
         assert result == ["This is a mock response"]
 
-    def test_generate_diverse_qa(self, mock_llm_client):
+    def test_generate_diverse_qa(self, mock_llm_client: MagicMock) -> None:
         """Test generate_diverse_qa method."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -134,16 +131,13 @@ class TestNemotronCCGenerator:
         assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
         assert messages[1]["role"] == "user"
         assert document in messages[1]["content"]
-        assert (
-            DIVERSE_QA_PROMPT_TEMPLATE.format(document=document)
-            == messages[1]["content"]
-        )
-        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+        assert DIVERSE_QA_PROMPT_TEMPLATE.format(document=document) == messages[1]["content"]
+        assert mock_llm_client.query_model.call_args[1]["model"] == "test_model"
 
         # Check the result
         assert result == ["This is a mock response"]
 
-    def test_distill(self, mock_llm_client):
+    def test_distill(self, mock_llm_client: MagicMock) -> None:
         """Test distill method."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -160,15 +154,13 @@ class TestNemotronCCGenerator:
         assert messages[0]["content"] == NEMOTRON_CC_DISTILL_SYSTEM_PROMPT
         assert messages[1]["role"] == "user"
         assert document in messages[1]["content"]
-        assert (
-            DISTILL_PROMPT_TEMPLATE.format(document=document) == messages[1]["content"]
-        )
-        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+        assert DISTILL_PROMPT_TEMPLATE.format(document=document) == messages[1]["content"]
+        assert mock_llm_client.query_model.call_args[1]["model"] == "test_model"
 
         # Check the result
         assert result == ["This is a mock response"]
 
-    def test_extract_knowledge(self, mock_llm_client):
+    def test_extract_knowledge(self, mock_llm_client: MagicMock) -> None:
         """Test extract_knowledge method."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -185,16 +177,13 @@ class TestNemotronCCGenerator:
         assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
         assert messages[1]["role"] == "user"
         assert document in messages[1]["content"]
-        assert (
-            EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE.format(document=document)
-            == messages[1]["content"]
-        )
-        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+        assert EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE.format(document=document) == messages[1]["content"]
+        assert mock_llm_client.query_model.call_args[1]["model"] == "test_model"
 
         # Check the result
         assert result == ["This is a mock response"]
 
-    def test_generate_knowledge_list(self, mock_llm_client):
+    def test_generate_knowledge_list(self, mock_llm_client: MagicMock) -> None:
         """Test generate_knowledge_list method."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -211,16 +200,13 @@ class TestNemotronCCGenerator:
         assert messages[0]["content"] == NEMOTRON_CC_SYSTEM_PROMPT
         assert messages[1]["role"] == "user"
         assert document in messages[1]["content"]
-        assert (
-            KNOWLEDGE_LIST_PROMPT_TEMPLATE.format(document=document)
-            == messages[1]["content"]
-        )
-        assert "test_model" == mock_llm_client.query_model.call_args[1]["model"]
+        assert KNOWLEDGE_LIST_PROMPT_TEMPLATE.format(document=document) == messages[1]["content"]
+        assert mock_llm_client.query_model.call_args[1]["model"] == "test_model"
 
         # Check the result
         assert result == ["This is a mock response"]
 
-    def test_custom_prompt_and_model_kwargs(self, mock_llm_client):
+    def test_custom_prompt_and_model_kwargs(self, mock_llm_client: MagicMock) -> None:
         """Test methods with custom prompt template and model kwargs."""
         generator = NemotronCCGenerator(mock_llm_client)
 
@@ -242,22 +228,20 @@ class TestNemotronCCGenerator:
 
         # Check that custom parameters were used
         call_args = mock_llm_client.query_model.call_args[1]
-        assert call_args["temperature"] == 0.5
-        assert call_args["top_p"] == 0.9
+        assert call_args["temperature"] == 0.5  # noqa: PLR2004
+        assert call_args["top_p"] == 0.9  # noqa: PLR2004
         assert call_args["messages"][0]["content"] == custom_system_prompt
-        expected_prompt = custom_prompt.format(
-            document=document, extra_param="additional context"
-        )
+        expected_prompt = custom_prompt.format(document=document, extra_param="additional context")
         assert call_args["messages"][1]["content"] == expected_prompt
 
 
 class TestDiverseQAPostprocessor:
-    def test_valid_response_without_tokenizer(self, monkeypatch):
+    def test_valid_response_without_tokenizer(self, monkeypatch: MonkeyPatch) -> None:
         # Patch randomness so that the ordering and sampling is deterministic.
-        monkeypatch.setattr(random, "shuffle", lambda x: None)
+        monkeypatch.setattr(random, "shuffle", lambda x: None)  # noqa: ARG005
         # In the branch without a tokenizer, random.randint(1, max_num_pairs)
         # will be forced to return the upper bound.
-        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)
+        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)  # noqa: ARG005
 
         text = "Document text"
         llm_response = (
@@ -279,30 +263,27 @@ class TestDiverseQAPostprocessor:
         # 1. Split into lines and remove the leading "- " prefix.
         # 2. Remove the prefix line ("Here are...") if it matches.
         # 3. Merge lines: the first QA pair becomes:
-        #       "Question: What is this?\nAnswer: It is a test."
+        #       "Question: What is this?\nAnswer: It is a test."  # noqa: ERA001
         #    and the second:
-        #       "Question: How does it work?\nAnswer: By magic."
+        #       "Question: How does it work?\nAnswer: By magic."  # noqa: ERA001
         # 4. With our patched randint, both QA pairs are kept.
         expected_qa = (
-            "Question: What is this?\nAnswer: It is a test.\n\n"
-            "Question: How does it work?\nAnswer: By magic."
+            "Question: What is this?\nAnswer: It is a test.\n\nQuestion: How does it work?\nAnswer: By magic."
         )
         expected_response = f"{text}\n\n{expected_qa}"
 
         assert not result_df.empty, "Expected non-empty dataset"
         actual_response = result_df.iloc[0]["response"]
-        assert (
-            actual_response == expected_response
-        ), f"Expected: {expected_response}, got: {actual_response}"
+        assert actual_response == expected_response, f"Expected: {expected_response}, got: {actual_response}"
 
-    def test_valid_response_with_tokenizer(self, monkeypatch):
+    def test_valid_response_with_tokenizer(self, monkeypatch: MonkeyPatch) -> None:
         # Using a dummy tokenizer.
         dummy_tokenizer = DummyTokenizer()
-        monkeypatch.setattr(random, "shuffle", lambda x: None)
+        monkeypatch.setattr(random, "shuffle", lambda x: None)  # noqa: ARG005
         # For the branch with a tokenizer, the number of tokens is determined by:
         # num_tokens = len(dummy_tokenizer.tokenize(text)). For "Document text" this yields 2.
         # Then max_num = max(1, int(max_num_pairs * num_tokens / 150)) becomes max(1, int(4/150)) -> 1.
-        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)
+        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)  # noqa: ARG005
 
         text = "Document text"
         llm_response = (
@@ -313,9 +294,7 @@ class TestDiverseQAPostprocessor:
             "Answer: By magic."
         )
         ds = create_dataset({"text": [text], "response": [llm_response]})
-        processor = NemotronCCDiverseQAPostprocessor(
-            tokenizer=dummy_tokenizer, max_num_pairs=2
-        )
+        processor = NemotronCCDiverseQAPostprocessor(tokenizer=dummy_tokenizer, max_num_pairs=2)
         result_ds = processor(ds)
         result_df = result_ds.df.compute()
 
@@ -325,21 +304,16 @@ class TestDiverseQAPostprocessor:
 
         assert not result_df.empty, "Expected non-empty dataset"
         actual_response = result_df.iloc[0]["response"]
-        assert (
-            actual_response == expected_response
-        ), f"Expected: {expected_response}, got: {actual_response}"
+        assert actual_response == expected_response, f"Expected: {expected_response}, got: {actual_response}"
 
-    def test_invalid_response_format(self, monkeypatch):
+    def test_invalid_response_format(self, monkeypatch: MonkeyPatch) -> None:
         # Test a response with an invalid QA format (missing a "Question:" line).
-        monkeypatch.setattr(random, "shuffle", lambda x: None)
-        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)
+        monkeypatch.setattr(random, "shuffle", lambda x: None)  # noqa: ARG005
+        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)  # noqa: ARG005
 
         text = "Doc"
         # The response only has an answer line.
-        llm_response = (
-            "Here are the questions and answers based on the provided text:\n"
-            "- Answer: Missing question."
-        )
+        llm_response = "Here are the questions and answers based on the provided text:\n- Answer: Missing question."
         ds = create_dataset({"text": [text], "response": [llm_response]})
         processor = NemotronCCDiverseQAPostprocessor(tokenizer=None, max_num_pairs=2)
         result_ds = processor(ds)
@@ -348,11 +322,9 @@ class TestDiverseQAPostprocessor:
         # Since the response format is invalid (no "Question:" to start a QA pair),
         # the postprocessing should return an empty string; the __call__ method then
         # drops that row.
-        assert (
-            result_df.empty
-        ), "Expected dataset to be empty due to invalid response format"
+        assert result_df.empty, "Expected dataset to be empty due to invalid response format"
 
-    def test_empty_response(self):
+    def test_empty_response(self) -> None:
         # Test when the LLM response is empty.
         text = "Doc"
         llm_response = ""
@@ -364,10 +336,10 @@ class TestDiverseQAPostprocessor:
         # The empty LLM response should lead to an empty processed text and get filtered out.
         assert result_df.empty, "Expected dataset to be empty for an empty LLM response"
 
-    def test_more_qa_than_max(self, monkeypatch):
+    def test_more_qa_than_max(self, monkeypatch: MonkeyPatch) -> None:
         # Test when there are more QA pairs than max_num_pairs.
-        monkeypatch.setattr(random, "shuffle", lambda x: None)
-        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)
+        monkeypatch.setattr(random, "shuffle", lambda x: None)  # noqa: ARG005
+        monkeypatch.setattr(random, "randint", lambda lo, hi: hi)  # noqa: ARG005
 
         text = "Document text"
         llm_response = (
@@ -388,16 +360,14 @@ class TestDiverseQAPostprocessor:
 
         # With max_num_pairs set to 2 and patched randint returning the upper bound,
         # only the first two QA pairs should be selected.
-        expected_qa = "Question: Q1?\nAnswer: A1.\n\n" "Question: Q2?\nAnswer: A2."
+        expected_qa = "Question: Q1?\nAnswer: A1.\n\nQuestion: Q2?\nAnswer: A2."
         expected_response = f"{text}\n\n{expected_qa}"
 
         assert not result_df.empty, "Expected non-empty dataset"
         actual_response = result_df.iloc[0]["response"]
-        assert (
-            actual_response == expected_response
-        ), f"Expected: {expected_response}, got: {actual_response}"
+        assert actual_response == expected_response, f"Expected: {expected_response}, got: {actual_response}"
 
-    def test_no_qa_pairs(self):
+    def test_no_qa_pairs(self) -> None:
         """Test case where len(qa_pairs) == 0, which happens when there are no lines
         starting with 'Question:' in the response."""
         text = "Document text"
@@ -414,13 +384,11 @@ class TestDiverseQAPostprocessor:
 
         # Since there are no valid QA pairs, we expect the dataset to be empty
         # because _postprocess_llm_response returns an empty string
-        assert (
-            result_df.empty
-        ), "Expected dataset to be empty when no QA pairs are found"
+        assert result_df.empty, "Expected dataset to be empty when no QA pairs are found"
 
 
 class TestKnowledgeListPostprocessor:
-    def test_basic_formatting(self):
+    def test_basic_formatting(self) -> None:
         # Test that a response with an initial non-bullet line (to skip) and bullet lines
         # is correctly cleaned.
         input_response = (
@@ -437,19 +405,13 @@ class TestKnowledgeListPostprocessor:
         # Expected:
         # - First line is skipped (since it does not start with "-").
         # - Bullet lines have the leading "- " or "  " removed.
-        expected_output = (
-            "Fact one: This is the first fact.\n"
-            "Continued fact one.\n"
-            "Fact two: This is the second fact."
-        )
+        expected_output = "Fact one: This is the first fact.\nContinued fact one.\nFact two: This is the second fact."
         actual_output = result_df.iloc[0]["text"]
-        assert (
-            actual_output == expected_output
-        ), f"Expected: {expected_output}, got: {actual_output}"
+        assert actual_output == expected_output, f"Expected: {expected_output}, got: {actual_output}"
 
-    def test_all_bullet_lines(self):
+    def test_all_bullet_lines(self) -> None:
         # Test when every line starts with a bullet prefix.
-        input_response = "- Item one\n" "- Item two\n" "- Item three"
+        input_response = "- Item one\n- Item two\n- Item three"
         ds = create_dataset({"text": [input_response]})
         processor = NemotronCCKnowledgeListPostprocessor(text_field="text")
         result_ds = processor(ds)
@@ -458,11 +420,9 @@ class TestKnowledgeListPostprocessor:
         # Each line should be cleaned by removing the leading bullet.
         expected_output = "Item one\nItem two\nItem three"
         actual_output = result_df.iloc[0]["text"]
-        assert (
-            actual_output == expected_output
-        ), f"Expected: {expected_output}, got: {actual_output}"
+        assert actual_output == expected_output, f"Expected: {expected_output}, got: {actual_output}"
 
-    def test_no_bullet_lines(self):
+    def test_no_bullet_lines(self) -> None:
         # If the response contains no bullet lines, then the first line is
         # skipped and no text remains.
         input_response = "This is just plain text without any bullet."
@@ -473,11 +433,9 @@ class TestKnowledgeListPostprocessor:
 
         expected_output = ""
         actual_output = result_df.iloc[0]["text"]
-        assert (
-            actual_output == expected_output
-        ), f"Expected an empty string, got: {actual_output}"
+        assert actual_output == expected_output, f"Expected an empty string, got: {actual_output}"
 
-    def test_mixed_indentation(self):
+    def test_mixed_indentation(self) -> None:
         # Test mixed bullet prefixes and additional non-bullet lines.
         input_response = (
             "- Bullet one\n"
@@ -504,11 +462,9 @@ class TestKnowledgeListPostprocessor:
             "Another standalone line"
         )
         actual_output = result_df.iloc[0]["text"]
-        assert (
-            actual_output == expected_output
-        ), f"Expected: {expected_output}, got: {actual_output}"
+        assert actual_output == expected_output, f"Expected: {expected_output}, got: {actual_output}"
 
-    def test_empty_input(self):
+    def test_empty_input(self) -> None:
         # Test that an empty input returns an empty string.
         input_response = ""
         ds = create_dataset({"text": [input_response]})
@@ -518,6 +474,4 @@ class TestKnowledgeListPostprocessor:
 
         expected_output = ""
         actual_output = result_df.iloc[0]["text"]
-        assert (
-            actual_output == expected_output
-        ), f"Expected empty string, got: {actual_output}"
+        assert actual_output == expected_output, f"Expected empty string, got: {actual_output}"

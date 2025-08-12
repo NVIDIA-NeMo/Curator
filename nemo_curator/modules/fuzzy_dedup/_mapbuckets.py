@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
-import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import logging
+
 import os
-from typing import Union
 
 import cudf
 import dask_cudf
@@ -42,11 +45,11 @@ class _MapBuckets:
 
     def __init__(
         self,
-        id_fields: Union[list, str] = "id",
+        id_fields: list | str = "id",
         text_field: str = "text",
         bucket_field: str = "_bucket_id",
         num_anchors: int = 2,
-        logger: Union[logging.LoggerAdapter, str] = "./",
+        logger: logging.LoggerAdapter | str = "./",
     ):
         """
         id_fields: list or str
@@ -85,9 +88,7 @@ class _MapBuckets:
         This is used downstream for creating equal output_ids
         """
         sizes = bucket_text_bytes_df[bytes_column].values
-        bucket_output_ar = build_partition(
-            sizes=sizes.get(), max_size=max_text_bytes_per_part
-        )
+        bucket_output_ar = build_partition(sizes=sizes.get(), max_size=max_text_bytes_per_part)
         df = cudf.DataFrame()
         df[buckets_column] = bucket_text_bytes_df[buckets_column]
         df[output_partition_column] = bucket_output_ar
@@ -95,10 +96,10 @@ class _MapBuckets:
 
     def _get_output_map_from_text_bytes_per_bucket(
         self,
-        ddf_bk_text_bytes,
-        bytes_column,
-        output_partition_column="_output_partition_id",
-    ):
+        ddf_bk_text_bytes: dask_cudf.DataFrame,
+        bytes_column: str,
+        output_partition_column: str = "_output_partition_id",
+    ) -> dask_cudf.DataFrame:
         # String bytes limit for cuDF
         # https://github.com/rapidsai/cudf/issues/13733
         max_text_bytes_per_part = int(np.iinfo(np.int32).max * 3)
@@ -106,9 +107,7 @@ class _MapBuckets:
         self._logger.info(f"max_text_bytes_per_part = {max_text_bytes_per_part}")
         # Increasing in an attempt to prevent hitting
         # ulimits
-        output_map_df_meta = cudf.DataFrame(
-            {self.bucket_field: [0], output_partition_column: [1]}
-        )
+        output_map_df_meta = cudf.DataFrame({self.bucket_field: [0], output_partition_column: [1]})
         output_map_df_meta = output_map_df_meta.astype(
             {self.bucket_field: np.uint64, output_partition_column: np.int32}
         )
@@ -122,51 +121,38 @@ class _MapBuckets:
             meta=output_map_df_meta,
         )
         output_map_df = output_map_df.persist()
-        self._logger.info(
-            f"Step 1 of output_map_df of len: {len(output_map_df)} computed"
-        )
-        lower_bounds = (
-            output_map_df[output_partition_column]
-            .map_partitions(lambda s: (s.max() + 1))
-            .compute()
-        )
+        self._logger.info(f"Step 1 of output_map_df of len: {len(output_map_df)} computed")
+        lower_bounds = output_map_df[output_partition_column].map_partitions(lambda s: (s.max() + 1)).compute()
         lower_bounds = np.cumsum(lower_bounds)
 
-        def update_id(df, lower_bound):
+        def update_id(df: cudf.DataFrame, lower_bound: int) -> cudf.DataFrame:
             df[output_partition_column] += lower_bound
             return df
 
         updated_parts = [
-            output_map_df.get_partition(i).map_partitions(
-                update_id, lower_bounds[i - 1]
-            )
+            output_map_df.get_partition(i).map_partitions(update_id, lower_bounds[i - 1])
             for i in range(1, len(lower_bounds))
         ]
         updated_parts.append(output_map_df.get_partition(0))
         output_map_df = dask_cudf.concat(updated_parts)
         output_map_df = output_map_df.persist()
-        self._logger.info(
-            f"All steps of output_map_df of len: {len(output_map_df)} computed"
-        )
+        self._logger.info(f"All steps of output_map_df of len: {len(output_map_df)} computed")
         return output_map_df
 
     def _get_output_map_based_on_str_bytes(
-        self, buckets_df, documents_df, bytes_column="_text_bytes"
-    ):
+        self,
+        buckets_df: dask_cudf.DataFrame,
+        documents_df: dask_cudf.DataFrame,
+        bytes_column: str = "_text_bytes",
+    ) -> dask_cudf.DataFrame:
         """
         Add output_partition_id to buckets_ddf
         """
         documents_df = documents_df.copy()
-        documents_df[bytes_column] = documents_df[self.text_field].map_partitions(
-            lambda s: s.str.byte_count()
-        )
+        documents_df[bytes_column] = documents_df[self.text_field].map_partitions(lambda s: s.str.byte_count())
         n_partitions = buckets_df.npartitions
-        documents_df = documents_df.drop(columns=[self.text_field]).repartition(
-            npartitions=n_partitions
-        )
-        buckets_df = buckets_df.merge(documents_df).repartition(
-            npartitions=n_partitions
-        )
+        documents_df = documents_df.drop(columns=[self.text_field]).repartition(npartitions=n_partitions)
+        buckets_df = buckets_df.merge(documents_df).repartition(npartitions=n_partitions)
         del documents_df
         ddf_bk_text_bytes, agg_df_len = get_agg_text_bytes_df(
             df=buckets_df,
@@ -177,31 +163,27 @@ class _MapBuckets:
         )
         self._logger.info(f"Agg_df computed of length = {agg_df_len}")
         del buckets_df
-        output_map_df = self._get_output_map_from_text_bytes_per_bucket(
+        return self._get_output_map_from_text_bytes_per_bucket(
             ddf_bk_text_bytes=ddf_bk_text_bytes,
             bytes_column=bytes_column,
         )
-        return output_map_df
 
-    def _random_select_anchor(self, buckets_df, n=2):
+    def _random_select_anchor(self, buckets_df: cudf.DataFrame, n: int = 2) -> cudf.DataFrame:
         """
         Randomly select `n` anchors from each bucket.
         """
         buckets_df = buckets_df.copy()
         buckets_df["_id_hash"] = buckets_df[self.id_fields].hash_values()
         buckets_df = buckets_df.sort_values([self.bucket_field, "_id_hash"])
-        buckets_df["_order_in_bucket"] = buckets_df.groupby(
-            self.bucket_field
-        ).cumcount()
+        buckets_df["_order_in_bucket"] = buckets_df.groupby(self.bucket_field).cumcount()
         buckets_df["is_anchor"] = buckets_df["_order_in_bucket"] < n
-        for i in range(0, n):
+        for i in range(n):
             buckets_df[f"is_anchor_id_{i}"] = buckets_df["_order_in_bucket"] == i
         buckets_df = buckets_df.drop(columns=["_id_hash", "_order_in_bucket"], axis=1)
         buckets_df = buckets_df.reset_index(drop=True)
-        buckets_df = buckets_df[buckets_df.is_anchor]
-        return buckets_df
+        return buckets_df[buckets_df.is_anchor]
 
-    def _add_anchor_docs(self, buckets_df, num_anchors):
+    def _add_anchor_docs(self, buckets_df: cudf.DataFrame, num_anchors: int) -> cudf.DataFrame:
         """
         Get anchor documents for each bucket.
         """
@@ -209,27 +191,22 @@ class _MapBuckets:
         df_anchor_docs = None
         for i in range(num_anchors):
             df_anchor_bk_i = df_anchor_bk[df_anchor_bk[f"is_anchor_id_{i}"]][
-                [self.bucket_field] + self.id_fields
+                [self.bucket_field, *self.id_fields]
             ].reset_index(drop=True)
-            column_mapping = {id: f"anchor_{i}_{id}" for id in self.id_fields}
+            column_mapping = {field_id: f"anchor_{i}_{field_id}" for field_id in self.id_fields}
             df_anchor_bk_i = df_anchor_bk_i.rename(columns=column_mapping)
             if i == 0:
                 df_anchor_docs = df_anchor_bk_i
             else:
-                df_anchor_docs = df_anchor_bk_i.merge(
-                    df_anchor_docs, on=[self.bucket_field], how="inner"
-                )
+                df_anchor_docs = df_anchor_bk_i.merge(df_anchor_docs, on=[self.bucket_field], how="inner")
 
-        df_anchor_docs_with_bk = buckets_df.merge(
-            df_anchor_docs, on=[self.bucket_field], how="inner"
-        )
-        return df_anchor_docs_with_bk
+        return buckets_df.merge(df_anchor_docs, on=[self.bucket_field], how="inner")
 
     def map_buckets_with_anchors(
         self,
         documents_df: dask_cudf.DataFrame,
         buckets_df: dask_cudf.DataFrame,
-        shuffle_type: Union[str, bool, None] = "tasks",
+        shuffle_type: str | bool | None = "tasks",
     ) -> dask_cudf.DataFrame:
         """
         Get anchor docs with bucket info
@@ -243,24 +220,16 @@ class _MapBuckets:
         Returns:
             ddf_anchor_docs_with_bk
         """
-        output_map_df = self._get_output_map_based_on_str_bytes(
-            buckets_df=buckets_df, documents_df=documents_df
-        )
-        ddf_anchor_docs_with_bk = buckets_df.map_partitions(
-            self._add_anchor_docs, num_anchors=self.num_anchors
-        )
+        output_map_df = self._get_output_map_based_on_str_bytes(buckets_df=buckets_df, documents_df=documents_df)
+        ddf_anchor_docs_with_bk = buckets_df.map_partitions(self._add_anchor_docs, num_anchors=self.num_anchors)
         self._logger.info("output_map_df is based on string bytes")
-        ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.merge(
-            output_map_df, on=self.bucket_field
-        )
+        ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.merge(output_map_df, on=self.bucket_field)
         # Bucket is no longer needed
-        ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.drop(
-            columns=[self.bucket_field]
-        )
+        ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.drop(columns=[self.bucket_field])
         # Below removes any duplicates lying around after dropping buckets
         ddf_anchor_docs_with_bk = ddf_anchor_docs_with_bk.map_partitions(
             M.drop_duplicates,
-            meta=ddf_anchor_docs_with_bk._meta,
+            meta=ddf_anchor_docs_with_bk._meta,  # noqa: SLF001
             enforce_metadata=False,
             transform_divisions=False,
             align_dataframes=False,
@@ -271,7 +240,7 @@ class _MapBuckets:
             shuffle_method=shuffle_type,
         ).map_partitions(
             M.drop_duplicates,
-            meta=ddf_anchor_docs_with_bk._meta,
+            meta=ddf_anchor_docs_with_bk._meta,  # noqa: SLF001
             enforce_metadata=False,
             transform_divisions=False,
             align_dataframes=False,

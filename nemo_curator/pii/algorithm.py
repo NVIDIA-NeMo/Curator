@@ -1,4 +1,4 @@
-# Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,15 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, List, Mapping, Union
+from typing import Any
 
 # NOTE: Importing this module before cluster creation will create a primary CUDA context
 # that leads to issues of all GPUs not being used when creating a cluster/client later on.
 # Ensure that this module is always imported after cluster creation only when the algorithm
 # needs to be executed. See: https://github.com/NVIDIA/NeMo-Curator/issues/64
 import yaml
-from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
+from presidio_analyzer import AnalyzerEngine, EntityRecognizer, RecognizerRegistry, RecognizerResult
 from presidio_analyzer.nlp_engine import NerModelConfiguration
 from presidio_analyzer.nlp_engine.ner_model_configuration import LABELS_TO_IGNORE
 from presidio_analyzer.predefined_recognizers import (
@@ -44,13 +45,13 @@ __all__ = [
 ]
 
 
-class PiiDeidentifier(object):
+class PiiDeidentifier:
     """Cleans PII from an unstructured text"""
 
     def __init__(
         self,
         language: str = DEFAULT_LANGUAGE,
-        supported_entities: List[str] = None,
+        supported_entities: list[str] | None = None,
         anonymize_action: str = "replace",
         **kwargs,
     ):
@@ -93,9 +94,7 @@ class PiiDeidentifier(object):
         )
 
         self.language = language
-        ner_model_configuration = NerModelConfiguration(
-            labels_to_ignore=LABELS_TO_IGNORE
-        )
+        ner_model_configuration = NerModelConfiguration(labels_to_ignore=LABELS_TO_IGNORE)
         self.analyzer = AnalyzerEngine(
             registry=recognizer_registry,
             nlp_engine=CustomNlpEngine(ner_model_configuration=ner_model_configuration),
@@ -109,9 +108,7 @@ class PiiDeidentifier(object):
             self.operators["DEFAULT"] = OperatorConfig("redact", {})
 
         elif anonymize_action == "hash":
-            self.operators["DEFAULT"] = OperatorConfig(
-                "hash", {"hash_type": kwargs.get("hash_type")}
-            )
+            self.operators["DEFAULT"] = OperatorConfig("hash", {"hash_type": kwargs.get("hash_type")})
 
         elif anonymize_action == "mask":
             self.operators["DEFAULT"] = OperatorConfig(
@@ -124,24 +121,18 @@ class PiiDeidentifier(object):
             )
 
         elif anonymize_action == "lambda":
-            self.operators["DEFAULT"] = OperatorConfig(
-                "custom", {"lambda": kwargs.get("lambda")}
-            )
+            self.operators["DEFAULT"] = OperatorConfig("custom", {"lambda": kwargs.get("lambda")})
 
         else:
-            self.operators["DEFAULT"] = OperatorConfig(
-                "replace", {"new_value": kwargs.get("new_value")}
-            )
+            self.operators["DEFAULT"] = OperatorConfig("replace", {"new_value": kwargs.get("new_value")})
 
         self.supported_entities = supported_entities or SUPPORTED_ENTITIES
 
         if "ADDRESS" in self.supported_entities:
-            self.add_custom_recognizer(
-                AddressRecognizer(supported_entities=["ADDRESS"])
-            )
+            self.add_custom_recognizer(AddressRecognizer(supported_entities=["ADDRESS"]))
 
     @staticmethod
-    def from_config(config: Mapping[str, Any]):
+    def from_config(config: Mapping[str, Any]) -> "PiiDeidentifier":
         config = config.get("pii_config")
         language = config.get("language")
         supported_entities = config.get("supported_entities")
@@ -158,47 +149,49 @@ class PiiDeidentifier(object):
         )
 
     @staticmethod
-    def from_yaml_file(path: Union[Path, str]):
+    def from_yaml_file(path: Path | str) -> "PiiDeidentifier":
         with open(path) as f:
             return PiiDeidentifier.from_config(yaml.safe_load(f))
 
     @staticmethod
-    def from_default_config():
+    def from_default_config() -> "PiiDeidentifier":
         return PiiDeidentifier(
             PiiDeidentifier.DEFAULT_LANGUAGE,
             supported_entities=SUPPORTED_ENTITIES,
             anonymize_action="replace",
         )
 
-    def list_supported_entities(self):
+    def list_supported_entities(self) -> list[str]:
         """List all entities that are detected while cleaning a text"""
         return self.supported_entities.copy()
 
-    def list_operators(self):
+    def list_operators(self) -> dict[str, OperatorConfig]:
         """List all operators used to clean PII entities"""
         return self.operators.copy()
 
-    def add_custom_recognizer(self, recognizer):
+    def add_custom_recognizer(self, recognizer: EntityRecognizer) -> None:
         """Add a custom recognizer to detect entities based on user-defined logic"""
         self.supported_entities.extend(recognizer.get_supported_entities())
         self.analyzer.registry.add_recognizer(recognizer)
 
-    def add_custom_operator(self, entity, operator):
+    def add_custom_operator(self, entity: str, operator: OperatorConfig) -> None:
         """Use a custom cleaning operation for a specific entity types"""
         self.operators[entity] = operator
 
-    def analyze_text(self, text, entities: List[str] = None, language: str = "en"):
+    def analyze_text(
+        self, text: str, entities: list[str] | None = None, language: str = "en"
+    ) -> list[list[RecognizerResult]]:
         if not entities:
             entities = self.supported_entities
         return self.analyzer.analyze(text, language, entities=entities)
 
     def analyze_text_batch(
         self,
-        texts: List[str],
-        entities: List[str] = None,
+        texts: list[str],
+        entities: list[str] | None = None,
         language: str = "en",
         batch_size: int = 32,
-    ):
+    ) -> list[list[RecognizerResult]]:
         """
         For processing batches, use batch analyzer
 
@@ -213,11 +206,9 @@ class PiiDeidentifier(object):
         if not entities:
             entities = self.supported_entities
 
-        return self.batch_analyzer.analyze_iterator(
-            texts, language, entities=entities, batch_size=batch_size
-        )
+        return self.batch_analyzer.analyze_iterator(texts, language, entities=entities, batch_size=batch_size)
 
-    def deidentify_text_batch(self, texts: List[str], batch_size: int = 32):
+    def deidentify_text_batch(self, texts: list[str], batch_size: int = 32) -> list[str]:
         """
         For processing batches, use batch analyzer
 
@@ -236,12 +227,9 @@ class PiiDeidentifier(object):
             batch_size=batch_size,
         )
 
-        anonymized_results_list = self.batch_anonymizer.anonymize_list(
-            texts, analyzer_results_list, operators=self.operators
-        )
-        return anonymized_results_list
+        return self.batch_anonymizer.anonymize_list(texts, analyzer_results_list, operators=self.operators)
 
-    def deidentify_text(self, text: str):
+    def deidentify_text(self, text: str) -> str:
         """
         Cleans PII data from text
 
@@ -251,9 +239,7 @@ class PiiDeidentifier(object):
         Returns:
         str: Returns anonymized text
         """
-        analyzer_results = self.analyzer.analyze(
-            text=text, entities=self.supported_entities, language=self.language
-        )
+        analyzer_results = self.analyzer.analyze(text=text, entities=self.supported_entities, language=self.language)
         anonymized_results = self.anonymizer.anonymize(
             text=text, analyzer_results=analyzer_results, operators=self.operators
         )

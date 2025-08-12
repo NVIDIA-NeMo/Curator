@@ -18,7 +18,7 @@ from nemo_curator.utils.download_utils import get_common_crawl_urls
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     urls = get_common_crawl_urls(
         args.starting_snapshot,
         args.ending_snapshot,
@@ -33,17 +33,8 @@ def main(args):
             fp.write("\n")
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-Pulls URLs of WARC files stored within the Common Crawl data repository
-and writes them to file so that they can be used to subsequently
-download the WARC files.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    argumentHelper = ArgumentHelper(parser)
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    ArgumentHelper(parser)
 
     parser.add_argument(
         "--cc-data-domain-prefix",
@@ -99,5 +90,13 @@ download the WARC files.
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        """
+Pulls URLs of WARC files stored within the Common Crawl data repository
+and writes them to file so that they can be used to subsequently
+download the WARC files.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

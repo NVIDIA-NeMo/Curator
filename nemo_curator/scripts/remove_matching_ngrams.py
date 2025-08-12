@@ -26,8 +26,8 @@ from nemo_curator.utils.file_utils import (
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+def main(args: argparse.Namespace) -> None:
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     output_tdd_dir = expand_outdir_and_mkdir(args.output_task_deduped_dir)
     output_rm_doc_dir = None
@@ -37,7 +37,7 @@ def main(args):
     # Each rank read in the task data
     print(f"Reading in matched n-grams from {args.input_matched_ngrams}")
     with open(args.input_matched_ngrams, "rb") as fp:
-        matched_ngram_data = pickle.load(fp)
+        matched_ngram_data = pickle.load(fp)  # noqa: S301
 
     # Unpack the results from find_matched_ngrams
     matched_ngrams = matched_ngram_data["matched-ngrams"]
@@ -68,9 +68,7 @@ def main(args):
                 add_filename=True,
             )
         )
-        decontaminated_dataset = decontaminator.remove_matching_ngrams(
-            matched_ngrams, ngrams_freq, dataset
-        )
+        decontaminated_dataset = decontaminator.remove_matching_ngrams(matched_ngrams, ngrams_freq, dataset)
         write_to_disk(
             decontaminated_dataset.df,
             output_tdd_dir,
@@ -82,34 +80,21 @@ def main(args):
     print("Finished decontaminating all files")
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
- Using the matching n-grams find by
- nemo_curator/scripts/find_matching_ngrams.py
- (provided by the argument --input-matched-ngrams),
- passes over all documents and removes matching n-grams from the corpus by
- splitting documents containing the match. If a document is split more than
- --max-splits times, it is removed from the corpus.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    argumentHelper = ArgumentHelper(parser)
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_batch_size()
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_input_text_field()
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_batch_size()
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_input_text_field()
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--input-matched-ngrams",
         type=str,
         default=None,
         required=True,
-        help="Input dictionary (.pkl file) that contains matched "
-        "n-gram data from the find_matching_ngrams code.",
+        help="Input dictionary (.pkl file) that contains matched n-gram data from the find_matching_ngrams code.",
     )
     parser.add_argument(
         "--match-threshold",
@@ -142,12 +127,22 @@ def attach_args(
         type=str,
         default=None,
         required=True,
-        help="Output directory to where task-deduplicated (split) "
-        "documents will be written.",
+        help="Output directory to where task-deduplicated (split) documents will be written.",
     )
 
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        """
+ Using the matching n-grams find by
+ nemo_curator/scripts/find_matching_ngrams.py
+ (provided by the argument --input-matched-ngrams),
+ passes over all documents and removes matching n-grams from the corpus by
+ splitting documents containing the match. If a document is split more than
+ --max-splits times, it is removed from the corpus.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

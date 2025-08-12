@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,10 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import asyncio
+
 import logging
 import os
-from typing import Any, Coroutine, List, Optional, Tuple, Union
+from collections.abc import Coroutine
+from typing import Any
 
 import yaml
 from tqdm.asyncio import tqdm
@@ -54,8 +55,8 @@ class AsyncNemotronGenerator:
     def __init__(
         self,
         llm_client: AsyncLLMClient,
-        logger: Union[logging.LoggerAdapter, str] = "./",
-        max_concurrent_requests: Optional[int] = None,
+        logger: logging.LoggerAdapter | str = "./",
+        max_concurrent_requests: int | None = None,
     ) -> None:
         self.client = llm_client
         self.max_concurrent_requests = max_concurrent_requests
@@ -68,24 +69,20 @@ class AsyncNemotronGenerator:
         else:
             self.logger = logger
 
-    async def _prompt(
-        self, model: str, prompt_template: str, prompt_kwargs: dict, model_kwargs: dict
-    ) -> List[str]:
+    async def _prompt(self, model: str, prompt_template: str, prompt_kwargs: dict, model_kwargs: dict) -> list[str]:
         prompt = prompt_template.format(**prompt_kwargs)
         messages = [{"role": "user", "content": prompt}]
 
-        return await self.client.query_model(
-            messages=messages, model=model, **model_kwargs
-        )
+        return await self.client.query_model(messages=messages, model=model, **model_kwargs)
 
     async def convert_response_to_yaml_list(
         self,
         llm_response: str,
         model: str,
         prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Converts a response of an LLM to a list of strings by querying an LLM
         Args:
@@ -100,6 +97,11 @@ class AsyncNemotronGenerator:
         Returns:
             A parsed list of elements from the original LLM response
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["llm_response"] = llm_response
         yaml_response = await self._prompt(
             model=model,
@@ -111,28 +113,24 @@ class AsyncNemotronGenerator:
         try:
             parsed_response = yaml.safe_load(yaml_response[0])
         except yaml.error.YAMLError as _:
-            raise YamlConversionError(
-                f"Error parsing yaml response: {yaml_response[0]}"
-            )
+            msg = f"Error parsing yaml response: {yaml_response[0]}"
+            raise YamlConversionError(msg) from _
 
         if not isinstance(parsed_response, list):
-            raise YamlConversionError(
-                f"Error: Parsed response was not a list: {parsed_response}"
-            )
+            msg = f"Error: Parsed response was not a list: {parsed_response}"
+            raise YamlConversionError(msg)
 
         for elem in parsed_response:
             if not isinstance(elem, str):
-                raise YamlConversionError(
-                    f"Error: Parsed response contains non-string elements in list: {parsed_response}"
-                )
+                msg = f"Error: Parsed response contains non-string elements in list: {parsed_response}"
+                raise YamlConversionError(msg)
             if elem not in llm_response:
-                raise YamlConversionError(
-                    f"Conversion introduced hallucinations. Original response:\n{llm_response}\nConverted response:\n{parsed_response}\nHallucination:\n{elem}"
-                )
+                msg = f"Conversion introduced hallucinations. Original response:\n{llm_response}\nConverted response:\n{parsed_response}\nHallucination:\n{elem}"
+                raise YamlConversionError(msg)
 
         return parsed_response
 
-    async def _try_convert_yaml_list(
+    async def _try_convert_yaml_list(  # noqa: PLR0913
         self,
         response: str,
         model: str,
@@ -140,7 +138,9 @@ class AsyncNemotronGenerator:
         conversion_model_kwargs: dict,
         expected_length: int,
         ignore_conversion_failure: bool,
-    ):
+        trim_topics_list: bool,
+    ) -> list[str]:
+        parsed_list = None
         try:
             parsed_list = await self.convert_response_to_yaml_list(
                 response,
@@ -149,20 +149,19 @@ class AsyncNemotronGenerator:
                 model_kwargs=conversion_model_kwargs,
             )
             if len(parsed_list) != expected_length:
-                raise YamlConversionError(
-                    f"Error: Length of parsed list {len(parsed_list)} does not match expected length {expected_length}: {parsed_list}"
-                )
-        except YamlConversionError as e:
-            if ignore_conversion_failure:
+                msg = f"Error: Length of parsed list {len(parsed_list)} does not match expected length {expected_length}: {parsed_list}"
+                raise YamlConversionError(msg)  # noqa: TRY301
+        except YamlConversionError:
+            if trim_topics_list and parsed_list is not None:
+                return parsed_list[:expected_length]
+            elif ignore_conversion_failure:
                 return []
             else:
-                raise e
+                raise
 
         return parsed_list
 
-    async def _gather(
-        self, requests: List[Coroutine[Any, Any, List[str]]]
-    ) -> List[str]:
+    async def _gather(self, requests: list[Coroutine[Any, Any, list[str]]]) -> list[str]:
         max_requests = self.max_concurrent_requests
         if max_requests is None:
             max_requests = len(requests)
@@ -177,12 +176,12 @@ class AsyncNemotronGenerator:
 
     async def generate_macro_topics(
         self,
-        n_macro_topics: Union[int, str],
+        n_macro_topics: int | str,
         model: str,
         prompt_template: str = DEFAULT_MACRO_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of macro topics about the world
         Args:
@@ -197,25 +196,29 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_macro_topics"] = n_macro_topics
-        macro_topics = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return macro_topics
-
-    async def generate_subtopics(
+    async def generate_subtopics(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         prompt_template: str = DEFAULT_SUBTOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of subtopics relating to a macro topic
         Args:
@@ -232,26 +235,30 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_subtopics"] = n_subtopics
         prompt_kwargs["macro_topic"] = macro_topic
-        subtopics_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return subtopics_response
-
-    async def generate_open_qa_from_topic(
+    async def generate_open_qa_from_topic(  # noqa: PLR0913
         self,
         topic: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = DEFAULT_OPEN_QA_FROM_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of open Q&A questions based on a topic
         Args:
@@ -268,26 +275,30 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["n_openlines"] = n_openlines
-        openline_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
-    async def revise_open_qa(
+    async def revise_open_qa(  # noqa: PLR0913
         self,
         openline: str,
-        n_revisions: Union[str, int],
+        n_revisions: str | int,
         model: str,
         prompt_template: str = DEFAULT_REVISE_OPEN_QA_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to revise an open Q&A question a given number of times
         Args:
@@ -304,27 +315,31 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["openline"] = openline
         prompt_kwargs["n_revisions"] = n_revisions
-        revisions = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return revisions
-
-    async def generate_writing_tasks(
+    async def generate_writing_tasks(  # noqa: PLR0913
         self,
         topic: str,
         text_material_type: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = DEFAULT_WRITING_TASK_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of writing tasks based on a topic and document type
         Args:
@@ -343,27 +358,31 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["text_material_type"] = text_material_type
         prompt_kwargs["n_openlines"] = n_openlines
-        writing_tasks = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return writing_tasks
-
-    async def revise_writing_tasks(
+    async def revise_writing_tasks(  # noqa: PLR0913
         self,
         openline: str,
-        n_revisions: Union[str, int],
+        n_revisions: str | int,
         model: str,
         prompt_template: str = DEFAULT_REVISE_WRITING_TASK_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to revise a writing task a given number of times
         Args:
@@ -380,26 +399,30 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["openline"] = openline
         prompt_kwargs["n_revisions"] = n_revisions
-        revisions = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return revisions
-
-    async def generate_closed_qa_instructions(
+    async def generate_closed_qa_instructions(  # noqa: PLR0913
         self,
         document: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = DEFAULT_CLOSED_QA_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of closed Q&A questions based on a reference document
         Args:
@@ -416,26 +439,30 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["document"] = document
         prompt_kwargs["n_openlines"] = n_openlines
-        openline_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
-    async def generate_math_macro_topics(
+    async def generate_math_macro_topics(  # noqa: PLR0913
         self,
-        n_macro_topics: Union[int, str],
+        n_macro_topics: int | str,
         school_level: str,
         model: str,
         prompt_template: str = DEFAULT_MATH_MACRO_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of macro topics about math
         Args:
@@ -452,26 +479,30 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_macro_topics"] = n_macro_topics
         prompt_kwargs["school_level"] = school_level
-        macro_topics = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return macro_topics
-
-    async def generate_math_subtopics(
+    async def generate_math_subtopics(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         prompt_template: str = DEFAULT_MATH_SUBTOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of subtopics relating to a math macro topic
         Args:
@@ -488,25 +519,29 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_subtopics"] = n_subtopics
         prompt_kwargs["macro_topic"] = macro_topic
-        subtopics_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return subtopics_response
-
     async def classify_math_entity(
         self,
         entity: str,
         model: str,
         prompt_template: str = DEFAULT_MATH_CLASSIFICATION_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs={},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to classify if an entity is related to math
         Args:
@@ -521,25 +556,29 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["entity"] = entity
-        classification_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return classification_response
-
-    async def generate_math_problem(
+    async def generate_math_problem(  # noqa: PLR0913
         self,
         topic: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
         prompt_template: str = MATH_PROBLEM_GENERAL_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of math problems based on a topic
         Args:
@@ -559,25 +598,29 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["n_openlines"] = n_openlines
-        openline_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
     async def generate_python_macro_topics(
         self,
-        n_macro_topics: Union[int, str],
+        n_macro_topics: int | str,
         model: str,
         prompt_template: str = DEFAULT_PYTHON_MACRO_TOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of macro topics about the Python programming language
         Args:
@@ -592,25 +635,29 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_macro_topics"] = n_macro_topics
-        macro_topics = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return macro_topics
-
-    async def generate_python_subtopics(
+    async def generate_python_subtopics(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         prompt_template: str = DEFAULT_PYTHON_SUBTOPICS_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of subtopics relating to a Python macro topic
         Args:
@@ -627,25 +674,29 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["n_subtopics"] = n_subtopics
         prompt_kwargs["macro_topic"] = macro_topic
-        subtopics_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return subtopics_response
-
     async def classify_python_entity(
         self,
         entity: str,
         model: str,
         prompt_template: str = DEFAULT_PYTHON_CLASSIFICATION_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to classify if an entity is related to Python
         Args:
@@ -660,26 +711,30 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["entity"] = entity
-        classification_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return classification_response
-
-    async def generate_python_problem(
+    async def generate_python_problem(  # noqa: PLR0913
         self,
         topic: str,
-        n_openlines: Union[str, int],
+        n_openlines: str | int,
         model: str,
-        language="Python",
+        language: str = "Python",
         prompt_template: str = PYTHON_PROBLEM_BEGINNER_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Prompts an LLM to generate a list of coding problems based on a topic
         Args:
@@ -702,29 +757,33 @@ class AsyncNemotronGenerator:
         Returns:
             A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
         prompt_kwargs["topic"] = topic
         prompt_kwargs["n_openlines"] = n_openlines
         prompt_kwargs["language"] = language
-        openline_response = await self._prompt(
+
+        return await self._prompt(
             model=model,
             prompt_template=prompt_template,
             prompt_kwargs=prompt_kwargs,
             model_kwargs=model_kwargs,
         )
 
-        return openline_response
-
-    async def generate_dialogue(
+    async def generate_dialogue(  # noqa: PLR0913
         self,
         openline: str,
         user_model: str,
         assistant_model: str,
         n_user_turns: int = 3,
         prompt_template: str = DIALOGUE_NORMAL_USER_TURN_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        user_model_kwargs: dict = {},
-        assistant_model_kwargs: dict = {},
-    ) -> List[dict]:
+        prompt_kwargs: dict | None = None,
+        user_model_kwargs: dict | None = None,
+        assistant_model_kwargs: dict | None = None,
+    ) -> list[dict]:
         """
         Prompts an LLM to generate a dialogue based on a given openline.
         The LLM will alternate impersonating the user and the assistant.
@@ -752,6 +811,13 @@ class AsyncNemotronGenerator:
         Returns:
             A conversation between a User and Assistant
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if user_model_kwargs is None:
+            user_model_kwargs = {}
+        if assistant_model_kwargs is None:
+            assistant_model_kwargs = {}
+
         conversation_history = [{"role": "user", "content": openline}]
         first_assistant_response = await self.client.query_model(
             messages=conversation_history,
@@ -759,9 +825,7 @@ class AsyncNemotronGenerator:
             **assistant_model_kwargs,
         )
         first_assistant_response = first_assistant_response[0]
-        conversation_history.append(
-            {"role": "assistant", "content": first_assistant_response}
-        )
+        conversation_history.append({"role": "assistant", "content": first_assistant_response})
         for _ in range(n_user_turns - 1):
             user_response = await self._impersonate_user(
                 conversation_history=conversation_history,
@@ -777,22 +841,20 @@ class AsyncNemotronGenerator:
                 **assistant_model_kwargs,
             )
             assistant_response = assistant_response[0]
-            conversation_history.append(
-                {"role": "assistant", "content": assistant_response}
-            )
+            conversation_history.append({"role": "assistant", "content": assistant_response})
 
         return conversation_history
 
-    async def generate_two_turn_prompt(
+    async def generate_two_turn_prompt(  # noqa: PLR0913
         self,
         openline: str,
         user_model: str,
         assistant_model: str,
         prompt_template: str = DIALOGUE_NORMAL_USER_TURN_PROMPT_TEMPLATE,
-        prompt_kwargs: dict = {},
-        user_model_kwargs: dict = {},
-        assistant_model_kwargs: dict = {},
-    ) -> List[dict]:
+        prompt_kwargs: dict | None = None,
+        user_model_kwargs: dict | None = None,
+        assistant_model_kwargs: dict | None = None,
+    ) -> list[dict]:
         """
         Prompts an LLM to generate a response as an assistant, then as the user based on a given openline.
         The conversation will look like "User -> Assistant -> User"
@@ -818,6 +880,13 @@ class AsyncNemotronGenerator:
         Returns:
             A conversation between a User and Assistant
         """
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if user_model_kwargs is None:
+            user_model_kwargs = {}
+        if assistant_model_kwargs is None:
+            assistant_model_kwargs = {}
+
         conversation_history = [{"role": "user", "content": openline}]
         first_assistant_response = await self.client.query_model(
             messages=conversation_history,
@@ -825,9 +894,7 @@ class AsyncNemotronGenerator:
             **assistant_model_kwargs,
         )
         first_assistant_response = first_assistant_response[0]
-        conversation_history.append(
-            {"role": "assistant", "content": first_assistant_response}
-        )
+        conversation_history.append({"role": "assistant", "content": first_assistant_response})
 
         user_response = await self._impersonate_user(
             conversation_history=conversation_history,
@@ -842,7 +909,7 @@ class AsyncNemotronGenerator:
 
     async def _impersonate_user(
         self,
-        conversation_history: List[dict],
+        conversation_history: list[dict],
         model: str,
         prompt_template: str,
         prompt_kwargs: dict,
@@ -862,25 +929,26 @@ class AsyncNemotronGenerator:
 
         return response[0]
 
-    async def run_open_qa_pipeline(
+    async def run_open_qa_pipeline(  # noqa: PLR0913, C901
         self,
-        n_macro_topics: Union[str, int],
-        n_subtopics: Union[str, int],
-        n_openlines: Union[str, int],
-        n_revisions: Union[str, int],
+        n_macro_topics: str | int,
+        n_subtopics: str | int,
+        n_openlines: str | int,
+        n_revisions: str | int,
         model: str,
         macro_topic_prompt_template: str = DEFAULT_MACRO_TOPICS_PROMPT_TEMPLATE,
         subtopic_prompt_template: str = DEFAULT_SUBTOPICS_PROMPT_TEMPLATE,
         open_qa_from_topics_prompt_template: str = DEFAULT_OPEN_QA_FROM_TOPICS_PROMPT_TEMPLATE,
         revise_open_qa_prompt_template: str = DEFAULT_REVISE_OPEN_QA_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
-        additional_macro_topics: List[str] = [],
-        additional_subtopics: List[str] = [],
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
+        additional_macro_topics: list[str] | None = None,
+        additional_subtopics: list[str] | None = None,
         ignore_conversion_failure: bool = False,
+        trim_topics_list: bool = True,
         combine_topics: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating Open Q&A openlines for a dialogue
         Args:
@@ -914,11 +982,21 @@ class AsyncNemotronGenerator:
                 LLMClient.query_model call for the yaml conversion stages of the pipeline.
             ignore_conversion_failure: Ignores yaml conversion failures when able and discards the data
                 that conversion was attempted on
+            trim_topics_list: If True, trims the list of macro topics and subtopics to the desired number.
             combine_topics: If True, mixes the macro topics with the subtopics when generating openlines.
                 If False, only the subtopics are used.
         Returns:
             A list of synthetically generated open Q&A prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+        if additional_macro_topics is None:
+            additional_macro_topics = []
+        if additional_subtopics is None:
+            additional_subtopics = []
+
         self.logger.info("Starting open q&a pipeline")
         # Generate the macro topics
         self.logger.info("Starting macro topic generation")
@@ -936,15 +1014,21 @@ class AsyncNemotronGenerator:
                 prompt_template=yaml_conversion_prompt_template,
                 model_kwargs=conversion_model_kwargs,
             )
-            if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-                raise YamlConversionError(
-                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
-                )
-        except YamlConversionError as e:
+            if len(macro_topics) != n_macro_topics:
+                if not ignore_conversion_failure:
+                    msg = f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
+                elif trim_topics_list:
+                    self.logger.warning(
+                        f"Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}\n"
+                        f"We are trimming the list to {n_macro_topics} items"
+                    )
+                    macro_topics = macro_topics[:n_macro_topics]
+        except YamlConversionError:
             if ignore_conversion_failure:
                 macro_topics = []
             else:
-                raise e
+                raise
 
         macro_topics.extend(additional_macro_topics)
         self.logger.info("Finished macro topic generation")
@@ -960,6 +1044,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for macro_topic in macro_topics
         ]
@@ -984,6 +1069,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for subtopic in topic_list
         ]
@@ -1003,6 +1089,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for openline in openlines
         ]
@@ -1014,17 +1101,18 @@ class AsyncNemotronGenerator:
 
         return revised_openlines
 
-    async def _generate_parse_subtopic(
+    async def _generate_parse_subtopic(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         subtopic_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         subtopic = await self.generate_subtopics(
             macro_topic=macro_topic,
             n_subtopics=n_subtopics,
@@ -1040,19 +1128,21 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_subtopics,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def _generate_parse_openline(
+    async def _generate_parse_openline(  # noqa: PLR0913
         self,
         subtopic: str,
-        n_openlines: Union[int, str],
+        n_openlines: int | str,
         model: str,
         open_qa_from_topics_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         openline = await self.generate_open_qa_from_topic(
             topic=subtopic,
             n_openlines=n_openlines,
@@ -1068,19 +1158,21 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_openlines,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def _revise_parse_openline(
+    async def _revise_parse_openline(  # noqa: PLR0913
         self,
         openline: str,
-        n_revisions: Union[int, str],
+        n_revisions: int | str,
         model: str,
         revise_open_qa_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         revised_openline = await self.revise_open_qa(
             openline=openline,
             n_revisions=n_revisions,
@@ -1096,22 +1188,24 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_revisions,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def run_writing_pipeline(
+    async def run_writing_pipeline(  # noqa: PLR0913
         self,
-        topics: List[str],
-        text_material_types: List[str],
-        n_openlines: Union[str, int],
-        n_revisions: Union[str, int],
+        topics: list[str],
+        text_material_types: list[str],
+        n_openlines: str | int,
+        n_revisions: str | int,
         model: str,
         writing_task_prompt_template: str = DEFAULT_WRITING_TASK_PROMPT_TEMPLATE,
         revise_writing_task_prompt_template: str = DEFAULT_REVISE_WRITING_TASK_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
         ignore_conversion_failure: bool = False,
-    ) -> List[str]:
+        trim_topics_list: bool = True,
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating writing task openlines for a dialogue
         Args:
@@ -1139,9 +1233,15 @@ class AsyncNemotronGenerator:
                 LLMClient.query_model call for the yaml conversion stages of the pipeline.
             ignore_conversion_failure: Ignores yaml conversion failures when able and discards the data
                 that conversion was attempted on
+            trim_topics_list: If True, trims the list of macro topics and subtopics to the desired number.
         Returns:
             A list of synthetically generated writing task prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+
         self.logger.info("Starting writing pipeline")
         # Generate the tasks
         raw_writing_tasks = []
@@ -1158,6 +1258,7 @@ class AsyncNemotronGenerator:
                         base_model_kwargs=base_model_kwargs,
                         conversion_model_kwargs=conversion_model_kwargs,
                         ignore_conversion_failure=ignore_conversion_failure,
+                        trim_topics_list=trim_topics_list,
                     )
                 )
         self.logger.info("Starting writing task generation")
@@ -1176,6 +1277,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for task in writing_tasks
         ]
@@ -1187,18 +1289,19 @@ class AsyncNemotronGenerator:
 
         return revised_openlines
 
-    async def _generate_parse_writing_task(
+    async def _generate_parse_writing_task(  # noqa: PLR0913
         self,
         topic: str,
         material: str,
-        n_openlines: Union[int, str],
+        n_openlines: int | str,
         model: str,
         writing_task_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_tasks = await self.generate_writing_tasks(
             topic=topic,
             text_material_type=material,
@@ -1215,19 +1318,21 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_openlines,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def _revise_parse_writing_task(
+    async def _revise_parse_writing_task(  # noqa: PLR0913
         self,
         task: str,
-        n_revisions: Union[int, str],
+        n_revisions: int | str,
         model: str,
         revise_writing_task_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_revision = await self.revise_writing_tasks(
             openline=task,
             n_revisions=n_revisions,
@@ -1243,19 +1348,21 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_revisions,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def run_closed_qa_pipeline(
+    async def run_closed_qa_pipeline(  # noqa: PLR0913
         self,
-        documents: List[str],
-        n_openlines: Union[str, int],
+        documents: list[str],
+        n_openlines: str | int,
         model: str,
         closed_qa_prompt_template: str = DEFAULT_CLOSED_QA_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
         ignore_conversion_failure: bool = False,
-    ) -> List[Tuple[int, str]]:
+        trim_topics_list: bool = True,
+    ) -> list[tuple[int, str]]:
         """
         Runs a pipeline for automatically generating closed Q&A openlines for a dialogue
         Args:
@@ -1276,10 +1383,16 @@ class AsyncNemotronGenerator:
                 LLMClient.query_model call for the yaml conversion stages of the pipeline.
             ignore_conversion_failure: Ignores yaml conversion failures when able and discards the data
                 that conversion was attempted on
+            trim_topics_list: If True, trims the list of macro topics and subtopics to the desired number.
         Returns:
             A list of pairs where the first element represents the index of the document used to generate the question in the documents list
             and the second element represents a synthetically generated closed Q&A prompt. Example: [(0, "Summarize this document"), ...]
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+
         self.logger.info("Starting closed q&a pipeline")
         raw_qa = [
             self._generate_parse_closed_qa(
@@ -1292,6 +1405,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for i, document in enumerate(documents)
         ]
@@ -1301,18 +1415,19 @@ class AsyncNemotronGenerator:
 
         return document_openline_pairs
 
-    async def _generate_parse_closed_qa(
+    async def _generate_parse_closed_qa(  # noqa: PLR0913
         self,
         document_id: int,
         document: str,
-        n_openlines: Union[int, str],
+        n_openlines: int | str,
         model: str,
         closed_qa_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_instruction = await self.generate_closed_qa_instructions(
             document=document,
             n_openlines=n_openlines,
@@ -1328,28 +1443,30 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_openlines,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
         return [(document_id, inst) for inst in parsed_instructions]
 
-    async def run_math_pipeline(
+    async def run_math_pipeline(  # noqa: PLR0913, C901
         self,
-        n_macro_topics: Union[str, int],
+        n_macro_topics: str | int,
         school_level: str,
-        n_subtopics: Union[str, int],
-        n_openlines: Union[str, int],
+        n_subtopics: str | int,
+        n_openlines: str | int,
         model: str,
         macro_topic_prompt_template: str = DEFAULT_MATH_MACRO_TOPICS_PROMPT_TEMPLATE,
         subtopic_prompt_template: str = DEFAULT_MATH_SUBTOPICS_PROMPT_TEMPLATE,
         math_problem_prompt_template: str = MATH_PROBLEM_GENERAL_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
-        additional_macro_topics: List[str] = [],
-        additional_subtopics: List[str] = [],
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
+        additional_macro_topics: list[str] | None = None,
+        additional_subtopics: list[str] | None = None,
         ignore_conversion_failure: bool = False,
+        trim_topics_list: bool = True,
         combine_topics: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating math questions for a dialogue
         Args:
@@ -1383,11 +1500,21 @@ class AsyncNemotronGenerator:
                 LLMClient.query_model call for the yaml conversion stages of the pipeline.
             ignore_conversion_failure: Ignores yaml conversion failures when able and discards the data
                 that conversion was attempted on
+            trim_topics_list: If True, trims the list of macro topics and subtopics to the desired number.
             combine_topics: If True, mixes the macro topics with the subtopics when generating openlines.
                 If False, only the subtopics are used.
         Returns:
             A list of synthetically generated math prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+        if additional_macro_topics is None:
+            additional_macro_topics = []
+        if additional_subtopics is None:
+            additional_subtopics = []
+
         self.logger.info("Starting math pipeline")
         # Generate the macro topics
         self.logger.info("Starting math macro topic generation")
@@ -1405,15 +1532,21 @@ class AsyncNemotronGenerator:
                 prompt_template=yaml_conversion_prompt_template,
                 model_kwargs=conversion_model_kwargs,
             )
-            if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-                raise YamlConversionError(
-                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
-                )
-        except YamlConversionError as e:
+            if len(macro_topics) != n_macro_topics:
+                if not ignore_conversion_failure:
+                    msg = f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
+                elif trim_topics_list:
+                    self.logger.warning(
+                        f"Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}\n"
+                        f"We are trimming the list to {n_macro_topics} items"
+                    )
+                    macro_topics = macro_topics[:n_macro_topics]
+        except YamlConversionError:
             if ignore_conversion_failure:
                 macro_topics = []
             else:
-                raise e
+                raise
         macro_topics.extend(additional_macro_topics)
         self.logger.info("Finished math macro topic generation")
 
@@ -1428,6 +1561,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for macro_topic in macro_topics
         ]
@@ -1452,6 +1586,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for subtopic in topic_list
         ]
@@ -1463,17 +1598,18 @@ class AsyncNemotronGenerator:
 
         return openlines
 
-    async def _generate_parse_math_subtopic(
+    async def _generate_parse_math_subtopic(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         subtopic_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_topic = await self.generate_math_subtopics(
             macro_topic=macro_topic,
             n_subtopics=n_subtopics,
@@ -1489,19 +1625,21 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_subtopics,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def _generate_parse_math_openline(
+    async def _generate_parse_math_openline(  # noqa: PLR0913
         self,
         subtopic: str,
-        n_openlines: Union[int, str],
+        n_openlines: int | str,
         model: str,
         math_problem_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_line = await self.generate_math_problem(
             topic=subtopic,
             n_openlines=n_openlines,
@@ -1517,25 +1655,27 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_openlines,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def run_python_pipeline(
+    async def run_python_pipeline(  # noqa: PLR0913, C901
         self,
-        n_macro_topics: Union[str, int],
-        n_subtopics: Union[str, int],
-        n_openlines: Union[str, int],
+        n_macro_topics: str | int,
+        n_subtopics: str | int,
+        n_openlines: str | int,
         model: str,
         macro_topic_prompt_template: str = DEFAULT_PYTHON_MACRO_TOPICS_PROMPT_TEMPLATE,
         subtopic_prompt_template: str = DEFAULT_PYTHON_SUBTOPICS_PROMPT_TEMPLATE,
         python_problem_prompt_template: str = PYTHON_PROBLEM_BEGINNER_PROMPT_TEMPLATE,
         yaml_conversion_prompt_template: str = DEFAULT_YAML_CONVERSION_PROMPT_TEMPLATE,
-        base_model_kwargs: dict = {},
-        conversion_model_kwargs: dict = {},
-        additional_macro_topics: List[str] = [],
-        additional_subtopics: List[str] = [],
+        base_model_kwargs: dict | None = None,
+        conversion_model_kwargs: dict | None = None,
+        additional_macro_topics: list[str] | None = None,
+        additional_subtopics: list[str] | None = None,
         ignore_conversion_failure: bool = False,
+        trim_topics_list: bool = True,
         combine_topics: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Runs a pipeline for automatically generating Python questions for a dialogue
         Args:
@@ -1569,11 +1709,21 @@ class AsyncNemotronGenerator:
                 LLMClient.query_model call for the yaml conversion stages of the pipeline.
             ignore_conversion_failure: Ignores yaml conversion failures when able and discards the data
                 that conversion was attempted on
+            trim_topics_list: If True, trims the list of macro topics and subtopics to the desired number.
             combine_topics: If True, mixes the macro topics with the subtopics when generating openlines.
                 If False, only the subtopics are used.
         Returns:
             A list of synthetically generated Python prompts
         """
+        if base_model_kwargs is None:
+            base_model_kwargs = {}
+        if conversion_model_kwargs is None:
+            conversion_model_kwargs = {}
+        if additional_macro_topics is None:
+            additional_macro_topics = []
+        if additional_subtopics is None:
+            additional_subtopics = []
+
         self.logger.info("Starting python pipeline")
         # Generate the macro topics
         self.logger.info("Starting python macro topic generation")
@@ -1590,15 +1740,21 @@ class AsyncNemotronGenerator:
                 prompt_template=yaml_conversion_prompt_template,
                 model_kwargs=conversion_model_kwargs,
             )
-            if len(macro_topics) != n_macro_topics and not ignore_conversion_failure:
-                raise YamlConversionError(
-                    f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
-                )
-        except YamlConversionError as e:
+            if len(macro_topics) != n_macro_topics:
+                if not ignore_conversion_failure:
+                    msg = f"Error: Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}"
+                    raise YamlConversionError(msg)  # noqa: TRY301
+                elif trim_topics_list:
+                    self.logger.warning(
+                        f"Length of macro topics {len(macro_topics)} does not match desired n_macro_topics {n_macro_topics}: {macro_topics}\n"
+                        f"We are trimming the list to {n_macro_topics} items"
+                    )
+                    macro_topics = macro_topics[:n_macro_topics]
+        except YamlConversionError:
             if ignore_conversion_failure:
                 macro_topics = []
             else:
-                raise e
+                raise
         macro_topics.extend(additional_macro_topics)
         self.logger.info("Finished python macro topic generation")
 
@@ -1613,6 +1769,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for macro_topic in macro_topics
         ]
@@ -1637,6 +1794,7 @@ class AsyncNemotronGenerator:
                 base_model_kwargs=base_model_kwargs,
                 conversion_model_kwargs=conversion_model_kwargs,
                 ignore_conversion_failure=ignore_conversion_failure,
+                trim_topics_list=trim_topics_list,
             )
             for subtopic in topic_list
         ]
@@ -1648,17 +1806,18 @@ class AsyncNemotronGenerator:
 
         return openlines
 
-    async def _generate_parse_python_subtopic(
+    async def _generate_parse_python_subtopic(  # noqa: PLR0913
         self,
         macro_topic: str,
-        n_subtopics: Union[int, str],
+        n_subtopics: int | str,
         model: str,
         subtopic_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_topic = await self.generate_python_subtopics(
             macro_topic=macro_topic,
             n_subtopics=n_subtopics,
@@ -1674,19 +1833,21 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_subtopics,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )
 
-    async def _generate_parse_python_openline(
+    async def _generate_parse_python_openline(  # noqa: PLR0913
         self,
         subtopic: str,
-        n_openlines: Union[int, str],
+        n_openlines: int | str,
         model: str,
         python_problem_prompt_template: str,
         yaml_conversion_prompt_template: str,
         base_model_kwargs: dict,
         conversion_model_kwargs: dict,
         ignore_conversion_failure: bool,
-    ) -> List[str]:
+        trim_topics_list: bool,
+    ) -> list[str]:
         raw_line = await self.generate_python_problem(
             topic=subtopic,
             n_openlines=n_openlines,
@@ -1702,4 +1863,5 @@ class AsyncNemotronGenerator:
             conversion_model_kwargs=conversion_model_kwargs,
             expected_length=n_openlines,
             ignore_conversion_failure=ignore_conversion_failure,
+            trim_topics_list=trim_topics_list,
         )

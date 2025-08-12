@@ -13,9 +13,8 @@
 # limitations under the License.
 
 from functools import partial
-from typing import List
 
-import nvidia.dali.fn as fn
+from nvidia.dali import fn
 from nvidia.dali.types import FLOAT, DALIInterpType
 from timm.data.transforms import MaybeToTensor
 from torchvision.transforms.transforms import (
@@ -48,7 +47,7 @@ SUPPORTED_INTERPOLATIONS = {
 }
 
 
-def convert_transforms_to_dali(torch_transform: Compose) -> List:
+def convert_transforms_to_dali(torch_transform: Compose) -> list:
     """
     Converts a list of PyTorch/Timm image transformations into DALI transformations
     Only works with transformations that follow this pattern:
@@ -63,7 +62,7 @@ def convert_transforms_to_dali(torch_transform: Compose) -> List:
     Anything that does not follow this pattern will cause a ValueError to be raised
     """
     if not isinstance(torch_transform, Compose):
-        raise ValueError(ERROR_MESSAGE.format(torch_transform))
+        raise ValueError(ERROR_MESSAGE.format(torch_transform))  # noqa: TRY004
 
     crop = None
     mean = [0.0]
@@ -86,9 +85,9 @@ def convert_transforms_to_dali(torch_transform: Compose) -> List:
         elif isinstance(transform, MaybeToTensor):
             continue
         else:
-            raise ValueError(ERROR_MESSAGE.format(torch_transform))
+            raise ValueError(ERROR_MESSAGE.format(torch_transform))  # noqa: TRY004
 
-    dali_transforms = [
+    return [
         partial(
             fn.resize,
             device="gpu",
@@ -105,4 +104,3 @@ def convert_transforms_to_dali(torch_transform: Compose) -> List:
             std=std * 255,
         ),
     ]
-    return dali_transforms

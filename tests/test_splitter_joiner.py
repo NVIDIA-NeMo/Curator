@@ -19,7 +19,7 @@ from nemo_curator.datasets import DocumentDataset
 
 
 class TestSplitJoinReconstruction:
-    def test_reconstruction_default(self):
+    def test_reconstruction_default(self) -> None:
         # Create an original dataset with a unique "id" column and text examples.
         # Four examples include edge cases:
         #   "a|b|c"          → multiple splits
@@ -45,12 +45,6 @@ class TestSplitJoinReconstruction:
         reconstructed_dataset = joiner(split_dataset)
 
         # The reconstructed "text" column should match the original.
-        original_sorted = (
-            original_dataset.df.compute().sort_values(by="id").reset_index(drop=True)
-        )
-        reconstructed_sorted = (
-            reconstructed_dataset.df.compute()
-            .sort_values(by="id")
-            .reset_index(drop=True)
-        )
+        original_sorted = original_dataset.df.compute().sort_values(by="id").reset_index(drop=True)
+        reconstructed_sorted = reconstructed_dataset.df.compute().sort_values(by="id").reset_index(drop=True)
         assert_eq(reconstructed_sorted, original_sorted, check_index=False)

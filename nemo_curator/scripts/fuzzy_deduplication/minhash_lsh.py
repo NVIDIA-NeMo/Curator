@@ -28,17 +28,17 @@ from nemo_curator.utils.fuzzy_dedup_utils.id_mapping import convert_str_id_to_in
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def pre_imports():
+def pre_imports() -> None:
     import cudf  # noqa: F401
 
 
-def main(args):
-    logger = create_logger(
-        rank=0, log_file=os.path.join(args.log_dir, "rank_000.log"), name="lsh_log"
-    )
+def main(args: argparse.Namespace) -> None:
+    logger = create_logger(rank=0, log_file=os.path.join(args.log_dir, "rank_000.log"), name="lsh_log")
     logger.info(f"Starting workflow with args:\n {args}")
 
-    assert args.device == "gpu"
+    if args.device != "gpu":
+        msg = "GPU device is required for minhash LSH"
+        raise ValueError(msg)
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
     client.run(pre_imports)
@@ -50,17 +50,13 @@ def main(args):
 
     dfs = []
     for data_path in data_paths:
-        dfs.append(
-            dask_cudf.read_parquet(data_path, blocksize="2GB", aggregate_files=True)
-        )
+        dfs.append(dask_cudf.read_parquet(data_path, blocksize="2GB", aggregate_files=True))
     df = dask_cudf.concat(dfs, ignore_unknown_divisions=True)
     df = df[~df[id_field].isna()]
     df = df.map_partitions(
         convert_str_id_to_int,
         id_column=id_field,
-        meta=cudf.DataFrame(
-            {minhash_field: [[1, 2, 3]], "doc_id": [1], "dataset_id": np.uint32(1)}
-        ),
+        meta=cudf.DataFrame({minhash_field: [[1, 2, 3]], "doc_id": [1], "dataset_id": np.uint32(1)}),
     )
 
     lsh = LSH(
@@ -80,7 +76,7 @@ def main(args):
     logger.info(f"Computing and writing buckets took {time.time() - t1} s")
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = """
 Computes buckets from existing minhashes and writes the output
 to files. Each row corresponds to a document ID, followed by the columns
@@ -90,10 +86,10 @@ denoting the bucket IDs to which the document belongs.
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
-    argumentHelper.add_arg_minhash_length()
+    arg_helper.parse_gpu_dedup_args()
+    arg_helper.add_arg_minhash_length()
     parser.add_argument(
         "--buckets-per-shuffle",
         type=int,
@@ -128,7 +124,7 @@ denoting the bucket IDs to which the document belongs.
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

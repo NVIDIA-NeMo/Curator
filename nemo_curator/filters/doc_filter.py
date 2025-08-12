@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 import importlib
 from abc import ABC, abstractmethod
-from typing import Any, Literal, Union
+from typing import Literal
 
 from nemo_curator.filters.bitext_filter import BitextFilter
 
@@ -36,7 +36,7 @@ class DocumentFilter(ABC):
         self._ngrams = None
 
     @abstractmethod
-    def score_document(self, text: str) -> Any:
+    def score_document(self, text: str) -> float | list[int | float]:
         """
         Calculate a score for the given document text.
 
@@ -54,12 +54,11 @@ class DocumentFilter(ABC):
         Raises:
             NotImplementedError: If the method is not implemented in a subclass.
         """
-        raise NotImplementedError(
-            "score_document method must be implemented by subclasses"
-        )
+        msg = "score_document method must be implemented by subclasses"
+        raise NotImplementedError(msg)
 
     @abstractmethod
-    def keep_document(self, scores: Any) -> bool:
+    def keep_document(self, scores: float | list[int | float]) -> bool:
         """
         Determine whether to keep a document based on its scores.
 
@@ -68,7 +67,7 @@ class DocumentFilter(ABC):
         scores calculated by score_document().
 
         Args:
-            scores (Any): The score or set of scores returned by score_document().
+            scores (float | list[int | float]): The score or set of scores returned by score_document().
                           The type should match what is returned by score_document().
 
         Returns:
@@ -77,9 +76,8 @@ class DocumentFilter(ABC):
         Raises:
             NotImplementedError: If the method is not implemented in a subclass.
         """
-        raise NotImplementedError(
-            "keep_document method must be implemented by subclasses"
-        )
+        msg = "keep_document method must be implemented by subclasses"
+        raise NotImplementedError(msg)
 
     @property
     def backend(self) -> Literal["pandas", "cudf", "any"]:
@@ -92,35 +90,35 @@ class DocumentFilter(ABC):
         return "pandas"
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
-    def sentences(self):
+    def sentences(self) -> list:
         return self._sentences
 
     @sentences.setter
-    def sentences(self, sentences):
+    def sentences(self, sentences: list) -> None:
         self._sentences = sentences
 
     @property
-    def paragraphs(self):
+    def paragraphs(self) -> list:
         return self._paragraphs
 
     @paragraphs.setter
-    def paragraphs(self, paragraphs):
+    def paragraphs(self, paragraphs: list) -> None:
         self._paragraphs = paragraphs
 
     @property
-    def ngrams(self):
+    def ngrams(self) -> dict:
         return self._ngrams
 
     @ngrams.setter
-    def ngrams(self, ngrams):
+    def ngrams(self, ngrams: dict) -> None:
         self._ngrams = ngrams
 
 
-def import_filter(filter_path: str) -> Union[DocumentFilter, BitextFilter]:
+def import_filter(filter_path: str) -> DocumentFilter | BitextFilter:
     """
     Imports a filter under nemo_curator.filters given the module path
 
@@ -136,12 +134,11 @@ def import_filter(filter_path: str) -> Union[DocumentFilter, BitextFilter]:
     module_path, filter_name = filter_path.rsplit(".", 1)
     filter_module = importlib.import_module(module_path)
     filter_class = getattr(filter_module, filter_name)
-    if not issubclass(filter_class, DocumentFilter) and not issubclass(
-        filter_class, BitextFilter
-    ):
-        raise ValueError(
+    if not issubclass(filter_class, DocumentFilter) and not issubclass(filter_class, BitextFilter):
+        msg = (
             f"Input filter {filter_class.__name__} must be derived "
             "from DocumentFilter defined in nemo_curator.filters.doc_filter or"
             "from BitextFilter defined in nemo_curator.filters.bitext_filter"
         )
+        raise TypeError(msg)
     return filter_class

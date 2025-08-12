@@ -12,39 +12,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock
 
 import pytest
-import yaml
 
 from nemo_curator.synthetic.async_nemotron_cc import AsyncNemotronCCGenerator
 from nemo_curator.synthetic.prompts import (
-    DISTILL_PROMPT_TEMPLATE,
-    DIVERSE_QA_PROMPT_TEMPLATE,
-    EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
-    KNOWLEDGE_LIST_PROMPT_TEMPLATE,
     NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
     NEMOTRON_CC_SYSTEM_PROMPT,
-    WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
 )
 
 
 class TestAsyncNemotronCCGenerator:
     @pytest.fixture
-    def mock_llm_client(self):
+    def mock_llm_client(self) -> AsyncMock:
         """Create a mock for the LLM client."""
         mock_client = AsyncMock()
         mock_client.query_model.return_value = ["This is a mock response"]
         return mock_client
 
     @pytest.mark.asyncio
-    async def test_init(self, mock_llm_client):
+    async def test_init(self, mock_llm_client: AsyncMock) -> None:
         """Test the constructor of AsyncNemotronCCGenerator."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
         assert generator.client == mock_llm_client
 
     @pytest.mark.asyncio
-    async def test_prompt(self, mock_llm_client):
+    async def test_prompt(self, mock_llm_client: AsyncMock) -> None:
         """Test the internal _prompt method."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -54,7 +48,7 @@ class TestAsyncNemotronCCGenerator:
         prompt_kwargs = {"extra_param": "value"}
         model_kwargs = {"temperature": 0.7}
 
-        result = await generator._prompt(
+        result = await generator._prompt(  # noqa: SLF001
             model="test_model",
             document=document,
             prompt_template=prompt_template,
@@ -67,11 +61,11 @@ class TestAsyncNemotronCCGenerator:
         mock_llm_client.query_model.assert_called_once()
         call_args = mock_llm_client.query_model.call_args[1]
         assert call_args["model"] == "test_model"
-        assert call_args["temperature"] == 0.7
+        assert call_args["temperature"] == 0.7  # noqa: PLR2004
 
         # Check that messages were properly constructed
         messages = call_args["messages"]
-        assert len(messages) == 2
+        assert len(messages) == 2  # noqa: PLR2004
         assert messages[0]["role"] == "system"
         assert messages[0]["content"] == system_prompt
         assert messages[1]["role"] == "user"
@@ -81,7 +75,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_rewrite_to_wikipedia_style(self, mock_llm_client):
+    async def test_rewrite_to_wikipedia_style(self, mock_llm_client: AsyncMock) -> None:
         """Test the rewrite_to_wikipedia_style method."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -97,7 +91,7 @@ class TestAsyncNemotronCCGenerator:
 
         # Check the messages structure
         messages = call_args["messages"]
-        assert len(messages) == 2
+        assert len(messages) == 2  # noqa: PLR2004
 
         # System message should have the correct prompt
         assert messages[0]["role"] == "system"
@@ -111,7 +105,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_generate_diverse_qa(self, mock_llm_client):
+    async def test_generate_diverse_qa(self, mock_llm_client: AsyncMock) -> None:
         """Test the generate_diverse_qa method."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -127,7 +121,7 @@ class TestAsyncNemotronCCGenerator:
 
         # Check the messages structure
         messages = call_args["messages"]
-        assert len(messages) == 2
+        assert len(messages) == 2  # noqa: PLR2004
 
         # System message should have the correct prompt
         assert messages[0]["role"] == "system"
@@ -141,7 +135,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_distill(self, mock_llm_client):
+    async def test_distill(self, mock_llm_client: AsyncMock) -> None:
         """Test the distill method."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -157,7 +151,7 @@ class TestAsyncNemotronCCGenerator:
 
         # Check the messages structure
         messages = call_args["messages"]
-        assert len(messages) == 2
+        assert len(messages) == 2  # noqa: PLR2004
 
         # System message should have the correct prompt - for distill it uses a special system prompt
         assert messages[0]["role"] == "system"
@@ -171,7 +165,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_extract_knowledge(self, mock_llm_client):
+    async def test_extract_knowledge(self, mock_llm_client: AsyncMock) -> None:
         """Test the extract_knowledge method."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -187,7 +181,7 @@ class TestAsyncNemotronCCGenerator:
 
         # Check the messages structure
         messages = call_args["messages"]
-        assert len(messages) == 2
+        assert len(messages) == 2  # noqa: PLR2004
 
         # System message should have the correct prompt
         assert messages[0]["role"] == "system"
@@ -201,7 +195,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_generate_knowledge_list(self, mock_llm_client):
+    async def test_generate_knowledge_list(self, mock_llm_client: AsyncMock) -> None:
         """Test the generate_knowledge_list method."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -217,7 +211,7 @@ class TestAsyncNemotronCCGenerator:
 
         # Check the messages structure
         messages = call_args["messages"]
-        assert len(messages) == 2
+        assert len(messages) == 2  # noqa: PLR2004
 
         # System message should have the correct prompt
         assert messages[0]["role"] == "system"
@@ -231,7 +225,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_with_custom_prompt_and_system_prompt(self, mock_llm_client):
+    async def test_with_custom_prompt_and_system_prompt(self, mock_llm_client: AsyncMock) -> None:
         """Test using custom prompt templates and system prompts."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -255,7 +249,7 @@ class TestAsyncNemotronCCGenerator:
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_with_additional_prompt_kwargs(self, mock_llm_client):
+    async def test_with_additional_prompt_kwargs(self, mock_llm_client: AsyncMock) -> None:
         """Test passing additional kwargs to the prompt template."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -270,16 +264,14 @@ class TestAsyncNemotronCCGenerator:
         )
 
         # Check if the extra parameter was used in formatting
-        user_content = mock_llm_client.query_model.call_args[1]["messages"][1][
-            "content"
-        ]
+        user_content = mock_llm_client.query_model.call_args[1]["messages"][1]["content"]
         assert "extra value" in user_content
 
         # Check that the result is returned properly
         assert result == ["This is a mock response"]
 
     @pytest.mark.asyncio
-    async def test_with_additional_model_kwargs(self, mock_llm_client):
+    async def test_with_additional_model_kwargs(self, mock_llm_client: AsyncMock) -> None:
         """Test passing additional kwargs to the model."""
         generator = AsyncNemotronCCGenerator(mock_llm_client)
 
@@ -298,9 +290,9 @@ class TestAsyncNemotronCCGenerator:
 
         # Check if the model kwargs were passed to query_model
         call_kwargs = mock_llm_client.query_model.call_args[1]
-        assert call_kwargs["temperature"] == 0.8
-        assert call_kwargs["max_tokens"] == 500
-        assert call_kwargs["top_p"] == 0.95
+        assert call_kwargs["temperature"] == 0.8  # noqa: PLR2004
+        assert call_kwargs["max_tokens"] == 500  # noqa: PLR2004
+        assert call_kwargs["top_p"] == 0.95  # noqa: PLR2004
 
         # Check that the result is returned properly
         assert result == ["This is a mock response"]

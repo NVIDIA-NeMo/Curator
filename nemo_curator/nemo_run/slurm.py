@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,6 @@
 # limitations under the License.
 
 from dataclasses import dataclass
-from typing import Dict
 
 from nemo_curator.utils.import_utils import safe_import
 
@@ -67,7 +66,7 @@ class SlurmJobConfig:
     rmm_worker_pool_size: str = "72GiB"
     libcudf_cufile_policy: str = "OFF"
 
-    def to_script(self, add_scheduler_file: bool = True, add_device: bool = True):
+    def to_script(self, add_scheduler_file: bool = True, add_device: bool = True) -> "run.Script":
         """
         Converts to a script object executable by NeMo Run
         Args:
@@ -85,18 +84,16 @@ class SlurmJobConfig:
         env_vars = self._build_env_vars()
 
         if add_scheduler_file:
-            env_vars[
-                "SCRIPT_COMMAND"
-            ] += f" --scheduler-file={env_vars['SCHEDULER_FILE']}"
+            env_vars["SCRIPT_COMMAND"] += f" --scheduler-file={env_vars['SCHEDULER_FILE']}"
         if add_device:
             env_vars["SCRIPT_COMMAND"] += f" --device={env_vars['DEVICE']}"
 
         # Surround the command in quotes so the variable gets set properly
-        env_vars["SCRIPT_COMMAND"] = f"\"{env_vars['SCRIPT_COMMAND']}\""
+        env_vars["SCRIPT_COMMAND"] = f'"{env_vars["SCRIPT_COMMAND"]}"'
 
         return run.Script(path=self.container_entrypoint, env=env_vars)
 
-    def _build_env_vars(self) -> Dict[str, str]:
+    def _build_env_vars(self) -> dict[str, str]:
         env_vars = vars(self)
         # Convert to uppercase to match container_entrypoint.sh
         env_vars = {key.upper(): val for key, val in env_vars.items()}

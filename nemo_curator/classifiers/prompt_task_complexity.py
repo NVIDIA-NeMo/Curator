@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,17 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import numpy as np
 import torch
-import torch.nn as nn
 from crossfit import op
 from crossfit.backend.torch.hf.model import HFModel
 from huggingface_hub import PyTorchModelHubMixin
+from torch import nn
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from nemo_curator.classifiers.base import (
@@ -37,34 +37,30 @@ PROMPT_TASK_COMPLEXITY_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifie
 class PromptTaskComplexityConfig:
     base_model: str = "microsoft/DeBERTa-v3-base"
     max_len: int = 512
-    model_output_type: Dict = field(default_factory=dict)
+    model_output_type: dict = field(default_factory=dict)
 
 
 class MeanPooling(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, last_hidden_state, attention_mask):
-        input_mask_expanded = (
-            attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
-        )
+    def forward(self, last_hidden_state: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
         sum_embeddings = torch.sum(last_hidden_state * input_mask_expanded, 1)
 
         sum_mask = input_mask_expanded.sum(1)
         sum_mask = torch.clamp(sum_mask, min=1e-9)
 
-        mean_embeddings = sum_embeddings / sum_mask
-        return mean_embeddings
+        return sum_embeddings / sum_mask
 
 
 class MulticlassHead(nn.Module):
-    def __init__(self, input_size, num_classes):
+    def __init__(self, input_size: int, num_classes: int) -> None:
         super().__init__()
         self.fc = nn.Linear(input_size, num_classes)
 
-    def forward(self, x):
-        x = self.fc(x)
-        return x
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.fc(x)
 
 
 class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
@@ -78,38 +74,29 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
         self.weights_map = config["weights_map"]
         self.divisor_map = config["divisor_map"]
 
-        self.heads = [
-            MulticlassHead(self.backbone.config.hidden_size, sz)
-            for sz in self.target_sizes
-        ]
+        self.heads = [MulticlassHead(self.backbone.config.hidden_size, sz) for sz in self.target_sizes]
 
         for i, head in enumerate(self.heads):
             self.add_module(f"head_{i}", head)
 
         self.pool = MeanPooling()
 
-    def compute_results(self, preds, target, decimal=4):
+    def compute_results(
+        self, preds: torch.Tensor, target: str, decimal: int = 4
+    ) -> tuple[list[str], list[str], list[float]]:
         if target == "task_type":
-            task_type = {}
-
             top2_indices = torch.topk(preds, k=2, dim=1).indices
             softmax_probs = torch.softmax(preds, dim=1)
             top2_probs = softmax_probs.gather(1, top2_indices)
             top2 = top2_indices.detach().cpu().tolist()
             top2_prob = top2_probs.detach().cpu().tolist()
 
-            top2_strings = [
-                [self.task_type_map[str(idx)] for idx in sample] for sample in top2
-            ]
-            top2_prob_rounded = [
-                [round(value, 3) for value in sublist] for sublist in top2_prob
-            ]
+            top2_strings = [[self.task_type_map[str(idx)] for idx in sample] for sample in top2]
+            top2_prob_rounded = [[round(value, 3) for value in sublist] for sublist in top2_prob]
 
-            counter = 0
-            for sublist in top2_prob_rounded:
-                if sublist[1] < 0.1:
+            for counter, sublist in enumerate(top2_prob_rounded):
+                if sublist[1] < 0.1:  # noqa: PLR2004
                     top2_strings[counter][1] = "NA"
-                counter += 1
 
             task_type_1 = [sublist[0] for sublist in top2_strings]
             task_type_2 = [sublist[1] for sublist in top2_strings]
@@ -126,10 +113,10 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
 
             scores = [round(value, decimal) for value in scores]
             if target == "number_of_few_shots":
-                scores = [x if x >= 0.05 else 0 for x in scores]
+                scores = [x if x >= 0.05 else 0 for x in scores]  # noqa: PLR2004
             return scores
 
-    def process_logits(self, logits):
+    def process_logits(self, logits: list[torch.Tensor]) -> dict[str, torch.Tensor]:
         result = {}
 
         # Round 1: "task_type"
@@ -152,9 +139,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
         # Round 4: "contextual_knowledge"
         contextual_knowledge_logits = logits[3]
         target = "contextual_knowledge"
-        result[target] = self.compute_results(
-            contextual_knowledge_logits, target=target
-        )
+        result[target] = self.compute_results(contextual_knowledge_logits, target=target)
 
         # Round 5: "number_of_few_shots"
         number_of_few_shots_logits = logits[4]
@@ -195,6 +180,7 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
                     result["domain_knowledge"],
                     result["contextual_knowledge"],
                     result["number_of_few_shots"],
+                    strict=False,
                 )
             ],
             device="cuda",
@@ -202,40 +188,27 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
 
         # Convert lists results to PyTorch Tensors for CrossFit to handle
         result["task_type_prob"] = torch.tensor(result["task_type_prob"], device="cuda")
-        result["creativity_scope"] = torch.tensor(
-            result["creativity_scope"], device="cuda"
-        )
+        result["creativity_scope"] = torch.tensor(result["creativity_scope"], device="cuda")
         result["reasoning"] = torch.tensor(result["reasoning"], device="cuda")
-        result["contextual_knowledge"] = torch.tensor(
-            result["contextual_knowledge"], device="cuda"
-        )
-        result["number_of_few_shots"] = torch.tensor(
-            result["number_of_few_shots"], device="cuda"
-        )
-        result["domain_knowledge"] = torch.tensor(
-            result["domain_knowledge"], device="cuda"
-        )
-        result["no_label_reason"] = torch.tensor(
-            result["no_label_reason"], device="cuda"
-        )
+        result["contextual_knowledge"] = torch.tensor(result["contextual_knowledge"], device="cuda")
+        result["number_of_few_shots"] = torch.tensor(result["number_of_few_shots"], device="cuda")
+        result["domain_knowledge"] = torch.tensor(result["domain_knowledge"], device="cuda")
+        result["no_label_reason"] = torch.tensor(result["no_label_reason"], device="cuda")
         result["constraint_ct"] = torch.tensor(result["constraint_ct"], device="cuda")
 
         return result
 
-    def _forward(self, input_ids, attention_mask):
+    def _forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> dict[str, torch.Tensor]:
         outputs = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
 
         last_hidden_state = outputs.last_hidden_state
         mean_pooled_representation = self.pool(last_hidden_state, attention_mask)
 
-        logits = [
-            self.heads[k](mean_pooled_representation)
-            for k in range(len(self.target_sizes))
-        ]
+        logits = [self.heads[k](mean_pooled_representation) for k in range(len(self.target_sizes))]
 
         return self.process_logits(logits)
 
-    def forward(self, batch):
+    def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         input_ids = batch["input_ids"]
         attention_mask = batch["attention_mask"]
 
@@ -245,16 +218,16 @@ class CustomHFDeberta(nn.Module, PyTorchModelHubMixin):
         else:
             return self._forward(input_ids, attention_mask)
 
-    def set_autocast(self, autocast: bool):
+    def set_autocast(self, autocast: bool) -> None:
         self.autocast = autocast
 
 
 class PromptTaskComplexityModel(HFModel):
     def __init__(
         self,
-        config,
-        autocast,
-        max_mem_gb,
+        config: PromptTaskComplexityConfig,
+        autocast: bool,
+        max_mem_gb: int | None,
     ):
         self.config = config
         self.autocast = autocast
@@ -267,16 +240,16 @@ class PromptTaskComplexityModel(HFModel):
             model_output_type=config.model_output_type,
         )
 
-    def load_model(self, device: str = "cuda"):
+    def load_model(self, device: str = "cuda") -> CustomHFDeberta:
         model = CustomHFDeberta.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
         model.set_autocast(self.autocast)
         model = model.to(device)
         return model.eval()
 
-    def load_tokenizer(self):
+    def load_tokenizer(self) -> AutoTokenizer:
         return AutoTokenizer.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
 
-    def load_config(self):
+    def load_config(self) -> AutoConfig:
         return AutoConfig.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
 
 
@@ -299,26 +272,22 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         batch_size: int = 256,
         text_field: str = "text",
         max_chars: int = 2000,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         self.text_field = text_field
 
         config = AutoConfig.from_pretrained(PROMPT_TASK_COMPLEXITY_IDENTIFIER)
         pred_column = config.targets
 
-        model_config = PromptTaskComplexityConfig(
-            model_output_type=config.model_output_type
-        )
-        model = PromptTaskComplexityModel(
-            config=model_config, autocast=autocast, max_mem_gb=max_mem_gb
-        )
+        model_config = PromptTaskComplexityConfig(model_output_type=config.model_output_type)
+        model = PromptTaskComplexityModel(config=model_config, autocast=autocast, max_mem_gb=max_mem_gb)
 
         super().__init__(
             model=model,
@@ -363,11 +332,9 @@ class PromptTaskComplexityClassifier(DistributedDataClassifier):
         self,
         dataset: DocumentDataset,
     ) -> DocumentDataset:
-        raise NotImplementedError(
-            "filter_by not supported with PromptTaskComplexityClassifier"
-        )
+        msg = "filter_by not supported with PromptTaskComplexityClassifier"
+        raise NotImplementedError(msg)
 
-    def get_labels(self):
-        raise NotImplementedError(
-            "Please see https://huggingface.co/nvidia/prompt-task-and-complexity-classifier for more information about PromptTaskComplexityClassifier outputs."
-        )
+    def get_labels(self) -> list[str]:
+        msg = "Please see https://huggingface.co/nvidia/prompt-task-and-complexity-classifier for more information about PromptTaskComplexityClassifier outputs."
+        raise NotImplementedError(msg)

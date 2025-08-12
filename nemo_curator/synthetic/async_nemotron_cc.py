@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List
-
 from nemo_curator.services import AsyncLLMClient
 from nemo_curator.synthetic.prompts import (
     DISTILL_PROMPT_TEMPLATE,
@@ -41,7 +39,7 @@ class AsyncNemotronCCGenerator:
         """
         self.client = llm_client
 
-    async def _prompt(
+    async def _prompt(  # noqa: PLR0913
         self,
         model: str,
         document: str,
@@ -49,26 +47,24 @@ class AsyncNemotronCCGenerator:
         system_prompt: str,
         prompt_kwargs: dict,
         model_kwargs: dict,
-    ) -> List[str]:
+    ) -> list[str]:
         prompt = prompt_template.format(document=document, **prompt_kwargs)
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ]
 
-        return await self.client.query_model(
-            messages=messages, model=model, **model_kwargs
-        )
+        return await self.client.query_model(messages=messages, model=model, **model_kwargs)
 
-    async def rewrite_to_wikipedia_style(
+    async def rewrite_to_wikipedia_style(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Rewrites a document into a Wikipedia-style narrative.
 
@@ -83,19 +79,22 @@ class AsyncNemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return await self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
 
-    async def generate_diverse_qa(
+        return await self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
+
+    async def generate_diverse_qa(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = DIVERSE_QA_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Generates diverse QA pairs from the provided document.
 
@@ -110,19 +109,22 @@ class AsyncNemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return await self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
 
-    async def distill(
+        return await self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
+
+    async def distill(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = DISTILL_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Distills the essential content from a document.
 
@@ -137,19 +139,22 @@ class AsyncNemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return await self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
 
-    async def extract_knowledge(
+        return await self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
+
+    async def extract_knowledge(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Extracts knowledge from the provided document.
 
@@ -164,19 +169,22 @@ class AsyncNemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return await self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
 
-    async def generate_knowledge_list(
+        return await self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)
+
+    async def generate_knowledge_list(  # noqa: PLR0913
         self,
         document: str,
         model: str,
         prompt_template: str = KNOWLEDGE_LIST_PROMPT_TEMPLATE,
         system_prompt: str = NEMOTRON_CC_SYSTEM_PROMPT,
-        prompt_kwargs: dict = {},
-        model_kwargs: dict = {},
-    ) -> List[str]:
+        prompt_kwargs: dict | None = None,
+        model_kwargs: dict | None = None,
+    ) -> list[str]:
         """
         Generates a list of knowledge items from the provided document.
 
@@ -191,6 +199,9 @@ class AsyncNemotronCCGenerator:
         Returns:
             List[str]: A list of responses from the LLM. The list is only greater than length 1 if n > 1 is set in model_kwargs.
         """
-        return await self._prompt(
-            model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs
-        )
+        if prompt_kwargs is None:
+            prompt_kwargs = {}
+        if model_kwargs is None:
+            model_kwargs = {}
+
+        return await self._prompt(model, document, prompt_template, system_prompt, prompt_kwargs, model_kwargs)

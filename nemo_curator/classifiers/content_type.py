@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,9 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 from dataclasses import dataclass
-from typing import List, Optional
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 from crossfit.backend.torch.hf.model import HFModel
@@ -42,7 +42,7 @@ class ContentTypeModel(HFModel):
         self,
         config: ContentTypeModelConfig,
         autocast: bool = False,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         self.config = config
         self.autocast = autocast
@@ -51,16 +51,16 @@ class ContentTypeModel(HFModel):
 
         super().__init__(self.config.model, max_mem_gb=max_mem_gb)
 
-    def load_model(self, device: str = "cuda"):
+    def load_model(self, device: str = "cuda") -> HFDeberta:
         model = HFDeberta.from_pretrained(CONTENT_TYPE_IDENTIFIER)
         model.set_autocast(self.autocast)
         model = model.to(device)
         return model.eval()
 
-    def load_tokenizer(self):
+    def load_tokenizer(self) -> AutoTokenizer:
         return AutoTokenizer.from_pretrained(CONTENT_TYPE_IDENTIFIER)
 
-    def load_config(self):
+    def load_config(self) -> AutoConfig:
         return AutoConfig.from_pretrained(CONTENT_TYPE_IDENTIFIER)
 
 
@@ -87,17 +87,17 @@ class ContentTypeClassifier(DistributedDataClassifier):
 
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        filter_by: Optional[List[str]] = None,
+        filter_by: list[str] | None = None,
         batch_size: int = 256,
         text_field: str = "text",
         pred_column: str = "content_pred",
-        prob_column: Optional[str] = None,
+        prob_column: str | None = None,
         max_chars: int = 5000,
         device_type: str = "cuda",
         autocast: bool = True,
-        max_mem_gb: Optional[int] = None,
+        max_mem_gb: int | None = None,
     ):
         config = AutoConfig.from_pretrained(CONTENT_TYPE_IDENTIFIER)
 
@@ -107,9 +107,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
         self.labels.sort(key=lambda x: config.label2id[x])
         self.out_dim = len(self.labels)
 
-        model = ContentTypeModel(
-            config=ContentTypeModelConfig, autocast=autocast, max_mem_gb=max_mem_gb
-        )
+        model = ContentTypeModel(config=ContentTypeModelConfig, autocast=autocast, max_mem_gb=max_mem_gb)
 
         super().__init__(
             model=model,

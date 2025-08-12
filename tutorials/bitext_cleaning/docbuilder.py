@@ -15,7 +15,7 @@ class TedTalksDownloader(DocumentDownloader):
         self._download_dir = download_dir
         print("Download directory: ", self._download_dir)
 
-    def download(self, url_src: str, url_tgt: str, force=False) -> str:
+    def download(self, url_src: str, url_tgt: str, force: bool = False) -> str:
         src_filename = os.path.basename(url_src)
         src_out = os.path.join(self._download_dir, src_filename)
         tgt_filename = os.path.basename(url_tgt)
@@ -24,14 +24,14 @@ class TedTalksDownloader(DocumentDownloader):
         sides = ["src", "tgt"]
         urls = [url_src, url_tgt]
         output_files = {"src": src_out, "tgt": tgt_out}
-        for side, url, out_file_key in zip(sides, urls, output_files):
-            if os.path.exists(output_files[out_file_key]) and force is False:
+        for _side, url, out_file_key in zip(sides, urls, output_files, strict=False):
+            if os.path.exists(output_files[out_file_key]) and not force:
                 print(
-                    f"File '{output_files[out_file_key]}' already exists, skipping download."
+                    f"File '{output_files[out_file_key]}' already exists, skipping download.",
                 )
             else:
                 print(f"Downloading TED Talks dataset from '{url}'...")
-                response = requests.get(url)
+                response = requests.get(url)  # noqa: S113
 
                 with open(output_files[out_file_key], "wb") as file:
                     file.write(response.content)

@@ -33,12 +33,12 @@ class UnavailableError(Exception):
 
 
 @contextmanager
-def null_decorator(*args, **kwargs):
+def null_decorator(*args, **kwargs):  # noqa: ANN201
     if len(kwargs) == 0 and len(args) == 1 and callable(args[0]):
         return args[0]
     else:
 
-        def inner(func):
+        def inner(func):  # noqa: ANN202
             return func
 
         return inner
@@ -71,20 +71,20 @@ class UnavailableMeta(type):
         if dct.get("_msg", None) is None:
             dct["_msg"] = f"{name} could not be imported"
         name = f"MISSING{name}"
-        return super(UnavailableMeta, meta).__new__(meta, name, bases, dct)
+        return super(UnavailableMeta, meta).__new__(meta, name, bases, dct)  # noqa: UP008
 
-    def __call__(cls, *args, **kwargs):
+    def __call__(cls, *args, **kwargs):  # noqa: ARG002
         raise UnavailableError(cls._msg)
 
-    def __getattr__(cls, name):
+    def __getattr__(cls, name: str) -> None:
         # Special case for unittest.mock
         # When unittest.mock is checking if an object is async, it checks for __func__
         # We need to return None for this specific attribute to allow mocking
         if name == "__func__":
-            return None
+            return
         # Also handle other attributes that unittest.mock might check
         if name in ("__await__", "__aenter__", "__aexit__", "__aiter__", "__anext__"):
-            return None
+            return
         raise UnavailableError(cls._msg)
 
     def __eq__(cls, other):
@@ -99,7 +99,7 @@ class UnavailableMeta(type):
     def __ne__(cls, other):
         raise UnavailableError(cls._msg)
 
-    def __abs__(cls, other):
+    def __abs__(cls):
         raise UnavailableError(cls._msg)
 
     def __add__(cls, other):
@@ -214,7 +214,7 @@ class UnavailableMeta(type):
         raise UnavailableError(cls._msg)
 
 
-def is_unavailable(obj):
+def is_unavailable(obj: object) -> bool:
     """Helper to check if given symbol is actually a placeholder"""
     return type(obj) is UnavailableMeta
 
@@ -241,7 +241,7 @@ class UnavailableNullContext:
         pass
 
 
-def safe_import(module, *, msg=None, alt=None):
+def safe_import(module: str, *, msg: str | None = None, alt: object | None = None) -> object:
     """A function used to import modules that may not be available
 
     This function will attempt to import a module with the given name, but it
@@ -281,7 +281,7 @@ def safe_import(module, *, msg=None, alt=None):
         return alt
 
 
-def safe_import_from(module, symbol, *, msg=None, alt=None):
+def safe_import_from(module: str, symbol: str, *, msg: str | None = None, alt: object | None = None) -> object:
     """A function used to import symbols from modules that may not be available
 
     This function will attempt to import a symbol with the given name from
@@ -328,7 +328,7 @@ def safe_import_from(module, symbol, *, msg=None, alt=None):
         return alt
 
 
-def gpu_only_import(module, *, alt=None):
+def gpu_only_import(module: str, *, alt: object | None = None) -> object:
     """A function used to import modules required only in GPU installs
 
     This function will attempt to import a module with the given name.
@@ -359,7 +359,7 @@ def gpu_only_import(module, *, alt=None):
     )
 
 
-def gpu_only_import_from(module, symbol, *, alt=None):
+def gpu_only_import_from(module: str, symbol: str, *, alt: object | None = None) -> object:
     """A function used to import symbols required only in GPU installs
 
     This function will attempt to import a module with the given name.
@@ -396,7 +396,7 @@ IMAGE_INSTALL_STRING = """Install image packages via `pip install --extra-index-
 or use `pip install --extra-index-url https://pypi.nvidia.com ".[image]"` if installing from source"""
 
 
-def image_only_import_from(module, symbol, *, alt=None):
+def image_only_import_from(module: str, symbol: str, *, alt: object | None = None) -> object:
     """A function used to import symbols required only in image installs
 
     This function will attempt to import a module with the given name.

@@ -18,7 +18,7 @@ from nemo_curator.synthetic.no_format import NoFormat
 
 
 class TestNoFormat:
-    def test_format_conversation_single_turn(self):
+    def test_format_conversation_single_turn(self) -> None:
         """Test formatting with a single user turn, which is the expected use case."""
         conv = [{"role": "user", "content": "Hello world"}]
 
@@ -28,38 +28,36 @@ class TestNoFormat:
         result = NoFormat().format_conversation(conv)
         assert result == expected_output
 
-    def test_format_conversation_multiple_turns(self):
+    def test_format_conversation_multiple_turns(self) -> None:
         """Test error handling when conversation has multiple turns."""
         conv = [
             {"role": "user", "content": "Hello"},
             {"role": "assistant", "content": "Hi there!"},
         ]
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             NoFormat().format_conversation(conv)
         assert "There must be exactly one turn" in str(excinfo.value)
 
-    def test_format_conversation_empty(self):
+    def test_format_conversation_empty(self) -> None:
         """Test error handling when conversation is empty."""
         conv = []
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             NoFormat().format_conversation(conv)
         assert "There must be exactly one turn" in str(excinfo.value)
 
-    def test_format_conversation_invalid_role(self):
+    def test_format_conversation_invalid_role(self) -> None:
         """Test error handling when the single turn is not from a user."""
         conv = [{"role": "assistant", "content": "Hello, how can I help?"}]
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             NoFormat().format_conversation(conv)
         assert "Conversation turn 0 is not 'user'" in str(excinfo.value)
 
-    def test_format_conversation_with_special_characters(self):
+    def test_format_conversation_with_special_characters(self) -> None:
         """Test formatting with special characters and formatting in the content."""
-        conv = [
-            {"role": "user", "content": "# Heading\n* bullet point\n```code block```"}
-        ]
+        conv = [{"role": "user", "content": "# Heading\n* bullet point\n```code block```"}]
 
         expected_output = "# Heading\n* bullet point\n```code block```"
 

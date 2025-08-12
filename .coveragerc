@@ -1,8 +1,0 @@
-[paths]
-source =
-    nemo_curator/
-    /home/runner/work/NeMo-Curator/NeMo-Curator/nemo_curator
-    /opt/NeMo-Curator/nemo_curator
-[run]
-omit =
-    nemo_curator/scripts/*

@@ -11,15 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import bz2
 import os
 import subprocess
 import tarfile
+from pathlib import Path
+from typing import Literal
 from urllib.parse import urlparse
 
 import pytest
+from pytest import MonkeyPatch
 
 from nemo_curator.download import (
+    JusTextExtractor,
     ResiliparseExtractor,
     TrafilaturaExtractor,
     download_and_extract,
@@ -29,8 +34,6 @@ from nemo_curator.download.commoncrawl import (
     CommonCrawlWARCDownloader,
     CommonCrawlWARCExtractor,
     CommonCrawlWARCIterator,
-    JusTextExtractor,
-    ResiliparseExtractor,
     get_common_crawl_urls,
     get_stop_list_dict,
 )
@@ -42,26 +45,26 @@ from nemo_curator.download.wikipedia import (
 
 
 class DummyLock:
-    def __enter__(self):
+    def __enter__(self) -> "DummyLock":
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         pass
 
 
 class FakeCompletedProcess:
-    def __init__(self):
+    def __init__(self) -> None:
         self.returncode = 0
 
 
-def fake_run_success(cmd, stdout, stderr):
+def fake_run_success(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
     return FakeCompletedProcess()
 
 
 @pytest.fixture
-def html_string():
+def html_string() -> str:
     # Modified from https://github.com/chatnoir-eu/chatnoir-resiliparse/blob/abdf1966fb3cefe3e0790e510ab5cb1446f99a79/tests/resiliparse/extract/test_html2text.py
-    html = """<!doctype html>
+    return """<!doctype html>
         <head>
             <title>My Title</title>
             <meta charset="utf-8">
@@ -105,42 +108,35 @@ def html_string():
             </section>
         </body>
     </html>"""
-    return html
 
 
 class TestDownload:
-    def test_imports(self):
+    def test_imports(self) -> None:
         from nemo_curator.download import (
-            JusTextExtractor,
-            ResiliparseExtractor,
-            TrafilaturaExtractor,
-            download_arxiv,
-            download_common_crawl,
-            download_wikipedia,
+            JusTextExtractor,  # noqa: F401
+            ResiliparseExtractor,  # noqa: F401
+            TrafilaturaExtractor,  # noqa: F401
+            download_arxiv,  # noqa: F401
+            download_common_crawl,  # noqa: F401
+            download_wikipedia,  # noqa: F401
         )
 
-        assert True
-
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_incorrect_snapshot_order(self):
-        with pytest.raises(ValueError):
+    @pytest.mark.skip(reason="This test is flaky due to calling out to an external service and should be fixed.")
+    def test_incorrect_snapshot_order(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             end_snapshot = "2021-04"
             start_snapshot = "2021-10"
-            urls = get_common_crawl_urls(start_snapshot, end_snapshot)
+            _urls = get_common_crawl_urls(start_snapshot, end_snapshot)
 
-    @pytest.mark.skip(
-        reason="This test is flaky due to calling out to an external service and should be fixed."
-    )
-    def test_incorrect_snapshot_order_news(self):
-        with pytest.raises(ValueError):
+    @pytest.mark.skip(reason="This test is flaky due to calling out to an external service and should be fixed.")
+    def test_incorrect_snapshot_order_news(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             end_snapshot = "2021-04"
             start_snapshot = "2021-10"
-            urls = get_common_crawl_urls(start_snapshot, end_snapshot, news=True)
+            _urls = get_common_crawl_urls(start_snapshot, end_snapshot, news=True)
 
-    def test_no_urls(self):
-        with pytest.raises(ValueError):
+    def test_no_urls(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             output_format = {
                 "text": str,
             }
@@ -153,8 +149,8 @@ class TestDownload:
                 output_format,
             )
 
-    def test_url_path_mismatch(self):
-        with pytest.raises(ValueError):
+    def test_url_path_mismatch(self) -> None:
+        with pytest.raises(ValueError):  # noqa: PT011, PT012
             output_format = {
                 "text": str,
             }
@@ -169,7 +165,7 @@ class TestDownload:
 
 
 class TestWikipedia:
-    def test_wikipedia_downloader_existing_file(self, tmp_path, monkeypatch):
+    def test_wikipedia_downloader_existing_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary directory and simulate an already-downloaded file.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -191,7 +187,7 @@ class TestWikipedia:
         result = downloader.download(url)
         assert result == file_path
 
-    def test_wikipedia_downloader_new_file(self, tmp_path, monkeypatch):
+    def test_wikipedia_downloader_new_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
 
@@ -205,11 +201,11 @@ class TestWikipedia:
             os.remove(file_path)
 
         downloader = WikipediaDownloader(str(download_dir), verbose=False)
-        downloader._lock = DummyLock()
+        downloader._lock = DummyLock()  # noqa: SLF001
 
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
 
@@ -221,7 +217,7 @@ class TestWikipedia:
         assert result == file_path
         assert called_run
 
-    def test_wikipedia_iterator(self, tmp_path):
+    def test_wikipedia_iterator(self, tmp_path: Path) -> None:
         # Create a minimal valid XML resembling a Wikipedia dump with one page.
         xml_content = """<?xml version="1.0"?>
 <mediawiki xmlns="http://www.mediawiki.org/xml/export-0.10/">
@@ -253,7 +249,7 @@ class TestWikipedia:
         assert metadata["url"] == expected_url
         assert "Test content with" in raw_text
 
-    def test_wikipedia_extractor(self):
+    def test_wikipedia_extractor(self) -> None:
         extractor = WikipediaExtractor(language="en")
         # Sample wiki markup; note the presence of a heading and a magic word.
         content = "== Heading ==\nThis is a sample article. __NOTOC__"
@@ -269,7 +265,7 @@ class TestWikipedia:
 
 
 class TestArxiv:
-    def test_arxiv_downloader_existing_file(self, tmp_path, monkeypatch):
+    def test_arxiv_downloader_existing_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary download directory and simulate an already-downloaded tar file.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -285,7 +281,7 @@ class TestArxiv:
         result = downloader.download(tar_filename)
         assert result == file_path
 
-    def test_arxiv_downloader_new_file(self, tmp_path, monkeypatch):
+    def test_arxiv_downloader_new_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary download directory and ensure the tar file does not exist.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -297,7 +293,7 @@ class TestArxiv:
         downloader = ArxivDownloader(str(download_dir), verbose=False)
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
             return FakeCompletedProcess()
@@ -307,7 +303,7 @@ class TestArxiv:
         assert result == file_path
         assert called_run
 
-    def test_arxiv_iterator(self, tmp_path):
+    def test_arxiv_iterator(self, tmp_path: Path) -> None:
         # Create an inner tar archive containing a .tex file.
         inner_tar_path = tmp_path / "2103.00001.tar"
         dummy_tex_filename = "2103.00001.tex"
@@ -337,7 +333,7 @@ class TestArxiv:
         assert isinstance(tex_files, list)
         assert dummy_tex_content in tex_files[0]
 
-    def test_arxiv_extractor(self):
+    def test_arxiv_extractor(self) -> None:
         extractor = ArxivExtractor()
         # Create a minimal LaTeX document including comments and a section header.
         content = r"""
@@ -355,9 +351,212 @@ class TestArxiv:
         assert "Introduction" in extracted_text
         assert "This is the introduction" in extracted_text
 
+    def test_safe_extract_path_traversal_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents path traversal attacks."""
+        import io
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file that tries to write outside the extraction directory
+        malicious_tar_path = tmp_path / "malicious.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a normal file first
+            normal_data = io.BytesIO(b"normal content\n")
+            normal_tarinfo = tarfile.TarInfo(name="normal.txt")
+            normal_tarinfo.size = len(normal_data.getbuffer())
+            tar.addfile(normal_tarinfo, fileobj=normal_data)
+
+            # Add a malicious file that tries to escape the extraction directory
+            malicious_data = io.BytesIO(b"malicious content\n")
+            malicious_path = "../../../evil.txt"  # Path traversal attempt
+            malicious_tarinfo = tarfile.TarInfo(name=malicious_path)
+            malicious_tarinfo.size = len(malicious_data.getbuffer())
+            tar.addfile(malicious_tarinfo, fileobj=malicious_data)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for path traversal
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Path traversal attempt detected"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
+        # Verify that the malicious file was not created outside the extraction directory
+        evil_file_path = tmp_path / "evil.txt"
+        assert not evil_file_path.exists(), "Malicious file should not have been created outside extraction directory"
+
+        # Verify that the extraction directory is still safe
+        extracted_files = list(extraction_dir.rglob("*"))
+        for file_path in extracted_files:
+            # All extracted files should be within the extraction directory
+            assert str(file_path).startswith(str(extraction_dir)), (
+                f"File {file_path} was extracted outside safe directory"
+            )
+
+    def test_safe_extract_absolute_path_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents absolute path attacks."""
+        import io
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with absolute path
+        malicious_tar_path = tmp_path / "absolute_path.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a file with absolute path
+            malicious_data = io.BytesIO(b"absolute path content\n")
+            absolute_path = str(tmp_path / "absolute_evil.txt")  # Absolute path within tmp_path
+            malicious_tarinfo = tarfile.TarInfo(name=absolute_path)
+            malicious_tarinfo.size = len(malicious_data.getbuffer())
+            tar.addfile(malicious_tarinfo, fileobj=malicious_data)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for absolute path
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Absolute path not allowed"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
+    def test_safe_extract_normal_files(self, tmp_path: Path) -> None:
+        """Test that _safe_extract works correctly with normal files."""
+        import io
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a normal tar file
+        normal_tar_path = tmp_path / "normal.tar"
+
+        with tarfile.open(normal_tar_path, "w") as tar:
+            # Add normal files
+            for i in range(3):
+                file_data = io.BytesIO(f"content of file {i}\n".encode())
+                tarinfo = tarfile.TarInfo(name=f"file_{i}.txt")
+                tarinfo.size = len(file_data.getbuffer())
+                tar.addfile(tarinfo, fileobj=file_data)
+
+            # Add a file in a subdirectory
+            subdir_data = io.BytesIO(b"subdirectory content\n")
+            subdir_tarinfo = tarfile.TarInfo(name="subdir/subfile.txt")
+            subdir_tarinfo.size = len(subdir_data.getbuffer())
+            tar.addfile(subdir_tarinfo, fileobj=subdir_data)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract works correctly with normal files
+        with tarfile.open(normal_tar_path, "r") as tar:
+            _safe_extract(tar, str(extraction_dir))
+
+        # Verify all files were extracted correctly
+        assert (extraction_dir / "file_0.txt").exists()
+        assert (extraction_dir / "file_1.txt").exists()
+        assert (extraction_dir / "file_2.txt").exists()
+        assert (extraction_dir / "subdir" / "subfile.txt").exists()
+
+        # Verify content
+        with open(extraction_dir / "file_0.txt") as f:
+            assert f.read() == "content of file 0\n"
+        with open(extraction_dir / "subdir" / "subfile.txt") as f:
+            assert f.read() == "subdirectory content\n"
+
+    def test_safe_extract_device_file_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents extraction of device files."""
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with a device file
+        malicious_tar_path = tmp_path / "device_file.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a device file (character device)
+            device_tarinfo = tarfile.TarInfo(name="evil_device")
+            device_tarinfo.type = tarfile.CHRTYPE  # Character device
+            device_tarinfo.devmajor = 1
+            device_tarinfo.devminor = 3
+            tar.addfile(device_tarinfo)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for device files
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Device files not allowed"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
+    def test_safe_extract_symlink_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents unsafe symlinks."""
+        import io
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with unsafe symlinks
+        malicious_tar_path = tmp_path / "symlink_attack.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a normal file first
+            normal_data = io.BytesIO(b"normal content\n")
+            normal_tarinfo = tarfile.TarInfo(name="normal.txt")
+            normal_tarinfo.size = len(normal_data.getbuffer())
+            tar.addfile(normal_tarinfo, fileobj=normal_data)
+
+            # Add a symlink that tries to escape the extraction directory
+            symlink_tarinfo = tarfile.TarInfo(name="evil_symlink")
+            symlink_tarinfo.type = tarfile.SYMTYPE
+            symlink_tarinfo.linkname = "../../../etc/passwd"  # Path traversal via symlink
+            tar.addfile(symlink_tarinfo)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for unsafe symlinks
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Symlink target outside extraction directory"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
+    def test_safe_extract_absolute_symlink_prevention(self, tmp_path: Path) -> None:
+        """Test that _safe_extract prevents symlinks with absolute targets."""
+
+        from nemo_curator.download.arxiv import _safe_extract
+
+        # Create a malicious tar file with absolute symlink target
+        malicious_tar_path = tmp_path / "absolute_symlink.tar"
+
+        with tarfile.open(malicious_tar_path, "w") as tar:
+            # Add a symlink with absolute target
+            symlink_tarinfo = tarfile.TarInfo(name="absolute_symlink")
+            symlink_tarinfo.type = tarfile.SYMTYPE
+            symlink_tarinfo.linkname = "/etc/passwd"  # Absolute symlink target
+            tar.addfile(symlink_tarinfo)
+
+        # Create extraction directory
+        extraction_dir = tmp_path / "extraction"
+        extraction_dir.mkdir()
+
+        # Test that _safe_extract raises ValueError for absolute symlink targets
+        with (
+            tarfile.open(malicious_tar_path, "r") as tar,
+            pytest.raises(ValueError, match="Absolute symlink target not allowed"),
+        ):
+            _safe_extract(tar, str(extraction_dir))
+
 
 class TestCommonCrawl:
-    def test_common_crawl_downloader_existing_file(self, tmp_path, monkeypatch):
+    def test_common_crawl_downloader_existing_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary downloads directory and simulate an already-downloaded file.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -369,14 +568,12 @@ class TestCommonCrawl:
         with open(file_path, "w") as f:
             f.write("existing content")
 
-        downloader = CommonCrawlWARCDownloader(
-            str(download_dir), aws=False, verbose=False
-        )
+        downloader = CommonCrawlWARCDownloader(str(download_dir), aws=False, verbose=False)
 
         # Monkey-patch subprocess.run to track if it gets called.
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
             return FakeCompletedProcess()
@@ -388,7 +585,7 @@ class TestCommonCrawl:
         # Since the file already exists, no download should be attempted.
         assert not called_run
 
-    def test_common_crawl_downloader_new_file(self, tmp_path, monkeypatch):
+    def test_common_crawl_downloader_new_file(self, tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
         # Create a temporary downloads directory; ensure the file does not exist.
         download_dir = tmp_path / "downloads"
         download_dir.mkdir()
@@ -399,13 +596,11 @@ class TestCommonCrawl:
         if os.path.exists(file_path):
             os.remove(file_path)
 
-        downloader = CommonCrawlWARCDownloader(
-            str(download_dir), aws=False, verbose=False
-        )
+        downloader = CommonCrawlWARCDownloader(str(download_dir), aws=False, verbose=False)
 
         called_run = False
 
-        def fake_run(cmd, stdout, stderr):
+        def fake_run(cmd: list[str], stdout: str, stderr: str) -> subprocess.CompletedProcess:  # noqa: ARG001
             nonlocal called_run
             called_run = True
             return FakeCompletedProcess()
@@ -417,7 +612,7 @@ class TestCommonCrawl:
         # Since the file did not exist, a download call (and subprocess.run) should have been made.
         assert called_run
 
-    def test_common_crawl_iterator(self, tmp_path):
+    def test_common_crawl_iterator(self, tmp_path: Path) -> None:
         # Create a minimal valid WARC file with a single "response" record.
         raw_warc_path = tmp_path / "dummy.warc"
         http_response = (
@@ -437,7 +632,7 @@ class TestCommonCrawl:
                 f"WARC-Target-URI: http://example.com\r\n"
                 f"Content-Length: {content_length}\r\n"
                 f"\r\n"
-            ).encode("utf-8")
+            ).encode()
             + http_response_bytes
             + b"\r\n\r\n"
         )
@@ -452,7 +647,7 @@ class TestCommonCrawl:
         # Verify that the content includes our test paragraph.
         assert b"Common Crawl test paragraph" in content
 
-    def test_common_crawl_extractor_justext(self):
+    def test_common_crawl_extractor_justext(self) -> None:
         extractor = CommonCrawlWARCExtractor(algorithm=JusTextExtractor())
         html = (
             "<html><body><p>Common Crawl test paragraph for justext extractor. "
@@ -467,7 +662,7 @@ class TestCommonCrawl:
         assert "Common Crawl test paragraph for justext extractor." in result["text"]
         assert "language" in result
 
-    def test_common_crawl_extractor_resiliparse(self):
+    def test_common_crawl_extractor_resiliparse(self) -> None:
         extractor = CommonCrawlWARCExtractor(algorithm=ResiliparseExtractor())
         html = (
             "<html><body><p>Common Crawl test paragraph for resiliparse extractor. "
@@ -478,14 +673,12 @@ class TestCommonCrawl:
         result = extractor.extract(content)
         print(result)
         assert result is not None
-        assert (
-            "Common Crawl test paragraph for resiliparse extractor." in result["text"]
-        )
+        assert "Common Crawl test paragraph for resiliparse extractor." in result["text"]
         assert "language" in result
 
 
 class TestExtractor:
-    def test_resiliparse_extract_text(self, html_string):
+    def test_resiliparse_extract_text(self, html_string: str) -> None:
         algorithm = ResiliparseExtractor()
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(html_string, stop_words["ENGLISH"], "ENGLISH")
@@ -497,7 +690,7 @@ class TestExtractor:
 
         assert result == expected
 
-    def test_trafilatura_extract_text(self, html_string):
+    def test_trafilatura_extract_text(self, html_string: str) -> None:
         algorithm = TrafilaturaExtractor(
             min_extracted_size=10,
             min_duplcheck_size=10,
@@ -513,10 +706,8 @@ class TestExtractor:
 
         assert result == expected
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_thai_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_thai_text(self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]) -> None:
         thai_html = """<!doctype html>
             <head>
                 <title>ชื่อเรื่องของฉัน</title>
@@ -560,12 +751,12 @@ class TestExtractor:
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(thai_html, stop_words["THAI"], "THAI")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_chinese_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_chinese_text(
+        self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]
+    ) -> None:
         chinese_html = """<!doctype html>
             <head>
                 <title>我的标题</title>
@@ -581,38 +772,38 @@ class TestExtractor:
 
                     </main>
             </body>
-        </html>"""
+        </html>"""  # noqa: RUF001
 
         if extraction_algorithm == "justext":
             algorithm = JusTextExtractor()
             expected = [
                 "这是一个示例段落。我们在其中写下单词。",
-                "本段落没有太多停用词。请将其删除。\n让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",
+                "本段落没有太多停用词。请将其删除。\n让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",  # noqa: RUF001
             ]
         elif extraction_algorithm == "resiliparse":
             algorithm = ResiliparseExtractor()
             expected = [
                 "这是一个示例段落。我们在其中写下单词。",
                 "本段落没有太多停用词。请将其删除。",
-                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",
+                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",  # noqa: RUF001
             ]
         elif extraction_algorithm == "trafilatura":
             algorithm = TrafilaturaExtractor()
             expected = [
                 "这是一个示例段落。我们在其中写下单词。",
                 "本段落没有太多停用词。请将其删除。",
-                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",
+                "让我们保留这一段：要么来了，要么最后来了，要么新来了，要么采取了行动。",  # noqa: RUF001
             ]
 
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(chinese_html, stop_words["CHINESE"], "CHINESE")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_japanese_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_japanese_text(
+        self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]
+    ) -> None:
         japanese_html = """<!doctype html>
             <head>
                 <title>私のタイトル</title>
@@ -653,16 +844,12 @@ class TestExtractor:
             ]
 
         stop_words = get_stop_list_dict()
-        result = algorithm.extract_text(
-            japanese_html, stop_words["JAPANESE"], "JAPANESE"
-        )
+        result = algorithm.extract_text(japanese_html, stop_words["JAPANESE"], "JAPANESE")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"
 
-    @pytest.mark.parametrize(
-        "extraction_algorithm", ["justext", "resiliparse", "trafilatura"]
-    )
-    def test_extract_korean_text(self, extraction_algorithm):
+    @pytest.mark.parametrize("extraction_algorithm", ["justext", "resiliparse", "trafilatura"])
+    def test_extract_korean_text(self, extraction_algorithm: Literal["justext", "resiliparse", "trafilatura"]) -> None:
         korean_html = """<!doctype html>
             <head>
                 <title>내 제목</title>
@@ -706,4 +893,4 @@ class TestExtractor:
         stop_words = get_stop_list_dict()
         result = algorithm.extract_text(korean_html, stop_words["KOREAN"], "KOREAN")
 
-        assert result == expected
+        assert result == expected, f"Expected {expected} but got {result}"

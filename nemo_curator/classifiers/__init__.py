@@ -27,14 +27,14 @@ from .prompt_task_complexity import PromptTaskComplexityClassifier
 from .quality import QualityClassifier
 
 __all__ = [
-    "DomainClassifier",
-    "MultilingualDomainClassifier",
-    "QualityClassifier",
     "AegisClassifier",
-    "InstructionDataGuardClassifier",
+    "ContentTypeClassifier",
+    "DomainClassifier",
     "FineWebEduClassifier",
     "FineWebMixtralEduClassifier",
     "FineWebNemotronEduClassifier",
-    "ContentTypeClassifier",
+    "InstructionDataGuardClassifier",
+    "MultilingualDomainClassifier",
     "PromptTaskComplexityClassifier",
+    "QualityClassifier",
 ]

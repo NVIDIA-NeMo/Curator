@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import logging
 import os
 import time
@@ -28,13 +29,13 @@ from nemo_curator.utils.file_utils import (
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def silence_hf_warnings():
+def silence_hf_warnings() -> None:
     from transformers.utils import logging
 
     logging.set_verbosity_error()
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     semdedup_config = SemDedupConfig.from_yaml(args.config_file)
     client = get_client(**ArgumentHelper.parse_client_args(args))
 
@@ -85,12 +86,11 @@ def main(args):
     client.close()
 
 
-def attach_args():
-    parser = ArgumentHelper.parse_semdedup_args()
-    return parser
+def attach_args() -> argparse.ArgumentParser:
+    return ArgumentHelper.parse_semdedup_args()
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

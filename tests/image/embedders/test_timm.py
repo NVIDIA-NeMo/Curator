@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections.abc import Callable, Generator
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 import numpy as np
@@ -22,23 +24,19 @@ import torch
 from nemo_curator.utils.import_utils import gpu_only_import_from
 
 # These imports should only work on GPU systems
-ImageTextPairDataset = gpu_only_import_from(
-    "nemo_curator.datasets.image_text_pair_dataset", "ImageTextPairDataset"
-)
-TimmImageEmbedder = gpu_only_import_from(
-    "nemo_curator.image.embedders.timm", "TimmImageEmbedder"
-)
+ImageTextPairDataset = gpu_only_import_from("nemo_curator.datasets.image_text_pair_dataset", "ImageTextPairDataset")
+TimmImageEmbedder = gpu_only_import_from("nemo_curator.image.embedders.timm", "TimmImageEmbedder")
 
 
 # Test initialization parameters
 @pytest.mark.gpu
-def test_init_defaults():
+def test_init_defaults() -> None:
     """Test that TimmImageEmbedder initializes with default parameters correctly."""
     embedder = TimmImageEmbedder(model_name="resnet18")
     assert embedder.model_name == "resnet18"
     assert embedder.pretrained is False
     assert embedder.batch_size == 1
-    assert embedder.num_threads_per_worker == 4
+    assert embedder.num_threads_per_worker == 4  # noqa: PLR2004
     assert embedder.image_embedding_column == "image_embedding"
     assert embedder.normalize_embeddings is True
     assert embedder.autocast is True
@@ -47,7 +45,7 @@ def test_init_defaults():
 
 
 @pytest.mark.gpu
-def test_init_custom_params():
+def test_init_custom_params() -> None:
     """Test that TimmImageEmbedder initializes with custom parameters correctly."""
     embedder = TimmImageEmbedder(
         model_name="vit_base_patch16_224",
@@ -61,8 +59,8 @@ def test_init_custom_params():
     )
     assert embedder.model_name == "vit_base_patch16_224"
     assert embedder.pretrained is True
-    assert embedder.batch_size == 64
-    assert embedder.num_threads_per_worker == 8
+    assert embedder.batch_size == 64  # noqa: PLR2004
+    assert embedder.num_threads_per_worker == 8  # noqa: PLR2004
     assert embedder.image_embedding_column == "custom_embedding"
     assert embedder.normalize_embeddings is False
     assert embedder.autocast is False
@@ -71,7 +69,7 @@ def test_init_custom_params():
 
 # Test _configure_forward method
 @pytest.mark.gpu
-def test_configure_forward(gpu_client):
+def test_configure_forward(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test that the _configure_forward method appropriately wraps the model's forward method."""
     embedder = TimmImageEmbedder(model_name="resnet18")
 
@@ -82,7 +80,7 @@ def test_configure_forward(gpu_client):
             self.forward_args = None
             self.forward_kwargs = None
 
-        def forward(self, *args, **kwargs):
+        def forward(self, *args, **kwargs) -> torch.Tensor:
             self.forward_called = True
             self.forward_args = args
             self.forward_kwargs = kwargs
@@ -92,7 +90,7 @@ def test_configure_forward(gpu_client):
     mock_model = MockModel()
 
     # Configure the forward method
-    configured_model = embedder._configure_forward(mock_model)
+    configured_model = embedder._configure_forward(mock_model)  # noqa: SLF001
 
     # Call the configured forward method
     test_input = torch.ones((2, 3, 224, 224), device="cuda")
@@ -114,7 +112,7 @@ def test_configure_forward(gpu_client):
 
 # Test load_embedding_model method
 @pytest.mark.gpu
-def test_load_embedding_model(gpu_client):
+def test_load_embedding_model(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test that the load_embedding_model method correctly loads a timm model."""
     # Use a small model for this test
     embedder = TimmImageEmbedder(model_name="resnet18", pretrained=False)
@@ -128,22 +126,22 @@ def test_load_embedding_model(gpu_client):
                 self.eval_called = False
                 self.to_device = None
 
-            def eval(self):
+            def eval(self) -> torch.nn.Module:
                 self.eval_called = True
                 return self
 
-            def to(self, device):
+            def to(self, device: torch.device) -> torch.nn.Module:
                 self.to_device = device
                 return self
 
-            def forward(self, x):
+            def forward(self, x: torch.Tensor) -> torch.Tensor:
                 return torch.ones((x.shape[0], 512), device=x.device)
 
         mock_model = MockTimmModel()
         mock_create_model.return_value = mock_model
 
         # Call the method
-        model = embedder.load_embedding_model(device="cuda")
+        _model = embedder.load_embedding_model(device="cuda")
 
         # Check that timm.create_model was called with correct args
         mock_create_model.assert_called_once_with("resnet18", pretrained=False)
@@ -157,7 +155,7 @@ def test_load_embedding_model(gpu_client):
 
 # Test load_dataset_shard method with mocked DALI
 @pytest.mark.gpu
-def test_load_dataset_shard(gpu_client):
+def test_load_dataset_shard(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test that load_dataset_shard correctly loads and processes dataset shards."""
     embedder = TimmImageEmbedder(model_name="resnet18", batch_size=1)
 
@@ -186,7 +184,7 @@ def test_load_dataset_shard(gpu_client):
 
 # Test complete workflow with mocks (this tests the __call__ method indirectly)
 @pytest.mark.gpu
-def test_embedder_workflow(gpu_client):
+def test_embedder_workflow(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test the complete workflow of the TimmImageEmbedder."""
     # Get the real sample dataset path
     sample_tar_path = Path(__file__).parent.parent.parent / "image_data" / "00000.tar"
@@ -198,22 +196,16 @@ def test_embedder_workflow(gpu_client):
     data_dir = str(sample_tar_path.parent)
 
     # Mock metadata for our dataset (would normally be read from parquet files)
-    metadata_dict = {
+    _metadata_dict = {
         "id": ["0"],
-        "caption": [
-            "A wine bottle outfitted with two forks in its cork and a duck head on top."
-        ],
+        "caption": ["A wine bottle outfitted with two forks in its cork and a duck head on top."],
     }
 
     # Create mock metadata DataFrame
     with (
         mock.patch("dask_cudf.read_parquet"),
-        mock.patch.object(
-            ImageTextPairDataset, "_get_tar_files", return_value=[str(sample_tar_path)]
-        ),
-        mock.patch.object(
-            ImageTextPairDataset, "_sort_partition", side_effect=lambda df, id_col: df
-        ),
+        mock.patch.object(ImageTextPairDataset, "_get_tar_files", return_value=[str(sample_tar_path)]),
+        mock.patch.object(ImageTextPairDataset, "_sort_partition", side_effect=lambda df, id_col: df),  # noqa: ARG005
     ):
         # Create a mock metadata object
         mock_metadata = mock.MagicMock()
@@ -231,17 +223,13 @@ def test_embedder_workflow(gpu_client):
         test_dataset.metadata = mock_metadata
 
         # Create the embedder
-        embedder = TimmImageEmbedder(
-            model_name="resnet18", batch_size=1, image_embedding_column="embeddings"
-        )
+        embedder = TimmImageEmbedder(model_name="resnet18", batch_size=1, image_embedding_column="embeddings")
 
         with (
-            mock.patch(
-                "nemo_curator.image.embedders.base.ImageTextPairDataset"
-            ) as mock_dataset_class,
+            mock.patch("nemo_curator.image.embedders.base.ImageTextPairDataset") as mock_dataset_class,
         ):
             # Call the embedder
-            result = embedder(test_dataset)
+            _result = embedder(test_dataset)
 
             # Check that map_partitions was called
             mock_metadata.map_partitions.assert_called_once()
@@ -256,20 +244,20 @@ def test_embedder_workflow(gpu_client):
 
 # Test with non-default configurations
 @pytest.mark.gpu
-def test_with_disabled_normalization(gpu_client):
+def test_with_disabled_normalization(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test that embeddings aren't normalized when normalize_embeddings=False."""
     embedder = TimmImageEmbedder(model_name="resnet18", normalize_embeddings=False)
 
     # Create a mock model that returns a non-normalized tensor
     class MockModel:
-        def forward(self, *args, **kwargs):
+        def forward(self, *args, **kwargs) -> torch.Tensor:  # noqa: ARG002
             # Create a tensor with non-unit norm
             return torch.ones((2, 512), device="cuda") * 2.0
 
     mock_model = MockModel()
 
     # Configure the forward method
-    configured_model = embedder._configure_forward(mock_model)
+    configured_model = embedder._configure_forward(mock_model)  # noqa: SLF001
 
     # Call the configured forward method
     test_input = torch.ones((2, 3, 224, 224), device="cuda")
@@ -283,7 +271,7 @@ def test_with_disabled_normalization(gpu_client):
 
 
 @pytest.mark.gpu
-def test_with_disabled_autocast(gpu_client):
+def test_with_disabled_autocast(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test behavior when autocast is disabled."""
     embedder = TimmImageEmbedder(model_name="resnet18", autocast=False)
 
@@ -292,7 +280,7 @@ def test_with_disabled_autocast(gpu_client):
         def __init__(self):
             self.forward_called = False
 
-        def forward(self, *args, **kwargs):
+        def forward(self, *args, **kwargs) -> torch.Tensor:  # noqa: ARG002
             self.forward_called = True
             return torch.ones((2, 512), device="cuda")
 
@@ -301,11 +289,11 @@ def test_with_disabled_autocast(gpu_client):
     # Mock torch.autocast to verify it's not called
     with mock.patch("torch.autocast") as mock_autocast:
         # Configure the forward method
-        configured_model = embedder._configure_forward(mock_model)
+        configured_model = embedder._configure_forward(mock_model)  # noqa: SLF001
 
         # Call the configured forward method
         test_input = torch.ones((2, 3, 224, 224), device="cuda")
-        output = configured_model.forward(test_input)
+        _output = configured_model.forward(test_input)
 
         # Verify that autocast wasn't called
         mock_autocast.assert_not_called()
@@ -315,7 +303,7 @@ def test_with_disabled_autocast(gpu_client):
 
 
 @pytest.mark.gpu
-def test_with_index_files(gpu_client):
+def test_with_index_files(gpu_client) -> None:  # noqa: ANN001, ARG001
     """Test that index files are correctly used when enabled."""
     embedder = TimmImageEmbedder(model_name="resnet18", use_index_files=True)
 
@@ -348,19 +336,18 @@ def test_with_index_files(gpu_client):
 
 
 @pytest.mark.gpu
-def test_run_inference_with_mock_model(gpu_client):
+def test_run_inference_with_mock_model(gpu_client) -> None:  # noqa: ANN001, ARG001, C901
     """Test the _run_inference method directly with a mock model and mock dataset."""
     import cudf
 
     # Create a mock model that returns predictable embeddings
     class MockModel:
-        def __call__(self, batch):
+        def __call__(self, batch: torch.Tensor) -> torch.Tensor:
             # Return a tensor with predictable values based on batch size
             batch_size = batch.shape[0]
             embeddings = torch.ones((batch_size, 128), device="cuda") * 0.5
             # Normalize the embeddings directly in the __call__ method
-            embeddings = torch.nn.functional.normalize(embeddings, dim=-1)
-            return embeddings
+            return torch.nn.functional.normalize(embeddings, dim=-1)
 
     # Create a mock classifier
     class MockClassifier:
@@ -369,10 +356,10 @@ def test_run_inference_with_mock_model(gpu_client):
             self.pred_column = "mock_classifier_scores"
             self.pred_type = "float32"
 
-        def load_model(self, device):
+        def load_model(self, device: torch.device) -> Callable[[torch.Tensor], torch.Tensor]:  # noqa: ARG002
             return lambda x: torch.ones((x.shape[0], 1), device="cuda") * 0.75
 
-        def postprocess(self, series):
+        def postprocess(self, series: "cudf.Series") -> "cudf.Series":
             return series
 
     # Create a mock TimmImageEmbedder that overrides the methods we need to control
@@ -384,9 +371,7 @@ def test_run_inference_with_mock_model(gpu_client):
             self.pretrained = kwargs.get("pretrained", False)
             self.batch_size = kwargs.get("batch_size", 1)
             self.num_threads_per_worker = kwargs.get("num_threads_per_worker", 4)
-            self.image_embedding_column = kwargs.get(
-                "image_embedding_column", "image_embedding"
-            )
+            self.image_embedding_column = kwargs.get("image_embedding_column", "image_embedding")
             self.normalize_embeddings = kwargs.get("normalize_embeddings", True)
             self.autocast = kwargs.get("autocast", True)
             self.use_index_files = kwargs.get("use_index_files", False)
@@ -395,10 +380,13 @@ def test_run_inference_with_mock_model(gpu_client):
             self.mock_dataset_yielded = False
             # Skip the call to timm.create_model and the transformation setup
 
-        def load_embedding_model(self, device):
+        def load_embedding_model(self, device: torch.device) -> torch.nn.Module:  # noqa: ARG002
             return self.mock_model
 
-        def load_dataset_shard(self, tar_path):
+        def load_dataset_shard(
+            self,
+            tar_path: str,  # noqa: ARG002
+        ) -> Generator[tuple[torch.Tensor, list[dict[str, Any]]], None, None]:
             # Yield only once to avoid infinite loop
             if not self.mock_dataset_yielded:
                 self.mock_dataset_yielded = True
@@ -407,16 +395,14 @@ def test_run_inference_with_mock_model(gpu_client):
                 metadata = [{"id": "1"}, {"id": "0"}]  # Deliberately out of order
                 yield batch, metadata
 
-        def _configure_forward(self, model):
+        def _configure_forward(self, model: torch.nn.Module) -> torch.nn.Module:
             # Use a simplified version without trying to access the original model's forward
-            def custom_forward(*args, **kwargs):
+            def custom_forward(*args, **kwargs) -> torch.Tensor:
                 # Just call the model directly
                 image_features = model(*args, **kwargs)
 
                 if self.normalize_embeddings:
-                    image_features = torch.nn.functional.normalize(
-                        image_features, dim=-1
-                    )
+                    image_features = torch.nn.functional.normalize(image_features, dim=-1)
 
                 return image_features.to(torch.float32)
 
@@ -426,33 +412,23 @@ def test_run_inference_with_mock_model(gpu_client):
             return original_model
 
     # Create mock data
-    partition = cudf.DataFrame(
-        {"id": ["0", "1"], "caption": ["test caption 1", "test caption 2"]}
-    )
+    partition = cudf.DataFrame({"id": ["0", "1"], "caption": ["test caption 1", "test caption 2"]})
     tar_paths = ["mock_tar_path.tar"]
     id_col = "id"
     partition_info = {"number": 0}
 
     # Mock the load_object_on_worker function to return our model directly
-    with mock.patch(
-        "nemo_curator.image.embedders.base.load_object_on_worker"
-    ) as mock_load:
+    with mock.patch("nemo_curator.image.embedders.base.load_object_on_worker") as mock_load:
         # Configure the mock to return the model or classifier when called
-        mock_load.side_effect = lambda name, fn, args: (
-            MockModel()
-            if name == "mock_model"
-            else (lambda x: torch.ones((x.shape[0], 1), device="cuda") * 0.75)
+        mock_load.side_effect = lambda name, fn, args: (  # noqa: ARG005
+            MockModel() if name == "mock_model" else (lambda x: torch.ones((x.shape[0], 1), device="cuda") * 0.75)
         )
 
         # Test without classifiers
-        embedder = MockTimmImageEmbedder(
-            model_name="mock_model", image_embedding_column="embeddings", batch_size=2
-        )
+        embedder = MockTimmImageEmbedder(model_name="mock_model", image_embedding_column="embeddings", batch_size=2)
 
         # Call _run_inference directly
-        result_partition = embedder._run_inference(
-            partition, tar_paths, id_col, partition_info
-        )
+        result_partition = embedder._run_inference(partition, tar_paths, id_col, partition_info)  # noqa: SLF001
 
         # Verify that embeddings were added and ordered correctly
         assert "embeddings" in result_partition.columns
@@ -460,7 +436,7 @@ def test_run_inference_with_mock_model(gpu_client):
         # The embeddings are stored as lists in the cuDF DataFrame
         # We need to handle them differently than with to_numpy()
         embeddings_series = result_partition["embeddings"]
-        assert len(embeddings_series) == 2
+        assert len(embeddings_series) == 2  # noqa: PLR2004
 
         # Test characteristics of each embedding by accessing individual items
         for i in range(len(embeddings_series)):
@@ -468,7 +444,7 @@ def test_run_inference_with_mock_model(gpu_client):
             emb = embeddings_series.iloc[i]
 
             # Verify the embedding has the expected properties
-            assert len(emb) == 128
+            assert len(emb) == 128  # noqa: PLR2004
 
             # Convert to numpy array for easier testing
             emb_array = np.array(emb)
@@ -494,16 +470,14 @@ def test_run_inference_with_mock_model(gpu_client):
         embedder.mock_dataset_yielded = False  # Reset for reuse
 
         # Call _run_inference directly
-        result_partition = embedder._run_inference(
-            partition, tar_paths, id_col, partition_info
-        )
+        result_partition = embedder._run_inference(partition, tar_paths, id_col, partition_info)  # noqa: SLF001
 
         # Verify that classifier scores were added
         assert "mock_classifier_scores" in result_partition.columns
 
         # Handle the classifier scores in the same way
         classifier_scores_series = result_partition["mock_classifier_scores"]
-        assert len(classifier_scores_series) == 2
+        assert len(classifier_scores_series) == 2  # noqa: PLR2004
 
         # Test characteristics of each classifier score
         for i in range(len(classifier_scores_series)):

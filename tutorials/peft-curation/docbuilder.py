@@ -14,7 +14,7 @@
 
 import os
 import re
-from typing import Dict
+from collections.abc import Iterator
 
 import requests
 
@@ -44,7 +44,7 @@ class EmailsDownloader(DocumentDownloader):
             return output_file
 
         print(f"Downloading Enron emails dataset from '{url}'...")
-        response = requests.get(url)
+        response = requests.get(url)  # noqa: S113
 
         with open(output_file, "wb") as file:
             file.write(response.content)
@@ -53,7 +53,6 @@ class EmailsDownloader(DocumentDownloader):
 
 
 class EmailsIterator(DocumentIterator):
-
     def __init__(self):
         super().__init__()
         self._counter = -1
@@ -61,11 +60,11 @@ class EmailsIterator(DocumentIterator):
         # The regular expression pattern to extract each email.
         self._pattern = re.compile(r"\"<s>.*?<s>\"", re.DOTALL)
 
-    def iterate(self, file_path):
+    def iterate(self, file_path: str) -> Iterator[dict[str, str]]:
         self._counter = -1
         file_name = os.path.basename(file_path)
 
-        with open(file_path, "r", encoding="utf-8") as file:
+        with open(file_path, encoding="utf-8") as file:
             lines = file.readlines()
 
         # Ignore the first line which contains the header.
@@ -95,10 +94,11 @@ class EmailsExtractor(DocumentExtractor):
         super().__init__()
         # The regular expression pattern to extract subject/body/label into groups.
         self._pattern = re.compile(
-            r"Subject:: (.*?)\nBody:: (.*?)\n.*\[/INST\] (.*?) <s>", re.DOTALL
+            r"Subject:: (.*?)\nBody:: (.*?)\n.*\[/INST\] (.*?) <s>",
+            re.DOTALL,
         )
 
-    def extract(self, content: str) -> Dict[str, str]:
+    def extract(self, content: str) -> dict[str, str]:
         matches = self._pattern.findall(content)
 
         if not matches:

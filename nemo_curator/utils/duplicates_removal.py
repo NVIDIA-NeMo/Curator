@@ -13,40 +13,36 @@
 # limitations under the License.
 
 import warnings
-from typing import List, Optional, Union
 
 import dask.dataframe as dd
 
 
-def deduplicate_groups(
-    duplicates: dd.DataFrame, group_field: Optional[str], perform_shuffle: bool
-) -> dd.DataFrame:
+def deduplicate_groups(duplicates: dd.DataFrame, group_field: str | None, perform_shuffle: bool) -> dd.DataFrame:
     if group_field is None:
         return duplicates
 
-    if perform_shuffle:
+    if perform_shuffle:  # noqa: SIM108
         # Redistribute data across partitions so that all duplicates are in same partition
         duplicates_shuffled = duplicates.shuffle(on=[group_field], ignore_index=True)
     else:
         duplicates_shuffled = duplicates
 
-    duplicates_to_remove = (
+    return (
         duplicates_shuffled
         # For each partition, keep only the duplicated rows (excluding first occurrence)
-        .map_partitions(lambda x: x[x[group_field].duplicated(keep="first")]).drop(
-            columns=group_field
-        )
+        .map_partitions(lambda x: x[x[group_field].duplicated(keep="first")]).drop(columns=group_field)
     )
-    return duplicates_to_remove
 
 
 def left_anti_join(
     left: dd.DataFrame,
     right: dd.DataFrame,
-    left_on: Union[str, List[str]],
-    right_on: Union[str, List[str]],
+    left_on: str | list[str],
+    right_on: str | list[str],
 ) -> dd.DataFrame:
-    assert left_on != right_on, "left_on and right_on cannot be the same"
+    if left_on == right_on:
+        msg = "left_on and right_on cannot be the same"
+        raise ValueError(msg)
 
     merge = left.merge(
         right=right,
@@ -57,15 +53,14 @@ def left_anti_join(
     )
 
     # This effectively removes all rows that were not in duplicates_to_remove
-    removed_result = merge[merge[right_on].isna()].drop(columns=[right_on])
-    return removed_result
+    return merge[merge[right_on].isna()].drop(columns=[right_on])
 
 
 def remove_duplicates(
     left: dd.DataFrame,
     duplicates: dd.DataFrame,
     id_field: str,
-    group_field: Optional[str] = None,
+    group_field: str | None = None,
     perform_shuffle: bool = False,
 ) -> dd.DataFrame:
     left_npartitions = left.optimize().npartitions
@@ -77,7 +72,7 @@ def remove_duplicates(
             "This may lead to a shuffle join. Repartitioning right dataset to match left partitions."
             "To control this behavior, call identify_duplicates and removal as two separate steps"
         )
-        warnings.warn(msg)
+        warnings.warn(msg, stacklevel=2)
         duplicates = duplicates.repartition(npartitions=left_npartitions)
 
     # Create a new column name for temporary ID storage during merge

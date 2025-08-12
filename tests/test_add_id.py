@@ -15,6 +15,7 @@
 import dask.dataframe as dd
 import pandas as pd
 import pytest
+from pytest import FixtureRequest
 
 import nemo_curator as nc
 from nemo_curator.datasets import DocumentDataset
@@ -24,18 +25,21 @@ cudf = gpu_only_import("cudf")
 is_cudf_available = not is_unavailable(cudf)
 
 
-def list_to_dataset(documents, col_name="text", npartitions=2, backend="pandas"):
+def list_to_dataset(
+    documents: list[str], col_name: str = "text", npartitions: int = 2, backend: str = "pandas"
+) -> DocumentDataset:
     data = {col_name: documents}
     pdf = pd.DataFrame(data)
     ddf = dd.from_pandas(pdf, npartitions=npartitions)
     if backend == "cudf" and is_unavailable(cudf):
-        raise ImportError("cuDF is not installed or importable.")
+        msg = "cuDF is not installed or importable."
+        raise ImportError(msg)
     ddf = ddf.to_backend(backend)
     return DocumentDataset(ddf)
 
 
 @pytest.fixture(params=["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
-def single_partition_dataset(request):
+def single_partition_dataset(request: FixtureRequest) -> DocumentDataset:
     return list_to_dataset(
         ["First", "Second", "Third", "Fourth", "Fifth"],
         npartitions=1,
@@ -44,7 +48,7 @@ def single_partition_dataset(request):
 
 
 @pytest.fixture(params=["pandas", pytest.param("cudf", marks=pytest.mark.gpu)])
-def two_partition_dataset(request):
+def two_partition_dataset(request: FixtureRequest) -> DocumentDataset:
     return list_to_dataset(
         ["First", "Second", "Third", "Fourth", "Fifth"],
         npartitions=2,
@@ -53,7 +57,7 @@ def two_partition_dataset(request):
 
 
 class TestAddId:
-    def test_basic_id(self, single_partition_dataset):
+    def test_basic_id(self, single_partition_dataset: DocumentDataset) -> None:
         id_field = "id"
         add_id = nc.AddId(id_field, start_index=0)
         id_dataset = add_id(single_partition_dataset)
@@ -70,11 +74,9 @@ class TestAddId:
         if is_cudf_available and isinstance(actual_ids, cudf.Series):
             actual_ids = actual_ids.to_pandas()
 
-        assert all(
-            expected_ids == actual_ids
-        ), f"Expected: {expected_ids}, got: {actual_ids}"
+        assert all(expected_ids == actual_ids), f"Expected: {expected_ids}, got: {actual_ids}"
 
-    def test_two_partitions(self, two_partition_dataset):
+    def test_two_partitions(self, two_partition_dataset: DocumentDataset) -> None:
         id_field = "id"
         add_id = nc.AddId(id_field, start_index=0)
         id_dataset = add_id(two_partition_dataset)
@@ -91,11 +93,9 @@ class TestAddId:
         if is_cudf_available and isinstance(actual_ids, cudf.Series):
             actual_ids = actual_ids.to_pandas()
 
-        assert all(
-            expected_ids == actual_ids
-        ), f"Expected: {expected_ids}, got: {actual_ids}"
+        assert all(expected_ids == actual_ids), f"Expected: {expected_ids}, got: {actual_ids}"
 
-    def test_id_prefix(self, two_partition_dataset):
+    def test_id_prefix(self, two_partition_dataset: DocumentDataset) -> None:
         id_field = "id"
         id_prefix = "my_id"
         add_id = nc.AddId(id_field, id_prefix=id_prefix, start_index=0)
@@ -113,11 +113,9 @@ class TestAddId:
         if is_cudf_available and isinstance(actual_ids, cudf.Series):
             actual_ids = actual_ids.to_pandas()
 
-        assert all(
-            expected_ids == actual_ids
-        ), f"Expected: {expected_ids}, got: {actual_ids}"
+        assert all(expected_ids == actual_ids), f"Expected: {expected_ids}, got: {actual_ids}"
 
-    def test_start_index(self, two_partition_dataset):
+    def test_start_index(self, two_partition_dataset: DocumentDataset) -> None:
         id_field = "id"
         start_index = 13
         add_id = nc.AddId(id_field, start_index=start_index)
@@ -135,11 +133,9 @@ class TestAddId:
         if is_cudf_available and isinstance(actual_ids, cudf.Series):
             actual_ids = actual_ids.to_pandas()
 
-        assert all(
-            expected_ids == actual_ids
-        ), f"Expected: {expected_ids}, got: {actual_ids}"
+        assert all(expected_ids == actual_ids), f"Expected: {expected_ids}, got: {actual_ids}"
 
-    def test_fast_id_single_partition(self, single_partition_dataset):
+    def test_fast_id_single_partition(self, single_partition_dataset: DocumentDataset) -> None:
         id_field = "id"
         add_id = nc.AddId(id_field)
         id_dataset = add_id(single_partition_dataset)
@@ -156,11 +152,9 @@ class TestAddId:
         if is_cudf_available and isinstance(actual_ids, cudf.Series):
             actual_ids = actual_ids.to_pandas()
 
-        assert all(
-            expected_ids == actual_ids
-        ), f"Expected: {expected_ids}, got: {actual_ids}"
+        assert all(expected_ids == actual_ids), f"Expected: {expected_ids}, got: {actual_ids}"
 
-    def test_fast_id_two_partitions(self, two_partition_dataset):
+    def test_fast_id_two_partitions(self, two_partition_dataset: DocumentDataset) -> None:
         id_field = "id"
         add_id = nc.AddId(id_field)
         id_dataset = add_id(two_partition_dataset)
@@ -177,6 +171,4 @@ class TestAddId:
         if is_cudf_available and isinstance(actual_ids, cudf.Series):
             actual_ids = actual_ids.to_pandas()
 
-        assert all(
-            expected_ids == actual_ids
-        ), f"Expected: {expected_ids}, got: {actual_ids}"
+        assert all(expected_ids == actual_ids), f"Expected: {expected_ids}, got: {actual_ids}"

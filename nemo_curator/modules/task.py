@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,30 +13,35 @@
 # limitations under the License.
 
 from collections import defaultdict
+from collections.abc import Iterable
 from functools import partial, reduce
-from typing import Iterable, List, Union
+from typing import Any, Union
 
 import dask.dataframe as dd
+import pandas as pd
 from dask import delayed
 
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.modules.base import BaseModule
 from nemo_curator.tasks.downstream_task import DownstreamTask
 from nemo_curator.utils.distributed_utils import single_partition_write_with_filename
+from nemo_curator.utils.import_utils import gpu_only_import
 from nemo_curator.utils.text_utils import get_words
+
+cudf = gpu_only_import("cudf")
 
 
 class TaskDecontamination(BaseModule):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        tasks: Union[DownstreamTask, Iterable[DownstreamTask]],
-        text_field="text",
-        max_ngram_size=13,
-        max_matches=10,
-        min_document_length=200,
-        remove_char_each_side=200,
-        max_splits=10,
-        removed_dir=None,
+        tasks: DownstreamTask | Iterable[DownstreamTask],
+        text_field: str = "text",
+        max_ngram_size: int = 13,
+        max_matches: int = 10,
+        min_document_length: int = 200,
+        remove_char_each_side: int = 200,
+        max_splits: int = 10,
+        removed_dir: str | None = None,
     ) -> None:
         """
         Removes segments of downstream evaluation tasks from a dataset
@@ -61,7 +66,6 @@ class TaskDecontamination(BaseModule):
         self.removed_dir = removed_dir
 
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
-
         # Convert the dataframe to delayed objects for complex operations
         original_meta = dataset.df.dtypes.to_dict()
         delayed_dataset = dataset.df.to_delayed()
@@ -73,19 +77,13 @@ class TaskDecontamination(BaseModule):
             found_result["matched-ngrams"],
             found_result["ngrams-freq"],
         )
-        delayed_removed_dataset = self._remove_matching_ngrams(
-            matched_ngrams, ngram_freq, delayed_dataset
-        )
+        delayed_removed_dataset = self._remove_matching_ngrams(matched_ngrams, ngram_freq, delayed_dataset)
 
         # Restore the dataset to its original format
-        removed_dataset = DocumentDataset(
-            dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta)
-        )
-
-        return removed_dataset
+        return DocumentDataset(dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta))
 
     @staticmethod
-    def _merge_task_ngrams(first: dict, second: dict):
+    def _merge_task_ngrams(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
         first.update(second)
         return first
 
@@ -94,73 +92,66 @@ class TaskDecontamination(BaseModule):
         Computes a dictionary of all ngrams in each task as keys and each value set to 0.
         """
         delayed_ngrams = [delayed(task.generate_ngrams)() for task in self.tasks]
-        aggregated_ngrams = delayed(reduce)(
-            TaskDecontamination._merge_task_ngrams, delayed_ngrams
-        )
 
-        return aggregated_ngrams
+        return delayed(reduce)(TaskDecontamination._merge_task_ngrams, delayed_ngrams)
 
     @staticmethod
-    def _compute_ngram_freq_sorted(task_ngrams):
+    def _compute_ngram_freq_sorted(task_ngrams: dict[str, int]) -> list[tuple[int, int]]:
         ngrams_freq = defaultdict(int)
-        for ngram_key in task_ngrams.keys():
+        for ngram_key in task_ngrams:
             ngram_words, _ = get_words(ngram_key)
             length = len(ngram_words)
             ngrams_freq[length] += 1
 
-        ngrams_freq_sorted = sorted(ngrams_freq.items(), key=lambda item: item[0])
-
-        return ngrams_freq_sorted
+        return sorted(ngrams_freq.items(), key=lambda item: item[0])
 
     def find_matching_ngrams(self, task_ngrams: dict, dataset: DocumentDataset) -> dict:
         delayed_dataset = dataset.df.to_delayed()
 
         return self._find_matching_ngrams(task_ngrams, delayed_dataset)
 
-    def _find_matching_ngrams(self, task_ngrams: dict, delayed_dataset) -> dict:
-        task_ngrams_frequency_sorted = delayed(self._compute_ngram_freq_sorted)(
-            task_ngrams
-        )
+    def _find_matching_ngrams(self, task_ngrams: dict, delayed_dataset: list[dd.DataFrame]) -> dict:
+        task_ngrams_frequency_sorted = delayed(self._compute_ngram_freq_sorted)(task_ngrams)
         delayed_counts = [
-            delayed(self._find_ngrams_partition)(
-                partition, task_ngrams, task_ngrams_frequency_sorted
-            )
+            delayed(self._find_ngrams_partition)(partition, task_ngrams, task_ngrams_frequency_sorted)
             for partition in delayed_dataset
         ]
         combined_counts = delayed(reduce)(self._merge_counts, delayed_counts)
-        formatted_result = delayed(self._format_matching_ngrams_result)(
-            combined_counts, task_ngrams_frequency_sorted
-        )
 
-        return formatted_result
+        return delayed(self._format_matching_ngrams_result)(combined_counts, task_ngrams_frequency_sorted)
 
     def _find_ngrams_partition(
-        self, dataset_partition, task_ngrams, ngrams_freq_sorted
-    ):
+        self,
+        dataset_partition: Union[pd.DataFrame, "cudf.DataFrame"],
+        task_ngrams: dict[str, int],
+        ngrams_freq_sorted: list[tuple[int, int]],
+    ) -> dict[str, int]:
         partition_count = defaultdict(int)
         for document in dataset_partition[self.text_field]:
             doc_result = self._find_ngrams(document, task_ngrams, ngrams_freq_sorted)
-            partition_count = TaskDecontamination._merge_counts(
-                partition_count, doc_result
-            )
+            partition_count = TaskDecontamination._merge_counts(partition_count, doc_result)
 
         return partition_count
 
     @staticmethod
-    def _merge_counts(first: dict, second: dict):
+    def _merge_counts(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
         for ngram, count in second.items():
             first[ngram] = first.get(ngram, 0) + count
 
         return first
 
     @staticmethod
-    def _format_matching_ngrams_result(matched_ngrams, ngram_freq):
+    def _format_matching_ngrams_result(
+        matched_ngrams: dict[str, int], ngram_freq: list[tuple[int, int]]
+    ) -> dict[str, Any]:
         return {
             "matched-ngrams": matched_ngrams,
             "ngrams-freq": ngram_freq,
         }
 
-    def _find_ngrams(self, document, task_ngrams, ngrams_freq_sorted):
+    def _find_ngrams(  # noqa: C901
+        self, document: str, task_ngrams: dict[str, int], ngrams_freq_sorted: list[tuple[int, int]]
+    ) -> dict[str, int]:
         """
         Searches for matching n-grams in a document
         """
@@ -168,7 +159,6 @@ class TaskDecontamination(BaseModule):
 
         local_ngram = defaultdict(int)
         while len(text_buf) > 0:
-
             # get the first one from the buffer
             text = text_buf.pop(0)
             words, positions = get_words(text)
@@ -224,8 +214,7 @@ class TaskDecontamination(BaseModule):
                 last_seq_start_position = len(words) - self.max_ngram_size
 
                 # check all n-grams lower than max ngram-len
-                for pos, (ngram_len, _) in enumerate(ngrams_freq_sorted):
-
+                for _pos, (ngram_len, _) in enumerate(ngrams_freq_sorted):
                     # ignore the max ngram as has been considered already
                     if ngram_len == self.max_ngram_size:
                         continue
@@ -254,10 +243,17 @@ class TaskDecontamination(BaseModule):
         return local_ngram
 
     @staticmethod
-    def _check_text(words, task_ngrams, text, start_position, text_buf, local_ngram):
+    def _check_text(  # noqa: PLR0913
+        words: list[str],
+        task_ngrams: dict[str, int],
+        text: str,
+        start_position: int,
+        text_buf: list[str],
+        local_ngram: dict[str, int],
+    ) -> bool:
         seq = " ".join(words)
         if seq in task_ngrams:
-            print(" [matched]: {}".format(seq), flush=True)
+            print(f" [matched]: {seq}", flush=True)
             # If this flag is set, we just look for matching n-grams
             # we don't remove any matching n-grams
             # Count the matched n-gram and consider it later
@@ -269,31 +265,23 @@ class TaskDecontamination(BaseModule):
         return True
 
     def remove_matching_ngrams(
-        self, matched_ngrams: dict, ngram_freq: List[tuple], dataset: DocumentDataset
-    ):
+        self, matched_ngrams: dict, ngram_freq: list[tuple], dataset: DocumentDataset
+    ) -> DocumentDataset:
         original_meta = dataset.df.dtypes.to_dict()
         delayed_dataset = dataset.df.to_delayed()
-        delayed_removed_dataset = self._remove_matching_ngrams(
-            matched_ngrams, ngram_freq, delayed_dataset
-        )
-        removed_dataset = DocumentDataset(
-            dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta)
-        )
+        delayed_removed_dataset = self._remove_matching_ngrams(matched_ngrams, ngram_freq, delayed_dataset)
 
-        return removed_dataset
+        return DocumentDataset(dataset_df=dd.from_delayed(delayed_removed_dataset, meta=original_meta))
 
     def _remove_matching_ngrams(
-        self, matched_ngrams: dict, ngram_freq: List[tuple], delayed_dataset
-    ):
+        self, matched_ngrams: dict, ngram_freq: list[tuple], delayed_dataset: list[dd.DataFrame]
+    ) -> list[dd.DataFrame]:
         threshhold_ngrams = delayed(self._threshold_ngram_count)(matched_ngrams)
-        delayed_removed_dataset = [
-            delayed(self._remove_ngrams_partition)(
-                partition, threshhold_ngrams, ngram_freq
-            )
+
+        return [
+            delayed(self._remove_ngrams_partition)(partition, threshhold_ngrams, ngram_freq)
             for partition in delayed_dataset
         ]
-
-        return delayed_removed_dataset
 
     def _threshold_ngram_count(self, matched_ngrams: dict) -> set:
         filtered_ngrams = set()
@@ -303,7 +291,12 @@ class TaskDecontamination(BaseModule):
 
         return filtered_ngrams
 
-    def _remove_ngrams_partition(self, partition, task_ngrams, ngrams_freq_sorted):
+    def _remove_ngrams_partition(
+        self,
+        partition: Union[pd.DataFrame, "cudf.DataFrame"],
+        task_ngrams: dict[str, int],
+        ngrams_freq_sorted: list[tuple[int, int]],
+    ) -> Union[pd.DataFrame, "cudf.DataFrame"]:
         text_type = partition[self.text_field].dtype
 
         document_fn = partial(
@@ -314,7 +307,7 @@ class TaskDecontamination(BaseModule):
         split_text = partition[self.text_field].apply(document_fn)
         num_splits = split_text.apply(len)
 
-        valid_documents_mask = (1 <= num_splits) & (num_splits <= self.max_splits)
+        valid_documents_mask = (num_splits >= 1) & (num_splits <= self.max_splits)
 
         if self.removed_dir:
             removed_docs = partition[~valid_documents_mask]
@@ -322,17 +315,15 @@ class TaskDecontamination(BaseModule):
 
         partition[self.text_field] = split_text
         filtered_partition = partition[valid_documents_mask]
-        exploded_partition = filtered_partition.explode(
-            self.text_field, ignore_index=True
-        )
+        exploded_partition = filtered_partition.explode(self.text_field, ignore_index=True)
         # After exploding, the string datatype can become an "object" type
-        exploded_partition[self.text_field] = exploded_partition[
-            self.text_field
-        ].astype(text_type)
+        exploded_partition[self.text_field] = exploded_partition[self.text_field].astype(text_type)
 
         return exploded_partition
 
-    def _remove_ngrams(self, document, task_ngrams, ngrams_freq_sorted):
+    def _remove_ngrams(  # noqa: C901, PLR0912
+        self, document: str, task_ngrams: dict[str, int], ngrams_freq_sorted: list[tuple[int, int]]
+    ) -> list[str]:
         """
         Searches for matching n-grams in a document
         """
@@ -395,8 +386,7 @@ class TaskDecontamination(BaseModule):
                 last_seq_start_position = len(words) - self.max_ngram_size
 
                 # check all n-grams lower than max ngram-len
-                for pos, (ngram_len, _) in enumerate(ngrams_freq_sorted):
-
+                for _pos, (ngram_len, _) in enumerate(ngrams_freq_sorted):
                     # ignore the max ngram as has been considered already
                     if ngram_len == self.max_ngram_size:
                         continue
@@ -426,27 +416,21 @@ class TaskDecontamination(BaseModule):
             if ngram_free:
                 text_buf_ngram_free.append(text)
 
-        # check if the text has only been trimmed
-        trimmed = 0
-        if len(text_buf_ngram_free) == 1:
-            if len(text_buf_ngram_free[0]) < len(text):
-                trimmed = 1
-
         return text_buf_ngram_free
 
-    def _clean_text(
+    def _clean_text(  # noqa: PLR0913
         self,
-        words,
-        matched_ngrams,
-        text,
-        start_position,
-        text_buf,
-        text_buf_ngram_free,
-        nosplit_remove=False,
-    ):
+        words: list[str],
+        matched_ngrams: dict[str, int],
+        text: str,
+        start_position: int,
+        text_buf: list[str],
+        text_buf_ngram_free: list[str],
+        nosplit_remove: bool = False,
+    ) -> bool:
         seq = " ".join(words)
         if seq in matched_ngrams:
-            print(" [matched]: {}".format(seq), flush=True)
+            print(f" [matched]: {seq}", flush=True)
 
             # for NMT data we want to completely remove the sample
             # which has a match
@@ -477,12 +461,12 @@ class TaskDecontamination(BaseModule):
         return True
 
     @staticmethod
-    def _split_text(text, start_pos, remove_char_each_side, seq):
+    def _split_text(text: str, start_pos: int, remove_char_each_side: int, seq: str) -> tuple[str, str]:
         # first part of the text
         punctuations = ".!?"
         pos = start_pos - remove_char_each_side
         text_first = ""
-        while pos > 0 and not text[pos] in punctuations:
+        while pos > 0 and text[pos] not in punctuations:
             pos -= 1
         if pos > 0:
             text_first = text[0 : pos + 1]
@@ -492,7 +476,7 @@ class TaskDecontamination(BaseModule):
 
         # last part of the text
         text_second = ""
-        while pos < len(text) and not text[pos] in punctuations:
+        while pos < len(text) and text[pos] not in punctuations:
             pos += 1
         if pos + 1 < len(text):
             text_second = text[pos + 1 : len(text)]

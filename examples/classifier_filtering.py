@@ -26,27 +26,23 @@ from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def load_dataset(input_data_dir):
+def load_dataset(input_data_dir: str) -> DocumentDataset:
     files = list(get_all_files_paths_under(input_data_dir, keep_extensions="jsonl"))
     raw_data = read_data(files, file_type="jsonl", backend="pandas", add_filename=True)
-    dataset = DocumentDataset(raw_data)
-
-    return dataset
+    return DocumentDataset(raw_data)
 
 
-def create_samples(data_path, label, num_samples):
+def create_samples(data_path: str, label: str, num_samples: int) -> list[str]:
     raw_dataset = load_dataset(data_path)
     label_quality = nc.Modify(FastTextLabelModifier(label))
 
     labeled_dataset = label_quality(raw_dataset)
-    labeled_samples = labeled_dataset.df.sample(
-        frac=num_samples / len(labeled_dataset.df)
-    )
+    labeled_samples = labeled_dataset.df.sample(frac=num_samples / len(labeled_dataset.df))
 
     return labeled_samples["text"].compute().values.tolist()
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     # Params
     low_quality_data_path = "/path/to/low_quality"
     high_quality_data_path = "/path/to/high_quality"
@@ -55,13 +51,9 @@ def main(args):
     filtered_output = "/path/to/output"
 
     # Prepare samples for the classifier
-    client = get_client(**ArgumentHelper.parse_client_args(args))
-    low_quality_samples = create_samples(
-        low_quality_data_path, "__label__lq", num_low_quality_samples
-    )
-    high_quality_samples = create_samples(
-        high_quality_data_path, "__label__hq", num_high_quality_samples
-    )
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
+    low_quality_samples = create_samples(low_quality_data_path, "__label__lq", num_low_quality_samples)
+    high_quality_samples = create_samples(high_quality_data_path, "__label__hq", num_high_quality_samples)
 
     train_samples = low_quality_samples + high_quality_samples
     random.shuffle(train_samples)
@@ -96,12 +88,10 @@ def main(args):
 
 
 def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+    parser: argparse.ArgumentParser,
+) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

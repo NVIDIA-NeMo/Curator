@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import logging
 import os
-from datetime import datetime
+import time
 
 import dask_cudf
 
@@ -27,12 +28,10 @@ from nemo_curator.utils.file_utils import expand_outdir_and_mkdir
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     semdedup_config = SemDedupConfig.from_yaml(args.config_file)
     client = get_client(**ArgumentHelper.parse_client_args(args))
-    save_folder = os.path.join(
-        semdedup_config.cache_dir, semdedup_config.clustering_save_loc
-    )
+    save_folder = os.path.join(semdedup_config.cache_dir, semdedup_config.clustering_save_loc)
     expand_outdir_and_mkdir(save_folder)
     # Initialize logger
     log_file = os.path.join(save_folder, "compute_centroids.log")
@@ -46,15 +45,11 @@ def main(args):
     )
 
     client = get_client(**ArgumentHelper.parse_client_args(args))
-    dt1 = datetime.now()
+    dt1 = time.perf_counter()
     print("Start time:", dt1)
 
-    embedding_fp = os.path.join(
-        semdedup_config.cache_dir, semdedup_config.embeddings_save_loc
-    )
-    clustering_output_dir = os.path.join(
-        semdedup_config.cache_dir, semdedup_config.clustering_save_loc
-    )
+    embedding_fp = os.path.join(semdedup_config.cache_dir, semdedup_config.embeddings_save_loc)
+    clustering_output_dir = os.path.join(semdedup_config.cache_dir, semdedup_config.clustering_save_loc)
 
     # Switch to https://github.com/NVIDIA/NeMo-Curator/issues/50
     # When we fix that
@@ -74,7 +69,7 @@ def main(args):
 
     clustered_embeddings = clustering_model(embedding_dataset)
     clustered_embeddings.df.head(10)
-    dt2 = datetime.now()
+    dt2 = time.perf_counter()
     elapse = dt2 - dt1
     print("End time:", dt2)
     print("elapse:", elapse)
@@ -83,8 +78,8 @@ def main(args):
     client.close()
 
 
-def attach_args():
-    parser = ArgumentHelper.parse_semdedup_args(
+def attach_args() -> argparse.ArgumentParser:
+    return ArgumentHelper.parse_semdedup_args(
         description=(
             "Performs clustering on the computed embeddings of a collection of documents. "
             "This script requires that the embeddings have been created beforehand using "
@@ -99,10 +94,9 @@ def attach_args():
             " max_iter for the maximum iterations for clustering,"
         ),
     )
-    return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, List, Union
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
+from nemo_curator.services import LLMClient
 from nemo_curator.synthetic.generator import SyntheticDataGenerator
 
 
@@ -25,11 +25,11 @@ class SimpleSyntheticGenerator(SyntheticDataGenerator):
     A simple implementation of SyntheticDataGenerator for testing purposes.
     """
 
-    def __init__(self, client=None):
+    def __init__(self, client: LLMClient | None = None) -> None:
         super().__init__()
         self.client = client
 
-    def generate(self, llm_prompt: Union[str, List[str]]) -> Union[str, List[str]]:
+    def generate(self, llm_prompt: str | list[str]) -> str | list[str]:
         """
         Generate a response using the provided prompt.
 
@@ -52,7 +52,7 @@ class SimpleSyntheticGenerator(SyntheticDataGenerator):
             return self.client.query_model(llm_prompt)
         return [self.client.query_model(p) for p in llm_prompt]
 
-    def parse_response(self, llm_response: Union[str, List[str]]) -> Any:
+    def parse_response(self, llm_response: str | list[str]) -> list[str]:
         """
         Parse the response from the LLM.
 
@@ -74,16 +74,14 @@ class IncompleteGenerator(SyntheticDataGenerator):
     This class is used to test that the abstract methods are enforced.
     """
 
-    pass
-
 
 class TestSyntheticDataGenerator:
-    def test_init(self):
+    def test_init(self) -> None:
         """Test the constructor of SyntheticDataGenerator."""
         generator = SimpleSyntheticGenerator()
-        assert generator._name == "SimpleSyntheticGenerator"
+        assert generator._name == "SimpleSyntheticGenerator"  # noqa: SLF001
 
-    def test_abstract_methods_required(self):
+    def test_abstract_methods_required(self) -> None:
         """Test that concrete classes must implement abstract methods."""
         with pytest.raises(TypeError) as excinfo:
             IncompleteGenerator()
@@ -91,35 +89,35 @@ class TestSyntheticDataGenerator:
         assert "generate" in str(excinfo.value)
         assert "parse_response" in str(excinfo.value)
 
-    def test_generate_string_input(self):
+    def test_generate_string_input(self) -> None:
         """Test generate method with a string input."""
         generator = SimpleSyntheticGenerator()
         prompt = "Hello, world!"
         result = generator.generate(prompt)
         assert result == f"Response to: {prompt}"
 
-    def test_generate_list_input(self):
+    def test_generate_list_input(self) -> None:
         """Test generate method with a list input."""
         generator = SimpleSyntheticGenerator()
         prompts = ["Hello", "World"]
         result = generator.generate(prompts)
         assert result == [f"Response to: {p}" for p in prompts]
 
-    def test_parse_response_string_input(self):
+    def test_parse_response_string_input(self) -> None:
         """Test parse_response method with a string input."""
         generator = SimpleSyntheticGenerator()
         response = "Response to: Hello, world!"
         result = generator.parse_response(response)
         assert result == "Hello, world!"
 
-    def test_parse_response_list_input(self):
+    def test_parse_response_list_input(self) -> None:
         """Test parse_response method with a list input."""
         generator = SimpleSyntheticGenerator()
         responses = ["Response to: Hello", "Response to: World"]
         result = generator.parse_response(responses)
         assert result == ["Hello", "World"]
 
-    def test_with_mock_client(self):
+    def test_with_mock_client(self) -> None:
         """Test with a mock client instead of the default echo behavior."""
         mock_client = MagicMock()
         mock_client.query_model.return_value = "Client response"
@@ -131,7 +129,7 @@ class TestSyntheticDataGenerator:
         mock_client.query_model.assert_called_once_with("Test prompt")
         assert result == "Client response"
 
-    def test_generate_and_parse(self):
+    def test_generate_and_parse(self) -> None:
         """Test the full pipeline of generate and parse."""
         generator = SimpleSyntheticGenerator()
         prompt = "Test prompt"

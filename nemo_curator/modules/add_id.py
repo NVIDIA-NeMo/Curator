@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Optional
 
 import dask.dataframe as dd
 import numpy as np
+import pandas as pd
 from dask import delayed
 
 from nemo_curator.datasets import DocumentDataset
@@ -24,9 +24,7 @@ from nemo_curator.utils.module_utils import count_digits
 
 
 class AddId(BaseModule):
-    def __init__(
-        self, id_field, id_prefix: str = "doc_id", start_index: Optional[int] = None
-    ) -> None:
+    def __init__(self, id_field: str, id_prefix: str = "doc_id", start_index: int | None = None) -> None:
         super().__init__(input_backend="any")
         self.id_field = id_field
         self.id_prefix = id_prefix
@@ -39,7 +37,7 @@ class AddId(BaseModule):
             return self._add_id_ordered(dataset)
 
     def _add_id_fast(self, dataset: DocumentDataset) -> DocumentDataset:
-        meta = dataset.df._meta.copy()
+        meta = dataset.df._meta.copy()  # noqa: SLF001
         meta[self.id_field] = "string"
         meta[self.id_field] = meta[self.id_field].astype("string")
 
@@ -53,7 +51,9 @@ class AddId(BaseModule):
 
         return DocumentDataset(id_df)
 
-    def _add_id_fast_partition(self, partition, global_padding, partition_info=None):
+    def _add_id_fast_partition(
+        self, partition: pd.DataFrame, global_padding: int, partition_info: dict | None = None
+    ) -> pd.DataFrame:
         local_padding = count_digits(len(partition))
         global_id = partition_info["number"]
 
@@ -67,7 +67,7 @@ class AddId(BaseModule):
         return partition
 
     def _add_id_ordered(self, dataset: DocumentDataset) -> DocumentDataset:
-        original_meta = dataset.df._meta.copy()
+        original_meta = dataset.df._meta.copy()  # noqa: SLF001
         original_meta[self.id_field] = "string"
         original_meta[self.id_field] = original_meta[self.id_field].astype("string")
         delayed_dataset = dataset.df.to_delayed()
@@ -79,17 +79,11 @@ class AddId(BaseModule):
         lower_id_bounds = delayed(np.cumsum)(parition_lengths)
         delayed_id_dataset = []
         for i, partition in enumerate(delayed_dataset):
-            delayed_id_dataset.append(
-                delayed(self._add_id_ordered_partition)(partition, lower_id_bounds[i])
-            )
+            delayed_id_dataset.append(delayed(self._add_id_ordered_partition)(partition, lower_id_bounds[i]))
 
-        id_dataset = DocumentDataset(
-            dataset_df=dd.from_delayed(delayed_id_dataset, meta=original_meta)
-        )
+        return DocumentDataset(dataset_df=dd.from_delayed(delayed_id_dataset, meta=original_meta))
 
-        return id_dataset
-
-    def _add_id_ordered_partition(self, partition, partition_start_id):
+    def _add_id_ordered_partition(self, partition: pd.DataFrame, partition_start_id: int) -> pd.DataFrame:
         id_column = [
             f"{self.id_prefix}-{int(i + self.start_index):010d}"
             for i in range(partition_start_id, len(partition) + partition_start_id)

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,28 +24,27 @@ from dask import dataframe as dd
 class JaccardSimilarity:
     def __init__(
         self,
-        id_field="id",
-        anchor_id_fields=["anchor_0_id", "anchor_1_id"],
-        text_field="text",
-        ngram_width=5,
+        id_field: str = "id",
+        anchor_id_fields: list[str] | None = None,
+        text_field: str = "text",
+        ngram_width: int = 5,
     ):
         self.id_field = id_field
-        self.anchor_id_fields = anchor_id_fields
+        if anchor_id_fields is None:
+            self.anchor_id_fields = ["anchor_0_id", "anchor_1_id"]
+        else:
+            self.anchor_id_fields = anchor_id_fields
         self.text_field = text_field
         self.anchor_id = f"anchor_{id_field}"
         self.left_id = f"{self.id_field}_x"
         self.right_id = f"{self.id_field}_y"
         self.ngram_width = ngram_width
 
-    def __call__(DocumentDataset):
+    def __call__(self):
         raise NotImplementedError
 
-    def jaccard_compute(self, shuffled_docs_path):
-        paths = [
-            entry.path
-            for entry in os.scandir(shuffled_docs_path)
-            if not entry.path.endswith(".txt")
-        ]
+    def jaccard_compute(self, shuffled_docs_path: str) -> cudf.DataFrame:
+        paths = [entry.path for entry in os.scandir(shuffled_docs_path) if not entry.path.endswith(".txt")]
         meta_df = cudf.DataFrame(
             {
                 self.left_id: ["x"],
@@ -53,39 +52,32 @@ class JaccardSimilarity:
                 "jaccard": np.float32([0.0]),
             }
         )
-        result_df = dd.from_map(
-            self._compute_jaccard_on_1_partition, paths, meta=meta_df
-        ).reset_index(drop=True)
-        return result_df
+        return dd.from_map(self._compute_jaccard_on_1_partition, paths, meta=meta_df).reset_index(drop=True)
 
-    def _compute_jaccard_on_1_partition(self, path):
+    def _compute_jaccard_on_1_partition(self, path: str) -> cudf.DataFrame:
         try:
             df = cudf.read_parquet(path)
             pair_df = self._compute_jaccard_and_create_pair_df(df)
         except OverflowError:
             paths = [entry.path for entry in os.scandir(os.path.join(path))]
-            anchor_df_str_size_ls = [
-                self._get_anchor_docs_and_string_size(path) for path in paths
-            ]
+            anchor_df_str_size_ls = [self._get_anchor_docs_and_string_size(path) for path in paths]
             anchor_df = cudf.concat(
                 [anchor_doc for anchor_doc, _ in anchor_df_str_size_ls],
                 ignore_index=True,
             ).drop_duplicates()
             df_str_size = [str_size for _, str_size in anchor_df_str_size_ls]
-            paths = JaccardSimilarity._create_bins(
-                df_str_size, np.iinfo(np.int32).max // 10
-            )
+            paths = JaccardSimilarity._create_bins(df_str_size, np.iinfo(np.int32).max // 10)
             pair_dfs = []
-            for path in paths:
-                print(path)
-                df = cudf.read_parquet(path).reset_index(drop=True)
+            for p in paths:
+                print(p)
+                df = cudf.read_parquet(p).reset_index(drop=True)
                 df = cudf.concat([df, anchor_df], ignore_index=True)
                 pair_df = self._compute_jaccard_and_create_pair_df(df)
                 pair_dfs.append(pair_df)
             pair_df = cudf.concat(pair_dfs, ignore_index=True)
         return pair_df
 
-    def _get_anchor_docs_and_string_size(self, path):
+    def _get_anchor_docs_and_string_size(self, path: str) -> tuple[cudf.DataFrame, dict]:
         df = cudf.read_parquet(path)
         str_bytes = df[self.text_field].str.byte_count().sum()
         is_anchor_flag = df[self.id_field] == df[self.anchor_id_fields[0]]
@@ -95,7 +87,7 @@ class JaccardSimilarity:
         return anchor_df, {"path": path, "str_bytes": str_bytes}
 
     @staticmethod
-    def _create_bins(path_dicts, max_size):
+    def _create_bins(path_dicts: list[dict], max_size: int) -> list[list[str]]:
         path_dicts.sort(key=lambda x: x["str_bytes"], reverse=True)
         bins, bin_sizes = [], []
         for path_d in path_dicts:
@@ -111,10 +103,8 @@ class JaccardSimilarity:
                 bin_sizes.append(new_size)
         return bins
 
-    def _compute_jaccard_and_create_pair_df(self, df):
-        df = df.drop_duplicates(
-            subset=[self.id_field] + self.anchor_id_fields, ignore_index=True
-        )
+    def _compute_jaccard_and_create_pair_df(self, df: cudf.DataFrame) -> cudf.DataFrame:
+        df = df.drop_duplicates(subset=[self.id_field, *self.anchor_id_fields], ignore_index=True)
         anchor_columns = self.anchor_id_fields
         id_field = self.id_field
         result_ls = []
@@ -128,7 +118,7 @@ class JaccardSimilarity:
                 result_ls.append(result_df)
 
             return cudf.concat(result_ls)
-        except OverflowError as e:
+        except OverflowError:
             print(
                 "Failed with  OverflowError in compute_jaccard_and_create_pair_df",
                 flush=True,
@@ -137,26 +127,21 @@ class JaccardSimilarity:
             print("--" * 30)
             print("Error")
             print("---" * 30)
-            raise e
+            raise
 
-    def _get_anchor_df(self, df, anchor_col):
+    def _get_anchor_df(self, df: cudf.DataFrame, anchor_col: str) -> cudf.DataFrame:
         anchor_df = df[df[self.id_field] == df[anchor_col]]
         anchor_df = anchor_df.reset_index(drop=True)
         anchor_df = anchor_df[[anchor_col, self.text_field]]
-        anchor_df = anchor_df.rename(columns={anchor_col: self.anchor_id})
-        return anchor_df
+        return anchor_df.rename(columns={anchor_col: self.anchor_id})
 
-    def _compute_jaccard_pair(self, docs_df, anchor_df):
-        nrows_at_once = JaccardSimilarity._get_max_num_rows_to_process_once(
-            df=docs_df, text_field=self.text_field
-        )
+    def _compute_jaccard_pair(self, docs_df: cudf.DataFrame, anchor_df: cudf.DataFrame) -> cudf.DataFrame:
+        nrows_at_once = JaccardSimilarity._get_max_num_rows_to_process_once(df=docs_df, text_field=self.text_field)
         result_ls = []
         for i in range(0, docs_df.shape[0], nrows_at_once):
             pair_df = docs_df[i : i + nrows_at_once]
             pair_df = pair_df.merge(anchor_df, on=self.anchor_id)
-            pair_df = pair_df.rename(
-                columns={self.id_field: self.left_id, self.anchor_id: self.right_id}
-            )
+            pair_df = pair_df.rename(columns={self.id_field: self.left_id, self.anchor_id: self.right_id})
             mask = pair_df[self.left_id] != pair_df[self.right_id]
             pair_df = pair_df[mask].reset_index(drop=True)
             if len(pair_df) == 0:
@@ -166,34 +151,29 @@ class JaccardSimilarity:
             result_ls.append(result_df)
         if len(result_ls) == 0:
             return self._create_empty_jaccard_result()
-        df_pair = cudf.concat(result_ls)
-        return df_pair
+        return cudf.concat(result_ls)
 
-    def _create_empty_jaccard_result(self):
+    def _create_empty_jaccard_result(self) -> cudf.DataFrame:
         df = cudf.DataFrame()
         df[self.left_id] = "x"
         df[self.right_id] = "y"
         df["jaccard"] = np.empty(shape=0, dtype=np.float32)
         return df
 
-    def _compute_jaccard_partition(self, df):
+    def _compute_jaccard_partition(self, df: cudf.DataFrame) -> cudf.DataFrame:
         text_x = f"{self.text_field}_x"
         text_y = f"{self.text_field}_y"
         df["jaccard"] = df[text_x].str.jaccard_index(df[text_y], width=self.ngram_width)
-        df.drop(columns=[text_x, text_y], inplace=True)
+        df.drop(columns=[text_x, text_y], inplace=True)  # noqa: PD002
         return df
 
     @staticmethod
-    def _get_max_num_rows_to_process_once(df, text_field):
+    def _get_max_num_rows_to_process_once(df: cudf.DataFrame, text_field: str) -> int:
         nbytes = df[text_field].str.byte_count().sum()
         # Number of exmploded bytes
         exploded_bytes = nbytes * 5 * 2
         max_chars_allowed = 2_147_483_647
         byte_ratio = int(exploded_bytes) // max_chars_allowed
-        if byte_ratio > 1:
-            nrows_at_once = len(df) // byte_ratio
-        else:
-            nrows_at_once = len(df)
+        nrows_at_once = len(df) // byte_ratio if byte_ratio > 1 else len(df)
 
-        nrows_at_once = max(1, nrows_at_once)
-        return nrows_at_once
+        return max(1, nrows_at_once)

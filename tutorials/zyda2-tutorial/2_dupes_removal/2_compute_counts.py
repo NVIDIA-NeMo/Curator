@@ -10,14 +10,15 @@ from dask.distributed import Client, LocalCluster
 from nemo_curator.utils.distributed_utils import get_num_workers
 
 logging.basicConfig(format="%(asctime)s: %(message)s", level=logging.INFO)
-
+logger = logging.getLogger(__name__)
 DATA_BASE = os.environ.get("DATA_BASE")
 CC_BASE = os.path.join(DATA_BASE, "fuzzy/cc/")
 CC_FOLDER = os.path.join(CC_BASE, "connected_components.parquet")
 CC_CONVERTED_FOLDER = os.path.join(CC_BASE, "connected_components_converted.parquet")
 CC_GROUPED_FOLDER = os.path.join(CC_BASE, "connected_components_grouped.parquet")
 CC_GROUPED_COUNTS_FOLDER = os.path.join(
-    CC_BASE, "connected_components_grouped_counts.parquet"
+    CC_BASE,
+    "connected_components_grouped_counts.parquet",
 )
 CPU_WORKERS = os.environ.get("CPU_WORKERS")
 
@@ -25,14 +26,14 @@ CPU_WORKERS = os.environ.get("CPU_WORKERS")
 if __name__ == "__main__":
     cluster = LocalCluster(n_workers=CPU_WORKERS, processes=True)
     client = Client(cluster)
-    logging.info(f"Number of dask workers: {get_num_workers(client)}")
+    logger.info(f"Number of dask workers: {get_num_workers(client)}")
 
     cc_df_converted = dd.read_parquet(CC_CONVERTED_FOLDER, split_row_groups=False)
 
-    logging.info("Grouping by cluster id")
+    logger.info("Grouping by cluster id")
     t0 = time.time()
 
-    def group_partition(partition):
+    def group_partition(partition: pd.DataFrame) -> pd.DataFrame:
         sizes = partition.groupby("group").size().reset_index()
 
         grouped = (
@@ -42,16 +43,12 @@ if __name__ == "__main__":
                     "global_dataset_id": lambda x: json.dumps(list(x)),
                     "dataset_id": lambda x: json.dumps(list(x)),
                     "original_id": lambda x: json.dumps(list(x)),
-                }
+                },
             )
             .reset_index()
         )
-
-        result = pd.merge(sizes, grouped, on="group")
-
-        return result[
-            ["group", "global_dataset_id", "dataset_id", "original_id", "size"]
-        ]
+        result = sizes.merge(grouped, on="group")
+        return result[["group", "global_dataset_id", "dataset_id", "original_id", "size"]]
 
     meta = {
         "group": int,
@@ -64,14 +61,14 @@ if __name__ == "__main__":
     cc_df_grouped.to_parquet(CC_GROUPED_FOLDER, write_index=False, overwrite=True)
     print(f"Done grouping in {time.time() - t0:.2f} sec")
 
-    logging.info("Computing counts")
+    logger.info("Computing counts")
     t0 = time.time()
     global_dataset_ids = ["dclm", "fwe2", "dolma-cc", "zyda"]
 
-    def count_occurrences_in_partition(partition):
-        for id in global_dataset_ids:
-            partition[id] = partition["global_dataset_id"].apply(
-                lambda x: json.loads(x).count(id)
+    def count_occurrences_in_partition(partition: pd.DataFrame) -> pd.DataFrame:
+        for _id in global_dataset_ids:
+            partition[_id] = partition["global_dataset_id"].apply(
+                lambda x: json.loads(x).count(x),
             )
         return partition
 
@@ -82,12 +79,12 @@ if __name__ == "__main__":
         "original_id": "str",
         "size": "int",
     }
-    for id in global_dataset_ids:
-        meta[id] = "int"
+    for _id in global_dataset_ids:
+        meta[_id] = "int"
     cc_grouped_counts_df = cc_df_grouped.map_partitions(
         count_occurrences_in_partition,
         meta=meta,
     )
     cc_grouped_counts_df.to_parquet(CC_GROUPED_COUNTS_FOLDER, overwrite=True)
 
-    logging.info(f"Done computing counts in {time.time() - t0:.2f} sec")
+    logger.info(f"Done computing counts in {time.time() - t0:.2f} sec")

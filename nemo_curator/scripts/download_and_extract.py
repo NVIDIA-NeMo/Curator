@@ -25,29 +25,26 @@ from nemo_curator.utils.file_utils import (
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def read_urls(file_path):
-    with open(file_path, "r") as fp:
+def read_urls(file_path: str) -> list[str]:
+    with open(file_path) as fp:
         urls = fp.readlines()
     return [url.strip() for url in urls]
 
 
-def main(args):
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+def main(args: argparse.Namespace) -> None:
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     if args.input_url_file:
         urls = read_urls(args.input_url_file)
         outdir = os.path.abspath(os.path.expanduser(args.output_json_dir))
-        output_paths = list(
-            map(lambda url: os.path.join(outdir, url.split("/")[-1] + ".jsonl"), urls)
-        )
+        output_paths = [os.path.join(outdir, url.split("/")[-1] + ".jsonl") for url in urls]
     elif args.input_data_dir:
         # If input_data_dir is specified, we operate in extraction only mode.
         urls = get_all_files_paths_under(args.input_data_dir)
         output_paths = urls
     else:
-        raise ValueError(
-            "One of --input-url-file or --input-data-dir must be specified"
-        )
+        msg = "One of --input-url-file or --input-data-dir must be specified"
+        raise ValueError(msg)
 
     expand_outdir_and_mkdir(args.output_json_dir)
     if args.output_download_dir:
@@ -86,8 +83,8 @@ def main(args):
     )
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
+def attach_args() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         """
 Takes an input list of URLs, downloads the data,
 and then extracts the text from the downloaded data. Using
@@ -108,12 +105,11 @@ such that it simply returns the pre-downloaded file.
 """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-):
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_input_data_dir(help="Path to input data directory.")
-    argumentHelper.add_arg_input_meta()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_input_data_dir(help="Path to input data directory.")
+    arg_helper.add_arg_input_meta()
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--builder-config-file",
         type=str,
@@ -122,7 +118,7 @@ such that it simply returns the pre-downloaded file.
         "iterator, and extractor that will be used in this program "
         "to build the documents that make up the output dataset.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "download-only",
         help="Specify this flag if you desire to only download the data "
@@ -135,7 +131,7 @@ such that it simply returns the pre-downloaded file.
         help="Input directory consisting of .jsonl files that are accessible "
         "to all nodes. Use this for a distributed file system.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "keep-downloaded-files",
         help="If this flag is set to true, the downloaded data files "
@@ -161,7 +157,7 @@ such that it simply returns the pre-downloaded file.
         default=None,
         help="Limit the number of records to extract from each file.",
     )
-    ArgumentHelper.attach_bool_arg(
+    arg_helper.attach_bool_arg(
         parser,
         "overwrite-existing-json",
         help="If this flag is specified, then the JSON data will be "
@@ -171,5 +167,5 @@ such that it simply returns the pre-downloaded file.
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())

@@ -24,17 +24,15 @@ from nemo_curator.utils.fuzzy_dedup_utils.io_utils import (
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def func():
-    import cudf
+def func() -> None:
+    import cudf  # noqa: I001, F401
+    from nemo_curator.modules.fuzzy_dedup._shuffle import _Shuffle  # noqa: F401
 
-    from nemo_curator.modules.fuzzy_dedup._shuffle import _Shuffle
 
-
-def main(args):
+def main(args: argparse.Namespace) -> None:
     input_data_paths = args.input_data_dirs
     input_anchor_docs_with_bk_dir = args.input_bucket_mapping_dir
-    OUTPUT_PATH = args.output_dir
-    output_shuffled_docs_path = os.path.join(OUTPUT_PATH, "shuffled_docs.parquet")
+    output_shuffled_docs_path = os.path.join(args.output_dir, "shuffled_docs.parquet")
 
     client = get_client(**ArgumentHelper.parse_client_args(args))
     client.run(func)
@@ -72,10 +70,10 @@ def main(args):
         partition_on="_output_partition_id",
     )
     et = time.time()
-    print(f"Jaccard Shuffle E2E time taken = {et-st} s")
+    print(f"Jaccard Shuffle E2E time taken = {et - st} s")
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = """
     Shuffles input text documents based on the given bucket
     map. The output is a partitioned Parquet dataset with the documents
@@ -85,13 +83,13 @@ def attach_args():
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
+    arg_helper.parse_gpu_dedup_args()
 
-    argumentHelper.add_arg_input_meta()
-    argumentHelper.add_arg_output_dir()
-    argumentHelper.add_arg_text_ddf_blocksize()
+    arg_helper.add_arg_input_meta()
+    arg_helper.add_arg_output_dir()
+    arg_helper.add_arg_text_ddf_blocksize()
     parser.add_argument(
         "--bucket-mapping-ddf-blocksize",
         type=int,
@@ -119,7 +117,7 @@ def attach_args():
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

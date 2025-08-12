@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Optional
 
 import pandas as pd
 
@@ -28,15 +27,15 @@ class DocumentJoiner(BaseModule):
     The joined documents are joined by a separator.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         separator: str,
         text_field: str = "text",
         segment_id_field: str = "segment_id",
         document_id_field: str = "id",
         drop_segment_id_field: bool = True,
-        max_length: Optional[int] = None,
-        length_field: Optional[str] = None,
+        max_length: int | None = None,
+        length_field: str | None = None,
     ):
         """
         Args:
@@ -51,9 +50,11 @@ class DocumentJoiner(BaseModule):
                 Both max_length and length_field must be specified or neither can be specified.
         """
         if max_length is not None and length_field is None:
-            raise ValueError("max_length is specified but length_field is not")
+            msg = "max_length is specified but length_field is not"
+            raise ValueError(msg)
         if max_length is None and length_field is not None:
-            raise ValueError("length_field is specified but max_length is not")
+            msg = "length_field is specified but max_length is not"
+            raise ValueError(msg)
 
         super().__init__(input_backend="pandas")
         self.separator = separator
@@ -64,7 +65,7 @@ class DocumentJoiner(BaseModule):
         self.max_length = max_length
         self.length_field = length_field
 
-    def _join_segments(self, group):
+    def _join_segments(self, group: pd.DataFrame) -> pd.DataFrame:
         # Ensure segments are processed in order.
         group = group.sort_values(self.segment_id_field)
         joined_rows = []
@@ -83,9 +84,7 @@ class DocumentJoiner(BaseModule):
                 # Calculate what the new length would be if we joined this segment.
                 proposed_length = accumulator_length + row[self.length_field] + 1
                 if proposed_length <= self.max_length:
-                    accumulator_text = (
-                        accumulator_text + self.separator + row[self.text_field]
-                    )
+                    accumulator_text = accumulator_text + self.separator + row[self.text_field]
                     accumulator_length = proposed_length
                 else:
                     # Commit the current accumulation as one joined segment.
@@ -108,15 +107,11 @@ class DocumentJoiner(BaseModule):
             new_row[self.segment_id_field] = current_seg_id
             joined_rows.append(new_row)
         if joined_rows:
-            return pd.concat(
-                [group.iloc[0:0], pd.DataFrame(joined_rows)], ignore_index=True
-            )
+            return pd.concat([group.iloc[0:0], pd.DataFrame(joined_rows)], ignore_index=True)
         else:
             return group.iloc[0:0]
 
-    def _join_partition(
-        self, df: pd.DataFrame, expected_cols: List[str]
-    ) -> pd.DataFrame:
+    def _join_partition(self, df: pd.DataFrame, expected_cols: list[str]) -> pd.DataFrame:
         if df.empty:
             return df
 
@@ -129,32 +124,25 @@ class DocumentJoiner(BaseModule):
             agg_funcs = {}
             for col in df_sorted.columns:
                 if col == self.text_field:
-                    agg_funcs[col] = lambda texts: self.separator.join(
-                        texts.astype(str)
-                    )
+                    agg_funcs[col] = lambda texts: self.separator.join(texts.astype(str))
                 elif col != self.document_id_field:
                     agg_funcs[col] = "first"
             # Group by document_id_field while keeping the key as a column.
-            joined = df_sorted.groupby(self.document_id_field, as_index=False).agg(
-                agg_funcs
-            )
+            joined = df_sorted.groupby(self.document_id_field, as_index=False).agg(agg_funcs)
         else:
-            joined = df.groupby(self.document_id_field, group_keys=False).apply(
-                self._join_segments
-            )
+            joined = df.groupby(self.document_id_field, group_keys=False).apply(self._join_segments)
 
         if self.drop_segment_id_field:
             joined = joined.drop(columns=self.segment_id_field)
         # Reorder the columns to match the expected metadata order.
-        joined = joined[expected_cols]
-        return joined
+        return joined[expected_cols]
 
     def call(self, dataset: DocumentDataset) -> DocumentDataset:
         """
         Joins the documents back into a single document while preserving all the original fields.
         """
         # Construct meta information for the transformed dataframe.
-        meta = dataset.df._meta.copy()
+        meta = dataset.df._meta.copy()  # noqa: SLF001
         if self.text_field not in meta.columns:
             meta[self.text_field] = pd.Series(dtype="object")
         # If dropping the segment id field, remove it from the metadata to prevent mismatches.
@@ -162,7 +150,5 @@ class DocumentJoiner(BaseModule):
             meta = meta.drop(columns=self.segment_id_field)
         expected_cols = list(meta.columns)
         # Apply the join operation partition-wise.
-        dataset.df = dataset.df.map_partitions(
-            self._join_partition, expected_cols=expected_cols, meta=meta
-        )
+        dataset.df = dataset.df.map_partitions(self._join_partition, expected_cols=expected_cols, meta=meta)
         return dataset

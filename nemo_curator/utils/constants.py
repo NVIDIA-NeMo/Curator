@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,9 +17,7 @@ import re
 import regex
 
 end_marks = (".", "?", "!", '"', "'")
-ellipsis_marks = set(
-    ["...", "[...]", "…", "(...)", "[…]", "-»", "read more..", "read more"]
-)
+ellipsis_marks = {"...", "[...]", "…", "(...)", "[…]", "-»", "read more..", "read more"}
 policy_substrings = [
     "terms of use",
     "privacy policy",
@@ -55,30 +53,25 @@ policy_substrings = [
     "settings, you agree to this use. AcceptRead More".lower(),
 ]
 white_space_list = ["\t", "\n", "\r", "\b", " "]
-common_english_words = set(["the", "be", "to", "of", "and", "that", "have", "with"])
-bullet_list = set(
-    [
-        "•",
-        "‣",
-        "⁃",
-        "⁌",
-        "⁍",
-        "∙",
-        "○",
-        "●",
-        "◘",
-        "◦",
-        "⦾",
-        "⦿",
-    ]
-)
+common_english_words = {"the", "be", "to", "of", "and", "that", "have", "with"}
+bullet_list = {
+    "•",
+    "‣",
+    "⁃",  # noqa: RUF001
+    "⁌",
+    "⁍",
+    "∙",
+    "○",
+    "●",
+    "◘",
+    "◦",
+    "⦾",
+    "⦿",
+}
 
 regex_alpha = regex.compile("[[:alpha:]]")
 regex_digit = regex.compile("[[:digit:]]")
 regex_alphanum = re.compile("[a-zA-Z0-9\n?!,.]")
-regex_url = re.compile(
-    "http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|"
-    "(?:%[0-9a-fA-F][0-9a-fA-F]))+"
-)
+regex_url = re.compile("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+")
 regex_paren = re.compile(r"{|}|⟨|⟩|\[|\]|\(|\)")
 regex_hash = re.compile("#+")

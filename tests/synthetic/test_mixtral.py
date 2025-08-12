@@ -18,7 +18,7 @@ from nemo_curator.synthetic.mixtral import Mixtral8x7BFormatter
 
 
 class TestMixtral8x7BFormatter:
-    def test_format_conversation_basic(self):
+    def test_format_conversation_basic(self) -> None:
         """Test basic conversation formatting with alternating user and assistant turns."""
         conv = [
             {"role": "user", "content": "Hello"},
@@ -28,17 +28,13 @@ class TestMixtral8x7BFormatter:
         ]
 
         expected_output = (
-            "<s> [INST] \n"
-            "Hello [/INST]"
-            "Hi there!</s>[INST] "
-            "How are you? [/INST]"
-            "I'm doing well, thank you!</s>[INST] "
+            "<s> [INST] \nHello [/INST]Hi there!</s>[INST] How are you? [/INST]I'm doing well, thank you!</s>[INST] "
         )
 
         result = Mixtral8x7BFormatter.format_conversation(conv)
         assert result == expected_output
 
-    def test_format_conversation_single_turn(self):
+    def test_format_conversation_single_turn(self) -> None:
         """Test formatting with just a single user turn."""
         conv = [{"role": "user", "content": "Hello"}]
 
@@ -47,7 +43,7 @@ class TestMixtral8x7BFormatter:
         result = Mixtral8x7BFormatter.format_conversation(conv)
         assert result == expected_output
 
-    def test_format_conversation_invalid_roles(self):
+    def test_format_conversation_invalid_roles(self) -> None:
         """Test error handling when conversation has invalid role sequence."""
         # User followed by user
         conv = [
@@ -55,7 +51,7 @@ class TestMixtral8x7BFormatter:
             {"role": "user", "content": "Are you there?"},
         ]
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             Mixtral8x7BFormatter.format_conversation(conv)
         assert "Conversation turn 1 is not 'assistant'" in str(excinfo.value)
 
@@ -65,11 +61,11 @@ class TestMixtral8x7BFormatter:
             {"role": "user", "content": "Hi there!"},
         ]
 
-        with pytest.raises(ValueError) as excinfo:
+        with pytest.raises(ValueError) as excinfo:  # noqa: PT011
             Mixtral8x7BFormatter.format_conversation(conv)
         assert "Conversation turn 0 is not 'user'" in str(excinfo.value)
 
-    def test_format_conversation_multiple_turns(self):
+    def test_format_conversation_multiple_turns(self) -> None:
         """Test formatting with multiple turns between user and assistant."""
         conv = [
             {"role": "user", "content": "What is machine learning?"},

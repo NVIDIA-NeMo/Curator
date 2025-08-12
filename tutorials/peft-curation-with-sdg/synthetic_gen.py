@@ -15,7 +15,6 @@
 import asyncio
 import os
 import traceback
-from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -46,13 +45,12 @@ Make sure to generate exactly {n_openlines} variants.
 
 
 class SyntheticGenerator:
-
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         async_llm_client: AsyncLLMClient,
         sdg_model: str,
         sdg_model_kwargs: dict,
-        reward_model: Optional[str],
+        reward_model: str | None,
         n_variants: int = 1,
         random_seed: int = 42,
         max_concurrent_entries: int = 320,
@@ -100,11 +98,14 @@ class SyntheticGenerator:
         """
         return asyncio.run(
             self._synthesize_from_source(
-                source_df, out_dir, synth_prefix, synth_gen_ratio
-            )
+                source_df,
+                out_dir,
+                synth_prefix,
+                synth_gen_ratio,
+            ),
         )
 
-    def _split_sdg_responses(self, sdg_response: str) -> List[str]:
+    def _split_sdg_responses(self, sdg_response: str) -> list[str]:
         """
         Splits the SDG response into a list of individual entries.
 
@@ -114,11 +115,9 @@ class SyntheticGenerator:
         Returns:
             A list of individual SDG entries.
         """
-        return [
-            entry.strip("*").strip() for entry in sdg_response[0].split("\n") if entry
-        ]
+        return [entry.strip("*").strip() for entry in sdg_response[0].split("\n") if entry]
 
-    def _write_all_to_file(self, gen_entries, out_fp: str):
+    def _write_all_to_file(self, gen_entries, out_fp: str) -> None:  # noqa: ANN001
         """
         Write all generated synthetic data to a JSON file. If nothing was generated, skip writing to the file.
 
@@ -135,16 +134,14 @@ class SyntheticGenerator:
         synth_tags = []
 
         for gen_idx, (row_slice, gen_entry) in enumerate(gen_entries):
-
             for idx, (titles, questions, answers, scores) in enumerate(gen_entry):
-
                 if (
                     len(questions) != self.n_variants
                     or len(answers) != self.n_variants
                     or len(titles) != self.n_variants
                 ):
                     print(
-                        f"    Skipping synthetic record at ({gen_idx}, {idx}) due to unexpected lengths. The LLM may have failed to generate the expected number of variants."
+                        f"    Skipping synthetic record at ({gen_idx}, {idx}) due to unexpected lengths. The LLM may have failed to generate the expected number of variants.",
                     )
                     continue
 
@@ -155,7 +152,7 @@ class SyntheticGenerator:
                 synth_scores.extend(scores)
                 synth_filenames.extend([row["file_name"] + ".synth"] * self.n_variants)
                 synth_ids.extend(
-                    [f"{row['id']}-synth-{i}" for i in range(self.n_variants)]
+                    [f"{row['id']}-synth-{i}" for i in range(self.n_variants)],
                 )
                 synth_tags.extend([row["tags"]] * self.n_variants)
 
@@ -179,8 +176,9 @@ class SyntheticGenerator:
         gen_df.to_json(out_fp, orient="records", lines=True)
 
     async def _prompt_model(
-        self, row: pd.Series
-    ) -> Tuple[List[str], List[str], List[str]]:
+        self,
+        row: pd.Series,
+    ) -> tuple[list[str], list[str], list[str]]:
         """
         Generates synthetic data by prompting a language model with a given question and answer.
 
@@ -217,7 +215,9 @@ class SyntheticGenerator:
         )
 
         gen_title, gen_question, gen_answer = await asyncio.gather(
-            gen_title, gen_question, gen_answer
+            gen_title,
+            gen_question,
+            gen_answer,
         )
 
         gen_title = self._split_sdg_responses(gen_title)
@@ -228,15 +228,16 @@ class SyntheticGenerator:
 
         # Use the reward model to assign scores to the generated data.
         if self.reward_model:
-            for t, q, a in zip(gen_title, gen_question, gen_answer):
+            for t, q, a in zip(gen_title, gen_question, gen_answer, strict=False):
                 messages = [
                     {"role": "user", "content": f"{t}\n\n{q}"},
                     {"role": "assistant", "content": a},
                 ]
                 scores.append(
                     self.client.query_reward_model(
-                        messages=messages, model=self.reward_model
-                    )
+                        messages=messages,
+                        model=self.reward_model,
+                    ),
                 )
 
             scores = await asyncio.gather(*scores)
@@ -270,7 +271,8 @@ class SyntheticGenerator:
         os.makedirs(out_dir_path, exist_ok=True)
         # Randomly select a subset of the data to synthesize.
         source_df = source_df.sample(
-            frac=synth_gen_ratio, random_state=self.random_state
+            frac=synth_gen_ratio,
+            random_state=self.random_state,
         )
         prompt_requests = []
 
@@ -291,12 +293,13 @@ class SyntheticGenerator:
 
             try:
                 result = await tqdm.gather(
-                    *request_slice, desc=f"---- Rows {i} to {slice_end}"
+                    *request_slice,
+                    desc=f"---- Rows {i} to {slice_end}",
                 )
                 gen_entries.append((row_slice, result))
-            except Exception as _:
+            except Exception as _:  # noqa: BLE001
                 print(
-                    f"    Generation failed for rows {i} to {slice_end} due to the following exception:"
+                    f"    Generation failed for rows {i} to {slice_end} due to the following exception:",
                 )
                 print("---------------------------------------------------------")
                 traceback.print_exc()

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ GPU_INSTALL_STRING = """Install GPU packages via `pip install --extra-index-url 
 or use `pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"` if installing from source"""
 
 
-def is_cudf_type(obj):
+def is_cudf_type(obj: object) -> bool:
     """
     Check if an object is a cuDF type
     """

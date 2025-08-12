@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Callable, List, Optional, Union
+from collections.abc import Callable
 
 import pandas as pd
 from dask.array import logical_and
@@ -36,6 +36,7 @@ class Score(BaseModule):
     """
     The module responsible for adding metadata to records based on statistics about the text.
     It accepts an arbitrary scoring function that accepts a text field and returns a score.
+    It also accepts a DocumentFilter object, in which case the score_fn will be the score_document method of the DocumentFilter.
 
     Unlike ScoreFilter, it does not filter based on the computed score.
     It only adds metadata to the record.
@@ -43,22 +44,25 @@ class Score(BaseModule):
 
     def __init__(
         self,
-        score_fn: Callable,
+        score_fn: Callable | DocumentFilter,
         score_field: str,
         text_field: str = "text",
-        score_type: Union[type, str] = None,
+        score_type: type | str | None = None,
     ):
         """
         Constructs a Score module.
 
         Args:
-          score_fn (Callable): The score function that takes in a document string and outputs a score for the document.
+          score_fn (Callable | DocumentFilter): The score function or the DocumentFilter object. If it is a DocumentFilter object, the score_fn will be the score_document method of the DocumentFilter.
           score_field (str): The field the score will be stored in.
           text_field (str): The field the documents will be read from.
           score_type (Union[type, str]): The datatype of the score that will be made for each document.
         """
         super().__init__(input_backend="pandas")
-        self.score_fn = score_fn
+        if isinstance(score_fn, DocumentFilter):
+            self.score_fn = score_fn.score_document
+        else:
+            self.score_fn = score_fn
         self.score_field = score_field
         self.text_field = text_field
         self.score_type = score_type
@@ -74,19 +78,12 @@ class Score(BaseModule):
             DocumentDataset: A dataset with the new score
         """
         # Set the metadata for the function calls if provided
-        if self.score_type:
-            meta = (None, self.score_type)
-        else:
-            meta = no_default
+        meta = (None, self.score_type) if self.score_type else no_default
 
         if is_batched(self.score_fn):
-            dataset.df[self.score_field] = dataset.df[self.text_field].map_partitions(
-                self.score_fn, meta=meta
-            )
+            dataset.df[self.score_field] = dataset.df[self.text_field].map_partitions(self.score_fn, meta=meta)
         else:
-            dataset.df[self.score_field] = dataset.df[self.text_field].apply(
-                self.score_fn, meta=meta
-            )
+            dataset.df[self.score_field] = dataset.df[self.text_field].apply(self.score_fn, meta=meta)
 
         return dataset
 
@@ -95,26 +92,35 @@ class Filter(BaseModule):
     """
     The module responsible for filtering records based on a metadata field.
     It accepts an arbitrary filter function that accepts a metadata field and returns True if the field should be kept.
-
+    It also accepts a DocumentFilter object, in which case the filter_fn will be the keep_document method of the DocumentFilter.
     Unlike ScoreFilter, it does not compute the metadata based on a document.
     It only filters using existing metadata.
     """
 
-    def __init__(self, filter_fn: Callable, filter_field: str, invert: bool = False):
+    def __init__(
+        self,
+        filter_fn: Callable | DocumentFilter,
+        filter_field: str,
+        invert: bool = False,
+    ):
         """
         Constructs a Filter module
 
         Args:
-          filter_fn (Callable): A function that returns True if the document is to be kept.
+          filter_fn (Callable | DocumentFilter): A function that returns True if the document is to be kept or a DocumentFilter object,
+          in which case the filter_fn will be the keep_document method of the DocumentFilter.
           filter_field (str): The field(s) to be passed into the filter function.
           invert (bool): Whether to invert the filter condition.
         """
         super().__init__(input_backend="pandas")
-        self.filter_fn = filter_fn
+        if isinstance(filter_fn, DocumentFilter):
+            self.filter_fn = filter_fn.keep_document
+        else:
+            self.filter_fn = filter_fn
         self.filter_field = filter_field
         self.invert = invert
 
-    def compute_filter_mask(self, dataset: DocumentDataset):
+    def compute_filter_mask(self, dataset: DocumentDataset) -> pd.Series | pd.DataFrame:
         """Compute the bool mask to filter the dataset.
 
         Args:
@@ -124,13 +130,9 @@ class Filter(BaseModule):
             Series or DataFrame: A mask corresponding to each data instance indicating whether it will be retained.
         """
         if is_batched(self.filter_fn):
-            bool_mask = dataset.df[self.filter_field].map_partitions(
-                self.filter_fn, meta=(None, bool)
-            )
+            bool_mask = dataset.df[self.filter_field].map_partitions(self.filter_fn, meta=(None, bool))
         else:
-            bool_mask = dataset.df[self.filter_field].apply(
-                self.filter_fn, meta=(None, bool)
-            )
+            bool_mask = dataset.df[self.filter_field].apply(self.filter_fn, meta=(None, bool))
 
         if self.invert:
             bool_mask = ~bool_mask
@@ -165,8 +167,8 @@ class ScoreFilter(BaseModule):
         self,
         filter_obj: DocumentFilter,
         text_field: str = "text",
-        score_field: Optional[str] = None,
-        score_type: Union[type, str] = None,
+        score_field: str | None = None,
+        score_type: type | str | None = None,
         invert: bool = False,
     ):
         """
@@ -186,7 +188,7 @@ class ScoreFilter(BaseModule):
         self.score_type = score_type
         self.invert = invert
 
-    def compute_filter_mask(self, dataset: DocumentDataset):
+    def compute_filter_mask(self, dataset: DocumentDataset) -> pd.Series | pd.DataFrame:
         """Compute the bool mask to filter the dataset.
 
         Args:
@@ -195,27 +197,18 @@ class ScoreFilter(BaseModule):
         Returns:
             Series or DataFrame: A mask corresponding to each data instance indicating whether it will be retained.
         """
-        if self.score_type:
-            meta = (None, self.score_type)
-        else:
-            meta = no_default
+        meta = (None, self.score_type) if self.score_type else no_default
 
         if is_batched(self.filter_obj.score_document):
-            scores = dataset.df[self.text_field].map_partitions(
-                self.filter_obj.score_document, meta=meta
-            )
+            scores = dataset.df[self.text_field].map_partitions(self.filter_obj.score_document, meta=meta)
         else:
-            scores = dataset.df[self.text_field].apply(
-                self.filter_obj.score_document, meta=meta
-            )
+            scores = dataset.df[self.text_field].apply(self.filter_obj.score_document, meta=meta)
 
         if self.score_field is not None:
             dataset.df[self.score_field] = scores
 
         if is_batched(self.filter_obj.keep_document):
-            bool_mask = scores.map_partitions(
-                self.filter_obj.keep_document, meta=(None, bool)
-            )
+            bool_mask = scores.map_partitions(self.filter_obj.keep_document, meta=(None, bool))
         else:
             bool_mask = scores.apply(self.filter_obj.keep_document, meta=(None, bool))
         if self.invert:
@@ -238,16 +231,16 @@ class ScoreFilter(BaseModule):
 
 
 class ParallelScoreFilter(BaseModule):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        src_filter_obj,
-        tgt_filter_obj,
-        src_field="src",
-        tgt_field="tgt",
-        src_score=None,
-        tgt_score=None,
-        score_type=None,
-        invert=False,
+        src_filter_obj: DocumentFilter,
+        tgt_filter_obj: DocumentFilter,
+        src_field: str = "src",
+        tgt_field: str = "tgt",
+        src_score: str | None = None,
+        tgt_score: str | None = None,
+        score_type: str | None = None,
+        invert: bool = False,
     ):
         """A filter object wrapper class for applying *monolingual* filter objects on bitext.
         If either side of the bitext is discarded, the whole bitext pair is discarded.
@@ -268,14 +261,10 @@ class ParallelScoreFilter(BaseModule):
             invert (bool, optional): If True, will keep all documents that are normally discarded. Defaults to False.
         """
         super().__init__(input_backend=src_filter_obj.backend)
-        self.source_score_filter = ScoreFilter(
-            src_filter_obj, src_field, src_score, score_type, invert
-        )
-        self.target_score_filter = ScoreFilter(
-            tgt_filter_obj, tgt_field, tgt_score, score_type, invert
-        )
+        self.source_score_filter = ScoreFilter(src_filter_obj, src_field, src_score, score_type, invert)
+        self.target_score_filter = ScoreFilter(tgt_filter_obj, tgt_field, tgt_score, score_type, invert)
 
-    def call(self, dataset: ParallelDataset):
+    def call(self, dataset: ParallelDataset) -> ParallelDataset:
         src_bool_mask = self.source_score_filter.compute_filter_mask(dataset)
         tgt_bool_mask = self.target_score_filter.compute_filter_mask(dataset)
 

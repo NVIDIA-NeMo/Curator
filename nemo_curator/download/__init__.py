@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,28 +41,28 @@ from .wikipedia import (
 )
 
 __all__ = [
-    "DocumentDownloader",
-    "DocumentIterator",
-    "DocumentExtractor",
-    "download_and_extract",
-    "import_downloader",
-    "import_extractor",
-    "import_iterator",
-    "download_common_crawl",
+    "ArxivDownloader",
+    "ArxivExtractor",
+    "ArxivIterator",
     "CommonCrawlWARCDownloader",
+    "CommonCrawlWARCDownloaderExtractOnly",
     "CommonCrawlWARCExtractor",
     "CommonCrawlWARCIterator",
-    "CommonCrawlWARCDownloaderExtractOnly",
+    "DocumentDownloader",
+    "DocumentExtractor",
+    "DocumentIterator",
     "JusTextExtractor",
     "ResiliparseExtractor",
     "TrafilaturaExtractor",
-    "download_wikipedia",
     "WikipediaDownloader",
-    "WikipediaIterator",
     "WikipediaExtractor",
+    "WikipediaIterator",
     "batch_download",
+    "download_and_extract",
     "download_arxiv",
-    "ArxivDownloader",
-    "ArxivIterator",
-    "ArxivExtractor",
+    "download_common_crawl",
+    "download_wikipedia",
+    "import_downloader",
+    "import_extractor",
+    "import_iterator",
 ]

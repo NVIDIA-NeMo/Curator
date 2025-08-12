@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import math
+from collections.abc import Callable
 
 
-def is_batched(function):
+def is_batched(function: Callable) -> bool:
     return hasattr(function, "batched") and function.batched
 
 
-def count_digits(num):
+def count_digits(num: int) -> int:
     return math.floor(math.log10(num)) + 1

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,24 +11,20 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List
 
 from nemo_curator.services.conversation_formatter import ConversationFormatter
 
 
 class NoFormat(ConversationFormatter):
-
-    def format_conversation(self, conv: List[dict]) -> str:
+    def format_conversation(self, conv: list[dict]) -> str:
         if len(conv) != 1:
-            raise ValueError(
-                "There must be exactly one turn in the conversation to use NoFormat"
-            )
+            msg = "There must be exactly one turn in the conversation to use NoFormat"
+            raise ValueError(msg)
 
         turn = conv[0]
 
         if turn["role"] != "user":
-            raise ValueError(
-                "Conversation turn 0 is not 'user'. All even number turns should be."
-            )
+            msg = "Conversation turn 0 is not 'user'. All even number turns should be."
+            raise ValueError(msg)
 
         return turn["content"]

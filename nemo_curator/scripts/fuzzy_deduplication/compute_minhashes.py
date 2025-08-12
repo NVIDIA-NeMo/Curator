@@ -29,18 +29,20 @@ from nemo_curator.utils.fuzzy_dedup_utils.io_utils import strip_trailing_sep
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def pre_imports():
+def pre_imports() -> None:
     import cudf  # noqa: F401
 
 
-def main(args):
-    logger = create_logger(
-        rank=0, log_file=os.path.join(args.log_dir, "rank_000.log"), name="minhash_log"
-    )
+def main(args: argparse.Namespace) -> None:
+    logger = create_logger(rank=0, log_file=os.path.join(args.log_dir, "rank_000.log"), name="minhash_log")
     logger.info(f"Starting workflow with args:\n {args}")
 
-    assert args.hash_bytes in {4, 8}, "Currently only 32bit/64bit hashes are supported"
-    assert args.device == "gpu"
+    if args.hash_bytes not in {4, 8}:
+        msg = "Currently only 32bit/64bit hashes are supported"
+        raise ValueError(msg)
+    if args.device != "gpu":
+        msg = "GPU device is required for minhash LSH"
+        raise ValueError(msg)
 
     client = get_client(**ArgumentHelper.parse_client_args(args))
     logger.info(f"Client Created {client}")
@@ -56,7 +58,7 @@ def main(args):
         seed=args.seed,
         num_hashes=args.minhash_length,
         char_ngrams=args.char_ngram,
-        use_64bit_hash=False if args.hash_bytes == 4 else True,
+        use_64bit_hash=args.hash_bytes != 4,  # noqa: PLR2004
         logger=logger,
         id_field=id_field,
         text_field=text_field,
@@ -65,13 +67,13 @@ def main(args):
     t0 = time.time()
     for data_path in data_paths:
         print(f"Computing minhashes for {data_path}", flush=True)
-        data_path = strip_trailing_sep(data_path)
+        stripped_data_path = strip_trailing_sep(data_path)
         if num_files is not None and num_files <= 0:
             print(f"Processed {args.num_files}... quitting")
             break
 
         files = get_all_files_paths_under(
-            root=data_path, recurse_subdirectories=False, keep_extensions="jsonl"
+            root=stripped_data_path, recurse_subdirectories=False, keep_extensions="jsonl"
         )
         df = read_data(
             files[:num_files] if num_files else files,
@@ -86,28 +88,18 @@ def main(args):
             num_files -= len(files)
 
         res = minhasher(DocumentDataset(df)).df
-        logger.info(
-            f"Lazy minhash generation complete for {res.npartitions} partitions"
-        )
+        logger.info(f"Lazy minhash generation complete for {res.npartitions} partitions")
         logger.info(f"Starting execution for {data_path}")
-        write_path = os.path.join(
-            args.output_minhash_dir, os.path.basename(data_path), "minhashes.parquet"
-        )
+        write_path = os.path.join(args.output_minhash_dir, os.path.basename(data_path), "minhashes.parquet")
 
         t1 = time.time()
-        with performance_report_if(
-            args.profile_path, f"{os.path.basename(data_path)}-minhash-profile.html"
-        ):
+        with performance_report_if(args.profile_path, f"{os.path.basename(data_path)}-minhash-profile.html"):
             res.to_parquet(write_path, write_index=False)
-        logger.info(
-            f"Minhash computation for f{data_path} took {time.time() - t1}s complete at {write_path}"  # noqa:E501
-        )
-    logger.info(
-        f"Minhash computation across datasets took {time.time() - t0}s complete at {args.output_minhash_dir}"  # noqa:E501
-    )
+        logger.info(f"Minhash computation for f{data_path} took {time.time() - t1}s complete at {write_path}")
+    logger.info(f"Minhash computation across datasets took {time.time() - t0}s complete at {args.output_minhash_dir}")
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     description = """
     Computes minhash signatures from an input directory of documents
     contained within JSONL files. For each document, a DataFrame of document IDs
@@ -117,16 +109,13 @@ def attach_args():
         description,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    argumentHelper = ArgumentHelper(parser)
+    arg_helper = ArgumentHelper(parser)
 
-    argumentHelper.parse_gpu_dedup_args()
+    arg_helper.parse_gpu_dedup_args()
 
-    argumentHelper.add_arg_minhash_length()
-    argumentHelper.add_arg_seed(
-        help="Random seed used for intializing the hash "
-        "functions used to compute the minhashes."
-    )
-    argumentHelper.add_arg_input_meta()
+    arg_helper.add_arg_minhash_length()
+    arg_helper.add_arg_seed(help="Random seed used for intializing the hash functions used to compute the minhashes.")
+    arg_helper.add_arg_input_meta()
     parser.add_argument(
         "--char-ngram",
         type=int,
@@ -139,8 +128,7 @@ def attach_args():
         "--hash-bytes",
         type=int,
         default=4,
-        help="Number of bytes per computed minhash. "
-        "Default is an unsigned 32-bit integer.",
+        help="Number of bytes per computed minhash. Default is an unsigned 32-bit integer.",
     )
     parser.add_argument(
         "--output-minhash-dir",
@@ -154,7 +142,7 @@ def attach_args():
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())
 
 

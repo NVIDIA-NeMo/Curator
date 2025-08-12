@@ -21,15 +21,14 @@ from dask import dataframe as dd
 from nemo_curator.utils.duplicates_removal import remove_duplicates
 
 
-@pytest.fixture()
-def ids():
+@pytest.fixture
+def ids() -> list[str]:
     # Dataset has id a0...a9, b0...b9, c0...c9, d0...d9
-    l = [f"{group}{i}" for group in ["a", "b", "c", "d"] for i in range(10)]
-    return l
+    return [f"{group}{i}" for group in ["a", "b", "c", "d"] for i in range(10)]
 
 
 @pytest.fixture
-def sample_data(ids):
+def sample_data(ids: list[str]) -> dd.DataFrame:
     df = pd.DataFrame(
         {
             "id": ids,
@@ -40,7 +39,7 @@ def sample_data(ids):
 
 
 @pytest.fixture
-def duplicate_data(ids):
+def duplicate_data(ids: list[str]) -> dd.DataFrame:
     # In each group we want to keep only the first occurrence (e.g. a1, b1, c1, d1)
     df = pd.DataFrame([{"id": _id, "group": _id[0]} for _id in ids])
     return dd.from_pandas(df, npartitions=2)
@@ -59,7 +58,7 @@ def test_remove_duplicates_basic(
     perform_shuffle: bool,
     sample_data: dd.DataFrame,
     duplicate_data: dd.DataFrame,
-):
+) -> None:
     if perform_shuffle:
         # We shuffle the data to make sure that duplicates are not in the same partition
         duplicate_data = duplicate_data.sample(frac=1).reset_index(drop=True)
@@ -79,10 +78,10 @@ def test_remove_duplicates_basic(
     result = result.compute()
 
     assert list(result.columns) == ["id", "text"]
-    assert len(result) == 4
+    assert len(result) == 4  # noqa: PLR2004
     # It's not guaranteed that we'll have a0, b0, c0, d0 in the result
     # So we should check the first character
-    assert set(result["id"].apply(lambda x: x[0]).tolist()) == set(["a", "b", "c", "d"])
+    assert {x[0] for x in result["id"]} == {"a", "b", "c", "d"}
 
 
 @pytest.mark.parametrize(
@@ -98,11 +97,8 @@ def test_remove_duplicates_all_duplicates(
     perform_shuffle: bool,
     ids: list[str],
     sample_data: dd.DataFrame,
-):
-
-    duplicates = dd.from_pandas(
-        pd.DataFrame({"id": ids, "group": [1] * len(ids)}), npartitions=2
-    )
+) -> None:
+    duplicates = dd.from_pandas(pd.DataFrame({"id": ids, "group": [1] * len(ids)}), npartitions=2)
     sample_data = sample_data.to_backend(backend)
     duplicates = duplicates.to_backend(backend)
 
@@ -122,7 +118,7 @@ def test_remove_duplicates_all_duplicates(
         # If we don't shuffle, and both partitions have the same group
         # in both partitions we'd be left with 1 row after "deduplication"
         # and after the left-anti join we'd be left with 2 rows
-        assert len(result) == 2
+        assert len(result) == 2  # noqa: PLR2004
 
 
 @pytest.mark.parametrize(
@@ -138,7 +134,7 @@ def test_not_remove_duplicates_unique(
     perform_shuffle: bool,
     ids: list[str],
     sample_data: dd.DataFrame,
-):
+) -> None:
     # We create a dataset where first 30 ids are in one group
     # Next 9 ids are in distinct groups
     # And last id is not mentioned in duplicates
@@ -194,7 +190,7 @@ def test_remove_duplicates_repartition(
     backend: Literal["cudf", "pandas"],
     left_npartitions: int,
     right_npartitions: int,
-):
+) -> None:
     # Create sample dataframes with specific partition counts
     df1 = dd.from_pandas(
         pd.DataFrame({"id": ["a1", "a2", "a3"], "text": ["text1", "text2", "text3"]}),
@@ -202,9 +198,7 @@ def test_remove_duplicates_repartition(
     )  # dataset with 2 partitions
 
     duplicates = dd.from_pandas(
-        pd.DataFrame(
-            {"id": ["a1", "a2", "a3"], "group": ["group1", "group1", "group1"]}
-        ),
+        pd.DataFrame({"id": ["a1", "a2", "a3"], "group": ["group1", "group1", "group1"]}),
         npartitions=right_npartitions,
     )  # duplicates dataset with 3 partitions
     df1 = df1.to_backend(backend)
@@ -217,9 +211,7 @@ def test_remove_duplicates_repartition(
         id_field="id",
         group_field="group",
     )
-    output_dask_graph_keys = set(
-        k[0].rsplit("-", 1)[0] for k in output.optimize().__dask_graph__().keys()
-    )
+    output_dask_graph_keys = {k[0].rsplit("-", 1)[0] for k in output.optimize().__dask_graph__()}
     assert "broadcastjoin" in output_dask_graph_keys
     if left_npartitions < right_npartitions:
         assert "repartitiontofewer" in output_dask_graph_keys

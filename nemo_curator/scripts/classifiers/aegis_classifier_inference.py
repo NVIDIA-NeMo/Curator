@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import os
 import time
 import warnings
@@ -29,7 +30,7 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 warnings.filterwarnings("ignore")
 
 
-def main():
+def main() -> None:
     args = attach_args().parse_args()
     print(f"Arguments parsed = {args}", flush=True)
 
@@ -45,20 +46,12 @@ def main():
 
     # Some times jsonl files are stored as .json
     # So to handle that case we can pass the input_file_extension
-    if args.input_file_extension is not None:
-        input_file_extension = args.input_file_extension
-    else:
-        input_file_extension = args.input_file_type
+    input_file_extension = args.input_file_extension if args.input_file_extension is not None else args.input_file_type
 
-    input_files = get_remaining_files(
-        args.input_data_dir, args.output_data_dir, input_file_extension
-    )
+    input_files = get_remaining_files(args.input_data_dir, args.output_data_dir, input_file_extension)
     print(f"Total input files {len(input_files)}", flush=True)
 
-    if args.input_file_type == "pickle":
-        add_filename = False
-    else:
-        add_filename = True
+    add_filename = args.input_file_type != "pickle"
 
     aegis_classifier = AegisClassifier(
         aegis_variant=args.aegis_variant,
@@ -92,19 +85,19 @@ def main():
         )
         batch_et = time.time()
         print(
-            f"File Batch ID {file_batch_id}: completed in {batch_et-batch_st} seconds",
+            f"File Batch ID {file_batch_id}: completed in {batch_et - batch_st} seconds",
             flush=True,
         )
 
     global_et = time.time()
     print(
-        f"Total time taken for AEGIS classifier inference: {global_et-global_st} s",
+        f"Total time taken for AEGIS classifier inference: {global_et - global_st} s",
         flush=True,
     )
     client.close()
 
 
-def attach_args():
+def attach_args() -> argparse.ArgumentParser:
     parser = ArgumentHelper.parse_distributed_classifier_args(
         description="Run AEGIS classifier inference.",
         max_chars_default=6000,
@@ -128,7 +121,7 @@ def attach_args():
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main()
 
 

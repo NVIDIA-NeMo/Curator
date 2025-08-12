@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import pandas as pd
 from dask.dataframe.utils import assert_eq
 
@@ -19,7 +20,7 @@ from nemo_curator.datasets import DocumentDataset
 
 
 class TestDocumentJoiner:
-    def test_join_default(self):
+    def test_join_default(self) -> None:
         # Input represents documents already split.
         # For example, a document with id=1 split as "a", "b", "c" becomes joined to "a|b|c".
         # Four documents are used.
@@ -39,16 +40,14 @@ class TestDocumentJoiner:
         )
         result_dataset = joiner(dataset)
 
-        expected_df = pd.DataFrame(
-            {"id": [1, 2, 3, 4], "text": ["a|b|c", "nosplit", "start|middle", "end|"]}
-        )
+        expected_df = pd.DataFrame({"id": [1, 2, 3, 4], "text": ["a|b|c", "nosplit", "start|middle", "end|"]})
         assert_eq(
             result_dataset.df.compute().reset_index(drop=True),
             expected_df,
             check_index=False,
         )
 
-    def test_join_custom_fields(self):
+    def test_join_custom_fields(self) -> None:
         # Use custom field names:
         #   document id field: "doc"
         #   text field: "content"
@@ -84,7 +83,7 @@ class TestDocumentJoiner:
             check_index=False,
         )
 
-    def test_join_max_length(self):
+    def test_join_max_length(self) -> None:
         # Here we test joining when a maximum length is specified.
         # Each segment carries a precomputed "length" value.
         # The joiner should accumulate segments until adding the next one (plus separator)
@@ -135,17 +134,11 @@ class TestDocumentJoiner:
             ]
         )
         # Sort by id and text to ensure consistent order
-        expected_sorted = expected_df.sort_values(by=["id", "text"]).reset_index(
-            drop=True
-        )
-        result_sorted = (
-            result_dataset.df.compute()
-            .sort_values(by=["id", "text"])
-            .reset_index(drop=True)
-        )
+        expected_sorted = expected_df.sort_values(by=["id", "text"]).reset_index(drop=True)
+        result_sorted = result_dataset.df.compute().sort_values(by=["id", "text"]).reset_index(drop=True)
         assert_eq(result_sorted, expected_sorted, check_index=False)
 
-    def test_join_with_string_ids(self):
+    def test_join_with_string_ids(self) -> None:
         # Test join functionality when document id field is a string.
         data = {
             "doc": ["doc1", "doc1", "doc2", "doc3", "doc3", "doc4", "doc4"],

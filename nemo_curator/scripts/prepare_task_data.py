@@ -23,11 +23,11 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+def main(args: argparse.Namespace) -> None:
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
     # Read in config file
-    with open(args.task_config_file, "r") as config_file:
-        task_params = yaml.load(config_file, Loader=yaml.FullLoader)
+    with open(args.task_config_file) as config_file:
+        task_params = yaml.load(config_file, Loader=yaml.FullLoader)  # noqa: S506
 
     # Generate n-grams for all tasks
     task_list = []
@@ -44,20 +44,9 @@ def main(args):
         pickle.dump(all_ngrams, fp)
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-    Computes n-grams from input downstream task validation datasets.
-    Takes in an input configuration file (defaults can be found under the
-    config directory under the root directory of the repository) and
-    writes out the computed n-grams to a Pickle file, where they can be
-    used by the find_matching_ngrams program which will search for
-    matching n-grams in the input training dataset.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    ArgumentHelper(parser).add_distributed_args()
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--output-task-ngrams",
         type=str,
@@ -80,5 +69,16 @@ def attach_args(
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        """
+    Computes n-grams from input downstream task validation datasets.
+    Takes in an input configuration file (defaults can be found under the
+    config directory under the root directory of the repository) and
+    writes out the computed n-grams to a Pickle file, where they can be
+    used by the find_matching_ngrams program which will search for
+    matching n-grams in the input training dataset.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

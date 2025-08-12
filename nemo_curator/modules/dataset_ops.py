@@ -1,8 +1,23 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import math
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 import dask.dataframe as dd
 import numpy as np
+import pandas as pd
 
 from nemo_curator.datasets.doc_dataset import DocumentDataset
 from nemo_curator.modules.base import BaseModule
@@ -15,8 +30,8 @@ def default_filename(partition_num: int) -> str:
 class Shuffle(BaseModule):
     def __init__(
         self,
-        seed: Optional[int] = None,
-        npartitions: Optional[int] = None,
+        seed: int | None = None,
+        npartitions: int | None = None,
         partition_to_filename: Callable[[int], str] = default_filename,
         filename_col: str = "file_name",
     ) -> None:
@@ -47,9 +62,7 @@ class Shuffle(BaseModule):
             return self.shuffle_deterministic(dataset)
 
     def shuffle_deterministic(self, dataset: DocumentDataset) -> DocumentDataset:
-        new_npartitions = (
-            dataset.df.npartitions if self.npartitions is None else self.npartitions
-        )
+        new_npartitions = dataset.df.npartitions if self.npartitions is None else self.npartitions
 
         dataset.df[self.rand_col] = dataset.df.map_partitions(self._add_rand_col)
 
@@ -57,52 +70,39 @@ class Shuffle(BaseModule):
         shuffled_df = shuffled_df.reset_index(drop=True)
 
         if self.filename_col in shuffled_df:
-            shuffled_df[self.filename_col] = shuffled_df.map_partitions(
-                self._add_filename
-            )
+            shuffled_df[self.filename_col] = shuffled_df.map_partitions(self._add_filename)
 
         return DocumentDataset(shuffled_df)
 
     def shuffle_nondeterministic(self, dataset: DocumentDataset) -> DocumentDataset:
-        new_npartitions = (
-            dataset.df.npartitions if self.npartitions is None else self.npartitions
-        )
+        new_npartitions = dataset.df.npartitions if self.npartitions is None else self.npartitions
 
         dataset.df[self.rand_col] = dataset.df.map_partitions(self._add_rand_col)
 
-        shuffled_df = dataset.df.shuffle(
-            self.rand_col, npartitions=new_npartitions, ignore_index=True
-        )
+        shuffled_df = dataset.df.shuffle(self.rand_col, npartitions=new_npartitions, ignore_index=True)
         shuffled_df = shuffled_df.drop(columns=[self.rand_col])
         shuffled_df = shuffled_df.map_partitions(self._partition_shuffle)
 
         return DocumentDataset(shuffled_df)
 
-    def _add_rand_col(self, partition, partition_info=None):
+    def _add_rand_col(self, partition: pd.DataFrame, partition_info: dict | None = None) -> pd.Series:
         if partition_info is None:
             partition_info = {
                 "number": 0,
             }
 
         if self.seed is not None:
-            np.random.seed(self.seed + partition_info["number"])
-        rand_col = np.random.randint(0, np.iinfo("int64").max, size=len(partition))
+            np.random.seed(self.seed + partition_info["number"])  # noqa: NPY002
+        return np.random.randint(0, np.iinfo("int64").max, size=len(partition))  # noqa: NPY002
 
-        return rand_col
-
-    def _partition_shuffle(self, partition, partition_info=None):
+    def _partition_shuffle(self, partition: pd.DataFrame, partition_info: dict | None = None) -> pd.DataFrame:
         if partition_info is None:
             return partition
 
         partition_num = partition_info["number"]
-        if self.seed is not None:
-            random_state = self.seed + partition_num
-        else:
-            random_state = None
+        random_state = self.seed + partition_num if self.seed is not None else None
 
-        partition = partition.sample(frac=1, random_state=random_state).reset_index(
-            drop=True
-        )
+        partition = partition.sample(frac=1, random_state=random_state).reset_index(drop=True)
 
         if self.filename_col in partition:
             filename = self.partition_to_filename(partition_num)
@@ -110,7 +110,7 @@ class Shuffle(BaseModule):
 
         return partition
 
-    def _add_filename(self, partition, partition_info=None):
+    def _add_filename(self, partition: pd.DataFrame, partition_info: dict | None = None) -> list[str]:
         if partition_info is None:
             return [self.filename_col] * len(partition)
 
@@ -120,7 +120,7 @@ class Shuffle(BaseModule):
 
 
 def blend_datasets(
-    target_size: int, datasets: List[DocumentDataset], sampling_weights: List[float]
+    target_size: int, datasets: list[DocumentDataset], sampling_weights: list[float]
 ) -> DocumentDataset:
     """
     Combines multiple datasets into one with different amounts of each dataset.
@@ -136,23 +136,23 @@ def blend_datasets(
             the final blend.
     """
     if len(datasets) != len(sampling_weights):
-        raise ValueError(
+        msg = (
             f"Different number of datasets and weights specified. {len(datasets)} datasets and {len(sampling_weights)}"
         )
+        raise ValueError(msg)
 
     weight_sum = sum(sampling_weights)
     sampling_weights = [weight / weight_sum for weight in sampling_weights]
-    num_documents_per_dataset = [
-        math.ceil(weight * target_size) for weight in sampling_weights
-    ]
+    num_documents_per_dataset = [math.ceil(weight * target_size) for weight in sampling_weights]
 
     blend_components = []
-    for dataset, num_documents in zip(datasets, num_documents_per_dataset):
+    for dataset, num_documents in zip(datasets, num_documents_per_dataset, strict=False):
+        remaining_documents = num_documents
         # Repeatedly sample from the dataset
-        while num_documents > 0:
-            sample = _partition_head(dataset.df, num_documents)
+        while remaining_documents > 0:
+            sample = _partition_head(dataset.df, remaining_documents)
             blend_components.append(sample)
-            num_documents -= len(sample)
+            remaining_documents -= len(sample)
 
     blended_dataset = dd.concat(blend_components)
 

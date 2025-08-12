@@ -14,7 +14,6 @@
 
 import argparse
 
-import dask.dataframe
 import pandas as pd
 
 from nemo_curator.datasets import DocumentDataset
@@ -24,14 +23,12 @@ from nemo_curator.utils.distributed_utils import get_client
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def console_script():
+def console_script() -> None:
     parser = argparse.ArgumentParser()
     args = ArgumentHelper(parser).add_distributed_args().parse_args()
-    _ = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
-    dataframe = pd.DataFrame(
-        {"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]}
-    )
+    dataframe = pd.DataFrame({"text": ["Sarah and Ryan went out to play", "Jensen is the CEO of NVIDIA"]})
     dataset = DocumentDataset.from_pandas(dataframe, npartitions=1)
 
     modifier = PiiModifier(

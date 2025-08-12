@@ -45,7 +45,7 @@ The documentation should also cover potential pitfalls and performance considera
 The existing examples and documentation should serve as a good reference to what is expected.
 
 ## Python style
-We use ``black`` as our style guide. To fix your format run `pip install pre-commit && pre-commit install && pre-commit run --all`.
+We use ``ruff`` as our style guide. To fix your format run `pre-commit install && pre-commit run --all`.
 
 1. Include docstrings for every class and method exposed to the user.
 1. Avoid wild import: ``from X import *`` unless in ``X.py``, ``__all__`` is defined.
@@ -68,6 +68,9 @@ pytest
 # If you don't have NVIDIA GPU do:
 # pytest --cpu
 ```
+
+## Coverage
+Pull requests should cover at least 80% of its changes with tests. CI will reject PRs that do not fulfill this requirement. Please refer to the [Unit tests](#unit-tests) section for more about writing unit tests.
 
 ## Pull Requests (PR) Guidelines
 

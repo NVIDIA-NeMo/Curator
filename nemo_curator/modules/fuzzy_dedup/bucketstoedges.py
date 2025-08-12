@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,12 +14,15 @@
 
 from __future__ import annotations
 
-import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import logging
+
 import os
 import time
 import warnings
 from itertools import pairwise
-from typing import Optional, Union
 
 import cudf
 import dask_cudf
@@ -39,14 +42,14 @@ class BucketsToEdges:
     documents
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        cache_dir: str = None,
-        id_fields: Union[list, str] = "id",
+        cache_dir: str | None = None,
+        id_fields: list | str = "id",
         str_id_name: str = "id",
         bucket_field: str = "_bucket_id",
-        logger: Union[logging.LoggerAdapter, str] = "./",
-        profile_dir: Optional[str] = None,
+        logger: logging.LoggerAdapter | str = "./",
+        profile_dir: str | None = None,
     ):
         """
         Parameters
@@ -79,22 +82,17 @@ class BucketsToEdges:
             self._logger = logger
 
     @staticmethod
-    def _combine_multiple_ids(
-        input_df: cudf.DataFrame, input_id_fields: list, output_id_field: str
-    ) -> cudf.DataFrame:
+    def _combine_multiple_ids(input_df: cudf.DataFrame, input_id_fields: list, output_id_field: str) -> cudf.DataFrame:
         if output_id_field in input_df.columns:
-            raise ValueError(
-                f"Input df already contains column named: {output_id_field}"
-            )
+            msg = f"Input df already contains column named: {output_id_field}"
+            raise ValueError(msg)
 
         output_df = input_df.copy()[input_df.columns.difference(input_id_fields)]
 
         output_df[output_id_field] = input_df[input_id_fields[0]].astype(str)
         for input_field in input_id_fields[1:]:
             output_df[output_id_field] = output_df[output_id_field] = (
-                input_df[input_id_fields[0]].astype(str)
-                + "-"
-                + input_df[input_field].astype(str)
+                input_df[input_id_fields[0]].astype(str) + "-" + input_df[input_field].astype(str)
             )
 
         return output_df
@@ -103,12 +101,7 @@ class BucketsToEdges:
         self,
         buckets_df: cudf.DataFrame,
     ) -> cudf.DataFrame:
-
-        grouped_buckets = (
-            buckets_df.groupby(self.bucket_field)[self.str_id_name]
-            .agg(list)
-            .list.sort_values()
-        )
+        grouped_buckets = buckets_df.groupby(self.bucket_field)[self.str_id_name].agg(list).list.sort_values()
         bucket_docs = grouped_buckets.to_arrow().to_pylist()
         edges = []
         # Create pairs of all documents within a bucket since they are near duplicates
@@ -125,7 +118,7 @@ class BucketsToEdges:
 
     def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
         buckets_df = dataset.df
-        self._logger.info(f"Starting conversion of LSH Buckets to Graph Edgelist")
+        self._logger.info("Starting conversion of LSH Buckets to Graph Edgelist")
         if len(self.id_fields) > 1:
             buckets_df = buckets_df.map_partitions(
                 BucketsToEdges._combine_multiple_ids,
@@ -142,9 +135,7 @@ class BucketsToEdges:
 
         write_path = os.path.join(self.cache_dir, "_edges.parquet")
         if os.path.exists(write_path):
-            warnings.warn(
-                f"Output path {write_path} already exists and will be overwritten"
-            )
+            warnings.warn(f"Output path {write_path} already exists and will be overwritten", stacklevel=2)
         t0 = time.time()
         with performance_report_if_with_ts_suffix(
             self.profile_dir,
@@ -155,6 +146,4 @@ class BucketsToEdges:
             f"Time taken for Converted Buckets To Edgelist = {time.time() - t0}s and output written at {write_path}"
         )
 
-        return DocumentDataset(
-            dask_cudf.read_parquet(write_path, split_row_groups=False)
-        )
+        return DocumentDataset(dask_cudf.read_parquet(write_path, split_row_groups=False))

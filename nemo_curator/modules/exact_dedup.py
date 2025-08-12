@@ -19,7 +19,12 @@ import time
 import warnings
 from contextlib import nullcontext
 from hashlib import md5
-from typing import Optional, Union
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import logging
+
+    import cudf
 
 import pandas as pd
 from dask import config
@@ -37,17 +42,17 @@ from nemo_curator.utils.gpu_utils import is_cudf_type
 class ExactDuplicates(BaseDeduplicationModule):
     """Find exact duplicates in a document corpus"""
 
-    SUPPORTED_HASHES = {"md5"}
+    SUPPORTED_HASHES = frozenset({"md5"})
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        logger: Union[logging.LoggerAdapter, str] = "./",
+        logger: logging.LoggerAdapter | str = "./",
         id_field: str = "id",
         text_field: str = "text",
         hash_method: str = "md5",
         perform_removal: bool = False,
-        profile_dir: Optional[str] = None,
-        cache_dir: Optional[str] = None,
+        profile_dir: str | None = None,
+        cache_dir: str | None = None,
     ):
         """
         Parameters
@@ -98,20 +103,14 @@ class ExactDuplicates(BaseDeduplicationModule):
         """
         hash_df = self._compute_hashes(df)
 
-        shuffle_context = (
-            config.set({"dataframe.shuffle.method": "tasks"})
-            if DASK_P2P_ERROR
-            else nullcontext()
-        )
+        shuffle_context = config.set({"dataframe.shuffle.method": "tasks"}) if DASK_P2P_ERROR else nullcontext()
 
         with shuffle_context:
-            dup_ids = hash_df.shuffle(
+            return hash_df.shuffle(
                 on=["_hashes"],
                 ignore_index=True,
                 npartitions=max(1, (hash_df.npartitions // 3)),
             ).map_partitions(lambda x: x[x["_hashes"].duplicated(keep=False)])
-
-        return dup_ids
 
     def _compute_hashes(
         self,
@@ -125,15 +124,11 @@ class ExactDuplicates(BaseDeduplicationModule):
         res = df[[self.id_field]]
         res["_hashes"] = df[self.text_field].map_partitions(self.hash_documents)
 
-        self._logger.info(
-            f"Lazy hash generation complete for {res.npartitions} partitions"
-        )
+        self._logger.info(f"Lazy hash generation complete for {res.npartitions} partitions")
 
         return res
 
-    def hash_documents(
-        self, df: Union[cudf.Series, pd.Series]
-    ) -> Union[cudf.Series, pd.Series]:
+    def hash_documents(self, df: cudf.Series | pd.Series) -> cudf.Series | pd.Series:
         """
         Compute hashes for a Series containing documents
         """
@@ -142,10 +137,11 @@ class ExactDuplicates(BaseDeduplicationModule):
 
         elif isinstance(df, pd.Series):
             # TODO: Generalize ty using self.hash_method
-            return df.apply(lambda x: md5(x.encode()).hexdigest())
+            return df.apply(lambda x: md5(x.encode()).hexdigest())  # noqa: S324
 
         else:
-            raise ValueError(f"Unsupported type: {type(df)}")
+            msg = f"Unsupported type: {type(df)}"
+            raise ValueError(msg)
 
     def identify_duplicates(self, dataset: DocumentDataset) -> DocumentDataset:
         """
@@ -168,9 +164,7 @@ class ExactDuplicates(BaseDeduplicationModule):
         write_path = os.path.join(self.cache_dir, "_exact_duplicates.parquet")
 
         if os.path.exists(write_path):
-            warnings.warn(
-                f"Output path f{write_path} already exists and will be overwritten"
-            )
+            warnings.warn(f"Output path f{write_path} already exists and will be overwritten", stacklevel=2)
 
         with performance_report_if_with_ts_suffix(
             self.profile_dir,
@@ -192,9 +186,7 @@ class ExactDuplicates(BaseDeduplicationModule):
             blocksize=None,
         )
 
-    def remove(
-        self, dataset: DocumentDataset, duplicates_to_remove: Optional[DocumentDataset]
-    ) -> DocumentDataset:
+    def remove(self, dataset: DocumentDataset, duplicates_to_remove: DocumentDataset | None) -> DocumentDataset:
         """
         Remove exact duplicates from a given DocumentDataset
         Parameters

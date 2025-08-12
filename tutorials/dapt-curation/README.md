@@ -47,7 +47,7 @@ The tutorial follows the steps below:<br>
 Please follow the instructions in NeMo Curator's [README](https://github.com/NVIDIA/NeMo-Curator?tab=readme-ov-file#nemo-framework-container) to run the NeMo Framework Container and install the NeMo Curator package. Then, install the following dependencies for running the DAPT tutorial:
 
 ```bash
-cd /opt/NeMo-Curator/tutorials/dapt-curation/code/
+cd /opt/Curator/tutorials/dapt-curation/code
 apt update
 apt-get install poppler-utils
 apt-get install tesseract-ocr
@@ -55,7 +55,7 @@ apt install libtesseract-dev
 pip install -r requirements.txt
 pip uninstall --yes $(pip list --format=freeze | grep opencv)
 rm -rf /usr/local/lib/python3.10/dist-packages/cv2/
-pip install opencv-python-headless
+pip install "opencv-python-headless<4.9.0" # Since we want to use numpy<2
 python -c "import nltk; nltk.download('punkt_tab')"
 python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng')"
 python main.py --device "gpu"

@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,13 +14,17 @@
 
 from __future__ import annotations
 
-import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import logging
+
+    import dask_cudf
+
 import os
 import time
-from typing import List, Union
 
 import cudf
-import dask_cudf
 from tqdm import tqdm
 
 from nemo_curator.log import create_logger
@@ -46,11 +50,11 @@ from nemo_curator.utils.fuzzy_dedup_utils.shuffle_utils import write_partitioned
 class _Shuffle:
     def __init__(
         self,
-        id_fields: Union[str, list] = "id",
+        id_fields: str | list = "id",
         text_field: str = "text",
-        logger: Union[logging.LoggerAdapter, str] = "./",
-        profile_dir: str = None,
-        int_to_str_id: str = None,
+        logger: logging.LoggerAdapter | str = "./",
+        profile_dir: str | None = None,
+        int_to_str_id: str | None = None,
     ):
         if isinstance(logger, str):
             self._logger = create_logger(
@@ -66,25 +70,22 @@ class _Shuffle:
         self.profile_dir = profile_dir
         self.int_to_str_id = int_to_str_id
 
-    def shuffle_docs_on_buckets(
+    def shuffle_docs_on_buckets(  # noqa: PLR0913
         self,
         documents_df: dask_cudf.DataFrame,
         bucket_w_anchors_path: str,
         output_shuffled_docs_path: str,
-        bucket_mapping_df_blocksize,
+        bucket_mapping_df_blocksize: str,
         parts_per_worker: int = 1,
         bucket_parts_per_worker: int = 8,
         partition_on: str = "_output_partition_id",
-    ):
-
+    ) -> None:
         ddf_anchor_docs_with_bk, bk_mapping = aggregated_anchor_docs_with_bk_read(
             path=bucket_w_anchors_path,
             blocksize=bucket_mapping_df_blocksize,
         )
         self._logger.info("Getting ddf_anchor_docs_with_bk completed")
-        self._logger.debug(
-            f"ddf_anchor_docs_with_bk.npartitions = {ddf_anchor_docs_with_bk.npartitions}"
-        )
+        self._logger.debug(f"ddf_anchor_docs_with_bk.npartitions = {ddf_anchor_docs_with_bk.npartitions}")
         st = time.time()
         num_workers = get_num_workers(get_current_client())
         parts_per_batch = num_workers * parts_per_worker
@@ -93,11 +94,9 @@ class _Shuffle:
         self._logger.debug(f"parts_per_bucket_batch  = {parts_per_bucket_batch}")
 
         dask_profile_name = (
-            "suffle_docs"
-            + f"-parts_per_batch-{parts_per_batch}"
-            + f"-parts_per_bucket_batch-{parts_per_bucket_batch}"
+            "suffle_docs" + f"-parts_per_batch-{parts_per_batch}" + f"-parts_per_bucket_batch-{parts_per_bucket_batch}"
         )
-        documents_df = documents_df[self.id_fields + [self.text_field]]
+        documents_df = documents_df[[*self.id_fields, self.text_field]]
 
         with performance_report_if_with_ts_suffix(self.profile_dir, dask_profile_name):
             self._batched_merge_and_write(
@@ -109,24 +108,22 @@ class _Shuffle:
                 parts_per_text_batch=parts_per_batch,
                 parts_per_bucket_batch=parts_per_bucket_batch,
                 bk_mapping=bk_mapping,
-                num_workers=num_workers,
             )
         self._logger.info(
-            f"Time taken for Shuffle = {time.time()-st}s and output written at {output_shuffled_docs_path}"
+            f"Time taken for Shuffle = {time.time() - st}s and output written at {output_shuffled_docs_path}"
         )
 
-    def _batched_merge_and_write(
+    def _batched_merge_and_write(  # noqa: C901, PLR0913, PLR0915
         self,
         left_df: dask_cudf.DataFrame,
         right_df: dask_cudf.DataFrame,
         output_path: str,
-        merge_on: List[str],
+        merge_on: list[str],
         partition_on: str,
         parts_per_text_batch: int,
         parts_per_bucket_batch: int,
-        bk_mapping,
-        num_workers: int = None,
-    ):
+        bk_mapping: dask_cudf.DataFrame,
+    ) -> None:
         total_text_partitions = left_df.npartitions
         total_bucket_partitions = right_df.npartitions
 
@@ -140,9 +137,7 @@ class _Shuffle:
         )
 
         # Set start offsets
-        bucket_part_start_offset, text_part_start_offset = get_restart_offsets(
-            output_path
-        )
+        bucket_part_start_offset, text_part_start_offset = get_restart_offsets(output_path)
 
         # Set end offsets
         # NOTE: These end offsets are always set to the end
@@ -153,9 +148,18 @@ class _Shuffle:
         text_part_end_offset = total_text_partitions
 
         # Check that offsets are valid
-        assert bucket_part_start_offset % parts_per_bucket_batch == 0
-        assert bucket_part_end_offset > bucket_part_start_offset
-        assert text_part_end_offset > text_part_start_offset
+        if bucket_part_start_offset % parts_per_bucket_batch != 0:
+            msg = f"bucket_part_start_offset = {bucket_part_start_offset} is not divisible by parts_per_bucket_batch = {parts_per_bucket_batch}"
+            self._logger.error(msg)
+            raise ValueError(msg)
+        if bucket_part_end_offset <= bucket_part_start_offset:
+            msg = f"bucket_part_end_offset = {bucket_part_end_offset} <= bucket_part_start_offset = {bucket_part_start_offset}"
+            self._logger.error(msg)
+            raise ValueError(msg)
+        if text_part_end_offset <= text_part_start_offset:
+            msg = f"text_part_end_offset = {text_part_end_offset} <= text_part_start_offset = {text_part_start_offset}"
+            self._logger.error(msg)
+            raise ValueError(msg)
 
         # Initialize "retry" variables
         #
@@ -175,15 +179,10 @@ class _Shuffle:
         )
 
         for bucket_part_offset in tqdm(
-            range(
-                bucket_part_start_offset, bucket_part_end_offset, parts_per_bucket_batch
-            )
+            range(bucket_part_start_offset, bucket_part_end_offset, parts_per_bucket_batch)
         ):
-
             # Outer loop over batches of "bucket-map" partitions
-            end_bucket_offset = min(
-                bucket_part_offset + parts_per_bucket_batch, bucket_part_end_offset
-            )
+            end_bucket_offset = min(bucket_part_offset + parts_per_bucket_batch, bucket_part_end_offset)
             print(
                 f"\nStarted processing bucket-map partitions {bucket_part_offset} "
                 f"through {end_bucket_offset} of {bucket_part_end_offset}",
@@ -207,7 +206,6 @@ class _Shuffle:
 
             text_part_offset = text_part_start_offset
             while text_part_offset < text_part_end_offset:
-
                 # Check if we are "retrying" with a smaller "parts_per_text_batch"
                 if parts_per_text_batch_retry:
                     parts_per_text_batch_use = parts_per_text_batch_retry
@@ -217,12 +215,8 @@ class _Shuffle:
                 print(f"Using {parts_per_text_batch_use} text partitions.", flush=True)
 
                 # Select partitions for our text batch
-                end_text_offset = min(
-                    text_part_offset + parts_per_text_batch_use, text_part_end_offset
-                )
-                subset_text_df = left_df_use.partitions[
-                    text_part_offset:end_text_offset
-                ]
+                end_text_offset = min(text_part_offset + parts_per_text_batch_use, text_part_end_offset)
+                subset_text_df = left_df_use.partitions[text_part_offset:end_text_offset]
                 subset_merged_df = merge_left_to_shuffled_right(
                     subset_text_df,
                     subset_bucket_df,
@@ -231,9 +225,7 @@ class _Shuffle:
                 output_df = subset_merged_df.shuffle(on=partition_on)
 
                 if self.int_to_str_id is not None and output_df is not None:
-                    output_df = output_df.map_partitions(
-                        int_ids_to_str, id_column=self.int_to_str_id
-                    )
+                    output_df = output_df.map_partitions(int_ids_to_str, id_column=self.int_to_str_id)
                 batch_label = f"{end_bucket_offset}_{end_text_offset}"
                 if output_df is not None:
                     written_files = output_df.map_partitions(
@@ -249,8 +241,7 @@ class _Shuffle:
 
                 print(
                     "Text-df partition ",
-                    f"{end_text_offset}/{text_part_end_offset} "
-                    f"completed in {time.time()-st_text}",
+                    f"{end_text_offset}/{text_part_end_offset} completed in {time.time() - st_text}",
                     flush=True,
                 )
 
@@ -273,8 +264,7 @@ class _Shuffle:
             update_restart_offsets(output_path, end_bucket_offset, end_text_offset)
             print(
                 "Bucket partition ",
-                f"{end_bucket_offset}/{bucket_part_end_offset} "
-                f"completed in {time.time()-st_bucket}",
+                f"{end_bucket_offset}/{bucket_part_end_offset} completed in {time.time() - st_bucket}",
                 flush=True,
             )
 

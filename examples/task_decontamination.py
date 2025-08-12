@@ -43,15 +43,13 @@ from nemo_curator.utils.file_utils import get_all_files_paths_under
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def load_dataset(input_data_dir):
+def load_dataset(input_data_dir: str) -> DocumentDataset:
     files = list(get_all_files_paths_under(input_data_dir, keep_extensions="jsonl"))
     raw_data = read_data(files, file_type="jsonl", backend="pandas", add_filename=True)
-    dataset = DocumentDataset(raw_data)
-
-    return dataset
+    return DocumentDataset(raw_data)
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     # Params
     contaminated_dataset_path = "/path/to/input"
     decontaminated_output_path = "/path/to/output"
@@ -80,7 +78,7 @@ def main(args):
     ]
 
     # Prepare samples for the classifier
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     # Filter data
     target_dataset = load_dataset(contaminated_dataset_path)
@@ -88,18 +86,12 @@ def main(args):
     decontaminated_dataset = decontaminator(target_dataset)
 
     # Write filtered dataset
-    write_to_disk(
-        decontaminated_dataset.df, decontaminated_output_path, write_to_filename=True
-    )
+    write_to_disk(decontaminated_dataset.df, decontaminated_output_path, write_to_filename=True)
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    ),
-):
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     return ArgumentHelper(parser).add_distributed_args()
 
 
 if __name__ == "__main__":
-    main(attach_args().parse_args())
+    main(attach_args(argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)).parse_args())

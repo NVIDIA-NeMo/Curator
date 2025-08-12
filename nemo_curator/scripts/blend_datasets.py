@@ -24,7 +24,7 @@ from nemo_curator.utils.file_utils import (
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     client = get_client(**ArgumentHelper.parse_client_args(args))
 
     out_dir = expand_outdir_and_mkdir(args.output_data_dir)
@@ -54,8 +54,8 @@ def main(args):
     client.close()
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
+def attach_args() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         """
 Blends a collection of datasets together based on certain weights.
 
@@ -70,23 +70,20 @@ Optionally, the user can choose to shuffle this dataset as well.
   """,
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-):
-    argumentHelper = ArgumentHelper(parser)
 
-    argumentHelper.add_arg_input_file_type()
-    argumentHelper.add_arg_output_data_dir(
-        help="The output directory to where the blended dataset will be written."
-    )
-    argumentHelper.add_arg_output_file_type()
-    argumentHelper.add_arg_seed()
-    argumentHelper.add_arg_shuffle(help="Shuffles the dataset after blending.")
-    argumentHelper.add_distributed_args()
+    arg_helper = ArgumentHelper(parser)
+
+    arg_helper.add_arg_input_file_type()
+    arg_helper.add_arg_output_data_dir(help="The output directory to where the blended dataset will be written.")
+    arg_helper.add_arg_output_file_type()
+    arg_helper.add_arg_seed()
+    arg_helper.add_arg_shuffle(help="Shuffles the dataset after blending.")
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--input-data-dirs",
         type=str,
         default=None,
-        help="Comma-separated list of directories consisting of dataset "
-        "files that are accessible to all nodes.",
+        help="Comma-separated list of directories consisting of dataset files that are accessible to all nodes.",
     )
     parser.add_argument(
         "--target-samples",
@@ -107,5 +104,5 @@ Optionally, the user can choose to shuffle this dataset as well.
     return parser
 
 
-def console_script():
+def console_script() -> None:
     main(attach_args().parse_args())

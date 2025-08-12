@@ -11,13 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 import zipfile
-from typing import Optional
 
+import cudf
 import requests
 import torch
-import torch.nn as nn
+from torch import nn
 
 from nemo_curator.image.classifiers.base import ImageClassifier
 from nemo_curator.utils.file_utils import NEMO_CURATOR_HOME
@@ -26,12 +27,12 @@ from nemo_curator.utils.file_utils import NEMO_CURATOR_HOME
 # MLP code taken from LAION's CLIP-based-NSFW-Detector
 # https://github.com/LAION-AI/CLIP-based-NSFW-Detector/issues/7
 class Normalization(nn.Module):
-    def __init__(self, shape):
+    def __init__(self, shape: list[int]):
         super().__init__()
         self.register_buffer("mean", torch.zeros(shape))
         self.register_buffer("variance", torch.ones(shape))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return (x - self.mean) / self.variance.sqrt()
 
 
@@ -46,13 +47,12 @@ class NSFWModel(nn.Module):
         self.act = nn.ReLU()
         self.act_out = nn.Sigmoid()
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.norm(x)
         x = self.act(self.linear_1(x))
         x = self.act(self.linear_2(x))
         x = self.act(self.linear_3(x))
-        x = self.act_out(self.linear_4(x))
-        return x
+        return self.act_out(self.linear_4(x))
 
 
 class NsfwClassifier(ImageClassifier):
@@ -69,7 +69,7 @@ class NsfwClassifier(ImageClassifier):
         embedding_column: str = "image_embedding",
         pred_column: str = "nsfw_score",
         batch_size: int = -1,
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
     ) -> None:
         """
         Constructs the classifier.
@@ -102,14 +102,14 @@ class NsfwClassifier(ImageClassifier):
         self.model_path = model_path
 
     @staticmethod
-    def _get_default_model():
+    def _get_default_model() -> str:
         weights_name = "clip_autokeras_binary_nsfw.pth"
         model_path = os.path.join(NEMO_CURATOR_HOME, weights_name)
         os.makedirs(NEMO_CURATOR_HOME, exist_ok=True)
 
         if not os.path.exists(model_path):
             url = "https://github.com/LAION-AI/CLIP-based-NSFW-Detector/files/10250461/clip_autokeras_binary_nsfw.zip"
-            r = requests.get(url)
+            r = requests.get(url)  # noqa: S113
 
             raw_zip_path = os.path.join(NEMO_CURATOR_HOME, "nsfw.zip")
             with open(raw_zip_path, "wb") as f:
@@ -119,25 +119,24 @@ class NsfwClassifier(ImageClassifier):
 
         return model_path
 
-    def load_model(self, device):
+    def load_model(self, device: str) -> nn.Module:
         model = NSFWModel().to(device)
         weights = torch.load(self.model_path, map_location=torch.device("cpu"))
         model.load_state_dict(weights)
         model.eval()
-        model = self._configure_forward(model)
 
-        return model
+        return self._configure_forward(model)
 
-    def _configure_forward(self, model):
+    def _configure_forward(self, model: nn.Module) -> nn.Module:
         original_forward = model.forward
 
-        def custom_forward(*args, **kwargs):
+        def custom_forward(*args, **kwargs) -> torch.Tensor:
             return original_forward(*args, **kwargs).squeeze()
 
         model.forward = custom_forward
         return model
 
-    def postprocess(self, series):
+    def postprocess(self, series: cudf.Series) -> cudf.Series:
         new_series = series.list.leaves
         new_series.index = series.index
         return new_series

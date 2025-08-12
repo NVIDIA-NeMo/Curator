@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,7 +13,8 @@
 # limitations under the License.
 
 import logging
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, Any
 
 from presidio_analyzer import (
     AnalyzerEngine,
@@ -24,7 +25,8 @@ from presidio_analyzer import (
 )
 from presidio_analyzer.nlp_engine import NlpArtifacts
 
-from nemo_curator.pii.custom_nlp_engine import CustomNlpEngine
+if TYPE_CHECKING:
+    from nemo_curator.pii.custom_nlp_engine import CustomNlpEngine
 
 logger = logging.getLogger("presidio-analyzer")
 
@@ -40,22 +42,22 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
     for handling the values in those collections.
     """
 
-    def __init__(self, analyzer_engine: Optional[AnalyzerEngine] = None):
+    def __init__(self, analyzer_engine: AnalyzerEngine | None = None):
         super().__init__(analyzer_engine)
 
-    def analyze_batch(
+    def analyze_batch(  # noqa: PLR0913
         self,
-        texts: Iterable[str],
+        texts: Iterable[str],  # noqa: ARG002
         language: str,
-        entities: Optional[List[str]] = None,
-        correlation_id: Optional[str] = None,
-        score_threshold: Optional[float] = None,
-        return_decision_process: Optional[bool] = False,
-        ad_hoc_recognizers: Optional[List[EntityRecognizer]] = None,
-        context: Optional[List[str]] = None,
-        allow_list: Optional[List[str]] = None,
-        nlp_artifacts_batch: Optional[Iterable[NlpArtifacts]] = None,
-    ):
+        entities: list[str] | None = None,
+        correlation_id: str | None = None,  # noqa: ARG002
+        score_threshold: float | None = None,  # noqa: ARG002
+        return_decision_process: bool | None = False,  # noqa: ARG002
+        ad_hoc_recognizers: list[EntityRecognizer] | None = None,
+        context: list[str] | None = None,  # noqa: ARG002
+        allow_list: list[str] | None = None,  # noqa: ARG002
+        nlp_artifacts_batch: Iterable[NlpArtifacts] | None = None,
+    ) -> list[list[RecognizerResult]]:
         all_fields = not entities
 
         recognizers = self.analyzer_engine.registry.get_recognizers(
@@ -75,9 +77,7 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
         for text, nlp_artifacts in nlp_artifacts_batch:
             results = []
             for recognizer in recognizers:
-                current_results = recognizer.analyze(
-                    text=text, entities=entities, nlp_artifacts=nlp_artifacts
-                )
+                current_results = recognizer.analyze(text=text, entities=entities, nlp_artifacts=nlp_artifacts)
                 if current_results:
                     # add recognizer name to recognition metadata inside results
                     # if not exists
@@ -89,11 +89,11 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
 
     def analyze_iterator(
         self,
-        texts: Iterable[Union[str, bool, float, int]],
+        texts: Iterable[str | bool | float | int],
         language: str,
         batch_size: int = 32,
         **kwargs,
-    ) -> List[List[RecognizerResult]]:
+    ) -> list[list[RecognizerResult]]:
         """
         Analyze an iterable of strings.
 
@@ -111,20 +111,18 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
             as_tuples=kwargs.get("as_tuples", False),
         )
 
-        results = self.analyze_batch(
+        return self.analyze_batch(
             texts=texts,
             nlp_artifacts_batch=nlp_artifacts_batch,
             language=language,
             **kwargs,
         )
 
-        return results
-
     def analyze_dict(
         self,
-        input_dict: Dict[str, Union[Any, Iterable[Any]]],
+        input_dict: dict[str, Any | Iterable[Any]],
         language: str,
-        keys_to_skip: Optional[List[str]] = None,
+        keys_to_skip: list[str] | None = None,
         **kwargs,
     ) -> Iterator[DictAnalyzerResult]:
         """
@@ -160,7 +158,7 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
             specific_context.append(key)
 
             if type(value) in (str, int, bool, float):
-                results: List[RecognizerResult] = self.analyzer_engine.analyze(
+                results: list[RecognizerResult] = self.analyzer_engine.analyze(
                     text=str(value), language=language, context=[key], **kwargs
                 )
             elif isinstance(value, dict):
@@ -175,13 +173,14 @@ class CustomBatchAnalyzerEngine(BatchAnalyzerEngine):
             elif isinstance(value, Iterable):
                 # Recursively iterate nested dicts
 
-                results: List[List[RecognizerResult]] = self.analyze_iterator(
+                results: list[list[RecognizerResult]] = self.analyze_iterator(
                     texts=value,
                     language=language,
                     context=specific_context,
                     **kwargs,
                 )
             else:
-                raise ValueError(f"type {type(value)} is unsupported.")
+                msg = f"type {type(value)} is unsupported."
+                raise ValueError(msg)
 
             yield DictAnalyzerResult(key=key, value=value, recognizer_results=results)

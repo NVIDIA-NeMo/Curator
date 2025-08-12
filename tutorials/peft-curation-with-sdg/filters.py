@@ -27,5 +27,5 @@ class FilterLowScores(DocumentFilter):
     def score_document(self, text: str) -> bool:
         return text >= self._score_threshold
 
-    def keep_document(self, score) -> bool:
+    def keep_document(self, score: bool) -> bool:
         return score

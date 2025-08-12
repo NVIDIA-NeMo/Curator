@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from openai._types import NOT_GIVEN
@@ -22,7 +22,7 @@ from nemo_curator.services.openai_client import AsyncOpenAIClient, OpenAIClient
 
 class TestOpenAIClient:
     @pytest.fixture
-    def mock_openai_client(self):
+    def mock_openai_client(self) -> MagicMock:
         """Create a mock OpenAI client for testing."""
         mock_client = MagicMock()
         # Configure the mock response structure to match what OpenAI returns
@@ -33,12 +33,12 @@ class TestOpenAIClient:
         mock_client.chat.completions.create.return_value = completion_response
         return mock_client
 
-    def test_init(self, mock_openai_client):
+    def test_init(self, mock_openai_client: MagicMock) -> None:
         """Test the constructor of OpenAIClient."""
         client = OpenAIClient(mock_openai_client)
         assert client.client == mock_openai_client
 
-    def test_query_model_basic(self, mock_openai_client):
+    def test_query_model_basic(self, mock_openai_client: MagicMock) -> None:
         """Test the query_model method with basic parameters."""
         client = OpenAIClient(mock_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -59,7 +59,7 @@ class TestOpenAIClient:
         # Check return value
         assert result == ["This is a mock response"]
 
-    def test_query_model_with_all_parameters(self, mock_openai_client):
+    def test_query_model_with_all_parameters(self, mock_openai_client: MagicMock) -> None:
         """Test the query_model method with all possible parameters."""
         client = OpenAIClient(mock_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -83,18 +83,18 @@ class TestOpenAIClient:
         call_args = mock_openai_client.chat.completions.create.call_args[1]
         assert call_args["messages"] == messages
         assert call_args["model"] == "gpt-4"
-        assert call_args["max_tokens"] == 100
+        assert call_args["max_tokens"] == 100  # noqa: PLR2004
         assert call_args["n"] == 1
-        assert call_args["seed"] == 42
+        assert call_args["seed"] == 42  # noqa: PLR2004
         assert call_args["stop"] == ["stop_token"]
         assert call_args["stream"] is False
-        assert call_args["temperature"] == 0.7
-        assert call_args["top_p"] == 0.9
+        assert call_args["temperature"] == 0.7  # noqa: PLR2004
+        assert call_args["top_p"] == 0.9  # noqa: PLR2004
 
         # Check return value
         assert result == ["This is a mock response"]
 
-    def test_query_model_with_warnings(self, mock_openai_client):
+    def test_query_model_with_warnings(self, mock_openai_client: MagicMock) -> None:
         """Test that warnings are raised appropriately."""
         client = OpenAIClient(mock_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -113,7 +113,7 @@ class TestOpenAIClient:
                 top_k=5,
             )
 
-    def test_query_model_multiple_choices(self, mock_openai_client):
+    def test_query_model_multiple_choices(self, mock_openai_client: MagicMock) -> None:
         """Test handling of multiple choices in response."""
         client = OpenAIClient(mock_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -136,7 +136,7 @@ class TestOpenAIClient:
         # Check that all choices are returned
         assert result == ["First response", "Second response"]
 
-    def test_query_reward_model(self, mock_openai_client):
+    def test_query_reward_model(self, mock_openai_client: MagicMock) -> None:
         """Test the query_reward_model method."""
         client = OpenAIClient(mock_openai_client)
         messages = [
@@ -147,7 +147,7 @@ class TestOpenAIClient:
         # Configure mock to return logprobs
         choice = MagicMock()
         logprob_token = MagicMock()
-        logprob_token.token = "GOOD"
+        logprob_token.token = "GOOD"  # noqa: S105
         logprob_token.logprob = -0.5
         choice.logprobs.content = [logprob_token]
         completion_response = MagicMock()
@@ -160,14 +160,12 @@ class TestOpenAIClient:
         )
 
         # Check if OpenAI client was called with the right parameters
-        mock_openai_client.chat.completions.create.assert_called_once_with(
-            messages=messages, model="reward-model"
-        )
+        mock_openai_client.chat.completions.create.assert_called_once_with(messages=messages, model="reward-model")
 
         # Check return value
         assert result == {"GOOD": -0.5}
 
-    def test_query_reward_model_error(self, mock_openai_client):
+    def test_query_reward_model_error(self, mock_openai_client: MagicMock) -> None:
         """Test error handling when logprobs are not found."""
         client = OpenAIClient(mock_openai_client)
         messages = [
@@ -191,7 +189,7 @@ class TestOpenAIClient:
 
 class TestAsyncOpenAIClient:
     @pytest.fixture
-    def mock_async_openai_client(self):
+    def mock_async_openai_client(self) -> MagicMock:
         """Create a mock AsyncOpenAI client for testing."""
         mock_client = MagicMock()
         # Configure the mock response structure to match what AsyncOpenAI returns
@@ -205,13 +203,13 @@ class TestAsyncOpenAIClient:
         mock_client.chat.completions.create.return_value = completion_response
         return mock_client
 
-    def test_init(self, mock_async_openai_client):
+    def test_init(self, mock_async_openai_client: MagicMock) -> None:
         """Test the constructor of AsyncOpenAIClient."""
         client = AsyncOpenAIClient(mock_async_openai_client)
         assert client.client == mock_async_openai_client
 
     @pytest.mark.asyncio
-    async def test_query_model_basic(self, mock_async_openai_client):
+    async def test_query_model_basic(self, mock_async_openai_client: MagicMock) -> None:
         """Test the query_model method with basic parameters."""
         client = AsyncOpenAIClient(mock_async_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -233,7 +231,7 @@ class TestAsyncOpenAIClient:
         assert result == ["This is a mock async response"]
 
     @pytest.mark.asyncio
-    async def test_query_model_with_all_parameters(self, mock_async_openai_client):
+    async def test_query_model_with_all_parameters(self, mock_async_openai_client: MagicMock) -> None:
         """Test the query_model method with all possible parameters."""
         client = AsyncOpenAIClient(mock_async_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -257,19 +255,19 @@ class TestAsyncOpenAIClient:
         call_args = mock_async_openai_client.chat.completions.create.call_args[1]
         assert call_args["messages"] == messages
         assert call_args["model"] == "gpt-4"
-        assert call_args["max_tokens"] == 100
+        assert call_args["max_tokens"] == 100  # noqa: PLR2004
         assert call_args["n"] == 1
-        assert call_args["seed"] == 42
+        assert call_args["seed"] == 42  # noqa: PLR2004
         assert call_args["stop"] == ["stop_token"]
         assert call_args["stream"] is False
-        assert call_args["temperature"] == 0.7
-        assert call_args["top_p"] == 0.9
+        assert call_args["temperature"] == 0.7  # noqa: PLR2004
+        assert call_args["top_p"] == 0.9  # noqa: PLR2004
 
         # Check return value
         assert result == ["This is a mock async response"]
 
     @pytest.mark.asyncio
-    async def test_query_model_with_warnings(self, mock_async_openai_client):
+    async def test_query_model_with_warnings(self, mock_async_openai_client: MagicMock) -> None:
         """Test that warnings are raised appropriately."""
         client = AsyncOpenAIClient(mock_async_openai_client)
         messages = [{"role": "user", "content": "Hello"}]
@@ -289,7 +287,7 @@ class TestAsyncOpenAIClient:
             )
 
     @pytest.mark.asyncio
-    async def test_query_reward_model(self, mock_async_openai_client):
+    async def test_query_reward_model(self, mock_async_openai_client: MagicMock) -> None:
         """Test the query_reward_model method."""
         client = AsyncOpenAIClient(mock_async_openai_client)
         messages = [
@@ -300,14 +298,12 @@ class TestAsyncOpenAIClient:
         # Configure mock to return logprobs
         choice = MagicMock()
         logprob_token = MagicMock()
-        logprob_token.token = "GOOD"
+        logprob_token.token = "GOOD"  # noqa: S105
         logprob_token.logprob = -0.5
         choice.logprobs.content = [logprob_token]
         completion_response = MagicMock()
         completion_response.choices = [choice]
-        mock_async_openai_client.chat.completions.create.return_value = (
-            completion_response
-        )
+        mock_async_openai_client.chat.completions.create.return_value = completion_response
 
         result = await client.query_reward_model(
             messages=messages,
@@ -323,7 +319,7 @@ class TestAsyncOpenAIClient:
         assert result == {"GOOD": -0.5}
 
     @pytest.mark.asyncio
-    async def test_query_reward_model_error(self, mock_async_openai_client):
+    async def test_query_reward_model_error(self, mock_async_openai_client: MagicMock) -> None:
         """Test error handling when logprobs are not found."""
         client = AsyncOpenAIClient(mock_async_openai_client)
         messages = [
@@ -336,9 +332,7 @@ class TestAsyncOpenAIClient:
         choice.logprobs = None
         completion_response = MagicMock()
         completion_response.choices = [choice]
-        mock_async_openai_client.chat.completions.create.return_value = (
-            completion_response
-        )
+        mock_async_openai_client.chat.completions.create.return_value = completion_response
 
         with pytest.raises(ValueError, match="Logprobs not found"):
             await client.query_reward_model(

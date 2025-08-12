@@ -19,8 +19,8 @@ from nemo_curator.utils.file_utils import reshard_jsonl
 from nemo_curator.utils.script_utils import ArgumentHelper
 
 
-def main(args):
-    client = get_client(**ArgumentHelper.parse_client_args(args))
+def main(args: argparse.Namespace) -> None:
+    client = get_client(**ArgumentHelper.parse_client_args(args))  # noqa: F841
 
     reshard_jsonl(
         args.input_data_dir,
@@ -31,25 +31,11 @@ def main(args):
     )
 
 
-def attach_args(
-    parser=argparse.ArgumentParser(
-        """
-Makes balanced text files of output size --block-size from
-a directory of input files. The output files will be renamed
-as output_dir/000.jsonl, output_dir/001.jsonl, etc. Users
-may specify the desired number of output files and the block size
-will be computed from this specified quantity.
+def attach_args(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    arg_helper = ArgumentHelper(parser)
 
-The size of the input files must be larger than the specified
---block-size.
-""",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-):
-    argumentHelper = ArgumentHelper(parser)
-
-    argumentHelper.add_arg_input_data_dir()
-    argumentHelper.add_distributed_args()
+    arg_helper.add_arg_input_data_dir()
+    arg_helper.add_distributed_args()
     parser.add_argument(
         "--output-file-size",
         type=str,
@@ -80,5 +66,18 @@ The size of the input files must be larger than the specified
     return parser
 
 
-def console_script():
-    main(attach_args().parse_args())
+def console_script() -> None:
+    parser = argparse.ArgumentParser(
+        """
+Makes balanced text files of output size --block-size from
+a directory of input files. The output files will be renamed
+as output_dir/000.jsonl, output_dir/001.jsonl, etc. Users
+may specify the desired number of output files and the block size
+will be computed from this specified quantity.
+
+The size of the input files must be larger than the specified
+--block-size.
+""",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    main(attach_args(parser).parse_args())

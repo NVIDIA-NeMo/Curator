@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Literal, Optional
+from typing import Literal
 
 import ftfy
 from ftfy import TextFixerConfig
@@ -21,9 +21,9 @@ from nemo_curator.modifiers import DocumentModifier
 
 
 class UnicodeReformatter(DocumentModifier):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
-        config: Optional[TextFixerConfig] = None,
+        config: TextFixerConfig | None = None,
         unescape_html: str | bool = "auto",
         remove_terminal_escapes: bool = True,
         fix_encoding: bool = True,
@@ -145,5 +145,5 @@ class UnicodeReformatter(DocumentModifier):
 
         super().__init__()
 
-    def modify_document(self, text):
+    def modify_document(self, text: str) -> str:
         return ftfy.fix_text(text, config=self.config)
