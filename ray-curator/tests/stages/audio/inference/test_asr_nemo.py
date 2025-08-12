@@ -1,4 +1,4 @@
-"""Test suite for AudioReaderStage."""
+"""Test suite for InferenceAsrNemoStage."""
 
 import os
 
