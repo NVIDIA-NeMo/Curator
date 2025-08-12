@@ -1,13 +1,12 @@
 """Test suite for AudioReaderStage."""
 
 import os
-from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemo, InferenceAsrNemoStage
+from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import EmptyTask, SpeechObject
 
@@ -24,14 +23,14 @@ def get_e2e_test_data_path() -> str:
         raise ValueError
 
 
-class TestAsrNeMo:
+class TestAsrNeMoStage:
     """Test suite for TestAsrInference."""
 
     test_data_root = get_e2e_test_data_path()
 
     def test_stage_properties(self) -> None:
         """Test stage properties."""
-        stage = InferenceAsrNemo(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         assert stage.name == "audio_inference"
         assert stage.inputs() == ([], [])
         assert stage.outputs() == (["data"], ["audio_filepath", "text"])
@@ -39,19 +38,19 @@ class TestAsrNeMo:
     def test_stage_initialization(self) -> None:
         """Test stage initialization with different parameters."""
         # Test with input_audio_path
-        stage = InferenceAsrNemo(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         assert stage.input_audio_path == "/test/path"
         assert stage.audio_limit is None
 
         # Test with audio_limit
-        stage = InferenceAsrNemo(
-            model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path", audio_limit=10
+        stage = InferenceAsrNemoStage(
+            model_name="nvidia/parakeet-tdt-0.6b-v2",
         )
         assert stage.audio_limit == 10
 
     def test_composite_stage_behavior(self) -> None:
         """Test that AsrInference behaves correctly as a CompositeStage."""
-        stage = InferenceAsrNemo(model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path")
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
 
         # Should be a CompositeStage
         from ray_curator.stages.base import CompositeStage
@@ -70,9 +69,7 @@ class TestAsrNeMo:
         """Test process method with successful file discovery."""
         _ = mock_get_files or mock_transcribe
 
-        stage = InferenceAsrNemo(
-            model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path="/test/path", file_extensions=[".wav", ".mp3"]
-        )
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         stages = stage.decompose()
 
         stages[0].setup_on_node()
@@ -102,11 +99,7 @@ class TestAsrNeMo:
     def test_file_inference(self) -> None:
         """Test file inference method with successful file discovery."""
 
-        english_files = str(Path(self.test_data_root) / "english/librispeech/LibriSpeech/dev-clean/84/121123/")
-
-        stage = InferenceAsrNemo(
-            model_name="nvidia/parakeet-tdt-0.6b-v2", input_audio_path=english_files, file_extensions=[".wav", ".flac"]
-        )
+        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
         stages = stage.decompose()
 
         stages[0].setup_on_node()

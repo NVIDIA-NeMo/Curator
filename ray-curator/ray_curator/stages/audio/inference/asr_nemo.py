@@ -7,10 +7,9 @@ import torch
 from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import DocumentBatch, FileGroupTask, SpeechObject, _EmptyTask
+from ray_curator.tasks import DocumentBatch, FileGroupTask, SpeechObject
 
 
 @dataclass
@@ -144,61 +143,3 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
         elapsed = time.time() - self._start_time
         logger.info(f"Stage {self.name} completed in {elapsed:.2f} seconds.")
         self._metrics["elapsed"] = elapsed
-
-
-@dataclass
-class InferenceAsrNemo(CompositeStage[_EmptyTask, SpeechObject]):
-    """Composite stage that read audio files and do speech recognition inference using NeMo model.
-
-    This stage combines FilePartitioningStage and AsrNemoInferenceStage into a single
-    high-level operation for reading audiop files from a directory and processing
-    them.
-
-    Args:
-        input_audio_path: Path to the directory containing audio files
-        model_name: name of the speech recognition NeMo model
-        audio_limit: Maximum number of audio files to process (None for unlimited)
-        file_extensions: file name extensions of files to process
-        verbose: Whether to enable verbose logging during download/processing
-    """
-
-    input_audio_path: str
-    model_name: str
-    audio_limit: int | None = None
-    file_extensions: list[str] = field(default_factory=lambda: [".wav", ".mp3", ".flac", ".ogg", ".opus"])
-    verbose: bool = False
-
-    def __post_init__(self):
-        """Initialize the parent CompositeStage after dataclass initialization."""
-        super().__init__()
-
-    @property
-    def name(self) -> str:
-        return "audio_inference"
-
-    def decompose(self) -> list[ProcessingStage]:
-        """Decompose into constituent execution stages.
-
-        Returns:
-            List of processing stages: [FilePartitioningStage, AsrNemoInferenceStage]
-        """
-        reader_stage = FilePartitioningStage(
-            file_paths=self.input_audio_path,
-            files_per_partition=1,
-            file_extensions=self.file_extensions,
-            limit=self.audio_limit,
-        )
-
-        download_stage = InferenceAsrNemoStage(
-            model_name=self.model_name,
-        )
-
-        return [reader_stage, download_stage]
-
-    def get_description(self) -> str:
-        """Get a description of what this composite stage does."""
-        return (
-            f"Reads audio files from '{self.input_audio_path}' "
-            f"(limit: {self.audio_limit if self.audio_limit > 0 else 'unlimited'}) "
-            f"and do inference by speech recognition NeMo model."
-        )
