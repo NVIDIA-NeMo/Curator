@@ -46,8 +46,8 @@ def get_ray_client(  # noqa: PLR0913
 ) -> dict:
     """
     This function is used to setup the ray cluster and the metrics dashboard.
-    It does this by first checking if the prometheus and grafana are running.
-    If they are not running, it downloads the prometheus and grafana and starts them.
+    It does this by first checking if prometheus and grafana are running.
+    If they are not running, it downloads prometheus and grafana and starts them.
     If the specified ports are already in use, it will find the next available port and use that.
     It returns a dictionary with the following keys:
     - prometheus_web_port: The port number of the prometheus web UI.
