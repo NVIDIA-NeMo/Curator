@@ -16,14 +16,15 @@ from ray_curator.stages.resources import Resources
 @dataclass
 class TranscriptionConfig:
     """
-    Transcription Configuration for audio to text transcription.
+    FLEURS audio data pretaration, transcription and filtration by WER threshold.
     """
 
     # Required configs
-    model_name: str  # NeMo model_name
-    raw_data_dir: str
-    lang: str | None = "hy_am"
-    split: str | None = "dev"
+    raw_data_dir: str  # path to store processed data
+    model_name: str = "nvidia/stt_hy_fastconformer_hybrid_large_pc"  # NeMo model name
+    lang: str = "hy_am"
+    split: str = "dev"
+    wer_threshold: float = 75.0
 
 
 def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
@@ -46,7 +47,7 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
     )
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
-    pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=75, operator="le"))
+    pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
     return pipeline
 
 
