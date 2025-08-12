@@ -16,48 +16,49 @@
 
 import json
 import pathlib
+import os
 from typing import Final
+from pathlib import Path
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 import torch
-from easydict import EasyDict  # type: ignore[import-untyped]
+from easydict import EasyDict
 from loguru import logger
 from torch import nn
-from transformers import BatchEncoding, PreTrainedTokenizer  # type: ignore[attr-defined]
-from .tokenization_bert import BertTokenizer
-
+from transformers import PreTrainedTokenizer
+from transformers import AutoTokenizer
 from ray_curator.models.base import ModelInterface
-
-# Import the original class
-import sys
-sys.path.append("/home/aot/codebase/Curator/InternVideo/InternVideo2/multi_modality")
 from internvideo2_multi_modality import InternVideo2_Stage2_visual
 from ray_curator.models.pos_embed import interpolate_pos_embed_internvideo2_new
 
-CONTAINER_PATHS_CODE_DIR = pathlib.Path("/home/aot/codebase/Curator")
-_MODEL_CONFIG_PATH = CONTAINER_PATHS_CODE_DIR / pathlib.Path(
-    "ray-curator/ray_curator/models/configs/internvideo2_mm_config_model.json",
-)
-_BERT_CONFIG_PATH = CONTAINER_PATHS_CODE_DIR / pathlib.Path(
-    "ray-curator/ray_curator/models/configs/internvideo2_mm_config_bert.json",
-)
+# Get the directory containing this file dynamically
+_CURRENT_FILE_DIR = pathlib.Path(__file__).parent
+_MODEL_CONFIG_PATH = _CURRENT_FILE_DIR / "configs" / "internvideo2_mm_config_model.json"
+_BERT_CONFIG_PATH = _CURRENT_FILE_DIR / "configs" / "internvideo2_mm_config_bert.json"
 INTERNVIDEO2_MODEL_ID: Final = "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
 INTERNVIDEO2_MODEL_FILE: Final = "InternVideo2-stage2_1b-224p-f4.pt"
 BERT_MODEL_ID: Final = "google-bert/bert-large-uncased"
-BERT_MODEL_FILES: Final = [
-    "config.json",
-    "model.safetensors",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "vocab.txt",
-]
 
 
 def get_local_dir_for_weights_name(weights_name: str) -> pathlib.Path:
-    """Get the local directory for the weights name."""
-    return pathlib.Path("/mnt/mint/models/cosmos_curate_local_workspace/models") / weights_name
+    """Get the local directory for the weights name.
+    
+    Args:
+        weights_name (str): The name of the weights/model.
+        
+    Returns:
+        pathlib.Path: Path to the local weights directory.
+        
+    Note:
+        This function uses the COSMOS_MODELS_DIR environment variable if set,
+        otherwise falls back to a default path. Set COSMOS_MODELS_DIR to
+        override the default models directory location.
+    """
+    # Allow override via environment variable
+    models_dir = os.getenv("COSMOS_MODELS_DIR", "/mnt/mint/models/cosmos_curate_local_workspace/models")
+    return pathlib.Path(models_dir) / weights_name
 
 
 class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
@@ -190,7 +191,7 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2Wrapper:
 
     """
     if "bert" in config.model.text_encoder.name:
-        tokenizer = BertTokenizer.from_pretrained(config.model.text_encoder.pretrained, local_files_only=True)
+        tokenizer = AutoTokenizer.from_pretrained(config.model.text_encoder.pretrained, local_files_only=True)
         model = _InternVideo2Stage2Wrapper(config=config, tokenizer=tokenizer, is_pretrain=True)
     else:
         error_msg = f"Not implemented: {config.model.text_encoder.name}"
@@ -244,7 +245,7 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2Wrapper:
 class InternVideo2MultiModality(ModelInterface):
     """Actual outside-facing model using the wrapper class."""
 
-    def __init__(self, *, utils_only: bool = False) -> None:
+    def __init__(self, model_dir: str, utils_only: bool = False) -> None:
         """Initialize the InternVideo2MultiModality model.
 
         Args:
@@ -252,23 +253,12 @@ class InternVideo2MultiModality(ModelInterface):
 
         """
         super().__init__()
+        self.model_dir = Path(model_dir)
         self.utils_only = utils_only
         self._model: _InternVideo2Stage2Wrapper | None = None
 
     def model_id_names(self) -> list[str]:
         return [INTERNVIDEO2_MODEL_ID, BERT_MODEL_ID]
-
-    def id_file_mapping(self) -> dict[str, list[str] | None]:
-        """Get the mapping of model IDs to their weight files.
-
-        Returns:
-            Dictionary mapping model IDs to their weight file paths.
-
-        """
-        return {
-            INTERNVIDEO2_MODEL_ID: [INTERNVIDEO2_MODEL_FILE],
-            BERT_MODEL_ID: BERT_MODEL_FILES,
-        }
 
     @property
     def conda_env_name(self) -> str:
@@ -287,9 +277,9 @@ class InternVideo2MultiModality(ModelInterface):
         It also sets up the normalization parameters for video frames.
 
         """
-        model_dir = get_local_dir_for_weights_name(INTERNVIDEO2_MODEL_ID)
-        self.weights_path = str(model_dir / INTERNVIDEO2_MODEL_FILE)
-        self.bert_path = str(get_local_dir_for_weights_name(BERT_MODEL_ID))
+
+        self.weights_path = str(self.model_dir / INTERNVIDEO2_MODEL_ID / INTERNVIDEO2_MODEL_FILE)
+        self.bert_path = str(self.model_dir / BERT_MODEL_ID)
         self._v_mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
         self._v_std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
         self._config = _create_config(self.weights_path, self.bert_path)

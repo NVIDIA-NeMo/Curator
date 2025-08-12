@@ -20,6 +20,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     """
     target_fps: float = 2.0
     verbose: bool = False
+    model_dir: str = "InternVideo2"
     _name: str = "internvideo2_embedding_frame_creation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -30,7 +31,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         # utils_only set to true to skip initializing the actual model
-        self._model: InternVideo2MultiModality = InternVideo2MultiModality(utils_only=True)
+        self._model: InternVideo2MultiModality = InternVideo2MultiModality(model_dir=self.model_dir, utils_only=True)
         self._model.setup()
         self._extraction_policy = FrameExtractionPolicy.sequence
         self._frame_extraction_signature =  FrameExtractionSignature(
@@ -94,6 +95,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     texts_to_verify: list[str] | None = None
     verbose: bool = False
     gpu_memory_gb: float = 10.0
+    model_dir: str = "InternVideo2"
     _name: str = "internvideo2_embedding"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -103,7 +105,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self._model: InternVideo2MultiModality = InternVideo2MultiModality()
+        self._model: InternVideo2MultiModality = InternVideo2MultiModality(model_dir=self.model_dir)
         self._model.setup()
         if self.verbose:
             logger.info("InternVideo2 model setup completed.")

@@ -126,12 +126,12 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             ))
         elif args.embedding_algorithm.startswith("internvideo2"):
             pipeline.add_stage(InternVideo2FrameCreationStage(
-                # model_dir=args.model_dir,
+                model_dir=args.model_dir,
                 target_fps=2.0,
                 verbose=args.verbose,
             ))
             pipeline.add_stage(InternVideo2EmbeddingStage(
-                # model_dir=args.model_dir,
+                model_dir=args.model_dir,
                 gpu_memory_gb=args.embedding_gpu_memory_gb,
                 verbose=args.verbose,
             ))
