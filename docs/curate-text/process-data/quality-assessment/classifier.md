@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (text-process-data-filter-classifier)=
+
 # Classifier-Based Filtering
 
 Classifier-based filtering uses machine learning models to differentiate between high-quality and low-quality documents. NVIDIA NeMo Curator implements an approach similar to the one described in [Brown et al., 2020](https://arxiv.org/abs/2005.14165), which trains a binary skip-gram classifier to distinguish between curated high-quality data and lower-quality data.
@@ -143,56 +144,60 @@ Finally, use the trained model to filter your dataset:
 :::{tab-item} Python
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import FastTextQualityFilter
+from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.pipeline import Pipeline
+from ray_curator.stages.filters.fasttext_filter import FastTextQualityFilter
+from ray_curator.stages.io.reader.jsonl import JsonlReader
+from ray_curator.stages.modules.filter import ScoreFilter
 
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+def create_quality_filtering_pipeline(data_dir: str) -> Pipeline:
+    """Create a pipeline for quality filtering using trained fastText model."""
+    
+    # Define pipeline
+    pipeline = Pipeline(
+        name="quality_filtering", 
+        description="Filter documents using trained fastText quality classifier"
+    )
+    
+    # Add stages
+    # 1. Reader stage
+    pipeline.add_stage(
+        JsonlReader(
+            file_paths=data_dir,
+            files_per_partition=2,
+            reader="pandas"
+        )
+    )
+    
+    # 2. Quality filtering
+    pipeline.add_stage(
+        ScoreFilter(
+            FastTextQualityFilter(
+                model_path="./quality_classifier.bin",
+                label="__label__hq",
+                alpha=3,
+                seed=42
+            ), 
+            score_field="quality_score"
+        )
+    )
+    
+    return pipeline
 
-# Create a quality filter using the trained model
-filter_step = nc.ScoreFilter(
-    FastTextQualityFilter(
-        model_path="./quality_classifier.bin",
-        label="__label__hq",  # High quality label
-        alpha=3,              # Pareto distribution alpha parameter
-        seed=42               # Random seed for reproducibility
-    ),
-    text_field="text",
-    score_field="quality_score"
-)
+def main():
+    # Create and run pipeline
+    pipeline = create_quality_filtering_pipeline("./input_data")
+    executor = XennaExecutor()
+    results = pipeline.run(executor)
+    
+    # Process results
+    for i, batch in enumerate(results):
+        # Save high-quality documents
+        output_file = f"high_quality_output/batch_{i}.parquet"
+        batch.to_pyarrow().write(output_file)
 
-# Apply the filter
-high_quality_data = filter_step(dataset)
-
-# Save the results
-high_quality_data.to_json("high_quality_output/", write_to_filename=True)
-```
-
-:::
-
-:::{tab-item} CLI
-
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/fasttext_quality_filter.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --output-removed-document-dir=/path/to/output/low_quality \
-  --log-dir=/path/to/logs/fasttext_classifier
-```
-
-Where the YAML configuration file looks like:
-
-```yaml
-input_field: text
-filters:
-  - name: nemo_curator.filters.FastTextQualityFilter
-    params:
-      model_path: /path/to/quality_classifier.bin
-      alpha: 3
-      label: "__label__hq"
-      seed: 42
+if __name__ == "__main__":
+    main()
 ```
 
 :::
@@ -218,22 +223,7 @@ The `FastTextQualityFilter` accepts the following parameters:
 - `alpha` (float, default=3): Alpha parameter for Pareto distribution sampling
 - `seed` (int, default=42): Random seed for reproducible sampling
 
-## Configuration
 
-A typical configuration for classifier-based filtering looks like:
-
-```yaml
-filters:
-  - name: ScoreFilter
-    filter:
-      name: FastTextQualityFilter
-      model_path: /path/to/quality_classifier.bin
-      label: __label__hq
-      alpha: 3
-      seed: 42
-    text_field: text
-    score_field: quality_score
-```
 
 ## Best Practices
 
@@ -243,4 +233,4 @@ For effective classifier-based filtering:
 2. **Validation**: Manually review a sample of filtered results to confirm effectiveness
 3. **Threshold tuning**: Adjust the threshold based on your quality requirements
 4. **Combination with heuristics**: Consider using heuristic filters as a pre-filter
-5. **Domain adaptation**: Train domain-specific classifiers for specialized corpora 
+5. **Domain adaptation**: Train domain-specific classifiers for specialized corpora

@@ -9,11 +9,8 @@ modality: "text-only"
 ---
 
 (text-process-data-filter-bitext)=
-# Bitext Filtering
 
-:::{note}
-**Documentation Status**: This page has been verified against NeMo Curator source code for accuracy (January 2025).
-:::
+# Bitext Filtering
 
 NVIDIA NeMo Curator provides specialized filters for processing and filtering bilingual text (bitext) data. These filters are designed specifically for parallel corpora used in machine translation and other multilingual applications.
 
