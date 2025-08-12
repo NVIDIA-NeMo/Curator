@@ -10,10 +10,22 @@ from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import ImageBatch, ImageObject, _EmptyTask
 from ray_curator.utils.file_utils import get_all_files_paths_under
 
+VALID_IMAGE_EXTENSIONS = (
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".bmp",
+    ".gif",
+    ".tif",
+    ".tiff",
+    ".webp",
+)
+
 
 @dataclass
 class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
     """Stage that reads webdataset tar files and loads images into ImageBatch objects."""
+
     input_dataset_path: str
     image_limit: int = -1
     batch_size: int = 100
@@ -49,11 +61,13 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
         # Convert string paths to pathlib.Path objects
         return [pathlib.Path(tar_path) if isinstance(tar_path, str) else tar_path for tar_path in tar_files]
 
-    def _load_image_from_member(self, member: tarfile.TarInfo, tar: tarfile.TarFile, tar_path: pathlib.Path) -> ImageObject | None:
+    def _load_image_from_member(
+        self, member: tarfile.TarInfo, tar: tarfile.TarFile, tar_path: pathlib.Path
+    ) -> ImageObject | None:
         """Load a single image from a tar member."""
         try:
-            # Extract image key from filename (remove .jpg extension)
-            image_key = member.name.replace(".jpg", "")
+            # Extract image key from filename (remove extension)
+            image_key = pathlib.Path(member.name).stem
 
             # Load image from tar
             image_file = tar.extractfile(member)
@@ -71,7 +85,7 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
             return ImageObject(
                 image_path=str(tar_path / member.name),  # Virtual path in tar
                 image_id=image_key,
-                image_data=image_data
+                image_data=image_data,
             )
 
         except (OSError, Image.UnidentifiedImageError) as e:
@@ -88,8 +102,10 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
 
         try:
             with tarfile.open(tar_path, "r") as tar:
-                # Get all image files (jpg) in the tar
-                image_members = [m for m in tar.getmembers() if m.name.endswith(".jpg") and m.isfile()]
+                # Get all image files with common extensions in the tar
+                image_members = [
+                    m for m in tar.getmembers() if m.isfile() and m.name.lower().endswith(VALID_IMAGE_EXTENSIONS)
+                ]
 
                 for member in image_members:
                     # Check image limit
@@ -111,12 +127,10 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
         """Create ImageBatch objects from a list of ImageObjects."""
         image_batches = []
         for i in range(0, len(all_image_objects), self.batch_size):
-            batch_images = all_image_objects[i:i + self.batch_size]
+            batch_images = all_image_objects[i : i + self.batch_size]
 
             image_batch = ImageBatch(
-                task_id=f"image_batch_{i // self.batch_size}",
-                dataset_name=self.input_dataset_path,
-                data=batch_images
+                task_id=f"image_batch_{i // self.batch_size}", dataset_name=self.input_dataset_path, data=batch_images
             )
             image_batches.append(image_batch)
 
@@ -147,7 +161,7 @@ class ImageReaderStage(ProcessingStage[_EmptyTask, ImageBatch]):
             logger.info(f"Loaded {total_images_loaded} images total from {len(tar_files)} tar files")
 
         if self.image_limit > 0 and total_images_loaded > self.image_limit:
-            all_image_objects = all_image_objects[:self.image_limit]
+            all_image_objects = all_image_objects[: self.image_limit]
             if self.verbose:
                 logger.info(f"Limiting to first {self.image_limit} images")
 
