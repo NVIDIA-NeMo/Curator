@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
 
-
 def get_tmp_dir() -> pathlib.Path:
     """Retrieve the appropriate temporary directory based on the runtime environment.
 
@@ -19,7 +18,7 @@ def get_tmp_dir() -> pathlib.Path:
         pathlib.Path: Path to the temporary directory.
 
     """
-    #TODO: add cloud and slurm checks
+    # TODO: add cloud and slurm checks
     return pathlib.Path(tempfile.gettempdir())
 
 

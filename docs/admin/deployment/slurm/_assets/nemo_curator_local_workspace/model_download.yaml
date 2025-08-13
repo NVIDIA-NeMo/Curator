@@ -1,0 +1,11 @@
+models:
+  - class: nemo_curator.video.models.aesthetics.AestheticScorer
+  - class: nemo_curator.video.models.clip.CLIPImageEmbeddings
+  - class: nemo_curator.video.models.cradio.CRadio
+  - class: nemo_curator.video.models.internvideo2_mm.InternVideo2MultiModality
+  - class: nemo_curator.video.models.qwen_lm.QwenLM
+  - class: nemo_curator.video.models.qwen_vl.QwenVL
+  - class: nemo_curator.video.models.t5_encoder.T5Encoder
+    params:
+      variant: 1
+  - class: nemo_curator.video.models.transnetv2.TransNetV2
