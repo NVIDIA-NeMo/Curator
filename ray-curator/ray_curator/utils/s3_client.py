@@ -48,7 +48,6 @@ from ray_curator.utils.storage_client import (
 )
 
 S3_PROFILE_PATH = pathlib.Path(os.getenv("S3_PROFILE_PATH", "~/.aws/credentials")) 
-# S3_PROFILE_PATH = pathlib.Path("/home/aot/.aws/credentials")
 
 @attrs.define
 class S3ClientConfig(BaseClientConfig):
@@ -300,72 +299,6 @@ class S3Client(StorageClient):
                 logger.info(f"Truncated list of objects in S3 prefix to {len(objects)} as limit={limit}")
                 break
         return objects
-
-    def list_non_recursive(self, s3_prefix: StoragePrefix, limit: int = 0) -> list[dict[str, Any]]:
-        """List objects and directories at the current directory level (non-recursive).
-
-        This method uses delimiter="/" to only list objects and common prefixes at the
-        current directory level, requiring fewer S3 permissions than recursive listing.
-
-        Args:
-            s3_prefix: The S3 prefix to list objects from.
-            limit (int): Limit of list to be returned
-
-        Returns:
-            A list of dictionaries with object metadata. Common prefixes (directories)
-            will have a 'Prefix' key instead of 'Key'.
-
-        """
-        paginator = self.s3.get_paginator("list_objects_v2")
-        objects = []
-        assert isinstance(s3_prefix, S3Prefix)
-        
-        # Ensure prefix ends with / for directory listing
-        prefix = s3_prefix.prefix
-        if prefix and not prefix.endswith("/"):
-            prefix += "/"
-            
-        for page in paginator.paginate(Bucket=s3_prefix.bucket, Prefix=prefix, Delimiter="/"):
-            # Add files at current level
-            if "Contents" in page:
-                objects.extend(page["Contents"])
-            
-            # Add subdirectories as pseudo-objects
-            if "CommonPrefixes" in page:
-                for common_prefix in page["CommonPrefixes"]:
-                    # Create a pseudo-object for directories
-                    dir_obj = {
-                        "Key": common_prefix["Prefix"],
-                        "Prefix": common_prefix["Prefix"],  # Mark as directory
-                        "Size": 0,
-                        "LastModified": None,
-                        "IsDirectory": True
-                    }
-                    objects.append(dir_obj)
-            
-            if limit > 0 and len(objects) >= limit:
-                logger.info(f"Truncated list of objects in S3 prefix to {len(objects)} as limit={limit}")
-                break
-        return objects
-
-    def list_directory_non_recursive(self, s3_prefix: StoragePrefix, limit: int = 0) -> list[StoragePrefix]:
-        """List objects and directories at the current directory level (non-recursive).
-
-        Args:
-            s3_prefix: The S3 prefix to list objects from.
-            limit (int): Limit of list to be returned
-
-        Returns:
-            A list of S3Prefix objects for files and directories found at the current level.
-
-        """
-        assert isinstance(s3_prefix, S3Prefix)
-        objects = self.list_non_recursive(s3_prefix, limit)
-        results: list[StoragePrefix] = []
-        for obj in objects:
-            path = f"s3://{s3_prefix.bucket}/{obj['Key']}"
-            results.append(S3Prefix(path))
-        return results
 
     def upload_file(
         self,

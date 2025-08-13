@@ -306,7 +306,6 @@ def _get_objects_from_storage_prefix_relative(
     """
 
     def func_to_call() -> list[StoragePrefix]:
-        return client.list_directory_non_recursive(prefix, limit)
         return client.list_recursive_directory(prefix, limit)
 
     objects = do_with_retries(func_to_call)

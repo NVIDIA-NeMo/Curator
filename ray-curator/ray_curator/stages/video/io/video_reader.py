@@ -271,20 +271,21 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         Returns:
             List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
-        # reader_stage = FilePartitioningStage(
-        #     file_paths=self.input_video_path,
-        #     files_per_partition=1,
-        #     file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
-        #     limit=self.video_limit,
-        # )
-
-        reader_stage = ClientPartitioningStage(
-            file_paths=self.input_video_path,
-            input_s3_profile_name=self.input_s3_profile_name,
-            files_per_partition=1,
-            file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
-            limit=self.video_limit,
-        )
+        if self.input_video_path.startswith("s3://"):
+            reader_stage = ClientPartitioningStage(
+                file_paths=self.input_video_path,
+                input_s3_profile_name=self.input_s3_profile_name,
+                files_per_partition=1,
+                file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+                limit=self.video_limit,
+            )
+        else:
+            reader_stage = FilePartitioningStage(
+                file_paths=self.input_video_path,
+                files_per_partition=1,
+                file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+                limit=self.video_limit,
+            )
 
         download_stage = VideoReaderStage(
             input_path=self.input_video_path,
