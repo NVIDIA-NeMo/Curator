@@ -240,7 +240,7 @@ class TestFilterModule:
 
     @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
     def test_score_filter_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
-        if score_field == "a_count":
+        if score_field in ["a_count", ["a_count"]]:
             with pytest.raises(ValueError):  # noqa: PT011
                 ScoreFilter(
                     [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
@@ -255,11 +255,6 @@ class TestFilterModule:
             score_field=score_field,
         )
 
-        # Zip with strict=True should catch this case
-        if score_field == ["a_count"]:
-            pytest.raises(ValueError, filters.process, letter_count_data)  # noqa: PT011
-            return
-
         filtered_data = filters.process(letter_count_data)
 
         if score_field is None:
@@ -269,15 +264,15 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_score_filter_chain",
+            task_id="batch_1_score_filter_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
 
     @pytest.mark.parametrize("score_field", [None, "a_count", ["a_count"], ["a_count", "e_count"]])
     def test_score_chain(self, letter_count_data: DocumentBatch, score_field: list[str] | None) -> None:
-        if score_field in [None, "a_count"]:
-            with pytest.raises(ValueError) if score_field is None else pytest.raises(TypeError):  # noqa: PT011
+        if score_field in [None, "a_count", ["a_count"]]:
+            with pytest.raises(ValueError):  # noqa: PT011
                 Score(
                     [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
                     text_field="documents",
@@ -291,11 +286,6 @@ class TestFilterModule:
             score_field=score_field,
         )
 
-        # Zip with strict=True should catch this case
-        if score_field == ["a_count"]:
-            pytest.raises(ValueError, filters.process, letter_count_data)  # noqa: PT011
-            return
-
         filtered_data = filters.process(letter_count_data)
 
         expected_df = pd.DataFrame(
@@ -308,7 +298,7 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_score_fn_chain",
+            task_id="batch_1_score_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -327,8 +317,8 @@ class TestFilterModule:
             dataset_name="test_1",
         )
 
-        if filter_field in [None, "a_count"]:
-            with pytest.raises(ValueError) if filter_field is None else pytest.raises(TypeError):  # noqa: PT011
+        if filter_field in [None, "a_count", ["a_count"]]:
+            with pytest.raises(ValueError):  # noqa: PT011
                 Filter(
                     [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
                     filter_field=filter_field,
@@ -339,11 +329,6 @@ class TestFilterModule:
             [LetterCountFilter(letter="a"), LetterCountFilter(letter="e", min_count=2)],
             filter_field=filter_field,
         )
-
-        # Zip with strict=True should catch this case
-        if filter_field == ["a_count"]:
-            pytest.raises(ValueError, filters.process, letter_count_data)  # noqa: PT011
-            return
 
         filtered_data = filters.process(letter_count_data)
 
@@ -357,7 +342,51 @@ class TestFilterModule:
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_filter_fn_chain",
+            task_id="batch_1_filter_chain_of_letter_count_letter_count",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_score_filter_all_rows(self, letter_count_data: DocumentBatch) -> None:
+        # Processes out all rows
+        filters = ScoreFilter(
+            LetterCountFilter(letter="a", min_count=8),
+            text_field="documents",
+        )
+        intermediate_data = filters.process(letter_count_data)
+
+        # Applies a filter on an empty batch
+        filters = ScoreFilter(
+            LetterCountFilter(letter="e", min_count=2),
+            text_field="documents",
+        )
+        filtered_data = filters.process(intermediate_data)
+
+        # Empty DataFrame
+        expected_df = pd.DataFrame()
+
+        expected_data = DocumentBatch(
+            data=expected_df,
+            task_id="batch_1_letter_count_letter_count",
+            dataset_name="test_1",
+        )
+        assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_score_filter_all_rows_chain(self, letter_count_data: DocumentBatch) -> None:
+        # Processes out all rows on the first filter
+        filters = ScoreFilter(
+            [LetterCountFilter(letter="a", min_count=8), LetterCountFilter(letter="e", min_count=2)],
+            text_field="documents",
+        )
+
+        filtered_data = filters.process(letter_count_data)
+
+        # Empty DataFrame
+        expected_df = pd.DataFrame()
+
+        expected_data = DocumentBatch(
+            data=expected_df,
+            task_id="batch_1_score_filter_chain_of_letter_count_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"

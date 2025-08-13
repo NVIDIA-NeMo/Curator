@@ -37,11 +37,11 @@ class FastTextQualityFilter(DocumentFilter):
             raise FileNotFoundError(msg)
 
     def load_model(self) -> None:
-        self.model = fasttext.load_model(self._model_path)
+        self._fasttext_quality_filter_model = fasttext.load_model(self._model_path)
 
     def score_document(self, text: str) -> float:
         # See setup() function in modules/filter.py
-        model = self.model
+        model = self._fasttext_quality_filter_model
 
         text = text.replace("\n", " ").replace("__label__", " ")
         pred = model.predict(text)
@@ -71,11 +71,11 @@ class FastTextLangId(DocumentFilter):
             raise FileNotFoundError(msg)
 
     def load_model(self) -> None:
-        self.model = fasttext.load_model(self._model_path)
+        self._fasttext_langid_model = fasttext.load_model(self._model_path)
 
     def score_document(self, text: str) -> list[float | str]:
         # See setup() function in modules/filter.py
-        model = self.model
+        model = self._fasttext_langid_model
 
         pp = text.strip().replace("\n", " ")
         label, score = model.predict(pp, k=1)

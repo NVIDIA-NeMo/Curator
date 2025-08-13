@@ -14,6 +14,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 import pandas as pd
 from loguru import logger
@@ -51,40 +52,15 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
     _name: str = "score_fn"
 
     def __post_init__(self):
-        if self.score_field is None:
-            msg = "Score field cannot be None"
-            raise ValueError(msg)
-
-        if isinstance(self.score_fn, DocumentFilter):
-            self._name = self.score_fn.name
-
-        if isinstance(self.score_fn, (DocumentFilter, Callable)):
-            if isinstance(self.score_field, list) and len(self.score_field) > 1:
-                msg = f"More score fields than filters provided: {self.score_field}"
-                raise ValueError(msg)
-            if isinstance(self.text_field, list) and len(self.text_field) > 1:
-                msg = f"More text fields than filters provided: {self.text_field}"
-                raise ValueError(msg)
-
-            self.score_fn = [self.score_fn]
-            self.score_field = [self.score_field]
-            self.text_field = [self.text_field]
-
-        elif isinstance(self.score_fn, list):
-            self._name = "score_fn_chain"
-
-            if isinstance(self.score_field, str):
-                msg = f"Score field must be a list of strings if multiple filters are used: {self.score_field}"
-                raise TypeError(msg)
-            if isinstance(self.text_field, str):
-                logger.info(f"Using the same text field for all filters: {self.text_field}")
-                self.text_field = [self.text_field] * len(self.score_fn)
+        self._name, self.score_fn, self.text_field, _, self.score_field = _validate_and_normalize_filters(
+            self.score_fn, self.text_field, None, self.score_field, "score"
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.text_field
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], self.score_field
+        return ["data"], self.text_field + self.score_field
 
     def setup_on_node(
         self,
@@ -100,7 +76,7 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
             if isinstance(score_fn, DocumentFilter):
                 if hasattr(score_fn, "load_model"):
                     score_fn.load_model()
-                elif hasattr(score_fn, "load_tokenizer"):
+                if hasattr(score_fn, "load_tokenizer"):
                     score_fn.load_tokenizer()
 
     def process(self, batch: DocumentBatch) -> DocumentBatch | None:
@@ -160,40 +136,15 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
     _name: str = "filter_fn"
 
     def __post_init__(self):
-        if self.filter_field is None:
-            msg = "Filter field cannot be None"
-            raise ValueError(msg)
-
-        if isinstance(self.filter_fn, DocumentFilter):
-            self._name = self.filter_fn.name
-
-        if isinstance(self.filter_fn, (DocumentFilter, Callable)):
-            if isinstance(self.filter_field, list) and len(self.filter_field) > 1:
-                msg = f"More filter fields than filters provided: {self.filter_field}"
-                raise ValueError(msg)
-            if isinstance(self.invert, list) and len(self.invert) > 1:
-                msg = f"More invert flags than filters provided: {self.invert}"
-                raise ValueError(msg)
-
-            self.filter_fn = [self.filter_fn]
-            self.filter_field = [self.filter_field]
-            self.invert = [self.invert]
-
-        elif isinstance(self.filter_fn, list):
-            self._name = "filter_fn_chain"
-
-            if isinstance(self.filter_field, str):
-                msg = f"Filter field must be a list of strings if multiple filters are used: {self.filter_field}"
-                raise TypeError(msg)
-            if isinstance(self.invert, bool):
-                logger.info(f"Using the same invert flag for all filters: {self.invert}")
-                self.invert = [self.invert] * len(self.filter_fn)
+        self._name, self.filter_fn, self.filter_field, self.invert, _ = _validate_and_normalize_filters(
+            self.filter_fn, self.filter_field, self.invert, None, "filter"
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.filter_field
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], self.filter_field
 
     def compute_filter_mask(
         self, df: pd.DataFrame, filter_fn: Callable | DocumentFilter, filter_field: str, invert: bool
@@ -240,7 +191,6 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         if len(df) == 0:
             logger.info(f"All documents filtered out for batch {batch.task_id}")
-            return None
 
         # Create output batch
         return DocumentBatch(
@@ -282,50 +232,15 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     _name: str = "score_filter"
 
     def __post_init__(self):
-        if isinstance(self.filter_obj, list):
-            self._name = "score_filter_chain"
-
-            num_filters = len(self.filter_obj)
-
-            # Okay to assume same text field and invert flag for all filters
-            if isinstance(self.text_field, str):
-                logger.info(f"Using the same text field for all filters: {self.text_field}")
-                self.text_field = [self.text_field] * num_filters
-            if self.invert is not None and isinstance(self.invert, bool):
-                logger.info(f"Using the same invert flag for all filters: {self.invert}")
-                self.invert = [self.invert] * num_filters
-
-            # Score field must be a list of strings if multiple filters are used
-            # Otherwise, the field will be overwritten for each filter
-            if self.score_field is not None and isinstance(self.score_field, str):
-                msg = f"Score field must be a list of strings if multiple filters are used: {self.score_field}"
-                raise ValueError(msg)
-            elif self.score_field is None:
-                self.score_field = [None] * num_filters
-
-        else:
-            self._name = self.filter_obj.name
-
-            if isinstance(self.text_field, list) and len(self.text_field) > 1:
-                msg = f"More text fields than filters provided: {self.text_field}"
-                raise ValueError(msg)
-            if self.score_field is not None and isinstance(self.score_field, list) and len(self.score_field) > 1:
-                msg = f"More score fields than filters provided: {self.score_field}"
-                raise ValueError(msg)
-            if isinstance(self.invert, list) and len(self.invert) > 1:
-                msg = f"More invert flags than filters provided: {self.invert}"
-                raise ValueError(msg)
-
-            self.filter_obj = [self.filter_obj]
-            self.text_field = [self.text_field]
-            self.score_field = [self.score_field]
-            self.invert = [self.invert]
+        self._name, self.filter_obj, self.text_field, self.invert, self.score_field = _validate_and_normalize_filters(
+            self.filter_obj, self.text_field, self.invert, self.score_field, "score_filter"
+        )
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.text_field
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], self.score_field if self.score_field is not None else []
+        return ["data"], self.text_field + self.score_field if self.score_field is not None else []
 
     def setup_on_node(
         self,
@@ -341,7 +256,7 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             if isinstance(filter_obj, DocumentFilter):
                 if hasattr(filter_obj, "load_model"):
                     filter_obj.load_model()
-                elif hasattr(filter_obj, "load_tokenizer"):
+                if hasattr(filter_obj, "load_tokenizer"):
                     filter_obj.load_tokenizer()
 
     def compute_filter_mask(
@@ -394,7 +309,6 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         if len(df) == 0:
             logger.info(f"All documents filtered out for batch {batch.task_id}")
-            return None
 
         # Create output batch
         return DocumentBatch(
@@ -404,3 +318,183 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
+
+
+def _filter_name(x: DocumentFilter | Callable) -> str:
+    return x.name if isinstance(x, DocumentFilter) else x.__name__
+
+
+def _get_filter_stage_name(filters: list[DocumentFilter | Callable], prefix: str) -> str:
+    """
+    Derive the stage name from the provided score/filter functions.
+
+    """
+    return (
+        _filter_name(filters[0])
+        if len(filters) == 1
+        else f"{prefix}_chain_of_" + "_".join(_filter_name(f) for f in filters)
+    )
+
+
+def _format_single_field_list(
+    _field: str | list[str] | None, field_name: str, field_type: type = str
+) -> list[str] | list[bool]:
+    """
+    In the case of a single DocumentFilter or Callable, format the relevant field
+    (filter_field, score_field, text_field, invert) to a list of length 1.
+
+    Args:
+        _field (str | list[str] | None): The field to check and format.
+        field_name (str): The name of the field, which is used in error messages.
+        field_type (type): The type of the field, which is used in an isinstance check.
+
+    Returns:
+        list[str] | list[bool]: The reformatted field.
+
+    """
+    if isinstance(_field, list):
+        if len(_field) > 1:
+            msg = f"More {field_name} fields than functions provided: {_field}"
+            raise ValueError(msg)
+    elif isinstance(_field, field_type):
+        _field = [_field]
+    else:
+        msg = f"{field_name} field must be a {field_type} or list of {field_type}: {_field}"
+        raise TypeError(msg)
+
+    return _field
+
+
+def _format_field_list(
+    _field: str | list[str] | None, filter_count: int, field_name: str, field_type: type = str
+) -> list[str] | list[bool]:
+    """
+    In the case of a list of DocumentFilters or Callables, format the relevant field
+    (filter_field, score_field, text_field, invert) to a list of length equal to the number of filters.
+
+    Args:
+        _field (str | list[str] | None): The field to check and format.
+        filter_count (int): The number of filters. This will be the length of the output list.
+        field_name (str): The name of the field, which is used in error messages.
+        field_type (type): The type of the field, which is used in an isinstance check.
+
+    Returns:
+        list[str] | list[bool]: The reformatted field.
+
+    """
+    if isinstance(_field, list):
+        if len(_field) == 1:
+            logger.info(f"Using the same {field_name} field for all functions: {_field}")
+            _field = [_field] * filter_count
+        if len(_field) != filter_count:
+            msg = f"Number of {field_name} fields must match number of functions: {_field}"
+            raise ValueError(msg)
+    elif isinstance(_field, field_type):
+        logger.info(f"Using the same {field_name} field for all functions: {_field}")
+        _field = [_field] * filter_count
+    else:
+        msg = f"{field_name} field must be a {field_type} or list of {field_type}: {_field}"
+        raise TypeError(msg)
+
+    return _field
+
+
+def _validate_and_normalize_filters(  # noqa: C901, PLR0912
+    _filter: DocumentFilter | Callable | list[DocumentFilter | Callable],
+    input_field: str | list[str] | None,
+    invert: bool | list[bool] | None,
+    output_field: str | list[str] | None,
+    fn_type: Literal["score", "filter", "score_filter"],
+) -> tuple[str, list[DocumentFilter | Callable], list[str] | None, list[bool] | None, list[str] | None]:
+    """
+    Validate and normalize all parameters needed for the Score, Filter, and ScoreFilter modules.
+    "Normalize" means to reformat all parameters to a list of length equal to the number of filters.
+
+    Args:
+        _filter (DocumentFilter | Callable | list[DocumentFilter | Callable]): The filter object or list of filter objects.
+        input_field (str | list[str] | None): The input field. For Score and ScoreFilter, this is the text field. For Filter, this is the filter field.
+        invert (bool | list[bool] | None): The invert flag. This is used for Filter and ScoreFilter.
+        output_field (str | list[str] | None): The output field. For Score and ScoreFilter, this is the score field. For Filter, this is not used.
+        fn_type (Literal["score", "filter", "score_filter"]): The type of the module.
+
+    Returns:
+        tuple[str, list[DocumentFilter | Callable], list[str] | None, list[bool] | None, list[str] | None]:
+            The first string returned corresponds to the name given to the DocumentFilter or Callable.
+            The normalized filters, input fields, invert flags, and output fields make up the rest of the tuple.
+
+    """
+
+    # For Score and ScoreFilter, the input_field is the text field
+    # For Filter, the input_field is the filter field
+    if input_field is None:
+        field_name = "filter" if fn_type == "filter" else "text"
+        msg = f"{field_name}_field cannot be None"
+        raise ValueError(msg)
+
+    # Score is the only module that explicitly requires an output field,
+    # i.e., a score_field that is calculated by the DocumentFilter or Callable.
+    if output_field is None and fn_type == "score":
+        msg = "score_field cannot be None"
+        raise ValueError(msg)
+
+    if isinstance(_filter, DocumentFilter):
+        _name = _filter.name
+    elif isinstance(_filter, Callable):
+        _name = f"{fn_type}_fn"
+
+    if isinstance(_filter, (DocumentFilter, Callable)):
+        _normalized_filter = [_filter]
+        _input_field = _format_single_field_list(input_field, "input", field_type=str)
+
+        if fn_type in ["filter", "score_filter"]:
+            _invert = _format_single_field_list(invert, "invert", field_type=bool)
+        else:
+            # Score does not use an invert flag
+            _invert = None
+
+        if fn_type in ["score", "score_filter"]:
+            # ScoreFilter is allowed to have no output fields, but Score is not
+            if output_field is None and fn_type == "score_filter":
+                _output_field = [None]
+            else:
+                _output_field = _format_single_field_list(output_field, "output", field_type=str)
+        else:
+            # Filter does not use an output field
+            _output_field = None
+
+    elif isinstance(_filter, list):
+        _name = _get_filter_stage_name(_filter, prefix=fn_type)
+        _normalized_filter = _filter
+
+        # Technically, you could run a list of filters on the same filter_field.
+        # However, prefer to use a list of fields to avoid confusion.
+        if fn_type == "filter" and (
+            isinstance(input_field, str) or (isinstance(input_field, list) and len(input_field) == 1)
+        ):
+            msg = f"filter_field must be a list of strings if multiple filters are used: {input_field}"
+            raise ValueError(msg)
+
+        _input_field = _format_field_list(input_field, len(_filter), "input", field_type=str)
+
+        if fn_type in ["filter", "score_filter"]:
+            _invert = _format_field_list(invert, len(_filter), "invert", field_type=bool)
+        else:
+            # Score does not use an invert flag
+            _invert = None
+
+        if fn_type in ["score", "score_filter"]:
+            # ScoreFilter is allowed to have no output fields, but Score is not
+            if output_field is None and fn_type == "score_filter":
+                _output_field = [None] * len(_filter)
+            # Output fields are always required to be a (unique) list of strings.
+            # We check that here.
+            elif isinstance(output_field, str) or (isinstance(output_field, list) and len(output_field) == 1):
+                msg = f"score_field must be a list of strings if multiple filters are used: {output_field}"
+                raise ValueError(msg)
+            else:
+                _output_field = _format_field_list(output_field, len(_filter), "output", field_type=str)
+        else:
+            # Filter does not use an output field
+            _output_field = None
+
+    return _name, _normalized_filter, _input_field, _invert, _output_field
