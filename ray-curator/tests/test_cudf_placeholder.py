@@ -21,3 +21,9 @@ def test_basic_cudf_dataframe():
 
     df = cudf.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
     assert len(df) == 3
+
+@pytest.mark.gpu
+def test_import():
+    import ray_curator
+
+    assert ray_curator.__version__ == "0.1.0rc0.dev0"
