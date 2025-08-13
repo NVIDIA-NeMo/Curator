@@ -86,17 +86,16 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
             List of SpeechObject with self.filepath_key .
             If errors occur, the task is returned with error information stored.
         """
-
-        if isinstance(tasks[0], FileGroupTask):
-            files = [task.data[0] for task in tasks]
-        elif isinstance(tasks[0], DocumentBatch):
-            files = []
-            for task in tasks:
+        files = []
+        for task in tasks:
+            if isinstance(task, FileGroupTask):
+                files.append(task.data[0])
+            elif isinstance(task, DocumentBatch):
                 files.extend(list(task.data[self.filepath_key]))
-        elif isinstance(tasks[0], SpeechObject):
-            files = [task.data[self.filepath_key] for task in tasks]
-        else:
-            raise TypeError(str(tasks[0]))
+            elif isinstance(tasks[0], SpeechObject):
+                files.append(task.data[self.filepath_key])
+            else:
+                raise TypeError(str(task))
 
         outputs = self.transcribe(files)
 
