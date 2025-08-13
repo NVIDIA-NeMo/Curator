@@ -2,6 +2,12 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["ray_curator", "ray_curator.*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ray_curator.package_info.__version__" }
+
 [project]
 name = "ray-curator"
 version = "0.1.0"
@@ -97,15 +103,6 @@ dev = ["deduplication_cuda12x", "text", "video", "dev"]
 
 [tool.pixi.pypi-dependencies]
 ray-curator = { path = ".", editable = true }
-
-[tool.setuptools]
-packages = ["ray_curator"]
-
-[tool.setuptools.packages.find]
-include = ["ray_curator", "ray_curator.*"]
-
-[tool.setuptools.dynamic]
-version = { attr = "ray_curator.package_info.__version__" }
 
 [tool.coverage.paths]
 source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]
