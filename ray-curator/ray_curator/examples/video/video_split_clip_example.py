@@ -3,20 +3,18 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader import VideoReader
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
-
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReader(
-        input_video_path=args.video_folder,
-        video_limit=args.video_limit,
-        verbose=args.verbose
-    ))
+    pipeline.add_stage(
+        VideoReader(input_video_path=args.video_folder, video_limit=args.video_limit, verbose=args.verbose)
+    )
 
     if args.splitting_algorithm == "fixed_stride":
         pipeline.add_stage(
@@ -31,22 +29,39 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         msg = f"Splitting algorithm {args.splitting_algorithm} not supported"
         raise ValueError(msg)
 
-    pipeline.add_stage(ClipTranscodingStage(
-        num_cpus_per_worker=args.transcode_cpus_per_worker,
-        encoder=args.transcode_encoder,
-        encoder_threads=args.transcode_encoder_threads,
-        encode_batch_size=args.transcode_ffmpeg_batch_size,
-        use_hwaccel=args.transcode_use_hwaccel,
-        use_input_bit_rate=args.transcode_use_input_video_bit_rate,
-        num_clips_per_chunk=args.clip_re_chunk_size,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ClipTranscodingStage(
+            num_cpus_per_worker=args.transcode_cpus_per_worker,
+            encoder=args.transcode_encoder,
+            encoder_threads=args.transcode_encoder_threads,
+            encode_batch_size=args.transcode_ffmpeg_batch_size,
+            use_hwaccel=args.transcode_use_hwaccel,
+            use_input_bit_rate=args.transcode_use_input_video_bit_rate,
+            num_clips_per_chunk=args.clip_re_chunk_size,
+            verbose=args.verbose,
+        )
+    )
+
+    pipeline.add_stage(
+        ClipWriterStage(
+            output_path=args.output_clip_path,
+            input_path=args.video_folder,
+            upload_clips=args.upload_clips,
+            dry_run=args.dry_run,
+            generate_embeddings=False,  # TODO: Change this once we have an embedding stage
+            generate_previews=False,  # TODO: Change this once we have a preview stage
+            generate_captions=False,  # TODO: Change this once we have a caption stage
+            embedding_algorithm=args.embedding_algorithm,
+            caption_models=None,  # TODO: Change this once we have a caption stage
+            enhanced_caption_models=None,  # TODO: Change this once we have a caption stage
+            verbose=args.verbose,
+        )
+    )
 
     return pipeline
 
 
 def main(args: argparse.Namespace) -> None:
-
     pipeline = create_video_splitting_pipeline(args)
 
     # Print pipeline description
@@ -63,13 +78,14 @@ def main(args: argparse.Namespace) -> None:
     # Print results
     print("\nPipeline completed!")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
     parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
+    parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
     parser.add_argument(
         "--no-upload-clips",
         dest="upload_clips",
