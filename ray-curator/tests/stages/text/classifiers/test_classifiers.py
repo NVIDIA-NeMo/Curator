@@ -171,7 +171,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
         dataset_name="test_1",
     )
 
-    classifier = AegisClassifier(aegis_variant=aegis_variant, filter_by=filter_by)
+    classifier = AegisClassifier(aegis_variant=aegis_variant, token=hf_token, filter_by=filter_by)
 
     # Check that the input columns are correct
     assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
