@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import pandas as pd
 import pytest
 
@@ -147,7 +149,7 @@ def test_quality_classifier() -> None:
     [
         "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
         "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
-    ],
+    ],  # noqa: PLR0915
 )
 @pytest.mark.parametrize("filter_by", [None, ["safe"]])
 def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> None:
