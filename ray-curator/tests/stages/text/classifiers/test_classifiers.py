@@ -149,10 +149,10 @@ def test_quality_classifier() -> None:
     [
         "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
         "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
-    ],  # noqa: PLR0915
+    ],
 )
 @pytest.mark.parametrize("filter_by", [None, ["safe"]])
-def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> None:
+def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> None:  # noqa: PLR0915
     # Skip the test if the HF_TOKEN is not set
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:
