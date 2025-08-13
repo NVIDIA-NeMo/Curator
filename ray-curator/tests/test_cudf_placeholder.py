@@ -24,6 +24,6 @@ def test_basic_cudf_dataframe():
 
 @pytest.mark.gpu
 def test_import():
-    import ray_curator
+    import ray_curator.package_info
 
     assert ray_curator.package_info.__version__ == "0.1.0rc0.dev0"
