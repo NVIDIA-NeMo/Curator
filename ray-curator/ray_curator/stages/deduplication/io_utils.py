@@ -1,12 +1,15 @@
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 # TODO: Should this be a safe import?
-import cudf
 import numpy as np
 import ray
 
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, IdGenerator
 from ray_curator.utils.file_utils import get_fs
+
+if TYPE_CHECKING:
+    import cudf
 
 
 class DeduplicationIO:
@@ -21,12 +24,16 @@ class DeduplicationIO:
     def read_jsonl(
         self, filepath: str | list[str], columns: list[str] | None = None, assign_id: bool = False, **kwargs
     ) -> "cudf.DataFrame":
+        import cudf
+
         df = cudf.read_json(filepath, lines=True, **kwargs)
         if columns is not None:
             df = df[columns]
         return self.assign_id(filepath, df) if assign_id and self.id_generator else df
 
     def read_parquet(self, filepath: str | list[str], assign_id: bool = False, **kwargs) -> "cudf.DataFrame":
+        import cudf
+
         read_kwargs = kwargs.copy()
         read_kwargs["allow_mismatched_pq_schemas"] = True
         df = cudf.read_parquet(filepath, **read_kwargs)
