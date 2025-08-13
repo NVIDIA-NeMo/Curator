@@ -31,7 +31,7 @@ def get_3d_sincos_pos_embed(embed_dim: int, grid_size: int, t_size: int, cls_tok
     return:
     pos_embed: [t_size*grid_size*grid_size, embed_dim] or [1+t_size*grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
     """
-    assert embed_dim % 4 == 0
+    assert embed_dim % 4 == 0  # noqa: S101
     embed_dim_spatial = embed_dim // 4 * 3
     embed_dim_temporal = embed_dim // 4
 
@@ -121,7 +121,7 @@ def get_1d_sincos_pos_embed(embed_dim: int, t_size: int, cls_token: bool = False
 
 
 def get_2d_sincos_pos_embed_from_grid(embed_dim: int, grid: np.ndarray) -> np.ndarray:
-    assert embed_dim % 2 == 0
+    assert embed_dim % 2 == 0  # noqa: S101
 
     # use half of dimensions to encode grid_h
     emb_h = get_1d_sincos_pos_embed_from_grid(
@@ -141,7 +141,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim: int, pos: np.ndarray) -> np.nda
     pos: a list of positions to be encoded: size (M,)
     out: (M, D)
     """
-    assert embed_dim % 2 == 0
+    assert embed_dim % 2 == 0  # noqa: S101
     omega = np.arange(embed_dim // 2, dtype=np.float32)
     omega /= embed_dim / 2.0
     omega = 1.0 / 10000**omega  # (D/2,)
@@ -155,7 +155,12 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim: int, pos: np.ndarray) -> np.nda
     return np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
 
 
-def interpolate_pos_embed(checkpoint_model: dict[str, Any], model: torch.nn.Module, orig_t_size: int = 4, pos_name: str = "vision_encoder.pos_embed") -> None:
+def interpolate_pos_embed(
+    checkpoint_model: dict[str, Any],
+    model: torch.nn.Module,
+    orig_t_size: int = 4,
+    pos_name: str = "vision_encoder.pos_embed",
+) -> None:
     if pos_name in checkpoint_model:
         pos_embed_checkpoint = checkpoint_model[pos_name]
         embedding_size = pos_embed_checkpoint.shape[-1]  # channel dim
@@ -204,7 +209,9 @@ def interpolate_pos_embed(checkpoint_model: dict[str, Any], model: torch.nn.Modu
             checkpoint_model[pos_name] = new_pos_embed
 
 
-def interpolate_pos_embed_internvideo2(checkpoint_model: dict[str, Any], model: torch.nn.Module, orig_t_size: int = 8) -> None:
+def interpolate_pos_embed_internvideo2(
+    checkpoint_model: dict[str, Any], model: torch.nn.Module, orig_t_size: int = 8
+) -> None:
     # interpolate position embedding
     for pos_name in ["pos_embed", "clip_pos_embed"]:
         if pos_name in checkpoint_model:
@@ -255,15 +262,16 @@ def interpolate_pos_embed_internvideo2(checkpoint_model: dict[str, Any], model: 
                 checkpoint_model[pos_name] = new_pos_embed
 
 
-def interpolate_pos_embed_internvideo2_new(checkpoint_model: dict[str, Any], model: torch.nn.Module, orig_t_size: int = 8) -> None:
+def interpolate_pos_embed_internvideo2_new(
+    checkpoint_model: dict[str, Any], model: torch.nn.Module, orig_t_size: int = 8
+) -> None:
     pos_names = []
     for k in checkpoint_model:
         if ("pos_embed" in k or "clip_pos_embed" in k) and "img_pos_embed" not in k:
             pos_names.append(k)
-    # pos_names = ["pos_embed", "clip_pos_embed"]
     print(f"pos_names: {pos_names}")
 
-    assert len(pos_names) > 0, list(checkpoint_model.keys())
+    assert len(pos_names) > 0, list(checkpoint_model.keys())  # noqa: S101
 
     if "pos_embed_spatial" in checkpoint_model or "pos_embed_temporal" in checkpoint_model:
         raise NotImplementedError

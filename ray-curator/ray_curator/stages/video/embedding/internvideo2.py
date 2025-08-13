@@ -18,6 +18,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including frame extraction,
     model initialization, and input frame creation.
     """
+
     target_fps: float = 2.0
     verbose: bool = False
     model_dir: str = "InternVideo2"
@@ -34,7 +35,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
         self._model: InternVideo2MultiModality = InternVideo2MultiModality(model_dir=self.model_dir, utils_only=True)
         self._model.setup()
         self._extraction_policy = FrameExtractionPolicy.sequence
-        self._frame_extraction_signature =  FrameExtractionSignature(
+        self._frame_extraction_signature = FrameExtractionSignature(
             extraction_policy=FrameExtractionPolicy.sequence,
             target_fps=self.target_fps,
         ).to_str()
@@ -53,7 +54,6 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
                 clip.errors[f"frames-{self._frame_extraction_signature}"] = "missing"
                 logger.error(f"Clip {clip.uuid} has buffer but no extracted frames for ???")
                 continue
-
 
             frames = clip.extracted_frames[self._frame_extraction_signature]
             # check if we need re-extract
@@ -84,6 +84,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
 
         return task
 
+
 @dataclass
 class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage for generating embeddings from InternVideo2 input frames.
@@ -91,6 +92,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including embedding generation,
     text verification, and memory management.
     """
+
     num_gpus_per_worker: float = 1.0
     texts_to_verify: list[str] | None = None
     verbose: bool = False
@@ -140,6 +142,8 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
             clip.intern_video_2_frames = None
 
             if self.verbose:
-                logger.info(f"InternVideo2 embedding generated for clip {clip.uuid}. Embedding shape: {clip.intern_video_2_embedding.shape}")
+                logger.info(
+                    f"InternVideo2 embedding generated for clip {clip.uuid}. Embedding shape: {clip.intern_video_2_embedding.shape}"
+                )
 
         return task

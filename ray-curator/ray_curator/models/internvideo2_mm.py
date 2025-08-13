@@ -16,21 +16,19 @@
 
 import json
 import pathlib
-import os
-from typing import Final
 from pathlib import Path
+from typing import Final
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 import torch
 from easydict import EasyDict
-from loguru import logger
-from torch import nn
-from transformers import PreTrainedTokenizer
-from transformers import AutoTokenizer
-from ray_curator.models.base import ModelInterface
 from internvideo2_multi_modality import InternVideo2_Stage2_visual
+from loguru import logger
+from transformers import AutoTokenizer, PreTrainedTokenizer
+
+from ray_curator.models.base import ModelInterface
 from ray_curator.models.pos_embed import interpolate_pos_embed_internvideo2_new
 
 # Get the directory containing this file dynamically
@@ -42,28 +40,9 @@ INTERNVIDEO2_MODEL_FILE: Final = "InternVideo2-stage2_1b-224p-f4.pt"
 BERT_MODEL_ID: Final = "google-bert/bert-large-uncased"
 
 
-def get_local_dir_for_weights_name(weights_name: str) -> pathlib.Path:
-    """Get the local directory for the weights name.
-    
-    Args:
-        weights_name (str): The name of the weights/model.
-        
-    Returns:
-        pathlib.Path: Path to the local weights directory.
-        
-    Note:
-        This function uses the COSMOS_MODELS_DIR environment variable if set,
-        otherwise falls back to a default path. Set COSMOS_MODELS_DIR to
-        override the default models directory location.
-    """
-    # Allow override via environment variable
-    models_dir = os.getenv("COSMOS_MODELS_DIR", "/mnt/mint/models/cosmos_curate_local_workspace/models")
-    return pathlib.Path(models_dir) / weights_name
-
-
 class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
     """Wrapper class for InternVideo2 model that inherits from the original implementation.
-    
+
     This wrapper extends the original InternVideo2_Stage2_visual class and overrides
     only the methods needed for inference, while keeping all the original functionality
     intact.
@@ -72,14 +51,14 @@ class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
     def __init__(self, config: EasyDict, tokenizer: PreTrainedTokenizer, *, is_pretrain: bool = True) -> None:
         # Call the parent class constructor
         super().__init__(config, tokenizer, is_pretrain)
-        
+
         # Override the freeze behavior to always freeze encoders for inference
         self.freeze_vision()
         self.freeze_text()
 
     def encode_vision(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Encode image / videos as features for inference.
-        
+
         Overrides the parent method to return only the basic features needed for inference,
         without the complex teacher-student outputs.
 
@@ -94,7 +73,7 @@ class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
         t = image.shape[1]
         use_image = t == 1
         image = image.permute(0, 2, 1, 3, 4).to(self.dtype)  # [B,T,C,H,W] -> [B,C,T,H,W]
-        
+
         # Call parent method with test=True to get only basic features
         vision_embeds, pooled_vision_embeds, _, _ = self.vision_encoder(image, None, use_image)
         return vision_embeds, pooled_vision_embeds
@@ -125,7 +104,7 @@ class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
             torch.Tensor: the output features. Shape: [B,N,C].
 
         """
-        assert self.tokenizer, "tokenizer is not initialized"
+        assert self.tokenizer, "tokenizer is not initialized"  # noqa: S101
         with torch.no_grad():
             text_for_encoder = self.tokenizer(
                 text,
@@ -146,12 +125,12 @@ class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
         top: int = 5,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Predict labels based on video and text features.
-        
+
         Args:
             vid_feat: Video features
-            txt_feat: Text features  
+            txt_feat: Text features
             top: Number of top predictions to return
-            
+
         Returns:
             Tuple of (probabilities, indices)
         """
@@ -201,19 +180,18 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2Wrapper:
         torch.set_float32_matmul_precision("high")
         model = torch.compile(model)  # type: ignore[assignment]
 
-    model.to_empty(device=torch.device(config.device)) # TODO: confirm the to_empty is needed
+    model.to_empty(device=torch.device(config.device))  # TODO: confirm the to_empty is needed
     # Load checkpoint before moving to device
     model_without_ddp = model
     if (
         config.pretrained_path.strip() and (pathlib.Path(config.pretrained_path).is_file())
     ) or "s3://" in config.pretrained_path:
         checkpoint = torch.load(config.pretrained_path, map_location="cpu", weights_only=True)
-        print("checkpoint loaded")
         try:
             # checkpoint["module"] : This is a deepspeed stage 1 model
             state_dict = checkpoint["model"] if "model" in checkpoint else checkpoint["module"]
         except Exception as e:  # noqa: BLE001
-            logger.error(f"Error: error loading checkpoint: {e}")
+            logger.error(f"Error: error loading internvideo2 checkpoint: {e}")
             state_dict = checkpoint
 
         if config.get("origin_num_frames", None) is not None:
@@ -223,10 +201,10 @@ def _setup_internvideo2(config: EasyDict) -> _InternVideo2Stage2Wrapper:
                 model_without_ddp.vision_encoder,
                 orig_t_size=config.origin_num_frames,
             )
-            assert a == len(state_dict), state_dict.keys()
+            assert a == len(state_dict), state_dict.keys()  # noqa: S101
 
         _ = model_without_ddp.load_state_dict(state_dict, strict=True)
-        print("state_dict loaded")
+        logger.debug("InternVideo2 model loaded successfully")
 
     # Move to device after loading checkpoint
     model_without_ddp = model
@@ -344,7 +322,7 @@ class InternVideo2MultiModality(ModelInterface):
             return torch.empty(0)
         target_device = torch.device(self._config.device)
         frames_tensor = torch.from_numpy(iv2_frames).to(target_device).float()
-        assert self._model is not None
+        assert self._model is not None  # noqa: S101
         return self._model.get_vid_feat(frames_tensor)
 
     def get_text_embedding(self, text: str) -> torch.Tensor:
@@ -357,7 +335,7 @@ class InternVideo2MultiModality(ModelInterface):
             The text embedding.
 
         """
-        assert self._model is not None
+        assert self._model is not None  # noqa: S101
         return self._model.get_txt_feat(text)
 
     def evaluate(self, video_embd: torch.Tensor, text_embds: list[torch.Tensor]) -> tuple[list[float], list[int]]:
@@ -373,6 +351,6 @@ class InternVideo2MultiModality(ModelInterface):
         """
         count = len(text_embds)
         text_embds_tensor = torch.cat(text_embds, 0)
-        assert self._model is not None
+        assert self._model is not None  # noqa: S101
         probs, idxs = self._model.predict_label(video_embd, text_embds_tensor, top=count)
-        return probs.cpu().numpy()[0].tolist(), idxs.cpu().long().numpy()[0].tolist() 
+        return probs.cpu().numpy()[0].tolist(), idxs.cpu().long().numpy()[0].tolist()
