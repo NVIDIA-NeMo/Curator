@@ -26,4 +26,4 @@ def test_basic_cudf_dataframe():
 def test_import():
     import ray_curator
 
-    assert ray_curator.__version__ == "0.1.0rc0.dev0"
+    assert ray_curator.package_info.__version__ == "0.1.0rc0.dev0"

@@ -45,6 +45,7 @@ WORKDIR /opt
 
 # Copy configuration files
 COPY ray-curator/pyproject.toml ./
+COPY ray-curator/ray_curator ./ray_curator
 
 # Install dependencies
 RUN pixi install -e $CURATOR_ENVIRONMENT
@@ -71,6 +72,7 @@ COPY . .
 # Copy pixi environment
 COPY --from=build /opt/.pixi/envs /opt/.pixi/envs
 COPY --from=build /opt/entrypoint.sh /opt/entrypoint.sh
+COPY --from=build /opt/ray_curator /opt/ray_curator
 
 WORKDIR /workspace
 
