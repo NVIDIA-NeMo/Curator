@@ -42,9 +42,13 @@ text = [
     # Filters
     "fasttext==0.9.3",
     "sentencepiece",
-    "mwparserfromhell==0.6.5"
+    "mwparserfromhell==0.6.5",
+    # Aegis
+    "peft",
 ]
-cuda12x = [
+
+# Installs CPU + GPU text curation modules
+deduplication_cuda12x = [
     "cudf-cu12==25.6.*",
     "cugraph-cu12==25.6.*",
     "cuml-cu12==25.6.*",
@@ -52,6 +56,7 @@ cuda12x = [
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
 ]
+
 dev = [
     "debugpy",
     "pre-commit",
@@ -88,7 +93,7 @@ ffmpeg = "*"  # Add FFmpeg from conda-forge
 
 [tool.pixi.environments]
 default = ["all"]
-dev = ["cuda12x", "text", "video", "dev"]
+dev = ["deduplication_cuda12x", "text", "video", "dev"]
 
 [tool.setuptools]
 packages = ["ray_curator"]
@@ -138,3 +143,6 @@ fixable = ["ALL"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+]

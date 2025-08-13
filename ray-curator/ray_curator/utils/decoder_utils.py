@@ -33,6 +33,7 @@ class Resolution(NamedTuple):
     height: int
     width: int
 
+
 @dataclass
 class VideoMetadata:
     """Metadata for video content including dimensions, timing, and codec information.
@@ -84,6 +85,7 @@ class FrameExtractionSignature:
 
         """
         return f"{self.extraction_policy!s}-{int(self.target_fps * 1000)}"
+
 
 def extract_video_metadata(video: str | bytes) -> VideoMetadata:
     """Extract metadata from a video file using ffprobe.
@@ -158,6 +160,7 @@ def extract_video_metadata(video: str | bytes) -> VideoMetadata:
         video_duration=video_duration,
         bit_rate_k=bit_rate_k,
     )
+
 
 def _make_video_stream(data: Path | str | BinaryIO | bytes | io.BytesIO | io.BufferedReader) -> BinaryIO:
     """Convert various input types into a binary stream for video processing.
