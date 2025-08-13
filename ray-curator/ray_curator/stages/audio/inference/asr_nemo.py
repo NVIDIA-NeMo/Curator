@@ -20,14 +20,12 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
         model_name (str): name of the speech recognition NeMo model. See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
         filepath_key (str): which key of the data object should be used to find the path to audiofile. Defaults to “audio_filepath”
         pred_text_key (str): key is used to identify the field containing the predicted transcription associated with a particular audio sample. Defaults to “pred_text”
-        cuda (str): device to run inference on it. Could be cpu, cuda, ipu, xpu, mkldnn, opengl, opencl, ideep, hip, ve, fpga, maia, xla, lazy, vulkan, mps, meta, hpu, mtia or cuda number (digit). Defaults to “” (empty string)
         name (str): Stage name. Defaults to "ASR_inference"
     """
 
     model_name: str
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
-    cuda: str = ""
     name: str = "ASR_inference"
     _start_time = time.time()
     _metrics: ClassVar[dict] = {}
@@ -35,14 +33,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
     _resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def check_cuda(self) -> torch.device:
-        self.cuda = str(self.cuda)
-        if self.cuda != "":
-            map_location = torch.device(f"cuda:{self.cuda}") if self.cuda.isdigit() else torch.device(self.cuda)
-        elif torch.cuda.is_available():
-            map_location = torch.device("cuda:0")
-        else:
-            map_location = torch.device("cpu")
-        return map_location
+        return torch.device("cuda") if self.resources.gpus > 0 else torch.device("cpu")
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         # TODO: load asr_model file only once per node

@@ -3,8 +3,6 @@
 import os
 from unittest.mock import patch
 
-import pytest
-
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from ray_curator.tasks import SpeechObject
 
@@ -43,33 +41,32 @@ class TestAsrNeMoStage:
         )
         assert stage.batch_size == 16
 
-    @patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat", "set on a mat"])
-    @pytest.mark.usefixtures("_")
     def test_process_success(self) -> None:
         """Test process method with successful file discovery."""
 
-        stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
+        with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat", "set on a mat"]):
+            stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
 
-        path_list = [
-            SpeechObject(data={"audio_filepath": "/test/audio1.wav"}),
-            SpeechObject(data={"audio_filepath": "/test/audio2.mp3"}),
-        ]
+            path_list = [
+                SpeechObject(data={"audio_filepath": "/test/audio1.wav"}),
+                SpeechObject(data={"audio_filepath": "/test/audio2.mp3"}),
+            ]
 
-        stage.setup_on_node()
-        stage.setup()
-        result = stage.process_batch(path_list)
+            stage.setup_on_node()
+            stage.setup()
+            result = stage.process_batch(path_list)
 
-        assert len(result) == 2
-        assert all(isinstance(task, SpeechObject) for task in result)
-        assert result[0].task_id == "task_id_/test/audio1.wav"
-        assert result[1].task_id == "task_id_/test/audio2.mp3"
-        assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
-        assert result[1].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
+            assert len(result) == 2
+            assert all(isinstance(task, SpeechObject) for task in result)
+            assert result[0].task_id == "task_id_/test/audio1.wav"
+            assert result[1].task_id == "task_id_/test/audio2.mp3"
+            assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
+            assert result[1].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
 
-        # Check that the audio objects are created correctly
-        assert isinstance(result[0].data, dict)
-        assert isinstance(result[1].data, dict)
-        assert result[0].data[result[0].filepath_key] == "/test/audio1.wav"
-        assert result[0].data["pred_text"] == "the cat"
-        assert result[1].data[result[1].filepath_key] == "/test/audio2.mp3"
-        assert result[1].data["pred_text"] == "set on a mat"
+            # Check that the audio objects are created correctly
+            assert isinstance(result[0].data, dict)
+            assert isinstance(result[1].data, dict)
+            assert result[0].data[result[0].filepath_key] == "/test/audio1.wav"
+            assert result[0].data["pred_text"] == "the cat"
+            assert result[1].data[result[1].filepath_key] == "/test/audio2.mp3"
+            assert result[1].data["pred_text"] == "set on a mat"
