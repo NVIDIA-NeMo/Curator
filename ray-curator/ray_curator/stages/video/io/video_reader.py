@@ -148,7 +148,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
-            raise e
             return False
 
         if video.source_bytes is None:
