@@ -72,7 +72,7 @@ video = [
 ]
 
 all = [
-    "ray_curator[cuda12x]",
+    "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
     "ray_curator[video]",
 ]

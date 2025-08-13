@@ -127,6 +127,8 @@ runs:
         path: NeMo-Curator
 
     - name: Build container
+      timeout-minutes: 5
+      max_attempts: 3
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.PAT }}
