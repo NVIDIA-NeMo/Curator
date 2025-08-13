@@ -1,7 +1,7 @@
 ---
-description: "Load and process custom datasets using NeMo Curator's extensible framework with custom downloaders, iterators, and extractors"
+description: "Create custom data loading pipelines using Curator."
 categories: ["how-to-guides"]
-tags: ["custom-data", "extensible", "downloaders", "iterators", "extractors", "framework"]
+tags: ["custom-data", "stages", "pipelines", "data-loading"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "advanced"
 content_type: "how-to"
@@ -9,96 +9,286 @@ modality: "text-only"
 ---
 
 (text-load-data-custom)=
+
 # Custom Data Loading
 
-Load and process your own custom datasets using NeMo Curator's extensible framework. This guide explains how to implement custom data loaders that integrate with NeMo Curator's distributed processing capabilities.
+Create custom data loading pipelines using Curator. This guide shows how to build modular stages that run on Curator's distributed processing.
 
-## How it Works
+## How It Works
 
-NeMo Curator's custom data loading process:
+Curator uses a **4-step pipeline pattern** for custom data loading:
 
-1. Downloads data from your source using a custom `DocumentDownloader`
-2. Iterates through the downloaded data using a custom `DocumentIterator`
-3. Extracts text using a custom `DocumentExtractor`
-4. Outputs the processed data in JSONL or Parquet format
+1. **URL Generation**: Generate URLs from configuration or input parameters
+2. **Download**: Download files from URLs to local storage  
+3. **Iteration**: Extract raw records from downloaded files
+4. **Extraction** (Optional): Transform raw records into final structured format
+
+Each step uses an abstract base class with corresponding processing stages that compose into pipelines.
 
 ---
 
-## Usage
+## Architecture Overview
 
-Here's how to implement and use custom data loaders:
+### Core Components
 
-::::{tab-set}
+- **Tasks**: Data containers that flow through the pipeline (`DocumentBatch`, `FileGroupTask`)
+- **Stages**: Processing units that transform tasks (`ProcessingStage` subclasses)
+- **Pipelines**: Compositions of stages executed sequentially
+- **Executors**: Runtime backends that execute pipelines
 
-:::{tab-item} Python
+### Data Flow
+
+```text
+Start → FileGroupTask → DocumentBatch
+   ↓         ↓              ↓
+URLGeneration → Download → Iterate → Extract
+```
+
+---
+
+## Implementation Guide
+
+### 1. Create Directory Structure
+
+```text
+your_data_source/
+├── __init__.py
+├── stage.py           # Main composite stage
+├── url_generation.py  # URL generation logic
+├── download.py        # Download implementation
+├── iterator.py        # File iteration logic
+└── extract.py         # Data extraction logic (optional)
+```
+
+### 2. Build Core Components
+
+#### URL Generator (`url_generation.py`)
+
 ```python
-from nemo_curator import get_client
-from nemo_curator.download import download_and_extract
-from my_custom_module import MyCustomDownloader, MyCustomIterator, MyCustomExtractor
+from ray_curator.stages.text.download.base.url_generation import URLGenerator
+
+class CustomURLGenerator(URLGenerator):
+    def __init__(self, config_param: str):
+        self.config_param = config_param
+    
+    def generate_urls(self) -> list[str]:
+        """Generate list of URLs to download."""
+        # Your URL generation logic here
+        return [
+            "https://example.com/dataset1.zip",
+            "https://example.com/dataset2.zip",
+        ]
+```
+
+#### Document Download Handler (`download.py`)
+
+```python
+import requests
+from ray_curator.stages.text.download.base.download import DocumentDownloader
+
+class CustomDownloader(DocumentDownloader):
+    def __init__(self, download_dir: str, verbose: bool = False):
+        super().__init__(download_dir, verbose)
+    
+    def _get_output_filename(self, url: str) -> str:
+        """Extract filename from URL."""
+        return url.split('/')[-1]
+    
+    def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
+        """Download file from URL to local path."""
+        try:
+            response = requests.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+            
+            with open(path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            return True, None
+        except Exception as e:
+            return False, str(e)
+```
+
+#### Document Iterator (`iterator.py`)
+
+```python
+import json
+from collections.abc import Iterator
+from typing import Any
+from ray_curator.stages.text.download.base.iterator import DocumentIterator
+
+class CustomIterator(DocumentIterator):
+    def __init__(self, record_format: str = "jsonl"):
+        self.record_format = record_format
+    
+    def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
+        """Iterate over records in a file."""
+        if self.record_format == "jsonl":
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        yield json.loads(line)
+        # Add other format handlers as needed
+    
+    def output_columns(self) -> list[str]:
+        """Define output columns."""
+        return ["content", "metadata", "id"]
+```
+
+#### Document Extractor (`extract.py`)
+
+```python
+from typing import Any
+from ray_curator.stages.text.download.base.extract import DocumentExtractor
+
+class CustomExtractor(DocumentExtractor):
+    def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
+        """Transform raw record to final format."""
+        # Skip invalid records
+        if not record.get("content"):
+            return None
+        
+        # Extract and clean text
+        cleaned_text = self._clean_text(record["content"])
+        
+        # Generate unique ID if not present
+        doc_id = record.get("id", self._generate_id(cleaned_text))
+        
+        return {
+            "text": cleaned_text,
+            "id": doc_id,
+            "source": record.get("metadata", {}).get("source", "unknown")
+        }
+    
+    def input_columns(self) -> list[str]:
+        return ["content", "metadata", "id"]
+    
+    def output_columns(self) -> list[str]:
+        return ["text", "id", "source"]
+    
+    def _clean_text(self, text: str) -> str:
+        """Clean and normalize text."""
+        # Your text cleaning logic here
+        return text.strip()
+    
+    def _generate_id(self, text: str) -> str:
+        """Generate unique ID for text."""
+        import hashlib
+        return hashlib.md5(text.encode()).hexdigest()[:16]
+```
+
+### 3. Create Composite Stage (`stage.py`)
+
+```python
+from ray_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
+from .url_generation import CustomURLGenerator
+from .download import CustomDownloader
+from .iterator import CustomIterator
+from .extract import CustomExtractor
+
+class CustomDataStage(DocumentDownloadExtractStage):
+    """Custom data loading stage combining all components."""
+    
+    def __init__(
+        self,
+        config_param: str,
+        download_dir: str,
+        record_format: str = "jsonl",
+        url_limit: int | None = None,
+        record_limit: int | None = None,
+        **kwargs
+    ):
+        super().__init__(
+            url_generator=CustomURLGenerator(config_param),
+            downloader=CustomDownloader(download_dir),
+            iterator=CustomIterator(record_format),
+            extractor=CustomExtractor(),  # Optional - remove if not needed
+            url_limit=url_limit,
+            record_limit=record_limit,
+            **kwargs
+        )
+```
+
+---
+
+## Usage Examples
+
+### Basic Pipeline
+
+```python
+from ray_curator.pipeline import Pipeline
+from ray_curator.backends.xenna import XennaExecutor
+from your_data_source.stage import CustomDataStage
 
 def main():
-    # Initialize a Dask client
-    client = get_client(cluster_type="cpu")
-
-    # Create instances of your custom components
-    downloader = MyCustomDownloader()
-    iterator = MyCustomIterator()
-    extractor = MyCustomExtractor()
-
-    # Use them with NeMo Curator's framework
-    dataset = download_and_extract(
-        urls=[url1, url2, url3],
-        output_paths=[output_path1, output_path2, output_path3],
-        downloader=downloader,
-        iterator=iterator,
-        extractor=extractor,
-        output_format={"text": str, "id": str},
-        output_type="jsonl",
-        keep_raw_download=False,
-        force_download=False,
-        filename_col="file_name",
-        record_limit=None
+    # Create custom data loading stage
+    data_stage = CustomDataStage(
+        config_param="production",
+        download_dir="/tmp/downloads",
+        record_limit=1000  # Limit for testing
     )
 
-    # Process the dataset
-    dataset.to_json(output_path="/output/folder", write_to_filename=True)
+    # Create pipeline
+    pipeline = Pipeline(
+        name="custom_data_pipeline",
+        description="Load and process custom dataset"
+    )
+    pipeline.add_stage(data_stage)
+
+    # Create executor
+    executor = XennaExecutor()
+
+    # Run pipeline
+    print("Starting pipeline...")
+    results = pipeline.run(executor)
+
+    # Process results
+    if results:
+        for task in results:
+            print(f"Processed {task.num_items} documents")
+            # Access data as Pandas DataFrame
+            df = task.to_pandas()
+            print(df.head())
 
 if __name__ == "__main__":
     main()
 ```
-:::
 
-:::{tab-item} CLI
-Create a configuration YAML file:
+For executor options and configuration, refer to {ref}`reference-execution-backends`.
 
-```yaml
-# custom_config.yaml
-download_module: my_custom_module.MyCustomDownloader
-download_params:
-  param1: value1
-  param2: value2
-iterator_module: my_custom_module.MyCustomIterator
-iterator_params:
-  param3: value3
-extract_module: my_custom_module.MyCustomExtractor
-extract_params:
-  param4: value4
-```
+<!-- move the following to concepts / general docs on pipelines in separate PR -->
+<!-- ### Adding Processing Stages
 
-Then run the command-line tool:
+```python
+from ray_curator.stages.modules import ScoreFilter
+from ray_curator.stages.filters import WordCountFilter
+from ray_curator.stages.io.writer import JsonlWriter
 
-```bash
-# Note: Use the actual script name from nemo_curator/scripts/
-python -m nemo_curator.scripts.download_and_extract \
-  --input-url-file=./my_urls.txt \
-  --builder-config-file=./custom_config.yaml \
-  --output-json-dir=/output/folder
-```
-:::
+def create_full_pipeline():
+    pipeline = Pipeline(name="full_processing")
 
-::::
+    # Data loading
+    pipeline.add_stage(CustomDataStage(
+        config_param="production",
+        download_dir="/tmp/downloads"
+    ))
 
-### Parameters
+    # Text filtering
+    pipeline.add_stage(ScoreFilter(
+        filter_obj=WordCountFilter(min_words=10, max_words=1000),
+        text_field="text"
+    ))
+
+    # Output
+    pipeline.add_stage(JsonlWriter(output_dir="/output/processed"))
+
+    return pipeline
+``` -->
+
+
+---
+
+## Parameters Reference
 
 ```{list-table} Custom Data Loading Parameters
 :header-rows: 1
@@ -108,138 +298,49 @@ python -m nemo_curator.scripts.download_and_extract \
   - Type
   - Description
   - Default
-* - `urls`
-  - List[str]
-  - List of URLs or paths to download from
-  - Required
-* - `output_paths`
-  - List[str]
-  - List of paths where downloaded files will be stored
+* - `url_generator`
+  - URLGenerator
+  - Custom URL generation implementation
   - Required
 * - `downloader`
   - DocumentDownloader
-  - Custom downloader implementation
+  - Custom download implementation
   - Required
 * - `iterator`
   - DocumentIterator
-  - Custom iterator implementation
+  - Custom file iteration implementation
   - Required
 * - `extractor`
-  - DocumentExtractor
-  - Custom extractor implementation
-  - Required
-* - `output_format`
-  - Dict[str, type]
-  - Schema for output data
-  - Required
-* - `output_type`
-  - Literal["jsonl", "parquet"]
-  - Output file format
-  - "jsonl"
-* - `keep_raw_download`
-  - bool
-  - Whether to retain raw downloaded files after extraction
-  - False
-* - `force_download`
-  - bool
-  - Whether to re-download and re-extract existing files
-  - False
-* - `filename_col`
-  - str
-  - Name of the column for storing filenames in the dataset
-  - "file_name"
+  - DocumentExtractor | None
+  - Optional extraction/transformation step
+  - None
+* - `url_limit`
+  - int | None
+  - Maximum number of URLs to process
+  - None
 * - `record_limit`
   - int | None
-  - Maximum number of records to extract from each file
+  - Maximum records per file
   - None
+* - `add_filename_column`
+  - bool | str
+  - Add filename column to output; if str, uses it as the column name (default name: "file_name")
+  - True
 ```
+
+---
 
 ## Output Format
 
-The processed data can be stored in either JSONL or Parquet format:
+Processed data flows through the pipeline as `DocumentBatch` tasks containing Pandas DataFrames or PyArrow Tables:
 
-### JSONL Format
+### Example Output Schema
 
-```json
+```python
 {
-    "text": "This is a sample text document",
-    "id": "unique-id-123",
-    "metadata": {
-        "source": "example",
-        "timestamp": "2024-03-21"
-    }
+    "text": "This is the processed document text",
+    "id": "unique-document-id",
+    "source": "example.com",
+    "file_name": "dataset1.jsonl"  # If add_filename_column=True (default column name)
 }
 ```
-
-### Parquet Format
-
-Parquet files maintain the same schema as JSONL files but provide:
-
-- Efficient compression
-- Fast query performance
-- Column-based operations
-- Reduced storage costs
-
-## Implementation Guide
-
-### 1. Create Custom Downloader
-
-```python
-from nemo_curator.download.doc_builder import DocumentDownloader
-
-class MyCustomDownloader(DocumentDownloader):
-    def download(self, url):
-        """Download data from url and return the path to the downloaded file"""
-        # Implement download logic
-        return "/path/to/downloaded/file"
-```
-
-### 2. Create Custom Iterator
-
-```python
-from nemo_curator.download.doc_builder import DocumentIterator
-
-class MyCustomIterator(DocumentIterator):
-    def iterate(self, file_path):
-        """Iterate through documents in the downloaded file"""
-        for doc in my_iterator_logic(file_path):
-            metadata = {"url": doc.get("url", "")}
-            content = doc.get("content", "")
-            yield metadata, content
-```
-
-### 3. Create Custom Extractor
-
-```python
-from nemo_curator.download.doc_builder import DocumentExtractor
-
-class MyCustomExtractor(DocumentExtractor):
-    def extract(self, content):
-        """Extract text from content and return a dictionary"""
-        # Your extraction logic here
-        extracted_text = process_content(content)
-        unique_id = generate_unique_id(content)
-        
-        return {
-            'text': extracted_text,
-            'id': unique_id,
-            # Add any other fields as needed
-        }
-```
-
-```{admonition} Enhancing Custom Extraction
-:class: tip
-
-When implementing custom extractors, consider adding robust error handling and metadata extraction to improve the quality of your processed data. You can also implement content filtering and validation logic within your extractor.
-```
-
-## Best Practices
-
-1. **Error Handling**: Implement robust error handling for corrupt files and network issues
-2. **Logging**: Use Python's logging module for process visibility and debugging
-3. **Metadata**: Include useful metadata in extracted documents for downstream processing
-4. **Chunking**: Consider chunking large files for efficient distributed processing
-5. **Caching**: Implement caching to avoid re-downloading or re-processing data
-6. **Parameter Validation**: Validate input parameters in your custom classes
-7. **Memory Management**: Be mindful of memory usage when processing large files
-8. **Type Annotations**: Use proper type hints to improve code clarity and IDE support

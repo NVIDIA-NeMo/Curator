@@ -208,8 +208,6 @@ Combine synthetic data generation with other NeMo Curator modules for filtering 
 
 ::::
 
-
-
 <!-- ## Tutorials
 
 Build practical experience with step-by-step guides for common text curation workflows.

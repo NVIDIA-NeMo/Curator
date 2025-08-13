@@ -130,7 +130,9 @@ class ClassifierModelStage(ModelStage):
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
 
-    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray]:
         probs = outputs.cpu().numpy()
         preds = np.argmax(probs, axis=1)
 

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.modifiers import DocumentModifier
+from ray_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 
 class Slicer(DocumentModifier):

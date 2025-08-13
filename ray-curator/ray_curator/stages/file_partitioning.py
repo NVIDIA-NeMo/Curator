@@ -20,7 +20,7 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask, _EmptyTask

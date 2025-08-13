@@ -215,7 +215,9 @@ class AegisModelStage(ModelStage):
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self._setup(local_files_only=True)
 
-    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray]:
         preds = outputs.cpu().numpy()
         return {
             self.pred_column: preds,

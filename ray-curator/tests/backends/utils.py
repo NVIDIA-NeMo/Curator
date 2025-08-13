@@ -32,7 +32,7 @@ import ray
 from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.text.io.reader import JsonlReader

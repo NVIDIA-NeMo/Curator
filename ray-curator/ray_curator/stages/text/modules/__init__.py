@@ -13,11 +13,13 @@
 # limitations under the License.
 
 from .add_id import AddId
+from .modifier import Modify
 from .score_filter import Filter, Score, ScoreFilter
 
 __all__ = [
     "AddId",
     "Filter",
+    "Modify",
     "Score",
     "ScoreFilter",
 ]

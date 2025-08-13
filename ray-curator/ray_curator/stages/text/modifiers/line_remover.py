@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from nemo_curator.modifiers import DocumentModifier
+
+from ray_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 
-class FastTextLabelModifier(DocumentModifier):
-    def __init__(self, label: str):
+class LineRemover(DocumentModifier):
+    """
+    Removes lines from a document if the content of the line matches a given string.
+    """
+
+    def __init__(self, patterns: list[str]):
+        """
+        Args:
+            patterns (List[str]): The patterns to check
+        """
         super().__init__()
-        self.label = label
+        self._patterns = patterns
 
     def modify_document(self, text: str) -> str:
-        text = text.replace("\n", " ").replace("__label__", " ")
-        return f"{self.label} {text}"
+        lines = text.split("\n")
+        new_lines = [line for line in lines if line not in self._patterns]
+        return "\n".join(new_lines)
