@@ -167,6 +167,7 @@ class TestEmbeddingModelStage:
         mock_model.device = "cpu"  # Simplify for testing
 
         # Setup and process
+        stage.setup_on_node()
         stage.setup()
         result = stage.process(sample_data)
 

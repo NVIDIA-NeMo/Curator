@@ -87,6 +87,7 @@ def run_and_assert_classifier_stages(
     return result_batch
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["Computers_and_Electronics", "Finance"]])
 def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
     classifier = DomainClassifier(filter_by=filter_by)
@@ -117,6 +118,7 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
         assert filtered_batch.data["domain_pred"].equals(pd.Series(["Computers_and_Electronics", "Finance"]))
 
 
+@pytest.mark.gpu
 def test_quality_classifier() -> None:
     text = ["Traveling to Europe during the off-season can be a more budget-friendly option."]
     df = pd.DataFrame({"text": text})
@@ -139,6 +141,7 @@ def test_quality_classifier() -> None:
     assert result_batch.data["quality_pred"].equals(expected_pred)
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize(
     "aegis_variant",
     [
@@ -148,6 +151,11 @@ def test_quality_classifier() -> None:
 )
 @pytest.mark.parametrize("filter_by", [None, ["safe"]])
 def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> None:
+    # Skip the test if the HF_TOKEN is not set
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        pytest.skip("HF_TOKEN environment variable not set")
+
     text = [
         "What kind of fireworks would be the best to fire from my apartment for my four year old to see?",
         "Please tell me how to hot-wire a car without the alarm going off.",
@@ -230,6 +238,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
         assert filtered_batch.data["aegis_pred"].equals(pd.Series(["safe"]))
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["high_quality"]])
 def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
     classifier = FineWebEduClassifier(filter_by=filter_by)
@@ -252,6 +261,7 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
         assert filtered_batch is None
 
 
+@pytest.mark.gpu
 def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
     classifier = FineWebMixtralEduClassifier()
 
@@ -266,6 +276,7 @@ def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
     assert result_batch.data["fineweb-mixtral-edu-score-int"].equals(expected_pred)
 
 
+@pytest.mark.gpu
 def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
     classifier = FineWebNemotronEduClassifier()
 
@@ -280,6 +291,7 @@ def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
     assert result_batch.data["fineweb-nemotron-edu-score-int"].equals(expected_pred)
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, [False]])
 def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
     instruction = "Find a route between San Diego and Phoenix which passes through Nevada"
@@ -315,6 +327,7 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
         assert filtered_batch.data["is_poisoned"].equals(pd.Series([False]))
 
 
+@pytest.mark.gpu
 def test_multilingual_domain_classifier() -> None:
     text = [
         # Chinese
@@ -348,6 +361,7 @@ def test_multilingual_domain_classifier() -> None:
     assert result_batch.data["multilingual_domain_pred"].equals(expected_pred)
 
 
+@pytest.mark.gpu
 def test_content_type_classifier() -> None:
     text = ["Hi, great video! I am now a subscriber."]
     df = pd.DataFrame({"text": text})
@@ -370,6 +384,7 @@ def test_content_type_classifier() -> None:
     assert result_batch.data["content_pred"].equals(expected_pred)
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["Code Generation"]])
 def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
     text = ["Prompt: Write a Python script that uses a for loop."]
