@@ -426,9 +426,9 @@ def _validate_and_normalize_filters(  # noqa: C901, PLR0912
 
     # For Score and ScoreFilter, the input_field is the text field
     # For Filter, the input_field is the filter field
+    input_field_name = "filter" if fn_type == "filter" else "text"
     if input_field is None:
-        field_name = "filter" if fn_type == "filter" else "text"
-        msg = f"{field_name}_field cannot be None"
+        msg = f"{input_field_name}_field cannot be None"
         raise ValueError(msg)
 
     # Score is the only module that explicitly requires an output field,
@@ -444,7 +444,7 @@ def _validate_and_normalize_filters(  # noqa: C901, PLR0912
 
     if isinstance(_filter, (DocumentFilter, Callable)):
         _normalized_filter = [_filter]
-        _input_field = _format_single_field_list(input_field, "input", field_type=str)
+        _input_field = _format_single_field_list(input_field, input_field_name, field_type=str)
 
         if fn_type in ["filter", "score_filter"]:
             _invert = _format_single_field_list(invert, "invert", field_type=bool)
@@ -457,7 +457,7 @@ def _validate_and_normalize_filters(  # noqa: C901, PLR0912
             if output_field is None and fn_type == "score_filter":
                 _output_field = [None]
             else:
-                _output_field = _format_single_field_list(output_field, "output", field_type=str)
+                _output_field = _format_single_field_list(output_field, "score", field_type=str)
         else:
             # Filter does not use an output field
             _output_field = None
@@ -474,7 +474,7 @@ def _validate_and_normalize_filters(  # noqa: C901, PLR0912
             msg = f"filter_field must be a list of strings if multiple filters are used: {input_field}"
             raise ValueError(msg)
 
-        _input_field = _format_field_list(input_field, len(_filter), "input", field_type=str)
+        _input_field = _format_field_list(input_field, len(_filter), input_field_name, field_type=str)
 
         if fn_type in ["filter", "score_filter"]:
             _invert = _format_field_list(invert, len(_filter), "invert", field_type=bool)
@@ -492,7 +492,7 @@ def _validate_and_normalize_filters(  # noqa: C901, PLR0912
                 msg = f"score_field must be a list of strings if multiple filters are used: {output_field}"
                 raise ValueError(msg)
             else:
-                _output_field = _format_field_list(output_field, len(_filter), "output", field_type=str)
+                _output_field = _format_field_list(output_field, len(_filter), "score", field_type=str)
         else:
             # Filter does not use an output field
             _output_field = None
