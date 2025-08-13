@@ -23,15 +23,14 @@ import abc
 import concurrent.futures
 import pathlib
 from typing import Any
-
-import attrs
+from dataclasses import dataclass
 
 # Constants for chunk sizes
 DOWNLOAD_CHUNK_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 UPLOAD_CHUNK_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
-@attrs.define
+@dataclass
 class BaseClientConfig:
     """Base configuration class for storage clients.
 
@@ -43,20 +42,20 @@ class BaseClientConfig:
 
     """
 
-    max_concurrent_threads: int = attrs.field(default=100)
-    operation_timeout_s: int = attrs.field(default=180)
-    can_overwrite: bool = attrs.field(default=False)
-    can_delete: bool = attrs.field(default=False)
+    max_concurrent_threads: int = 100
+    operation_timeout_s: int = 180
+    can_overwrite: bool = False
+    can_delete: bool = False
 
 
-@attrs.define
+@dataclass
 class StoragePrefix:
     """Base class for representing a storage path prefix.
 
     This is extended by specific implementations like S3Prefix and AzurePrefix.
     """
 
-    _input: str = attrs.field()
+    _input: str = ""
 
     @property
     @abc.abstractmethod

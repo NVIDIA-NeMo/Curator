@@ -5,18 +5,16 @@ from pathlib import Path
 
 from loguru import logger
 
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.backends.base import WorkerMetadata
-from ray_curator.utils.storage_utils import get_storage_client
-import ray_curator.utils.storage_utils as storage_utils
+from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.client_partitioning import ClientPartitioningStage
-from ray_curator.utils.storage_client import StoragePrefix
-
+from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
-
+from ray_curator.utils import storage_utils
+from ray_curator.utils.storage_utils import get_storage_client
+from ray_curator.utils.storage_client import StorageClient
 
 @dataclass
 class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
@@ -43,6 +41,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     input_s3_profile_name: str | None = None
     verbose: bool = False
     _name: str = "video_reader"
+    storage_client: StorageClient | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
@@ -84,7 +83,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         if len(files) != 1:
             msg = f"Expected 1 file, got {len(files)}"
             raise ValueError(msg)
-        
+
         if self.storage_client is None:
             # We assume that the file_path is local if we cannot initialize the storage client
             file_path = Path(files[0])
@@ -252,7 +251,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         verbose: Whether to enable verbose logging during download/processing
     """
     input_video_path: str
-    input_s3_profile_name: str = 'default'
+    input_s3_profile_name: str = "default"
     video_limit: int | None = -1
     verbose: bool = False
 

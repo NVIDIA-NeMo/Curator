@@ -29,13 +29,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import attrs
 import boto3
 from boto3.s3.transfer import TransferConfig
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 from loguru import logger
 from tqdm import tqdm
+from dataclasses import dataclass
 
 from ray_curator.utils.storage_client import (
     DOWNLOAD_CHUNK_SIZE_BYTES,
@@ -47,9 +47,9 @@ from ray_curator.utils.storage_client import (
     is_storage_path,
 )
 
-S3_PROFILE_PATH = pathlib.Path(os.getenv("S3_PROFILE_PATH", "~/.aws/credentials")) 
+S3_PROFILE_PATH = pathlib.Path(os.getenv("S3_PROFILE_PATH", "~/.aws/credentials"))
 
-@attrs.define
+@dataclass
 class S3ClientConfig(BaseClientConfig):
     """Configuration class for S3 client.
 
@@ -63,14 +63,14 @@ class S3ClientConfig(BaseClientConfig):
     """
 
     # profile related
-    aws_access_key_id: str | None = attrs.field(default=None)
-    aws_secret_access_key: str | None = attrs.field(default=None)
-    aws_session_token: str | None = attrs.field(default=None)
-    endpoint_url: str | None = attrs.field(default=None)
-    region: str | None = attrs.field(default=None)
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    aws_session_token: str | None = None
+    endpoint_url: str | None = None
+    region: str | None = None
 
 
-@attrs.define
+@dataclass
 class S3Prefix(StoragePrefix):
     """Represents an S3 prefix (bucket and key).
 
@@ -84,7 +84,7 @@ class S3Prefix(StoragePrefix):
 
     """
 
-    def __attrs_post_init__(self) -> None:
+    def __post_init__(self) -> None:
         """Post init."""
         # Remove 's3://' prefix if present
         self._input = self._input.removeprefix("s3://")
@@ -348,7 +348,7 @@ class S3Client(StorageClient):
             chunk_size_bytes (int): The size of chunks to use for downloading.
 
         """
-        print(f"Syncing {s3_prefix} to {local_dir}")  # noqa: T201
+        print(f"Syncing {s3_prefix} to {local_dir}")
         local_dir_path = Path(local_dir)
         local_dir_path.mkdir(parents=True, exist_ok=True)
 

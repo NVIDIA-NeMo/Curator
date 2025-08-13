@@ -1,12 +1,12 @@
 
 from dataclasses import dataclass
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import FileGroupTask
-from ray_curator.tasks import _EmptyTask
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.utils.storage_utils import get_storage_client, read_json_file, get_files_relative
+
 from loguru import logger
+
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.tasks import FileGroupTask, _EmptyTask
+from ray_curator.utils.storage_utils import get_files_relative, get_storage_client, read_json_file
 
 
 @dataclass
@@ -23,7 +23,7 @@ class ClientPartitioningStage(FilePartitioningStage):
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         self.client_input = get_storage_client(self.file_paths, profile_name=self.input_s3_profile_name)
-    
+
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
         assert self.file_paths is not None
 
@@ -39,10 +39,10 @@ class ClientPartitioningStage(FilePartitioningStage):
         # FILTER BY LIMIT
         if self.limit is not None and self.limit > 0:
             inputs = inputs[:self.limit]
-        
+
         if self.files_per_partition is not None:
             inputs = self._partition_by_count(inputs, self.files_per_partition)
-        
+
         # Create FileGroupTasks for each partition
         tasks = []
         dataset_name = self.file_paths
@@ -60,7 +60,7 @@ class ClientPartitioningStage(FilePartitioningStage):
                 reader_config={},  # Empty - will be populated by reader stage
             )
             tasks.append(file_task)
-        
+
         return tasks
 
 def _read_list_json(

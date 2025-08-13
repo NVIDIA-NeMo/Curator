@@ -250,9 +250,8 @@ def get_full_path(path: str | StoragePrefix | pathlib.Path, *args: str) -> Stora
                 return _get_s3_prefix(path, *args)
         else:
             return _get_local_path(pathlib.Path(path), *args)
-    elif isinstance(path, StoragePrefix):
-        if isinstance(path, S3Prefix):
-            return _get_s3_prefix(path, *args)
+    elif isinstance(path, StoragePrefix) and isinstance(path, S3Prefix):
+        return _get_s3_prefix(path, *args)
     assert isinstance(path, pathlib.Path)
     return _get_local_path(path, *args)
 
