@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import SpeechObject, _EmptyTask
+from ray_curator.tasks import DocumentObject, _EmptyTask
 from ray_curator.utils.file_utils import download_file, extract_archive
 
 
@@ -31,7 +31,7 @@ def get_fleurs_url_list(lang: str, split: str) -> list[str]:
 
 
 @dataclass
-class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, SpeechObject]):
+class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DocumentObject]):
     """
     Stage to create initial manifest for the FLEURS dataset.
 
@@ -72,7 +72,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, SpeechObject]
     text_key: str = "text"
     _name: str = "CreateInitialManifestFleurs"
 
-    def process_transcript(self, file_path: str) -> list[SpeechObject]:
+    def process_transcript(self, file_path: str) -> list[DocumentObject]:
         """
         Parse transcript TSV file and put it inside manifest.
         Assumes the TSV file has two columns: file name and text.
@@ -93,7 +93,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, SpeechObject]
                 wav_file = os.path.join(root, file_name)
 
                 entry = {self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text}
-                speech_task = SpeechObject(
+                speech_task = DocumentObject(
                     task_id=f"task_id_{file_path}",
                     dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                     filepath_key=self.filepath_key,
@@ -129,6 +129,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, SpeechObject]
             os.remove(file_path)
             logger.info(f"File {file_name} already exists in {target_folder}, deleted from source.")
 
-    def process(self, _: _EmptyTask) -> list[SpeechObject]:
+    def process(self, _: _EmptyTask) -> list[DocumentObject]:
         self.download_extract_files(self.raw_data_dir)
         return self.process_transcript(os.path.join(self.raw_data_dir, self.split + "/" + self.split + ".tsv"))

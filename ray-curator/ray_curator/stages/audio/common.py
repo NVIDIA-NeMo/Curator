@@ -6,7 +6,7 @@ import soundfile
 from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import SpeechObject, Task
+from ray_curator.tasks import DocumentObject, Task
 
 
 class LegacySpeechStage(ProcessingStage[Task, Task]):
@@ -15,8 +15,8 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
 
     """
 
-    def process(self, task: SpeechObject) -> list[Task]:
-        if isinstance(task, SpeechObject):
+    def process(self, task: DocumentObject) -> list[Task]:
+        if isinstance(task, DocumentObject):
             return self.process_dataset_entry(task.data)
 
         elif isinstance(task, list):
@@ -28,7 +28,7 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
             raise TypeError(str(task))
 
     @abstractmethod
-    def process_dataset_entry(self, data_entry: SpeechObject) -> list[SpeechObject]:
+    def process_dataset_entry(self, data_entry: DocumentObject) -> list[DocumentObject]:
         return [data_entry]
 
 
@@ -49,7 +49,7 @@ class GetAudioDurationStage(LegacySpeechStage):
     audio_filepath_key: str
     duration_key: str
 
-    def process_dataset_entry(self, data_entry: SpeechObject) -> list[SpeechObject]:
+    def process_dataset_entry(self, data_entry: DocumentObject) -> list[DocumentObject]:
         audio_filepath = data_entry[self.audio_filepath_key]
         try:
             data, samplerate = soundfile.read(audio_filepath)
@@ -57,7 +57,7 @@ class GetAudioDurationStage(LegacySpeechStage):
         except soundfile.SoundFileError as e:
             logger.warning(str(e) + " file: " + audio_filepath)
             data_entry[self.duration_key] = -1.0
-        return [SpeechObject(data=data_entry)]
+        return [DocumentObject(data=data_entry)]
 
 
 class PreserveByValueStage(LegacySpeechStage):
@@ -98,10 +98,10 @@ class PreserveByValueStage(LegacySpeechStage):
             msg = 'Operator must be one from the list: "lt" (less than), "le" (less than or equal to), "eq" (equal to), "ne" (not equal to), "ge" (greater than or equal to), "gt" (greater than)'
             raise ValueError(msg)
 
-    def process_dataset_entry(self, data_entry: SpeechObject) -> list[SpeechObject]:
+    def process_dataset_entry(self, data_entry: DocumentObject) -> list[DocumentObject]:
         input_value = data_entry[self.input_value_key]
         target = self.target_value
         if self.operator(input_value, target):
-            return [SpeechObject(data=data_entry)]
+            return [DocumentObject(data=data_entry)]
         else:
             return []

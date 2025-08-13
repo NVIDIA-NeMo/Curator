@@ -6,11 +6,11 @@ import torch
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import DocumentBatch, FileGroupTask, SpeechObject
+from ray_curator.tasks import DocumentBatch, DocumentObject, FileGroupTask
 
 
 @dataclass
-class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | SpeechObject, SpeechObject]):
+class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | DocumentObject, DocumentObject]):
     """Stage that do speech recognition inference using NeMo model.
 
     Args:
@@ -75,7 +75,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
         outputs = self.asr_model.transcribe(files)
         return [output.text for output in outputs]
 
-    def process_batch(self, tasks: list[FileGroupTask | DocumentBatch | SpeechObject]) -> list[SpeechObject]:
+    def process_batch(self, tasks: list[FileGroupTask | DocumentBatch | DocumentObject]) -> list[DocumentObject]:
         """Process a audio task by reading audio file and do ASR inference.
 
 
@@ -92,7 +92,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
                 files.append(task.data[0])
             elif isinstance(task, DocumentBatch):
                 files.extend(list(task.data[self.filepath_key]))
-            elif isinstance(tasks[0], SpeechObject):
+            elif isinstance(task, DocumentObject):
                 files.append(task.data[self.filepath_key])
             else:
                 raise TypeError(str(task))
@@ -111,7 +111,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
             else:
                 item = {self.filepath_key: file_path, self.pred_text_key: text}
 
-            audio_task = SpeechObject(
+            audio_task = DocumentObject(
                 task_id=f"task_id_{file_path}",
                 dataset_name=f"{self.model_name}_inference",
                 filepath_key=self.filepath_key,
@@ -120,5 +120,5 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
             audio_tasks.append(audio_task)
         return audio_tasks
 
-    def process(self, task: FileGroupTask) -> list[SpeechObject]:
+    def process(self, task: FileGroupTask) -> list[DocumentObject]:
         pass
