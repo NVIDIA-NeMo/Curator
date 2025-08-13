@@ -11,22 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import re
-
-from nemo_curator.modifiers import DocumentModifier
-
-THREE_OR_MORE_NEWLINES_REGEX = re.compile(r"(\n){3,}")
-THREE_OR_MORE_WINDOWS_NEWLINES_REGEX = re.compile(r"(\r\n){3,}")
-
-
-class NewlineNormalizer(DocumentModifier):
-    """
-    Replaces 3 or more consecutive newline characters with only 2 newline characters.
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    def modify_document(self, text: str) -> str:
-        text = THREE_OR_MORE_NEWLINES_REGEX.sub("\n\n", text)
-        return THREE_OR_MORE_WINDOWS_NEWLINES_REGEX.sub("\r\n\r\n", text)

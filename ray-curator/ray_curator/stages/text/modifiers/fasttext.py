@@ -12,28 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from abc import ABC, abstractmethod
-from typing import Literal
+from ray_curator.stages.text.modifiers.doc_modifier import DocumentModifier
 
 
-class DocumentModifier(ABC):
-    def __init__(self):
+class FastTextLabelModifier(DocumentModifier):
+    def __init__(self, label: str):
         super().__init__()
-        self._name = self.__class__.__name__
-        self._sentences = None
-        self._paragraphs = None
-        self._ngrams = None
+        self.label = label
 
-    @abstractmethod
     def modify_document(self, text: str) -> str:
-        pass
-
-    @property
-    def backend(self) -> Literal["pandas", "cudf", "any"]:
-        """
-        The dataframe backend the modifier operates on.
-        Can be 'pandas', 'cudf', or 'any'. Defaults to 'pandas'.
-        Returns:
-            str: A string representing the dataframe backend the modifier needs as input
-        """
-        return "pandas"
+        text = text.replace("\n", " ").replace("__label__", " ")
+        return f"{self.label} {text}"
