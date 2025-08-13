@@ -47,8 +47,8 @@ from ray_curator.utils.storage_client import (
     is_storage_path,
 )
 
-S3_PROFILE_PATH = pathlib.Path(os.getenv("CURATOR_S3_PROFILE_PATH", "/dev/shm/s3_creds_file")) 
-S3_PROFILE_PATH = pathlib.Path("/home/aot/.aws/credentials")
+S3_PROFILE_PATH = pathlib.Path(os.getenv("S3_PROFILE_PATH", "~/.aws/credentials")) 
+# S3_PROFILE_PATH = pathlib.Path("/home/aot/.aws/credentials")
 
 @attrs.define
 class S3ClientConfig(BaseClientConfig):
@@ -611,7 +611,7 @@ def get_s3_client_config(
             can_overwrite=can_overwrite,
             can_delete=can_delete,
         )
-    error_msg = f"Not found S3 creds from {S3_PROFILE_PATH}"
+    error_msg = f"Not found S3 creds from {S3_PROFILE_PATH}, you can set the S3_PROFILE_PATH environment variable to the path of your S3 profile file."
     raise ValueError(error_msg)
 
 

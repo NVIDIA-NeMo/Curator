@@ -85,7 +85,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             msg = f"Expected 1 file, got {len(files)}"
             raise ValueError(msg)
         
-        breakpoint()
         if self.storage_client is None:
             # We assume that the file_path is local if we cannot initialize the storage client
             file_path = Path(files[0])
@@ -137,10 +136,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
 
         try:
             if self.storage_client is not None:
-                logger.info(f"****Reading video bytes from S3: {video.input_video}")
                 video.source_bytes = storage_utils.read_bytes(video.input_video, self.storage_client)
-                logger.info(f"****Done Reading video bytes from S3: {video.input_video}")
-                breakpoint()
+                size_mb = len(video.source_bytes) / (1024 * 1024)
+                logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
 
             elif isinstance(video.input_video, pathlib.Path):
                 with video.input_video.open("rb") as fp:
