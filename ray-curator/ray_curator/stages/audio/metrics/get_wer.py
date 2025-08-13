@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import editdistance
 
-from ray_curator.stages.audio.io.common import LegacySpeechStage
+from ray_curator.stages.audio.common import LegacySpeechStage
 from ray_curator.tasks import SpeechObject
 
 

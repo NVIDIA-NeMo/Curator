@@ -1,10 +1,7 @@
-import time
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 import nemo.collections.asr as nemo_asr
 import torch
-from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -27,8 +24,6 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
     name: str = "ASR_inference"
-    _start_time = time.time()
-    _metrics: ClassVar[dict] = {}
     _batch_size: int = 16
     _resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
@@ -124,13 +119,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Spee
                 data=item,
             )
             audio_tasks.append(audio_task)
-        self.finalize()
         return audio_tasks
 
     def process(self, task: FileGroupTask) -> list[SpeechObject]:
         pass
-
-    def finalize(self) -> None:
-        elapsed = time.time() - self._start_time
-        logger.info(f"Stage {self.name} completed in {elapsed:.2f} seconds.")
-        self._metrics["elapsed"] = elapsed

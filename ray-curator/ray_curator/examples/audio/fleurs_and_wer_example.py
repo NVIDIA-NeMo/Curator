@@ -6,9 +6,9 @@ from omegaconf import OmegaConf
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
+from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from ray_curator.stages.audio.io.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from ray_curator.stages.resources import Resources
 
