@@ -672,7 +672,7 @@ class TokenCountFilter(DocumentFilter):
             msg = "Either tokenizer or hf_model_name must be provided, not both"
             raise ValueError(msg)
 
-        self._tokenizer = tokenizer
+        self._token_count_filter_tokenizer = tokenizer
         self._hf_model_name = hf_model_name
         self._hf_token = hf_token
         self._min_tokens = min_tokens
@@ -691,10 +691,12 @@ class TokenCountFilter(DocumentFilter):
 
     def load_tokenizer(self) -> None:
         if self._hf_model_name is not None:
-            self._tokenizer = AutoTokenizer.from_pretrained(self._hf_model_name, local_files_only=True)
+            self._token_count_filter_tokenizer = AutoTokenizer.from_pretrained(
+                self._hf_model_name, local_files_only=True
+            )
 
     def score_document(self, text: str) -> int:
-        tokens = self._tokenizer.encode(text)
+        tokens = self._token_count_filter_tokenizer.encode(text)
         return len(tokens)
 
     def keep_document(self, score: int) -> bool:
