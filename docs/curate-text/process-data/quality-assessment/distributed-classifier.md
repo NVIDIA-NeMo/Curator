@@ -15,20 +15,18 @@ NVIDIA NeMo Curator provides a module for performing distributed classification 
 
 ## How It Works
 
-The distributed data classification in NeMo Curator works by:
+Classification pipelines are built from `ray_curator` stages and executed with a distributed executor:
 
-1. **Parallel Processing**: Chunking datasets across multiple computing nodes and GPUs to accelerate classification
-2. **Pre-trained Models**: Using specialized models for different classification tasks
-3. **Batched Inference**: Optimizing throughput with intelligent batching via CrossFit integration
-4. **Consistent API**: Providing a unified interface through the `DistributedDataClassifier` base class
-
-The `DistributedDataClassifier` is designed to run on GPU clusters with minimal code changes regardless of which specific classifier you're using. All classifiers support filtering based on classification results and storing prediction scores as metadata.
+- Parallelize with `XennaExecutor` or other backends
+- Use pre-trained HF models via `DistributedDataClassifier` subclasses
+- Tokenize once with `TokenizerStage` and run batched model inference
+- Optionally filter results in the same composite stage
 
 ---
 
 ## Usage
 
-NVIDIA NeMo Curator provides a base class `DistributedDataClassifier` that can be extended to fit your specific model. The only requirement is that the model can fit on a single GPU. This module operates on the GPU, so the Dask cluster must be started as a GPU cluster, and `DocumentDataset` requires `backend="cudf"`.
+Use the built-in classifier stages; models must fit in a single GPU. Run with a distributed executor.
 
 ### Classifier Comparison
 
@@ -50,18 +48,18 @@ NVIDIA NeMo Curator provides a base class `DistributedDataClassifier` that can b
 The Domain Classifier categorizes English text documents into specific domains or subject areas.
 
 ```python
-from nemo_curator.classifiers import DomainClassifier
-from nemo_curator.datasets import DocumentDataset
+from ray_curator.pipeline.pipeline import Pipeline
+from ray_curator.backends.xenna.executor import XennaExecutor
+from ray_curator.stages.text.io.reader.jsonl import JsonlReader
+from ray_curator.stages.text.classifiers.domain import DomainClassifier
+from ray_curator.stages.text.io.writer.jsonl import JsonlWriter
 
-# Load your dataset with cuDF backend
-input_dataset = DocumentDataset.read_json("books_dataset/*.jsonl", backend="cudf")
+pipeline = Pipeline(name="domain_classification")
+pipeline.add_stage(JsonlReader(file_paths="books_dataset/*.jsonl"))
+pipeline.add_stage(DomainClassifier(filter_by=["Games", "Sports"]))
+pipeline.add_stage(JsonlWriter(output_dir="games_and_sports/"))
 
-# Apply the classifier, filtering for specific domains
-domain_classifier = DomainClassifier(filter_by=["Games", "Sports"])
-result_dataset = domain_classifier(dataset=input_dataset)
-
-# Save the results
-result_dataset.to_json("games_and_sports/")
+XennaExecutor().run(stages=pipeline._stages)  # or pipeline.run(XennaExecutor())
 ```
 
 ### Multilingual Domain Classifier
@@ -69,11 +67,13 @@ result_dataset.to_json("games_and_sports/")
 Functionally similar to the Domain Classifier, but supports 52 languages.
 
 ```python
-from nemo_curator.classifiers import MultilingualDomainClassifier
+from ray_curator.stages.text.classifiers.domain import MultilingualDomainClassifier
 
-input_dataset = DocumentDataset.read_json("multilingual_dataset/*.jsonl", backend="cudf")
-classifier = MultilingualDomainClassifier(filter_by=["Games", "Sports"])
-result_dataset = classifier(dataset=input_dataset)
+pipeline = Pipeline(name="multilingual_domain")
+pipeline.add_stage(JsonlReader(file_paths="multilingual_dataset/*.jsonl"))
+pipeline.add_stage(MultilingualDomainClassifier(filter_by=["Games", "Sports"]))
+pipeline.add_stage(JsonlWriter(output_dir="multilingual_domains/"))
+pipeline.run(XennaExecutor())
 ```
 
 ### Quality Classifier
@@ -81,11 +81,13 @@ result_dataset = classifier(dataset=input_dataset)
 The Quality Classifier assesses document quality on a scale from Low to High.
 
 ```python
-from nemo_curator.classifiers import QualityClassifier
+from ray_curator.stages.text.classifiers.quality import QualityClassifier
 
-input_dataset = DocumentDataset.read_json("web_documents/*.jsonl", backend="cudf")
-quality_classifier = QualityClassifier(filter_by=["High", "Medium"])
-result_dataset = quality_classifier(dataset=input_dataset)
+pipeline = Pipeline(name="quality_classifier")
+pipeline.add_stage(JsonlReader(file_paths="web_documents/*.jsonl"))
+pipeline.add_stage(QualityClassifier(filter_by=["High", "Medium"]))
+pipeline.add_stage(JsonlWriter(output_dir="quality_medium_plus/"))
+pipeline.run(XennaExecutor())
 ```
 
 ### AEGIS Safety Model
@@ -93,17 +95,18 @@ result_dataset = quality_classifier(dataset=input_dataset)
 The AEGIS classifier detects unsafe content across 13 critical risk categories. It requires a HuggingFace token for access to Llama Guard.
 
 ```python
-from nemo_curator.classifiers import AegisClassifier
-
-input_dataset = DocumentDataset.read_json("content/*.jsonl", backend="cudf")
+from ray_curator.stages.text.classifiers.aegis import AegisClassifier
 
 token = "hf_1234"  # Your HuggingFace user access token
-safety_classifier = AegisClassifier(
+pipeline = Pipeline(name="aegis")
+pipeline.add_stage(JsonlReader(file_paths="content/*.jsonl"))
+pipeline.add_stage(AegisClassifier(
     aegis_variant="nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0",
     token=token,
-    filter_by=["safe", "O13"]  # Keep only safe content and "needs caution" category
-)
-result_dataset = safety_classifier(dataset=input_dataset)
+    filter_by=["safe", "O13"],
+))
+pipeline.add_stage(JsonlWriter(output_dir="safe_and_O13/"))
+pipeline.run(XennaExecutor())
 ```
 
 The classifier adds a column with labels: "safe," "O1" through "O13" (each representing specific safety risks), or "unknown." For raw LLM output, use:
@@ -122,14 +125,14 @@ safety_classifier = AegisClassifier(
 Detects LLM poisoning attacks in instruction-response datasets. Requires HuggingFace token access.
 
 ```python
-from nemo_curator.classifiers import InstructionDataGuardClassifier
-
-# For instruction-response data: "Instruction: {instruction}. Input: {input_}. Response: {response}."
-input_dataset = DocumentDataset.read_json("instruction_data/*.jsonl", backend="cudf")
+from ray_curator.stages.text.classifiers.aegis import InstructionDataGuardClassifier
 
 token = "hf_1234"  # Your HuggingFace user access token
-classifier = InstructionDataGuardClassifier(token=token)
-result_dataset = classifier(dataset=input_dataset)
+pipeline = Pipeline(name="instruction_data_guard")
+pipeline.add_stage(JsonlReader(file_paths="instruction_data/*.jsonl"))
+pipeline.add_stage(InstructionDataGuardClassifier(token=token))
+pipeline.add_stage(JsonlWriter(output_dir="guard_scores/"))
+pipeline.run(XennaExecutor())
 ```
 
 The output includes two columns: a float score `instruction_data_guard_poisoning_score` and a Boolean `is_poisoned`.
@@ -139,18 +142,17 @@ The output includes two columns: a float score `instruction_data_guard_poisoning
 Scores documents on educational value from 0–5. This helps prioritize content for knowledge-intensive tasks.
 
 ```python
-from nemo_curator.classifiers import FineWebEduClassifier
+from ray_curator.stages.text.classifiers.fineweb_edu import FineWebEduClassifier
 
-input_dataset = DocumentDataset.read_json("web_documents/*.jsonl", backend="cudf")
-edu_classifier = FineWebEduClassifier(
-    batch_size=256,
-    pred_column="fineweb-edu-score",     # Raw float scores
-    int_column="fineweb-edu-score-int"   # Rounded integer scores
-)
-result_dataset = edu_classifier(dataset=input_dataset)
-
-# Extract highly educational content (scores 4-5)
-high_edu_dataset = result_dataset[result_dataset["fineweb-edu-score-int"] >= 4]
+pipeline = Pipeline(name="fineweb_edu")
+pipeline.add_stage(JsonlReader(file_paths="web_documents/*.jsonl"))
+pipeline.add_stage(FineWebEduClassifier(
+    model_inference_batch_size=256,
+    pred_column="fineweb-edu-score-float",
+    int_score_column="fineweb-edu-score-int",
+))
+pipeline.add_stage(JsonlWriter(output_dir="fineweb_scores/"))
+pipeline.run(XennaExecutor())
 ```
 
 ### FineWeb Mixtral and Nemotron Edu Classifiers
@@ -163,14 +165,16 @@ Similar to the FineWeb Edu Classifier but trained with different annotation sour
 Both provide a quality label column marking scores above 2.5 as "high_quality":
 
 ```python
-from nemo_curator.classifiers import FineWebMixtralEduClassifier  # or FineWebNemotronEduClassifier
-
-classifier = FineWebMixtralEduClassifier(
-    pred_column="score",                 # Raw float scores
-    int_column="score-int",              # Rounded integer scores
-    quality_label_column="quality-label" # "high_quality" or "low_quality"
+from ray_curator.stages.text.classifiers.fineweb_edu import (
+    FineWebMixtralEduClassifier,
+    FineWebNemotronEduClassifier,
 )
-result_dataset = classifier(dataset=input_dataset)
+
+pipeline = Pipeline(name="fineweb_mixtral")
+pipeline.add_stage(JsonlReader(file_paths="web_documents/*.jsonl"))
+pipeline.add_stage(FineWebMixtralEduClassifier())
+pipeline.add_stage(JsonlWriter(output_dir="fineweb_mixtral/"))
+pipeline.run(XennaExecutor())
 ```
 
 ### Content Type Classifier
@@ -178,11 +182,13 @@ result_dataset = classifier(dataset=input_dataset)
 Categorizes documents into 11 distinct speech types.
 
 ```python
-from nemo_curator.classifiers import ContentTypeClassifier
+from ray_curator.stages.text.classifiers.content_type import ContentTypeClassifier
 
-input_dataset = DocumentDataset.read_json("content/*.jsonl", backend="cudf")
-classifier = ContentTypeClassifier(filter_by=["Blogs", "News"])
-result_dataset = classifier(dataset=input_dataset)
+pipeline = Pipeline(name="content_type")
+pipeline.add_stage(JsonlReader(file_paths="content/*.jsonl"))
+pipeline.add_stage(ContentTypeClassifier(filter_by=["Blogs", "News"]))
+pipeline.add_stage(JsonlWriter(output_dir="blogs_or_news/"))
+pipeline.run(XennaExecutor())
 ```
 
 ### Prompt Task and Complexity Classifier
@@ -190,28 +196,17 @@ result_dataset = classifier(dataset=input_dataset)
 Classifies prompts by task type and complexity dimensions.
 
 ```python
-from nemo_curator.classifiers import PromptTaskComplexityClassifier
+from ray_curator.stages.text.classifiers.prompt_task_complexity import (
+    PromptTaskComplexityClassifier,
+)
 
-input_dataset = DocumentDataset.read_json("prompts/*.jsonl", backend="cudf")
-classifier = PromptTaskComplexityClassifier()
-result_dataset = classifier(dataset=input_dataset)
+pipeline = Pipeline(name="prompt_task_and_complexity")
+pipeline.add_stage(JsonlReader(file_paths="prompts/*.jsonl"))
+pipeline.add_stage(PromptTaskComplexityClassifier())
+pipeline.add_stage(JsonlWriter(output_dir="prompt_task_complexity/"))
+pipeline.run(XennaExecutor())
 ```
 
-## CrossFit Integration
+## Execution Backends
 
-CrossFit is an open-source library by RAPIDS AI for fast offline inference scaled to multi-node multi-GPU environments. It accelerates NVIDIA NeMo Curator's classifiers with:
-
-- PyTorch integration for model inference
-- Efficient I/O and tokenization with cuDF
-- Smart batching/chunking for optimized processing
-- 1.4x-4x performance improvement over Dask + PyTorch baselines
-
-### Sorted Sequence Data Loader
-
-The key feature of CrossFit used in NVIDIA NeMo Curator is the sorted sequence data loader, which optimizes throughput by:
-
-- Sorting input sequences by length
-- Grouping similar-length sequences into batches
-- Efficiently allocating batches to GPU memory based on estimated memory footprints
-
-See the [rapidsai/crossfit](https://github.com/rapidsai/crossfit) repository for more information. 
+Pipelines can run on different executors. The `XennaExecutor` schedules stages with declared `Resources` over available nodes/GPUs. See `ray_curator.backends.xenna` for details.
