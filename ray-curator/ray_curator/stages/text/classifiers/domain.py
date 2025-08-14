@@ -57,8 +57,6 @@ class DomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)
-
         super().__init__(
             model_identifier=DOMAIN_MODEL_IDENTIFIER,
             pred_column=pred_column,
@@ -72,6 +70,8 @@ class DomainClassifier(DistributedDataClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
+
+        self._name = format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)
 
 
 class MultilingualDomainClassifier(DistributedDataClassifier):
@@ -106,8 +106,6 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)
-
         super().__init__(
             model_identifier=MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER,
             pred_column=pred_column,
@@ -121,3 +119,5 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
+
+        self._name = format_name_with_suffix(MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)

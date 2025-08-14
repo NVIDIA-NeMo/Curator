@@ -260,7 +260,7 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
         filter_stage = stages[2]
         filtered_batch = filter_stage.process(result_batch)
         # All samples were filtered out
-        assert filtered_batch is None
+        assert len(filtered_batch.to_pandas()) == 0
 
 
 @pytest.mark.gpu
