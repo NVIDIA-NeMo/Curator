@@ -2,7 +2,7 @@ import os
 from operator import le
 
 from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.examples.audio.fleurs_and_wer_example import TranscriptionConfig, create_audio_pipeline
+from ray_curator.examples.audio.fleurs_and_wer import TranscriptionConfig, create_audio_pipeline
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -27,6 +27,7 @@ class TestFleursWer:
     def test_main_runs_pipeline(self):
         cfg = TranscriptionConfig(
             raw_data_dir=os.path.join(self.test_data_root, "armenian/fleurs"),
+            output_manifest_file=os.path.join(self.test_data_root, "armenian/fleurs", "test_data.json"),
             model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc",
             lang="hy_am",
             split="dev",
@@ -42,7 +43,7 @@ class TestFleursWer:
         assert "Inference audio" in pipeline.description
 
         # Check number of stages
-        assert len(pipeline.stages) == 5  # We know there should be exactly 5 stages
+        assert len(pipeline.stages) == 6  # We know there should be exactly 6 stages
 
         # Check individual stages are of the expected type
         assert isinstance(pipeline.stages[0], CreateInitialManifestFleursStage)

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import DocumentBatch, DocumentObject
 
@@ -38,7 +39,9 @@ class WriteJsonlStage(ProcessingStage[DocumentObject, DocumentObject]):
     ensure_ascii: bool = False
     encoding: str = "utf8"
 
-    def setup_on_node(self) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         Path(self.output_manifest_file).parent.mkdir(parents=True, exist_ok=True)
         open(self.output_manifest_file, "w").close()
 

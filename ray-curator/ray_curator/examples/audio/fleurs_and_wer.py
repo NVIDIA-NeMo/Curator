@@ -9,6 +9,7 @@ from ray_curator.pipeline import Pipeline
 from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
+from ray_curator.stages.audio.io.write_jsonl import WriteJsonlStage
 from ray_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from ray_curator.stages.resources import Resources
 
@@ -21,6 +22,7 @@ class TranscriptionConfig:
 
     # Required configs
     raw_data_dir: str  # path to store processed data
+    output_manifest_file: str  # path to output jsonl file
     model_name: str = "nvidia/stt_hy_fastconformer_hybrid_large_pc"  # NeMo model name
     lang: str = "hy_am"
     split: str = "dev"
@@ -46,6 +48,7 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
+    pipeline.add_stage(WriteJsonlStage(output_manifest_file=args.output_manifest_file))
     return pipeline
 
 
