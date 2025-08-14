@@ -97,7 +97,6 @@ extra-index-urls = ["https://pypi.nvidia.com"]
 
 [tool.pixi.dependencies]
 python = "3.12.*"
-ffmpeg = "*"  # Add FFmpeg from conda-forge
 
 [tool.pixi.environments]
 default = ["all"]
