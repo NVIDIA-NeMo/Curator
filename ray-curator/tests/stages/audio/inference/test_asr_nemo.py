@@ -4,7 +4,7 @@ import os
 from unittest.mock import patch
 
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from ray_curator.tasks import DocumentObject
+from ray_curator.tasks import DataObject
 
 
 def get_e2e_test_data_path() -> str:
@@ -48,8 +48,8 @@ class TestAsrNeMoStage:
             stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
 
             path_list = [
-                DocumentObject(data={"audio_filepath": "/test/audio1.wav"}),
-                DocumentObject(data={"audio_filepath": "/test/audio2.mp3"}),
+                DataObject(data={"audio_filepath": "/test/audio1.wav"}),
+                DataObject(data={"audio_filepath": "/test/audio2.mp3"}),
             ]
 
             stage.setup_on_node()
@@ -57,7 +57,7 @@ class TestAsrNeMoStage:
             result = stage.process_batch(path_list)
 
             assert len(result) == 2
-            assert all(isinstance(task, DocumentObject) for task in result)
+            assert all(isinstance(task, DataObject) for task in result)
             assert result[0].task_id == "task_id_/test/audio1.wav"
             assert result[1].task_id == "task_id_/test/audio2.mp3"
             assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"

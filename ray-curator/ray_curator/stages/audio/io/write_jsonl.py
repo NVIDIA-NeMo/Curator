@@ -6,16 +6,16 @@ import pandas as pd
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DocumentBatch, DocumentObject
+from ray_curator.tasks import DataObject, DocumentBatch
 
 
-class ObjectToBatchStage(ProcessingStage[DocumentObject, DocumentBatch]):
+class ObjectToBatchStage(ProcessingStage[DataObject, DocumentBatch]):
     """
     Stage to conver DocumentObject to DocumentBatch
 
     """
 
-    def process_batch(self, tasks: list[DocumentObject]) -> list[DocumentBatch]:
+    def process_batch(self, tasks: list[DataObject]) -> list[DocumentBatch]:
         return [
             DocumentBatch(
                 data=pd.DataFrame([task.data for task in tasks]),
@@ -24,12 +24,12 @@ class ObjectToBatchStage(ProcessingStage[DocumentObject, DocumentBatch]):
             )
         ]
 
-    def process(self, _: DocumentObject) -> None:
+    def process(self, _: DataObject) -> None:
         pass
 
 
 @dataclass
-class WriteJsonlStage(ProcessingStage[DocumentObject, DocumentObject]):
+class WriteJsonlStage(ProcessingStage[DataObject, DataObject]):
     """
     Stage for saving tasks as a one JSONL file.
 
@@ -45,7 +45,7 @@ class WriteJsonlStage(ProcessingStage[DocumentObject, DocumentObject]):
         Path(self.output_manifest_file).parent.mkdir(parents=True, exist_ok=True)
         open(self.output_manifest_file, "w").close()
 
-    def process(self, tasks: DocumentObject) -> DocumentObject:
+    def process(self, tasks: DataObject) -> DataObject:
         with open(self.output_manifest_file, "a", encoding=self.encoding) as f:
             f.write(json.dumps(tasks.data, ensure_ascii=self.ensure_ascii) + "\n")
         return tasks

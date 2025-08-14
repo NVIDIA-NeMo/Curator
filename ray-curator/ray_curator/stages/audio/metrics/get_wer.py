@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import editdistance
 
 from ray_curator.stages.audio.common import LegacySpeechStage
-from ray_curator.tasks import DocumentObject
+from ray_curator.tasks import DataObject
 
 
 def get_wer(text: str, pred_text: str) -> float:
@@ -52,7 +52,7 @@ class GetPairwiseWerStage(LegacySpeechStage):
     pred_text_key: str = "pred_text"
     wer_key: str = "wer"
 
-    def process_dataset_entry(self, data_entry: DocumentObject) -> list[DocumentObject]:
+    def process_dataset_entry(self, data_entry: DataObject) -> list[DataObject]:
         wer = get_wer(data_entry[self.text_key], data_entry[self.pred_text_key])
         data_entry[self.wer_key] = wer
-        return [DocumentObject(data=data_entry)]
+        return [DataObject(data=data_entry)]

@@ -7,7 +7,7 @@ from .tasks import Task
 
 
 @dataclass
-class DocumentObject(Task[dict]):
+class DataObject(Task[dict]):
     """A wrapper for data entry + any additional metrics."""
 
     def __init__(

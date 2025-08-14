@@ -1,12 +1,12 @@
-from .audio import DocumentObject
+from .audio import DataObject
 from .document import DocumentBatch
 from .file_group import FileGroupTask
 from .image import ImageBatch, ImageObject
 from .tasks import EmptyTask, Task, _EmptyTask
 
 __all__ = [
+    "DataObject",
     "DocumentBatch",
-    "DocumentObject",
     "EmptyTask",
     "FileGroupTask",
     "ImageBatch",
