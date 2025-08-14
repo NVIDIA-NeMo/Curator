@@ -64,10 +64,37 @@ FROM cuda AS nemo_curator
 
 WORKDIR /opt
 
+# Install video dependency
 RUN apt-get update && apt-get install -y ca-certificates git \
+    libcrypt-dev \
+    autoconf \
+    automake \
+    build-essential \
+    cmake \
+    libaom-dev \
+    libass-dev \
+    libdav1d-dev \
+    libdrm-dev \
+    libfreetype6-dev \
+    libgnutls28-dev \
+    libnuma-dev \
+    libopenh264-dev \
+    libtool \
+    libva-dev \
+    libvorbis-dev \
+    libvpx-dev \
+    libwebp-dev \
+    pkg-config \
+    texinfo \
+    vainfo \
+    yasm \
+    zlib1g-dev \    
     && rm -rf /var/lib/apt/lists/*
 
-COPY . .
+# Install ffmpeg
+COPY ray-curator/docker/common/install_ffmpeg.sh .
+RUN install_ffmpeg.sh --FFMPEG_VERSION=7.0.1 --NVCODEC_VERSION=12.1.14.0 && \
+    rm install_ffmpeg.sh
 
 # Copy pixi environment
 COPY --from=build /opt/.pixi/envs /opt/.pixi/envs

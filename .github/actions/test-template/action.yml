@@ -131,7 +131,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f ray-curator/Dockerfile -t ray-curator .
+        docker build -f ray-curator/docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
