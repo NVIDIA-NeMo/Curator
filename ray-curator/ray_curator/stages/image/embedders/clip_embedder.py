@@ -1,8 +1,8 @@
 from collections.abc import Generator
 from dataclasses import dataclass
 
-from loguru import logger
 import torch
+from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.clip import CLIPImageEmbeddings
