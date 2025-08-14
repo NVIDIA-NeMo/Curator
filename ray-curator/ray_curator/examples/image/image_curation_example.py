@@ -35,7 +35,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.embedding_gpus_per_worker,
-        model_batch_size=args.embedding_batch_size,
+        model_inference_batch_size=args.embedding_batch_size,
         verbose=args.verbose,
     ))
 
@@ -43,7 +43,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(ImageAestheticFilterStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-        model_batch_size=args.aesthetic_batch_size,
+        model_inference_batch_size=args.aesthetic_batch_size,
         score_threshold=args.aesthetic_threshold,
         verbose=args.verbose,
     ))
@@ -52,7 +52,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(ImageNSFWFilterStage(
         model_dir=args.model_dir,
         num_gpus_per_worker=args.nsfw_gpus_per_worker,
-        model_batch_size=args.nsfw_batch_size,
+        model_inference_batch_size=args.nsfw_batch_size,
         score_threshold=args.nsfw_threshold,
         verbose=args.verbose,
     ))
@@ -140,7 +140,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--input-parquet",
         type=str,
-        required=True,
+        required=False,
+        default=None,
         help="Path to input parquet file containing image URLs and metadata"
     )
     parser.add_argument(
