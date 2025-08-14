@@ -8,19 +8,12 @@ from .tasks import Task
 
 @dataclass
 class DataObject(Task[dict]):
-    """A single data entry with filepath check."""
+    """A single data dict with filepath check."""
 
-    def __init__(
-        self,
-        data: dict | None = None,
-        filepath_key: str | None = None,
-        dataset_name: str = "",
-        task_id: int = 0,
-        **kwargs,
-    ):
-        self.data = data  # data can be None to drop the entry
-        self.filepath_key = filepath_key
-        super().__init__(data=data, task_id=task_id, dataset_name=dataset_name, **kwargs)
+    data: dict | None = None
+    filepath_key: str | None = None
+    task_id: str = ""
+    dataset_name: str = ""
 
     @property
     def num_items(self) -> int:
