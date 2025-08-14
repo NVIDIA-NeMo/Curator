@@ -13,6 +13,7 @@
 # limitations under the License.
 
 #!/bin/bash
+set -xeuo pipefail # Exit immediately if a command exits with a non-zero status
 
 FFMPEG_VERSION=7.0.1
 NVCODEC_VERSION=12.1.14.0
