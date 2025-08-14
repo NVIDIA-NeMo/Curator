@@ -88,6 +88,9 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
         """
         files = []
         for task in tasks:
+            if not self.validate_input(task):
+                msg = f"Task {task!s} failed validation for stage {self}"
+                raise ValueError(msg)
             if isinstance(task, FileGroupTask):
                 files.append(task.data[0])
             elif isinstance(task, DocumentBatch):
