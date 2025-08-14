@@ -93,7 +93,7 @@ RUN apt-get update && apt-get install -y ca-certificates git \
 
 # Install ffmpeg
 COPY ray-curator/docker/common/install_ffmpeg.sh .
-RUN install_ffmpeg.sh --FFMPEG_VERSION=7.0.1 --NVCODEC_VERSION=12.1.14.0 && \
+RUN bash install_ffmpeg.sh --FFMPEG_VERSION=7.0.1 --NVCODEC_VERSION=12.1.14.0 && \
     rm install_ffmpeg.sh
 
 # Copy pixi environment
