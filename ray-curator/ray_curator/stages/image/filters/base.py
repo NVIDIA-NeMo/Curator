@@ -1,10 +1,6 @@
 from collections.abc import Generator
 from dataclasses import dataclass
 
-import numpy as np
-import torch
-from loguru import logger
-
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
