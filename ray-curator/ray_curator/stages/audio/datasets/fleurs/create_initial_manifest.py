@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import DataObject, _EmptyTask
 from ray_curator.utils.file_utils import download_file, extract_archive
@@ -129,6 +130,10 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
             os.remove(file_path)
             logger.info(f"File {file_name} already exists in {target_folder}, deleted from source.")
 
-    def process(self, _: _EmptyTask) -> list[DataObject]:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         self.download_extract_files(self.raw_data_dir)
+
+    def process(self, _: _EmptyTask) -> list[DataObject]:
         return self.process_transcript(os.path.join(self.raw_data_dir, self.split + "/" + self.split + ".tsv"))
