@@ -18,7 +18,7 @@ class TestImageEmbeddingStage:
         """Create a test stage instance."""
         return ImageEmbeddingStage(
             model_dir="test_models/clip",
-            model_batch_size=2,
+            model_inference_batch_size=2,
             verbose=True
         )
 
@@ -140,8 +140,8 @@ class TestImageEmbeddingStage:
         self, mock_processor: Mock, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage, mock_model: Mock
     ) -> None:
         """Test that large batches are processed in smaller chunks."""
-        # Create stage with model_batch_size=2
-        stage = ImageEmbeddingStage(model_batch_size=2)
+        # Create stage with model_inference_batch_size=2
+        stage = ImageEmbeddingStage(model_inference_batch_size=2)
         mock_clip_embeddings.return_value = mock_model
 
         # Mock the processor
@@ -256,20 +256,20 @@ class TestImageEmbeddingStage:
         mock_processor_instance = Mock()
         mock_processor.return_value = mock_processor_instance
 
-        # Test with model_batch_size=1
-        small_stage = ImageEmbeddingStage(model_batch_size=1)
+        # Test with model_inference_batch_size=1
+        small_stage = ImageEmbeddingStage(model_inference_batch_size=1)
         small_stage.setup()
 
-        # Test with model_batch_size=10 (larger than input)
-        large_stage = ImageEmbeddingStage(model_batch_size=10)
+        # Test with model_inference_batch_size=10 (larger than input)
+        large_stage = ImageEmbeddingStage(model_inference_batch_size=10)
         large_stage.setup()
 
         # Mock processor and model returns for different batch sizes
         mock_processor_instance.return_value = {"pixel_values": torch.randn(4, 3, 224, 224)}
 
-        # For small stage (model_batch_size=1), it will be called 4 times with 1 embedding each
+        # For small stage (model_inference_batch_size=1), it will be called 4 times with 1 embedding each
         small_stage.model.return_value = torch.randn(1, 512)
-        # For large stage (model_batch_size=10), it will be called 1 time with 4 embeddings
+        # For large stage (model_inference_batch_size=10), it will be called 1 time with 4 embeddings
         large_stage.model.return_value = torch.randn(4, 512)
 
         # Process with small batches (should call model 4 times)
@@ -294,7 +294,7 @@ class TestImageEmbeddingStage:
         # Mock the CLIPImageEmbeddings model to return fixed embeddings
         mock_model_instance = Mock()
         # Return fixed embeddings for consistent testing
-        mock_model_instance.return_value = torch.ones(2, 512)  # model_batch_size=2, embedding_dim=512
+        mock_model_instance.return_value = torch.ones(2, 512)  # model_inference_batch_size=2, embedding_dim=512
         mock_clip_embeddings.return_value = mock_model_instance
 
         stage.setup()

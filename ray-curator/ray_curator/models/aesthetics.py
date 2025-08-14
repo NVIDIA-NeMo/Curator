@@ -62,7 +62,8 @@ class AestheticScorer(ModelInterface):
     def __init__(self, model_dir: str) -> None:
         """Initialize the aesthetic scorer interface."""
         super().__init__()
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Use explicit CUDA device index for consistency with tests
+        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float32
         self.model_dir = model_dir
         # These will be initialized in setup()

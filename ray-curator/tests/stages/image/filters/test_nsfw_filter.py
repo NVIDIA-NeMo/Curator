@@ -19,7 +19,7 @@ class TestImageNSFWFilterStage:
         return ImageNSFWFilterStage(
             model_dir="test_models/nsfw",
             score_threshold=0.5,
-            model_batch_size=2
+            model_inference_batch_size=2
         )
 
     @pytest.fixture
@@ -105,7 +105,7 @@ class TestImageNSFWFilterStage:
 
         stage.setup()
 
-        # With model_batch_size=2, we'll have 2 calls: [img1, img2] and [img3, img4]
+        # With model_inference_batch_size=2, we'll have 2 calls: [img1, img2] and [img3, img4]
         # First batch gets scores [0.3, 0.7], second batch gets [0.2, 0.8]
         # NSFW filter keeps images with scores < threshold (0.5)
         # So keep img1 (0.3), img3 (0.2), filter out img2 (0.7), img4 (0.8)
@@ -169,13 +169,13 @@ class TestImageNSFWFilterStage:
             mock_nsfw_scorer.return_value = mock_model
 
             # Test with strict threshold (0.3) - only first image should pass
-            strict_stage = ImageNSFWFilterStage(score_threshold=0.3, model_batch_size=4)
+            strict_stage = ImageNSFWFilterStage(score_threshold=0.3, model_inference_batch_size=4)
             strict_stage.setup()
             strict_result = strict_stage.process(sample_image_batch)
             assert len(strict_result.data) == 1
 
             # Test with lenient threshold (0.9) - all images should pass
-            lenient_stage = ImageNSFWFilterStage(score_threshold=0.9, model_batch_size=4)
+            lenient_stage = ImageNSFWFilterStage(score_threshold=0.9, model_inference_batch_size=4)
             lenient_stage.setup()
             lenient_stage.model = mock_model
             lenient_result = lenient_stage.process(sample_image_batch)
@@ -194,7 +194,7 @@ class TestImageNSFWFilterStage:
         stage = ImageNSFWFilterStage(
             model_dir="test_models/nsfw",
             score_threshold=0.5,
-            model_batch_size=2
+            model_inference_batch_size=2
         )
         stage.setup()
 
@@ -224,7 +224,7 @@ class TestImageNSFWFilterStage:
         stage = ImageNSFWFilterStage(
             model_dir="test_models/nsfw",
             score_threshold=0.5,
-            model_batch_size=2
+            model_inference_batch_size=2
         )
         stage.setup()
 
@@ -253,7 +253,7 @@ class TestImageNSFWFilterStage:
         stage = ImageNSFWFilterStage(
             model_dir="test_models/nsfw",
             score_threshold=0.5,
-            model_batch_size=2
+            model_inference_batch_size=2
         )
         stage.setup()
 
@@ -280,7 +280,7 @@ class TestImageNSFWFilterStage:
         mock_nsfw_scorer.return_value = mock_model
 
         # Test with model_batch_size=1 (process one image at a time)
-        single_stage = ImageNSFWFilterStage(model_batch_size=1, score_threshold=0.5)
+        single_stage = ImageNSFWFilterStage(model_inference_batch_size=1, score_threshold=0.5)
         single_stage.setup()
         single_stage.model = mock_model
 
@@ -311,7 +311,7 @@ class TestImageNSFWFilterStage:
         verbose_stage = ImageNSFWFilterStage(
             model_dir="test_models/nsfw",
             score_threshold=0.5,
-            model_batch_size=2,  # Match the mock data structure
+            model_inference_batch_size=2,  # Match the mock data structure
             verbose=True
         )
         verbose_stage.setup()
