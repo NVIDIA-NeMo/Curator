@@ -21,7 +21,7 @@
 ARG CUDA_VER=12.8.1
 ARG LINUX_VER=ubuntu24.04
 
-FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
+FROM nvidia/cuda:${CUDA_VER}-cudnn-runtime-${LINUX_VER} AS cuda
 
 
 ########################################################################
