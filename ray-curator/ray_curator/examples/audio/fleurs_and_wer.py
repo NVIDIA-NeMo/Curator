@@ -22,7 +22,7 @@ class TranscriptionConfig:
 
     # Required configs
     raw_data_dir: str  # path to store processed data
-    output_manifest_file: str  # path to output jsonl file
+    output_manifest_file: str | None = None  # path to output jsonl file
     model_name: str = "nvidia/stt_hy_fastconformer_hybrid_large_pc"  # NeMo model name
     lang: str = "hy_am"
     split: str = "dev"
@@ -48,7 +48,8 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
-    pipeline.add_stage(WriteJsonlStage(output_manifest_file=args.output_manifest_file))
+    if args.output_manifest_file is not None:
+        pipeline.add_stage(WriteJsonlStage(output_manifest_file=args.output_manifest_file))
     return pipeline
 
 
