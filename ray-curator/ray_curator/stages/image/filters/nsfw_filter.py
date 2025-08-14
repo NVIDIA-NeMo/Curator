@@ -1,43 +1,33 @@
 from dataclasses import dataclass
+from typing import Generator
 
 import numpy as np
 import torch
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.models.nsfw import NSFWScorer
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
+from ray_curator.stages.image.filters.base import BaseFilterStage
 from ray_curator.tasks import ImageBatch
 
 
 @dataclass
-class ImageNSFWFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
+class ImageNSFWFilterStage(BaseFilterStage):
     """Stage for filtering out NSFW images using NSFWScorer model.
 
     This class processes image batches through an NSFW scoring model to generate
     NSFW probability scores for each image. Images with scores above the threshold
     will be filtered out as NSFW content.
     """
-    model_dir: str = "models/nsfw"
-    num_gpus_per_worker: float = 0.25
-    model_batch_size: int = 32  # Number of images to process through model at once
-    score_threshold: float = 0.5
-    verbose: bool = False
+    weights_path: str = None
 
     @property
     def name(self) -> str:
         return "image_nsfw_filter"
 
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpus=self.num_gpus_per_worker)
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+    def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+        """Download NSFW model weights from LAION repository."""
+        NSFWScorer.download_weights_on_node(self.model_dir)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the NSFW filtering model."""
@@ -58,13 +48,9 @@ class ImageNSFWFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
         """
 
         # Process images in batches to generate scores
-        num_images = len(task.data)
-        for batch_start in range(0, num_images, self.model_batch_size):
-            batch_end = min(batch_start + self.model_batch_size, num_images)
-            batch_images = task.data[batch_start:batch_end]
-
+        for batch in self.yield_next_batch(task):
             # Stack embeddings into batch tensor (N, embedding_dim)
-            embeddings = [img_obj.embedding for img_obj in batch_images]
+            embeddings = [img_obj.embedding for img_obj in batch]
             batch_tensor = np.stack(embeddings, axis=0)
 
             # Generate NSFW scores
@@ -72,13 +58,13 @@ class ImageNSFWFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
                 scores = self.model(batch_tensor).cpu().numpy()
 
             # Store scores in ImageObject.nsfw_score
-            for i, image_obj in enumerate(batch_images):
+            for i, image_obj in enumerate(batch):
                 image_obj.nsfw_score = float(scores[i])
 
             if self.verbose:
                 logger.info(
-                    f"Generated NSFW scores for {len(batch_images)} images "
-                    f"in batch {batch_start}-{batch_end}"
+                    f"Generated NSFW scores for {len(batch)} images "
+                    f"in batch {i}-{i + self.model_inference_batch_size}"
                 )
 
         # Filter images based on NSFW score threshold

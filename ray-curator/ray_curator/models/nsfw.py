@@ -13,6 +13,9 @@ from torch import nn
 from .base import ModelInterface
 
 _NSFW_MODEL_ID = "laion/clip-autokeras-binary-nsfw"
+_URL_MAPPING = {
+    "laion/clip-autokeras-binary-nsfw": "https://github.com/LAION-AI/CLIP-based-NSFW-Detector/files/10250461/clip_autokeras_binary_nsfw.zip"
+}
 
 
 class Normalization(nn.Module):
@@ -92,7 +95,7 @@ class NSFWScorer(ModelInterface):
     def __init__(self, model_dir: str) -> None:
         """Initialize the NSFW scorer interface."""
         super().__init__()
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float32
         self.model_dir = model_dir
         # These will be initialized in setup()
@@ -117,38 +120,45 @@ class NSFWScorer(ModelInterface):
         """
         return [_NSFW_MODEL_ID]
 
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download NSFW model weights from LAION repository.
+
+        Args:
+            model_dir: Directory to download the weights to.
+        """
+        url = _URL_MAPPING[_NSFW_MODEL_ID]
+        # The .pth file has the same base name as the .zip, but with .pth extension
+        weights_filename = url.split("/")[-1].replace(".zip", ".pth")
+        weights_path = str(Path(model_dir) / _NSFW_MODEL_ID / weights_filename)
+
+        if not os.path.exists(weights_path):
+            model_dir_path = Path(model_dir) / _NSFW_MODEL_ID
+            model_dir_path.mkdir(parents=True, exist_ok=True)
+
+            response = requests.get(url)  # noqa: S113
+
+            raw_zip_path = model_dir_path / "nsfw.zip"
+            with open(raw_zip_path, "wb") as f:
+                f.write(response.content)
+
+            with zipfile.ZipFile(raw_zip_path, "r") as f:
+                f.extractall(model_dir_path)
+
+            # Remove the zip file after extraction
+            raw_zip_path.unlink()
+
     def setup(self) -> None:
         """Set up the NSFW scoring model by loading weights."""
-        weights_filename = "clip_autokeras_binary_nsfw.pth"
-        self.weights_path = str(Path(self.model_dir) / self.model_id_names[0] / weights_filename)
-
-        # Download weights if they don't exist
-        if not os.path.exists(self.weights_path):
-            self._download_weights()
+        url = _URL_MAPPING[_NSFW_MODEL_ID]
+        weights_filename = url.split("/")[-1].replace(".zip", ".pth")
+        self.weights_path = str(Path(self.model_dir) / _NSFW_MODEL_ID / weights_filename)
 
         self.nsfw_model = NSFWModel()
         state_dict = torch.load(self.weights_path, map_location=torch.device("cpu"))
         self.nsfw_model.load_state_dict(state_dict)
         self.nsfw_model.to(self.device)
         self.nsfw_model.eval()
-
-    def _download_weights(self) -> None:
-        """Download NSFW model weights from LAION repository."""
-        model_dir_path = Path(self.model_dir) / self.model_id_names[0]
-        model_dir_path.mkdir(parents=True, exist_ok=True)
-
-        url = "https://github.com/LAION-AI/CLIP-based-NSFW-Detector/files/10250461/clip_autokeras_binary_nsfw.zip"
-        response = requests.get(url)  # noqa: S113
-
-        raw_zip_path = model_dir_path / "nsfw.zip"
-        with open(raw_zip_path, "wb") as f:
-            f.write(response.content)
-
-        with zipfile.ZipFile(raw_zip_path, "r") as f:
-            f.extractall(model_dir_path)
-
-        # Remove the zip file after extraction
-        raw_zip_path.unlink()
 
     @torch.no_grad()
     def __call__(self, embeddings: torch.Tensor | npt.NDArray[np.float32]) -> torch.Tensor:

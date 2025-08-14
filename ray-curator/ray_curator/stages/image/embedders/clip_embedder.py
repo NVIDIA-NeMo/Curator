@@ -8,6 +8,7 @@ from ray_curator.models.clip import CLIPImageEmbeddings
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import ImageBatch
+from typing import Generator
 
 
 @dataclass
@@ -18,10 +19,11 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     embeddings for each image. It assumes image data is already loaded
     in ImageObject.image_data and stores embeddings in ImageObject.embedding.
     """
-    model_dir: str = "models/clip"
+    model_dir: str = None
     num_gpus_per_worker: float = 0.25
-    model_batch_size: int = 32  # Number of images to process through model at once
+    model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
+    
 
     @property
     def name(self) -> str:
@@ -45,6 +47,19 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
         if self.verbose:
             logger.info("Initialized CLIP model for image embedding generation")
 
+    def yield_next_batch(self, task: ImageBatch) -> Generator[ImageBatch, None, None]:
+        """Yield batches of images from the task.
+
+        Args:
+            task: ImageBatch containing list of ImageObject instances with pre-loaded image_data
+
+        Yields:
+            Generator[dict[str, torch.Tensor]]: A generator of model inputs for the next batch.
+
+        """
+        for i in range(0, len(task.data), self.model_inference_batch_size):
+            yield task.data[i : i + self.model_inference_batch_size]
+
     def process(self, task: ImageBatch) -> ImageBatch:
         """Process an image batch to generate embeddings.
 
@@ -55,14 +70,9 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
             ImageBatch with embeddings stored in ImageObject.embedding
         """
 
-        # Process images in batches
-        num_images = len(task.data)
-        for batch_start in range(0, num_images, self.model_batch_size):
-            batch_end = min(batch_start + self.model_batch_size, num_images)
-            batch_images = task.data[batch_start:batch_end]
-
+        for batch in self.yield_next_batch(task):
             # Stack images into batch tensor (N, H, W, C)
-            loaded_images = [img_obj.image_data for img_obj in batch_images]
+            loaded_images = [img_obj.image_data for img_obj in batch]
             batch_tensor = loaded_images
 
             # Generate embeddings
@@ -70,13 +80,12 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
                 embeddings = self.model(batch_tensor).cpu().numpy()
 
             # Store embeddings in ImageObject.embedding
-            for i, image_obj in enumerate(batch_images):
+            for i, image_obj in enumerate(batch):
                 image_obj.embedding = embeddings[i]
 
             if self.verbose:
                 logger.info(
-                    f"Generated embeddings for {len(batch_images)} images "
-                    f"in batch {batch_start}-{batch_end}"
+                    f"Generated embeddings for {len(batch)} images."
                 )
 
         return task

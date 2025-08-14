@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Generator
 
 import numpy as np
 import torch
@@ -6,40 +7,26 @@ from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.aesthetics import AestheticScorer
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
+from ray_curator.stages.image.filters.base import BaseFilterStage
 from ray_curator.tasks import ImageBatch
-
-# Constants
-DEBUG_LOW_AESTHETIC_THRESHOLD = 0.1  # Threshold for debug logging of very low aesthetic scores
 
 
 @dataclass
-class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
+class ImageAestheticFilterStage(BaseFilterStage):
     """Stage for filtering out images based on aesthetic scores.
 
     This class processes image batches through an aesthetic scoring model to generate
     aesthetic scores for each image. Images with scores below the threshold will be filtered out.
     """
-    model_dir: str = "models/aesthetics"
+    model_dir: str = None
     num_gpus_per_worker: float = 0.25
-    model_batch_size: int = 32  # Number of images to process through model at once
+    model_inference_batch_size: int = 32  # Number of images to process through model at once
     score_threshold: float = 0.5
     verbose: bool = False
 
     @property
     def name(self) -> str:
         return "image_aesthetic_filter"
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpus=self.num_gpus_per_worker)
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Initialize the aesthetic filtering model."""
@@ -60,13 +47,9 @@ class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
         """
 
         # Process images in batches to generate scores
-        num_images = len(task.data)
-        for batch_start in range(0, num_images, self.model_batch_size):
-            batch_end = min(batch_start + self.model_batch_size, num_images)
-            batch_images = task.data[batch_start:batch_end]
-
+        for batch in self.yield_next_batch(task):
             # Stack embeddings into batch tensor (N, embedding_dim)
-            embeddings = [img_obj.embedding for img_obj in batch_images]
+            embeddings = [img_obj.embedding for img_obj in batch]
             batch_tensor = np.stack(embeddings, axis=0)
 
             # Generate aesthetic scores
@@ -74,15 +57,8 @@ class ImageAestheticFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
                 scores = self.model(batch_tensor).cpu().numpy()
 
             # Store scores in ImageObject.aesthetic_score
-            for i, image_obj in enumerate(batch_images):
+            for i, image_obj in enumerate(batch):
                 image_obj.aesthetic_score = float(scores[i])
-
-                # Debug: show paths of images with very low aesthetic scores
-                if image_obj.aesthetic_score < DEBUG_LOW_AESTHETIC_THRESHOLD:
-                    logger.info(
-                        f"[DEBUG] Low aesthetic score: {image_obj.aesthetic_score:.3f} - "
-                        f"Image {image_obj.image_id} (path: {image_obj.image_path})"
-                    )
 
         # Filter images based on aesthetic score threshold
         filtered_images = []
