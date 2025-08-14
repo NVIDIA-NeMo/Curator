@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Generator
 
 import numpy as np
 import torch

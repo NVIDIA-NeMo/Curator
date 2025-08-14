@@ -1,14 +1,14 @@
+from collections.abc import Generator
 from dataclasses import dataclass
 
-import torch
 from loguru import logger
+import torch
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.clip import CLIPImageEmbeddings
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import ImageBatch
-from typing import Generator
 
 
 @dataclass
@@ -23,7 +23,6 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
-    
 
     @property
     def name(self) -> str:
@@ -39,7 +38,7 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the CLIP image embedding model."""
         self.model = CLIPImageEmbeddings(model_dir=self.model_dir)
         self.model.setup()

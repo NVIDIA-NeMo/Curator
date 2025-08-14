@@ -1,5 +1,5 @@
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generator
 
 import numpy as np
 import torch
@@ -37,9 +37,9 @@ class BaseFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the base filter stage."""
-        pass
+        raise NotImplementedError
 
     def yield_next_batch(self, task: ImageBatch) -> Generator[list[ImageObject], None, None]:
         """
@@ -64,7 +64,7 @@ class BaseFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
         Returns:
             ImageBatch with filtered images that have scores below the threshold
         """
-        pass
+        raise NotImplementedError
 
 
 # Explicitly export the class
