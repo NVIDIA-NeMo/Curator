@@ -28,7 +28,7 @@ class ObjectToBatchStage(ProcessingStage[DocumentObject, DocumentBatch]):
 
 
 @dataclass
-class DumpsJsonlStage(ProcessingStage[DocumentObject, DocumentObject]):
+class WriteJsonlStage(ProcessingStage[DocumentObject, DocumentObject]):
     """
     Stage for saving tasks as a one JSONL file.
 
