@@ -87,7 +87,7 @@ if __name__ == "__main__":
     main()
 ```
 
-For how pipelines execute across backends (`XennaExecutor`, `RayDataExecutor`, `RayActorPoolExecutor`), refer to {ref}`reference-execution-backends`.
+For how pipelines execute across backends (`XennaExecutor`, `RayDataExecutor`), refer to {ref}`reference-execution-backends`.
 
 ### Writing to Parquet
 

@@ -155,7 +155,7 @@ jobs:
           pip install --no-cache-dir ".[video]"
           pip install --no-cache-dir pytest-asyncio coverage
 
-      - name: Run tests
+      - name: Run tests (CPU)
         run: |
           cd ray-curator
           python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"

@@ -46,7 +46,6 @@ class TestBackendIntegrations:
     input_dir: Path | None = None
     output_dir: Path | None = None
     output_tasks: list[FileGroupTask] | None = None
-    remote_counter_actor: Any | None = None
     all_logs: str = ""
 
     @pytest.fixture(scope="class", autouse=True)
@@ -75,6 +74,7 @@ class TestBackendIntegrations:
             request.cls.all_logs = log_buffer.getvalue()  # type: ignore[reportOptionalMemberAccess]
 
         yield
+        ray.kill(ray.get_actor("stage_call_counter", namespace="stage_call_counter"))
         logger.info(f"Ran pipeline for {request.cls.__name__}")
 
     def test_output_files(self):
