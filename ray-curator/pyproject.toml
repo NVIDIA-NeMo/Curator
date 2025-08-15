@@ -78,7 +78,7 @@ dali = [
 
 # CPU-only DALI (for environments without CUDA, e.g., GitHub Actions)
 dali_cpu = [
-    "nvidia-pyindex",
+    # Install from NVIDIA index directly in CI; don't pull nvidia-pyindex here to avoid wheel build
     "nvidia-dali",
 ]
 

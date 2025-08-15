@@ -40,7 +40,6 @@ jobs:
         # https://github.com/facebookresearch/fastText/issues/512#issuecomment-1837367666
         run: |
           pip install -U pip
-          pip install -U nvidia-pyindex
           cd ray-curator
           pip install --no-cache-dir ".[dev,text,video]"
           # Install CPU-only DALI from NVIDIA's compute index for image reader tests
