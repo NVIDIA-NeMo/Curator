@@ -76,6 +76,11 @@ dali = [
     "nvidia-dali-cuda120",
 ]
 
+# CPU-only DALI (for environments without CUDA, e.g., GitHub Actions)
+dali_cpu = [
+    "nvidia-dali-cpu",
+]
+
 [tool.setuptools]
 packages = ["ray_curator"]
 [tool.ruff]
