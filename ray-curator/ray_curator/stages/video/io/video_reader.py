@@ -62,9 +62,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         """
         return ["data"], ["source_bytes", "metadata"]
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
-        self.storage_client = get_storage_client(self.input_path, profile_name=self.input_s3_profile_name)
-
     def process(self, task: FileGroupTask) -> VideoTask:
         """Process a video task by reading file bytes and extracting metadata.
 
@@ -79,20 +76,10 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             The same VideoTask with video.source_bytes and video.metadata populated.
             If errors occur, the task is returned with error information stored.
         """
-        files = task.data
-        if len(files) != 1:
-            msg = f"Expected 1 file, got {len(files)}"
-            raise ValueError(msg)
-
-        if self.storage_client is None:
-            # We assume that the file_path is local if we cannot initialize the storage client
-            file_path = Path(files[0])
-        else:
-            file_path = storage_utils._get_s3_prefix(self.input_path, files[0])
-
-        video = Video(input_video=file_path)
+        assert len(task.data) == 1
+        video = Video(input_video=task.data[0])
         video_task = VideoTask(
-            task_id=f"{files[0]}_processed",
+            task_id=f"{task.data[0]}_processed",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=deepcopy(task._metadata),
@@ -129,21 +116,11 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         Note:
             Errors are logged and stored in video.errors["download"] for debugging.
         """
-        def _raise_s3_error() -> None:
-            msg = "S3 client is required for S3 destination"
-            raise TypeError(msg)
-
         try:
-            if self.storage_client is not None:
-                video.source_bytes = storage_utils.read_bytes(video.input_video, self.storage_client)
+            with video.input_video.open("rb") as fp:
+                video.source_bytes = fp.read()
                 size_mb = len(video.source_bytes) / (1024 * 1024)
                 logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
-
-            elif isinstance(video.input_video, pathlib.Path):
-                with video.input_video.open("rb") as fp:
-                    video.source_bytes = fp.read()
-            else:
-                _raise_s3_error()
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
@@ -272,7 +249,6 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         if self.input_video_path.startswith("s3://"):
             reader_stage = ClientPartitioningStage(
                 file_paths=self.input_video_path,
-                input_s3_profile_name=self.input_s3_profile_name,
                 files_per_partition=1,
                 file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
                 limit=self.video_limit,
