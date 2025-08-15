@@ -10,19 +10,16 @@ from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from ray_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 
 
-def get_e2e_test_data_path() -> str:
-    """Returns path to e2e test data"""
-    test_data_root = os.getenv("TEST_DATA_ROOT")
-    if test_data_root:  # assume it's present locally
-        return test_data_root
-    else:
-        raise ValueError
+def get_test_data_path() -> str:
+    """Returns path to test data"""
+    current_root = os.path.abspath(__file__)
+    return os.path.abspath(os.path.join(current_root, "../../../data/audio"))
 
 
 class TestFleursWer:
     """Test suite for TestAsrInference."""
 
-    test_data_root = get_e2e_test_data_path()
+    test_data_root = get_test_data_path()
 
     def test_main_runs_pipeline(self):
         cfg = TranscriptionConfig(
