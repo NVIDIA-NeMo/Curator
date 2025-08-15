@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import importlib.util
 import pytest
-
-# Detect DALI availability at collection time without importing it
-DALI_AVAILABLE = importlib.util.find_spec("nvidia.dali") is not None
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -62,7 +58,6 @@ def _fake_create_pipeline_factory(total: int, batch: int) -> Callable[[str], _Fa
     return _factory
 
 
-@pytest.mark.skipif(not DALI_AVAILABLE, reason="nvidia.dali is not installed")
 def test_inputs_outputs_and_name() -> None:
     from ray_curator.stages.image.io.image_reader import ImageReaderStage
     with patch("torch.cuda.is_available", return_value=True):
@@ -72,7 +67,6 @@ def test_inputs_outputs_and_name() -> None:
     assert stage.name == "image_reader"
 
 
-@pytest.mark.skipif(not DALI_AVAILABLE, reason="nvidia.dali is not installed")
 def test_init_requires_cuda() -> None:
     from ray_curator.stages.image.io.image_reader import ImageReaderStage
     with patch("torch.cuda.is_available", return_value=False), pytest.raises(
@@ -81,7 +75,6 @@ def test_init_requires_cuda() -> None:
         ImageReaderStage(task_batch_size=2, verbose=False)
 
 
-@pytest.mark.skipif(not DALI_AVAILABLE, reason="nvidia.dali is not installed")
 def test_process_streams_batches_from_dali() -> None:
     from ray_curator.stages.image.io.image_reader import ImageReaderStage
     # Two tar files; each has 5 total samples, emitted in batches of 2 (2,2,1)
@@ -110,7 +103,6 @@ def test_process_streams_batches_from_dali() -> None:
     assert all(isinstance(img, ImageObject) for b in batches for img in b.data)
 
 
-@pytest.mark.skipif(not DALI_AVAILABLE, reason="nvidia.dali is not installed")
 def test_process_raises_on_empty_task() -> None:
     from ray_curator.stages.image.io.image_reader import ImageReaderStage
     empty = FileGroupTask(task_id="e1", dataset_name="ds", data=[])
