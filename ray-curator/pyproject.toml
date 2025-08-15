@@ -71,6 +71,17 @@ video_cuda = [
     "pycuda",
 ]
 
+# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
+dali = [
+    "nvidia-dali-cuda120",
+]
+
+# CPU-only DALI (for environments without CUDA, e.g., GitHub Actions)
+dali_cpu = [
+    # Install from NVIDIA index directly in CI; don't pull nvidia-pyindex here to avoid wheel build
+    "nvidia-dali",
+]
+
 [tool.setuptools]
 packages = ["ray_curator"]
 [tool.ruff]
