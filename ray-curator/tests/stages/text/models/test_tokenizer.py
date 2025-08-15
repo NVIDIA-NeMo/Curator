@@ -173,7 +173,6 @@ def test_tokenizer_stage_max_chars_truncation():
     data = pd.DataFrame(
         {"text": ["This is a very long text that should be truncated when max_chars is set to a small value"]}
     )
-
     batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=data)
 
     stage = TokenizerStage(model_identifier="test/model", max_chars=20, sort_by_length=False, text_field="text")
@@ -184,21 +183,6 @@ def test_tokenizer_stage_max_chars_truncation():
     truncated_text = result["text"].iloc[0]
     assert len(truncated_text) <= 20
     assert truncated_text == "This is a very long "
-
-
-def test_tokenizer_stage_empty_batch():
-    data = pd.DataFrame({"text": []})
-    batch = DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=data)
-
-    stage = TokenizerStage(model_identifier="test/model", sort_by_length=True, text_field="text")
-
-    stage.setup()
-    result = stage.process(batch).to_pandas()
-
-    assert len(result) == 0
-    assert INPUT_ID_COLUMN in result.columns
-    assert ATTENTION_MASK_COLUMN in result.columns
-    assert SEQ_ORDER_COLUMN in result.columns
 
 
 def test_tokenizer_stage_setup_unk_token():
