@@ -25,7 +25,10 @@ class BaseFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
 
     @property
     def resources(self) -> Resources:
-        return Resources(gpus=self.num_gpus_per_worker)
+        if torch.cuda.is_available():
+            return Resources(gpus=self.num_gpus_per_worker)
+        else:
+            return Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
