@@ -1,4 +1,5 @@
 import warnings
+from pathlib import Path
 
 import fsspec
 from fsspec.core import get_filesystem_class, split_protocol
@@ -52,3 +53,25 @@ def get_all_files_paths_under(
     if keep_extensions is not None:
         file_ls = filter_files_by_extension(file_ls, keep_extensions)
     return file_ls
+
+
+def infer_dataset_name_from_path(path: str) -> str:
+    """Infer a dataset name from a path, handling both local and cloud storage paths.
+    Args:
+        path: Local path or cloud storage URL (e.g. s3://, abfs://)
+    Returns:
+        Inferred dataset name from the path
+    """
+    # Split protocol and path for cloud storage
+    protocol, pure_path = split_protocol(path)
+    if protocol is None:
+        # Local path handling
+        first_file = Path(path)
+        if first_file.parent.name and first_file.parent.name != ".":
+            return first_file.parent.name.lower()
+        return first_file.stem.lower()
+    else:
+        path_parts = pure_path.rstrip("/").split("/")
+        if len(path_parts) <= 1:
+            return path_parts[0]
+        return path_parts[-1].lower()
