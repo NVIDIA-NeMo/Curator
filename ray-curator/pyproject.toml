@@ -71,6 +71,11 @@ video_cuda = [
     "pycuda",
 ]
 
+# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
+dali = [
+    "nvidia-dali-cuda120",
+]
+
 [tool.setuptools]
 packages = ["ray_curator"]
 [tool.ruff]
