@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-
+import sys
+import types
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -57,6 +58,34 @@ def _fake_create_pipeline_factory(total: int, batch: int) -> Callable[[str], _Fa
 
     return _factory
 
+
+@pytest.fixture(autouse=True)
+def _stub_dali_modules() -> None:
+    """Stub nvidia.dali imports so tests run without real DALI installed."""
+    nvidia = types.ModuleType("nvidia")
+    dali = types.ModuleType("nvidia.dali")
+    pipeline = types.ModuleType("nvidia.dali.pipeline")
+
+    def pipeline_def(*_args, **_kwargs):  # noqa: ANN001
+        def _decorator(func):  # noqa: ANN001
+            return func
+
+        return _decorator
+
+    class _Types:
+        RGB = None
+
+    dali.pipeline_def = pipeline_def
+    dali.types = _Types
+    dali.fn = types.SimpleNamespace(
+        readers=types.SimpleNamespace(webdataset=lambda **_kwargs: None),
+        decoders=types.SimpleNamespace(image=lambda *_a, **_k: None),
+    )
+    pipeline.Pipeline = type("Pipeline", (), {})
+
+    sys.modules["nvidia"] = nvidia
+    sys.modules["nvidia.dali"] = dali
+    sys.modules["nvidia.dali.pipeline"] = pipeline
 
 def test_inputs_outputs_and_name() -> None:
     from ray_curator.stages.image.io.image_reader import ImageReaderStage
