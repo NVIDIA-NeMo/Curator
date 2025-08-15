@@ -78,11 +78,14 @@ video = [
     "av==13.1.0",
     "opencv-python",
 ]
-
+audio=[
+    "nemo_toolkit[asr]",
+]
 all = [
     "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
     "ray_curator[video]",
+    "ray_curator[audio]",
 ]
 
 [tool.pixi.workspace]
