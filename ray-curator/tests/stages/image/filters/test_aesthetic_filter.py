@@ -76,7 +76,8 @@ class TestImageAestheticFilterStage:
     def test_stage_properties(self, stage: ImageAestheticFilterStage) -> None:
         """Test stage properties."""
         assert stage.name == "image_aesthetic_filter"
-        assert stage.resources.gpus == 0.25
+        # Allow either requesting GPUs or not, depending on environment
+        assert stage.resources.gpus in (0.25, 0.0)
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 

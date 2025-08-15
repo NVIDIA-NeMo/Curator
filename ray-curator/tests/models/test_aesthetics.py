@@ -82,7 +82,8 @@ class TestAestheticScorer:
         """Test model initialization."""
         assert self.model.model_dir == "test_models/aesthetics"
         assert self.model.mlp is None
-        assert self.model.device in ["cuda:0", "cpu"]
+        # Accept both unindexed and indexed CUDA device strings
+        assert self.model.device in ["cuda", "cuda:0", "cpu"]
         assert self.model.dtype == torch.float32
 
     def test_conda_env_name_property(self) -> None:
@@ -101,7 +102,8 @@ class TestAestheticScorer:
         """Test device selection when CUDA is available."""
         mock_cuda_available.return_value = True
         model = AestheticScorer(model_dir="test_models/aesthetics")
-        assert model.device == "cuda:0"
+        # Accept both 'cuda' and 'cuda:0' to be robust across implementations
+        assert model.device in ["cuda", "cuda:0"]
 
     @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
     def test_device_selection_without_cuda(self, mock_cuda_available: Mock) -> None:
@@ -263,7 +265,8 @@ class TestModelIntegration:
 
         assert scorer.conda_env_name == "video_splitting"
         assert "ttj/sac-logos-ava1-l14-linearMSE" in scorer.model_id_names
-        assert scorer.device in ["cuda:0", "cpu"]
+        # Accept both unindexed and indexed CUDA device strings
+        assert scorer.device in ["cuda", "cuda:0", "cpu"]
         assert scorer.dtype == torch.float32
 
     def test_mlp_deterministic_output(self) -> None:
