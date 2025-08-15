@@ -138,10 +138,11 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if self.sort_by_length:
             # Add column to preserve original order
             output[SEQ_ORDER_COLUMN] = np.arange(len(df))
-            output[TOKEN_LENGTH_COLUMN] = tokens.attention_mask.sum(axis=1)
-            output = output.sort_values(by=TOKEN_LENGTH_COLUMN, kind="stable", ignore_index=True).drop(
-                columns=[TOKEN_LENGTH_COLUMN]
-            )
+            if len(df) > 0:
+                output[TOKEN_LENGTH_COLUMN] = tokens.attention_mask.sum(axis=1)
+                output = output.sort_values(by=TOKEN_LENGTH_COLUMN, kind="stable", ignore_index=True).drop(
+                    columns=[TOKEN_LENGTH_COLUMN]
+                )
 
         return DocumentBatch(
             task_id=batch.task_id,
