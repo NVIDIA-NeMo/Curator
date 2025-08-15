@@ -78,7 +78,7 @@ dali = [
 
 # CPU-only DALI (for environments without CUDA, e.g., GitHub Actions)
 dali_cpu = [
-    "nvidia-dali-cpu",
+    "nvidia-dali",
 ]
 
 [tool.setuptools]
