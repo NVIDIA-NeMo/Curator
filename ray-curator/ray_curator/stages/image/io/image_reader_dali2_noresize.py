@@ -1,15 +1,14 @@
-import json
 import os
 import pathlib
 import time
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generator
 
 import numpy as np
 from loguru import logger
 from nvidia.dali import fn, pipeline_def, types
+from nvidia.dali.pipeline import Pipeline
 import torch
-from tqdm import tqdm
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -55,13 +54,13 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["image_data", "image_path", "image_id"]
 
-    def _create_dali_pipeline(self, tar_path: str):
+    def _create_dali_pipeline(self, tar_path: str) -> Pipeline:
         @pipeline_def(
             batch_size=self.task_batch_size,
             num_threads=self.num_threads,
             device_id=0,  # Uses the first visible CUDA device for this worker
         )
-        def webdataset_pipeline(_tar_path: str):
+        def webdataset_pipeline(_tar_path: str) -> Pipeline:
             # Read only JPGs to avoid Python-side JSON parsing overhead
             img_raw = fn.readers.webdataset(
                 paths=_tar_path,
@@ -69,8 +68,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
                 missing_component_behavior="skip",
             )
             # GPU-accelerated decode; keep original sizes (no resize)
-            img = fn.decoders.image(img_raw, device="mixed", output_type=types.RGB)
-            return img
+            return fn.decoders.image(img_raw, device="mixed", output_type=types.RGB)
 
         pipe = webdataset_pipeline(tar_path)
         pipe.build()
