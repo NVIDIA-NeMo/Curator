@@ -20,10 +20,10 @@ from typing import Any
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.examples.image.helper import save_imagebatch_to_webdataset
-from ray_curator.examples.image.vlm_helper import MultiSourceImageReaderStage
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.image.captioning import VLMCaptioningStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
+from ray_curator.stages.image.io.multi_source_image_reader import MultiSourceImageReaderStage
 from ray_curator.stages.services.openai_client import (
     AsyncOpenAIClient,
     OpenAIClient,

@@ -148,24 +148,20 @@ class VLMCaptioningStage(ProcessingStage[ImageBatch, ImageBatch]):
                 len(image_batch.data),
             )
 
-        for image_obj in image_batch.data:
-            if image_obj.image_data is not None:
-                caption = self._generate_caption_sync(image_obj.image_data)
-                image_obj.metadata["caption"] = caption
+        for idx, image_obj in enumerate(image_batch.data):
+            if image_obj.image_data is None:
+                self._handle_missing_image_data(image_obj)
+                continue
 
-                if self.verbose:
-                    logger.debug(
-                        "Generated caption for %s: %s...",
-                        image_obj.image_id,
-                        caption[:100],
-                    )
+            try:
+                caption = self._generate_caption_sync(image_obj.image_data)
+            except Exception as exc:
+                if self.fail_on_error:
+                    # Preserve previous behavior: propagate the error
+                    raise
+                self._handle_caption_error(image_batch, idx, exc)
             else:
-                if self.verbose:
-                    logger.warning(
-                        "No image data found for %s",
-                        image_obj.image_id,
-                    )
-                image_obj.metadata["caption"] = ""
+                self._handle_caption_success(image_batch, idx, caption)
 
         return image_batch
 
@@ -257,14 +253,6 @@ class VLMCaptioningStage(ProcessingStage[ImageBatch, ImageBatch]):
     def process(self, image_batch: ImageBatch) -> ImageBatch:
         """Process an ImageBatch to generate captions."""
         if self.is_async_client:
-            try:
-                # If there's an active loop, avoid asyncio.run
-                asyncio.get_running_loop()
-            except RuntimeError:
-                return asyncio.run(self._process_async(image_batch))
-            else:
-                if self.verbose:
-                    logger.warning("Event loop already running; falling back to sync processing.")
-                return self._process_sync(image_batch)
+            return asyncio.run(self._process_async(image_batch))
         else:
             return self._process_sync(image_batch)
