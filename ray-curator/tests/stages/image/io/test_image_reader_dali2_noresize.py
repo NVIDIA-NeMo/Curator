@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
+from unittest.mock import patch
 
 import numpy as np
 import pytest
-from unittest.mock import patch
 
 from ray_curator.stages.image.io.image_reader_dali2_noresize import ImageReaderStage
 from ray_curator.tasks.file_group import FileGroupTask
@@ -22,10 +22,10 @@ class _FakeTensorList:
             np.zeros((height, width, 3), dtype=np.uint8) for _ in range(batch_size)
         ]
 
-    def as_cpu(self) -> "_FakeTensorList":
+    def as_cpu(self) -> _FakeTensorList:
         return self
 
-    def __len__(self) -> int:  # noqa: D401 - trivial
+    def __len__(self) -> int:
         return len(self._arrays)
 
     def at(self, index: int) -> np.ndarray:
@@ -39,7 +39,7 @@ class _FakePipeline:
     total_samples: int
     batch_size: int
 
-    def build(self) -> None:  # noqa: D401 - trivial
+    def build(self) -> None:
         return None
 
     def epoch_size(self) -> dict[int, int]:
@@ -65,9 +65,10 @@ def test_inputs_outputs_and_name() -> None:
 
 
 def test_init_requires_cuda() -> None:
-    with patch("torch.cuda.is_available", return_value=False):
-        with pytest.raises(RuntimeError):
-            ImageReaderStage(task_batch_size=2, verbose=False)
+    with patch("torch.cuda.is_available", return_value=False), pytest.raises(
+        RuntimeError, match="requires CUDA"
+    ):
+        ImageReaderStage(task_batch_size=2, verbose=False)
 
 
 def test_process_streams_batches_from_dali() -> None:
@@ -103,7 +104,7 @@ def test_process_raises_on_empty_task() -> None:
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(task_batch_size=2, verbose=False)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="No tar file paths"):
         stage.process(empty)
 
 
