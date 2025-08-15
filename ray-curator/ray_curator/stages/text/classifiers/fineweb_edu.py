@@ -104,7 +104,7 @@ class FineWebModelStage(ModelStage):
         model = AutoModelForSequenceClassification.from_pretrained(self.model_identifier, local_files_only=True).cuda()
         self.model = self.configure_forward(model, self.autocast)
 
-    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+    def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> dict[str, np.ndarray]:
         logits = outputs.cpu().numpy()
 
         float_scores = logits.tolist()
@@ -238,8 +238,6 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
-
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
             pred_column=pred_column,
@@ -253,6 +251,8 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
+
+        self._name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
 
 
 class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
@@ -290,8 +290,6 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
-
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
             pred_column=pred_column,
@@ -305,6 +303,8 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
+
+        self._name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
 
 
 class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
@@ -342,8 +342,6 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         model_inference_batch_size: int = 1024,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)
-
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
             pred_column=pred_column,
@@ -357,3 +355,5 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
+
+        self._name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)

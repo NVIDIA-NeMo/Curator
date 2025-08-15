@@ -57,8 +57,6 @@ class QualityClassifier(DistributedDataClassifier):
         model_inference_batch_size: int = 256,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)
-
         super().__init__(
             model_identifier=QUALITY_CLASSIFIER_MODEL_IDENTIFIER,
             pred_column=pred_column,
@@ -72,3 +70,5 @@ class QualityClassifier(DistributedDataClassifier):
             model_inference_batch_size=model_inference_batch_size,
             autocast=autocast,
         )
+
+        self._name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)

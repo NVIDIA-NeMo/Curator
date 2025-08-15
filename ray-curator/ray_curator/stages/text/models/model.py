@@ -39,11 +39,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     Args:
         model_identifier: The identifier of the Hugging Face model.
         hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
-        pred_column: The name of the prediction column.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
+        unpack_inference_batch: Whether to unpack the inference batch with **kwargs. Defaults to False.
 
     """
 
@@ -127,8 +127,9 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         raise NotImplementedError(msg)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        processed_outputs = []
         df_cpu = batch.to_pandas()
+
+        processed_outputs = []
         for model_input_batch in self.yield_next_batch(df_cpu):
             # Forward pass
             with torch.no_grad():
