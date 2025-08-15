@@ -1,8 +1,9 @@
-from collections.abc import Generator
-from dataclasses import dataclass
+# ruff: noqa: I001
 import os
 import pathlib
 import time
+from collections.abc import Generator
+from dataclasses import dataclass
 
 from loguru import logger
 import numpy as np
@@ -30,8 +31,10 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
 
     @property
     def resources(self) -> Resources:
-        # Ensure a GPU is allocated to this stage
-        return Resources(gpus=self.num_gpus_per_worker)
+        if torch.cuda.is_available():
+            return Resources(gpus=self.num_gpus_per_worker)
+        else:
+            return Resources()
 
     def __post_init__(self) -> None:
         # Enforce DALI-only execution
