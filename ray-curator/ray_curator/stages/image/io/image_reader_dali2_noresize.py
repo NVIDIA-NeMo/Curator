@@ -1,8 +1,8 @@
+from collections.abc import Generator
+from dataclasses import dataclass
 import os
 import pathlib
 import time
-from collections.abc import Generator
-from dataclasses import dataclass
 
 from loguru import logger
 import numpy as np
