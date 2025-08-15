@@ -58,7 +58,7 @@ class Comms:
 
     def __del__(self) -> None:
         if self.nccl_initialized:
-            self.destroy()
+            self.nccl_initialized = False
 
     def create_nccl_uniqueid(self) -> None:
         self.uniqueId = nccl.get_unique_id()

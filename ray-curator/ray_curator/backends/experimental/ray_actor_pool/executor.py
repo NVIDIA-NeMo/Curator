@@ -1,3 +1,4 @@
+import math
 import uuid
 from typing import TYPE_CHECKING
 
@@ -88,6 +89,9 @@ class RayActorPoolExecutor(BaseExecutor):
                 else:
                     actor_pool = self._create_actor_pool(stage, num_actors)
 
+                logger.info(
+                    f"Created actor pool for {stage.name} with {num_actors} actors {len(actor_pool._idle_actors)=}"
+                )
                 # Process tasks through this stage using ActorPool
                 current_tasks = self._process_stage_with_pool(actor_pool, stage, current_tasks)
 
@@ -139,7 +143,7 @@ class RayActorPoolExecutor(BaseExecutor):
                 .options(
                     num_cpus=stage.resources.cpus,
                     num_gpus=stage.resources.gpus,
-                    name=f"{stage.name}-{actor_idx}",
+                    name=f"{stage.name}Actor-{actor_idx}",
                 )
                 .remote(
                     stage=stage,
@@ -180,11 +184,19 @@ class RayActorPoolExecutor(BaseExecutor):
             List of processed Task objects
         """
         stage_batch_size: int = ray.get(actor_pool._idle_actors[0].get_batch_size.remote())
+        if _stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
+            # For a raft stage we want to make sure we have as many tasks as there are actors
+            if stage_batch_size is not None:
+                logger.warning(
+                    f"Stage {_stage.name} is a RAFT stage but has a batch size of {stage_batch_size}. Ignoring batch size."
+                )
+            stage_batch_size = math.ceil(len(tasks) / len(actor_pool._idle_actors))
+        logger.info(f"Broke down {len(tasks)} tasks into {stage_batch_size} batches for {_stage.name}")
+
         task_batches = []
         for i in range(0, len(tasks), stage_batch_size):
             batch = tasks[i : i + stage_batch_size]
             task_batches.append(batch)
-
         # Process each task and flatten the results since each task can produce multiple output tasks
         all_results = []
         for result_batch in actor_pool.map_unordered(
@@ -192,6 +204,7 @@ class RayActorPoolExecutor(BaseExecutor):
         ):
             # result_batch is a list of tasks from processing a single input task
             all_results.extend(result_batch)
+
         return all_results
 
     def _cleanup_actor_pool(self, actor_pool: ActorPool) -> None:
