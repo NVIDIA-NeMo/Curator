@@ -134,6 +134,20 @@ jobs:
         run: |
           docker exec nemo-curator-container pip list
 
+      - name: Install Python deps (ray-curator + DALI)
+        run: |
+          docker exec nemo-curator-container bash -c '
+            cd /opt/NeMo-Curator && \
+            python -m pip install --upgrade pip wheel setuptools && \
+            if nvidia-smi -L >/dev/null 2>&1; then \
+              echo "GPU detected; installing GPU DALI" && \
+              pip install --extra-index-url https://developer.download.nvidia.com/compute/redist -e "ray-curator[dali,dev]"; \
+            else \
+              echo "No GPU detected; installing CPU-only DALI" && \
+              pip install --extra-index-url https://developer.download.nvidia.com/compute/redist -e "ray-curator[dali_cpu,dev]"; \
+            fi
+          '
+
         # In the virtual environment (called "curator") we created in the container,
         # run our PyTests marked with `@pytest.mark.gpu`
         # We specify the `rootdir` to help locate the "pyproject.toml" file (which is in the root directory of the repository),
