@@ -4,8 +4,8 @@ import time
 from collections.abc import Generator
 from dataclasses import dataclass
 
-import numpy as np
 from loguru import logger
+import numpy as np
 from nvidia.dali import fn, pipeline_def, types
 from nvidia.dali.pipeline import Pipeline
 import torch
