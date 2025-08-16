@@ -1,8 +1,5 @@
 import os
-import shutil
 from dataclasses import dataclass
-
-from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import DataObject, _EmptyTask
@@ -82,7 +79,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
         """
 
         speech_tasks = []
-        root = os.path.dirname(file_path)
+        root = os.path.splitext(file_path)[0]
         min_num_parts = 2  # Skip lines that don't have at least 2 parts
 
         with open(file_path, encoding="utf-8") as fin:
@@ -117,21 +114,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
 
         extract_archive(f"{dst_folder}/{self.split}.tar.gz", str(dst_folder), force_extract=True)
 
-        # Organizing files into their respective folders
-        target_folder = os.path.join(dst_folder, self.split)
-
-        file_name = f"{self.split}.tsv"
-
-        file_path = os.path.join(dst_folder, file_name)
-        dest_file_path = os.path.join(target_folder, file_name)
-
-        if not os.path.exists(dest_file_path):
-            shutil.move(file_path, dest_file_path)
-            logger.info(f"Moved {file_path} to {dest_file_path}")
-        else:
-            os.remove(file_path)
-            logger.info(f"File {file_name} already exists in {target_folder}, deleted from source.")
-
     def process(self, _: _EmptyTask) -> list[DataObject]:
         self.download_extract_files(self.raw_data_dir)
-        return self.process_transcript(os.path.join(self.raw_data_dir, self.split + "/" + self.split + ".tsv"))
+        return self.process_transcript(os.path.join(self.raw_data_dir, self.split + ".tsv"))

@@ -1,5 +1,6 @@
 import os
 from operator import le
+from typing import ClassVar
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.examples.audio.fleurs_and_wer import TranscriptionConfig, create_audio_pipeline
@@ -8,6 +9,7 @@ from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByVal
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from ray_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
+from ray_curator.stages.text.io.reader import JsonlReader
 
 
 def get_test_data_path() -> str:
@@ -19,12 +21,18 @@ def get_test_data_path() -> str:
 class TestFleursWer:
     """Test suite for TestAsrInference."""
 
-    test_data_root = get_test_data_path()
+    test_data_root: ClassVar[str] = get_test_data_path()
+    executor: ClassVar[XennaExecutor] = XennaExecutor()
+    drop_fields: ClassVar[list[str]] = ["audio_filepath"]
+
+    def read_json(self, file_paths: str | list[str]) -> Pipeline:
+        p = Pipeline(name="read", description="Read json")
+        p.add_stage(JsonlReader(file_paths=file_paths))
+        return p.run(self.executor)
 
     def test_main_runs_pipeline(self):
         cfg = TranscriptionConfig(
             raw_data_dir=os.path.join(self.test_data_root, "armenian/fleurs"),
-            output_manifest_file=os.path.join(self.test_data_root, "armenian/fleurs", "test_data.json"),
             model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc",
             lang="hy_am",
             split="dev",
@@ -40,7 +48,7 @@ class TestFleursWer:
         assert "Inference audio" in pipeline.description
 
         # Check number of stages
-        assert len(pipeline.stages) == 6  # We know there should be exactly 6 stages
+        assert len(pipeline.stages) == 7  # We know there should be exactly 7 stages
 
         # Check individual stages are of the expected type
         assert isinstance(pipeline.stages[0], CreateInitialManifestFleursStage)
@@ -61,12 +69,27 @@ class TestFleursWer:
         assert pipeline.stages[4].target_value == 5.5
         assert pipeline.stages[4].operator == le
 
-        executor = XennaExecutor()
-        result = pipeline.run(executor)
+        write_result = pipeline.run(self.executor)
+        assert len(write_result) == 1
 
-        assert len(result) == 1
-        assert result[0].data["wer"] < 5.5
-        assert result[0].data["audio_filepath"].split("/")[-1] == "18278756351935270941.wav"
-        assert result[0].data["duration"] == 10.74
-        assert len(result[0].data["text"]) == 137
-        assert len(result[0].data["pred_text"]) == 137
+        predict = self.read_json(os.path.join(cfg.raw_data_dir, "result"))
+        assert len(predict) == 1
+        assert len(predict[0].data) == 1
+        row = predict[0].data.iloc[0]
+        assert row["wer"] < 5.5
+        assert row["audio_filepath"].split("/")[-1] == "18278756351935270941.wav"
+        assert row["duration"] == 10.74
+        assert len(row["text"]) == 137
+        assert len(row["pred_text"]) == 137
+
+        target = self.read_json(os.path.join(cfg.raw_data_dir, "test_data_reference.json"))
+        assert len(target) == 1
+        assert len(target[0].data) == 1
+        row = target[0].data.iloc[0]
+        assert row["wer"] < 5.5
+        assert row["audio_filepath"].split("/")[-1] == "18278756351935270941.wav"
+        assert row["duration"] == 10.74
+        assert len(row["text"]) == 137
+        assert len(row["pred_text"]) == 137
+
+        assert predict[0].data.drop(self.drop_fields, axis=1).equals(target[0].data.drop(self.drop_fields, axis=1))
