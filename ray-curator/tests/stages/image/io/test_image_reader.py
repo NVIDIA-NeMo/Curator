@@ -143,3 +143,27 @@ def test_process_raises_on_empty_task() -> None:
         stage.process(empty)
 
 
+
+def test_resources_with_cuda_available() -> None:
+    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    # Instantiate with CUDA available so __post_init__ passes
+    with patch("torch.cuda.is_available", return_value=True):
+        stage = ImageReaderStage(task_batch_size=2, verbose=False)
+        res = stage.resources
+
+    assert res.gpus == stage.num_gpus_per_worker
+    assert res.requires_gpu is True
+
+
+def test_resources_without_cuda() -> None:
+    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    # Create the stage with CUDA available to bypass the init guard
+    with patch("torch.cuda.is_available", return_value=True):
+        stage = ImageReaderStage(task_batch_size=2, verbose=False)
+
+    # Now simulate CUDA being unavailable when accessing the property
+    with patch("torch.cuda.is_available", return_value=False):
+        res = stage.resources
+
+    assert res.gpus == 0
+    assert res.requires_gpu is False

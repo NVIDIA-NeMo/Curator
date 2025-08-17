@@ -135,19 +135,6 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
 
         tar_files = [pathlib.Path(p) for p in tar_file_paths]
 
-        if self.verbose:
-            logger.info(
-                f"[PERF] Processing {len(tar_files)} tar files in task {task.task_id} with DALI"
-            )
-
         batches = list(self._stream_batches(tar_files))
-
-        if self.verbose:
-            total_images = sum(len(b.data) for b in batches)
-            total_time = time.time() - process_start
-            logger.info(
-                f"[PERF] Streamed {total_images} images in {len(batches)} batches | "
-                f"Total time: {total_time:.3f}s | Throughput: {total_images/total_time:.1f} img/s"
-            )
 
         return batches
