@@ -7,8 +7,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 import numpy as np
-from nvidia.dali import fn, pipeline_def, types
-from nvidia.dali.pipeline import Pipeline
+from typing import TYPE_CHECKING
 import torch
 
 from ray_curator.stages.base import ProcessingStage
@@ -57,13 +56,21 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["image_data", "image_path", "image_id"]
 
-    def _create_dali_pipeline(self, tar_path: str) -> Pipeline:
+    def _create_dali_pipeline(self, tar_path: str):
+        try:
+            from nvidia.dali import fn, pipeline_def, types  # noqa: PLC0415
+        except ModuleNotFoundError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "nvidia.dali is required to use ImageReaderStage. "
+                "Install a compatible DALI build (GPU or CPU) for your environment."
+            ) from exc
+
         @pipeline_def(
             batch_size=self.task_batch_size,
             num_threads=self.num_threads,
             device_id=0,  # Uses the first visible CUDA device for this worker
         )
-        def webdataset_pipeline(_tar_path: str) -> Pipeline:
+        def webdataset_pipeline(_tar_path: str):
             # Read only JPGs to avoid Python-side JSON parsing overhead
             img_raw = fn.readers.webdataset(
                 paths=_tar_path,

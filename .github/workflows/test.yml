@@ -40,8 +40,8 @@ jobs:
         # https://github.com/facebookresearch/fastText/issues/512#issuecomment-1837367666
         run: |
           pip install -U pip
-          # Install DALI CPU build (correct package for CPU runners)
-          pip install --no-cache-dir --index-url https://developer.download.nvidia.com/compute/redist --extra-index-url https://pypi.org/simple nvidia-dali-cpu
+          # Install DALI CPU-only build (package name is nvidia-dali on NVIDIA's index)
+          pip install --no-cache-dir --index-url https://developer.download.nvidia.com/compute/redist --extra-index-url https://pypi.org/simple nvidia-dali
           cd ray-curator
           pip install --no-cache-dir ".[dev,text,video]"
           # Alternatively install via extras (kept here as doc for future):
