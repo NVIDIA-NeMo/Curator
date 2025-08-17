@@ -40,11 +40,12 @@ jobs:
         # https://github.com/facebookresearch/fastText/issues/512#issuecomment-1837367666
         run: |
           pip install -U pip
-          # Install DALI CPU build directly from NVIDIA's index to avoid PyPI placeholder
-          # Force DALI to resolve from NVIDIA's index (PyPI has a placeholder sdist)
-          pip install --no-cache-dir --index-url https://developer.download.nvidia.com/compute/redist --extra-index-url https://pypi.org/simple nvidia-dali
+          # Install DALI CPU build (correct package for CPU runners)
+          pip install --no-cache-dir --index-url https://developer.download.nvidia.com/compute/redist --extra-index-url https://pypi.org/simple nvidia-dali-cpu
           cd ray-curator
           pip install --no-cache-dir ".[dev,text,video]"
+          # Alternatively install via extras (kept here as doc for future):
+          # pip install --no-cache-dir --extra-index-url https://developer.download.nvidia.com/compute/redist ".[dali_cpu]"
           pip install --no-cache-dir pytest-asyncio coverage
 
       - name: Run tests
