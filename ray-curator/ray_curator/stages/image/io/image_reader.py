@@ -42,14 +42,6 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             logger.error(msg)
             raise RuntimeError(msg)
 
-        if self.verbose:
-            logger.info("ImageReaderStage (DALI) configuration:")
-            logger.info(f"  - task_batch_size: {self.task_batch_size}")
-            logger.info(f"  - num_threads: {self.num_threads}")
-            logger.info(f"  - CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', '<unset>')}")
-            logger.info(f"  - torch.cuda.device_count: {torch.cuda.device_count()}")
-            logger.info(f"  - torch.cuda.current_device: {torch.cuda.current_device()}")
-
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
