@@ -12,7 +12,7 @@ documentation: |
 
   **Required arguments**.
 
-  * **workspace_dir**: specify the workspace folder where all audio files will be stored.
+  * **raw_data_dir**: specify the workspace folder where all audio files will be stored.
 
   Note that you can customize any part of this config either directly or from command-line.
 
@@ -20,7 +20,7 @@ documentation: |
 
   This config generates output manifest files:
 
-  * ``${workspace_dir}/${final_manifest}`` - dev subset of the data.
+  * ``${raw_data_dir}/result`` - dev subset of the data.
 
   Output manifest contains the following keys:
 
