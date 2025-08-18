@@ -7,9 +7,21 @@ from omegaconf import DictConfig, OmegaConf
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 
+"""
+How to run :
 
-def create_audio_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
-    pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
+SCRIPT_DIR=/path/to/Curator/examples/audio
+
+python ${SCRIPT_DIR}/run.py \
+--config-path ${SCRIPT_DIR}/fleurs \
+--config-name  pipeline.yaml \
+...
+
+"""
+
+
+def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
+    pipeline = Pipeline(name="yaml_pipeline", description="Pipeline created using yaml config file")
     for p in cfg.processors:
         stage = hydra.utils.instantiate(p)
         pipeline.add_stage(stage)
@@ -22,7 +34,7 @@ def main(cfg: DictConfig) -> None:
     Prepare pipeline and run YAML pipeline.
     """
     logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
-    pipeline = create_audio_pipeline_from_yaml(cfg)
+    pipeline = create_pipeline_from_yaml(cfg)
 
     # Print pipeline description
     logger.info(pipeline.describe())

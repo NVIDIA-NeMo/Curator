@@ -51,14 +51,14 @@ processors:
     pred_text_key: "pred_text"
     wer_key: "wer"
 
+  - _target_: ray_curator.stages.audio.common.GetAudioDurationStage
+    audio_filepath_key: audio_filepath
+    duration_key: duration
+
   - _target_: ray_curator.stages.audio.common.PreserveByValueStage
     input_value_key: "wer"
     target_value: 75.
     operator: "le"
-
-  - _target_: ray_curator.stages.audio.common.GetAudioDurationStage
-    audio_filepath_key: audio_filepath
-    duration_key: duration
 
   - _target_: ray_curator.stages.audio.io.object_to_batch.ObjectToBatchStage
 
