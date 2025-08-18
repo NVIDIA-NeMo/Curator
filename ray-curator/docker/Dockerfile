@@ -108,4 +108,5 @@ ENTRYPOINT ["/opt/entrypoint.sh"]
 
 FROM nemo_curator as nemo_curator_dev
 
-COPY --from=build /opt/.pixi/bin/pixi /opt/.pixi/bin/pixi
+ENV PATH="/root/.pixi/bin:$PATH"
+COPY --from=build /root/.pixi/bin/pixi /root/.pixi/bin/pixi
