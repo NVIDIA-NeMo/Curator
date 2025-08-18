@@ -110,3 +110,4 @@ FROM nemo_curator as nemo_curator_dev
 
 ENV PATH="/root/.pixi/bin:$PATH"
 COPY --from=build /root/.pixi/bin/pixi /root/.pixi/bin/pixi
+COPY --from=build /opt/pyproject.toml /opt/pyproject.toml
