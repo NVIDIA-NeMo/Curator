@@ -105,3 +105,7 @@ COPY --from=build /opt/ray_curator /opt/ray_curator
 WORKDIR /workspace
 
 ENTRYPOINT ["/opt/entrypoint.sh"]
+
+FROM nemo_curator as nemo_curator_dev
+
+COPY --from=build /opt/.pixi/bin/pixi /opt/.pixi/bin/pixi
