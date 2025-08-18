@@ -11,7 +11,7 @@ from ray_curator.pipeline import Pipeline
 from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
-from ray_curator.stages.audio.io.write_jsonl import ObjectToBatchStage
+from ray_curator.stages.audio.io.object_to_batch import ObjectToBatchStage
 from ray_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.text.io.writer import JsonlWriter
@@ -50,7 +50,7 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
-    pipeline.add_stage(ObjectToBatchStage().with_(batch_size=1024))
+    pipeline.add_stage(ObjectToBatchStage().with_(batch_size=1))
     result_dir = os.path.join(args.raw_data_dir, "result")
     if os.path.isdir(result_dir):
         shutil.rmtree(result_dir)  # clean up resulting folder
