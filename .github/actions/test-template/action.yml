@@ -132,7 +132,7 @@ runs:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
         docker system prune -af
-        docker build --target nemo_curator_dev -f ray-curator/docker/Dockerfile -t ray-curator .
+        docker build --target nemo_curator -f ray-curator/docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
