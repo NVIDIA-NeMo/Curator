@@ -1,0 +1,47 @@
+import sys
+
+import hydra
+from loguru import logger
+from omegaconf import DictConfig, OmegaConf
+
+from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.pipeline import Pipeline
+
+
+def create_audio_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
+    pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
+    for p in cfg.processors:
+        stage = hydra.utils.instantiate(p)
+        pipeline.add_stage(stage)
+    return pipeline
+
+
+@hydra.main(version_base=None)
+def main(cfg: DictConfig) -> None:
+    """
+    Prepare pipeline and run YAML pipeline.
+    """
+    logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
+    pipeline = create_audio_pipeline_from_yaml(cfg)
+
+    # Print pipeline description
+    logger.info(pipeline.describe())
+    logger.info("\n" + "=" * 50 + "\n")
+
+    # Create executor
+    executor = XennaExecutor()
+
+    # Execute pipeline
+    logger.info("Starting pipeline execution...")
+    pipeline.run(executor)
+
+    # Print results
+    logger.info("\nPipeline completed!")
+
+
+if __name__ == "__main__":
+    # hacking the arguments to always disable hydra's output
+    sys.argv.extend(
+        ["hydra.run.dir=.", "hydra.output_subdir=null", "hydra/job_logging=none", "hydra/hydra_logging=none"]
+    )
+    main()
