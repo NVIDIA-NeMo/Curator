@@ -1,5 +1,4 @@
 # ruff: noqa: I001
-import os
 import pathlib
 import time
 from collections.abc import Generator
@@ -7,7 +6,6 @@ from dataclasses import dataclass
 
 from loguru import logger
 import numpy as np
-from typing import TYPE_CHECKING
 import torch
 
 from ray_curator.stages.base import ProcessingStage
@@ -48,21 +46,22 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["image_data", "image_path", "image_id"]
 
-    def _create_dali_pipeline(self, tar_path: str):
+    def _create_dali_pipeline(self, tar_path: str) -> object:
         try:
-            from nvidia.dali import fn, pipeline_def, types  # noqa: PLC0415
+            from nvidia.dali import fn, pipeline_def, types
         except ModuleNotFoundError as exc:  # pragma: no cover
-            raise RuntimeError(
+            msg = (
                 "nvidia.dali is required to use ImageReaderStage. "
                 "Install a compatible DALI build (GPU or CPU) for your environment."
-            ) from exc
+            )
+            raise RuntimeError(msg) from exc
 
         @pipeline_def(
             batch_size=self.task_batch_size,
             num_threads=self.num_threads,
             device_id=0,  # Uses the first visible CUDA device for this worker
         )
-        def webdataset_pipeline(_tar_path: str):
+        def webdataset_pipeline(_tar_path: str) -> object:
             # Read only JPGs to avoid Python-side JSON parsing overhead
             img_raw = fn.readers.webdataset(
                 paths=_tar_path,
@@ -125,8 +124,6 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
                 batch_id += 1
 
     def process(self, task: FileGroupTask) -> list[ImageBatch]:
-        process_start = time.time()
-
         tar_file_paths = task.data
         if not tar_file_paths:
             msg = f"No tar file paths in task {task.task_id}"
@@ -135,6 +132,4 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
 
         tar_files = [pathlib.Path(p) for p in tar_file_paths]
 
-        batches = list(self._stream_batches(tar_files))
-
-        return batches
+        return list(self._stream_batches(tar_files))

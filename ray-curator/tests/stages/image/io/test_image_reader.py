@@ -66,8 +66,8 @@ def _stub_dali_modules() -> None:
     dali = types.ModuleType("nvidia.dali")
     pipeline = types.ModuleType("nvidia.dali.pipeline")
 
-    def pipeline_def(*_args, **_kwargs):  # noqa: ANN001
-        def _decorator(func):  # noqa: ANN001
+    def pipeline_def(*_args: object, **_kwargs: object) -> "Callable[[Callable[..., object]], Callable[..., object]]":
+        def _decorator(func: "Callable[..., object]") -> "Callable[..., object]":
             return func
 
         return _decorator
