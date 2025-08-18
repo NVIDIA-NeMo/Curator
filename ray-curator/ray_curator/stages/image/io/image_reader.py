@@ -1,6 +1,5 @@
 # ruff: noqa: I001
 import pathlib
-import time
 from collections.abc import Generator
 from dataclasses import dataclass
 
