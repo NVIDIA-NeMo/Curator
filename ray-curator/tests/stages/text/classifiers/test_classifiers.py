@@ -89,7 +89,6 @@ def run_and_assert_classifier_stages(
     return result_batch
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["Computers_and_Electronics", "Finance"]])
 def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
@@ -121,7 +120,6 @@ def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] |
         assert filtered_batch.data["domain_pred"].equals(pd.Series(["Computers_and_Electronics", "Finance"]))
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 def test_quality_classifier() -> None:
     text = ["Traveling to Europe during the off-season can be a more budget-friendly option."]
@@ -145,7 +143,6 @@ def test_quality_classifier() -> None:
     assert result_batch.data["quality_pred"].equals(expected_pred)
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 @pytest.mark.parametrize(
     "aegis_variant",
@@ -243,7 +240,6 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
         assert filtered_batch.data["aegis_pred"].equals(pd.Series(["safe"]))
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["high_quality"]])
 def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
@@ -267,7 +263,6 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
         assert len(filtered_batch.to_pandas()) == 0
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
     classifier = FineWebMixtralEduClassifier()
@@ -283,7 +278,6 @@ def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
     assert result_batch.data["fineweb-mixtral-edu-score-int"].equals(expected_pred)
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
     classifier = FineWebNemotronEduClassifier()
@@ -299,10 +293,14 @@ def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
     assert result_batch.data["fineweb-nemotron-edu-score-int"].equals(expected_pred)
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, [False]])
 def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
+    # Skip the test if the HF_TOKEN is not set
+    hf_token = os.environ.get("HF_TOKEN")
+    if not hf_token:
+        pytest.skip("HF_TOKEN environment variable not set")
+
     instruction = "Find a route between San Diego and Phoenix which passes through Nevada"
     input_ = ""
     response = "Drive to Las Vegas with highway 15 and from there drive to Phoenix with highway 93"
@@ -315,7 +313,7 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
         dataset_name="test_1",
     )
 
-    classifier = InstructionDataGuardClassifier(filter_by=filter_by)
+    classifier = InstructionDataGuardClassifier(token=hf_token, filter_by=filter_by)
 
     stages = classifier.decompose()
     assert stages[0].name == "llamaguard_7b_tokenizer"
@@ -336,7 +334,6 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
         assert filtered_batch.data["is_poisoned"].equals(pd.Series([False]))
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 def test_multilingual_domain_classifier() -> None:
     text = [
@@ -371,7 +368,6 @@ def test_multilingual_domain_classifier() -> None:
     assert result_batch.data["multilingual_domain_pred"].equals(expected_pred)
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 def test_content_type_classifier() -> None:
     text = ["Hi, great video! I am now a subscriber."]
@@ -395,7 +391,6 @@ def test_content_type_classifier() -> None:
     assert result_batch.data["content_pred"].equals(expected_pred)
 
 
-@pytest.mark.skip(reason="Skipping due to Hugging Face connection error on GPU CI")
 @pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["Code Generation"]])
 def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
