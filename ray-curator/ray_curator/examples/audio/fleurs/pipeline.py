@@ -1,10 +1,8 @@
+import argparse
 import os
 import shutil
-from dataclasses import dataclass
 
 from loguru import logger
-from nemo.core.config import hydra_runner
-from omegaconf import OmegaConf
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
@@ -17,21 +15,7 @@ from ray_curator.stages.resources import Resources
 from ray_curator.stages.text.io.writer import JsonlWriter
 
 
-@dataclass
-class TranscriptionConfig:
-    """
-    FLEURS audio data pretaration, transcription and filtration by WER threshold.
-    """
-
-    # Required configs
-    raw_data_dir: str  # path to store processed data
-    model_name: str = "nvidia/stt_hy_fastconformer_hybrid_large_pc"  # NeMo model name
-    lang: str = "hy_am"
-    split: str = "dev"
-    wer_threshold: float = 75.0
-
-
-def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
+def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
     # Define pipeline
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
@@ -58,13 +42,11 @@ def create_audio_pipeline(args: TranscriptionConfig) -> Pipeline:
     return pipeline
 
 
-@hydra_runner(config_name="TranscriptionConfig", schema=TranscriptionConfig)
-def main(cfg: TranscriptionConfig) -> None:
+def main(args: argparse.Namespace) -> None:
     """
     Prepare FLEURS dataset, run ASR inference and filer by WER threshold.
     """
-    logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
-    pipeline = create_audio_pipeline(cfg)
+    pipeline = create_audio_pipeline(args)
 
     # Print pipeline description
     logger.info(pipeline.describe())
@@ -82,4 +64,14 @@ def main(cfg: TranscriptionConfig) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    # General arguments
+    parser.add_argument("--raw_data_dir", type=str, required=True, help="Path to store processed data")
+    parser.add_argument(
+        "--model_name", type=str, default="nvidia/stt_hy_fastconformer_hybrid_large_pc", help="NeMo model name"
+    )
+    parser.add_argument("--lang", type=str, default="hy_am", help="Language name ")
+    parser.add_argument("--split", type=str, default="dev", help="Split name, usially {train, dev, test}")
+    parser.add_argument("--wer_threshold", type=float, default=75.0, help="Limit the number of videos to read")
+    args = parser.parse_args()
+    main(args)

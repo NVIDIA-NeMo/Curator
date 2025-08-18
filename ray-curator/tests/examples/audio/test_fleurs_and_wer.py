@@ -1,9 +1,10 @@
+import argparse
 import os
 from operator import le
 from typing import ClassVar
 
 from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.examples.audio.fleurs_and_wer import TranscriptionConfig, create_audio_pipeline
+from ray_curator.examples.audio.fleurs.pipeline import create_audio_pipeline
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
@@ -31,7 +32,8 @@ class TestFleursWer:
         return p.run(self.executor)
 
     def test_main_runs_pipeline(self):
-        cfg = TranscriptionConfig(
+        # General arguments
+        cfg = argparse.Namespace(
             raw_data_dir=os.path.join(self.test_data_root, "armenian/fleurs"),
             model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc",
             lang="hy_am",
