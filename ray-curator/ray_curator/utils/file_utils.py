@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import warnings
 
 import fsspec
@@ -9,6 +23,37 @@ def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.A
         storage_options = {}
     protocol, path = split_protocol(path)
     return get_filesystem_class(protocol)(**storage_options)
+
+
+def is_not_empty(
+    path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
+) -> bool:
+    if fs is None and storage_options is None:
+        err_msg = "fs or storage_options must be provided"
+        raise ValueError(err_msg)
+    elif fs is not None and storage_options is not None:
+        err_msg = "fs and storage_options cannot be provided together"
+        raise ValueError(err_msg)
+    elif fs is None:
+        fs = get_fs(path, storage_options)
+
+    return fs.exists(path) and fs.isdir(path) and fs.listdir(path)
+
+
+def delete_dir(
+    path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
+) -> None:
+    if fs is None and storage_options is None:
+        err_msg = "fs or storage_options must be provided"
+        raise ValueError(err_msg)
+    elif fs is not None and storage_options is not None:
+        err_msg = "fs and storage_options cannot be provided together"
+        raise ValueError(err_msg)
+    elif fs is None:
+        fs = get_fs(path, storage_options)
+
+    if fs.exists(path) and fs.isdir(path):
+        fs.rm(path, recursive=True)
 
 
 def filter_files_by_extension(
