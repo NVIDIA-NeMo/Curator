@@ -26,7 +26,7 @@ def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
             lang=args.lang,
             split=args.split,
             raw_data_dir=args.raw_data_dir,
-        )
+        ).with_(batch_size=4, resources=Resources(gpus=1.0))
     )
     pipeline.add_stage(
         InferenceAsrNemoStage(model_name=args.model_name).with_(batch_size=16, resources=Resources(gpus=1.0))

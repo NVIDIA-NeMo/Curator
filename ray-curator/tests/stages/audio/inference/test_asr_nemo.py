@@ -47,26 +47,24 @@ class TestAsrNeMoStage:
         with patch.object(InferenceAsrNemoStage, "transcribe", return_value=["the cat", "set on a mat"]):
             stage = InferenceAsrNemoStage(model_name="nvidia/parakeet-tdt-0.6b-v2")
 
-            path_list = [
-                DataObject(data={"audio_filepath": "/test/audio1.wav"}),
-                DataObject(data={"audio_filepath": "/test/audio2.mp3"}),
-            ]
+            file_paths = DataObject(
+                data=[{"audio_filepath": "/test/audio1.wav"}, {"audio_filepath": "/test/audio2.mp3"}]
+            )
 
             stage.setup_on_node()
             stage.setup()
-            result = stage.process_batch(path_list)
+            result = stage.process(file_paths)
+            assert isinstance(result, DataObject)
+            assert len(result.data) == 2
+            assert all(isinstance(task, dict) for task in result.data)
 
-            assert len(result) == 2
-            assert all(isinstance(task, DataObject) for task in result)
-            assert result[0].task_id == "task_id_/test/audio1.wav"
-            assert result[1].task_id == "task_id_/test/audio2.mp3"
-            assert result[0].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
-            assert result[1].dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
+            assert result.task_id == "task_id_nvidia/parakeet-tdt-0.6b-v2"
+            assert result.dataset_name == "nvidia/parakeet-tdt-0.6b-v2_inference"
 
             # Check that the audio objects are created correctly
-            assert isinstance(result[0].data, dict)
-            assert isinstance(result[1].data, dict)
-            assert result[0].data[result[0].filepath_key] == "/test/audio1.wav"
-            assert result[0].data["pred_text"] == "the cat"
-            assert result[1].data[result[1].filepath_key] == "/test/audio2.mp3"
-            assert result[1].data["pred_text"] == "set on a mat"
+            assert isinstance(result.data[0], dict)
+            assert isinstance(result.data[1], dict)
+            assert result.data[0][result.filepath_key] == "/test/audio1.wav"
+            assert result.data[0]["pred_text"] == "the cat"
+            assert result.data[1][result.filepath_key] == "/test/audio2.mp3"
+            assert result.data[1]["pred_text"] == "set on a mat"
