@@ -10,21 +10,11 @@ class ObjectToBatchStage(ProcessingStage[DataObject, DocumentBatch]):
 
     """
 
-    def process_batch(self, tasks: list[DataObject]) -> list[DocumentBatch]:
-        data = []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
-            data.append(task.data)
-
+    def process(self, task: DataObject) -> list[DocumentBatch]:
         return [
             DocumentBatch(
-                data=pd.DataFrame(data),
+                data=pd.DataFrame(task.data),
                 task_id="",
                 dataset_name="ObjectToBatch",
             )
         ]
-
-    def process(self, _: DataObject) -> None:
-        pass
