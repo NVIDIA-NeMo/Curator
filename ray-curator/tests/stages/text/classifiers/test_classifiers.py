@@ -32,7 +32,6 @@ from ray_curator.stages.text.classifiers import (
 )
 from ray_curator.tasks import DocumentBatch
 
-
 CACHE_DIR = "./hf_cache"
 
 

@@ -85,6 +85,7 @@ class TestModelStage:
 
         mock_snapshot_download.assert_called_once_with(
             repo_id="test/model",
+            cache_dir=None,
             token="test_token",  # noqa: S106
             local_files_only=False,
         )
