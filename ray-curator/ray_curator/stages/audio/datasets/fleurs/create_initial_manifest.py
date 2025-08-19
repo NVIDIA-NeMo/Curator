@@ -68,6 +68,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioBatch]):
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
     _name: str = "CreateInitialManifestFleurs"
+    _batch_size: int = 1
 
     def num_workers(self) -> int:
         return 1

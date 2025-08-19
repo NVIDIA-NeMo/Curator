@@ -38,10 +38,10 @@ processors:
     lang: "hy_am"
     split: ${data_split}
     raw_data_dir: ${raw_data_dir}
+    _batch_size: 4
 
   - _target_: ray_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
     model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
-    _batch_size: 16
     _resources:
       _target_: ray_curator.stages.resources.Resources
       gpus: 1.0
@@ -60,7 +60,7 @@ processors:
     target_value: 75.
     operator: "le"
 
-  - _target_: ray_curator.stages.audio.io.object_to_batch.ObjectToBatchStage
+  - _target_: ray_curator.stages.audio.io.convert.AudioToDocumentStage
 
   - _target_: ray_curator.stages.text.io.writer.JsonlWriter
     output_dir: ${output_dir}
