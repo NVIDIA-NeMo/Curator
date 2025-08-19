@@ -79,7 +79,10 @@ video = [
     "opencv-python",
     "einops",
     "torchvision",
-    "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+video_x86 = [
+    "vllm",
 ]
 
 all = [
