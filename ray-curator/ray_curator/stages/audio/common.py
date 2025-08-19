@@ -16,16 +16,10 @@ class LegacySpeechStage(ProcessingStage[Task, Task]):
     """
 
     def process(self, task: DataObject) -> list[Task]:
-        if isinstance(task, DataObject):
-            return self.process_dataset_entry(task.data)
-
-        elif isinstance(task, list):
-            result = []
-            for entry in task:
-                result.extend(self.process_dataset_entry(entry))
-            return result
-        else:
-            raise TypeError(str(task))
+        result = []
+        for entry in task.data:
+            result.extend(self.process_dataset_entry(entry))
+        return result
 
     @abstractmethod
     def process_dataset_entry(self, data_entry: DataObject) -> list[DataObject]:
@@ -49,7 +43,7 @@ class GetAudioDurationStage(LegacySpeechStage):
     audio_filepath_key: str
     duration_key: str
 
-    def process_dataset_entry(self, data_entry: DataObject) -> list[DataObject]:
+    def process_dataset_entry(self, data_entry: dict) -> list[DataObject]:
         audio_filepath = data_entry[self.audio_filepath_key]
         try:
             data, samplerate = soundfile.read(audio_filepath)
