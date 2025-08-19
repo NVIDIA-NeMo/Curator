@@ -81,7 +81,8 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
         speech_tasks = []
         root = os.path.splitext(file_path)[0]
         min_num_parts = 2  # Skip lines that don't have at least 2 parts
-
+        entries = []
+        count = 0
         with open(file_path, encoding="utf-8") as fin:
             for line in fin:
                 # Split the line into filename text using the tab delimiter
@@ -92,15 +93,26 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
                 file_name, transcript_text = parts[1], parts[2]
                 wav_file = os.path.join(root, file_name)
 
-                entry = {self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text}
+                entries.append({self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text})
+                count += 1
+                if count == self._batch_size:
+                    speech_task = DataObject(
+                        task_id=f"task_id_{file_path}",
+                        dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
+                        filepath_key=self.filepath_key,
+                        data=entries,
+                    )
+                    entries = []
+                    count = 0
+                    speech_tasks.append(speech_task)
+            if count > 0:
                 speech_task = DataObject(
                     task_id=f"task_id_{file_path}",
                     dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                     filepath_key=self.filepath_key,
-                    data=entry,
+                    data=entries,
                 )
                 speech_tasks.append(speech_task)
-
         return speech_tasks
 
     def download_extract_files(self, dst_folder: str) -> None:
