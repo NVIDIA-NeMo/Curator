@@ -52,7 +52,7 @@ class GetPairwiseWerStage(LegacySpeechStage):
     pred_text_key: str = "pred_text"
     wer_key: str = "wer"
 
-    def process_dataset_entry(self, data_entry: DataObject) -> list[DataObject]:
+    def process_dataset_entry(self, data_entry: dict) -> list[DataObject]:
         wer = get_wer(data_entry[self.text_key], data_entry[self.pred_text_key])
         data_entry[self.wer_key] = wer
         return [DataObject(data=data_entry)]
