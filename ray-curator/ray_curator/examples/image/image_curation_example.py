@@ -9,6 +9,7 @@ from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
+from ray_curator.stages.image.io.image_writer import ImageWriterStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 
 
@@ -59,6 +60,12 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
         verbose=args.verbose,
     ))
 
+    # Stage 5: Write down to disk
+    pipeline.add_stage(ImageWriterStage(
+        output_dir=args.output_dataset_dir,
+        verbose=args.verbose,
+    ))
+
     return pipeline
 
 
@@ -68,7 +75,7 @@ def main(args: argparse.Namespace) -> None:
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
     print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
-    print(f"Output webdataset directory: {args.output_wds_dataset_dir}")
+    print(f"Output webdataset directory: {args.output_dataset_dir}")
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
     print(f"Task batch size: {args.task_batch_size}")
@@ -113,13 +120,6 @@ def main(args: argparse.Namespace) -> None:
     # Execute pipeline
     results = pipeline.run(executor)
 
-    # Save output to webs
-    save_imagebatch_to_webdataset(
-        image_batches=results,
-        output_path=args.output_wds_dataset_dir,
-        samples_per_shard=args.samples_per_shard,
-        max_shards=args.max_shards,
-    )
     end_time = time.time()
 
     # Calculate and print execution time
@@ -130,7 +130,7 @@ def main(args: argparse.Namespace) -> None:
     print("\nImage curation pipeline completed!")
     print(f"Total execution time: {int(hours):02d}:{int(minutes):02d}:{seconds:.2f}")
     print(f"Total execution time: {execution_time:.2f} seconds")
-    print(f"\nProcessed dataset available at: {args.output_wds_dataset_dir}")
+    print(f"\nProcessed dataset available at: {args.output_dataset_dir}")
 
 
 if __name__ == "__main__":
@@ -153,7 +153,7 @@ if __name__ == "__main__":
         help="Directory to save the downloaded webdataset"
     )
     parser.add_argument(
-        "--output-wds-dataset-dir",
+        "--output-dataset-dir",
         type=str,
         required=True,
         help="Directory to save the resulting webdataset"
