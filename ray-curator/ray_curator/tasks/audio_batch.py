@@ -7,7 +7,7 @@ from .tasks import Task
 
 
 @dataclass
-class DataObject(Task[dict]):
+class AudioBatch(Task[dict]):
     """A single data dict with filepath check."""
 
     def __init__(

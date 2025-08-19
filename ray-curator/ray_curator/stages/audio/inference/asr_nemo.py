@@ -6,11 +6,11 @@ import torch
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import DataObject, DocumentBatch, FileGroupTask
+from ray_curator.tasks import AudioBatch, DocumentBatch, FileGroupTask
 
 
 @dataclass
-class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | DataObject, DataObject]):
+class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | AudioBatch, AudioBatch]):
     """Stage that do speech recognition inference using NeMo model.
 
     Args:
@@ -75,7 +75,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
         outputs = self.asr_model.transcribe(files)
         return [output.text for output in outputs]
 
-    def process(self, task: FileGroupTask | DocumentBatch | DataObject) -> DataObject:
+    def process(self, task: FileGroupTask | DocumentBatch | AudioBatch) -> AudioBatch:
         """Process a audio task by reading audio file and do ASR inference.
 
 
@@ -96,7 +96,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
             files = [task.data[0]]
         elif isinstance(task, DocumentBatch):
             files = list(task.data[self.filepath_key])
-        elif isinstance(task, DataObject):
+        elif isinstance(task, AudioBatch):
             files = [item[self.filepath_key] for item in task.data]
         else:
             raise TypeError(str(task))
@@ -114,7 +114,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
                 item = {self.filepath_key: file_path, self.pred_text_key: text}
             audio_items.append(item)
 
-        return DataObject(
+        return AudioBatch(
             task_id=f"task_id_{self.model_name}",
             dataset_name=f"{self.model_name}_inference",
             filepath_key=self.filepath_key,

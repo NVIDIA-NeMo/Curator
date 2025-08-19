@@ -2,7 +2,7 @@ import os
 from dataclasses import dataclass
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DataObject, _EmptyTask
+from ray_curator.tasks import AudioBatch, _EmptyTask
 from ray_curator.utils.file_utils import download_file, extract_archive
 
 
@@ -28,7 +28,7 @@ def get_fleurs_url_list(lang: str, split: str) -> list[str]:
 
 
 @dataclass
-class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
+class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioBatch]):
     """
     Stage to create initial manifest for the FLEURS dataset.
 
@@ -72,7 +72,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
     def num_workers(self) -> int:
         return 1
 
-    def process_transcript(self, file_path: str) -> list[DataObject]:
+    def process_transcript(self, file_path: str) -> list[AudioBatch]:
         """
         Parse transcript TSV file and put it inside manifest.
         Assumes the TSV file has two columns: file name and text.
@@ -96,7 +96,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
                 entries.append({self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text})
                 count += 1
                 if count == self._batch_size:
-                    speech_task = DataObject(
+                    speech_task = AudioBatch(
                         task_id=f"task_id_{file_path}",
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                         filepath_key=self.filepath_key,
@@ -106,7 +106,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
                     count = 0
                     speech_tasks.append(speech_task)
             if count > 0:
-                speech_task = DataObject(
+                speech_task = AudioBatch(
                     task_id=f"task_id_{file_path}",
                     dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",
                     filepath_key=self.filepath_key,
@@ -126,6 +126,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, DataObject]):
 
         extract_archive(f"{dst_folder}/{self.split}.tar.gz", str(dst_folder), force_extract=True)
 
-    def process(self, _: _EmptyTask) -> list[DataObject]:
+    def process(self, _: _EmptyTask) -> list[AudioBatch]:
         self.download_extract_files(self.raw_data_dir)
         return self.process_transcript(os.path.join(self.raw_data_dir, self.split + ".tsv"))
