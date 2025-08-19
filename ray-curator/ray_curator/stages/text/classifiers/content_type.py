@@ -34,6 +34,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Attributes:
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "quality_pred".
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
@@ -49,6 +50,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
+        cache_dir: str | None = None,
         pred_column: str = "content_pred",
         prob_column: str | None = None,
         text_field: str = "text",
@@ -60,6 +62,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
     ):
         super().__init__(
             model_identifier=CONTENT_TYPE_MODEL_IDENTIFIER,
+            cache_dir=cache_dir,
             pred_column=pred_column,
             prob_column=prob_column,
             text_field=text_field,

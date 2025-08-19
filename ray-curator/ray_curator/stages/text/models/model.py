@@ -38,6 +38,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
@@ -50,6 +51,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        cache_dir: str | None = None,
         hf_token: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
@@ -61,6 +63,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
+        self.cache_dir = cache_dir
         self.hf_token = hf_token
         self.model_inference_batch_size = model_inference_batch_size
         self.has_seq_order = has_seq_order
@@ -76,7 +79,12 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
+            snapshot_download(
+                repo_id=self.model_identifier,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+                local_files_only=False,
+            )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e

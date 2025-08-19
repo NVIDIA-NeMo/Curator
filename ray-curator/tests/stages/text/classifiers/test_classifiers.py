@@ -33,6 +33,9 @@ from ray_curator.stages.text.classifiers import (
 from ray_curator.tasks import DocumentBatch
 
 
+CACHE_DIR = "./hf_cache"
+
+
 @pytest.fixture
 def domain_dataset() -> DocumentBatch:
     text = [
@@ -92,7 +95,7 @@ def run_and_assert_classifier_stages(
 @pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["Computers_and_Electronics", "Finance"]])
 def test_domain_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
-    classifier = DomainClassifier(filter_by=filter_by)
+    classifier = DomainClassifier(cache_dir=CACHE_DIR, filter_by=filter_by)
 
     stages = classifier.decompose()
     assert stages[0].name == "domain_classifier_tokenizer"
@@ -130,7 +133,7 @@ def test_quality_classifier() -> None:
         dataset_name="test_1",
     )
 
-    classifier = QualityClassifier()
+    classifier = QualityClassifier(cache_dir=CACHE_DIR)
 
     stages = classifier.decompose()
     assert stages[0].name == "quality_classifier_deberta_tokenizer"
@@ -171,7 +174,12 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
         dataset_name="test_1",
     )
 
-    classifier = AegisClassifier(aegis_variant=aegis_variant, token=hf_token, filter_by=filter_by)
+    classifier = AegisClassifier(
+        aegis_variant=aegis_variant,
+        cache_dir=CACHE_DIR,
+        hf_token=hf_token,
+        filter_by=filter_by,
+    )
 
     # Check that the input columns are correct
     assert all(col in input_dataset.data.columns for col in classifier.inputs()[1])
@@ -243,7 +251,7 @@ def test_aegis_classifier(aegis_variant: str, filter_by: list[str] | None) -> No
 @pytest.mark.gpu
 @pytest.mark.parametrize("filter_by", [None, ["high_quality"]])
 def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[str] | None) -> None:
-    classifier = FineWebEduClassifier(filter_by=filter_by)
+    classifier = FineWebEduClassifier(cache_dir=CACHE_DIR, filter_by=filter_by)
 
     stages = classifier.decompose()
     assert stages[0].name == "fineweb_edu_classifier_tokenizer"
@@ -265,7 +273,7 @@ def test_fineweb_edu_classifier(domain_dataset: DocumentBatch, filter_by: list[s
 
 @pytest.mark.gpu
 def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
-    classifier = FineWebMixtralEduClassifier()
+    classifier = FineWebMixtralEduClassifier(cache_dir=CACHE_DIR)
 
     stages = classifier.decompose()
     assert stages[0].name == "nemocurator_fineweb_mixtral_edu_classifier_tokenizer"
@@ -280,7 +288,7 @@ def test_fineweb_mixtral_classifier(domain_dataset: DocumentBatch) -> None:
 
 @pytest.mark.gpu
 def test_fineweb_nemotron_classifier(domain_dataset: DocumentBatch) -> None:
-    classifier = FineWebNemotronEduClassifier()
+    classifier = FineWebNemotronEduClassifier(cache_dir=CACHE_DIR)
 
     stages = classifier.decompose()
     assert stages[0].name == "nemocurator_fineweb_nemotron_4_edu_classifier_tokenizer"
@@ -313,7 +321,7 @@ def test_instruction_data_guard_classifier(filter_by: list[str] | None) -> None:
         dataset_name="test_1",
     )
 
-    classifier = InstructionDataGuardClassifier(token=hf_token, filter_by=filter_by)
+    classifier = InstructionDataGuardClassifier(hf_token=hf_token, cache_dir=CACHE_DIR, filter_by=filter_by)
 
     stages = classifier.decompose()
     assert stages[0].name == "llamaguard_7b_tokenizer"
@@ -355,7 +363,7 @@ def test_multilingual_domain_classifier() -> None:
         dataset_name="test_1",
     )
 
-    classifier = MultilingualDomainClassifier()
+    classifier = MultilingualDomainClassifier(cache_dir=CACHE_DIR)
 
     stages = classifier.decompose()
     assert stages[0].name == "multilingual_domain_classifier_tokenizer"
@@ -378,7 +386,7 @@ def test_content_type_classifier() -> None:
         dataset_name="test_1",
     )
 
-    classifier = ContentTypeClassifier()
+    classifier = ContentTypeClassifier(cache_dir=CACHE_DIR)
 
     stages = classifier.decompose()
     assert stages[0].name == "content_type_classifier_deberta_tokenizer"
@@ -405,10 +413,10 @@ def test_prompt_task_complexity_classifier(filter_by: list[str] | None) -> None:
     # filter_by is not supported with PromptTaskComplexityClassifier
     if filter_by is not None:
         with pytest.raises(NotImplementedError, match="filter_by not supported"):
-            PromptTaskComplexityClassifier(filter_by=filter_by)
+            PromptTaskComplexityClassifier(cache_dir=CACHE_DIR, filter_by=filter_by)
         return
 
-    classifier = PromptTaskComplexityClassifier(filter_by=filter_by)
+    classifier = PromptTaskComplexityClassifier(cache_dir=CACHE_DIR, filter_by=filter_by)
 
     stages = classifier.decompose()
     assert stages[0].name == "prompt_task_and_complexity_classifier_tokenizer"

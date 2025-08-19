@@ -95,7 +95,8 @@ class ClassifierModelStage(ModelStage):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
-        pred_column: str,
+        cache_dir: str | None = None,
+        pred_column: str = "preds",
         prob_column: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
@@ -104,6 +105,7 @@ class ClassifierModelStage(ModelStage):
     ):
         super().__init__(
             model_identifier=model_identifier,
+            cache_dir=cache_dir,
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=padding_side,
@@ -123,10 +125,10 @@ class ClassifierModelStage(ModelStage):
         return ["data"], [self.pred_column] + ([self.prob_column] if self.keep_prob_column else [])
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model = Deberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
+        self.model = Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=True).cuda().eval()
         self.model.set_autocast(self.autocast)
 
-        config = AutoConfig.from_pretrained(self.model_identifier, local_files_only=True)
+        config = AutoConfig.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=True)
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
 
@@ -162,7 +164,8 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
-        pred_column: The name of the prediction column.
+        cache_dir: The Hugging Face cache directory. Defaults to None.
+        pred_column: The name of the prediction column. Defaults to "preds".
         prob_column: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
@@ -180,7 +183,8 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     """
 
     model_identifier: str
-    pred_column: str
+    cache_dir: str | None = None
+    pred_column: str = "preds"
     prob_column: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
@@ -197,6 +201,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         self.stages = [
             TokenizerStage(
                 model_identifier=self.model_identifier,
+                cache_dir=self.cache_dir,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
                 max_seq_length=self.max_seq_length,
@@ -205,6 +210,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             ),
             ClassifierModelStage(
                 model_identifier=self.model_identifier,
+                cache_dir=self.cache_dir,
                 pred_column=self.pred_column,
                 prob_column=self.prob_column,
                 model_inference_batch_size=self.model_inference_batch_size,

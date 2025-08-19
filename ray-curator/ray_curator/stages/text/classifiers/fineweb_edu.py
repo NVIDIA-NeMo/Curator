@@ -44,6 +44,7 @@ class FineWebModelStage(ModelStage):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column.
         float_score_column: The name of the float score column.
         int_score_column: The name of the integer score column.
@@ -58,15 +59,17 @@ class FineWebModelStage(ModelStage):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
-        pred_column: str,
-        float_score_column: str,
-        int_score_column: str,
+        cache_dir: str | None = None,
+        pred_column: str = "preds",
+        float_score_column: str = "float_score",
+        int_score_column: str = "int_score",
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
     ):
         super().__init__(
             model_identifier=model_identifier,
+            cache_dir=cache_dir,
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
@@ -101,7 +104,11 @@ class FineWebModelStage(ModelStage):
         return model
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        model = AutoModelForSequenceClassification.from_pretrained(self.model_identifier, local_files_only=True).cuda()
+        model = AutoModelForSequenceClassification.from_pretrained(
+            self.model_identifier,
+            cache_dir=self.cache_dir,
+            local_files_only=True,
+        ).cuda()
         self.model = self.configure_forward(model, self.autocast)
 
     def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> dict[str, np.ndarray]:
@@ -136,6 +143,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column.
         float_score_column: The name of the float score column.
         int_score_column: The name of the integer score column.
@@ -154,9 +162,10 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     """
 
     model_identifier: str
-    pred_column: str
-    float_score_column: str
-    int_score_column: str
+    cache_dir: str | None = None
+    pred_column: str = "preds"
+    float_score_column: str = "float_score"
+    int_score_column: str = "int_score"
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int | None = None
@@ -171,6 +180,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         self.stages = [
             TokenizerStage(
                 model_identifier=self.model_identifier,
+                cache_dir=self.cache_dir,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
                 max_seq_length=self.max_seq_length,
@@ -179,6 +189,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             ),
             FineWebModelStage(
                 model_identifier=self.model_identifier,
+                cache_dir=self.cache_dir,
                 pred_column=self.pred_column,
                 float_score_column=self.float_score_column,
                 int_score_column=self.int_score_column,
@@ -211,6 +222,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "fineweb-edu-score-label".
         float_score_column: The name of the float score column. Defaults to "fineweb-edu-score-float".
         int_score_column: The name of the integer score column. Defaults to "fineweb-edu-score-int".
@@ -228,6 +240,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
+        cache_dir: str | None = None,
         pred_column: str = "fineweb-edu-score-label",
         float_score_column: str = "fineweb-edu-score-float",
         int_score_column: str = "fineweb-edu-score-int",
@@ -240,6 +253,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
     ):
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
+            cache_dir=cache_dir,
             pred_column=pred_column,
             float_score_column=float_score_column,
             int_score_column=int_score_column,
@@ -263,6 +277,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "fineweb-mixtral-edu-score-label".
         float_score_column: The name of the float score column. Defaults to "fineweb-mixtral-edu-score-float".
         int_score_column: The name of the integer score column. Defaults to "fineweb-mixtral-edu-score-int".
@@ -280,6 +295,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
+        cache_dir: str | None = None,
         pred_column: str = "fineweb-mixtral-edu-score-label",
         float_score_column: str = "fineweb-mixtral-edu-score-float",
         int_score_column: str = "fineweb-mixtral-edu-score-int",
@@ -292,6 +308,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
     ):
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
+            cache_dir=cache_dir,
             pred_column=pred_column,
             float_score_column=float_score_column,
             int_score_column=int_score_column,
@@ -315,6 +332,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
     This classifier is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large text datasets.
 
     Attributes:
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "fineweb-nemotron-edu-score-label".
         float_score_column: The name of the float score column. Defaults to "fineweb-nemotron-edu-score-float".
         int_score_column: The name of the integer score column. Defaults to "fineweb-nemotron-edu-score-int".
@@ -332,6 +350,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
 
     def __init__(  # noqa: PLR0913
         self,
+        cache_dir: str | None = None,
         pred_column: str = "fineweb-nemotron-edu-score-label",
         float_score_column: str = "fineweb-nemotron-edu-score-float",
         int_score_column: str = "fineweb-nemotron-edu-score-int",
@@ -344,6 +363,7 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
     ):
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
+            cache_dir=cache_dir,
             pred_column=pred_column,
             float_score_column=float_score_column,
             int_score_column=int_score_column,

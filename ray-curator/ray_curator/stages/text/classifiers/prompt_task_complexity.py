@@ -226,6 +226,7 @@ class PromptTaskComplexityModelStage(ModelStage):
     Stage for Hugging Face model inference.
 
     Args:
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
@@ -236,12 +237,14 @@ class PromptTaskComplexityModelStage(ModelStage):
 
     def __init__(
         self,
+        cache_dir: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
     ):
         super().__init__(
             model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
+            cache_dir=cache_dir,
             has_seq_order=has_seq_order,
             model_inference_batch_size=model_inference_batch_size,
             padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
@@ -254,7 +257,11 @@ class PromptTaskComplexityModelStage(ModelStage):
         return ["data"], OUTPUT_COLUMNS
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.model = CustomDeberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
+        self.model = CustomDeberta.from_pretrained(
+            self.model_identifier,
+            cache_dir=self.cache_dir,
+            local_files_only=True,
+        ).cuda().eval()
         self.model.set_autocast(self.autocast)
 
     def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> torch.Tensor:
@@ -279,6 +286,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     This class is optimized for running on multi-node, multi-GPU setups to enable fast and efficient inference on large datasets.
 
     Args:
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
             Not supported with PromptTaskComplexityClassifier (raises NotImplementedError).
@@ -292,6 +300,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
 
     """
 
+    cache_dir: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int = 2000
@@ -311,6 +320,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
         self.stages = [
             TokenizerStage(
                 model_identifier=PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER,
+                cache_dir=self.cache_dir,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
                 max_seq_length=MAX_SEQ_LENGTH,
@@ -318,6 +328,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 sort_by_length=self.sort_by_length,
             ),
             PromptTaskComplexityModelStage(
+                cache_dir=self.cache_dir,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,
