@@ -4,7 +4,7 @@ from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import AudioBatch, DocumentBatch
 
 
-class ObjectToBatchStage(ProcessingStage[AudioBatch, DocumentBatch]):
+class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
     """
     Stage to conver DocumentObject to DocumentBatch
 
