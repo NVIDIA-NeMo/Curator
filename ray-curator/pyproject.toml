@@ -79,9 +79,6 @@ video = [
     "opencv-python",
     "einops",
     "torchvision",
-]
-
-video_x86 = [
     "vllm",
 ]
 
@@ -93,7 +90,7 @@ all = [
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64"]
+platforms = ["linux-64"]
 
 # Specify PyPI index settings
 [tool.pixi.pypi-options]

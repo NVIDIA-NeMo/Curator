@@ -31,7 +31,6 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 FROM cuda AS build
 
 ARG CURATOR_ENV=dev
-ARG PLATFORM=x86
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
@@ -49,9 +48,7 @@ COPY ray-curator/pyproject.toml ./
 COPY ray-curator/ray_curator ./ray_curator
 
 # Install dependencies
-RUN pixi install -e $CURATOR_ENVIRONMENT && \
-    if [ $PLATFORM = "x86" ]; then \
-        pixi add --platform linux-64 vllm; fi
+RUN pixi install -e $CURATOR_ENVIRONMENT
 
 RUN pixi shell-hook -e $CURATOR_ENVIRONMENT -s bash > /shell-hook && \
     echo "#!/bin/bash" > /opt/entrypoint.sh && \
