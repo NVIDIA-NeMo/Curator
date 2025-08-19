@@ -33,14 +33,8 @@ def test_inputs_outputs_and_name(tmp_path) -> None:
     assert stage.name == "image_writer"
 
 
-def test_setup_sets_actor_id(monkeypatch, tmp_path) -> None:
-    module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
-
-    class _FakeUUID:
-        def __init__(self):
-            self.hex = "abcdef1234567890"
-
-    monkeypatch.setattr(module.uuid, "uuid4", lambda: _FakeUUID())
+def test_setup_no_actor_id(tmp_path) -> None:
+    _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
 
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
 
@@ -48,31 +42,16 @@ def test_setup_sets_actor_id(monkeypatch, tmp_path) -> None:
         def __init__(self, worker_id: str) -> None:
             self.worker_id = worker_id
 
+    # Should not create any _actor_id attribute
     stage.setup(worker_metadata=_Worker(worker_id="worker1"))
-    assert stage._actor_id.startswith("worker1-")
-    # New implementation uses first 16 chars of UUID hex in actor id
-    assert stage._actor_id.endswith("abcdef1234567890")
+    assert not hasattr(stage, "_actor_id")
 
 
 def test_process_writes_tars_and_parquet_paths(monkeypatch, tmp_path) -> None:
-    module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
-
-    # Deterministic UUID for predictable base names if needed
-    class _FakeUUID:
-        def __init__(self):
-            self.hex = "deadbeefcafebabe"
-
-    monkeypatch.setattr(module.uuid, "uuid4", lambda: _FakeUUID())
+    _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
 
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
     stage.setup(worker_metadata=types.SimpleNamespace(worker_id="w"))
-
-    # Ensure unique tar/parquet base names per chunk without relying on actor id
-    monkeypatch.setattr(
-        ImageWriterStage,
-        "construct_base_name",
-        lambda self, task: f"images-{self._tar_seq:06d}",
-    )
 
     # Avoid PIL dependency by stubbing encoder to return fixed bytes and extension
     monkeypatch.setattr(

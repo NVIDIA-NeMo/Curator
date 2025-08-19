@@ -33,10 +33,6 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
     _name: str = "image_writer"
 
-    # Runtime fields
-    _actor_id: str = field(default="", init=False, repr=False)
-    _tar_seq: int = field(default=0, init=False, repr=False)
-
     @property
     def resources(self) -> Resources:
         # CPU-only writer
@@ -44,19 +40,6 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
     def __post_init__(self) -> None:  # noqa: D401
         os.makedirs(self.output_dir, exist_ok=True)
-
-    def setup(self, worker_metadata=None) -> None:  # noqa: ANN001
-        """Initialize unique actor prefix for output filenames.
-
-        Uses provided ``worker_metadata.worker_id`` if available; otherwise falls back to
-        ``hostname-pid-<short-uuid>``. Ensures filenames are unique across actors.
-        """
-
-        if getattr(worker_metadata, "worker_id", None):
-            base = str(worker_metadata.worker_id)
-        else:
-            base = f"{os.getpid()}"
-        self._actor_id = f"{base}-{uuid.uuid4().hex[:16]}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -110,6 +93,10 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
         tar_filename = f"{base_name}.tar"
         tar_path = os.path.join(self.output_dir, tar_filename)
 
+        # Assert to prevent accidental overwrite if a file with the same name already exists
+        if os.path.exists(tar_path):
+            raise AssertionError(f"Collision detected: refusing to overwrite existing tar file: {tar_path}")
+
         with open(tar_path, "wb") as fobj:
             with tarfile.open(fileobj=fobj, mode="w") as tf:
                 for member_name, payload in members:
@@ -128,6 +115,10 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         parquet_filename = f"{base_name}.parquet"
         parquet_path = os.path.join(self.output_dir, parquet_filename)
+
+        # Assert to prevent accidental overwrite if a file with the same name already exists
+        if os.path.exists(parquet_path):
+            raise AssertionError(f"Collision detected: refusing to overwrite existing parquet file: {parquet_path}")
 
         # Convert rows to Arrow Table (assumes uniform keys across rows)
         table = pa.Table.from_pylist(rows)
@@ -162,11 +153,10 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
             # Write tar and its corresponding parquet for this chunk
             if members:
-                # Define the common base name once per tar/parquet pair and advance sequence
-                tar_seq_used = self._tar_seq
-                base_name = self.construct_base_name(task)
-                self._tar_seq += 1
-
+                # Use per-task chunk index
+                chunk_index = start // self.images_per_tar
+                base_prefix = self.construct_base_name(task)
+                base_name = f"{base_prefix}-{chunk_index:06d}"
                 tar_path = self._write_tar(base_name, members)
                 tar_paths.append(tar_path)
 

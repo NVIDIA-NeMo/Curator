@@ -63,6 +63,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     # Stage 5: Write down to disk
     pipeline.add_stage(ImageWriterStage(
         output_dir=args.output_dataset_dir,
+        images_per_tar=args.images_per_tar,
         verbose=args.verbose,
     ))
 
@@ -255,16 +256,10 @@ if __name__ == "__main__":
 
     # Output dataset arguments
     parser.add_argument(
-        "--samples-per-shard",
+        "--images-per-tar",
         type=int,
-        default=1000,
-        help="Number of samples per shard in output webdataset"
-    )
-    parser.add_argument(
-        "--max-shards",
-        type=int,
-        default=5,
-        help="Maximum number of shards for output webdataset (used for zero-padding filenames)"
+        default=100,
+        help="Number of images per tar file in output dataset"
     )
 
     args = parser.parse_args()
