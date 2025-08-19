@@ -75,7 +75,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
         outputs = self.asr_model.transcribe(files)
         return [output.text for output in outputs]
 
-    def process_batch(self, tasks: list[FileGroupTask | DocumentBatch | DataObject]) -> list[DataObject]:
+    def process(self, task: FileGroupTask | DocumentBatch | DataObject) -> DataObject:
         """Process a audio task by reading audio file and do ASR inference.
 
 
@@ -87,25 +87,24 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
             If errors occur, the task is returned with error information stored.
         """
         files = []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
-            if isinstance(task, FileGroupTask):
-                files.append(task.data[0])
-            elif isinstance(task, DocumentBatch):
-                files.extend(list(task.data[self.filepath_key]))
-            elif isinstance(task, DataObject):
-                files.append(task.data[self.filepath_key])
-            else:
-                raise TypeError(str(task))
+        audio_items = []
+
+        if not self.validate_input(task):
+            msg = f"Task {task!s} failed validation for stage {self}"
+            raise ValueError(msg)
+        if isinstance(task, FileGroupTask):
+            files = [task.data[0]]
+        elif isinstance(task, DocumentBatch):
+            files = list(task.data[self.filepath_key])
+        elif isinstance(task, DataObject):
+            files = [item[self.filepath_key] for item in task.data]
+        else:
+            raise TypeError(str(task))
 
         outputs = self.transcribe(files)
 
-        audio_tasks = []
-        for i in range(len(outputs)):
-            entry = tasks[i].data
-            text = outputs[i]
+        for i, text in enumerate(outputs):
+            entry = task.data[i]
             file_path = files[i]
 
             if isinstance(entry, dict):
@@ -113,15 +112,11 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Data
                 item[self.pred_text_key] = text
             else:
                 item = {self.filepath_key: file_path, self.pred_text_key: text}
+            audio_items.append(item)
 
-            audio_task = DataObject(
-                task_id=f"task_id_{file_path}",
-                dataset_name=f"{self.model_name}_inference",
-                filepath_key=self.filepath_key,
-                data=item,
-            )
-            audio_tasks.append(audio_task)
-        return audio_tasks
-
-    def process(self, task: FileGroupTask) -> list[DataObject]:
-        pass
+        return DataObject(
+            task_id=f"task_id_{self.model_name}",
+            dataset_name=f"{self.model_name}_inference",
+            filepath_key=self.filepath_key,
+            data=audio_items,
+        )
