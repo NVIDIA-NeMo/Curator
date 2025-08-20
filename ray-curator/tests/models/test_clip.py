@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.models.clip import CLIPImageEmbeddings
+from ray_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
 
 
 class TestCLIPImageEmbeddings:
@@ -160,22 +160,148 @@ class TestCLIPImageEmbeddings:
             mock_clip.get_image_features.assert_called_once()
 
 
+class TestCLIPAestheticScorer:
+    """Test cases for CLIPAestheticScorer model class."""
+
+    def setup_method(self) -> None:
+        """Set up test fixtures."""
+        self.model = CLIPAestheticScorer(model_dir="test_models/clip_aesthetic")
+
+    def test_model_initialization(self) -> None:
+        """Test model initialization."""
+        assert self.model.model_dir == "test_models/clip_aesthetic"
+        assert self.model._clip_model is None
+        assert self.model._aesthetic_model is None
+
+    def test_model_id_names_property(self) -> None:
+        """Test model ID names property."""
+        model_ids = self.model.model_id_names
+        assert isinstance(model_ids, list)
+        assert len(model_ids) == 1
+        assert model_ids[0] == "openai/clip-vit-large-patch14"
+
+    @patch("ray_curator.models.clip.CLIPImageEmbeddings")
+    @patch("ray_curator.models.clip.AestheticScorer")
+    def test_setup_success(self, mock_aesthetic_scorer: Mock, mock_clip_embeddings: Mock) -> None:
+        """Test successful model setup."""
+        # Mock the models
+        mock_clip_instance = Mock()
+        mock_aesthetic_instance = Mock()
+        mock_clip_embeddings.return_value = mock_clip_instance
+        mock_aesthetic_scorer.return_value = mock_aesthetic_instance
+
+        self.model.setup()
+
+        # Verify model creation
+        mock_clip_embeddings.assert_called_once_with(model_dir=self.model.model_dir)
+        mock_aesthetic_scorer.assert_called_once_with(model_dir=self.model.model_dir)
+
+        # Verify setup calls
+        mock_clip_instance.setup.assert_called_once()
+        mock_aesthetic_instance.setup.assert_called_once()
+
+        assert self.model._clip_model == mock_clip_instance
+        assert self.model._aesthetic_model == mock_aesthetic_instance
+
+    def test_call_success(self) -> None:
+        """Test successful model call."""
+        # Setup mock models
+        mock_clip = Mock()
+        mock_aesthetic = Mock()
+        mock_embeddings = torch.randn(2, 768)
+        mock_scores = torch.randn(2)
+
+        mock_clip.return_value = mock_embeddings
+        mock_aesthetic.return_value = mock_scores
+
+        self.model._clip_model = mock_clip
+        self.model._aesthetic_model = mock_aesthetic
+
+        # Test input - use numpy.random.default_rng for modern API
+        rng = np.random.default_rng(42)
+        images = rng.integers(0, 255, size=(2, 224, 224, 3), dtype=np.uint8)
+
+        result = self.model(images)
+
+        # Verify pipeline
+        mock_clip.assert_called_once_with(images)
+        mock_aesthetic.assert_called_once_with(mock_embeddings)
+        assert torch.equal(result, mock_scores)
+
+    def test_call_without_setup_raises_error(self) -> None:
+        """Test that calling model without setup raises error."""
+        rng = np.random.default_rng(42)
+        images = rng.integers(0, 255, size=(2, 224, 224, 3), dtype=np.uint8)
+
+        with pytest.raises(RuntimeError, match="CLIPAestheticScorer model not initialized"):
+            self.model(images)
+
+    def test_call_with_torch_tensor(self) -> None:
+        """Test calling model with torch tensor input."""
+        # Setup mock models
+        mock_clip = Mock()
+        mock_aesthetic = Mock()
+        mock_embeddings = torch.randn(2, 768)
+        mock_scores = torch.randn(2)
+
+        mock_clip.return_value = mock_embeddings
+        mock_aesthetic.return_value = mock_scores
+
+        self.model._clip_model = mock_clip
+        self.model._aesthetic_model = mock_aesthetic
+
+        # Test input
+        images = torch.randint(0, 255, (2, 3, 224, 224), dtype=torch.uint8)
+
+        result = self.model(images)
+
+        # Verify pipeline
+        mock_clip.assert_called_once_with(images)
+        mock_aesthetic.assert_called_once_with(mock_embeddings)
+        assert torch.equal(result, mock_scores)
+
+    def test_call_with_none_clip_model_raises_error(self) -> None:
+        """Test that calling with None clip model raises error."""
+        self.model._clip_model = None
+        self.model._aesthetic_model = Mock()
+
+        rng = np.random.default_rng(42)
+        images = rng.integers(0, 255, size=(2, 224, 224, 3), dtype=np.uint8)
+
+        with pytest.raises(RuntimeError, match="CLIPAestheticScorer model not initialized"):
+            self.model(images)
+
+    def test_call_with_none_aesthetic_model_raises_error(self) -> None:
+        """Test that calling with None aesthetic model raises error."""
+        self.model._clip_model = Mock()
+        self.model._aesthetic_model = None
+
+        rng = np.random.default_rng(42)
+        images = rng.integers(0, 255, size=(2, 224, 224, 3), dtype=np.uint8)
+
+        with pytest.raises(RuntimeError, match="CLIPAestheticScorer model not initialized"):
+            self.model(images)
+
+
 class TestModelIntegration:
     """Integration tests for CLIP model components."""
 
     @patch("ray_curator.models.clip.torch.cuda.is_available")
     def test_models_can_be_instantiated(self, mock_cuda_available: Mock) -> None:
-        """Test that CLIP model can be instantiated without errors."""
+        """Test that models can be instantiated without errors."""
         mock_cuda_available.return_value = False  # Use CPU for testing
 
         clip_model = CLIPImageEmbeddings(model_dir="test_models/clip")
+        aesthetic_scorer = CLIPAestheticScorer(model_dir="test_models/clip_aesthetic")
 
         assert clip_model is not None
+        assert aesthetic_scorer is not None
         assert clip_model.device == "cpu"
 
     def test_model_properties_consistency(self) -> None:
         """Test that model properties are consistent."""
         clip_model = CLIPImageEmbeddings(model_dir="test_models/clip")
+        aesthetic_scorer = CLIPAestheticScorer(model_dir="test_models/clip_aesthetic")
 
-        # Uses expected CLIP model id name
-        assert clip_model.model_id_names == ["openai/clip-vit-large-patch14"]
+        # Both should use same CLIP model
+        assert clip_model.model_id_names == aesthetic_scorer.model_id_names
