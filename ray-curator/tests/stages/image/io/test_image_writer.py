@@ -156,3 +156,125 @@ def test_process_handles_empty_batch(tmp_path: pathlib.Path) -> None:
     assert out.data == []
     assert out._metadata["num_images"] == 0
     assert out._metadata["output_dir"] == str(tmp_path)
+
+
+def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+
+    # Deterministic name should depend only on sorted image paths + task id
+    stage_det = image_writer_stage_cls(output_dir=str(tmp_path), deterministic_name=True)
+    imgs1 = [
+        ImageObject(image_path="/p/b.jpg"),
+        ImageObject(image_path="/p/a.jpg"),
+    ]
+    imgs2 = list(reversed(imgs1))
+    b1 = stage_det.construct_base_name(ImageBatch(task_id="T", dataset_name="ds", data=imgs1))
+    b2 = stage_det.construct_base_name(ImageBatch(task_id="T", dataset_name="ds", data=imgs2))
+    assert b1 == b2
+    assert b1.startswith("images-")
+
+    # Random name path uses uuid4; make it deterministic for the test
+    class _FakeUUID:
+        def __init__(self, hex: str) -> None:
+            self.hex = hex
+
+    monkeypatch.setattr(module.uuid, "uuid4", lambda: _FakeUUID("deadbeefcafebabe0123456789abcdef"))
+    stage_rand = image_writer_stage_cls(output_dir=str(tmp_path), deterministic_name=False)
+    b3 = stage_rand.construct_base_name(ImageBatch(task_id="T2", dataset_name="ds", data=imgs1))
+    assert b3 == "images-deadbeefcafebabe"
+
+
+def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    import sys
+    import types
+
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path))
+
+    # Stub PIL.Image to avoid real dependency and to capture mode/shape
+    captured: list[tuple[tuple[int, ...], str, np.dtype]] = []
+
+    class _StubImageModule:
+        @staticmethod
+        def fromarray(arr: np.ndarray, mode: str | None = None):
+            captured.append((tuple(arr.shape), "" if mode is None else mode, arr.dtype))
+
+            class _Img:
+                def save(self, buffer, format: str = "JPEG", quality: int = 92) -> None:  # noqa: ARG002
+                    buffer.write(b"ok")
+
+            return _Img()
+
+    pil_pkg = types.ModuleType("PIL")
+    pil_pkg.Image = _StubImageModule  # type: ignore[attr-defined]
+    sys.modules["PIL"] = pil_pkg
+
+    # Grayscale float -> converts to uint8 and mode L
+    gray = (np.random.rand(3, 4) * 300).astype(np.float32)
+    b, ext = stage._encode_image_to_bytes(gray)
+    assert ext == ".jpg" and isinstance(b, (bytes, bytearray))
+    assert captured[-1][1] == "L"
+    assert captured[-1][2] == np.uint8
+
+    # RGB uint8 -> mode RGB
+    rgb = np.zeros((2, 2, 3), dtype=np.uint8)
+    _b, ext = stage._encode_image_to_bytes(rgb)
+    assert ext == ".jpg"
+    assert captured[-1][1] == "RGB"
+
+    # RGBA uint8 -> mode RGBA
+    rgba = np.zeros((2, 2, 4), dtype=np.uint8)
+    _b, ext = stage._encode_image_to_bytes(rgba)
+    assert ext == ".jpg"
+    assert captured[-1][1] == "RGBA"
+
+    # >3 channels -> cropped to 3 and mode RGB, dtype coerced to uint8
+    five = np.zeros((2, 2, 5), dtype=np.uint16)
+    _b, ext = stage._encode_image_to_bytes(five)
+    assert ext == ".jpg"
+    shape, mode, dtype = captured[-1]
+    assert shape == (2, 2, 3) and mode == "RGB" and dtype == np.uint8
+
+
+def test_write_tar_collision_and_content(tmp_path: pathlib.Path) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path))
+
+    base = "images-abc123"
+    path = stage._write_tar(base, [("a.jpg", b"a"), ("b.jpg", b"bb")])
+    assert pathlib.Path(path).exists()
+
+    with tarfile.open(path, "r") as tf:
+        names = {m.name for m in tf.getmembers()}
+        assert names == {"a.jpg", "b.jpg"}
+
+    with pytest.raises(AssertionError, match="Collision detected"):
+        stage._write_tar(base, [("c.jpg", b"c")])
+
+
+def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    import sys
+    import types
+
+    # Stub pyarrow to avoid dependency and track the call
+    written: dict[str, object] = {}
+
+    sys.modules["pyarrow"] = types.SimpleNamespace(Table=types.SimpleNamespace(from_pylist=lambda rows: ("T", rows)))
+    sys.modules["pyarrow.parquet"] = types.SimpleNamespace(
+        write_table=lambda tbl, p: written.update({"tbl": tbl, "path": p})
+    )
+
+    module = importlib.import_module("ray_curator.stages.image.io.image_writer")
+    stage = module.ImageWriterStage(output_dir=str(tmp_path))
+
+    base = "images-parq"
+    # Pre-create to trigger collision
+    (tmp_path / f"{base}.parquet").write_bytes(b"")
+    with pytest.raises(AssertionError, match="Collision detected"):
+        stage._write_parquet(base, [{"k": 1}])
+
+    # Remove and write successfully
+    (tmp_path / f"{base}.parquet").unlink()
+    out_path = stage._write_parquet(base, [{"k": 2}])
+    assert out_path == str(tmp_path / f"{base}.parquet")
+    assert written.get("path") == out_path
