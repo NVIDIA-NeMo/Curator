@@ -324,12 +324,12 @@ class TestCosmosEmbed1EmbeddingStage:
 
         # Test with custom parameters
         stage = CosmosEmbed1EmbeddingStage(
-            model_dir="custom_models", variant="448p", texts_to_verify=["custom text"], gpu_memory_gb=40, verbose=True
+            model_dir="custom_models", variant="448p", texts_to_verify=["custom text"], gpu_memory_gb=8, verbose=True
         )
         assert stage.model_dir == "custom_models"
         assert stage.variant == "448p"
         assert stage.texts_to_verify == ["custom text"]
-        assert stage.gpu_memory_gb == 40
+        assert stage.gpu_memory_gb == 8
         assert stage.verbose is True
 
     @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
