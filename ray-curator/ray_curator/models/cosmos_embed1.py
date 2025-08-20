@@ -36,7 +36,13 @@ _COSMOS_EMBED1_VARIANTS_INFO: Final = {
 class CosmosEmbed1(ModelInterface):
     """Cosmos-Embed1 embedding model."""
 
-    def __init__(self, *, variant: Literal["224p", "336p", "448p"] = "336p", utils_only: bool = False, model_dir: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        variant: Literal["224p", "336p", "448p"] = "336p",
+        utils_only: bool = False,
+        model_dir: str | None = None,
+    ) -> None:
         """Initialize Cosmos-Embed1 model.
 
         Args:
@@ -50,16 +56,6 @@ class CosmosEmbed1(ModelInterface):
         self._weights_dir = str(Path(model_dir) / self._weights_name)
         self._utils_only = utils_only
         self._model: AutoModel | None = None
-
-    @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "unified"
 
     @property
     def model_id_names(self) -> list[str]:
