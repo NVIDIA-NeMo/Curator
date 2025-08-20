@@ -123,9 +123,7 @@ class TestCosmosEmbed1:
 
     @patch("ray_curator.models.cosmos_embed1.Path")
     @patch("ray_curator.models.cosmos_embed1.AutoModel")
-    def test_setup_model_load_failure(
-        self, mock_model: "MagicMock", mock_path: "MagicMock"
-    ) -> None:
+    def test_setup_model_load_failure(self, mock_model: "MagicMock", mock_path: "MagicMock") -> None:
         """Test setup method with model loading failure."""
         model = CosmosEmbed1(variant="336p", utils_only=False, model_dir="/test/model/dir")
 

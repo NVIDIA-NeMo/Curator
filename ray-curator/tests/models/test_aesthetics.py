@@ -17,22 +17,22 @@ class TestMLP:
 
     def test_mlp_initialization(self) -> None:
         """Test MLP initialization."""
-        assert self.mlp.fc1 is not None
-        assert self.mlp.fc2 is not None
-        assert self.mlp.fc3 is not None
-        assert self.mlp.fc4 is not None
+        assert self.mlp.layers is not None
+        assert len(self.mlp.layers) == 8  # 8 layers in the Sequential
 
     def test_mlp_architecture(self) -> None:
         """Test MLP architecture."""
-        # Check layer dimensions
-        assert self.mlp.fc1.in_features == 768
-        assert self.mlp.fc1.out_features == 1024
-        assert self.mlp.fc2.in_features == 1024
-        assert self.mlp.fc2.out_features == 1024
-        assert self.mlp.fc3.in_features == 1024
-        assert self.mlp.fc3.out_features == 1024
-        assert self.mlp.fc4.in_features == 1024
-        assert self.mlp.fc4.out_features == 1
+        # Check layer dimensions - the actual MLP has different architecture
+        assert self.mlp.layers[0].in_features == 768
+        assert self.mlp.layers[0].out_features == 1024
+        assert self.mlp.layers[2].in_features == 1024
+        assert self.mlp.layers[2].out_features == 128
+        assert self.mlp.layers[4].in_features == 128
+        assert self.mlp.layers[4].out_features == 64
+        assert self.mlp.layers[6].in_features == 64
+        assert self.mlp.layers[6].out_features == 16
+        assert self.mlp.layers[7].in_features == 16
+        assert self.mlp.layers[7].out_features == 1
 
     def test_forward_pass_shape(self) -> None:
         """Test forward pass output shape."""
@@ -80,26 +80,22 @@ class TestAestheticScorer:
         """Test model initialization."""
         assert self.model.model_dir == "test_models/aesthetics"
         assert self.model.mlp is None
-        assert self.model.device in ["cuda", "cpu"]
+        assert self.model.device in ["cuda", "cuda:0", "cpu"]
         assert self.model.dtype == torch.float32
-
-    def test_conda_env_name_property(self) -> None:
-        """Test conda environment name property."""
-        assert self.model.conda_env_name == "video_splitting"
 
     def test_model_id_names_property(self) -> None:
         """Test model ID names property."""
         model_ids = self.model.model_id_names
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
-        assert model_ids[0] == "openai/clip-vit-large-patch14"
+        assert model_ids[0] == "ttj/sac-logos-ava1-l14-linearMSE"
 
     @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
     def test_device_selection_with_cuda(self, mock_cuda_available: Mock) -> None:
         """Test device selection when CUDA is available."""
         mock_cuda_available.return_value = True
         model = AestheticScorer(model_dir="test_models/aesthetics")
-        assert model.device == "cuda"
+        assert model.device in ["cuda", "cuda:0"]
 
     @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
     def test_device_selection_without_cuda(self, mock_cuda_available: Mock) -> None:
@@ -113,7 +109,7 @@ class TestAestheticScorer:
     def test_setup_success(self, mock_mlp_class: Mock, mock_load_file: Mock) -> None:
         """Test successful model setup."""
         # Mock state dict loading
-        mock_state_dict = {"fc1.weight": torch.randn(1024, 768)}
+        mock_state_dict = {"layers.0.weight": torch.randn(1024, 768)}
         mock_load_file.return_value = mock_state_dict
 
         # Mock MLP instance
@@ -259,9 +255,8 @@ class TestModelIntegration:
         """Test aesthetic scorer properties consistency."""
         scorer = AestheticScorer(model_dir="test_models/aesthetics")
 
-        assert scorer.conda_env_name == "video_splitting"
-        assert "openai/clip-vit-large-patch14" in scorer.model_id_names
-        assert scorer.device in ["cuda", "cpu"]
+        assert "ttj/sac-logos-ava1-l14-linearMSE" in scorer.model_id_names
+        assert scorer.device in ["cuda", "cuda:0", "cpu"]
         assert scorer.dtype == torch.float32
 
     def test_mlp_deterministic_output(self) -> None:

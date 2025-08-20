@@ -107,15 +107,17 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 verbose=args.verbose,
             )
         )
-    
+
     if args.aesthetic_threshold is not None:
-        pipeline.add_stage(ClipAestheticFilterStage(
-            model_dir=args.model_dir,
-            score_threshold=args.aesthetic_threshold,
-            reduction=args.aesthetic_reduction,
-            num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-            verbose=args.verbose,
-        ))
+        pipeline.add_stage(
+            ClipAestheticFilterStage(
+                model_dir=args.model_dir,
+                score_threshold=args.aesthetic_threshold,
+                reduction=args.aesthetic_reduction,
+                num_gpus_per_worker=args.aesthetic_gpus_per_worker,
+                verbose=args.verbose,
+            )
+        )
     if args.generate_embeddings:
         if args.embedding_algorithm.startswith("cosmos-embed1"):
             variant = args.embedding_algorithm.split("-")[-1]

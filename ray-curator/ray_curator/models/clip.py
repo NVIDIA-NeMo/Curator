@@ -44,16 +44,6 @@ class CLIPImageEmbeddings(ModelInterface):
         self.transforms = None
 
     @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "video_splitting"
-
-    @property
     def model_id_names(self) -> list[str]:
         """Get the model ID names.
 
@@ -106,6 +96,7 @@ class CLIPImageEmbeddings(ModelInterface):
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
 
+
 class CLIPAestheticScorer(ModelInterface):
     """A model that chains CLIPImageEmbeddings and AestheticScorer models."""
 
@@ -115,16 +106,6 @@ class CLIPAestheticScorer(ModelInterface):
         self.model_dir = model_dir
         self._clip_model: CLIPImageEmbeddings | None = None
         self._aesthetic_model: AestheticScorer | None = None
-
-    @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "video_splitting"
 
     @property
     def model_id_names(self) -> list[str]:
