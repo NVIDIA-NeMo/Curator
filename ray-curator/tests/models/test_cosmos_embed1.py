@@ -39,20 +39,12 @@ class TestCosmosEmbed1:
     def test_model_initialization_all_variants(self) -> None:
         """Test model initialization with all supported variants."""
         variants = ["224p", "336p", "448p"]
-        expected_weights = [
-            "nvidia/Cosmos-Embed1-224p",
-            "nvidia/Cosmos-Embed1-336p",
-            "nvidia/Cosmos-Embed1-448p"
-        ]
+        expected_weights = ["nvidia/Cosmos-Embed1-224p", "nvidia/Cosmos-Embed1-336p", "nvidia/Cosmos-Embed1-448p"]
 
         for variant, expected_weight in zip(variants, expected_weights, strict=False):
             model = CosmosEmbed1(variant=variant, model_dir="/test/model/dir")
             assert model.variant == variant
             assert model._weights_name == expected_weight
-
-    def test_conda_env_name(self) -> None:
-        """Test conda environment name property."""
-        assert self.model.conda_env_name == "unified"
 
     def test_model_id_names(self) -> None:
         """Test model ID names property."""
@@ -88,7 +80,9 @@ class TestCosmosEmbed1:
     @patch("ray_curator.models.cosmos_embed1.Path")
     @patch("ray_curator.models.cosmos_embed1.AutoProcessor")
     @patch("ray_curator.models.cosmos_embed1.AutoModel")
-    def test_setup_with_model(self, mock_model: "MagicMock", mock_processor: "MagicMock", mock_path: "MagicMock") -> None:
+    def test_setup_with_model(
+        self, mock_model: "MagicMock", mock_processor: "MagicMock", mock_path: "MagicMock"
+    ) -> None:
         """Test setup method with full model loading."""
         # Setup model with utils_only=False
         model = CosmosEmbed1(variant="336p", utils_only=False, model_dir="/test/model/dir")
@@ -130,7 +124,9 @@ class TestCosmosEmbed1:
     @patch("ray_curator.models.cosmos_embed1.Path")
     @patch("ray_curator.models.cosmos_embed1.AutoProcessor")
     @patch("ray_curator.models.cosmos_embed1.AutoModel")
-    def test_setup_model_load_failure(self, mock_model: "MagicMock", mock_processor: "MagicMock", mock_path: "MagicMock") -> None:  # noqa: ARG002
+    def test_setup_model_load_failure(
+        self, mock_model: "MagicMock", mock_processor: "MagicMock", mock_path: "MagicMock"
+    ) -> None:  # noqa: ARG002
         """Test setup method with model loading failure."""
         model = CosmosEmbed1(variant="336p", utils_only=False, model_dir="/test/model/dir")
 

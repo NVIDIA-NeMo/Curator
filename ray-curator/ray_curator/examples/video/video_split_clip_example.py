@@ -110,21 +110,25 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     if args.generate_embeddings:
         if args.embedding_algorithm.startswith("cosmos-embed1"):
             variant = args.embedding_algorithm.split("-")[-1]
-            pipeline.add_stage(CosmosEmbed1FrameCreationStage(
-                model_dir=args.model_dir,
-                variant=variant,
-                target_fps=2.0,
-                verbose=args.verbose,
-            ))
-            pipeline.add_stage(CosmosEmbed1EmbeddingStage(
-                model_dir=args.model_dir,
-                variant=variant,
-                gpu_memory_gb=args.embedding_gpu_memory_gb,
-                verbose=args.verbose,
-            ))
-    else:
-        msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
-        raise ValueError(msg)
+            pipeline.add_stage(
+                CosmosEmbed1FrameCreationStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    target_fps=2.0,
+                    verbose=args.verbose,
+                )
+            )
+            pipeline.add_stage(
+                CosmosEmbed1EmbeddingStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    gpu_memory_gb=args.embedding_gpu_memory_gb,
+                    verbose=args.verbose,
+                )
+            )
+        else:
+            msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
+            raise ValueError(msg)
 
     pipeline.add_stage(
         ClipWriterStage(
@@ -133,8 +137,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
             generate_embeddings=args.generate_embeddings,
-            generate_previews=False, # TODO: Change this once we have a preview stage
-            generate_captions=False, # TODO: Change this once we have a caption stage
+            generate_previews=False,  # TODO: Change this once we have a preview stage
+            generate_captions=False,  # TODO: Change this once we have a caption stage
             embedding_algorithm=args.embedding_algorithm,
             caption_models=None,  # TODO: Add caption models
             enhanced_caption_models=None,  # TODO: Add enhanced caption models
