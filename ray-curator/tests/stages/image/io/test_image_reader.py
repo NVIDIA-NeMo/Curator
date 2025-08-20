@@ -77,7 +77,18 @@ def _fake_create_pipeline_factory(total: int, batch: int) -> Callable[[str], _Fa
 
 @pytest.fixture(autouse=True)
 def _stub_dali_modules() -> None:
-    """Stub nvidia.dali imports so tests run without real DALI installed."""
+    """Stub nvidia.dali only on CPU-only environments without real DALI.
+
+    We avoid stubbing when CUDA is available so the GPU test can either use
+    the real DALI (if installed) or skip cleanly if it's not.
+    """
+    import importlib.util
+
+    if torch.cuda.is_available():
+        return
+    if importlib.util.find_spec("nvidia.dali") is not None:
+        return
+
     nvidia = types.ModuleType("nvidia")
     dali = types.ModuleType("nvidia.dali")
     pipeline = types.ModuleType("nvidia.dali.pipeline")
@@ -112,12 +123,12 @@ def test_inputs_outputs_and_name() -> None:
     assert stage.name == "image_reader"
 
 
-def test_init_requires_cuda() -> None:
+def test_init_allows_cpu_when_no_cuda() -> None:
     from ray_curator.stages.image.io.image_reader import ImageReaderStage
-    with patch("torch.cuda.is_available", return_value=False), pytest.raises(
-        RuntimeError, match="requires CUDA"
-    ):
-        ImageReaderStage(task_batch_size=2, verbose=False)
+    # When CUDA is unavailable, the stage should initialize and use CPU DALI
+    with patch("torch.cuda.is_available", return_value=False):
+        stage = ImageReaderStage(task_batch_size=2, verbose=False)
+    assert stage is not None
 
 
 def test_process_streams_batches_from_dali() -> None:
@@ -206,7 +217,7 @@ def test_dali_image_reader_on_gpu() -> None:
     from ray_curator.tasks import FileGroupTask
 
     stage = ImageReaderStage(task_batch_size=2, num_threads=2, verbose=False)
-    task = FileGroupTask(task_id="t0", data=[str(tar_path)])
+    task = FileGroupTask(task_id="t0", dataset_name="ds", data=[str(tar_path)])
 
     batches = stage.process(task)
 

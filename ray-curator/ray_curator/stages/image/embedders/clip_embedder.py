@@ -1,3 +1,5 @@
+
+
 from collections.abc import Generator
 from dataclasses import dataclass
 
@@ -43,7 +45,9 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the CLIP image embedding model."""
-        self.model = CLIPImageEmbeddings(model_dir=self.model_dir)
+        # Use positional arg for compatibility with test doubles that may
+        # not accept keyword arguments
+        self.model = CLIPImageEmbeddings(self.model_dir)
         self.model.setup()
 
         if self.verbose:

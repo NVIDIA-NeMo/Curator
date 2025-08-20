@@ -494,8 +494,9 @@ def test_image_aesthetic_filter_on_gpu() -> None:
         pytest.skip("CUDA not available; skipping GPU aesthetic test")
 
     class _DummyAestheticScorer:
-        def __init__(self, _model_dir: str | None = None) -> None:
-            pass
+        def __init__(self, _model_dir: str | None = None, **_kwargs: object) -> None:
+            # Accept both positional and keyword args for compatibility
+            return None
 
         def setup(self) -> None:
             return None

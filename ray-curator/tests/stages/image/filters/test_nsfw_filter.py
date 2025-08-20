@@ -365,8 +365,9 @@ def test_image_nsfw_filter_on_gpu() -> None:
         pytest.skip("CUDA not available; skipping GPU nsfw test")
 
     class _DummyNSFWScorer:
-        def __init__(self, _model_dir: str | None = None) -> None:
-            pass
+        def __init__(self, _model_dir: str | None = None, **_kwargs: object) -> None:
+            # Accept both positional and keyword args for compatibility
+            return None
 
         @staticmethod
         def download_weights_on_node(_model_dir: str | None = None) -> None:

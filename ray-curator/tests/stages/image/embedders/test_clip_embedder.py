@@ -85,7 +85,12 @@ class TestImageEmbeddingStage:
 
         stage.setup()
 
-        mock_clip_embeddings.assert_called_once_with(model_dir="test_models/clip")
+        mock_clip_embeddings.assert_called_once()
+        call_args, call_kwargs = mock_clip_embeddings.call_args
+        assert (
+            (len(call_args) >= 1 and call_args[0] == "test_models/clip")
+            or (call_kwargs.get("model_dir") == "test_models/clip")
+        )
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
 
@@ -302,7 +307,12 @@ class TestImageEmbeddingStage:
         result = stage.process(sample_image_batch)
 
         # Verify the model was instantiated and setup was called
-        mock_clip_embeddings.assert_called_once_with(model_dir="test_models/clip")
+        mock_clip_embeddings.assert_called_once()
+        call_args, call_kwargs = mock_clip_embeddings.call_args
+        assert (
+            (len(call_args) >= 1 and call_args[0] == "test_models/clip")
+            or (call_kwargs.get("model_dir") == "test_models/clip")
+        )
         mock_model_instance.setup.assert_called_once()
 
         # Verify the model was called twice (for 2 batches of 2 images each)
