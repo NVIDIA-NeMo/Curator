@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 import importlib
+import sys
 import tarfile
 import types
-import sys
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -25,7 +27,7 @@ import pytest
 from ray_curator.tasks.image import ImageBatch, ImageObject
 
 
-def _import_writer_with_stubbed_pyarrow():
+def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
     """Import ImageWriterStage ensuring pyarrow is stubbed if not installed."""
     if "pyarrow" not in sys.modules:
         sys.modules["pyarrow"] = types.SimpleNamespace(
@@ -38,7 +40,7 @@ def _import_writer_with_stubbed_pyarrow():
     return module, module.ImageWriterStage
 
 
-def test_inputs_outputs_and_name(tmp_path) -> None:
+def test_inputs_outputs_and_name(tmp_path: Path) -> None:
     module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
 
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=3)
@@ -47,7 +49,7 @@ def test_inputs_outputs_and_name(tmp_path) -> None:
     assert stage.name == "image_writer"
 
 
-def test_setup_no_actor_id(tmp_path) -> None:
+def test_setup_no_actor_id(tmp_path: Path) -> None:
     _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
 
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
@@ -61,7 +63,7 @@ def test_setup_no_actor_id(tmp_path) -> None:
     assert not hasattr(stage, "_actor_id")
 
 
-def test_process_writes_tars_and_parquet_paths(monkeypatch, tmp_path) -> None:
+def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
 
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
@@ -77,7 +79,7 @@ def test_process_writes_tars_and_parquet_paths(monkeypatch, tmp_path) -> None:
     # Capture parquet rows per base_name without touching filesystem
     captured_rows: dict[str, list[dict]] = {}
 
-    def _capture_parquet(self, base_name: str, rows: list[dict]):  # noqa: ANN001
+    def _capture_parquet(self, base_name: str, rows: list[dict]) -> str:
         captured_rows[base_name] = rows
         return str(tmp_path / f"{base_name}.parquet")
 
@@ -128,7 +130,7 @@ def test_process_writes_tars_and_parquet_paths(monkeypatch, tmp_path) -> None:
     assert out._metadata["output_dir"] == str(tmp_path)
 
 
-def test_process_raises_on_missing_image_data(tmp_path) -> None:
+def test_process_raises_on_missing_image_data(tmp_path: Path) -> None:
     _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
     stage.setup()
@@ -143,7 +145,7 @@ def test_process_raises_on_missing_image_data(tmp_path) -> None:
         stage.process(bad)
 
 
-def test_process_handles_empty_batch(tmp_path) -> None:
+def test_process_handles_empty_batch(tmp_path: Path) -> None:
     _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
     stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=3)
     stage.setup()

@@ -179,7 +179,7 @@ class TestImageAestheticFilterStage:
         self,
         mock_logger: Mock,
         mock_aesthetic_scorer: Mock,
-        stage: ImageAestheticFilterStage,  # noqa: ARG002
+        stage: ImageAestheticFilterStage,
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
@@ -493,7 +493,7 @@ def test_image_aesthetic_filter_on_gpu() -> None:
         pytest.skip("CUDA not available; skipping GPU aesthetic test")
 
     class _DummyAestheticScorer:
-        def __init__(self, model_dir: str | None = None) -> None:  # noqa: ARG002
+        def __init__(self, _model_dir: str | None = None) -> None:
             pass
 
         def setup(self) -> None:
@@ -507,8 +507,11 @@ def test_image_aesthetic_filter_on_gpu() -> None:
             return s
 
     rng = np.random.default_rng(7)
+    import tempfile
+
+    tmp_dir = tempfile.gettempdir()
     images = [
-        ImageObject(image_id=f"img_{i}", image_path=f"/tmp/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
+        ImageObject(image_id=f"img_{i}", image_path=f"{tmp_dir}/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
         for i in range(6)
     ]
     batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")

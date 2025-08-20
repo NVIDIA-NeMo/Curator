@@ -16,16 +16,16 @@
 
 from __future__ import annotations
 
-import sys
-import types
-from dataclasses import dataclass
 import pathlib
+import sys
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from unittest.mock import patch
-import torch
+import types
 
 import numpy as np
 import pytest
+import torch
 
 if TYPE_CHECKING:
     from collections.abc import Callable

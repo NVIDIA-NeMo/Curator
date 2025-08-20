@@ -12,21 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import hashlib
 import io
 import os
 import tarfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
+
 from loguru import logger
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-import hashlib
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks.image import ImageBatch, ImageObject
+from ray_curator.tasks.image import ImageBatch
 from ray_curator.tasks.file_group import FileGroupTask
 
 
@@ -52,7 +53,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
         # CPU-only writer
         return Resources()
 
-    def __post_init__(self) -> None:  # noqa: D401
+    def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -79,20 +80,24 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     def _encode_image_to_bytes(self, image: np.ndarray) -> tuple[bytes, str]:
         """Encode image array to JPEG bytes; always returns (bytes, ".jpg")."""
 
-        from PIL import Image  # type: ignore
+        from PIL import Image  # type: ignore[import-not-found]
 
         img = image
         if img.dtype != np.uint8:
             img = np.clip(img, 0, 255).astype(np.uint8)
-        if img.ndim == 2:
+        CHANNELS_GRAY = 2
+        CHANNELS_RGB = 3
+        CHANNELS_RGBA = 4
+
+        if img.ndim == CHANNELS_GRAY:
             mode = "L"
-        elif img.shape[2] == 3:
+        elif img.shape[2] == CHANNELS_RGB:
             mode = "RGB"
-        elif img.shape[2] == 4:
+        elif img.shape[2] == CHANNELS_RGBA:
             mode = "RGBA"
         else:
             mode = "RGB"
-            img = img[..., :3]
+            img = img[..., :CHANNELS_RGB]
 
         with io.BytesIO() as buffer:
             Image.fromarray(img, mode=mode).save(buffer, format="JPEG", quality=92)
@@ -109,14 +114,14 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         # Assert to prevent accidental overwrite if a file with the same name already exists
         if os.path.exists(tar_path):
-            raise AssertionError(f"Collision detected: refusing to overwrite existing tar file: {tar_path}")
+            err = f"Collision detected: refusing to overwrite existing tar file: {tar_path}"
+            raise AssertionError(err)
 
-        with open(tar_path, "wb") as fobj:
-            with tarfile.open(fileobj=fobj, mode="w") as tf:
-                for member_name, payload in members:
-                    info = tarfile.TarInfo(name=member_name)
-                    info.size = len(payload)
-                    tf.addfile(info, io.BytesIO(payload))
+        with open(tar_path, "wb") as fobj, tarfile.open(fileobj=fobj, mode="w") as tf:
+            for member_name, payload in members:
+                info = tarfile.TarInfo(name=member_name)
+                info.size = len(payload)
+                tf.addfile(info, io.BytesIO(payload))
 
         logger.debug(f"Wrote tar: {tar_path} with {len(members)} images")
         return tar_path
@@ -132,7 +137,8 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         # Assert to prevent accidental overwrite if a file with the same name already exists
         if os.path.exists(parquet_path):
-            raise AssertionError(f"Collision detected: refusing to overwrite existing parquet file: {parquet_path}")
+            err = f"Collision detected: refusing to overwrite existing parquet file: {parquet_path}"
+            raise AssertionError(err)
 
         # Convert rows to Arrow Table (assumes uniform keys across rows)
         table = pa.Table.from_pylist(rows)

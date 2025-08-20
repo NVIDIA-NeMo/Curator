@@ -359,7 +359,7 @@ class TestImageEmbeddingStage:
             pytest.skip("CUDA not available; skipping GPU embedding test")
 
         class _DummyCLIPImageEmbeddings:
-            def __init__(self, model_dir: str | None = None) -> None:  # noqa: ARG002
+            def __init__(self, _model_dir: str | None = None) -> None:
                 pass
 
             def setup(self) -> None:
@@ -375,14 +375,16 @@ class TestImageEmbeddingStage:
                     x = x.unsqueeze(0)
                 # Compute a simple scalar per image and expand to 16-d embedding
                 s = x.mean(dim=(1, 2, 3))  # (N,)
-                emb = s.unsqueeze(1).repeat(1, 16)  # (N, 16)
-                return emb
+                return s.unsqueeze(1).repeat(1, 16)  # (N, 16)
 
         rng = np.random.default_rng(123)
+        import tempfile
+
+        tmp_dir = tempfile.gettempdir()
         images = [
             ImageObject(
                 image_id=f"img_{i:03d}",
-                image_path=f"/tmp/img_{i:03d}.jpg",
+                image_path=f"{tmp_dir}/img_{i:03d}.jpg",
                 image_data=rng.integers(0, 255, (32, 32, 3), dtype=np.uint8),
             )
             for i in range(4)

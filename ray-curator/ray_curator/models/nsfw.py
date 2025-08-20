@@ -150,7 +150,7 @@ class NSFWScorer(ModelInterface):
             model_dir_path = Path(model_dir) / _NSFW_MODEL_ID
             model_dir_path.mkdir(parents=True, exist_ok=True)
 
-            response = requests.get(url)  # noqa: S113
+            response = requests.get(url)
 
             raw_zip_path = model_dir_path / "nsfw.zip"
             with open(raw_zip_path, "wb") as f:

@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pathlib
 from collections.abc import Generator
 from dataclasses import dataclass
+import pathlib
 
 from loguru import logger
 import numpy as np

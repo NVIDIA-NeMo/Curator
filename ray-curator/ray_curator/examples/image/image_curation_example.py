@@ -17,7 +17,7 @@ import os
 import time
 
 from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.examples.image.helper import download_webdataset, save_imagebatch_to_webdataset
+from ray_curator.examples.image.helper import download_webdataset
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
@@ -133,7 +133,7 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
-    results = pipeline.run(executor)
+    pipeline.run(executor)
 
     end_time = time.time()
 

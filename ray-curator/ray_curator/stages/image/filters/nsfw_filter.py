@@ -40,10 +40,12 @@ class ImageNSFWFilterStage(BaseFilterStage):
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Download NSFW model weights from LAION repository."""
+        _ = node_info, worker_metadata  # acknowledge unused arguments
         NSFWScorer.download_weights_on_node(self.model_dir)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the NSFW filtering model."""
+        _ = worker_metadata  # acknowledge unused argument
         self.model = NSFWScorer(model_dir=self.model_dir)
         self.model.setup()
 

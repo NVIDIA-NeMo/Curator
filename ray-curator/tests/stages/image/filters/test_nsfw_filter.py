@@ -315,7 +315,7 @@ class TestImageNSFWFilterStage:
         self,
         mock_logger: Mock,
         mock_nsfw_scorer: Mock,
-        stage: ImageNSFWFilterStage,
+        _stage: ImageNSFWFilterStage,
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
@@ -366,7 +366,7 @@ def test_image_nsfw_filter_on_gpu() -> None:
         pytest.skip("CUDA not available; skipping GPU nsfw test")
 
     class _DummyNSFWScorer:
-        def __init__(self, model_dir: str | None = None) -> None:
+        def __init__(self, _model_dir: str | None = None) -> None:
             pass
 
         @staticmethod
@@ -382,8 +382,11 @@ def test_image_nsfw_filter_on_gpu() -> None:
             return torch.sigmoid(x.mean(dim=1))
 
     rng = np.random.default_rng(9)
+    import tempfile
+
+    tmp_dir = tempfile.gettempdir()
     images = [
-        ImageObject(image_id=f"img_{i}", image_path=f"/tmp/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
+        ImageObject(image_id=f"img_{i}", image_path=f"{tmp_dir}/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
         for i in range(6)
     ]
     batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")
