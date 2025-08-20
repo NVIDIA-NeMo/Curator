@@ -1,7 +1,5 @@
 import pathlib
 
-from ray_curator.utils.storage_client import StoragePrefix
-
 
 def _get_local_path(localpath: pathlib.Path, *args: str) -> pathlib.Path:
     """Construct a full local path from a base path and additional components.
@@ -17,7 +15,7 @@ def _get_local_path(localpath: pathlib.Path, *args: str) -> pathlib.Path:
     return pathlib.Path(localpath, *args)
 
 
-def get_full_path(path: str | StoragePrefix | pathlib.Path, *args: str) -> StoragePrefix | pathlib.Path:
+def get_full_path(path: str | pathlib.Path, *args: str) -> pathlib.Path:
     """Construct a full path from a base path and additional components.
 
     Args:
@@ -33,4 +31,3 @@ def get_full_path(path: str | StoragePrefix | pathlib.Path, *args: str) -> Stora
         return _get_local_path(pathlib.Path(path), *args)
 
     return pathlib.Path(path, *args)
-

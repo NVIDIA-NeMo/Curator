@@ -1,5 +1,6 @@
 import json
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ import ray
 from loguru import logger
 
 from ray_curator.backends.base import BaseExecutor
+from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from ray_curator.backends.experimental.ray_data import RayDataExecutor
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.tasks import FileGroupTask
@@ -29,6 +31,7 @@ from .utils import (
         pytest.param((RayDataExecutor, {}), id="ray_data"),
         pytest.param((XennaExecutor, {"execution_mode": "batch"}), id="xenna_batch"),
         pytest.param((XennaExecutor, {"execution_mode": "streaming"}), id="xenna_streaming"),
+        pytest.param((RayActorPoolExecutor, {}), id="ray_actor_pool"),
     ],
     indirect=True,
 )
@@ -43,7 +46,6 @@ class TestBackendIntegrations:
     input_dir: Path | None = None
     output_dir: Path | None = None
     output_tasks: list[FileGroupTask] | None = None
-    remote_counter_actor: Any | None = None
     all_logs: str = ""
 
     @pytest.fixture(scope="class", autouse=True)
@@ -61,10 +63,8 @@ class TestBackendIntegrations:
         request.cls.input_dir = tmp_path / "input"  # type: ignore[reportOptionalMemberAccess]
         request.cls.output_dir = tmp_path / "output"  # type: ignore[reportOptionalMemberAccess]
 
-        # Create test data and pipeline
         create_test_data(request.cls.input_dir, num_files=self.NUM_TEST_FILES)  # type: ignore[reportOptionalMemberAccess]
-        pipeline, remote_counter_actor = create_test_pipeline(request.cls.input_dir, request.cls.output_dir)  # type: ignore[reportOptionalMemberAccess]
-        request.cls.remote_counter_actor = remote_counter_actor  # type: ignore[reportOptionalMemberAccess]
+        pipeline = create_test_pipeline(request.cls.input_dir, request.cls.output_dir)  # type: ignore[reportOptionalMemberAccess]
 
         # Execute pipeline with comprehensive logging capture
         executor = backend_cls(config)
@@ -73,12 +73,9 @@ class TestBackendIntegrations:
             # Store logs for backend-specific tests
             request.cls.all_logs = log_buffer.getvalue()  # type: ignore[reportOptionalMemberAccess]
 
-        # Teardown: kill the actor after the test class completes
         yield
-
-        # Kill the counter actor to clean up for next test run
-        if hasattr(request.cls, "remote_counter_actor") and request.cls.remote_counter_actor is not None:  # type: ignore[reportOptionalMemberAccess]
-            ray.kill(request.cls.remote_counter_actor)  # type: ignore[reportOptionalMemberAccess]
+        ray.kill(ray.get_actor("stage_call_counter", namespace="stage_call_counter"))
+        logger.info(f"Ran pipeline for {request.cls.__name__}")
 
     def test_output_files(self):
         """Test that the correct number of output files are created with expected content."""
@@ -158,10 +155,6 @@ class TestBackendIntegrations:
                 == 1
             ), "Mismatch in number of items processed by stages after split_into_rows"
 
-    @pytest.mark.xfail(
-        ray.__version__ <= "2.47.1",
-        reason="Execution plan will fail for <=2.47.1 due to https://github.com/ray-project/ray/issues/54431",
-    )
     def test_ray_data_execution_plan(self):
         """Test that Ray Data creates the expected execution plan with correct stage organization."""
         if self.backend_cls != RayDataExecutor:
@@ -194,10 +187,33 @@ class TestBackendIntegrations:
 
     def test_stage_call_counts(self):
         """Test that the stage call counts are correctly recorded for all stages."""
-        assert self.remote_counter_actor is not None, "Expected remote counter actor"
-        stage_call_counts = ray.get(self.remote_counter_actor.get_all_counts.remote())
+        # Since they actor is killed (because each executor calls ray.shutdown())
+        # we need to read the call_counters.json file
+        with open(self.output_dir / "call_counters.json") as f:
+            stage_call_counts = json.load(f)
         logger.info(f"Stage call counts: {stage_call_counts}")
         assert stage_call_counts == {
             "add_length_doc_length_1": math.ceil(self.NUM_TEST_FILES / FILES_PER_PARTITION),
             "add_length_doc_length_2": TOTAL_DOCUMENTS,
         }
+
+
+class TestEnvVars:
+    def test_max_limit_env_vars(self, shared_ray_client: None):  # noqa: ARG002
+        """We set these env vars in __init__.py of the package
+
+
+        # TODO: Once GPU is added we can test the env var for RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES
+            So that whoever starts a ray cluster, these env vars are set
+            This allows Xenna to run without failure.
+        """
+
+        @ray.remote
+        def get_env_vars() -> str:
+            return {k: v for k, v in os.environ.items() if k.startswith("RAY_")}
+
+        env_vars = ray.get(get_env_vars.remote())
+
+        for env_var_name in ["RAY_MAX_LIMIT_FROM_API_SERVER", "RAY_MAX_LIMIT_FROM_DATA_SOURCE"]:
+            assert os.environ[env_var_name] == str(40000), f"{env_var_name} is not correctly set on driver"
+            assert env_vars[env_var_name] == str(40000), f"{env_var_name} is not correctly set on ray cluster"
