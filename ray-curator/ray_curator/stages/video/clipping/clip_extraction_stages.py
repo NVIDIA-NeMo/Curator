@@ -9,7 +9,7 @@ from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_reso
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
-from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
 from ray_curator.tasks.video import Clip, Video, VideoTask

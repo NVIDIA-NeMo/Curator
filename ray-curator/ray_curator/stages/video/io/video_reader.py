@@ -1,4 +1,17 @@
-import pathlib
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -6,10 +19,12 @@ from pathlib import Path
 from loguru import logger
 
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.stages.client_partitioning import ClientPartitioningStage
+from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
+from ray_curator.utils.client_utils import FSPath
 
 
 @dataclass
@@ -33,7 +48,8 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     Note:
         Currently supports local filesystem paths only. S3 support is planned for future releases.
     """
-
+    input_path: str | None = None
+    input_s3_profile_name: str | None = None
     verbose: bool = False
     _name: str = "video_reader"
 
@@ -70,15 +86,12 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             The same VideoTask with video.source_bytes and video.metadata populated.
             If errors occur, the task is returned with error information stored.
         """
-        files = task.data
-        if len(files) != 1:
-            msg = f"Expected 1 file, got {len(files)}"
+        if len(task.data) != 1:
+            msg = f"Expected exactly 1 video file, got {len(task.data)}"
             raise ValueError(msg)
-        file_path = Path(files[0])
-
-        video = Video(input_video=file_path)
+        video = Video(input_video=task.data[0])
         video_task = VideoTask(
-            task_id=f"{file_path}_processed",
+            task_id=f"{task.data[0]}_processed",
             dataset_name=task.dataset_name,
             data=video,
             _metadata=deepcopy(task._metadata),
@@ -115,18 +128,22 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
         Note:
             Errors are logged and stored in video.errors["download"] for debugging.
         """
-
-        def _raise_s3_error() -> None:
-            msg = "S3 client is required for S3 destination"
-            raise TypeError(msg)
-
         try:
-            if isinstance(video.input_video, pathlib.Path):
+            if isinstance(video.input_video, FSPath):
+                # Concurrent download video bytes
+                video.source_bytes = video.input_video.get_bytes_cat_ranges()
+            elif isinstance(video.input_video, str):
+                video.input_video = Path(video.input_video)
                 with video.input_video.open("rb") as fp:
                     video.source_bytes = fp.read()
-            # @aot TODO: Add support for S3
+            elif isinstance(video.input_video, Path):
+                with video.input_video.open("rb") as fp:
+                    video.source_bytes = fp.read()
             else:
-                _raise_s3_error()
+                msg = f"Unsupported input type: {type(video.input_video)}"
+                raise TypeError(msg)  # noqa: TRY301
+            size_mb = len(video.source_bytes) / (1024 * 1024)
+            logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
@@ -235,6 +252,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
     """
 
     input_video_path: str
+    input_s3_profile_name: str = "default"
     video_limit: int | None = -1
     verbose: bool = False
 
@@ -252,14 +270,26 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         Returns:
             List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
-        reader_stage = FilePartitioningStage(
-            file_paths=self.input_video_path,
-            files_per_partition=1,
-            file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
-            limit=self.video_limit,
-        )
+        if self.input_video_path.startswith("s3://"):
+            reader_stage = ClientPartitioningStage(
+                file_paths=self.input_video_path,
+                files_per_partition=1,
+                file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+                limit=self.video_limit,
+            )
+        else:
+            reader_stage = FilePartitioningStage(
+                file_paths=self.input_video_path,
+                files_per_partition=1,
+                file_extensions=[".mp4", ".mov", ".avi", ".mkv", ".webm"],
+                limit=self.video_limit,
+            )
 
-        download_stage = VideoReaderStage(verbose=self.verbose)
+        download_stage = VideoReaderStage(
+            input_path=self.input_video_path,
+            input_s3_profile_name=self.input_s3_profile_name,
+            verbose=self.verbose
+        )
 
         return [reader_stage, download_stage]
 

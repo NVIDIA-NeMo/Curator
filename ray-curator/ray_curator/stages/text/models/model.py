@@ -110,7 +110,9 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 padding_side=self.padding_side,
             )
 
-    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, model_input_batch: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray] | torch.Tensor:
         msg = "Subclasses must implement this method"
         raise NotImplementedError(msg)
 
@@ -127,7 +129,6 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         processed_outputs = []
         df_cpu = batch.to_pandas()
-
         for model_input_batch in self.yield_next_batch(df_cpu):
             # Forward pass
             with torch.no_grad():
@@ -136,9 +137,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 else:
                     outputs = self.model(model_input_batch)
 
+            processed_output = self.process_model_output(outputs, model_input_batch)
             del model_input_batch
-
-            processed_output = self.process_model_output(outputs)
             processed_outputs.append(processed_output)
 
         # Collect all outputs

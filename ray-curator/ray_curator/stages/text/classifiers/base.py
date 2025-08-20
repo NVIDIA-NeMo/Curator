@@ -27,10 +27,10 @@ from transformers import AutoConfig, AutoModel
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.modules.score_filter import Filter
 from ray_curator.stages.text.models.model import ModelStage
 from ray_curator.stages.text.models.tokenizer import TokenizerStage
 from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from ray_curator.stages.text.modules.score_filter import Filter
 from ray_curator.tasks import DocumentBatch
 
 
@@ -130,7 +130,9 @@ class ClassifierModelStage(ModelStage):
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
 
-    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray]:
         probs = outputs.cpu().numpy()
         preds = np.argmax(probs, axis=1)
 

@@ -257,7 +257,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         self.model = CustomDeberta.from_pretrained(self.model_identifier, local_files_only=True).cuda().eval()
         self.model.set_autocast(self.autocast)
 
-    def process_model_output(self, outputs: torch.Tensor) -> dict[str, np.ndarray]:
+    def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> torch.Tensor:
         return outputs
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:

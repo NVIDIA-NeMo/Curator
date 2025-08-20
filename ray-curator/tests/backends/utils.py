@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Test utilities for backend integration tests.
 
 This module provides shared utilities for creating test data, pipelines,
@@ -18,11 +32,11 @@ import ray
 from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.io.reader import JsonlReader
-from ray_curator.stages.io.writer import JsonlWriter
+from ray_curator.stages.text.io.reader import JsonlReader
+from ray_curator.stages.text.io.writer import JsonlWriter
 from ray_curator.tasks import DocumentBatch
 
 
@@ -90,7 +104,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
         """Process a batch of tasks and add length field."""
         # Get the counter actor by name
-        counter_actor = ray.get_actor("stage_call_counter")
+        counter_actor = ray.get_actor("stage_call_counter", namespace="stage_call_counter")
         stage_identifier = f"{self._name}_{self.column_name}"
         ray.get(counter_actor.increment.remote(stage_identifier))
 
@@ -211,7 +225,11 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, A
 
     # Create a named counter actor that can be referenced by name
     # we use detached lifetime so that the actor is not killed until the end of the test
-    StageCallCounter.options(name="stage_call_counter", lifetime="detached").remote(output_dir)
+    ray.init(ignore_reinit_error=True)
+    StageCallCounter.options(name="stage_call_counter", namespace="stage_call_counter", lifetime="detached").remote(
+        output_dir
+    )
+    ray.shutdown()
 
     pipeline = Pipeline(
         name="integration_test_pipeline", description="Integration test pipeline for backend comparison"
