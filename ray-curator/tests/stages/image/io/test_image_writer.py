@@ -253,18 +253,19 @@ def test_write_tar_collision_and_content(tmp_path: pathlib.Path) -> None:
 
 
 def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    import sys
     import types
 
-    # Stub pyarrow to avoid dependency and track the call
+    # Track writes without stubbing global sys.modules
     written: dict[str, object] = {}
 
-    sys.modules["pyarrow"] = types.SimpleNamespace(Table=types.SimpleNamespace(from_pylist=lambda rows: ("T", rows)))
-    sys.modules["pyarrow.parquet"] = types.SimpleNamespace(
-        write_table=lambda tbl, p: written.update({"tbl": tbl, "path": p})
-    )
-
     module = importlib.import_module("ray_curator.stages.image.io.image_writer")
+
+    # Patch module-local pyarrow bindings
+    stub_pa = types.SimpleNamespace(Table=types.SimpleNamespace(from_pylist=lambda rows: ("T", rows)))
+    stub_pq = types.SimpleNamespace(write_table=lambda tbl, p: written.update({"tbl": tbl, "path": p}))
+    monkeypatch.setattr(module, "pa", stub_pa, raising=False)
+    monkeypatch.setattr(module, "pq", stub_pq, raising=False)
+
     stage = module.ImageWriterStage(output_dir=str(tmp_path))
 
     base = "images-parq"
