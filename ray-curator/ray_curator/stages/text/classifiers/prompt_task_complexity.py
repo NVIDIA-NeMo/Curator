@@ -77,7 +77,7 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
     def __init__(self, config: dataclass):
         super().__init__()
 
-        self.backbone = AutoModel.from_pretrained(config["base_model"], local_files_only=True)
+        self.backbone = AutoModel.from_pretrained(config["base_model"])
         self.target_sizes = config["target_sizes"].values()
 
         self.task_type_map = config["task_type_map"]

@@ -318,19 +318,24 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
                 token=self.hf_token,
                 local_files_only=False,
             )
+            self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {PRETRAINED_MODEL_NAME_OR_PATH}"
             raise RuntimeError(msg) from e
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             padding_side=TOKENIZER_PADDING_SIDE,
             cache_dir=self.cache_dir,
-            local_files_only=True,
+            local_files_only=local_files_only,
             token=self.hf_token,
         )
         self.tokenizer.pad_token = self.tokenizer.unk_token
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
 
     def _parse_response(self, raw_response: str) -> str:
         lines = raw_response.split("\n")

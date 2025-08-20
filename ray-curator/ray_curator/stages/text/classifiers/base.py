@@ -44,7 +44,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     def __init__(self, config: dataclass):
         super().__init__()
-        self.model = AutoModel.from_pretrained(config["base_model"], local_files_only=True)
+        self.model = AutoModel.from_pretrained(config["base_model"])
         self.dropout = nn.Dropout(config["fc_dropout"])
         self.fc = nn.Linear(self.model.config.hidden_size, len(config["id2label"]))
 
