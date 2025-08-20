@@ -220,19 +220,6 @@ class AegisModelStage(ModelStage):
         )
         self.tokenizer.pad_token = self.tokenizer.unk_token
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
-        try:
-            snapshot_download(
-                repo_id=self.model_identifier,
-                cache_dir=self.cache_dir,
-                token=self.hf_token,
-                local_files_only=False,
-            )
-            self._setup(local_files_only=False)
-        except Exception as e:
-            msg = "Failed to setup Aegis model"
-            raise RuntimeError(msg) from e
-
     def process_model_output(
         self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
     ) -> dict[str, np.ndarray]:
