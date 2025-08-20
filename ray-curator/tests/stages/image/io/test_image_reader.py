@@ -86,7 +86,15 @@ def _stub_dali_modules() -> None:
 
     if torch.cuda.is_available():
         return
-    if importlib.util.find_spec("nvidia.dali") is not None:
+    # Some environments may have a broken/partial installation where
+    # nvidia.dali is present in sys.modules with __spec__ = None.
+    # importlib.util.find_spec raises ValueError in that case. Treat this as
+    # "not installed" so we provide our stub.
+    try:
+        dali_spec = importlib.util.find_spec("nvidia.dali")
+    except (ValueError, ModuleNotFoundError, ImportError):
+        dali_spec = None
+    if dali_spec is not None:
         return
 
     nvidia = types.ModuleType("nvidia")
