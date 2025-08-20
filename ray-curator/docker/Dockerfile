@@ -48,7 +48,8 @@ COPY ray-curator/pyproject.toml ./
 COPY ray-curator/ray_curator ./ray_curator
 
 # Install dependencies
-RUN pixi install -e $CURATOR_ENVIRONMENT
+RUN pixi config set pinning-strategy latest-up --global && \
+    pixi install -e $CURATOR_ENVIRONMENT
 
 RUN pixi shell-hook -e $CURATOR_ENVIRONMENT -s bash > /shell-hook && \
     echo "#!/bin/bash" > /opt/entrypoint.sh && \

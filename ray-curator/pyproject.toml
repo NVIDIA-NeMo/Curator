@@ -88,9 +88,6 @@ all = [
     "ray_curator[video]",
 ]
 
-[tool.pixi]
-pinning-strategy = "latest-up"
-
 [tool.pixi.workspace]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
