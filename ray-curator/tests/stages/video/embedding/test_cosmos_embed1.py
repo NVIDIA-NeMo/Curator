@@ -315,11 +315,11 @@ class TestCosmosEmbed1EmbeddingStage:
     def test_initialization(self):
         """Test stage initialization with different parameters."""
         # Test with default parameters
-        stage = CosmosEmbed1EmbeddingStage()
+        stage = CosmosEmbed1EmbeddingStage(gpu_memory_gb=8)
         assert stage.model_dir == "models/cosmos_embed1"
         assert stage.variant == "336p"
         assert stage.texts_to_verify is None
-        assert stage.gpu_memory_gb == 20
+        assert stage.gpu_memory_gb == 8
         assert stage.verbose is False
 
         # Test with custom parameters
