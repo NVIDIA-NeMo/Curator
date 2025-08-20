@@ -157,14 +157,9 @@ class TestClipWriterStage:
 
     def test_setup_method(self):
         """Test setup method."""
-        with patch("ray_curator.stages.video.io.clip_writer.storage_client") as mock_storage_client:
-            mock_storage_client.get_client.return_value = MagicMock()
-
-            self.stage.setup()
-
-            assert self.stage.storage_client is None  # Currently hardcoded to None
-            assert self.stage._iv2_embedding_buffer == []
-            assert self.stage._ce1_embedding_buffer == []
+        self.stage.setup()
+        assert self.stage._iv2_embedding_buffer == []
+        assert self.stage._ce1_embedding_buffer == []
 
     def test_static_output_path_methods(self):
         """Test static methods for generating output paths."""
@@ -213,7 +208,6 @@ class TestClipWriterStage:
             test_desc,
             test_source,
             verbose=True,
-            client=None,
         )
 
     @patch("ray_curator.stages.video.io.clip_writer.write_json")
@@ -233,7 +227,6 @@ class TestClipWriterStage:
             test_desc,
             test_source,
             verbose=True,
-            client=None,
         )
 
     @patch("ray_curator.stages.video.io.clip_writer.get_full_path")
@@ -882,41 +875,3 @@ class TestClipWriterStage:
 
                 assert isinstance(result, ClipStats)
                 mock_logger.error.assert_called()
-
-    def test_with_storage_prefix_paths(self):
-        """Test methods that handle StoragePrefix paths."""
-        from ray_curator.utils import storage_client
-
-        # Create a mock StoragePrefix with a path that matches the input_path
-        mock_storage_prefix = MagicMock(spec=storage_client.StoragePrefix)
-        mock_storage_prefix.path = "/test/input/subdir/video.mp4"
-
-        # Test with StoragePrefix input_video
-        video_with_storage_prefix = Video(
-            input_video=mock_storage_prefix,
-            metadata=self.mock_video_metadata,
-            clips=[],
-            filtered_clips=[],
-            clip_chunk_index=0,
-        )
-
-        with (
-            patch.object(self.stage, "_write_json_data") as mock_write_json,
-            patch.object(self.stage, "_get_clip_chunk_uri") as mock_get_clip_chunk_uri,
-        ):
-            mock_get_clip_chunk_uri.return_value = "/test/chunk/path"
-
-            self.stage._write_video_metadata(video_with_storage_prefix)
-
-            # Should be called twice: once for video metadata and once for clip chunk metadata
-            assert mock_write_json.call_count == 2
-
-            # Check the first call (video metadata)
-            video_call = mock_write_json.call_args_list[0]
-            video_data = video_call[0][0]
-            assert video_data["video"] == "/test/input/subdir/video.mp4"
-
-            # Check the second call (clip chunk metadata)
-            chunk_call = mock_write_json.call_args_list[1]
-            chunk_data = chunk_call[0][0]
-            assert chunk_data["video"] == "/test/input/subdir/video.mp4"

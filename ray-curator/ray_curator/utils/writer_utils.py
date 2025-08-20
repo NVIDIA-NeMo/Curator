@@ -24,9 +24,6 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-from ray_curator.utils import storage_client
-from ray_curator.utils.misc.retry_utils import do_with_retries
-
 
 class JsonEncoderCustom(json.JSONEncoder):
     """Custom JSON encoder that handles types that are not JSON serializable.
@@ -53,18 +50,17 @@ class JsonEncoderCustom(json.JSONEncoder):
         return super().default(obj)  # type: ignore[no-any-return]
 
 
-def write_bytes(  # noqa: C901, PLR0912, PLR0913
+def write_bytes(  # noqa: PLR0913
     buffer: bytes,
-    dest: storage_client.StoragePrefix | pathlib.Path,
+    dest: pathlib.Path,
     desc: str,
     source_video: str,
     *,
     verbose: bool,
-    client: storage_client.StorageClient | None,
     backup_and_overwrite: bool = False,
     overwrite: bool = False,
 ) -> None:
-    """Write bytes to S3 or local path.
+    """Write bytes to local path.
 
     Args:
         buffer: Bytes to write.
@@ -77,59 +73,33 @@ def write_bytes(  # noqa: C901, PLR0912, PLR0913
         overwrite: Overwrite.
 
     """
-    if isinstance(dest, storage_client.StoragePrefix):
-        if client is None:
-            error_msg = "S3 client is required for S3 destination"
-            raise ValueError(error_msg)
-        if client.object_exists(dest):
-            if backup_and_overwrite:
-                msg = "Backup and overwrite is not implemented"
-                raise NotImplementedError(msg)
-            elif overwrite:
-                logger.warning(f"{desc} {dest.path} already exists, overwriting ...")
-            else:
-                logger.warning(f"{desc} {dest.path} already exists, skipping ...")
-                return
-        if verbose:
-            logger.info(f"Uploading {desc} for {source_video} to {dest.path}")
-
-        def func_to_call() -> None:
-            client.upload_bytes(dest, buffer)
-
-        do_with_retries(func_to_call)
-
-    elif isinstance(dest, pathlib.Path):
-        if dest.exists():
-            if backup_and_overwrite:
-                msg = "Backup and overwrite is not implemented"
-                raise NotImplementedError(msg)
-            elif overwrite:
-                logger.warning(f"{desc} {dest} already exists, overwriting ...")
-            else:
-                logger.warning(f"{desc} {dest} already exists, skipping ...")
-                return
-        if verbose:
-            logger.info(f"Writing {desc} for {source_video} to {dest}")
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with dest.open("wb") as fp:
-            fp.write(buffer)
-    else:
-        error_msg = f"Unexpected destination type {type(dest)}"  # type: ignore[unreachable]
-        raise TypeError(error_msg)
+    if dest.exists():
+        if backup_and_overwrite:
+            msg = "Backup and overwrite is not implemented"
+            raise NotImplementedError(msg)
+        elif overwrite:
+            logger.warning(f"{desc} {dest} already exists, overwriting ...")
+        else:
+            logger.warning(f"{desc} {dest} already exists, skipping ...")
+            return
+    if verbose:
+        logger.info(f"Writing {desc} for {source_video} to {dest}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("wb") as fp:
+        fp.write(buffer)
 
 
 def write_parquet(  # noqa: PLR0913
     data: list[dict[str, str]],
-    dest: storage_client.StoragePrefix | pathlib.Path,
+    dest: pathlib.Path,
     desc: str,
     source_video: str,
     *,
     verbose: bool,
-    client: storage_client.StorageClient | None,
     backup_and_overwrite: bool = False,
     overwrite: bool = False,
 ) -> None:
-    """Write parquet to S3 or local path.
+    """Write parquet to local path.
 
     Args:
         data: Data to write.
@@ -155,7 +125,6 @@ def write_parquet(  # noqa: PLR0913
         desc,
         source_video,
         verbose=verbose,
-        client=client,
         backup_and_overwrite=backup_and_overwrite,
         overwrite=overwrite,
     )
@@ -163,16 +132,15 @@ def write_parquet(  # noqa: PLR0913
 
 def write_json(  # noqa: PLR0913
     data: dict[str, Any],
-    dest: storage_client.StoragePrefix | pathlib.Path,
+    dest: pathlib.Path,
     desc: str,
     source_video: str,
     *,
     verbose: bool,
-    client: storage_client.StorageClient | None,
     backup_and_overwrite: bool = False,
     overwrite: bool = False,
 ) -> None:
-    """Write json to S3 or local path.
+    """Write json to local path.
 
     Args:
         data: Data to write.
@@ -193,23 +161,21 @@ def write_json(  # noqa: PLR0913
         desc,
         source_video,
         verbose=verbose,
-        client=client,
         backup_and_overwrite=backup_and_overwrite,
         overwrite=overwrite,
     )
 
 
 def write_csv(  # noqa: PLR0913
-    dest: storage_client.StoragePrefix | pathlib.Path,
+    dest: pathlib.Path,
     desc: str,
     source_video: str,
     data: list[list[str]],
     *,
     verbose: bool,
-    client: storage_client.StorageClient | None,
     backup_and_overwrite: bool = False,
 ) -> None:
-    """Write csv to S3 or local path.
+    """Write csv to local path.
 
     Args:
         dest: Destination to write.
@@ -231,6 +197,5 @@ def write_csv(  # noqa: PLR0913
         desc,
         source_video,
         verbose=verbose,
-        client=client,
         backup_and_overwrite=backup_and_overwrite,
     )
