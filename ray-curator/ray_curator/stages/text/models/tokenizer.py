@@ -105,8 +105,10 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise RuntimeError(msg) from e
 
     @lru_cache(maxsize=1)  # noqa: B019
-    def load_cfg(self) -> AutoConfig:
-        return AutoConfig.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=True)
+    def load_cfg(self, local_files_only: bool = True) -> AutoConfig:
+        return AutoConfig.from_pretrained(
+            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only
+        )
 
     # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
     def _setup(self, local_files_only: bool = True) -> None:
@@ -125,7 +127,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             # Guard against the HF bug
             # which sets max_seq_length to max(int) for some models
             if self.max_seq_length > 1e5:  # noqa: PLR2004
-                self.max_seq_length = self.load_cfg().max_position_embeddings
+                self.max_seq_length = self.load_cfg(local_files_only=local_files_only).max_position_embeddings
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self._setup(local_files_only=True)
