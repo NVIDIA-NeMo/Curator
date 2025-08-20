@@ -41,9 +41,8 @@ class ImageAestheticFilterStage(BaseFilterStage):
     def name(self) -> str:
         return "image_aesthetic_filter"
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the aesthetic filtering model."""
-        _ = worker_metadata  # acknowledge unused argument
         self.model = AestheticScorer(model_dir=self.model_dir)
         self.model.setup()
 
