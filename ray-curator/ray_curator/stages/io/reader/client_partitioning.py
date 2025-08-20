@@ -11,24 +11,7 @@ from loguru import logger
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.storage_utils import get_files_relative, get_storage_client, read_json_file
-
-
-class FSPath:
-    """Wrapper that combines filesystem and path for convenient file operations."""
-    
-    def __init__(self, fs: fsspec.AbstractFileSystem, path: str):
-        self._fs = fs
-        self._path = path
-    
-    def open(self, mode: str = 'rb', **kwargs):
-        return self._fs.open(self._path, mode, **kwargs)
-    
-    def __str__(self):
-        return self._path
-    
-    def __repr__(self):
-        return f"FSPath({self._path})"
+from ray_curator.utils.client_utils import FSPath
 
 
 @dataclass
@@ -46,7 +29,7 @@ class ClientPartitioningStage(FilePartitioningStage):
     _root: str | None = field(default=None, init=False, repr=False)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
-        self._fs, self._root = url_to_fs(self.file_paths, **(self.storage_options or {}))
+        self._fs, self._root = url_to_fs(self.file_paths, **self.storage_options or {})
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
         if not self._fs or not self._root:

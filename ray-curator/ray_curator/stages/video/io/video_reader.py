@@ -5,16 +5,13 @@ from pathlib import Path
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.io.reader.client_partitioning import ClientPartitioningStage
 from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
-from ray_curator.utils import storage_utils
-from ray_curator.utils.storage_utils import get_storage_client
-from ray_curator.utils.storage_client import StorageClient
+from ray_curator.utils.client_utils import FSPath
 
 @dataclass
 class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
@@ -41,7 +38,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     input_s3_profile_name: str | None = None
     verbose: bool = False
     _name: str = "video_reader"
-    storage_client: StorageClient | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
@@ -117,10 +113,20 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             Errors are logged and stored in video.errors["download"] for debugging.
         """
         try:
-            with video.input_video.open("rb") as fp:
-                video.source_bytes = fp.read()
-                size_mb = len(video.source_bytes) / (1024 * 1024)
-                logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
+            if isinstance(video.input_video, FSPath):
+                # Concurrent download video bytes
+                video.source_bytes = video.input_video.get_bytes_cat_ranges()
+            elif isinstance(video.input_video, str):
+                video.input_video = Path(video.input_video)
+                with video.input_video.open("rb") as fp:
+                    video.source_bytes = fp.read()
+            elif isinstance(video.input_video, Path):
+                with video.input_video.open("rb") as fp:
+                    video.source_bytes = fp.read()
+            else:
+                raise ValueError(f"Unsupported input type: {type(video.input_video)}")
+            size_mb = len(video.source_bytes) / (1024 * 1024)
+            logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
