@@ -180,7 +180,7 @@ class TestImageAestheticFilterStage:
         self,
         mock_logger: Mock,
         mock_aesthetic_scorer: Mock,
-        stage: ImageAestheticFilterStage,  # noqa: ARG002
+        _stage: ImageAestheticFilterStage,  # noqa: ARG002
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
