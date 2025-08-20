@@ -15,11 +15,14 @@
 from __future__ import annotations
 
 import importlib
+import pathlib
 import sys
 import tarfile
 import types
 from typing import TYPE_CHECKING
-import pathlib
+
+if TYPE_CHECKING:
+    import io
 
 import numpy as np
 import pytest
@@ -30,9 +33,7 @@ from ray_curator.tasks.image import ImageBatch, ImageObject
 def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
     """Import ImageWriterStage ensuring pyarrow is stubbed if not installed."""
     if "pyarrow" not in sys.modules:
-        sys.modules["pyarrow"] = types.SimpleNamespace(
-            Table=types.SimpleNamespace(from_pylist=lambda rows: rows)
-        )
+        sys.modules["pyarrow"] = types.SimpleNamespace(Table=types.SimpleNamespace(from_pylist=lambda rows: rows))
     if "pyarrow.parquet" not in sys.modules:
         sys.modules["pyarrow.parquet"] = types.SimpleNamespace(write_table=lambda _table, _path: None)
 
@@ -175,8 +176,8 @@ def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.Monkey
 
     # Random name path uses uuid4; make it deterministic for the test
     class _FakeUUID:
-        def __init__(self, hex: str) -> None:
-            self.hex = hex
+        def __init__(self, hex_image_id: str) -> None:
+            self.hex = hex_image_id
 
     monkeypatch.setattr(module.uuid, "uuid4", lambda: _FakeUUID("deadbeefcafebabe0123456789abcdef"))
     stage_rand = image_writer_stage_cls(output_dir=str(tmp_path), deterministic_name=False)
@@ -184,10 +185,7 @@ def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.Monkey
     assert b3 == "images-deadbeefcafebabe"
 
 
-def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
-    import sys
-    import types
-
+def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:  # noqa: ARG001
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path))
 
@@ -196,11 +194,11 @@ def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
 
     class _StubImageModule:
         @staticmethod
-        def fromarray(arr: np.ndarray, mode: str | None = None):
+        def fromarray(arr: np.ndarray, mode: str | None = None) -> object:
             captured.append((tuple(arr.shape), "" if mode is None else mode, arr.dtype))
 
             class _Img:
-                def save(self, buffer, format: str = "JPEG", quality: int = 92) -> None:  # noqa: ARG002
+                def save(self, buffer: io.BytesIO, format_type: str = "JPEG", quality: int = 92) -> None:  # noqa: ARG002
                     buffer.write(b"ok")
 
             return _Img()
@@ -210,9 +208,10 @@ def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     sys.modules["PIL"] = pil_pkg
 
     # Grayscale float -> converts to uint8 and mode L
-    gray = (np.random.rand(3, 4) * 300).astype(np.float32)
+    gray = (np.random.rand(3, 4) * 300).astype(np.float32)  # noqa: NPY002
     b, ext = stage._encode_image_to_bytes(gray)
-    assert ext == ".jpg" and isinstance(b, (bytes, bytearray))
+    assert ext == ".jpg"
+    assert isinstance(b, (bytes, bytearray))
     assert captured[-1][1] == "L"
     assert captured[-1][2] == np.uint8
 
@@ -233,7 +232,9 @@ def test_encode_image_to_bytes_modes(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     _b, ext = stage._encode_image_to_bytes(five)
     assert ext == ".jpg"
     shape, mode, dtype = captured[-1]
-    assert shape == (2, 2, 3) and mode == "RGB" and dtype == np.uint8
+    assert shape == (2, 2, 3)
+    assert mode == "RGB"
+    assert dtype == np.uint8
 
 
 def test_write_tar_collision_and_content(tmp_path: pathlib.Path) -> None:

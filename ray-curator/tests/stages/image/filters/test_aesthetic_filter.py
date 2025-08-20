@@ -31,9 +31,7 @@ class TestImageAestheticFilterStage:
     def stage(self) -> ImageAestheticFilterStage:
         """Create a test stage instance."""
         return ImageAestheticFilterStage(
-            model_dir="test_models/aesthetics",
-            score_threshold=0.5,
-            model_inference_batch_size=2
+            model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=2
         )
 
     @pytest.fixture
@@ -84,7 +82,7 @@ class TestImageAestheticFilterStage:
             dataset_name="test_dataset",
             task_id="test_task_001",
             _metadata={"test": "metadata"},
-            _stage_perf={}
+            _stage_perf={},
         )
 
     def test_stage_properties(self, stage: ImageAestheticFilterStage) -> None:
@@ -124,7 +122,7 @@ class TestImageAestheticFilterStage:
         # First batch gets scores [0.3, 0.7], second batch gets [0.2, 0.8]
         mock_model.side_effect = [
             torch.tensor([0.3, 0.7]),  # First batch
-            torch.tensor([0.2, 0.8])   # Second batch
+            torch.tensor([0.2, 0.8]),  # Second batch
         ]
 
         result = stage.process(sample_image_batch)
@@ -150,7 +148,9 @@ class TestImageAestheticFilterStage:
         assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
 
     @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
-    def test_threshold_variations(self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock) -> None:
+    def test_threshold_variations(
+        self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock
+    ) -> None:
         """Test filtering with different thresholds."""
         mock_aesthetic_scorer.return_value = mock_model
 
@@ -180,7 +180,7 @@ class TestImageAestheticFilterStage:
         self,
         mock_logger: Mock,
         mock_aesthetic_scorer: Mock,
-        stage: ImageAestheticFilterStage,
+        stage: ImageAestheticFilterStage,  # noqa: ARG002
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
@@ -189,9 +189,7 @@ class TestImageAestheticFilterStage:
 
         # Create verbose stage
         verbose_stage = ImageAestheticFilterStage(
-            model_dir="test_models/aesthetics",
-            score_threshold=0.5,
-            verbose=True
+            model_dir="test_models/aesthetics", score_threshold=0.5, verbose=True
         )
         verbose_stage.setup()
         verbose_stage.model = mock_model
@@ -201,8 +199,7 @@ class TestImageAestheticFilterStage:
         verbose_stage.process(sample_image_batch)
 
         # Should log filtering results
-        filtering_calls = [call for call in mock_logger.info.call_args_list
-                          if "Aesthetic filtering:" in str(call)]
+        filtering_calls = [call for call in mock_logger.info.call_args_list if "Aesthetic filtering:" in str(call)]
         assert len(filtering_calls) > 0
 
     @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
@@ -237,9 +234,7 @@ class TestImageAestheticFilterStage:
         mock_aesthetic_scorer.return_value = Mock()
 
         stage = ImageAestheticFilterStage(
-            model_dir="test_models/aesthetics",
-            score_threshold=0.5,
-            model_inference_batch_size=2
+            model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=2
         )
         stage.setup()
 
@@ -289,7 +284,7 @@ class TestImageAestheticFilterStage:
         # First batch gets scores [0.11, 0.22], second batch gets [0.33, 0.44]
         mock_model.side_effect = [
             torch.tensor([0.11, 0.22]),  # First batch: img_001, img_002
-            torch.tensor([0.33, 0.44])   # Second batch: img_003, img_004
+            torch.tensor([0.33, 0.44]),  # Second batch: img_003, img_004
         ]
 
         # Lower threshold so all pass
@@ -353,7 +348,9 @@ class TestImageAestheticFilterStage:
 
     def test_batch_size_handling(self, sample_image_batch: ImageBatch) -> None:
         """Test handling of different batch sizes."""
-        stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=1)
+        stage = ImageAestheticFilterStage(
+            model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=1
+        )
 
         with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
@@ -372,7 +369,9 @@ class TestImageAestheticFilterStage:
 
     def test_threshold_boundary_exact(self, sample_image_batch: ImageBatch) -> None:
         """Test behavior with scores exactly at threshold."""
-        stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=4)
+        stage = ImageAestheticFilterStage(
+            model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=4
+        )
 
         with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
@@ -405,12 +404,12 @@ class TestImageAestheticFilterStage:
         # Create a larger batch by replicating existing images
         large_data = sample_image_batch.data * 25  # 100 images
         large_batch = ImageBatch(
-            data=large_data,
-            dataset_name=sample_image_batch.dataset_name,
-            task_id=sample_image_batch.task_id
+            data=large_data, dataset_name=sample_image_batch.dataset_name, task_id=sample_image_batch.task_id
         )
 
-        stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=10)
+        stage = ImageAestheticFilterStage(
+            model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=10
+        )
 
         with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
@@ -429,7 +428,9 @@ class TestImageAestheticFilterStage:
 
     def test_score_statistics(self, sample_image_batch: ImageBatch) -> None:
         """Test that score statistics are meaningful."""
-        stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=4)
+        stage = ImageAestheticFilterStage(
+            model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=4
+        )
 
         with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
@@ -512,7 +513,9 @@ def test_image_aesthetic_filter_on_gpu() -> None:
 
     tmp_dir = tempfile.gettempdir()
     images = [
-        ImageObject(image_id=f"img_{i}", image_path=f"{tmp_dir}/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
+        ImageObject(
+            image_id=f"img_{i}", image_path=f"{tmp_dir}/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32)
+        )
         for i in range(6)
     ]
     batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")

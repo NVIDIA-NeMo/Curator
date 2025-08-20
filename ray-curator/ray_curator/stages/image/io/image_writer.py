@@ -20,15 +20,15 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from loguru import logger
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks.image import ImageBatch
 from ray_curator.tasks.file_group import FileGroupTask
+from ray_curator.tasks.image import ImageBatch
 
 
 @dataclass
@@ -192,7 +192,9 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
                             "member_name": f"{member_basename}.jpg",
                             "original_path": img_obj.image_path,
                             # Store user metadata as JSON-ish via repr to avoid pandas dependency
-                            "metadata": repr(img_obj.metadata) if isinstance(img_obj.metadata, dict) else str(img_obj.metadata),
+                            "metadata": repr(img_obj.metadata)
+                            if isinstance(img_obj.metadata, dict)
+                            else str(img_obj.metadata),
                         }
                     )
 
