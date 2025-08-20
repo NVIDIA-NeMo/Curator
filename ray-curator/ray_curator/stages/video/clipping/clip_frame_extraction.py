@@ -1,7 +1,6 @@
 import io
 import math
 from dataclasses import dataclass
-from functools import reduce
 
 from loguru import logger
 
@@ -59,11 +58,8 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
 
     def lcm_multiple(self, fps: list[float | int]) -> float | int:
         """Compute LCM of a list of fps targets."""
-
-        def lcm(a: float, b: float) -> float | int:
-            return abs(a * b) // math.gcd(int(a), int(b))
-
-        return reduce(lcm, fps)
+        fps = [int(fps) for fps in fps]
+        return math.lcm(*fps)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
