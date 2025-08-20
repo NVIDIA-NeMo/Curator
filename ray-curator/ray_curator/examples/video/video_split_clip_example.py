@@ -4,6 +4,7 @@ from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -17,7 +18,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Add stages
     pipeline.add_stage(
-        VideoReader(input_video_path=args.video_folder, video_limit=args.video_limit, verbose=args.verbose)
+        VideoReader(input_video_path=args.video_dir, video_limit=args.video_limit, verbose=args.verbose)
     )
 
     if args.splitting_algorithm == "fixed_stride":
@@ -36,14 +37,17 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 verbose=args.verbose,
             )
         )
-
-        # TODO: replace this with a transnetv2 stage once it's implemented
         pipeline.add_stage(
-            FixedStrideExtractorStage(
-                clip_len_s=args.fixed_stride_split_duration,
-                clip_stride_s=args.fixed_stride_split_duration,
-                min_clip_length_s=args.fixed_stride_min_clip_length_s,
+            TransNetV2ClipExtractionStage(
+                model_dir=args.model_dir,
+                threshold=args.transnetv2_threshold,
+                min_length_s=args.transnetv2_min_length_s,
+                max_length_s=args.transnetv2_max_length_s,
+                max_length_mode=args.transnetv2_max_length_mode,
+                crop_s=args.transnetv2_crop_s,
+                gpu_memory_gb=args.transnetv2_gpu_memory_gb,
                 limit_clips=args.limit_clips,
+                verbose=args.verbose,
             )
         )
     else:
@@ -106,7 +110,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(
         ClipWriterStage(
             output_path=args.output_clip_path,
-            input_path=args.video_folder,
+            input_path=args.video_dir,
             upload_clips=args.upload_clips,
             dry_run=args.dry_run,
             generate_embeddings=args.generate_embeddings,
@@ -143,7 +147,8 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--video-folder", type=str, required=True)
+    parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
+    parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
@@ -194,6 +199,43 @@ if __name__ == "__main__":
         default="pynvc",
         choices=["pynvc", "ffmpeg_gpu", "ffmpeg_cpu"],
         help="Choose between ffmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
+    )
+    parser.add_argument(
+        "--transnetv2-threshold",
+        type=float,
+        default=0.4,
+        help="Threshold for transnetv2 clip extraction stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-min-length-s",
+        type=float,
+        default=2.0,
+        help="Minimum length of clips (in seconds) for transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-max-length-s",
+        type=float,
+        default=10.0,
+        help="Maximum length of clips (in seconds) for transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-max-length-mode",
+        type=str,
+        default="stride",
+        choices=["truncate", "stride"],
+        help="Mode for handling clips longer than max_length_s in transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-crop-s",
+        type=float,
+        default=0.5,
+        help="Crop length (in seconds) for transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-gpu-memory-gb",
+        type=float,
+        default=10.0,
+        help="GPU memory (in GB) for transnetv2 splitting stage.",
     )
 
     # Transcoding arguments
