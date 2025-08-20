@@ -81,22 +81,32 @@ class AegisModel(nn.Module):
         pretrained_model_name_or_path: str,
         peft_model_name_or_path: str,
         dtype: torch.dtype = TORCH_DTYPE,
-        token: str | bool | None = None,
+        cache_dir: str | None = None,
         local_files_only: bool = True,
+        hf_token: str | bool | None = None,
         add_instruction_data_guard: bool = False,
         autocast: bool = False,
     ):
         super().__init__()
 
         base_model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path, torch_dtype=dtype, token=token, local_files_only=local_files_only
+            pretrained_model_name_or_path,
+            torch_dtype=dtype,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+            token=hf_token,
         )
         # Importing PeftModel here to prevent cuda context issues
         # that seem to happen on Transformers 4.48.3
         # See related: https://github.com/rapidsai/crossfit/pull/113
         from peft import PeftModel
 
-        self.model = PeftModel.from_pretrained(base_model, peft_model_name_or_path, local_files_only=local_files_only)
+        self.model = PeftModel.from_pretrained(
+            base_model,
+            peft_model_name_or_path,
+            cache_dir=cache_dir,
+            local_files_only=local_files_only,
+        )
         self.autocast = autocast
         self.add_instruction_data_guard = add_instruction_data_guard
         if self.add_instruction_data_guard:
@@ -152,6 +162,7 @@ class AegisModelStage(ModelStage):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        cache_dir: str | None = None,
         hf_token: str | None = None,
         pred_column: str = "preds",
         prob_column: str = "probs",
@@ -162,6 +173,7 @@ class AegisModelStage(ModelStage):
     ):
         super().__init__(
             model_identifier=model_identifier,
+            cache_dir=cache_dir,
             hf_token=hf_token,
             model_inference_batch_size=model_inference_batch_size,
             has_seq_order=has_seq_order,
@@ -183,14 +195,17 @@ class AegisModelStage(ModelStage):
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
             peft_model_name_or_path=self.model_identifier,
             dtype=TORCH_DTYPE,
-            token=self.hf_token,
+            cache_dir=self.cache_dir,
             local_files_only=local_files_only,
+            hf_token=self.hf_token,
             add_instruction_data_guard=self.add_instruction_data_guard,
             autocast=self.autocast,
         )
         if self.add_instruction_data_guard:
             self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.from_pretrained(
-                INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER, local_files_only=local_files_only
+                INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER,
+                cache_dir=self.cache_dir,
+                local_files_only=local_files_only,
             )
             self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.cuda().eval()
 
@@ -198,22 +213,12 @@ class AegisModelStage(ModelStage):
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
-            token=self.hf_token,
             padding_side=TOKENIZER_PADDING_SIDE,
+            cache_dir=self.cache_dir,
             local_files_only=local_files_only,
+            token=self.hf_token,
         )
         self.tokenizer.pad_token = self.tokenizer.unk_token
-
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
-        try:
-            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
-            self._setup(local_files_only=False)
-        except Exception as e:
-            msg = "Failed to setup Aegis model"
-            raise RuntimeError(msg) from e
-
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        self._setup(local_files_only=True)
 
     def process_model_output(
         self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
@@ -276,10 +281,11 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
     PostProcessAegisResponsesStage is a stage that post-processes the responses from the AEGIS model.
     """
 
-    hf_token: str | None
-    pred_column: str
-    raw_pred_column: str
-    keep_raw_pred: bool
+    cache_dir: str | None = None
+    hf_token: str | None = None
+    pred_column: str = "aegis_pred"
+    raw_pred_column: str = "_aegis_raw_pred"
+    keep_raw_pred: bool = False
     _name = "postprocess_aegis_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -293,19 +299,30 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(repo_id=PRETRAINED_MODEL_NAME_OR_PATH, token=self.hf_token, local_files_only=False)
+            snapshot_download(
+                repo_id=PRETRAINED_MODEL_NAME_OR_PATH,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+            self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {PRETRAINED_MODEL_NAME_OR_PATH}"
             raise RuntimeError(msg) from e
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             pretrained_model_name_or_path=PRETRAINED_MODEL_NAME_OR_PATH,
-            token=self.hf_token,
             padding_side=TOKENIZER_PADDING_SIDE,
-            local_files_only=True,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
+            token=self.hf_token,
         )
         self.tokenizer.pad_token = self.tokenizer.unk_token
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
 
     def _parse_response(self, raw_response: str) -> str:
         lines = raw_response.split("\n")
@@ -378,7 +395,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         aegis_variant (str): The HuggingFace 'pretrained_model_name_or_path' for
             the AEGIS model. Can be either 'nvidia/Aegis-AI-Content-Safety-LlamaGuard-Defensive-1.0'
             or 'nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0'
-        token (Optional[Union[str, bool]]): A HuggingFace user access token. A user access token is
+        cache_dir (str): The directory to cache the model. Defaults to None.
+        hf_token (Optional[Union[str, bool]]): A HuggingFace user access token. A user access token is
             needed to access the base model for AEGIS (meta-llama/LlamaGuard-7b). You can get access to
             Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
         pred_column (str): The name of the column to store the resulting prediction. Defaults to "aegis_pred".
@@ -398,7 +416,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     """
 
     aegis_variant: Literal[AEGIS_VARIANTS] = AEGIS_VARIANTS[0]
-    token: str | bool | None = None
+    cache_dir: str | None = None
+    hf_token: str | bool | None = None
     pred_column: str = "aegis_pred"
     raw_pred_column: str = "_aegis_raw_pred"
     keep_raw_pred: bool = False
@@ -421,7 +440,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             ),
             TokenizerStage(
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
-                hf_token=self.token,
+                cache_dir=self.cache_dir,
+                hf_token=self.hf_token,
                 text_field=HIDDEN_TEXT_COLUMN,
                 max_seq_length=MAX_SEQ_LENGTH,
                 padding_side=TOKENIZER_PADDING_SIDE,
@@ -430,7 +450,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             ),
             AegisModelStage(
                 model_identifier=self.aegis_variant,
-                hf_token=self.token,
+                cache_dir=self.cache_dir,
+                hf_token=self.hf_token,
                 pred_column=self.raw_pred_column,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
@@ -438,7 +459,8 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 autocast=self.autocast,
             ),
             PostProcessAegisResponsesStage(
-                hf_token=self.token,
+                cache_dir=self.cache_dir,
+                hf_token=self.hf_token,
                 pred_column=self.pred_column,
                 raw_pred_column=self.raw_pred_column,
                 keep_raw_pred=self.keep_raw_pred,
@@ -504,7 +526,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     (https://huggingface.co/meta-llama/LlamaGuard-7b) is required via a user access token.
 
     Args:
-        token (Optional[Union[str, bool]]): A HuggingFace user access token. A user access token is
+        cache_dir (str): The directory to cache the model. Defaults to None.
+        hf_token (Optional[Union[str, bool]]): A HuggingFace user access token. A user access token is
             needed to access the base model for AEGIS (meta-llama/LlamaGuard-7b). You can get access to
             Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
         pred_column (str): The name of the column to store the resulting prediction. Defaults to "is_poisoned".
@@ -520,7 +543,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
 
     """
 
-    token: str | bool | None = None
+    cache_dir: str | None = None
+    hf_token: str | bool | None = None
     pred_column: str = "is_poisoned"
     prob_column: str = "instruction_data_guard_poisoning_score"
     text_field: str = "text"
@@ -538,7 +562,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         self.stages = [
             TokenizerStage(
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
-                hf_token=self.token,
+                cache_dir=self.cache_dir,
+                hf_token=self.hf_token,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
                 max_seq_length=MAX_SEQ_LENGTH,
@@ -548,7 +573,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             ),
             AegisModelStage(
                 model_identifier=AEGIS_VARIANTS[0],
-                hf_token=self.token,
+                cache_dir=self.cache_dir,
+                hf_token=self.hf_token,
                 pred_column=self.pred_column,
                 prob_column=self.prob_column,
                 model_inference_batch_size=self.model_inference_batch_size,

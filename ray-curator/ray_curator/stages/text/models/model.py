@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import torch
 from huggingface_hub import snapshot_download
+from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -38,18 +39,20 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
-        pred_column: The name of the prediction column.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
+        unpack_inference_batch: Whether to unpack the inference batch with **kwargs. Defaults to False.
 
     """
 
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        cache_dir: str | None = None,
         hf_token: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
@@ -61,6 +64,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
+        self.cache_dir = cache_dir
         self.hf_token = hf_token
         self.model_inference_batch_size = model_inference_batch_size
         self.has_seq_order = has_seq_order
@@ -76,14 +80,31 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
+            snapshot_download(
+                repo_id=self.model_identifier,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+
+            _setup_function = getattr(self, "_setup", None)
+            if callable(_setup_function):
+                _setup_function(local_files_only=False)
+            else:
+                logger.warning(f"Subclass {self.__class__.__name__} does not implement _setup method")
+
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        msg = "Subclasses must implement this method"
-        raise NotImplementedError(msg)
+        _setup_function = getattr(self, "_setup", None)
+        if callable(_setup_function):
+            # We use the _setup function to ensure that everything needed for the model is downloaded and loaded properly
+            _setup_function(local_files_only=True)
+        else:
+            msg = "Subclasses must implement this method"
+            raise NotImplementedError(msg)
 
     def yield_next_batch(self, df: pd.DataFrame) -> Generator[dict[str, torch.Tensor]]:
         """
@@ -127,8 +148,9 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         raise NotImplementedError(msg)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
-        processed_outputs = []
         df_cpu = batch.to_pandas()
+
+        processed_outputs = []
         for model_input_batch in self.yield_next_batch(df_cpu):
             # Forward pass
             with torch.no_grad():
