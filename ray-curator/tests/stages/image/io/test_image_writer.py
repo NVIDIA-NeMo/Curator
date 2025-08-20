@@ -15,10 +15,10 @@
 from __future__ import annotations
 
 import importlib
+import pathlib
 import sys
 import tarfile
 import types
-import pathlib
 
 import numpy as np
 import pytest

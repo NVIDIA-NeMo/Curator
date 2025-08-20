@@ -175,11 +175,12 @@ class TestImageAestheticFilterStage:
 
     @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     @patch("ray_curator.stages.image.filters.aesthetic_filter.logger")
+    @pytest.mark.usefixtures("stage")
     def test_verbose_logging(
         self,
         mock_logger: Mock,
         mock_aesthetic_scorer: Mock,
-        _stage: ImageAestheticFilterStage,
+        stage: ImageAestheticFilterStage,
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
