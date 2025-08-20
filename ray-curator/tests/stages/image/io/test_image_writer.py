@@ -19,9 +19,7 @@ import sys
 import tarfile
 import types
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:  # pragma: no cover - type-checking only
-    import pathlib
+import pathlib
 
 import numpy as np
 import pytest
@@ -42,7 +40,7 @@ def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
     return module, module.ImageWriterStage
 
 
-def test_inputs_outputs_and_name(tmp_path: "pathlib.Path") -> None:
+def test_inputs_outputs_and_name(tmp_path: pathlib.Path) -> None:
     module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=3)
@@ -51,7 +49,7 @@ def test_inputs_outputs_and_name(tmp_path: "pathlib.Path") -> None:
     assert stage.name == "image_writer"
 
 
-def test_setup_no_actor_id(tmp_path: "pathlib.Path") -> None:
+def test_setup_no_actor_id(tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
@@ -65,7 +63,7 @@ def test_setup_no_actor_id(tmp_path: "pathlib.Path") -> None:
     assert not hasattr(stage, "_actor_id")
 
 
-def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: "pathlib.Path") -> None:
+def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
@@ -132,7 +130,7 @@ def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, 
     assert out._metadata["output_dir"] == str(tmp_path)
 
 
-def test_process_raises_on_missing_image_data(tmp_path: "pathlib.Path") -> None:
+def test_process_raises_on_missing_image_data(tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
     stage.setup()
@@ -147,7 +145,7 @@ def test_process_raises_on_missing_image_data(tmp_path: "pathlib.Path") -> None:
         stage.process(bad)
 
 
-def test_process_handles_empty_batch(tmp_path: "pathlib.Path") -> None:
+def test_process_handles_empty_batch(tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=3)
     stage.setup()
@@ -158,5 +156,3 @@ def test_process_handles_empty_batch(tmp_path: "pathlib.Path") -> None:
     assert out.data == []
     assert out._metadata["num_images"] == 0
     assert out._metadata["output_dir"] == str(tmp_path)
-
-
