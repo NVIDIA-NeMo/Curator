@@ -3,17 +3,17 @@ import fsspec
 
 class FSPath:
     """Wrapper that combines filesystem and path for convenient file operations."""
-    
+
     def __init__(self, fs: fsspec.AbstractFileSystem, path: str):
         self._fs = fs
         self._path = path
-    
-    def open(self, mode: str = 'rb', **kwargs):
+
+    def open(self, mode: str = "rb", **kwargs) -> fsspec.spec.AbstractBufferedFile:
         return self._fs.open(self._path, mode, **kwargs)
-    
+
     def __str__(self):
         return self._path
-    
+
     def __repr__(self):
         return f"FSPath({self._path})"
 
@@ -42,6 +42,6 @@ class FSPath:
         )
 
         out = bytearray(size)
-        for s, b in zip(starts, blocks):
+        for s, b in zip(starts, blocks, strict=False):
             out[s:s + len(b)] = b
         return bytes(out)

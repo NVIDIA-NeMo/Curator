@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pathlib
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +25,7 @@ from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
 from ray_curator.utils.client_utils import FSPath
+
 
 @dataclass
 class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
@@ -86,7 +86,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             The same VideoTask with video.source_bytes and video.metadata populated.
             If errors occur, the task is returned with error information stored.
         """
-        assert len(task.data) == 1
+        if len(task.data) != 1:
+            msg = f"Expected exactly 1 video file, got {len(task.data)}"
+            raise ValueError(msg)
         video = Video(input_video=task.data[0])
         video_task = VideoTask(
             task_id=f"{task.data[0]}_processed",
@@ -138,7 +140,8 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
                 with video.input_video.open("rb") as fp:
                     video.source_bytes = fp.read()
             else:
-                raise ValueError(f"Unsupported input type: {type(video.input_video)}")
+                msg = f"Unsupported input type: {type(video.input_video)}"
+                raise TypeError(msg)  # noqa: TRY301
             size_mb = len(video.source_bytes) / (1024 * 1024)
             logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
         except Exception as e:  # noqa: BLE001

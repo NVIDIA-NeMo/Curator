@@ -1,12 +1,10 @@
-from dataclasses import dataclass, field
-from typing import Any, List
 import json
 import posixpath
+from dataclasses import dataclass, field
+from typing import Any
 
 import fsspec
 from fsspec.core import url_to_fs
-
-from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.file_partitioning import FilePartitioningStage
@@ -28,12 +26,13 @@ class ClientPartitioningStage(FilePartitioningStage):
     _fs: fsspec.AbstractFileSystem | None = field(default=None, init=False, repr=False)
     _root: str | None = field(default=None, init=False, repr=False)
 
-    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._fs, self._root = url_to_fs(self.file_paths, **self.storage_options or {})
 
     def process(self, _: _EmptyTask) -> list[FileGroupTask]:
         if not self._fs or not self._root:
-            raise RuntimeError("Stage not initialized. Call setup() before process().")
+            msg = "Stage not initialized. Call setup() before process()."
+            raise RuntimeError(msg)
 
         # Discover relative file list
         rel_paths = self._list_relative()
@@ -45,12 +44,12 @@ class ClientPartitioningStage(FilePartitioningStage):
         # FILTER BY LIMIT
         if self.limit is not None and self.limit > 0:
             rel_paths = rel_paths[:self.limit]
-        
+
         # Convert relative paths to FSPath objects that embed the filesystem
         rel_paths = [FSPath(self._fs, posixpath.join(self._root, p)) for p in rel_paths]
         # Always work with List[List[str]] partitions
         if self.files_per_partition:
-            partitions: List[List[str]] = self._partition_by_count(rel_paths, self.files_per_partition)
+            partitions: list[list[str]] = self._partition_by_count(rel_paths, self.files_per_partition)
         else:
             partitions = [[p] for p in rel_paths]
 
@@ -81,7 +80,8 @@ class ClientPartitioningStage(FilePartitioningStage):
         """Return sorted, de-duplicated list of paths relative to root."""
         fs, root = self._fs, self._root
         if not fs or not root:
-            raise RuntimeError("Filesystem not initialized.")
+            msg = "Filesystem not initialized."
+            raise RuntimeError(msg)
 
         if self.input_list_json_path:
             return _read_list_json_rel(root, self.input_list_json_path, self.storage_options or {})
@@ -111,7 +111,8 @@ def _read_list_json_rel(root: str, json_url: str, storage_options: dict[str, Any
         data = json.load(f)
 
     if not isinstance(data, list):
-        raise ValueError(f"List JSON at {json_url} must be an array.")
+        msg = f"List JSON at {json_url} must be an array."
+        raise TypeError(msg)
 
     listed = [str(x) for x in data]
     prefix = root.rstrip("/") + "/"
@@ -119,7 +120,8 @@ def _read_list_json_rel(root: str, json_url: str, storage_options: dict[str, Any
     rels: list[str] = []
     for p in listed:
         if not p.startswith(prefix):
-            raise ValueError(f"Input path {p} is not under root {prefix}")
+            msg = f"Input path {p} is not under root {prefix}"
+            raise ValueError(msg)
         rels.append(p[len(prefix) :])
 
     # stable de-dup then sort for determinism
