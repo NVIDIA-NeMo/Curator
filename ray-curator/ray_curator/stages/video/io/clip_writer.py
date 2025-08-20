@@ -442,7 +442,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return clip_stats
 
     def _write_video_metadata(self, video: Video) -> None:
-
         input_video_path = video.input_video.as_posix()
         data: dict[str, Any] = {}
         # write video-level metadata from the first clip chunk

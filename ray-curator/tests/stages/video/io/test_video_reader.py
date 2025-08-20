@@ -115,8 +115,10 @@ class TestVideoReaderStage:
         video = Video(input_video=pathlib.Path("/test/video.mp4"))
 
         # Mock populate_metadata to raise an exception
-        with patch.object(video, "populate_metadata", side_effect=Exception("Metadata error")), \
-             patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn:
+        with (
+            patch.object(video, "populate_metadata", side_effect=Exception("Metadata error")),
+            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
+        ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
 

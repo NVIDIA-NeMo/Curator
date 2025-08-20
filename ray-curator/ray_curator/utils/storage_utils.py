@@ -15,7 +15,7 @@ def _get_local_path(localpath: pathlib.Path, *args: str) -> pathlib.Path:
     return pathlib.Path(localpath, *args)
 
 
-def get_full_path(path: str | pathlib.Path, *args: str) ->  pathlib.Path:
+def get_full_path(path: str | pathlib.Path, *args: str) -> pathlib.Path:
     """Construct a full path from a base path and additional components.
 
     Args:
