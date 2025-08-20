@@ -17,6 +17,16 @@ class FSPath:
     def __repr__(self):
         return f"FSPath({self._path})"
 
+    def as_posix(self) -> str:
+        # Get the filesystem protocol and add appropriate prefix
+        protocol = getattr(self._fs, "protocol", None)
+        if protocol and protocol != "file":
+            # For non-local filesystems, add the protocol prefix
+            if isinstance(protocol, (list, tuple)):
+                protocol = protocol[0]  # Take first protocol if multiple
+            return f"{protocol}://{self._path}"
+        return self._path
+
     def get_bytes_cat_ranges(
         self,
         *,
