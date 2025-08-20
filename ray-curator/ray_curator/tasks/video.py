@@ -354,7 +354,7 @@ class VideoTask(Task[Video]):
 
     def validate(self) -> bool:
         """Validate the task data."""
-        if not os.path.exists(self.data.input_video):
+        if isinstance(self.data.input_video, pathlib.Path) and not os.path.exists(self.data.input_video):
             print(f"Video {self.data.input_video} does not exist")
             return False
         return True
