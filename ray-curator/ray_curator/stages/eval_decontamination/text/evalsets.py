@@ -16,16 +16,19 @@ import json
 
 from datasets import load_dataset
 
-from nemo_curator.tasks.downstream_task import DownstreamTask
-from nemo_curator.utils.file_utils import get_all_files_paths_under
+from ray_curator.utils.file_utils import get_all_files_paths_under
+
+from .evalset_base import EvaluationSetBase
 
 
-class Race(DownstreamTask):
+class RaceEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "race"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset(self._task_name, "all", split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -36,12 +39,14 @@ class Race(DownstreamTask):
         return self.ngrams
 
 
-class Squad(DownstreamTask):
+class SquadEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "squad"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("squad_v2", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -52,12 +57,14 @@ class Squad(DownstreamTask):
         return self.ngrams
 
 
-class ArcEasy(DownstreamTask):
+class ArcEasyEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "arceasy"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("ai2_arc", "ARC-Easy", split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -68,12 +75,14 @@ class ArcEasy(DownstreamTask):
         return self.ngrams
 
 
-class ArcChallenge(DownstreamTask):
+class ArcChallengeEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "arcchallenge"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("ai2_arc", "ARC-Challenge", split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -84,12 +93,14 @@ class ArcChallenge(DownstreamTask):
         return self.ngrams
 
 
-class OpenBookQA(DownstreamTask):
+class OpenBookQAEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "openbookqa"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("openbookqa", "main", split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -100,12 +111,14 @@ class OpenBookQA(DownstreamTask):
         return self.ngrams
 
 
-class BoolQ(DownstreamTask):
+class BoolQEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "boolq"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("super_glue", "boolq", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -116,12 +129,14 @@ class BoolQ(DownstreamTask):
         return self.ngrams
 
 
-class Copa(DownstreamTask):
+class CopaEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "copa"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("super_glue", "copa", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -132,12 +147,14 @@ class Copa(DownstreamTask):
         return self.ngrams
 
 
-class RTE(DownstreamTask):
+class RTEEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "rte"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("glue", "rte", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -148,12 +165,14 @@ class RTE(DownstreamTask):
         return self.ngrams
 
 
-class MultiRC(DownstreamTask):
+class MultiRCEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "multirc"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("super_glue", "multirc", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -164,28 +183,32 @@ class MultiRC(DownstreamTask):
         return self.ngrams
 
 
-class WSC(DownstreamTask):
+class WSCEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "wsc"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
-        self._dataset = load_dataset("super_glue", "multirc", split="validation")
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        self._dataset = load_dataset("super_glue", "wsc", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
         for line in self._dataset:
-            text = line["question"]
+            text = line["text"]
             self._update_ngrams(text, self._min_ngram_size, self._max_ngram_size)
 
         return self.ngrams
 
 
-class CB(DownstreamTask):
+class CBEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "cb"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("super_glue", "cb", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -196,14 +219,16 @@ class CB(DownstreamTask):
         return self.ngrams
 
 
-class ANLI(DownstreamTask):
+class ANLIEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "anli"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
-        self._dataset = load_dataset("anli")
         self._keys = ["test_r1", "test_r2", "test_r3"]
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        self._dataset = load_dataset("anli")
 
     def generate_ngrams(self) -> dict[str, int]:
         for key in self._keys:
@@ -220,12 +245,14 @@ class ANLI(DownstreamTask):
         return self.ngrams
 
 
-class Record(DownstreamTask):
+class RecordEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "record"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("super_glue", "record", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -236,16 +263,19 @@ class Record(DownstreamTask):
         return self.ngrams
 
 
-class COQA(DownstreamTask):
+class COQAEvalSet(EvaluationSetBase):
     def __init__(self, file_path: str | None = None, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "coqa"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         if file_path is None:
             msg = "Must provide a path to the coqa.json file"
             raise ValueError(msg)
-        with open(file_path) as f:
+        self._file_path = file_path
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        with open(self._file_path) as f:
             self._dataset = json.load(f)["data"]
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -263,12 +293,14 @@ class COQA(DownstreamTask):
         return self.ngrams
 
 
-class TriviaQA(DownstreamTask):
+class TriviaQAEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "trivia_qa"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("trivia_qa", "unfiltered", split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -279,12 +311,14 @@ class TriviaQA(DownstreamTask):
         return self.ngrams
 
 
-class Quac(DownstreamTask):
+class QuacEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "quac"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("quac", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -300,12 +334,14 @@ class Quac(DownstreamTask):
         return self.ngrams
 
 
-class WebQA(DownstreamTask):
+class WebQAEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "webqa"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("web_questions", split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -316,12 +352,14 @@ class WebQA(DownstreamTask):
         return self.ngrams
 
 
-class Drop(DownstreamTask):
+class DropEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "drop"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset("drop", split="validation")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -332,12 +370,14 @@ class Drop(DownstreamTask):
         return self.ngrams
 
 
-class WiC(DownstreamTask):
+class WiCEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "wic"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset(
             path="super_glue",
             name="wic",
@@ -352,16 +392,18 @@ class WiC(DownstreamTask):
         return self.ngrams
 
 
-class MMLU(DownstreamTask):
-    def __init__(self, path: str | None = None, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
+class MMLUEvalSet(EvaluationSetBase):
+    def __init__(self, path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
         self._task_name = "mmlu"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._path = path
-        if self._path is None:
-            msg = "Must provide path that contain MMLU task data in JSONL format"
-            raise ValueError(msg)
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just verify the path exists and is accessible
+        self._dataset = self._path
 
     def generate_ngrams(self) -> dict[str, int]:
         for ifile in get_all_files_paths_under(self._path):
@@ -374,16 +416,18 @@ class MMLU(DownstreamTask):
         return self.ngrams
 
 
-class BigBenchHard(DownstreamTask):
-    def __init__(self, path: str | None = None, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
+class BigBenchHardEvalSet(EvaluationSetBase):
+    def __init__(self, path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
         self._task_name = "bigbench_hard"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._path = path
-        if self._path is None:
-            msg = "Must provide path that contain BigBenchHard task data in JSONL format"
-            raise ValueError(msg)
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just verify the path exists and is accessible
+        self._dataset = self._path
 
     def generate_ngrams(self) -> dict[str, int]:
         for ifile in get_all_files_paths_under(self._path):
@@ -396,16 +440,18 @@ class BigBenchHard(DownstreamTask):
         return self.ngrams
 
 
-class BigBenchLight(DownstreamTask):
-    def __init__(self, path: str | None = None, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
+class BigBenchLightEvalSet(EvaluationSetBase):
+    def __init__(self, path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
         self._task_name = "bigbench_light"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._path = path
-        if self._path is None:
-            msg = "Must provide path that contain BigBenchLight task data in JSONL format"
-            raise ValueError(msg)
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just verify the path exists and is accessible
+        self._dataset = self._path
 
     def generate_ngrams(self) -> dict[str, int]:
         for ifile in get_all_files_paths_under(self._path):
@@ -418,16 +464,18 @@ class BigBenchLight(DownstreamTask):
         return self.ngrams
 
 
-class Multilingual(DownstreamTask):
-    def __init__(self, path: str | None = None, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
+class MultilingualEvalSet(EvaluationSetBase):
+    def __init__(self, path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
         self._task_name = "multilingual"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._path = path
-        if self._path is None:
-            msg = "Must provide path to multilingual task data in JSONL format"
-            raise ValueError(msg)
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just verify the path exists and is accessible
+        self._dataset = self._path
 
     def generate_ngrams(self) -> dict[str, int]:
         for ifile in get_all_files_paths_under(self._path):
@@ -440,12 +488,14 @@ class Multilingual(DownstreamTask):
         return self.ngrams
 
 
-class PIQA(DownstreamTask):
+class PIQAEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "piqa"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset(self._task_name, split="test")
 
     def generate_ngrams(self) -> dict[str, int]:
@@ -456,12 +506,14 @@ class PIQA(DownstreamTask):
         return self.ngrams
 
 
-class Winogrande(DownstreamTask):
+class WinograndeEvalSet(EvaluationSetBase):
     def __init__(self, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "winogrande"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
+        super().__init__()
+
+    def _load_dataset(self) -> None:
         self._dataset = load_dataset(
             path="winogrande",
             name="winogrande_xl",
@@ -476,13 +528,18 @@ class Winogrande(DownstreamTask):
         return self.ngrams
 
 
-class Lambada(DownstreamTask):
+class LambadaEvalSet(EvaluationSetBase):
     def __init__(self, file_path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "lambada"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._file_path = file_path
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just store the file path for processing
+        self._dataset = self._file_path
 
     def generate_ngrams(self) -> dict[str, int]:
         with open(self._file_path) as f:
@@ -497,14 +554,19 @@ class Lambada(DownstreamTask):
         return self.ngrams
 
 
-class NumDasc(DownstreamTask):
+class NumDascEvalSet(EvaluationSetBase):
     def __init__(self, n: int, file_path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._n = n
-        self._task_name = "{n}dasc"
+        self._task_name = f"{n}dasc"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._file_path = file_path
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just store the file path for processing
+        self._dataset = self._file_path
 
     def generate_ngrams(self) -> dict[str, int]:
         with open(self._file_path) as f:
@@ -519,13 +581,18 @@ class NumDasc(DownstreamTask):
         return self.ngrams
 
 
-class StoryCloze(DownstreamTask):
+class StoryClozeEvalSet(EvaluationSetBase):
     def __init__(self, file_path: str, min_ngram_size: int = 8, max_ngram_size: int = 13):
-        super().__init__()
         self._task_name = "story_cloze"
         self._min_ngram_size = min_ngram_size
         self._max_ngram_size = max_ngram_size
         self._file_path = file_path
+        super().__init__()
+
+    def _load_dataset(self) -> None:
+        # For file-based datasets, we don't load everything into memory
+        # We just store the file path for processing
+        self._dataset = self._file_path
 
     def generate_ngrams(self) -> dict[str, int]:
         with open(self._file_path) as f:
