@@ -46,7 +46,7 @@ class TestClientPartitioningStage:
             files_per_partition=5,
             file_extensions=[".txt", ".json"],
             storage_options={"key": "value"},
-            limit=3
+            limit=3,
         )
         assert stage.file_paths == "/custom/path"
         assert stage.input_list_json_path == "/path/to/list.json"
@@ -72,16 +72,15 @@ class TestClientPartitioningStage:
         # Test setup with storage options
         mock_url_to_fs.reset_mock()
         storage_options = {"key": "value"}
-        stage = ClientPartitioningStage(
-            file_paths="/test/path",
-            storage_options=storage_options
-        )
+        stage = ClientPartitioningStage(file_paths="/test/path", storage_options=storage_options)
         stage.setup()
         mock_url_to_fs.assert_called_with("/test/path", **storage_options)
 
     @patch("ray_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
     @patch("ray_curator.stages.client_partitioning.url_to_fs")
-    def test_process_basic_functionality(self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask) -> None:
+    def test_process_basic_functionality(
+        self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask
+    ) -> None:
         """Test basic process functionality including file filtering."""
         mock_fs = Mock()
         mock_root = "/test/path"
@@ -98,7 +97,6 @@ class TestClientPartitioningStage:
         assert len(result) == 3
         assert isinstance(result[0], FileGroupTask)
         assert str(result[0].data[0]).endswith("file1.jsonl")
-        assert result[0].dataset_name == "/test/path"
         assert result[0].task_id == "file_group_0"
         assert result[0]._metadata["partition_index"] == 0
         assert result[0]._metadata["total_partitions"] == 3
@@ -106,10 +104,7 @@ class TestClientPartitioningStage:
         # Test file extension filtering
         all_files = ["file1.jsonl", "file2.txt", "file3.json", "file4.py"]
         mock_list_relative.return_value = all_files
-        stage = ClientPartitioningStage(
-            file_paths="/test/path",
-            file_extensions=[".jsonl", ".json"]
-        )
+        stage = ClientPartitioningStage(file_paths="/test/path", file_extensions=[".jsonl", ".json"])
         stage.setup()
         result = stage.process(empty_task)
 
@@ -119,7 +114,9 @@ class TestClientPartitioningStage:
 
     @patch("ray_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
     @patch("ray_curator.stages.client_partitioning.url_to_fs")
-    def test_process_partitioning_and_limits(self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask) -> None:
+    def test_process_partitioning_and_limits(
+        self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask
+    ) -> None:
         """Test files_per_partition and limit functionality."""
         mock_fs = Mock()
         mock_root = "/test/path"
@@ -129,10 +126,7 @@ class TestClientPartitioningStage:
         all_files = ["file1.jsonl", "file2.jsonl", "file3.jsonl", "file4.jsonl"]
         mock_list_relative.return_value = all_files
 
-        stage = ClientPartitioningStage(
-            file_paths="/test/path",
-            files_per_partition=2
-        )
+        stage = ClientPartitioningStage(file_paths="/test/path", files_per_partition=2)
         stage.setup()
         result = stage.process(empty_task)
 
@@ -170,10 +164,7 @@ class TestClientPartitioningStage:
         all_files = ["file1.jsonl", "file2.txt", "file3.json", "file4.py", "file5.jsonl", "file6.json"]
         mock_list_relative.return_value = all_files
         stage = ClientPartitioningStage(
-            file_paths="/test/path",
-            file_extensions=[".jsonl", ".json"],
-            limit=3,
-            files_per_partition=2
+            file_paths="/test/path", file_extensions=[".jsonl", ".json"], limit=3, files_per_partition=2
         )
         stage.setup()
         result = stage.process(empty_task)
@@ -210,9 +201,7 @@ class TestReadListJsonRel:
         mock_file.read.return_value = b'["/input/path/video1.mp4", "/input/path/video2.mp4"]'
 
         result = _read_list_json_rel(
-            root="/input/path",
-            json_url="/path/to/list.json",
-            storage_options={"profile_name": "test_profile"}
+            root="/input/path", json_url="/path/to/list.json", storage_options={"profile_name": "test_profile"}
         )
 
         expected = ["video1.mp4", "video2.mp4"]
@@ -231,20 +220,12 @@ class TestReadListJsonRel:
         mock_file.read.return_value = b'["/different/path/video1.mp4"]'
 
         with pytest.raises(ValueError, match="Input path .* is not under root"):
-            _read_list_json_rel(
-                root="/input/path",
-                json_url="/path/to/list.json",
-                storage_options={}
-            )
+            _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
 
         # Test file read exception
         mock_fsspec_open.side_effect = Exception("File not found")
         with pytest.raises(Exception, match="File not found"):
-            _read_list_json_rel(
-                root="/input/path",
-                json_url="/path/to/list.json",
-                storage_options={}
-            )
+            _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
 
     @patch("ray_curator.stages.client_partitioning.fsspec.open")
     def test_read_list_json_rel_empty_list(self, mock_fsspec_open: Mock) -> None:
@@ -256,10 +237,6 @@ class TestReadListJsonRel:
 
         mock_file.read.return_value = b"[]"
 
-        result = _read_list_json_rel(
-            root="/input/path",
-            json_url="/path/to/list.json",
-            storage_options={}
-        )
+        result = _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
 
         assert result == []

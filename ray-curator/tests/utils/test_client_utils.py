@@ -147,7 +147,7 @@ class TestFSPath:
         """Test get_bytes_cat_ranges with file larger than part_size."""
         mock_fs = Mock(spec=fsspec.AbstractFileSystem)
         file_size = 100 * 1024**2  # 100MB
-        part_size = 32 * 1024**2   # 32MB
+        part_size = 32 * 1024**2  # 32MB
         mock_fs.size.return_value = file_size
 
         # Mock data for 4 parts (100MB / 32MB = 4 parts)
@@ -157,7 +157,7 @@ class TestFSPath:
             b"part1" * (32 * 1024**2 // 6),  # 32MB
             b"part2" * (32 * 1024**2 // 6),  # 32MB
             b"part3" * (32 * 1024**2 // 6),  # 32MB
-            b"part4" * (4 * 1024**2 // 6),   # 4MB
+            b"part4" * (4 * 1024**2 // 6),  # 4MB
         ]
         mock_fs.cat_ranges.return_value = mock_data
 
@@ -179,7 +179,7 @@ class TestFSPath:
         """Test get_bytes_cat_ranges with custom part_size."""
         mock_fs = Mock(spec=fsspec.AbstractFileSystem)
         file_size = 1000  # 1000 bytes
-        part_size = 100    # 100 bytes
+        part_size = 100  # 100 bytes
         mock_fs.size.return_value = file_size
 
         # Mock data for 10 parts (1000 / 100 = 10 parts)
@@ -301,3 +301,81 @@ class TestFSPath:
         fs_path = FSPath(mock_fs, long_path)
         assert str(fs_path) == long_path
         assert len(str(fs_path)) == 1001
+
+    def test_is_remote_url_local_file(self) -> None:
+        """Test is_remote_url with local file path."""
+        from ray_curator.utils.client_utils import is_remote_url
+
+        # Test with absolute local path
+        assert not is_remote_url("/home/user/file.txt")
+
+        # Test with relative local path
+        assert not is_remote_url("./file.txt")
+
+        # Test with file:// protocol (local)
+        assert not is_remote_url("file:///home/user/file.txt")
+
+    def test_is_remote_url_with_mock_fsspec(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test is_remote_url with mocked fsspec to test protocol handling."""
+        from ray_curator.utils.client_utils import is_remote_url
+
+        # Mock the url_to_fs function
+        def mock_url_to_fs(url: str) -> tuple:
+            class MockFS:
+                def __init__(self, protocol: str) -> None:
+                    self.protocol = protocol
+
+            # Return different protocols based on URL
+            if "s3" in url:
+                return MockFS("s3"), ""
+            elif "gcs" in url:
+                return MockFS("gcs"), ""
+            elif "file" in url or "/" in url:
+                return MockFS("file"), ""
+            elif "http" in url:
+                return MockFS("http"), ""
+            else:
+                return MockFS(None), ""
+
+        monkeypatch.setattr("ray_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+
+        # Test with mocked protocols
+        assert is_remote_url("s3://bucket/key")
+        assert is_remote_url("gcs://bucket/key")
+        assert not is_remote_url("file:///path")
+        assert not is_remote_url("/local/path")
+        assert not is_remote_url("unknown://path")
+
+    def test_is_remote_url_multiple_protocols(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test is_remote_url with filesystem that has multiple protocols."""
+        from ray_curator.utils.client_utils import is_remote_url
+
+        def mock_url_to_fs(_url: str) -> tuple:
+            class MockFS:
+                def __init__(self) -> None:
+                    # Simulate filesystem with multiple protocols
+                    self.protocol = ["s3", "s3a"]
+
+            return MockFS(), ""
+
+        monkeypatch.setattr("ray_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+
+        # Should return True since first protocol is "s3" (remote)
+        assert is_remote_url("s3://bucket/key")
+
+    def test_is_remote_url_no_protocol(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test is_remote_url with filesystem that has no protocol."""
+        from ray_curator.utils.client_utils import is_remote_url
+
+        def mock_url_to_fs(_url: str) -> tuple:
+            class MockFS:
+                def __init__(self) -> None:
+                    # Simulate filesystem with no protocol
+                    self.protocol = None
+
+            return MockFS(), ""
+
+        monkeypatch.setattr("ray_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+
+        # Should return False since protocol is None
+        assert not is_remote_url("unknown://path")

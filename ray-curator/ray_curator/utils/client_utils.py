@@ -1,4 +1,5 @@
 import fsspec
+from fsspec.core import url_to_fs
 
 
 class FSPath:
@@ -30,10 +31,10 @@ class FSPath:
     def get_bytes_cat_ranges(
         self,
         *,
-        part_size: int = 32 * 1024**2,  # 32 MiB
+        part_size: int = 10 * 1024**2,  # 10 MiB
     ) -> bytes:
         """
-        Read object into memory using fsspec's cat_ranges (no threads).
+        Read object into memory using fsspec's cat_ranges.
         Modified from https://github.com/rapidsai/cudf/blob/ba64909422016ba389ab06ed01d7578336c19e8e/python/dask_cudf/dask_cudf/io/json.py#L26-L34
         """
         size = self._fs.size(self._path)
@@ -41,7 +42,7 @@ class FSPath:
             return b""
 
         starts = list(range(0, size, part_size))
-        ends   = [min(s + part_size, size) for s in starts]
+        ends = [min(s + part_size, size) for s in starts]
 
         # Raise on any failed range
         blocks = self._fs.cat_ranges(
@@ -53,5 +54,11 @@ class FSPath:
 
         out = bytearray(size)
         for s, b in zip(starts, blocks, strict=False):
-            out[s:s + len(b)] = b
+            out[s : s + len(b)] = b
         return bytes(out)
+
+
+def is_remote_url(url: str) -> bool:
+    fs, _ = url_to_fs(url)
+    proto = fs.protocol[0] if isinstance(fs.protocol, (list, tuple)) else fs.protocol
+    return proto not in (None, "file")
