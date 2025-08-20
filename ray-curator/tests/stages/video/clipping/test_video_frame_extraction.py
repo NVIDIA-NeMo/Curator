@@ -15,7 +15,7 @@ from ray_curator.stages.video.clipping.video_frame_extraction import (
     VideoFrameExtractionStage,
     get_frames_from_ffmpeg,
 )
-from ray_curator.tasks import Video, VideoMetadata, VideoTask
+from ray_curator.tasks.video import Video, VideoMetadata, VideoTask
 
 
 class TestGetFramesFromFfmpeg:

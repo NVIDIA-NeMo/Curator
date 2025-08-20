@@ -9,7 +9,7 @@ from loguru import logger
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import VideoTask
+from ray_curator.tasks.video import VideoTask
 from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
 try:
@@ -120,6 +120,12 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                 self.pynvc_frame_extractor = None
 
 
+    def __post_init__(self) -> None:
+        if self.decoder_mode == "pynvc":
+            self._resources = Resources(gpu_memory_gb=10)
+        else:
+            self._resources = Resources(cpus=4.0)
+
     def process(self, task: VideoTask) -> VideoTask:
         width, height = self.output_hw
         video = task.data
@@ -171,11 +177,3 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             if self.verbose:
                 logger.info(f"Loaded video as numpy uint8 array with shape {video.frame_array.shape}")
         return task
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        if self.decoder_mode == "pynvc":
-            return Resources(gpu_memory_gb=10)
-        else:
-            return Resources(cpus=4.0)
