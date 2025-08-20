@@ -85,13 +85,18 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 token=self.hf_token,
                 local_files_only=False,
             )
+            self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        msg = "Subclasses must implement this method"
-        raise NotImplementedError(msg)
+        if hasattr(self, "_setup") and callable(getattr(self, "_setup")):
+            # We use the _setup function to ensure that everything needed for the model is downloaded and loaded properly
+            self._setup(local_files_only=True)
+        else:
+            msg = "Subclasses must implement this method"
+            raise NotImplementedError(msg)
 
     def yield_next_batch(self, df: pd.DataFrame) -> Generator[dict[str, torch.Tensor]]:
         """

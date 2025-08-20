@@ -103,11 +103,11 @@ class FineWebModelStage(ModelStage):
         model.forward = custom_forward
         return model
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    def _setup(self, local_files_only: bool = True) -> None:
         model = AutoModelForSequenceClassification.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
-            local_files_only=True,
+            local_files_only=local_files_only,
         ).cuda()
         self.model = self.configure_forward(model, self.autocast)
 

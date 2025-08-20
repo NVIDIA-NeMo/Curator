@@ -99,6 +99,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 token=self.hf_token,
                 local_files_only=False,
             )
+            self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
@@ -107,12 +108,13 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def load_cfg(self) -> AutoConfig:
         return AutoConfig.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=True)
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             padding_side=self.padding_side,
             cache_dir=self.cache_dir,
-            local_files_only=True,
+            local_files_only=local_files_only,
         )
         if self.unk_token:
             self.tokenizer.pad_token = self.tokenizer.unk_token
@@ -124,6 +126,9 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             # which sets max_seq_length to max(int) for some models
             if self.max_seq_length > 1e5:  # noqa: PLR2004
                 self.max_seq_length = self.load_cfg().max_position_embeddings
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()

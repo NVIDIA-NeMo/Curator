@@ -233,9 +233,6 @@ class AegisModelStage(ModelStage):
             msg = "Failed to setup Aegis model"
             raise RuntimeError(msg) from e
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        self._setup(local_files_only=True)
-
     def process_model_output(
         self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
     ) -> dict[str, np.ndarray]:

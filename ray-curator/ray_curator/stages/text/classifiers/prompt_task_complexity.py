@@ -256,11 +256,11 @@ class PromptTaskComplexityModelStage(ModelStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], OUTPUT_COLUMNS
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    def _setup(self, local_files_only: bool = True) -> None:
         self.model = CustomDeberta.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
-            local_files_only=True,
+            local_files_only=local_files_only,
         ).cuda().eval()
         self.model.set_autocast(self.autocast)
 
