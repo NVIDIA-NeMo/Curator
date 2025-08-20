@@ -25,10 +25,6 @@ class TestCLIPImageEmbeddings:
         assert self.model.device in ["cuda", "cpu"]
         assert self.model.dtype == torch.float32
 
-    def test_conda_env_name_property(self) -> None:
-        """Test conda environment name property."""
-        assert self.model.conda_env_name == "video_splitting"
-
     def test_model_id_names_property(self) -> None:
         """Test model ID names property."""
         model_ids = self.model.model_id_names
@@ -96,10 +92,11 @@ class TestCLIPImageEmbeddings:
         rng = np.random.default_rng(42)
         images = rng.integers(0, 255, size=(2, 224, 224, 3), dtype=np.uint8)
 
-        with patch("torch.from_numpy") as mock_from_numpy, \
-             patch("torch.linalg.vector_norm") as mock_norm, \
-             patch("ray_curator.models.clip.torch.linalg.vector_norm") as mock_norm2:
-
+        with (
+            patch("torch.from_numpy") as mock_from_numpy,
+            patch("torch.linalg.vector_norm") as mock_norm,
+            patch("ray_curator.models.clip.torch.linalg.vector_norm") as mock_norm2,
+        ):
             mock_tensor = Mock()
             mock_tensor.permute.return_value = mock_tensor
             mock_tensor.to.return_value = mock_tensor
@@ -112,6 +109,7 @@ class TestCLIPImageEmbeddings:
                 # Override the method to return our expected result
                 def mock_call(_images: np.ndarray) -> torch.Tensor:
                     return mock_normalized_embeddings
+
                 wrapped_call.side_effect = mock_call
 
                 result = self.model(images)
@@ -138,15 +136,19 @@ class TestCLIPImageEmbeddings:
         # Test input
         images = torch.randint(0, 255, (2, 3, 224, 224), dtype=torch.uint8)
 
-        with patch("torch.linalg.vector_norm") as mock_norm, \
-             patch("ray_curator.models.clip.torch.linalg.vector_norm") as mock_norm2:
+        with (
+            patch("torch.linalg.vector_norm") as mock_norm,
+            patch("ray_curator.models.clip.torch.linalg.vector_norm") as mock_norm2,
+        ):
             mock_norm.return_value = torch.ones(2, 1)
             mock_norm2.return_value = torch.ones(2, 1)
 
             # Mock the entire call to return expected result
             with patch.object(self.model, "__call__", wraps=self.model.__call__) as wrapped_call:
+
                 def mock_call(_images: torch.Tensor) -> torch.Tensor:
                     return mock_normalized_embeddings
+
                 wrapped_call.side_effect = mock_call
 
                 result = self.model(images)
@@ -170,10 +172,6 @@ class TestCLIPAestheticScorer:
         assert self.model.model_dir == "test_models/clip_aesthetic"
         assert self.model._clip_model is None
         assert self.model._aesthetic_model is None
-
-    def test_conda_env_name_property(self) -> None:
-        """Test conda environment name property."""
-        assert self.model.conda_env_name == "video_splitting"
 
     def test_model_id_names_property(self) -> None:
         """Test model ID names property."""
@@ -304,9 +302,6 @@ class TestModelIntegration:
         """Test that model properties are consistent."""
         clip_model = CLIPImageEmbeddings(model_dir="test_models/clip")
         aesthetic_scorer = CLIPAestheticScorer(model_dir="test_models/clip_aesthetic")
-
-        # Both should use same conda env
-        assert clip_model.conda_env_name == aesthetic_scorer.conda_env_name
 
         # Both should use same CLIP model
         assert clip_model.model_id_names == aesthetic_scorer.model_id_names

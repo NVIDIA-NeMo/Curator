@@ -10,8 +10,7 @@ import pytest
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import ClipStats, VideoMetadata
+from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature
 
 
@@ -26,7 +25,7 @@ class TestClipAestheticFilterStage:
             reduction="min",
             target_fps=1.0,
             num_gpus_per_worker=0.25,
-            verbose=False
+            verbose=False,
         )
 
         # Use numpy.random.default_rng for modern API
@@ -45,7 +44,7 @@ class TestClipAestheticFilterStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[
                 Clip(
@@ -54,9 +53,7 @@ class TestClipAestheticFilterStage:
                     span=(0.0, 5.0),
                     buffer=b"mock_clip_data_1",
                     errors={},
-                    extracted_frames={
-                        "sequence-1.0": rng.integers(0, 255, size=(5, 224, 224, 3), dtype=np.uint8)
-                    }
+                    extracted_frames={"sequence-1.0": rng.integers(0, 255, size=(5, 224, 224, 3), dtype=np.uint8)},
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
@@ -64,16 +61,14 @@ class TestClipAestheticFilterStage:
                     span=(5.0, 10.0),
                     buffer=b"mock_clip_data_2",
                     errors={},
-                    extracted_frames={
-                        "sequence-1.0": rng.integers(0, 255, size=(5, 224, 224, 3), dtype=np.uint8)
-                    }
+                    extracted_frames={"sequence-1.0": rng.integers(0, 255, size=(5, 224, 224, 3), dtype=np.uint8)},
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
                     source_video="test_video.mp4",
                     span=(10.0, 15.0),
                     buffer=None,  # Clip without buffer
-                    errors={}
+                    errors={},
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
@@ -81,19 +76,15 @@ class TestClipAestheticFilterStage:
                     span=(15.0, 20.0),
                     buffer=b"mock_clip_data_4",
                     errors={},
-                    extracted_frames={}  # Clip without extracted frames
-                )
+                    extracted_frames={},  # Clip without extracted frames
+                ),
             ],
             filtered_clips=[],
             clip_stats=ClipStats(),
-            clip_chunk_index=0
+            clip_chunk_index=0,
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_stage_initialization_defaults(self) -> None:
         """Test stage initialization with default parameters."""
@@ -113,7 +104,7 @@ class TestClipAestheticFilterStage:
             reduction="mean",
             target_fps=2.0,
             num_gpus_per_worker=0.5,
-            verbose=True
+            verbose=True,
         )
         assert stage.model_dir == "custom/models/clip_aesthetic"
         assert stage.score_threshold == 0.7
@@ -126,7 +117,7 @@ class TestClipAestheticFilterStage:
         """Test the name property."""
         # Note: There's a bug in the original code - it returns "motion_vector_decoding" instead of expected name
         # This test documents the current behavior
-        assert self.stage.name == "motion_vector_decoding"
+        assert self.stage.name == "clip_aesthetic_filter"
 
     def test_resources_property(self) -> None:
         """Test the resources property."""
@@ -161,8 +152,7 @@ class TestClipAestheticFilterStage:
 
         # Verify frame extraction signature
         expected_signature = FrameExtractionSignature(
-            extraction_policy=FrameExtractionPolicy.sequence,
-            target_fps=self.stage.target_fps
+            extraction_policy=FrameExtractionPolicy.sequence, target_fps=self.stage.target_fps
         ).to_str()
         assert self.stage.frame_extraction_signature == expected_signature
 
@@ -194,7 +184,9 @@ class TestClipAestheticFilterStage:
         """Test setup with worker metadata (should be ignored)."""
         worker_metadata = WorkerMetadata(worker_id="test_worker")
 
-        with patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer") as mock_scorer_class:
+        with patch(
+            "ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"
+        ) as mock_scorer_class:
             mock_scorer = Mock()
             mock_scorer_class.return_value = mock_scorer
 
@@ -302,11 +294,7 @@ class TestClipAestheticFilterStage:
 
         # Create task with clip without buffer
         clip_without_buffer = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0),
-            buffer=None,
-            errors={}
+            uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=None, errors={}
         )
         video = Video(
             input_video=pathlib.Path("test_video.mp4"),
@@ -315,7 +303,7 @@ class TestClipAestheticFilterStage:
             clips=[clip_without_buffer],
             filtered_clips=[],
             clip_stats=ClipStats(),
-            clip_chunk_index=0
+            clip_chunk_index=0,
         )
         task = VideoTask(task_id="test", dataset_name="test", data=video)
 
@@ -342,7 +330,7 @@ class TestClipAestheticFilterStage:
             span=(0.0, 5.0),
             buffer=b"mock_data",
             errors={},
-            extracted_frames={}
+            extracted_frames={},
         )
         video = Video(
             input_video=pathlib.Path("test_video.mp4"),
@@ -351,7 +339,7 @@ class TestClipAestheticFilterStage:
             clips=[clip_without_frames],
             filtered_clips=[],
             clip_stats=ClipStats(),
-            clip_chunk_index=0
+            clip_chunk_index=0,
         )
         task = VideoTask(task_id="test", dataset_name="test", data=video)
 
@@ -365,11 +353,7 @@ class TestClipAestheticFilterStage:
 
     def test_process_with_verbose_logging(self) -> None:
         """Test processing with verbose logging enabled."""
-        stage = ClipAestheticFilterStage(
-            model_dir="test_models/clip_aesthetic",
-            score_threshold=0.5,
-            verbose=True
-        )
+        stage = ClipAestheticFilterStage(model_dir="test_models/clip_aesthetic", score_threshold=0.5, verbose=True)
 
         # Setup mock model with scores where some pass
         mock_model = Mock()
@@ -395,6 +379,7 @@ class TestClipAestheticFilterStage:
 
         # Mock to return different score arrays for each call
         call_count = [0]  # Use list to allow modification in nested function
+
         def mock_model_side_effect(_frames: np.ndarray) -> Mock:
             mock_scores_tensor = Mock()
             mock_scores_tensor.cpu.return_value = mock_scores_tensor
@@ -444,7 +429,7 @@ class TestClipAestheticFilterStage:
             clips=[],
             filtered_clips=[],
             clip_stats=ClipStats(),
-            clip_chunk_index=0
+            clip_chunk_index=0,
         )
         empty_task = VideoTask(task_id="test", dataset_name="test", data=empty_video)
 
@@ -494,10 +479,7 @@ class TestClipAestheticFilterStageIntegration:
     def test_stage_properties_consistency(self) -> None:
         """Test that stage properties are consistent."""
         stage = ClipAestheticFilterStage(
-            score_threshold=0.7,
-            reduction="mean",
-            target_fps=2.0,
-            num_gpus_per_worker=0.5
+            score_threshold=0.7, reduction="mean", target_fps=2.0, num_gpus_per_worker=0.5
         )
 
         assert stage.score_threshold == 0.7
@@ -527,8 +509,7 @@ class TestClipAestheticFilterStageIntegration:
             stage.setup()
 
         expected_signature = FrameExtractionSignature(
-            extraction_policy=FrameExtractionPolicy.sequence,
-            target_fps=2.5
+            extraction_policy=FrameExtractionPolicy.sequence, target_fps=2.5
         ).to_str()
 
         assert stage.frame_extraction_signature == expected_signature

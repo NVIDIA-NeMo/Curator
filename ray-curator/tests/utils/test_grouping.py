@@ -1,4 +1,4 @@
-"""Test suite for grouping utilities module."""
+"""Unit tests for ray_curator.utils.grouping module."""
 
 from collections.abc import Generator
 
@@ -6,234 +6,230 @@ from ray_curator.utils.grouping import pairwise, split_by_chunk_size, split_into
 
 
 class TestSplitByChunkSize:
-    """Test suite for split_by_chunk_size function."""
+    """Test cases for split_by_chunk_size function."""
 
-    def test_split_by_chunk_size_basic(self) -> None:
-        """Test basic functionality of split_by_chunk_size."""
-        iterable = [1, 2, 3, 4, 5, 6]
-        result = list(split_by_chunk_size(iterable, chunk_size=2))
+    def test_basic_functionality(self):
+        """Test basic chunking with default parameters."""
+        data = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        chunks = list(split_by_chunk_size(data, 3))
+        expected = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        assert chunks == expected
 
-        assert result == [[1, 2], [3, 4], [5, 6]]
+    def test_incomplete_chunk_kept_by_default(self):
+        """Test that incomplete chunks are kept by default."""
+        data = [1, 2, 3, 4, 5]
+        chunks = list(split_by_chunk_size(data, 3))
+        expected = [[1, 2, 3], [4, 5]]
+        assert chunks == expected
 
-    def test_split_by_chunk_size_incomplete_chunk(self) -> None:
-        """Test split_by_chunk_size with incomplete final chunk."""
-        iterable = [1, 2, 3, 4, 5]
-        result = list(split_by_chunk_size(iterable, chunk_size=2))
+    def test_drop_incomplete_chunk_true(self):
+        """Test dropping incomplete chunks when drop_incomplete_chunk=True."""
+        data = [1, 2, 3, 4, 5]
+        chunks = list(split_by_chunk_size(data, 3, drop_incomplete_chunk=True))
+        expected = [[1, 2, 3]]
+        assert chunks == expected
 
-        assert result == [[1, 2], [3, 4], [5]]
+    def test_drop_incomplete_chunk_false_explicit(self):
+        """Test keeping incomplete chunks when drop_incomplete_chunk=False."""
+        data = [1, 2, 3, 4, 5]
+        chunks = list(split_by_chunk_size(data, 3, drop_incomplete_chunk=False))
+        expected = [[1, 2, 3], [4, 5]]
+        assert chunks == expected
 
-    def test_split_by_chunk_size_drop_incomplete_chunk(self) -> None:
-        """Test split_by_chunk_size with drop_incomplete_chunk=True."""
-        iterable = [1, 2, 3, 4, 5]
-        result = list(split_by_chunk_size(iterable, chunk_size=2, drop_incomplete_chunk=True))
+    def test_custom_size_function(self):
+        """Test using custom size function."""
+        # Each string's length counts as its size
+        data = ["a", "bb", "ccc", "dddd", "e"]
+        chunks = list(split_by_chunk_size(data, 5, custom_size_func=len))
+        expected = [["a", "bb", "ccc"], ["dddd", "e"]]
+        assert chunks == expected
 
-        assert result == [[1, 2], [3, 4]]
+    def test_custom_size_function_complex(self):
+        """Test custom size function with more complex logic."""
+        # Using tuples where second element is the size
+        data = [("a", 1), ("b", 2), ("c", 3), ("d", 4), ("e", 1)]
+        chunks = list(split_by_chunk_size(data, 5, custom_size_func=lambda x: x[1]))
+        expected = [[("a", 1), ("b", 2), ("c", 3)], [("d", 4), ("e", 1)]]
+        assert chunks == expected
 
-    def test_split_by_chunk_size_empty_iterable(self) -> None:
-        """Test split_by_chunk_size with empty iterable."""
-        iterable = []
-        result = list(split_by_chunk_size(iterable, chunk_size=2))
+    def test_chunk_size_one(self):
+        """Test with chunk_size of 1."""
+        data = [1, 2, 3]
+        chunks = list(split_by_chunk_size(data, 1))
+        expected = [[1], [2], [3]]
+        assert chunks == expected
 
-        assert result == []
+    def test_chunk_size_larger_than_data(self):
+        """Test when chunk_size is larger than the data."""
+        data = [1, 2, 3]
+        chunks = list(split_by_chunk_size(data, 10))
+        expected = [[1, 2, 3]]
+        assert chunks == expected
 
-    def test_split_by_chunk_size_single_item(self) -> None:
-        """Test split_by_chunk_size with single item."""
-        iterable = [42]
-        result = list(split_by_chunk_size(iterable, chunk_size=2))
+    def test_empty_iterable(self):
+        """Test with empty iterable."""
+        data = []
+        chunks = list(split_by_chunk_size(data, 3))
+        expected = []
+        assert chunks == expected
 
-        assert result == [[42]]
+    def test_single_item(self):
+        """Test with single item."""
+        data = [42]
+        chunks = list(split_by_chunk_size(data, 3))
+        expected = [[42]]
+        assert chunks == expected
 
-    def test_split_by_chunk_size_chunk_size_one(self) -> None:
-        """Test split_by_chunk_size with chunk_size=1."""
-        iterable = [1, 2, 3]
-        result = list(split_by_chunk_size(iterable, chunk_size=1))
+    def test_generator_input(self):
+        """Test with generator as input."""
 
-        assert result == [[1], [2], [3]]
-
-    def test_split_by_chunk_size_chunk_size_larger_than_iterable(self) -> None:
-        """Test split_by_chunk_size with chunk_size larger than iterable length."""
-        iterable = [1, 2, 3]
-        result = list(split_by_chunk_size(iterable, chunk_size=10))
-
-        assert result == [[1, 2, 3]]
-
-    def test_split_by_chunk_size_custom_size_func(self) -> None:
-        """Test split_by_chunk_size with custom size function."""
-        # Using strings where size is determined by length
-        iterable = ["a", "bb", "ccc", "dddd", "e"]
-        result = list(split_by_chunk_size(iterable, chunk_size=5, custom_size_func=len))
-
-        assert result == [["a", "bb", "ccc"], ["dddd", "e"]]
-
-    def test_split_by_chunk_size_custom_size_func_exact_fit(self) -> None:
-        """Test split_by_chunk_size with custom size function that fits exactly."""
-        iterable = ["ab", "cd", "ef"]
-        result = list(split_by_chunk_size(iterable, chunk_size=4, custom_size_func=len))
-
-        assert result == [["ab", "cd"], ["ef"]]
-
-    def test_split_by_chunk_size_custom_size_func_drop_incomplete(self) -> None:
-        """Test split_by_chunk_size with custom size function and drop_incomplete_chunk=True."""
-        iterable = ["a", "bb", "ccc", "d"]
-        result = list(split_by_chunk_size(
-            iterable,
-            chunk_size=4,
-            custom_size_func=len,
-            drop_incomplete_chunk=True
-        ))
-
-        assert result == [["a", "bb", "ccc"]]
-
-    def test_split_by_chunk_size_generator_input(self) -> None:
-        """Test split_by_chunk_size with generator input."""
         def gen() -> Generator[int, None, None]:
             yield from range(5)
 
-        result = list(split_by_chunk_size(gen(), chunk_size=2))
+        chunks = list(split_by_chunk_size(gen(), 2))
+        expected = [[0, 1], [2, 3], [4]]
+        assert chunks == expected
 
-        assert result == [[0, 1], [2, 3], [4]]
-
-    def test_split_by_chunk_size_string_iterable(self) -> None:
-        """Test split_by_chunk_size with string iterable."""
-        iterable = "hello"
-        result = list(split_by_chunk_size(iterable, chunk_size=2))
-
-        assert result == [["h", "e"], ["l", "l"], ["o"]]
+    def test_string_iterable(self):
+        """Test with string as iterable."""
+        data = "hello"
+        chunks = list(split_by_chunk_size(data, 2))
+        expected = [["h", "e"], ["l", "l"], ["o"]]
+        assert chunks == expected
 
 
 class TestSplitIntoNChunks:
-    """Test suite for split_into_n_chunks function."""
+    """Test cases for split_into_n_chunks function."""
 
-    def test_split_into_n_chunks_basic(self) -> None:
-        """Test basic functionality of split_into_n_chunks."""
-        iterable = [1, 2, 3, 4, 5, 6]
-        result = list(split_into_n_chunks(iterable, num_chunks=3))
+    def test_basic_functionality(self):
+        """Test basic splitting into n chunks."""
+        data = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+        chunks = list(split_into_n_chunks(data, 3))
+        expected = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        assert chunks == expected
 
-        assert result == [[1, 2], [3, 4], [5, 6]]
+    def test_uneven_split(self):
+        """Test splitting when data doesn't divide evenly."""
+        data = [1, 2, 3, 4, 5, 6, 7, 8]
+        chunks = list(split_into_n_chunks(data, 3))
+        expected = [[1, 2, 3], [4, 5, 6], [7, 8]]
+        assert chunks == expected
 
-    def test_split_into_n_chunks_uneven_division(self) -> None:
-        """Test split_into_n_chunks with uneven division."""
-        iterable = [1, 2, 3, 4, 5, 6, 7]
-        result = list(split_into_n_chunks(iterable, num_chunks=3))
+    def test_more_chunks_than_items(self):
+        """Test when number of chunks is greater than number of items."""
+        data = [1, 2, 3]
+        chunks = list(split_into_n_chunks(data, 5))
+        expected = [[1], [2], [3]]
+        assert chunks == expected
 
-        assert result == [[1, 2, 3], [4, 5], [6, 7]]
+    def test_single_chunk(self):
+        """Test splitting into a single chunk."""
+        data = [1, 2, 3, 4, 5]
+        chunks = list(split_into_n_chunks(data, 1))
+        expected = [[1, 2, 3, 4, 5]]
+        assert chunks == expected
 
-    def test_split_into_n_chunks_more_chunks_than_items(self) -> None:
-        """Test split_into_n_chunks with more chunks than items."""
-        iterable = [1, 2, 3]
-        result = list(split_into_n_chunks(iterable, num_chunks=5))
+    def test_empty_iterable(self):
+        """Test with empty iterable."""
+        data = []
+        chunks = list(split_into_n_chunks(data, 3))
+        expected = []
+        assert chunks == expected
 
-        assert result == [[1], [2], [3]]
+    def test_single_item(self):
+        """Test with single item."""
+        data = [42]
+        chunks = list(split_into_n_chunks(data, 3))
+        expected = [[42]]
+        assert chunks == expected
 
-    def test_split_into_n_chunks_empty_iterable(self) -> None:
-        """Test split_into_n_chunks with empty iterable."""
-        iterable = []
-        result = list(split_into_n_chunks(iterable, num_chunks=3))
+    def test_equal_chunks_even_division(self):
+        """Test that chunks are equal when data divides evenly."""
+        data = list(range(12))
+        chunks = list(split_into_n_chunks(data, 4))
+        expected = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [9, 10, 11]]
+        assert chunks == expected
+        # Verify all chunks have the same size
+        chunk_sizes = [len(chunk) for chunk in chunks]
+        assert all(size == 3 for size in chunk_sizes)
 
-        assert result == []
+    def test_remainder_distribution(self):
+        """Test that remainder is distributed among first chunks."""
+        data = list(range(10))  # 10 items into 3 chunks
+        chunks = list(split_into_n_chunks(data, 3))
+        expected = [[0, 1, 2, 3], [4, 5, 6], [7, 8, 9]]
+        assert chunks == expected
+        # First chunk should have one extra item
+        assert len(chunks[0]) == 4
+        assert len(chunks[1]) == 3
+        assert len(chunks[2]) == 3
 
-    def test_split_into_n_chunks_single_item(self) -> None:
-        """Test split_into_n_chunks with single item."""
-        iterable = [42]
-        result = list(split_into_n_chunks(iterable, num_chunks=3))
-
-        assert result == [[42]]
-
-    def test_split_into_n_chunks_single_chunk(self) -> None:
-        """Test split_into_n_chunks with single chunk."""
-        iterable = [1, 2, 3, 4, 5]
-        result = list(split_into_n_chunks(iterable, num_chunks=1))
-
-        assert result == [[1, 2, 3, 4, 5]]
-
-    def test_split_into_n_chunks_equal_chunks(self) -> None:
-        """Test split_into_n_chunks with equal-sized chunks."""
-        iterable = [1, 2, 3, 4, 5, 6, 7, 8]
-        result = list(split_into_n_chunks(iterable, num_chunks=4))
-
-        assert result == [[1, 2], [3, 4], [5, 6], [7, 8]]
-
-    def test_split_into_n_chunks_large_uneven(self) -> None:
-        """Test split_into_n_chunks with larger uneven division."""
-        iterable = list(range(10))
-        result = list(split_into_n_chunks(iterable, num_chunks=3))
-
-        assert result == [[0, 1, 2, 3], [4, 5, 6], [7, 8, 9]]
-
-    def test_split_into_n_chunks_string_iterable(self) -> None:
-        """Test split_into_n_chunks with string iterable."""
-        iterable = "hello"
-        result = list(split_into_n_chunks(iterable, num_chunks=2))
-
-        assert result == [["h", "e", "l"], ["l", "o"]]
-
-    def test_split_into_n_chunks_generator_input(self) -> None:
-        """Test split_into_n_chunks with generator input."""
-        def gen() -> Generator[int, None, None]:
-            yield from range(6)
-
-        result = list(split_into_n_chunks(gen(), num_chunks=2))
-
-        assert result == [[0, 1, 2], [3, 4, 5]]
+    def test_string_iterable(self):
+        """Test with string as iterable."""
+        data = "hello world"
+        chunks = list(split_into_n_chunks(data, 3))
+        expected = [["h", "e", "l", "l"], ["o", " ", "w", "o"], ["r", "l", "d"]]
+        assert chunks == expected
 
 
 class TestPairwise:
-    """Test suite for pairwise function."""
+    """Test cases for pairwise function."""
 
-    def test_pairwise_basic(self) -> None:
-        """Test basic functionality of pairwise."""
-        iterable = [1, 2, 3, 4, 5]
-        result = list(pairwise(iterable))
+    def test_basic_functionality(self):
+        """Test basic pairwise functionality."""
+        data = [1, 2, 3, 4, 5]
+        pairs = list(pairwise(data))
+        expected = [(1, 2), (2, 3), (3, 4), (4, 5)]
+        assert pairs == expected
 
-        assert result == [(1, 2), (2, 3), (3, 4), (4, 5)]
+    def test_two_items(self):
+        """Test with exactly two items."""
+        data = [1, 2]
+        pairs = list(pairwise(data))
+        expected = [(1, 2)]
+        assert pairs == expected
 
-    def test_pairwise_empty_iterable(self) -> None:
-        """Test pairwise with empty iterable."""
-        iterable = []
-        result = list(pairwise(iterable))
+    def test_single_item(self):
+        """Test with single item."""
+        data = [1]
+        pairs = list(pairwise(data))
+        expected = []
+        assert pairs == expected
 
-        assert result == []
+    def test_empty_iterable(self):
+        """Test with empty iterable."""
+        data = []
+        pairs = list(pairwise(data))
+        expected = []
+        assert pairs == expected
 
-    def test_pairwise_single_item(self) -> None:
-        """Test pairwise with single item."""
-        iterable = [42]
-        result = list(pairwise(iterable))
+    def test_string_iterable(self):
+        """Test with string as iterable."""
+        data = "hello"
+        pairs = list(pairwise(data))
+        expected = [("h", "e"), ("e", "l"), ("l", "l"), ("l", "o")]
+        assert pairs == expected
 
-        assert result == []
+    def test_generator_input(self):
+        """Test with generator as input."""
 
-    def test_pairwise_two_items(self) -> None:
-        """Test pairwise with two items."""
-        iterable = [1, 2]
-        result = list(pairwise(iterable))
-
-        assert result == [(1, 2)]
-
-    def test_pairwise_string_iterable(self) -> None:
-        """Test pairwise with string iterable."""
-        iterable = "hello"
-        result = list(pairwise(iterable))
-
-        assert result == [("h", "e"), ("e", "l"), ("l", "l"), ("l", "o")]
-
-    def test_pairwise_generator_input(self) -> None:
-        """Test pairwise with generator input."""
         def gen() -> Generator[int, None, None]:
             yield from range(4)
 
-        result = list(pairwise(gen()))
+        pairs = list(pairwise(gen()))
+        expected = [(0, 1), (1, 2), (2, 3)]
+        assert pairs == expected
 
-        assert result == [(0, 1), (1, 2), (2, 3)]
+    def test_different_types(self):
+        """Test with mixed types."""
+        data = [1, "a", 2.5, True]
+        pairs = list(pairwise(data))
+        expected = [(1, "a"), ("a", 2.5), (2.5, True)]
+        assert pairs == expected
 
-    def test_pairwise_different_types(self) -> None:
-        """Test pairwise with different data types."""
-        iterable = [1, "a", 3.14, True]
-        result = list(pairwise(iterable))
-
-        assert result == [(1, "a"), ("a", 3.14), (3.14, True)]
-
-    def test_pairwise_repeated_elements(self) -> None:
-        """Test pairwise with repeated elements."""
-        iterable = [1, 1, 2, 2, 3, 3]
-        result = list(pairwise(iterable))
-
-        assert result == [(1, 1), (1, 2), (2, 2), (2, 3), (3, 3)]
+    def test_duplicate_items(self):
+        """Test with duplicate items."""
+        data = [1, 1, 2, 2, 3]
+        pairs = list(pairwise(data))
+        expected = [(1, 1), (1, 2), (2, 2), (2, 3)]
+        assert pairs == expected

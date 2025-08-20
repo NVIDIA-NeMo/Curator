@@ -2,6 +2,12 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["ray_curator", "ray_curator.*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ray_curator.package_info.__version__" }
+
 [project]
 name = "ray-curator"
 version = "0.1.0"
@@ -18,17 +24,16 @@ dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
-    "crossfit>=0.0.9",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
     "mecab-python3",
     "pyarrow",
-    "pynvml==11.5.3",
-    "ray[default,data]",
+    "ray[default,data]>=2.48",
     "torch",
     "transformers>=4.48.0",
 ]
+
 [project.optional-dependencies]
 text = [
     # Download / Extract
@@ -42,9 +47,15 @@ text = [
     # Filters
     "fasttext==0.9.3",
     "sentencepiece",
-    "mwparserfromhell==0.6.5"
+    "mwparserfromhell==0.6.5",
+    # Aegis
+    "peft",
+    # Modifiers
+    "ftfy==6.1.1",
 ]
-cuda12x = [
+
+# Installs CPU + GPU text curation modules
+deduplication_cuda12x = [
     "cudf-cu12==25.6.*",
     "cugraph-cu12==25.6.*",
     "cuml-cu12==25.6.*",
@@ -52,12 +63,15 @@ cuda12x = [
     "pylibraft-cu12==25.6.*",
     "raft-dask-cu12==25.6.*",
 ]
+
 dev = [
     "debugpy",
     "pre-commit",
     "pytest",
+    "pytest-coverage",
     "pytest-loguru",
     "ruff==0.11.4",
+    "scikit-learn",
 ]
 video = [
     "av==13.1.0",
@@ -84,6 +98,36 @@ dali_cpu = [
 
 [tool.setuptools]
 packages = ["ray_curator"]
+all = [
+    "ray_curator[deduplication_cuda12x]",
+    "ray_curator[text]",
+    "ray_curator[video]",
+]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64"]
+
+# Specify PyPI index settings
+[tool.pixi.pypi-options]
+index-strategy = "unsafe-best-match"
+index-url = "https://pypi.org/simple"
+extra-index-urls = ["https://pypi.nvidia.com"]
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+ffmpeg = "*"  # Add FFmpeg from conda-forge
+
+[tool.pixi.environments]
+default = ["all"]
+dev = ["deduplication_cuda12x", "text", "video", "dev"]
+
+[tool.pixi.pypi-dependencies]
+ray-curator = { path = ".", editable = true }
+
+[tool.coverage.paths]
+source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]
+
 [tool.ruff]
 line-length = 119
 [tool.ruff.lint]
@@ -126,3 +170,6 @@ fixable = ["ALL"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+]

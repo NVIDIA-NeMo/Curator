@@ -85,16 +85,6 @@ class AestheticScorer(ModelInterface):
         self.weights_path = None
 
     @property
-    def conda_env_name(self) -> str:
-        """Get the name of the conda environment required for this model.
-
-        Returns:
-            Name of the conda environment.
-
-        """
-        return "video_splitting"
-
-    @property
     def model_id_names(self) -> list[str]:
         """Get the model ID names associated with this aesthetic scorer.
 

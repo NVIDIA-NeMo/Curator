@@ -388,12 +388,6 @@ class TestTransNetV2Interface:
     def test_initialization(self):
         """Test interface initialization."""
         assert self.interface is not None
-        assert isinstance(self.interface.conda_env_name, str)
-        assert isinstance(self.interface.model_id_names, list)
-
-    def test_conda_env_name(self):
-        """Test conda environment name property."""
-        assert self.interface.conda_env_name == "video_splitting"
 
     def test_model_id_names(self):
         """Test model ID names property."""

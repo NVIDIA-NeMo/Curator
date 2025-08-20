@@ -12,8 +12,7 @@ from ray_curator.stages.video.embedding.cosmos_embed1 import (
     CosmosEmbed1EmbeddingStage,
     CosmosEmbed1FrameCreationStage,
 )
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import VideoMetadata
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -25,11 +24,7 @@ class TestCosmosEmbed1FrameCreationStage:
     def setup_method(self):
         """Set up test fixtures."""
         self.stage = CosmosEmbed1FrameCreationStage(
-            model_dir="test_models/cosmos_embed1",
-            variant="336p",
-            target_fps=2.0,
-            verbose=False,
-            num_cpus=3
+            model_dir="test_models/cosmos_embed1", variant="336p", target_fps=2.0, verbose=False, num_cpus=3
         )
 
         # Create a mock video with clips
@@ -45,7 +40,7 @@ class TestCosmosEmbed1FrameCreationStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[
                 Clip(
@@ -53,23 +48,19 @@ class TestCosmosEmbed1FrameCreationStage:
                     source_video="test_video.mp4",
                     span=(0.0, 5.0),
                     buffer=b"mock_clip_data_1",
-                    errors={}
+                    errors={},
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
                     source_video="test_video.mp4",
                     span=(5.0, 10.0),
                     buffer=b"mock_clip_data_2",
-                    errors={}
+                    errors={},
                 ),
-            ]
+            ],
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -97,11 +88,7 @@ class TestCosmosEmbed1FrameCreationStage:
 
         # Test with custom parameters
         stage = CosmosEmbed1FrameCreationStage(
-            model_dir="custom_models",
-            variant="448p",
-            target_fps=4.0,
-            verbose=True,
-            num_cpus=8
+            model_dir="custom_models", variant="448p", target_fps=4.0, verbose=True, num_cpus=8
         )
         assert stage.model_dir == "custom_models"
         assert stage.variant == "448p"
@@ -119,9 +106,7 @@ class TestCosmosEmbed1FrameCreationStage:
 
         # Check that the model was initialized correctly
         mock_cosmos_embed1.assert_called_once_with(
-            variant="336p",
-            utils_only=True,
-            model_dir="test_models/cosmos_embed1"
+            variant="336p", utils_only=True, model_dir="test_models/cosmos_embed1"
         )
         mock_model.setup.assert_called_once()
 
@@ -145,9 +130,7 @@ class TestCosmosEmbed1FrameCreationStage:
         rng = np.random.default_rng(42)
         mock_frames = rng.random((15, 224, 224, 3))  # 15 frames, more than target
         for clip in self.mock_video.clips:
-            clip.extracted_frames = {
-                self.stage.frame_extraction_signature: mock_frames
-            }
+            clip.extracted_frames = {self.stage.frame_extraction_signature: mock_frames}
 
         # Process the task
         result = self.stage.process(self.mock_task)
@@ -200,7 +183,9 @@ class TestCosmosEmbed1FrameCreationStage:
 
     @patch("ray_curator.stages.video.embedding.cosmos_embed1.extract_frames")
     @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
-    def test_process_insufficient_frames_reextraction(self, mock_cosmos_embed1: "MagicMock", mock_extract_frames: "MagicMock") -> None:
+    def test_process_insufficient_frames_reextraction(
+        self, mock_cosmos_embed1: "MagicMock", mock_extract_frames: "MagicMock"
+    ) -> None:
         """Test process method with insufficient frames requiring re-extraction."""
         # Mock the model
         mock_model = Mock()
@@ -216,9 +201,7 @@ class TestCosmosEmbed1FrameCreationStage:
         sufficient_frames = rng.random((25, 224, 224, 3))  # 25 frames after re-extraction
 
         for clip in self.mock_video.clips:
-            clip.extracted_frames = {
-                self.stage.frame_extraction_signature: insufficient_frames
-            }
+            clip.extracted_frames = {self.stage.frame_extraction_signature: insufficient_frames}
 
         # Mock re-extraction to return sufficient frames
         mock_extract_frames.return_value = sufficient_frames
@@ -246,9 +229,7 @@ class TestCosmosEmbed1FrameCreationStage:
         rng = np.random.default_rng(42)
         insufficient_frames = rng.random((5, 224, 224, 3))  # Only 5 frames
         for clip in self.mock_video.clips:
-            clip.extracted_frames = {
-                self.stage.frame_extraction_signature: insufficient_frames
-            }
+            clip.extracted_frames = {self.stage.frame_extraction_signature: insufficient_frames}
 
         # Mock re-extraction to still return insufficient frames
         mock_extract_frames.return_value = insufficient_frames
@@ -271,7 +252,7 @@ class TestCosmosEmbed1EmbeddingStage:
             variant="336p",
             texts_to_verify=["a person walking", "a cat running"],
             gpu_memory_gb=20,
-            verbose=False
+            verbose=False,
         )
 
         # Create a mock video with clips
@@ -287,7 +268,7 @@ class TestCosmosEmbed1EmbeddingStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[
                 Clip(
@@ -296,7 +277,7 @@ class TestCosmosEmbed1EmbeddingStage:
                     span=(0.0, 5.0),
                     buffer=b"mock_clip_data_1",
                     errors={},
-                    cosmos_embed1_frames="mock_frames_1"
+                    cosmos_embed1_frames="mock_frames_1",
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
@@ -304,16 +285,12 @@ class TestCosmosEmbed1EmbeddingStage:
                     span=(5.0, 10.0),
                     buffer=b"mock_clip_data_2",
                     errors={},
-                    cosmos_embed1_frames="mock_frames_2"
+                    cosmos_embed1_frames="mock_frames_2",
                 ),
-            ]
+            ],
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -338,25 +315,21 @@ class TestCosmosEmbed1EmbeddingStage:
     def test_initialization(self):
         """Test stage initialization with different parameters."""
         # Test with default parameters
-        stage = CosmosEmbed1EmbeddingStage()
+        stage = CosmosEmbed1EmbeddingStage(gpu_memory_gb=8)
         assert stage.model_dir == "models/cosmos_embed1"
         assert stage.variant == "336p"
         assert stage.texts_to_verify is None
-        assert stage.gpu_memory_gb == 20
+        assert stage.gpu_memory_gb == 8
         assert stage.verbose is False
 
         # Test with custom parameters
         stage = CosmosEmbed1EmbeddingStage(
-            model_dir="custom_models",
-            variant="448p",
-            texts_to_verify=["custom text"],
-            gpu_memory_gb=40,
-            verbose=True
+            model_dir="custom_models", variant="448p", texts_to_verify=["custom text"], gpu_memory_gb=8, verbose=True
         )
         assert stage.model_dir == "custom_models"
         assert stage.variant == "448p"
         assert stage.texts_to_verify == ["custom text"]
-        assert stage.gpu_memory_gb == 40
+        assert stage.gpu_memory_gb == 8
         assert stage.verbose is True
 
     @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
@@ -369,9 +342,7 @@ class TestCosmosEmbed1EmbeddingStage:
 
         # Check that the model was initialized correctly
         mock_cosmos_embed1.assert_called_once_with(
-            variant="336p",
-            utils_only=False,
-            model_dir="test_models/cosmos_embed1"
+            variant="336p", utils_only=False, model_dir="test_models/cosmos_embed1"
         )
         mock_model.setup.assert_called_once()
 
@@ -503,7 +474,7 @@ class TestCosmosEmbed1EmbeddingStage:
                     span=(0.0, 5.0),
                     buffer=b"mock_clip_data_1",
                     errors={},
-                    cosmos_embed1_frames="mock_frames_1"
+                    cosmos_embed1_frames="mock_frames_1",
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
@@ -511,16 +482,12 @@ class TestCosmosEmbed1EmbeddingStage:
                     span=(5.0, 10.0),
                     buffer=b"mock_clip_data_2",
                     errors={},
-                    cosmos_embed1_frames="mock_frames_2"
+                    cosmos_embed1_frames="mock_frames_2",
                 ),
-            ]
+            ],
         )
 
-        fresh_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=fresh_video
-        )
+        fresh_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=fresh_video)
 
         result = stage.process(fresh_task)
 

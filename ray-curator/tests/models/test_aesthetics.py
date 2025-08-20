@@ -18,22 +18,20 @@ class TestMLP:
     def test_mlp_initialization(self) -> None:
         """Test MLP initialization."""
         assert self.mlp.layers is not None
-        assert len(self.mlp.layers) == 8  # 5 Linear + 3 Dropout layers
-        assert isinstance(self.mlp.layers[0], torch.nn.Linear)
-        assert isinstance(self.mlp.layers[2], torch.nn.Linear)
+        assert len(self.mlp.layers) == 8  # 8 layers in the Sequential
 
     def test_mlp_architecture(self) -> None:
         """Test MLP architecture."""
-        # Check layer dimensions - accessing Linear layers from Sequential
-        assert self.mlp.layers[0].in_features == 768    # First Linear layer
+        # Check layer dimensions - the actual MLP has different architecture
+        assert self.mlp.layers[0].in_features == 768
         assert self.mlp.layers[0].out_features == 1024
-        assert self.mlp.layers[2].in_features == 1024   # Second Linear layer
+        assert self.mlp.layers[2].in_features == 1024
         assert self.mlp.layers[2].out_features == 128
-        assert self.mlp.layers[4].in_features == 128    # Third Linear layer
+        assert self.mlp.layers[4].in_features == 128
         assert self.mlp.layers[4].out_features == 64
-        assert self.mlp.layers[6].in_features == 64     # Fourth Linear layer
+        assert self.mlp.layers[6].in_features == 64
         assert self.mlp.layers[6].out_features == 16
-        assert self.mlp.layers[7].in_features == 16     # Fifth Linear layer
+        assert self.mlp.layers[7].in_features == 16
         assert self.mlp.layers[7].out_features == 1
 
     def test_forward_pass_shape(self) -> None:
@@ -82,13 +80,8 @@ class TestAestheticScorer:
         """Test model initialization."""
         assert self.model.model_dir == "test_models/aesthetics"
         assert self.model.mlp is None
-        # Accept both unindexed and indexed CUDA device strings
         assert self.model.device in ["cuda", "cuda:0", "cpu"]
         assert self.model.dtype == torch.float32
-
-    def test_conda_env_name_property(self) -> None:
-        """Test conda environment name property."""
-        assert self.model.conda_env_name == "video_splitting"
 
     def test_model_id_names_property(self) -> None:
         """Test model ID names property."""
@@ -102,7 +95,6 @@ class TestAestheticScorer:
         """Test device selection when CUDA is available."""
         mock_cuda_available.return_value = True
         model = AestheticScorer(model_dir="test_models/aesthetics")
-        # Accept both 'cuda' and 'cuda:0' to be robust across implementations
         assert model.device in ["cuda", "cuda:0"]
 
     @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
@@ -116,7 +108,7 @@ class TestAestheticScorer:
     @patch("ray_curator.models.aesthetics.MLP")
     def test_setup_success(self, mock_mlp_class: Mock, mock_load_file: Mock) -> None:
         """Test successful model setup."""
-        # Mock state dict loading - using layers.0.weight to match Sequential structure
+        # Mock state dict loading
         mock_state_dict = {"layers.0.weight": torch.randn(1024, 768)}
         mock_load_file.return_value = mock_state_dict
 
@@ -263,9 +255,7 @@ class TestModelIntegration:
         """Test aesthetic scorer properties consistency."""
         scorer = AestheticScorer(model_dir="test_models/aesthetics")
 
-        assert scorer.conda_env_name == "video_splitting"
         assert "ttj/sac-logos-ava1-l14-linearMSE" in scorer.model_id_names
-        # Accept both unindexed and indexed CUDA device strings
         assert scorer.device in ["cuda", "cuda:0", "cpu"]
         assert scorer.dtype == torch.float32
 

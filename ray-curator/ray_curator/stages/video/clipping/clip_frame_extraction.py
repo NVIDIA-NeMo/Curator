@@ -1,15 +1,19 @@
 import io
 import math
 from dataclasses import dataclass
-from functools import reduce
 
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Video, VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
+from ray_curator.tasks.video import Video, VideoTask
+from ray_curator.utils.decoder_utils import (
+    FrameExtractionPolicy,
+    FrameExtractionSignature,
+    FramePurpose,
+    extract_frames,
+)
 
 
 @dataclass
@@ -19,11 +23,13 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including frame extraction,
     target frame rate selection, and frame extraction signature creation.
     """
-    extraction_policies: tuple[FrameExtractionPolicy, ...] = (FrameExtractionPolicy.sequence, )
-    target_fps: list[float | int] | None = None
+
+    extraction_policies: tuple[FrameExtractionPolicy, ...] = (FrameExtractionPolicy.sequence,)
+    extract_purposes: list[FramePurpose] | None = None
     target_res: tuple[int, int] | None = None
     verbose: bool = False
     num_cpus: int = 3
+    target_fps: list[float | int] | None = None
 
     @property
     def name(self) -> str:
@@ -36,8 +42,12 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips.extracted_frames"]
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        if self.target_fps is None or len(self.target_fps) == 0:
-            self.target_fps = [2]
+        if self.target_fps is None:
+            if self.extract_purposes is not None:
+                self.target_fps = [purpose.value for purpose in self.extract_purposes]
+            else:
+                self.target_fps = [2]  # default fallback
+
         if self.target_res is None:
             self.target_res = (-1, -1)
         logger.info(f"ClipFrameExtractionStage will extract frames at {self.target_fps} FPS")
@@ -48,11 +58,8 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
 
     def lcm_multiple(self, fps: list[float | int]) -> float | int:
         """Compute LCM of a list of fps targets."""
-
-        def lcm(a: float, b: float) -> float | int:
-            return abs(a * b) // math.gcd(int(a), int(b))
-
-        return reduce(lcm, fps)
+        fps = [int(fps) for fps in fps]
+        return math.lcm(*fps)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
@@ -115,7 +122,3 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if self.verbose:
             logger.info(f"ClipFrameExtractionStage extracted frames for {len(video.clips)} clips")
         return task
-
-
-
-
