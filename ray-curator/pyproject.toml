@@ -73,10 +73,14 @@ dev = [
     "pytest-loguru",
     "ruff==0.11.4",
 ]
-
 video = [
     "av==13.1.0",
     "opencv-python",
+]
+video_cuda = [
+    "PyNvVideoCodec==1.0.2",
+    "cvcuda_cu12",
+    "pycuda",
 ]
 
 all = [
