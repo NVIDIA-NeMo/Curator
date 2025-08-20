@@ -142,8 +142,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             else:
                 msg = f"Unsupported input type: {type(video.input_video)}"
                 raise TypeError(msg)  # noqa: TRY301
-            size_mb = len(video.source_bytes) / (1024 * 1024)
-            logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
