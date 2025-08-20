@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import torch
 from huggingface_hub import snapshot_download
+from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
@@ -85,7 +86,13 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                 token=self.hf_token,
                 local_files_only=False,
             )
-            self._setup(local_files_only=False)
+
+            _setup_function = getattr(self, "_setup", None)
+            if callable(_setup_function):
+                _setup_function(local_files_only=False)
+            else:
+                logger.warning(f"Subclass {self.__class__.__name__} does not implement _setup method")
+
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
