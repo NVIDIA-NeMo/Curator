@@ -3,6 +3,8 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
+from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader import VideoReader
 
 
@@ -41,6 +43,41 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
         )
     )
 
+    if args.motion_filter != "disable":
+        pipeline.add_stage(
+            MotionVectorDecodeStage(
+                target_fps=args.motion_decode_target_fps,
+                target_duration_ratio=args.motion_decode_target_duration_ratio,
+                num_cpus_per_worker=args.motion_decode_cpus_per_worker,
+            )
+        )
+        pipeline.add_stage(
+            MotionFilterStage(
+                score_only=args.motion_filter == "score-only",
+                global_mean_threshold=args.motion_global_mean_threshold,
+                per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
+                num_gpus_per_worker=args.motion_score_gpus_per_worker,
+                motion_filter_batch_size=args.motion_score_batch_size,
+                verbose=args.verbose,
+            )
+        )
+
+    pipeline.add_stage(
+        ClipWriterStage(
+            output_path=args.output_clip_path,
+            input_path=args.video_folder,
+            upload_clips=args.upload_clips,
+            dry_run=args.dry_run,
+            generate_embeddings=args.generate_embeddings,
+            generate_previews=False,  # TODO: Add preview generation
+            generate_captions=False,  # TODO: Add caption generation
+            embedding_algorithm=args.embedding_algorithm,
+            caption_models=None,  # TODO: Add caption models
+            enhanced_caption_models=None,  # TODO: Add enhanced caption models
+            verbose=args.verbose,
+        )
+    )
+
     return pipeline
 
 
@@ -65,10 +102,11 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
+    parser.add_argument("--video-folder", type=str, required=True)
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
+
     parser.add_argument(
         "--no-upload-clips",
         dest="upload_clips",
