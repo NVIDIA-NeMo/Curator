@@ -9,7 +9,7 @@ from fsspec.core import url_to_fs
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
+from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import FileGroupTask, _EmptyTask
 from ray_curator.utils.client_utils import FSPath
 
