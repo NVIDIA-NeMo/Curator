@@ -68,7 +68,8 @@ class _TransNetV2(nn.Module):
         self.SDDCNN = nn.ModuleList(
             [StackedDDCNNV2(in_filters=3, n_blocks=rs, filters=rf, stochastic_depth_drop_prob=0.0)]
             + [
-                StackedDDCNNV2(in_filters=(rf * 2 ** (i - 1)) * 4, n_blocks=rs, filters=rf * 2**i) for i in range(1, rl)
+                StackedDDCNNV2(in_filters=(rf * 2 ** (i - 1)) * 4, n_blocks=rs, filters=rf * 2**i)
+                for i in range(1, rl)
             ],
         )
 

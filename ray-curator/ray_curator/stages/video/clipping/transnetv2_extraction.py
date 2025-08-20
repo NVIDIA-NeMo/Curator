@@ -73,7 +73,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def process(self, task: VideoTask) -> VideoTask:
-        video : Video = task.data
+        video: Video = task.data
         video_name = video.input_video
         if not video.has_metadata():
             logger.warning(f"Incomplete metadata for {video.input_video}. Skipping...")
@@ -106,7 +106,6 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if self.verbose:
             logger.info(f"{video.input_video} returned {filtered_scenes.shape[0]} filtered scenes")
 
-
         # assign information to task data struct
         for start_event, end_event in filtered_scenes:
             clip = Clip(
@@ -125,6 +124,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if not video.clips:
             logger.warning(f"No scene cut predicted for {video_name}.")
         return task
+
 
 def _get_batches(
     frames: npt.NDArray[np.uint8],
@@ -146,6 +146,7 @@ def _get_batches(
             padding_end = [frames[-1]] * (end_idx - total_frames)
             batch = np.concatenate([batch, padding_end], axis=0)
         yield batch
+
 
 def _get_predictions(
     model: Callable[[torch.Tensor], torch.Tensor],
@@ -174,6 +175,7 @@ def _get_predictions(
         predictions.append(one_hot[0, 25:75])
     predictions_ts = torch.concatenate(predictions, 0)[: len(frames)]
     return (predictions_ts > threshold).to(torch.uint8).cpu().numpy()
+
 
 def _get_scenes(predictions: npt.NDArray[np.uint8], *, entire_scene_as_clip: bool) -> npt.NDArray[np.int32]:
     """Convert prediction array to scene array.
