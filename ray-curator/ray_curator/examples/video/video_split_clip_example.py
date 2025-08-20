@@ -3,9 +3,11 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader import VideoReader
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -58,6 +60,27 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
                 num_gpus_per_worker=args.motion_score_gpus_per_worker,
                 motion_filter_batch_size=args.motion_score_batch_size,
+                verbose=args.verbose,
+            )
+        )
+
+    has_embeddings = args.generate_embeddings
+    has_aesthetics = args.aesthetic_threshold is not None
+    purposes = []
+    if has_aesthetics:
+        purposes.append(FramePurpose.AESTHETICS)
+    if has_embeddings:
+        purposes.append(FramePurpose.EMBEDDINGS)
+
+    if len(purposes) != 0:
+        pipeline.add_stage(
+            ClipFrameExtractionStage(
+                extraction_policies=(FrameExtractionPolicy.sequence,),
+                extract_purposes=purposes,
+                target_res=(
+                    args.clip_extraction_target_res,
+                    args.clip_extraction_target_res,
+                ),
                 verbose=args.verbose,
             )
         )
@@ -271,7 +294,6 @@ if __name__ == "__main__":
         default=-1,
         help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
     )
-
     # Aesthetic arguments
     parser.add_argument(
         "--aesthetic-threshold",
