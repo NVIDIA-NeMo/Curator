@@ -96,7 +96,6 @@ dali_cpu = [
     "nvidia-dali",
 ]
 
-[tool.setuptools]
 all = [
     "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
