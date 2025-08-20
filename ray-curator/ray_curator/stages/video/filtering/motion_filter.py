@@ -6,7 +6,7 @@ from loguru import logger
 import ray_curator.stages.video.filtering.motion_vector_backend as motion_backend
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Video, VideoTask
+from ray_curator.tasks.video import Video, VideoTask
 
 
 @dataclass
@@ -16,6 +16,7 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video files through a series of steps including decoding,
     filtering by side length, and storing the results in the task.
     """
+
     num_cpus_per_worker: float = 6.0
     verbose: bool = False
     target_fps: float = 2.0
@@ -69,9 +70,12 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
                         clip.errors["motion_decode"] = "no_motion_frames"
 
         failed_cnt = sum(1 for clip in video.clips if clip.decoded_motion_data is None)
-        logger.info(f"MotionVectorDecodeStage: Processed {len(video.clips)} clips for {task.task_id}, {failed_cnt} failed.")
+        logger.info(
+            f"MotionVectorDecodeStage: Processed {len(video.clips)} clips for {task.task_id}, {failed_cnt} failed."
+        )
 
         return task
+
 
 @dataclass
 class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
@@ -80,6 +84,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including motion score
     computation and filtering based on thresholds.
     """
+
     score_only: bool = False
     global_mean_threshold: float = 0.00098
     per_patch_min_256_threshold: float = 0.000001
@@ -95,7 +100,13 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], ["decoded_motion_data", "motion_score_global_mean", "motion_score_per_patch_min_256", "filtered_clips", "clip_stats"]
+        return ["data"], [
+            "decoded_motion_data",
+            "motion_score_global_mean",
+            "motion_score_per_patch_min_256",
+            "filtered_clips",
+            "clip_stats",
+        ]
 
     @property
     def resources(self) -> Resources:
@@ -103,7 +114,6 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
-
 
         passing_clips = []
         for clip in video.clips:
