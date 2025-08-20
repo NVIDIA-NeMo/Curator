@@ -248,7 +248,6 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
     """
 
     input_video_path: str
-    input_s3_profile_name: str = "default"
     video_limit: int | None = -1
     verbose: bool = False
 
