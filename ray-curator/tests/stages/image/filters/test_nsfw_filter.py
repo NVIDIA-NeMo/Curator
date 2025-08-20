@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 from unittest.mock import Mock, patch
@@ -301,7 +315,7 @@ class TestImageNSFWFilterStage:
         self,
         mock_logger: Mock,
         mock_nsfw_scorer: Mock,
-        stage: ImageNSFWFilterStage,  # noqa: ARG002
+        stage: ImageNSFWFilterStage,
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
@@ -343,3 +357,47 @@ class TestImageNSFWFilterStage:
         assert len(result.data) == 0
         # Model should not be called for empty batch
         stage.model.assert_not_called()
+
+
+# GPU integration test appended to CPU suite
+@pytest.mark.gpu
+def test_image_nsfw_filter_on_gpu() -> None:
+    if not torch.cuda.is_available():  # pragma: no cover - CPU CI
+        pytest.skip("CUDA not available; skipping GPU nsfw test")
+
+    class _DummyNSFWScorer:
+        def __init__(self, model_dir: str | None = None) -> None:
+            pass
+
+        @staticmethod
+        def download_weights_on_node(model_dir: str | None = None) -> None:
+            return None
+
+        def setup(self) -> None:
+            return None
+
+        def __call__(self, embeddings_numpy: np.ndarray) -> torch.Tensor:
+            device = torch.device("cuda")
+            x = torch.from_numpy(embeddings_numpy).to(device=device, dtype=torch.float32)
+            return torch.sigmoid(x.mean(dim=1))
+
+    rng = np.random.default_rng(9)
+    images = [
+        ImageObject(image_id=f"img_{i}", image_path=f"/tmp/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
+        for i in range(6)
+    ]
+    batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")
+
+    stage = ImageNSFWFilterStage(model_dir="/unused", model_inference_batch_size=3, score_threshold=0.5)
+
+    with patch(
+        "ray_curator.stages.image.filters.nsfw_filter.NSFWScorer",
+        _DummyNSFWScorer,
+    ):
+        stage.setup_on_node()
+        stage.setup()
+        out = stage.process(batch)
+
+    assert isinstance(out, ImageBatch)
+    assert 1 <= len(out.data) <= len(batch.data)
+    assert all(hasattr(img, "nsfw_score") for img in batch.data)

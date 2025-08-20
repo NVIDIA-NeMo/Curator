@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 from unittest.mock import Mock, patch
@@ -470,3 +484,44 @@ class TestImageAestheticFilterStage:
             # Should propagate error (or handle gracefully depending on implementation)
             with pytest.raises(RuntimeError):
                 stage.process(sample_image_batch)
+
+
+# GPU integration test appended to CPU suite
+@pytest.mark.gpu
+def test_image_aesthetic_filter_on_gpu() -> None:
+    if not torch.cuda.is_available():  # pragma: no cover - CPU CI
+        pytest.skip("CUDA not available; skipping GPU aesthetic test")
+
+    class _DummyAestheticScorer:
+        def __init__(self, model_dir: str | None = None) -> None:  # noqa: ARG002
+            pass
+
+        def setup(self) -> None:
+            return None
+
+        def __call__(self, embeddings_numpy: np.ndarray) -> torch.Tensor:
+            device = torch.device("cuda")
+            x = torch.from_numpy(embeddings_numpy).to(device=device, dtype=torch.float32)
+            s = x.mean(dim=1)
+            s = (s - s.min()) / (s.max() - s.min() + 1e-6)
+            return s
+
+    rng = np.random.default_rng(7)
+    images = [
+        ImageObject(image_id=f"img_{i}", image_path=f"/tmp/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
+        for i in range(6)
+    ]
+    batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")
+
+    stage = ImageAestheticFilterStage(model_dir="/unused", model_inference_batch_size=3, score_threshold=0.3)
+
+    with patch(
+        "ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer",
+        _DummyAestheticScorer,
+    ):
+        stage.setup()
+        out = stage.process(batch)
+
+    assert isinstance(out, ImageBatch)
+    assert 1 <= len(out.data) <= len(batch.data)
+    assert all(hasattr(img, "aesthetic_score") for img in batch.data)

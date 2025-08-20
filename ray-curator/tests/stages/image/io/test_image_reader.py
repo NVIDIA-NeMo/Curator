@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unit tests for the DALI-based ImageReaderStage (no-resize)."""
 
 from __future__ import annotations
@@ -5,8 +19,10 @@ from __future__ import annotations
 import sys
 import types
 from dataclasses import dataclass
+import pathlib
 from typing import TYPE_CHECKING
 from unittest.mock import patch
+import torch
 
 import numpy as np
 import pytest
@@ -167,3 +183,46 @@ def test_resources_without_cuda() -> None:
 
     assert res.gpus == 0
     assert res.requires_gpu is False
+
+
+# GPU integration test using real DALI if available
+@pytest.mark.gpu
+def test_dali_image_reader_on_gpu() -> None:
+    if not torch.cuda.is_available():  # pragma: no cover - CPU CI
+        pytest.skip("CUDA not available; GPU test skipped")
+
+    try:
+        import nvidia.dali  # noqa: F401
+    except Exception:  # pragma: no cover - environment without DALI
+        pytest.skip("nvidia.dali not available; skipping GPU reader test")
+
+    # Reuse sample webdataset tar from repository-level tests assets
+    # Project root is parents[5] from this file (ray-curator/tests/stages/image/io)
+    tar_path = pathlib.Path(__file__).resolve().parents[5] / "tests" / "image_data" / "00000.tar"
+    if not tar_path.exists():  # pragma: no cover - missing asset
+        pytest.skip(f"Sample dataset not found at {tar_path}")
+
+    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from ray_curator.tasks import FileGroupTask
+
+    stage = ImageReaderStage(task_batch_size=2, num_threads=2, verbose=False)
+    task = FileGroupTask(task_id="t0", data=[str(tar_path)])
+
+    batches = stage.process(task)
+
+    # Should yield at least one batch with decoded images
+    assert isinstance(batches, list)
+    assert len(batches) >= 1
+    total_images = 0
+    for batch in batches:
+        assert len(batch.data) >= 1
+        for img in batch.data:
+            # Validate decoded image
+            assert img.image_data is not None
+            assert img.image_data.ndim == 3  # H, W, C
+            assert img.image_data.shape[2] == 3
+            assert img.image_id != ""
+            assert img.image_path.endswith(".jpg")
+            total_images += 1
+
+    assert total_images >= 1

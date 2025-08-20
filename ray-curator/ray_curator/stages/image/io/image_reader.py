@@ -1,4 +1,17 @@
-# ruff: noqa: I001
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import pathlib
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -14,9 +27,10 @@ from ray_curator.tasks import FileGroupTask, ImageBatch, ImageObject
 
 @dataclass
 class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
-    """Strict DALI-based reader that loads images from WebDataset tar shards.
+    """DALI-based reader that loads images from WebDataset tar shards.
 
-    This stage requires a visible CUDA device.
+    Works with DALI GPU (CUDA) or DALI CPU; decodes on GPU if CUDA is available,
+    otherwise falls back to CPU decoding.
     """
 
     task_batch_size: int = 100
@@ -33,11 +47,11 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             return Resources()
 
     def __post_init__(self) -> None:
-        # Enforce DALI-only execution
-        if not torch.cuda.is_available():
-            msg = "ImageReaderStage requires CUDA for DALI."
-            logger.error(msg)
-            raise RuntimeError(msg)
+        # Allow both GPU and CPU DALI; log mode for visibility
+        if torch.cuda.is_available():
+            logger.info("ImageReaderStage using DALI GPU decode.")
+        else:
+            logger.info("CUDA not available; ImageReaderStage using DALI CPU decode.")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -58,7 +72,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         @pipeline_def(
             batch_size=self.task_batch_size,
             num_threads=self.num_threads,
-            device_id=0,  # Uses the first visible CUDA device for this worker
+            device_id=0,  # First device; unused for CPU-only DALI builds
         )
         def webdataset_pipeline(_tar_path: str) -> object:
             # Read only JPGs to avoid Python-side JSON parsing overhead
@@ -67,8 +81,9 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
                 ext=["jpg"],
                 missing_component_behavior="skip",
             )
-            # GPU-accelerated decode; keep original sizes (no resize)
-            return fn.decoders.image(img_raw, device="mixed", output_type=types.RGB)
+            # Decode on GPU when available, otherwise on CPU; keep original sizes (no resize)
+            decode_device = "mixed" if torch.cuda.is_available() else "cpu"
+            return fn.decoders.image(img_raw, device=decode_device, output_type=types.RGB)
 
         pipe = webdataset_pipeline(tar_path)
         pipe.build()

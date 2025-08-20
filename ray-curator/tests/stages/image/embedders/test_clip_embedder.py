@@ -351,3 +351,53 @@ class TestImageEmbeddingStage:
             # All embeddings should have the same shape
             for img_obj in result.data:
                 assert img_obj.embedding.shape == (512,)
+
+    # GPU integration test with a dummy CUDA-backed embedding model
+    @pytest.mark.gpu
+    def test_image_embedding_stage_on_gpu(self) -> None:
+        if not torch.cuda.is_available():  # pragma: no cover - CPU CI
+            pytest.skip("CUDA not available; skipping GPU embedding test")
+
+        class _DummyCLIPImageEmbeddings:
+            def __init__(self, model_dir: str | None = None) -> None:  # noqa: ARG002
+                pass
+
+            def setup(self) -> None:
+                return None
+
+            def __call__(self, batch_numpy: np.ndarray | list[np.ndarray]) -> torch.Tensor:
+                device = torch.device("cuda")
+                # Stage passes a list of numpy arrays; accept both list and ndarray
+                if isinstance(batch_numpy, list):
+                    batch_numpy = np.stack(batch_numpy, axis=0)
+                x = torch.from_numpy(batch_numpy).to(device=device, dtype=torch.float32)
+                if x.ndim == 3:
+                    x = x.unsqueeze(0)
+                # Compute a simple scalar per image and expand to 16-d embedding
+                s = x.mean(dim=(1, 2, 3))  # (N,)
+                emb = s.unsqueeze(1).repeat(1, 16)  # (N, 16)
+                return emb
+
+        rng = np.random.default_rng(123)
+        images = [
+            ImageObject(
+                image_id=f"img_{i:03d}",
+                image_path=f"/tmp/img_{i:03d}.jpg",
+                image_data=rng.integers(0, 255, (32, 32, 3), dtype=np.uint8),
+            )
+            for i in range(4)
+        ]
+        batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")
+
+        stage = ImageEmbeddingStage(model_dir="/does/not/matter", model_inference_batch_size=2, verbose=False)
+        with patch(
+            "ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings",
+            _DummyCLIPImageEmbeddings,
+        ):
+            stage.setup()
+            out = stage.process(batch)
+
+        for img in out.data:
+            assert img.embedding is not None
+            assert isinstance(img.embedding, np.ndarray)
+            assert img.embedding.shape == (16,)
