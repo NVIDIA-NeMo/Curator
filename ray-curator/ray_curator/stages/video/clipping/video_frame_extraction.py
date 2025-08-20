@@ -14,11 +14,13 @@ from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
 try:
     from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
+
     _PYNVC_AVAILABLE = True
 except ImportError:
     logger.warning("PyNvcFrameExtractor not available, PyNvCodec mode will fall back to FFmpeg")
     PyNvcFrameExtractor = None
     _PYNVC_AVAILABLE = False
+
 
 def get_frames_from_ffmpeg(
     video_file: Path,
@@ -86,6 +88,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     This stage handles video frame extraction using either FFmpeg (CPU/GPU) or PyNvCodec,
     converting video content into standardized frame arrays for downstream processing.
     """
+
     output_hw: tuple[int, int] = (27, 48)
     pyncv_batch_size: int = 64
     decoder_mode: str = "pynvc"
@@ -118,7 +121,6 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             else:
                 logger.warning("PyNvcFrameExtractor not available, will fall back to FFmpeg for video processing")
                 self.pynvc_frame_extractor = None
-
 
     def __post_init__(self) -> None:
         if self.decoder_mode == "pynvc":

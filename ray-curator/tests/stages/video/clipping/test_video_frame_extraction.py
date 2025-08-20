@@ -285,7 +285,9 @@ class TestVideoFrameExtractionStage:
         stage.setup()
 
         # Verify warning was logged
-        mock_logger.warning.assert_called_once_with("PyNvcFrameExtractor not available, will fall back to FFmpeg for video processing")
+        mock_logger.warning.assert_called_once_with(
+            "PyNvcFrameExtractor not available, will fall back to FFmpeg for video processing"
+        )
 
         # Should not create PyNvcFrameExtractor
         assert stage.pynvc_frame_extractor is None
@@ -312,7 +314,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -335,7 +339,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=None,
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -358,9 +364,7 @@ class TestVideoFrameExtractionStage:
         result = stage.process(task)
 
         # Verify warning was logged
-        mock_logger.warning.assert_called_once_with(
-            "Incomplete metadata for test_video.mp4. Skipping..."
-        )
+        mock_logger.warning.assert_called_once_with("Incomplete metadata for test_video.mp4. Skipping...")
 
         # Verify error was set
         assert "metadata" in result.data.errors
@@ -388,7 +392,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -402,7 +408,9 @@ class TestVideoFrameExtractionStage:
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
-    def test_process_pynvc_exception_fallback(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
+    def test_process_pynvc_exception_fallback(
+        self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any
+    ) -> None:
         """Test PyNvCodec exception with FFmpeg fallback."""
         stage = VideoFrameExtractionStage(decoder_mode="pynvc")
         mock_extractor = Mock()
@@ -425,7 +433,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -471,7 +481,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -516,7 +528,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -541,7 +555,9 @@ class TestVideoFrameExtractionStage:
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
     @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
-    def test_process_frame_extraction_failure(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
+    def test_process_frame_extraction_failure(
+        self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any
+    ) -> None:
         """Test processing when frame extraction fails."""
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg")
         # Set a mock extractor even though we're in FFmpeg mode due to current implementation
@@ -560,7 +576,9 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
@@ -595,16 +613,16 @@ class TestVideoFrameExtractionStage:
         video = Video(
             input_video=Path("test_video.mp4"),
             source_bytes=b"fake_video_data",
-            metadata=VideoMetadata(framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300),
+            metadata=VideoMetadata(
+                framerate=30, width=640, height=480, duration=10.0, video_codec="h264", num_frames=300
+            ),
         )
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
         # Verify verbose message was logged
-        mock_logger.info.assert_any_call(
-            f"Loaded video as numpy uint8 array with shape {mock_frames.shape}"
-        )
+        mock_logger.info.assert_any_call(f"Loaded video as numpy uint8 array with shape {mock_frames.shape}")
 
         # Verify frame array was set
         assert result.data.frame_array is not None
