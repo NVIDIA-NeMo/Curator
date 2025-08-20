@@ -91,9 +91,10 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             raise RuntimeError(msg) from e
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        if hasattr(self, "_setup") and callable(getattr(self, "_setup")):
+        _setup_function = getattr(self, "_setup", None)
+        if callable(_setup_function):
             # We use the _setup function to ensure that everything needed for the model is downloaded and loaded properly
-            self._setup(local_files_only=True)
+            _setup_function(local_files_only=True)
         else:
             msg = "Subclasses must implement this method"
             raise NotImplementedError(msg)

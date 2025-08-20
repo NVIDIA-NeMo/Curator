@@ -23,7 +23,6 @@ from huggingface_hub import PyTorchModelHubMixin
 from torch import nn
 from transformers import AutoModel
 
-from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.text.models.model import ModelStage
 from ray_curator.stages.text.models.tokenizer import TokenizerStage
