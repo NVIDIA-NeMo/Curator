@@ -76,6 +76,8 @@ dev = [
 video = [
     "av==13.1.0",
     "opencv-python",
+    "torchvision",
+    "einops",
 ]
 video_cuda = [
     "PyNvVideoCodec==1.0.2",
