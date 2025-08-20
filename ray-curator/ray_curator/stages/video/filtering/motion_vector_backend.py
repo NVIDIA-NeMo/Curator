@@ -107,7 +107,8 @@ def motion_vectors_to_flowfield(mvs: Tensor, size: list[int], flow: Tensor | Non
     # make offsets from center point for each of the block sizes.
     # this is ugly because we need to prepend 0 as a "batch offset" since the points are (batch, x, y)
     offsets = [
-        torch.stack(torch.meshgrid(*[torch.arange(-b // 2, b // 2, device=device) for b in bs])) for bs in block_options
+        torch.stack(torch.meshgrid(*[torch.arange(-b // 2, b // 2, device=device) for b in bs]))
+        for bs in block_options
     ]
 
     # tile each of the mvs so that they contain the center point repeated for the size of the entire block

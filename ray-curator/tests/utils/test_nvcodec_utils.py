@@ -162,9 +162,10 @@ class TestVideoBatchDecoder:
         mock_nvdecoder.return_value = mock_decoder_instance
 
         # Mock pixel format mapping
-        with patch.dict("ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
-                       {mock_decoder_instance.pixelFormat: "YUV2RGB"}):
-
+        with patch.dict(
+            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            {mock_decoder_instance.pixelFormat: "YUV2RGB"},
+        ):
             decoder = VideoBatchDecoder(
                 batch_size=self.batch_size,
                 target_width=self.target_width,
@@ -185,7 +186,9 @@ class TestVideoBatchDecoder:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
-    def test_call_unsupported_pixel_format(self, _mock_nvc: Any, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
+    def test_call_unsupported_pixel_format(
+        self, _mock_nvc: Any, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any
+    ) -> None:
         """Test calling decoder with unsupported pixel format."""
         # Setup mocks
         mock_decoder_instance = Mock()
@@ -256,9 +259,10 @@ class TestVideoBatchDecoder:
         mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
 
         # Mock pixel format mapping
-        with patch.dict("ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
-                       {mock_decoder_instance.pixelFormat: "YUV2RGB"}):
-
+        with patch.dict(
+            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            {mock_decoder_instance.pixelFormat: "YUV2RGB"},
+        ):
             # Use -1 for dynamic sizing
             decoder = VideoBatchDecoder(
                 batch_size=self.batch_size,
@@ -286,7 +290,9 @@ class TestVideoBatchDecoder:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    def test_call_unexpected_layout_error(self, _mock_nvc: Any, _mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
+    def test_call_unexpected_layout_error(
+        self, _mock_nvc: Any, _mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any
+    ) -> None:
         """Test calling decoder with unexpected tensor layout."""
         # Setup mocks
         mock_decoder_instance = Mock()
@@ -305,9 +311,10 @@ class TestVideoBatchDecoder:
         mock_cvcuda.as_tensor.return_value = mock_cvcuda_tensor
 
         # Mock pixel format mapping
-        with patch.dict("ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
-                       {mock_decoder_instance.pixelFormat: "YUV2RGB"}):
-
+        with patch.dict(
+            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            {mock_decoder_instance.pixelFormat: "YUV2RGB"},
+        ):
             decoder = VideoBatchDecoder(
                 batch_size=self.batch_size,
                 target_width=self.target_width,
@@ -324,7 +331,9 @@ class TestVideoBatchDecoder:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    def test_call_full_processing_pipeline(self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
+    def test_call_full_processing_pipeline(
+        self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any
+    ) -> None:
         """Test the complete processing pipeline with all tensor operations."""
         # Setup mocks
         mock_decoder_instance = Mock()
@@ -347,7 +356,7 @@ class TestVideoBatchDecoder:
 
         mock_cvcuda_rgb_tensor_resized = Mock()
 
-                # Setup side effects for as_tensor calls
+        # Setup side effects for as_tensor calls
         def as_tensor_side_effect(*args: Any, **_kwargs: Any) -> Any:
             if len(args) >= 2 and args[1] == "NHWC":
                 # First call for YUV tensor
@@ -368,17 +377,20 @@ class TestVideoBatchDecoder:
         # Mock torch tensor creation
         mock_rgb_tensor = Mock()
         mock_rgb_resized_tensor = Mock()
+
         def torch_empty_side_effect(shape: Any, **_kwargs: Any) -> Any:
             if shape == (2, 480, 640, 3):
                 return mock_rgb_tensor
             else:
                 return mock_rgb_resized_tensor
+
         mock_torch.empty.side_effect = torch_empty_side_effect
 
         # Mock pixel format mapping
-        with patch.dict("ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
-                       {mock_decoder_instance.pixelFormat: "YUV2RGB"}):
-
+        with patch.dict(
+            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            {mock_decoder_instance.pixelFormat: "YUV2RGB"},
+        ):
             decoder = VideoBatchDecoder(
                 batch_size=2,
                 target_width=self.target_width,
@@ -404,7 +416,9 @@ class TestVideoBatchDecoder:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    def test_call_batch_size_variation(self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
+    def test_call_batch_size_variation(
+        self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any
+    ) -> None:
         """Test handling of different batch sizes (last batch may be smaller)."""
         # Setup mocks
         mock_decoder_instance = Mock()
@@ -429,9 +443,10 @@ class TestVideoBatchDecoder:
         mock_torch.empty.side_effect = [mock_rgb_tensor, mock_resized_tensor, mock_rgb_tensor, mock_resized_tensor]
 
         # Mock pixel format mapping
-        with patch.dict("ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
-                       {mock_decoder_instance.pixelFormat: "YUV2RGB"}):
-
+        with patch.dict(
+            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            {mock_decoder_instance.pixelFormat: "YUV2RGB"},
+        ):
             decoder = VideoBatchDecoder(
                 batch_size=4,  # Larger than actual batch
                 target_width=self.target_width,
@@ -499,7 +514,9 @@ class TestNvVideoDecoder:
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames(self, _mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any) -> None:
+    def test_generate_decoded_frames(
+        self, _mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
+    ) -> None:
         """Test generate_decoded_frames method."""
         # Setup mocks
         mock_demux = Mock()
@@ -624,7 +641,9 @@ class TestNvVideoDecoder:
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames_with_frames(self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any) -> None:
+    def test_generate_decoded_frames_with_frames(
+        self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any
+    ) -> None:
         """Test generate_decoded_frames with actual frame processing."""
         # Setup mocks
         mock_demux = Mock()
@@ -685,7 +704,9 @@ class TestNvVideoDecoder:
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames_unexpected_layout(self, mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any) -> None:
+    def test_generate_decoded_frames_unexpected_layout(
+        self, mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
+    ) -> None:
         """Test generate_decoded_frames with unexpected tensor layout."""
         # Setup mocks
         mock_demux = Mock()
@@ -729,7 +750,9 @@ class TestNvVideoDecoder:
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.nvcv")
-    def test_generate_decoded_frames_partial_batch(self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any) -> None:
+    def test_generate_decoded_frames_partial_batch(
+        self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any
+    ) -> None:
         """Test generate_decoded_frames with partial batch (less frames than batch_size)."""
         # Setup mocks
         mock_demux = Mock()
@@ -765,7 +788,9 @@ class TestNvVideoDecoder:
 
         # Mock demux to return frames across multiple packets then end
         decode_calls = []
-        decode_calls.extend([mock_frames[:1], mock_frames[1:2], []])  # First packet has 1 frame, second has 1 frame, third has none
+        decode_calls.extend(
+            [mock_frames[:1], mock_frames[1:2], []]
+        )  # First packet has 1 frame, second has 1 frame, third has none
         mock_decoder.Decode.side_effect = decode_calls
 
         mock_demux.__iter__ = Mock(return_value=iter(mock_packets))
@@ -836,7 +861,9 @@ class TestPyNvcFrameExtractor:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
-    def test_call_full_extraction(self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any) -> None:
+    def test_call_full_extraction(
+        self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any
+    ) -> None:
         """Test frame extraction with full policy."""
         # Setup mocks
         mock_device = Mock()
@@ -877,7 +904,9 @@ class TestPyNvcFrameExtractor:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
-    def test_call_fps_extraction(self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any) -> None:
+    def test_call_fps_extraction(
+        self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any
+    ) -> None:
         """Test frame extraction with FPS policy."""
         # Setup mocks
         mock_device = Mock()
@@ -923,7 +952,9 @@ class TestPyNvcFrameExtractor:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
-    def test_call_fps_extraction_no_fps(self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any) -> None:
+    def test_call_fps_extraction_no_fps(
+        self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any
+    ) -> None:
         """Test frame extraction with FPS policy when FPS is unavailable."""
         # Setup mocks
         mock_device = Mock()
@@ -1020,7 +1051,9 @@ class TestGpuDecodeForStitching:
     @patch("ray_curator.utils.nvcodec_utils.cvcuda")
     @patch("ray_curator.utils.nvcodec_utils.torch")
     @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
-    def test_gpu_decode_for_stitching_complex_frame_list(self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any) -> None:
+    def test_gpu_decode_for_stitching_complex_frame_list(
+        self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any
+    ) -> None:
         """Test gpu_decode_for_stitching with complex frame list scenarios."""
         # Setup mocks
         mock_stream = Mock()
@@ -1036,21 +1069,25 @@ class TestGpuDecodeForStitching:
         mock_batch1 = Mock()
         mock_batch1.shape = [3]  # 3 frames in first batch
         mock_batch1.cuda.return_value = mock_batch1
+
         # Handle tensor indexing - idx will be like (0, :, :, :)
         def batch1_getitem(idx: Any) -> str:
             if isinstance(idx, tuple) and len(idx) > 0:
                 return f"frame_{idx[0]}"
             return f"frame_{idx}"
+
         mock_batch1.__getitem__ = Mock(side_effect=batch1_getitem)
 
         mock_batch2 = Mock()
         mock_batch2.shape = [2]  # 2 frames in second batch
         mock_batch2.cuda.return_value = mock_batch2
+
         # Handle tensor indexing - idx will be like (1, :, :, :) for frame index 4 (4-3=1)
         def batch2_getitem(idx: Any) -> str:
             if isinstance(idx, tuple) and len(idx) > 0:
                 return f"frame_{idx[0] + 3}"
             return f"frame_{idx + 3}"
+
         mock_batch2.__getitem__ = Mock(side_effect=batch2_getitem)
 
         mock_decoder.side_effect = [mock_batch1, mock_batch2, None]
@@ -1058,6 +1095,7 @@ class TestGpuDecodeForStitching:
         # Mock torch.as_tensor
         def as_tensor_side_effect(tensor: Any, *_args: Any, **_kwargs: Any) -> Any:
             return tensor
+
         mock_torch.as_tensor.side_effect = as_tensor_side_effect
 
         device_id = 0

@@ -18,8 +18,7 @@ from ray_curator.stages.video.clipping.transnetv2_extraction import (
     _get_predictions,
     _get_scenes,
 )
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import VideoMetadata
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 # Create a random number generator for test data
 rng = np.random.default_rng(42)
@@ -55,17 +54,13 @@ class TestTransNetV2ClipExtractionStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[],
-            frame_array=rng.integers(0, 255, (900, 27, 48, 3), dtype=np.uint8)
+            frame_array=rng.integers(0, 255, (900, 27, 48, 3), dtype=np.uint8),
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -149,10 +144,13 @@ class TestTransNetV2ClipExtractionStage:
         self.stage.setup()
 
         # Mock the _get_predictions function to return controlled output
-        with patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions, \
-             patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes, \
-             patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes") as mock_get_filtered_scenes:
-
+        with (
+            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions,
+            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes,
+            patch(
+                "ray_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes"
+            ) as mock_get_filtered_scenes,
+        ):
             mock_get_predictions.return_value = np.array([[0], [1], [0], [0], [1], [0]], dtype=np.uint8)
             mock_get_scenes.return_value = np.array([[0, 30], [60, 90]], dtype=np.int32)
             mock_get_filtered_scenes.return_value = np.array([[0, 30], [60, 90]], dtype=np.int32)
@@ -174,14 +172,10 @@ class TestTransNetV2ClipExtractionStage:
             source_bytes=b"mock_video_data",
             metadata=None,
             clips=[],
-            frame_array=rng.integers(0, 255, (100, 27, 48, 3), dtype=np.uint8)
+            frame_array=rng.integers(0, 255, (100, 27, 48, 3), dtype=np.uint8),
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video_without_metadata
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_without_metadata)
 
         with patch("ray_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -208,17 +202,13 @@ class TestTransNetV2ClipExtractionStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[],
-            frame_array=rng.integers(0, 255, (100, 27, 48, 3), dtype=np.uint8)
+            frame_array=rng.integers(0, 255, (100, 27, 48, 3), dtype=np.uint8),
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video_no_framerate
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_no_framerate)
 
         with patch("ray_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -242,17 +232,13 @@ class TestTransNetV2ClipExtractionStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[],
-            frame_array=None
+            frame_array=None,
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video_no_frames
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_no_frames)
 
         with patch("ray_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -275,17 +261,13 @@ class TestTransNetV2ClipExtractionStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[],
-            frame_array=rng.integers(0, 255, (100, 28, 48, 3), dtype=np.uint8)  # Wrong height
+            frame_array=rng.integers(0, 255, (100, 28, 48, 3), dtype=np.uint8),  # Wrong height
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video_wrong_shape
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_wrong_shape)
 
         with patch("ray_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
@@ -305,10 +287,13 @@ class TestTransNetV2ClipExtractionStage:
         stage.setup()
 
         # Mock helper functions to return many clips
-        with patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions, \
-             patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes, \
-             patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes") as mock_get_filtered_scenes:
-
+        with (
+            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions,
+            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes,
+            patch(
+                "ray_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes"
+            ) as mock_get_filtered_scenes,
+        ):
             mock_get_predictions.return_value = np.array([[0], [1], [0], [1], [0]], dtype=np.uint8)
             mock_get_scenes.return_value = np.array([[0, 30], [60, 90], [120, 150]], dtype=np.int32)
             mock_get_filtered_scenes.return_value = np.array([[0, 30], [60, 90], [120, 150]], dtype=np.int32)
@@ -331,7 +316,7 @@ class TestGetBatches:
         assert len(batches) == 2  # 100 frames should create 2 batches
         # The actual batch sizes depend on the algorithm with padding
         assert batches[0].shape[0] == 100  # First batch size
-        assert batches[1].shape[0] == 75   # Second batch size
+        assert batches[1].shape[0] == 75  # Second batch size
         assert batches[0].shape[1:] == (27, 48, 3)  # Frame dimensions
         assert batches[1].shape[1:] == (27, 48, 3)  # Frame dimensions
 
@@ -563,11 +548,7 @@ class TestGetFilteredScenes:
     def test_get_filtered_scenes_combined_filters(self):
         """Test _get_filtered_scenes with combined filters."""
         filtered = _get_filtered_scenes(
-            self.scenes,
-            min_length=20,
-            max_length=50,
-            max_length_mode="truncate",
-            crop_length=5
+            self.scenes, min_length=20, max_length=50, max_length_mode="truncate", crop_length=5
         )
 
         # Should apply all filters in sequence
@@ -669,12 +650,7 @@ class TestIntegration:
         """Test complete pipeline integration."""
         # Setup
         stage = TransNetV2ClipExtractionStage(
-            threshold=0.5,
-            min_length_s=1.0,
-            max_length_s=5.0,
-            max_length_mode="stride",
-            crop_s=0.2,
-            limit_clips=3
+            threshold=0.5, min_length_s=1.0, max_length_s=5.0, max_length_mode="stride", crop_s=0.2, limit_clips=3
         )
 
         # Create test video
@@ -691,17 +667,13 @@ class TestIntegration:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[],
-            frame_array=frames
+            frame_array=frames,
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock model
         mock_model = Mock()
@@ -761,11 +733,7 @@ class TestIntegration:
 
         # Filter scenes
         filtered_scenes = _get_filtered_scenes(
-            scenes,
-            min_length=10,
-            max_length=50,
-            max_length_mode="stride",
-            crop_length=2
+            scenes, min_length=10, max_length=50, max_length_mode="stride", crop_length=2
         )
 
         # Verify the pipeline works

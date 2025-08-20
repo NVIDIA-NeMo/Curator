@@ -1,7 +1,7 @@
 import fasttext
 import numpy as np
 import pandas as pd
-from fasttext import _FastText
+from fasttext.FastText import _FastText
 from huggingface_hub import hf_hub_download
 
 from nemo_curator.datasets import DocumentDataset

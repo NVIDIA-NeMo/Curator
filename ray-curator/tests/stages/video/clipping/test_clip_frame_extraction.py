@@ -7,11 +7,10 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
-from ray_curator.tasks import Clip, Video, VideoMetadata, VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, FramePurpose
 
 
 class TestClipFrameExtractionStage:
@@ -24,29 +23,19 @@ class TestClipFrameExtractionStage:
             target_fps=[2, 4],
             target_res=(480, 640),
             verbose=False,
-            num_cpus=2
+            num_cpus=2,
         )
 
         # Create mock clips with buffers
         self.mock_clips = [
-            Clip(
-                uuid=uuid.uuid4(),
-                source_video="test_video.mp4",
-                span=(0.0, 5.0),
-                buffer=b"fake_video_data_1"
-            ),
-            Clip(
-                uuid=uuid.uuid4(),
-                source_video="test_video.mp4",
-                span=(5.0, 10.0),
-                buffer=b"fake_video_data_2"
-            ),
+            Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data_1"),
+            Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(5.0, 10.0), buffer=b"fake_video_data_2"),
             Clip(
                 uuid=uuid.uuid4(),
                 source_video="test_video.mp4",
                 span=(10.0, 15.0),
-                buffer=None  # Test clip without buffer
-            )
+                buffer=None,  # Test clip without buffer
+            ),
         ]
 
         # Create mock video with clips
@@ -62,16 +51,12 @@ class TestClipFrameExtractionStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
-            clips=self.mock_clips
+            clips=self.mock_clips,
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self) -> None:
         """Test that the name property returns the correct value."""
@@ -98,28 +83,44 @@ class TestClipFrameExtractionStage:
         assert stage.num_cpus == 3
 
     def test_setup_with_defaults(self) -> None:
-        """Test setup with default values."""
+        """Test setup method with default values."""
         stage = ClipFrameExtractionStage()
         stage.setup()
 
-        assert stage.target_fps == [2]
+        assert stage.target_fps == [2]  # Default fallback
         assert stage.target_res == (-1, -1)
 
-    def test_setup_with_custom_values(self) -> None:
-        """Test setup with custom values."""
-        stage = ClipFrameExtractionStage(target_fps=[5, 10], target_res=(720, 1280))
+    def test_setup_with_extract_purpose_aesthetics(self) -> None:
+        """Test setup method with extract_purpose set to aesthetics."""
+        stage = ClipFrameExtractionStage(extract_purposes=[FramePurpose.AESTHETICS])
         stage.setup()
 
-        assert stage.target_fps == [5, 10]
-        assert stage.target_res == (720, 1280)
+        assert stage.target_fps == [1]  # AESTHETICS.value = 1
+        assert stage.target_res == (-1, -1)
 
-    def test_setup_with_worker_metadata(self) -> None:
-        """Test setup with worker metadata."""
-        worker_metadata = Mock(spec=WorkerMetadata)
-        stage = ClipFrameExtractionStage()
+    def test_setup_with_extract_purpose_embeddings(self) -> None:
+        """Test setup method with extract_purpose set to embeddings."""
+        stage = ClipFrameExtractionStage(extract_purposes=[FramePurpose.EMBEDDINGS])
+        stage.setup()
 
-        # Should not raise any exception
-        stage.setup(worker_metadata)
+        assert stage.target_fps == [2]  # EMBEDDINGS.value = 2
+        assert stage.target_res == (-1, -1)
+
+    def test_setup_with_extract_purpose_both(self) -> None:
+        """Test setup method with extract_purpose set to both aesthetics and embeddings."""
+        stage = ClipFrameExtractionStage(extract_purposes=[FramePurpose.AESTHETICS, FramePurpose.EMBEDDINGS])
+        stage.setup()
+
+        assert stage.target_fps == [1, 2]  # AESTHETICS.value = 1, EMBEDDINGS.value = 2
+        assert stage.target_res == (-1, -1)
+
+    def test_setup_with_extract_purpose_and_target_fps(self) -> None:
+        """Test that target_fps takes precedence when both are specified."""
+        stage = ClipFrameExtractionStage(extract_purposes=[FramePurpose.AESTHETICS], target_fps=[5, 10])
+        stage.setup()
+
+        assert stage.target_fps == [5, 10]  # target_fps should not be overridden
+        assert stage.target_res == (-1, -1)
 
     def test_resources_property(self) -> None:
         """Test that resources property returns correct CPU count."""
@@ -226,7 +227,7 @@ class TestClipFrameExtractionStage:
         # Setup stage with integer fps values
         stage = ClipFrameExtractionStage(
             target_fps=[2, 4, 6],  # LCM = 12
-            num_cpus=2
+            num_cpus=2,
         )
         stage.setup()
 
@@ -241,14 +242,9 @@ class TestClipFrameExtractionStage:
             data=Video(
                 input_video="test_video.mp4",
                 clips=[
-                    Clip(
-                        uuid=uuid.uuid4(),
-                        source_video="test_video.mp4",
-                        span=(0.0, 5.0),
-                        buffer=b"fake_video_data"
-                    )
-                ]
-            )
+                    Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
+                ],
+            ),
         )
 
         result = stage.process(task)
@@ -269,7 +265,7 @@ class TestClipFrameExtractionStage:
                 target_fps=fps,
             ).to_str()
             assert signature in clip.extracted_frames
-            expected_frames = mock_frames[::int(12 / fps)]
+            expected_frames = mock_frames[:: int(12 / fps)]
             np.testing.assert_array_equal(clip.extracted_frames[signature], expected_frames)
 
     @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
@@ -278,7 +274,7 @@ class TestClipFrameExtractionStage:
         # Setup stage with float fps values
         stage = ClipFrameExtractionStage(
             target_fps=[2.5, 5.0],  # Contains float, no LCM optimization
-            num_cpus=2
+            num_cpus=2,
         )
         stage.setup()
 
@@ -292,14 +288,9 @@ class TestClipFrameExtractionStage:
             data=Video(
                 input_video="test_video.mp4",
                 clips=[
-                    Clip(
-                        uuid=uuid.uuid4(),
-                        source_video="test_video.mp4",
-                        span=(0.0, 5.0),
-                        buffer=b"fake_video_data"
-                    )
-                ]
-            )
+                    Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
+                ],
+            ),
         )
 
         result = stage.process(task)
@@ -317,7 +308,7 @@ class TestClipFrameExtractionStage:
         stage = ClipFrameExtractionStage(
             extraction_policies=(FrameExtractionPolicy.sequence, FrameExtractionPolicy.middle),
             target_fps=[2],
-            num_cpus=2
+            num_cpus=2,
         )
         stage.setup()
 
@@ -331,14 +322,9 @@ class TestClipFrameExtractionStage:
             data=Video(
                 input_video="test_video.mp4",
                 clips=[
-                    Clip(
-                        uuid=uuid.uuid4(),
-                        source_video="test_video.mp4",
-                        span=(0.0, 5.0),
-                        buffer=b"fake_video_data"
-                    )
-                ]
-            )
+                    Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
+                ],
+            ),
         )
 
         result = stage.process(task)
@@ -379,14 +365,9 @@ class TestClipFrameExtractionStage:
             data=Video(
                 input_video="test_video.mp4",
                 clips=[
-                    Clip(
-                        uuid=uuid.uuid4(),
-                        source_video="test_video.mp4",
-                        span=(0.0, 5.0),
-                        buffer=b"fake_video_data"
-                    )
-                ]
-            )
+                    Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
+                ],
+            ),
         )
 
         with patch("ray_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
@@ -400,12 +381,7 @@ class TestClipFrameExtractionStage:
     def test_process_no_clips(self) -> None:
         """Test processing when video has no clips."""
         task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=Video(
-                input_video="test_video.mp4",
-                clips=[]
-            )
+            task_id="test_task", dataset_name="test_dataset", data=Video(input_video="test_video.mp4", clips=[])
         )
 
         self.stage.setup()
@@ -440,10 +416,10 @@ class TestClipFrameExtractionStage:
                                 uuid=uuid.uuid4(),
                                 source_video="test_video.mp4",
                                 span=(0.0, 5.0),
-                                buffer=b"fake_video_data"
+                                buffer=b"fake_video_data",
                             )
-                        ]
-                    )
+                        ],
+                    ),
                 )
 
                 with patch("ray_curator.stages.video.clipping.clip_frame_extraction.logger"):
@@ -474,12 +450,7 @@ class TestClipFrameExtractionStage:
         stage.setup()
 
         # Create a clip with buffer
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0),
-            buffer=b"fake_video_data"
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
 
         # Test that io.BytesIO can be created from buffer
         with io.BytesIO(clip.buffer) as fp:
@@ -503,14 +474,6 @@ class TestClipFrameExtractionStage:
         assert "sequence" in signature_str
         assert "2500" in signature_str  # fps * 1000
 
-    def test_edge_case_empty_target_fps(self) -> None:
-        """Test edge case with empty target_fps list."""
-        stage = ClipFrameExtractionStage(target_fps=[])
-        stage.setup()
-
-        # Should use default value
-        assert stage.target_fps == [2]
-
     def test_edge_case_single_target_fps(self) -> None:
         """Test edge case with single target_fps value."""
         stage = ClipFrameExtractionStage(target_fps=[5])
@@ -526,20 +489,10 @@ class TestClipFrameExtractionStage:
     def test_clip_uuid_preservation(self) -> None:
         """Test that clip UUIDs are preserved during processing."""
         original_uuid = uuid.uuid4()
-        clip = Clip(
-            uuid=original_uuid,
-            source_video="test_video.mp4",
-            span=(0.0, 5.0),
-            buffer=b"fake_video_data"
-        )
+        clip = Clip(uuid=original_uuid, source_video="test_video.mp4", span=(0.0, 5.0), buffer=b"fake_video_data")
 
         task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=Video(
-                input_video="test_video.mp4",
-                clips=[clip]
-            )
+            task_id="test_task", dataset_name="test_dataset", data=Video(input_video="test_video.mp4", clips=[clip])
         )
 
         stage = ClipFrameExtractionStage(target_fps=[2])
