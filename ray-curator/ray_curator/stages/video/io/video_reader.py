@@ -24,7 +24,7 @@ from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import _EmptyTask
 from ray_curator.tasks.file_group import FileGroupTask
 from ray_curator.tasks.video import Video, VideoTask
-from ray_curator.utils.client_utils import FSPath
+from ray_curator.utils.client_utils import FSPath, is_remote_url
 
 
 @dataclass
@@ -45,11 +45,9 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
     Args:
         verbose: If True, logs detailed video information after successful processing
 
-    Note:
-        Currently supports local filesystem paths only. S3 support is planned for future releases.
     """
+
     input_path: str | None = None
-    input_s3_profile_name: str | None = None
     verbose: bool = False
     _name: str = "video_reader"
 
@@ -142,8 +140,6 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
             else:
                 msg = f"Unsupported input type: {type(video.input_video)}"
                 raise TypeError(msg)  # noqa: TRY301
-            size_mb = len(video.source_bytes) / (1024 * 1024)
-            logger.info(f"Downloaded {video.input_video}: ({size_mb:.2f} MB)")
         except Exception as e:  # noqa: BLE001
             logger.error(f"Got an exception {e!s} when trying to read {video.input_video}")
             video.errors["download"] = str(e)
@@ -270,7 +266,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         Returns:
             List of processing stages: [FilePartitioningStage, VideoReaderStage]
         """
-        if self.input_video_path.startswith("s3://"):
+        if is_remote_url(self.input_video_path):
             reader_stage = ClientPartitioningStage(
                 file_paths=self.input_video_path,
                 files_per_partition=1,
@@ -285,11 +281,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
                 limit=self.video_limit,
             )
 
-        download_stage = VideoReaderStage(
-            input_path=self.input_video_path,
-            input_s3_profile_name=self.input_s3_profile_name,
-            verbose=self.verbose
-        )
+        download_stage = VideoReaderStage(input_path=self.input_video_path, verbose=self.verbose)
 
         return [reader_stage, download_stage]
 

@@ -39,11 +39,11 @@ class ClientPartitioningStage(FilePartitioningStage):
 
         # FILTER BY EXTENSIONS
         if self.file_extensions is not None:
-            rel_paths = [p for p in rel_paths if any(p.endswith(ext) for ext in self.file_extensions)]
+            rel_paths = [p for p in rel_paths if any(p.lower().endswith(ext.lower()) for ext in self.file_extensions)]
 
         # FILTER BY LIMIT
         if self.limit is not None and self.limit > 0:
-            rel_paths = rel_paths[:self.limit]
+            rel_paths = rel_paths[: self.limit]
 
         # Convert relative paths to FSPath objects that embed the filesystem
         rel_paths = [FSPath(self._fs, posixpath.join(self._root, p)) for p in rel_paths]
@@ -56,7 +56,7 @@ class ClientPartitioningStage(FilePartitioningStage):
         # Create FileGroupTasks for each partition
         tasks = []
         total = len(partitions)
-        dataset_name = self.file_paths
+        dataset_name = self._get_dataset_name(self.file_paths)
         for i, group in enumerate(partitions):
             tasks.append(
                 FileGroupTask(
@@ -74,7 +74,6 @@ class ClientPartitioningStage(FilePartitioningStage):
             )
 
         return tasks
-
 
     def _list_relative(self) -> list[str]:
         """Return sorted, de-duplicated list of paths relative to root."""
@@ -101,6 +100,7 @@ class ClientPartitioningStage(FilePartitioningStage):
         rels = list(dict.fromkeys(rels))  # stable de-dup
         rels.sort()
         return rels
+
 
 def _read_list_json_rel(root: str, json_url: str, storage_options: dict[str, Any]) -> list[str]:
     """
