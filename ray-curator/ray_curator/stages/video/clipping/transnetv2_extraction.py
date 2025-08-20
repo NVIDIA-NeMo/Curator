@@ -12,7 +12,7 @@ from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models import transnetv2
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Clip, Video, VideoTask
+from ray_curator.tasks.video import Clip, Video, VideoTask
 
 
 @dataclass
@@ -69,10 +69,8 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         self._model = transnetv2.TransNetV2(model_dir=self.model_dir)
         self._model.setup()
 
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpu_memory_gb=self.gpu_memory_gb)
-
+    def __post_init__(self) -> None:
+        self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def process(self, task: VideoTask) -> VideoTask:
         video : Video = task.data
