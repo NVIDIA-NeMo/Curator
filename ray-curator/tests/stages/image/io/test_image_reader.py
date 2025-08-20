@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import pathlib
 import sys
+import types
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from unittest.mock import patch
-import types
 
 import numpy as np
 import pytest
@@ -193,7 +193,7 @@ def test_dali_image_reader_on_gpu() -> None:
 
     try:
         import nvidia.dali  # noqa: F401
-    except Exception:  # pragma: no cover - environment without DALI
+    except (ModuleNotFoundError, ImportError):  # pragma: no cover - environment without DALI
         pytest.skip("nvidia.dali not available; skipping GPU reader test")
 
     # Reuse sample webdataset tar from repository-level tests assets

@@ -315,7 +315,6 @@ class TestImageNSFWFilterStage:
         self,
         mock_logger: Mock,
         mock_nsfw_scorer: Mock,
-        _stage: ImageNSFWFilterStage,
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
@@ -370,7 +369,7 @@ def test_image_nsfw_filter_on_gpu() -> None:
             pass
 
         @staticmethod
-        def download_weights_on_node(model_dir: str | None = None) -> None:
+        def download_weights_on_node(_model_dir: str | None = None) -> None:
             return None
 
         def setup(self) -> None:

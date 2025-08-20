@@ -20,10 +20,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from loguru import logger
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -85,19 +85,19 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
         img = image
         if img.dtype != np.uint8:
             img = np.clip(img, 0, 255).astype(np.uint8)
-        CHANNELS_GRAY = 2
-        CHANNELS_RGB = 3
-        CHANNELS_RGBA = 4
+        channels_gray = 2
+        channels_rgb = 3
+        channels_rgba = 4
 
-        if img.ndim == CHANNELS_GRAY:
+        if img.ndim == channels_gray:
             mode = "L"
-        elif img.shape[2] == CHANNELS_RGB:
+        elif img.shape[2] == channels_rgb:
             mode = "RGB"
-        elif img.shape[2] == CHANNELS_RGBA:
+        elif img.shape[2] == channels_rgba:
             mode = "RGBA"
         else:
             mode = "RGB"
-            img = img[..., :CHANNELS_RGB]
+            img = img[..., :channels_rgb]
 
         with io.BytesIO() as buffer:
             Image.fromarray(img, mode=mode).save(buffer, format="JPEG", quality=92)
@@ -164,7 +164,8 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
             members: list[tuple[str, bytes]] = []
             for idx, img_obj in enumerate(chunk):
                 if img_obj.image_data is None:
-                    raise ValueError("ImageObject.image_data is None; cannot write image bytes")
+                    msg = "ImageObject.image_data is None; cannot write image bytes"
+                    raise ValueError(msg)
 
                 payload, ext = self._encode_image_to_bytes(img_obj.image_data)
                 member_basename = img_obj.image_id or f"{start + idx:06d}"

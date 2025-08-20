@@ -18,8 +18,7 @@ import importlib
 import sys
 import tarfile
 import types
-from pathlib import Path
-from typing import Any
+import pathlib
 
 import numpy as np
 import pytest
@@ -34,25 +33,25 @@ def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
             Table=types.SimpleNamespace(from_pylist=lambda rows: rows)
         )
     if "pyarrow.parquet" not in sys.modules:
-        sys.modules["pyarrow.parquet"] = types.SimpleNamespace(write_table=lambda table, path: None)
+        sys.modules["pyarrow.parquet"] = types.SimpleNamespace(write_table=lambda _table, _path: None)
 
     module = importlib.import_module("ray_curator.stages.image.io.image_writer")
     return module, module.ImageWriterStage
 
 
-def test_inputs_outputs_and_name(tmp_path: Path) -> None:
-    module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
+def test_inputs_outputs_and_name(tmp_path: pathlib.Path) -> None:
+    module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
-    stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=3)
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=3)
     assert stage.inputs() == (["data"], [])
     assert stage.outputs() == (["data"], [])
     assert stage.name == "image_writer"
 
 
-def test_setup_no_actor_id(tmp_path: Path) -> None:
-    _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
+def test_setup_no_actor_id(tmp_path: pathlib.Path) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
-    stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
 
     class _Worker:
         def __init__(self, worker_id: str) -> None:
@@ -63,27 +62,27 @@ def test_setup_no_actor_id(tmp_path: Path) -> None:
     assert not hasattr(stage, "_actor_id")
 
 
-def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
+def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
 
-    stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
     stage.setup(worker_metadata=types.SimpleNamespace(worker_id="w"))
 
     # Avoid PIL dependency by stubbing encoder to return fixed bytes and extension
     monkeypatch.setattr(
-        ImageWriterStage,
+        image_writer_stage_cls,
         "_encode_image_to_bytes",
-        lambda self, arr: (b"imgbytes", ".jpg"),
+        lambda _self, _arr: (b"imgbytes", ".jpg"),
     )
 
     # Capture parquet rows per base_name without touching filesystem
     captured_rows: dict[str, list[dict]] = {}
 
-    def _capture_parquet(self, base_name: str, rows: list[dict]) -> str:
+    def _capture_parquet(_self: object, base_name: str, rows: list[dict]) -> str:
         captured_rows[base_name] = rows
         return str(tmp_path / f"{base_name}.parquet")
 
-    monkeypatch.setattr(ImageWriterStage, "_write_parquet", _capture_parquet)
+    monkeypatch.setattr(image_writer_stage_cls, "_write_parquet", _capture_parquet)
 
     # Build 5 images, force split into 3 tars (2,2,1)
     images = [
@@ -130,9 +129,9 @@ def test_process_writes_tars_and_parquet_paths(monkeypatch: pytest.MonkeyPatch, 
     assert out._metadata["output_dir"] == str(tmp_path)
 
 
-def test_process_raises_on_missing_image_data(tmp_path: Path) -> None:
-    _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
-    stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=2)
+def test_process_raises_on_missing_image_data(tmp_path: pathlib.Path) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2)
     stage.setup()
 
     bad = ImageBatch(
@@ -145,9 +144,9 @@ def test_process_raises_on_missing_image_data(tmp_path: Path) -> None:
         stage.process(bad)
 
 
-def test_process_handles_empty_batch(tmp_path: Path) -> None:
-    _module, ImageWriterStage = _import_writer_with_stubbed_pyarrow()
-    stage = ImageWriterStage(output_dir=str(tmp_path), images_per_tar=3)
+def test_process_handles_empty_batch(tmp_path: pathlib.Path) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=3)
     stage.setup()
 
     empty = ImageBatch(task_id="e", dataset_name="ds", data=[])

@@ -179,7 +179,7 @@ class TestImageAestheticFilterStage:
         self,
         mock_logger: Mock,
         mock_aesthetic_scorer: Mock,
-        stage: ImageAestheticFilterStage,
+        _stage: ImageAestheticFilterStage,
         sample_image_batch: ImageBatch,
         mock_model: Mock,
     ) -> None:
@@ -502,9 +502,8 @@ def test_image_aesthetic_filter_on_gpu() -> None:
         def __call__(self, embeddings_numpy: np.ndarray) -> torch.Tensor:
             device = torch.device("cuda")
             x = torch.from_numpy(embeddings_numpy).to(device=device, dtype=torch.float32)
-            s = x.mean(dim=1)
-            s = (s - s.min()) / (s.max() - s.min() + 1e-6)
-            return s
+            scores = x.mean(dim=1)
+            return (scores - scores.min()) / (scores.max() - scores.min() + 1e-6)
 
     rng = np.random.default_rng(7)
     import tempfile
