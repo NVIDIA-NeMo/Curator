@@ -185,7 +185,7 @@ def test_construct_base_name_deterministic_and_random(monkeypatch: pytest.Monkey
     assert b3 == "images-deadbeefcafebabe"
 
 
-def test_encode_image_to_bytes_modes(_monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:  # noqa: ARG001
+def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
     _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path))
 
