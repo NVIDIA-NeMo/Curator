@@ -131,7 +131,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f Dockerfile -t curator .
+        docker build -f ray-curator/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
@@ -155,7 +155,7 @@ runs:
           --volume $(pwd)/NeMo-Curator:/workspace \
           --workdir /workspace \
           --volume $MNT_PATH/TestData:/home/TestData \
-          curator \
+          ray-curator \
           bash -c "sleep $(( ${{ inputs.timeout }} * 60 + 60 ))"
         RUN_TEST_EOF
         )
@@ -176,9 +176,8 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c '
           set -e
 
-          source activate /opt/conda/envs/curator
-          
-          bash tests/${{ inputs.script }}.sh
+          source /opt/entrypoint.sh
+          bash ray-curator/tests/${{ inputs.script }}.sh
         '
 
         RUN_TEST_EOF
@@ -202,13 +201,13 @@ runs:
       id: check
       shell: bash
       run: |
-        docker exec nemo_container_${{ github.run_id }} coverage combine || true
-        docker exec nemo_container_${{ github.run_id }} coverage xml || true
-        docker cp nemo_container_${{ github.run_id }}:/workspace/.coverage .coverage
-        docker cp nemo_container_${{ github.run_id }}:/workspace/coverage.xml coverage.xml
+        # docker exec nemo_container_${{ github.run_id }} coverage combine || true
+        # docker exec nemo_container_${{ github.run_id }} coverage xml || true
+        # docker cp nemo_container_${{ github.run_id }}:/workspace/.coverage .coverage
+        # docker cp nemo_container_${{ github.run_id }}:/workspace/coverage.xml coverage.xml
 
-        coverage_report=coverage-${{ steps.create.outputs.coverage-prefix }}-${{ github.run_id }}-$(uuidgen)
-        echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
+        # coverage_report=coverage-${{ steps.create.outputs.coverage-prefix }}-${{ github.run_id }}-$(uuidgen)
+        # echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
 
         EXIT_CODE=${{ steps.run-main-script.outputs.exit_code }}
         IS_SUCCESS=$([[ "$EXIT_CODE" -eq 0 ]] && echo "true" || echo "false")
@@ -225,17 +224,17 @@ runs:
 
         exit $EXIT_CODE
 
-    - name: Test coverage
-      shell: bash -x -e -u -o pipefail {0}
-      run: |
-        docker exec -t nemo_container_${{ github.run_id }} coverage report -i
+    # - name: Test coverage
+    #   shell: bash -x -e -u -o pipefail {0}
+    #   run: |
+    #     docker exec -t nemo_container_${{ github.run_id }} coverage report -i
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      if: ${{ steps.check.outputs.coverage_report != 'none' }}
-      with:
-        name: ${{ steps.check.outputs.coverage_report }}
-        path: |
-          coverage.xml
-          .coverage
-        include-hidden-files: true
+    # - name: Upload artifacts
+    #   uses: actions/upload-artifact@v4
+    #   if: ${{ steps.check.outputs.coverage_report != 'none' }}
+    #   with:
+    #     name: ${{ steps.check.outputs.coverage_report }}
+    #     path: |
+    #       coverage.xml
+    #       .coverage
+    #     include-hidden-files: true
