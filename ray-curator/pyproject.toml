@@ -97,7 +97,6 @@ dali_cpu = [
 ]
 
 [tool.setuptools]
-packages = ["ray_curator"]
 all = [
     "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
