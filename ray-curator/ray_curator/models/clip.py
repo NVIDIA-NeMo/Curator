@@ -23,7 +23,6 @@ import numpy.typing as npt
 import torch
 from transformers import CLIPModel, CLIPProcessor
 
-from .aesthetics import AestheticScorer
 from .base import ModelInterface
 
 _CLIP_MODEL_ID: Final = "openai/clip-vit-large-patch14"
@@ -69,7 +68,6 @@ class CLIPImageEmbeddings(ModelInterface):
             The embeddings.
 
         """
-
         if isinstance(images, np.ndarray):
             # (N, H, W, C) -> (N, C, H, W)
             images = torch.from_numpy(images).permute(0, 3, 1, 2).to(self.device)
@@ -80,47 +78,3 @@ class CLIPImageEmbeddings(ModelInterface):
 
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
-
-
-class CLIPAestheticScorer(ModelInterface):
-    """A model that chains CLIPImageEmbeddings and AestheticScorer models."""
-
-    def __init__(self, model_dir: str) -> None:
-        """Initialize the CLIPAestheticScorer model."""
-        super().__init__()
-        self.model_dir = model_dir
-        self._clip_model: CLIPImageEmbeddings | None = None
-        self._aesthetic_model: AestheticScorer | None = None
-
-    @property
-    def model_id_names(self) -> list[str]:
-        """Get the model ID names.
-
-        Returns:
-            A list of model IDs used by this model.
-
-        """
-        return [_CLIP_MODEL_ID]
-
-    def setup(self) -> None:
-        """Set up the CLIPAestheticScorer model."""
-        self._clip_model = CLIPImageEmbeddings(model_dir=self.model_dir)
-        self._aesthetic_model = AestheticScorer(model_dir=self.model_dir)
-        self._clip_model.setup()
-        self._aesthetic_model.setup()
-
-    def __call__(self, images: torch.Tensor | npt.NDArray[np.uint8]) -> torch.Tensor:
-        """Call the CLIPAestheticScorer model.
-
-        Args:
-            images: The images to score.
-
-        Returns:
-            The scores.
-
-        """
-        if self._clip_model is None or self._aesthetic_model is None:
-            msg = "CLIPAestheticScorer model not initialized"
-            raise RuntimeError(msg)
-        embeddings = self._clip_model(images)
-        return self._aesthetic_model(embeddings)
