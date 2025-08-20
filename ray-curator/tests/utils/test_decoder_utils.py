@@ -169,11 +169,9 @@ class TestExtractVideoMetadata:
                 {
                     "codec_type": "audio",
                     "codec_name": "aac",
-                }
+                },
             ],
-            "format": {
-                "duration": "10.0"
-            }
+            "format": {"duration": "10.0"},
         }
 
     @patch("subprocess.run")
@@ -251,7 +249,7 @@ class TestExtractVideoMetadata:
                     "codec_name": "aac",
                 }
             ],
-            "format": {}
+            "format": {},
         }
 
         # Mock the temporary file
@@ -284,7 +282,7 @@ class TestExtractVideoMetadata:
                     "pix_fmt": "yuv420p",
                 }
             ],
-            "format": {}
+            "format": {},
         }
 
         # Mock the temporary file
@@ -520,7 +518,7 @@ class TestMockedVideoFunctions:
         # Mock the AV container and stream
         mock_container = Mock()
         mock_stream = Mock()
-        mock_stream.time_base = 1/30.0  # 30 FPS
+        mock_stream.time_base = 1 / 30.0  # 30 FPS
         mock_container.streams.video = [mock_stream]
 
         # Mock packets with timestamps
@@ -640,7 +638,9 @@ class TestMockedVideoFunctions:
     @patch("ray_curator.utils.decoder_utils.decode_video_cpu_frame_ids")
     @patch("ray_curator.utils.decoder_utils.sample_closest")
     @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
-    def test_decode_video_cpu_basic(self, mock_get_timestamps: Mock, mock_sample_closest: Mock, mock_decode_frame_ids: Mock) -> None:
+    def test_decode_video_cpu_basic(
+        self, mock_get_timestamps: Mock, mock_sample_closest: Mock, mock_decode_frame_ids: Mock
+    ) -> None:
         """Test decode_video_cpu with basic parameters."""
         # Mock timestamps
         mock_timestamps = np.array([0.0, 1.0, 2.0, 3.0], dtype=np.float32)
@@ -678,10 +678,7 @@ class TestMockedVideoFunctions:
 
         test_data = b"fake_video_data"
         result = extract_frames(
-            test_data,
-            extraction_policy=FrameExtractionPolicy.sequence,
-            sample_rate_fps=1.0,
-            target_res=(-1, -1)
+            test_data, extraction_policy=FrameExtractionPolicy.sequence, sample_rate_fps=1.0, target_res=(-1, -1)
         )
 
         assert result.shape == (3, 480, 640, 3)
@@ -701,11 +698,7 @@ class TestMockedVideoFunctions:
         mock_decode_cpu.return_value = mock_frames
 
         test_data = b"fake_video_data"
-        result = extract_frames(
-            test_data,
-            extraction_policy=FrameExtractionPolicy.middle,
-            sample_rate_fps=1.0
-        )
+        result = extract_frames(test_data, extraction_policy=FrameExtractionPolicy.middle, sample_rate_fps=1.0)
 
         assert result.shape == (1, 480, 640, 3)
         # Should call decode_cpu with middle frame timestamp
@@ -719,11 +712,7 @@ class TestMockedVideoFunctions:
         test_data = b"fake_video_data"
 
         with pytest.raises(ValueError, match="Can't extract frames from empty video"):
-            extract_frames(
-                test_data,
-                extraction_policy=FrameExtractionPolicy.sequence,
-                sample_rate_fps=1.0
-            )
+            extract_frames(test_data, extraction_policy=FrameExtractionPolicy.sequence, sample_rate_fps=1.0)
 
     @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
     def test_extract_frames_unsupported_policy(self, mock_get_timestamps: Mock) -> None:
@@ -734,8 +723,4 @@ class TestMockedVideoFunctions:
         test_data = b"fake_video_data"
 
         with pytest.raises(NotImplementedError, match="Extraction policies apart from Sequence and Middle"):
-            extract_frames(
-                test_data,
-                extraction_policy=FrameExtractionPolicy.first,
-                sample_rate_fps=1.0
-            )
+            extract_frames(test_data, extraction_policy=FrameExtractionPolicy.first, sample_rate_fps=1.0)

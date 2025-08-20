@@ -3,14 +3,16 @@ import pathlib
 import subprocess
 import uuid
 from dataclasses import dataclass
+from typing import Any
 
 from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
 from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
-from ray_curator.tasks import Clip, Video, VideoTask
+from ray_curator.tasks.video import Clip, Video, VideoTask
 from ray_curator.utils import grouping
 from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
 
@@ -34,6 +36,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         verbose: Whether to print verbose logs.
         ffmpeg_verbose: Whether to print FFmpeg verbose logs.
     """
+
     num_cpus_per_worker: float = 6.0
     encoder: str = "libx264"
     encoder_threads: int = 1
@@ -44,10 +47,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "clip_transcoding"
+    _name: str = "clip_transcoding"
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
@@ -60,32 +60,36 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             error_msg = f"Expected encoder of `libopenh264`, `libx264`, or `h264_nvenc`. Got {self.encoder}"
             raise ValueError(error_msg)
 
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
+    def __post_init__(self) -> None:
+        """Post-initialization method called after all fields are set."""
         if self.encoder == "h264_nvenc" or self.use_hwaccel:
             if self.nb_streams_per_gpu > 0:
                 # Assume that we have same type of GPUs
                 gpu_info = _get_local_gpu_info()[0]
                 nvencs = _make_gpu_resources_from_gpu_name(gpu_info.name).num_nvencs
                 gpu_memory_gb = _get_gpu_memory_gb()
-                return Resources(nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu)
+                self._resources = Resources(
+                    nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu
+                )
             else:
-                return Resources(gpus=1)
-
-        return Resources(cpus=self.num_cpus_per_worker)
+                self._resources = Resources(gpus=1)
+        else:
+            self._resources = Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], []
+        return ["data"], ["source_bytes"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
+    def ray_stage_spec(self) -> dict[str, Any]:
+        """Ray stage specification for this stage."""
+        return {
+            RayStageSpecKeys.IS_FANOUT_STAGE: True,
+        }
+
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
-        if video.source_bytes is None:
-            msg = "Video source bytes are not available"
-            raise ValueError(msg)
 
         if not video.clips:
             logger.warning(f"No clips to transcode for {video.input_video}. Skipping...")
@@ -116,8 +120,6 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
         # we are done with source_bytes
         video.source_bytes = None
-
-        # TODO: log_stats
 
         # Consider craking into smaller chunks of clips
         output_tasks = []
@@ -161,17 +163,16 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
             output_tasks.append(subtask)
         logger.info(f"Creating {len(clip_chunks)} tasks for downstream from {video.input_video}.")
 
-
         return output_tasks
 
     def _extract_clips(
-            self,
-            working_dir: pathlib.Path,
-            video_filename: str,
-            *,
-            force_pix_fmt: bool,
-            use_bit_rate: str | None,
-            clips: list[Clip],
+        self,
+        working_dir: pathlib.Path,
+        video_filename: str,
+        *,
+        force_pix_fmt: bool,
+        use_bit_rate: str | None,
+        clips: list[Clip],
     ) -> None:
         """Extract clips using ffmpeg."""
         # construct ffmpeg command
@@ -184,11 +185,11 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         self._read_clips_to_memory(working_dir, clips)
 
     def _build_ffmpeg_command(
-            self,
-            video_filename: str,
-            clips: list[Clip],
-            force_pix_fmt: bool,
-            use_bit_rate: str | None,
+        self,
+        video_filename: str,
+        clips: list[Clip],
+        force_pix_fmt: bool,
+        use_bit_rate: str | None,
     ) -> list[str]:
         """Build the ffmpeg command for extracting clips."""
         command = [
@@ -232,13 +233,20 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     def _add_input_options(self, command: list[str], clip: Clip, video_filename: str, index: int) -> None:
         """Add input options to command."""
         start_s, end_s = clip.span
-        command.extend([
-            "-ss", str(start_s),
-            "-to", str(end_s),
-            "-i", video_filename,
-            "-map", f"{index}:v:0",
-            "-c:v", self.encoder,
-        ])
+        command.extend(
+            [
+                "-ss",
+                str(start_s),
+                "-to",
+                str(end_s),
+                "-i",
+                video_filename,
+                "-map",
+                f"{index}:v:0",
+                "-c:v",
+                self.encoder,
+            ]
+        )
 
     def _add_video_encoding_options(self, command: list[str], use_bit_rate: str | None, force_pix_fmt: bool) -> None:
         """Add video encoding options to command."""
@@ -250,15 +258,24 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
 
     def _add_nvenc_options(self, command: list[str], force_pix_fmt: bool) -> None:
         """Add NVENC-specific encoding options."""
-        command.extend([
-            "-rc:v", "vbr",
-            "-cq:v", "21",
-            "-tune", "hq",
-            "-b_ref_mode", "middle",
-            "-temporal-aq", "1",
-            "-rc-lookahead", "20",
-            "-spatial-aq", "1",
-        ])
+        command.extend(
+            [
+                "-rc:v",
+                "vbr",
+                "-cq:v",
+                "21",
+                "-tune",
+                "hq",
+                "-b_ref_mode",
+                "middle",
+                "-temporal-aq",
+                "1",
+                "-rc-lookahead",
+                "20",
+                "-spatial-aq",
+                "1",
+            ]
+        )
 
         if force_pix_fmt:
             command.extend(["-pix_fmt", "yuv420p"])
@@ -270,11 +287,15 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         command.extend(["-threads", thread_count])
 
         # Add audio and output filename
-        command.extend([
-            "-map", f"{index}:a:0?",
-            "-c:a", "copy",
-            f"{clip.uuid}.mp4",
-        ])
+        command.extend(
+            [
+                "-map",
+                f"{index}:a:0?",
+                "-c:a",
+                "copy",
+                f"{clip.uuid}.mp4",
+            ]
+        )
 
     def _run_ffmpeg_command(self, command: list[str], working_dir: pathlib.Path, clips: list[Clip]) -> None:
         """Run the ffmpeg command and handle errors."""
@@ -289,7 +310,9 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         except subprocess.CalledProcessError as e:
             self._handle_ffmpeg_error(e, command, clips)
 
-    def _handle_ffmpeg_error(self, error: subprocess.CalledProcessError, command: list[str], clips: list[Clip]) -> None:
+    def _handle_ffmpeg_error(
+        self, error: subprocess.CalledProcessError, command: list[str], clips: list[Clip]
+    ) -> None:
         """Handle ffmpeg command errors."""
         logger.error(f"ffmpeg command failed with return code {error.returncode}")
         logger.error(f"Error: {error}")
@@ -313,6 +336,7 @@ class FixedStrideExtractorStage(ProcessingStage[VideoTask, VideoTask]):
     This stage splits videos into clips of specified length and stride, ensuring
     each clip meets minimum length requirements and optionally limiting total clips.
     """
+
     clip_len_s: float
     clip_stride_s: float
     min_clip_length_s: float

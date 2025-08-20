@@ -35,22 +35,14 @@ class TestMotionInfo:
 
     def test_creation(self):
         """Test MotionInfo creation."""
-        motion_info = MotionInfo(
-            is_small_motion=True,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.001, global_mean=0.002)
         assert motion_info.is_small_motion is True
         assert motion_info.per_patch_min_256 == 0.001
         assert motion_info.global_mean == 0.002
 
     def test_creation_with_large_motion(self):
         """Test MotionInfo creation with large motion."""
-        motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.01,
-            global_mean=0.02
-        )
+        motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.01, global_mean=0.02)
         assert motion_info.is_small_motion is False
         assert motion_info.per_patch_min_256 == 0.01
         assert motion_info.global_mean == 0.02
@@ -72,7 +64,7 @@ class TestDecodedData:
         """Test get_major_size method."""
         # Create test frames with known sizes
         frame1 = np.ones((100, 100, 3), dtype=np.uint8)  # 30,000 bytes
-        frame2 = np.ones((50, 50, 3), dtype=np.uint8)    # 7,500 bytes
+        frame2 = np.ones((50, 50, 3), dtype=np.uint8)  # 7,500 bytes
         frames = [frame1, frame2]
 
         decoded_data = DecodedData(frames=frames, frame_size=torch.Size([100, 100, 3]))
@@ -173,12 +165,11 @@ class TestDecodeForMotion:
         """Test that VideoResolutionTooSmallError is raised for small resolution."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, \
-             patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
             # Mock frame with small resolution
             mock_frame = Mock()
             mock_frame.height = 100  # Less than 256
-            mock_frame.width = 100   # Less than 256
+            mock_frame.width = 100  # Less than 256
             mock_frame.side_data = []
 
             # Mock stream
@@ -208,17 +199,26 @@ class TestDecodeForMotion:
         """Test successful decode operation."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, \
-             patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
             # Mock motion vector side data
             mock_side_data = Mock()
             mock_side_data.type = Mock()
             mock_side_data.type.__eq__ = Mock(return_value=True)
 
             # Create proper structured array
-            dtype = [("field0", "i4"), ("field1", "i4"), ("field2", "i4"), ("field3", "i4"),
-                     ("field4", "i4"), ("field5", "i4"), ("field6", "i4"), ("field7", "i4"),
-                     ("field8", "i4"), ("field9", "i4"), ("field10", "i4")]
+            dtype = [
+                ("field0", "i4"),
+                ("field1", "i4"),
+                ("field2", "i4"),
+                ("field3", "i4"),
+                ("field4", "i4"),
+                ("field5", "i4"),
+                ("field6", "i4"),
+                ("field7", "i4"),
+                ("field8", "i4"),
+                ("field9", "i4"),
+                ("field10", "i4"),
+            ]
             structured_array = np.ones((5,), dtype=dtype)
             mock_side_data.to_ndarray.return_value = structured_array
 
@@ -259,8 +259,7 @@ class TestDecodeForMotion:
         """Test decode with no motion vectors."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, \
-             patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
             # Mock frame with no motion vector side data
             mock_frame = Mock()
             mock_frame.height = 480
@@ -296,17 +295,26 @@ class TestDecodeForMotion:
         """Test decode with custom parameters."""
         mock_video = io.BytesIO(b"mock_video_data")
 
-        with patch("av.open") as mock_open, \
-             patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
+        with patch("av.open") as mock_open, patch("av.codec.context.Flags2.EXPORT_MVS", create=True):
             # Mock motion vector side data
             mock_side_data = Mock()
             mock_side_data.type = Mock()
             mock_side_data.type.__eq__ = Mock(return_value=True)
 
             # Create proper structured array
-            dtype = [("field0", "i4"), ("field1", "i4"), ("field2", "i4"), ("field3", "i4"),
-                     ("field4", "i4"), ("field5", "i4"), ("field6", "i4"), ("field7", "i4"),
-                     ("field8", "i4"), ("field9", "i4"), ("field10", "i4")]
+            dtype = [
+                ("field0", "i4"),
+                ("field1", "i4"),
+                ("field2", "i4"),
+                ("field3", "i4"),
+                ("field4", "i4"),
+                ("field5", "i4"),
+                ("field6", "i4"),
+                ("field7", "i4"),
+                ("field8", "i4"),
+                ("field9", "i4"),
+                ("field10", "i4"),
+            ]
             structured_array = np.ones((5,), dtype=dtype)
             mock_side_data.to_ndarray.return_value = structured_array
 
@@ -337,12 +345,7 @@ class TestDecodeForMotion:
             mock_open.return_value = mock_container
 
             with patch("av.sidedata.sidedata.Type.MOTION_VECTORS", create=True):
-                result = decode_for_motion(
-                    mock_video,
-                    thread_count=8,
-                    target_fps=5.0,
-                    target_duration_ratio=0.3
-                )
+                result = decode_for_motion(mock_video, thread_count=8, target_fps=5.0, target_duration_ratio=0.3)
 
                 assert isinstance(result, DecodedData)
                 assert result.frame_size == torch.Size([480, 640, 3])
@@ -395,10 +398,7 @@ class TestCheckIfSmallMotion:
         frame_shape = torch.Size([256, 256])
 
         result = check_if_small_motion(
-            mv_data,
-            frame_shape,
-            global_mean_threshold=0.001,
-            per_patch_min_256_threshold=0.000001
+            mv_data, frame_shape, global_mean_threshold=0.001, per_patch_min_256_threshold=0.000001
         )
 
         assert isinstance(result, MotionInfo)
@@ -442,14 +442,14 @@ class TestCheckIfSmallMotion:
             mv_data,
             frame_shape,
             global_mean_threshold=1.0,  # Very high threshold
-            per_patch_min_256_threshold=1.0  # Very high threshold
+            per_patch_min_256_threshold=1.0,  # Very high threshold
         )
 
         result_low = check_if_small_motion(
             mv_data,
             frame_shape,
             global_mean_threshold=0.0,  # Very low threshold
-            per_patch_min_256_threshold=0.0  # Very low threshold
+            per_patch_min_256_threshold=0.0,  # Very low threshold
         )
 
         assert isinstance(result_high, MotionInfo)
@@ -479,19 +479,11 @@ class TestCheckIfSmallMotion:
 
         # Test with GPU if available
         if torch.cuda.is_available():
-            result = check_if_small_motion(
-                mv_data,
-                frame_shape,
-                use_gpu=True
-            )
+            result = check_if_small_motion(mv_data, frame_shape, use_gpu=True)
             assert isinstance(result, MotionInfo)
         else:
             # Test that it falls back to CPU gracefully
-            result = check_if_small_motion(
-                mv_data,
-                frame_shape,
-                use_gpu=False
-            )
+            result = check_if_small_motion(mv_data, frame_shape, use_gpu=False)
             assert isinstance(result, MotionInfo)
 
     def test_batch_processing(self):
@@ -512,17 +504,9 @@ class TestCheckIfSmallMotion:
         frame_shape = torch.Size([256, 256])
 
         # Test with different batch sizes
-        result_small_batch = check_if_small_motion(
-            mv_data,
-            frame_shape,
-            batch_size=3
-        )
+        result_small_batch = check_if_small_motion(mv_data, frame_shape, batch_size=3)
 
-        result_large_batch = check_if_small_motion(
-            mv_data,
-            frame_shape,
-            batch_size=256
-        )
+        result_large_batch = check_if_small_motion(mv_data, frame_shape, batch_size=256)
 
         # Results should be consistent regardless of batch size
         assert isinstance(result_small_batch, MotionInfo)
