@@ -6,8 +6,8 @@ from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTransco
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy
 from ray_curator.stages.video.io.video_reader import VideoReader
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
 def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -64,27 +64,26 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             )
         )
 
-
     has_embeddings = args.generate_embeddings
     has_aesthetics = args.aesthetic_threshold is not None
-    # If both aesthetics AND embeddings are needed: [1, 2] - extract frames at both 1 FPS and 2 FPS
-    # If only aesthetics is needed: [1] - extract frames at 1 FPS
-    # If only embeddings is needed: [2] - extract frames at 2 FPS
-    target_fps: list[float | int] = (
-        [1, 2] if has_aesthetics and has_embeddings else [1] if has_aesthetics else [2] if has_embeddings else []
-    )
+    purposes = []
+    if has_aesthetics:
+        purposes.append(FramePurpose.AESTHETICS)
+    if has_embeddings:
+        purposes.append(FramePurpose.EMBEDDINGS)
 
-    # TODO: add a check once we have embeddings / aesthetics stages
-    target_fps = [2]
-    pipeline.add_stage(ClipFrameExtractionStage(
-        extraction_policies=(FrameExtractionPolicy.sequence,),
-        target_fps=target_fps,
-        target_res=(
-            args.clip_extraction_target_res,
-            args.clip_extraction_target_res,
-        ),
-        verbose=args.verbose,
-    ))
+    if len(purposes) != 0:
+        pipeline.add_stage(
+            ClipFrameExtractionStage(
+                extraction_policies=(FrameExtractionPolicy.sequence,),
+                extract_purposes=purposes,
+                target_res=(
+                    args.clip_extraction_target_res,
+                    args.clip_extraction_target_res,
+                ),
+                verbose=args.verbose,
+            )
+        )
 
     pipeline.add_stage(
         ClipWriterStage(
@@ -295,7 +294,6 @@ if __name__ == "__main__":
         default=-1,
         help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
     )
-
     # Aesthetic arguments
     parser.add_argument(
         "--aesthetic-threshold",

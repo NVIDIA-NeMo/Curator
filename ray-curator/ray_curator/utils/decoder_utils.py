@@ -66,6 +66,17 @@ class FrameExtractionPolicy(enum.Enum):
     sequence = 3
 
 
+class FramePurpose(enum.Enum):
+    """Purpose for extracting frames from video content.
+
+    This enum defines different purposes for extracting frames from a video,
+    including aesthetics and embeddings.
+    """
+
+    AESTHETICS = 1
+    EMBEDDINGS = 2
+
+
 @dataclass
 class FrameExtractionSignature:
     """Configuration for frame extraction parameters.
