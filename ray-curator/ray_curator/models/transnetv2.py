@@ -553,16 +553,6 @@ class TransNetV2(ModelInterface):
         self.model_dir = model_dir
 
     @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "video_splitting"
-
-    @property
     def model_id_names(self) -> list[str]:
         """Get the model ID names.
 
