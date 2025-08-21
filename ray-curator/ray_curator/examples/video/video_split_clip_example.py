@@ -9,6 +9,7 @@ from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameE
 from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
 from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
+from ray_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader import VideoReader
 from ray_curator.stages.video.preview.preview import PreviewStage
@@ -121,22 +122,29 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
     if args.generate_embeddings:
         if args.embedding_algorithm.startswith("cosmos-embed1"):
             variant = args.embedding_algorithm.split("-")[-1]
-            pipeline.add_stage(
-                CosmosEmbed1FrameCreationStage(
-                    model_dir=args.model_dir,
-                    variant=variant,
-                    target_fps=FramePurpose.EMBEDDINGS.value,
-                    verbose=args.verbose,
-                )
-            )
-            pipeline.add_stage(
-                CosmosEmbed1EmbeddingStage(
-                    model_dir=args.model_dir,
-                    variant=variant,
-                    gpu_memory_gb=args.embedding_gpu_memory_gb,
-                    verbose=args.verbose,
-                )
-            )
+            pipeline.add_stage(CosmosEmbed1FrameCreationStage(
+                model_dir=args.model_dir,
+                variant=variant,
+                target_fps=2.0,
+                verbose=args.verbose,
+            ))
+            pipeline.add_stage(CosmosEmbed1EmbeddingStage(
+                model_dir=args.model_dir,
+                variant=variant,
+                gpu_memory_gb=args.embedding_gpu_memory_gb,
+                verbose=args.verbose,
+            ))
+        elif args.embedding_algorithm.startswith("internvideo2"):
+            pipeline.add_stage(InternVideo2FrameCreationStage(
+                model_dir=args.model_dir,
+                target_fps=2.0,
+                verbose=args.verbose,
+            ))
+            pipeline.add_stage(InternVideo2EmbeddingStage(
+                model_dir=args.model_dir,
+                gpu_memory_gb=args.embedding_gpu_memory_gb,
+                verbose=args.verbose,
+            ))
         else:
             msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
             raise ValueError(msg)
