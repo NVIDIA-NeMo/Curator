@@ -15,6 +15,10 @@ class TestQwenVL:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
+        # Mock VLLM_AVAILABLE to True so tests can run without vllm installed
+        self.vllm_patcher = patch("ray_curator.models.qwen_vl.VLLM_AVAILABLE", True)
+        self.vllm_patcher.start()
+
         self.model_dir = "/test/model/dir"
         self.model_variant = "qwen"
         self.caption_batch_size = 4
@@ -29,6 +33,10 @@ class TestQwenVL:
             stage2_prompt_text="Stage 2 prompt: ",
             verbose=False,
         )
+
+    def teardown_method(self) -> None:
+        """Clean up test fixtures."""
+        self.vllm_patcher.stop()
 
     def test_constants(self) -> None:
         """Test that module constants are correctly defined."""

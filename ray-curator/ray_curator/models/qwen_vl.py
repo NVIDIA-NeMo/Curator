@@ -3,7 +3,21 @@ import re
 from typing import Any
 
 from loguru import logger
-from vllm import LLM, SamplingParams
+
+try:
+    from vllm import LLM, SamplingParams
+
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+
+    # Create dummy classes for type hints when vllm is not available
+    class LLM:
+        pass
+
+    class SamplingParams:
+        pass
+
 
 from ray_curator.models.base import ModelInterface
 from ray_curator.utils import grouping
@@ -38,12 +52,18 @@ class QwenVL(ModelInterface):
         self.stage2_prompt = stage2_prompt_text
         self.verbose = verbose
         self.weight_file = str(pathlib.Path(model_dir) / _QWEN_VARIANTS_INFO[model_variant])
+        # Default pattern for stage2 caption generation - matches (.*)(user_prompt)(.*)
+        self.pattern = r"(.*)(user_prompt)(.*)"
 
     @property
     def model_id_names(self) -> list[str]:
         return [_QWEN_VARIANTS_INFO[self.model_variant]]
 
     def setup(self) -> None:
+        if not VLLM_AVAILABLE:
+            msg = "vllm is required for QwenVL model but is not installed. Please install vllm: pip install vllm"
+            raise ImportError(msg)
+
         mm_processor_kwargs = {
             "do_resize": self.model_does_preprocess,
             "do_rescale": self.model_does_preprocess,
