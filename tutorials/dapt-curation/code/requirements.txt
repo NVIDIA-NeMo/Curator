@@ -2,6 +2,7 @@ arxiv==2.1.0
 arxiv-downloader
 cchardet
 nltk==3.8.1
+numpy<2
 pdfminer.six==20221105
 poppler-utils
 protobuf==3.20.3

@@ -8,7 +8,7 @@ from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.clip import CLIPAestheticScorer
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import VideoTask
+from ray_curator.tasks.video import VideoTask
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature
 
 
@@ -19,27 +19,23 @@ class ClipAestheticFilterStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including aesthetic score
     calculation and filtering based on thresholds.
     """
+
     model_dir: str = "models/clip_aesthetic"
     score_threshold: float = 0.5
     reduction: Literal["mean", "min"] = "min"
     target_fps: float = 1.0
     num_gpus_per_worker: float = 0.25
     verbose: bool = False
-
-
-    @property
-    def name(self) -> str:
-        return "motion_vector_decoding"
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpus=self.num_gpus_per_worker)
+    _name: str = "clip_aesthetic_filter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["decoded_motion_data"]
+
+    def __post_init__(self) -> None:
+        self._resources = Resources(gpus=self.num_gpus_per_worker)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self.model = CLIPAestheticScorer(model_dir=self.model_dir)
@@ -74,6 +70,7 @@ class ClipAestheticFilterStage(ProcessingStage[VideoTask, VideoTask]):
             else:
                 frames = clip.extracted_frames.pop(self.frame_extraction_signature)
                 scores = self.model(frames).cpu().numpy()
+                del frames
                 clip.aesthetic_score = float(self.reduction_fn(scores))
 
             # Filtering

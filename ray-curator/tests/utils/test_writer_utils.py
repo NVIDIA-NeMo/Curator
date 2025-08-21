@@ -1,17 +1,15 @@
 """Test suite for writer_utils module."""
 
 import csv
-import io
 import json
 import pathlib
 import tempfile
 import uuid
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
-from ray_curator.utils import storage_client
 from ray_curator.utils.writer_utils import (
     JsonEncoderCustom,
     write_bytes,
@@ -70,7 +68,6 @@ class TestWriteBytes:
                 "test file",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -92,7 +89,6 @@ class TestWriteBytes:
                     "test file",
                     "test_video.mp4",
                     verbose=False,
-                    client=None,
                 )
 
                 mock_logger.warning.assert_called_once()
@@ -117,7 +113,6 @@ class TestWriteBytes:
                     "test file",
                     "test_video.mp4",
                     verbose=False,
-                    client=None,
                     overwrite=True,
                 )
 
@@ -142,7 +137,6 @@ class TestWriteBytes:
                     "test file",
                     "test_video.mp4",
                     verbose=False,
-                    client=None,
                     backup_and_overwrite=True,
                 )
 
@@ -159,7 +153,6 @@ class TestWriteBytes:
                 "test file",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -179,163 +172,10 @@ class TestWriteBytes:
                     "test file",
                     "test_video.mp4",
                     verbose=True,
-                    client=None,
                 )
 
                 mock_logger.info.assert_called_once()
                 assert "Writing test file for test_video.mp4" in mock_logger.info.call_args[0][0]
-
-    def test_write_bytes_to_storage_prefix_new_file(self) -> None:
-        """Test writing bytes to storage prefix for new file."""
-        test_data = b"test data"
-        mock_client = Mock()
-        mock_client.object_exists.return_value = False
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-        mock_prefix.path = "s3://bucket/test.txt"
-
-        with patch("ray_curator.utils.writer_utils.do_with_retries") as mock_retry:
-            write_bytes(
-                test_data,
-                mock_prefix,
-                "test file",
-                "test_video.mp4",
-                verbose=False,
-                client=mock_client,
-            )
-
-            mock_client.object_exists.assert_called_once_with(mock_prefix)
-            mock_retry.assert_called_once()
-            # Check that the function passed to do_with_retries calls upload_bytes
-            retry_func = mock_retry.call_args[0][0]
-            retry_func()
-            mock_client.upload_bytes.assert_called_once_with(mock_prefix, test_data)
-
-    def test_write_bytes_to_storage_prefix_existing_file_skip(self) -> None:
-        """Test writing bytes to existing storage prefix without overwrite."""
-        test_data = b"test data"
-        mock_client = Mock()
-        mock_client.object_exists.return_value = True
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-        mock_prefix.path = "s3://bucket/test.txt"
-
-        with patch("ray_curator.utils.writer_utils.logger") as mock_logger:
-            write_bytes(
-                test_data,
-                mock_prefix,
-                "test file",
-                "test_video.mp4",
-                verbose=False,
-                client=mock_client,
-            )
-
-            mock_client.object_exists.assert_called_once_with(mock_prefix)
-            mock_client.upload_bytes.assert_not_called()
-            mock_logger.warning.assert_called_once()
-            assert "already exists, skipping" in mock_logger.warning.call_args[0][0]
-
-    def test_write_bytes_to_storage_prefix_existing_file_overwrite(self) -> None:
-        """Test writing bytes to existing storage prefix with overwrite."""
-        test_data = b"test data"
-        mock_client = Mock()
-        mock_client.object_exists.return_value = True
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-        mock_prefix.path = "s3://bucket/test.txt"
-
-        with (
-            patch("ray_curator.utils.writer_utils.do_with_retries") as mock_retry,
-            patch("ray_curator.utils.writer_utils.logger") as mock_logger,
-        ):
-            write_bytes(
-                test_data,
-                mock_prefix,
-                "test file",
-                "test_video.mp4",
-                verbose=False,
-                client=mock_client,
-                overwrite=True,
-            )
-
-            mock_client.object_exists.assert_called_once_with(mock_prefix)
-            mock_retry.assert_called_once()
-            mock_logger.warning.assert_called_once()
-            assert "already exists, overwriting" in mock_logger.warning.call_args[0][0]
-
-    def test_write_bytes_to_storage_prefix_backup_and_overwrite_not_implemented(self) -> None:
-        """Test that backup_and_overwrite raises NotImplementedError for storage prefix."""
-        test_data = b"test data"
-        mock_client = Mock()
-        mock_client.object_exists.return_value = True
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-        mock_prefix.path = "s3://bucket/test.txt"
-
-        with pytest.raises(NotImplementedError, match="Backup and overwrite is not implemented"):
-            write_bytes(
-                test_data,
-                mock_prefix,
-                "test file",
-                "test_video.mp4",
-                verbose=False,
-                client=mock_client,
-                backup_and_overwrite=True,
-            )
-
-    def test_write_bytes_to_storage_prefix_no_client(self) -> None:
-        """Test that storage prefix without client raises ValueError."""
-        test_data = b"test data"
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-
-        with pytest.raises(ValueError, match="S3 client is required for S3 destination"):
-            write_bytes(
-                test_data,
-                mock_prefix,
-                "test file",
-                "test_video.mp4",
-                verbose=False,
-                client=None,
-            )
-
-    def test_write_bytes_to_storage_prefix_verbose(self) -> None:
-        """Test verbose logging for storage prefix writes."""
-        test_data = b"test data"
-        mock_client = Mock()
-        mock_client.object_exists.return_value = False
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-        mock_prefix.path = "s3://bucket/test.txt"
-
-        with (
-            patch("ray_curator.utils.writer_utils.do_with_retries"),
-            patch("ray_curator.utils.writer_utils.logger") as mock_logger,
-        ):
-            write_bytes(
-                test_data,
-                mock_prefix,
-                "test file",
-                "test_video.mp4",
-                verbose=True,
-                client=mock_client,
-            )
-
-            mock_logger.info.assert_called_once()
-            assert "Uploading test file for test_video.mp4" in mock_logger.info.call_args[0][0]
-
-    def test_write_bytes_unexpected_destination_type(self) -> None:
-        """Test that unexpected destination type raises TypeError."""
-        test_data = b"test data"
-
-        with pytest.raises(TypeError, match="Unexpected destination type"):
-            write_bytes(
-                test_data,
-                "invalid_destination",  # type: ignore[arg-type]
-                "test file",
-                "test_video.mp4",
-                verbose=False,
-                client=None,
-            )
 
 
 class TestWriteParquet:
@@ -357,7 +197,6 @@ class TestWriteParquet:
                 "test parquet",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -366,33 +205,6 @@ class TestWriteParquet:
             assert len(df) == 2
             assert df.iloc[0]["name"] == "Alice"
             assert df.iloc[1]["name"] == "Bob"
-
-    def test_write_parquet_to_storage_prefix(self) -> None:
-        """Test writing parquet data to storage prefix."""
-        test_data = [{"name": "Alice", "age": "30"}]
-        mock_client = Mock()
-        mock_client.object_exists.return_value = False
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-
-        with patch("ray_curator.utils.writer_utils.write_bytes") as mock_write_bytes:
-            write_parquet(
-                test_data,
-                mock_prefix,
-                "test parquet",
-                "test_video.mp4",
-                verbose=False,
-                client=mock_client,
-            )
-
-            mock_write_bytes.assert_called_once()
-            args, kwargs = mock_write_bytes.call_args
-
-            # Check that the first argument is bytes (parquet data)
-            assert isinstance(args[0], bytes)
-            assert args[1] == mock_prefix
-            assert args[2] == "test parquet"
-            assert args[3] == "test_video.mp4"
 
     def test_write_parquet_empty_data(self) -> None:
         """Test writing empty parquet data."""
@@ -407,7 +219,6 @@ class TestWriteParquet:
                 "empty parquet",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -431,7 +242,6 @@ class TestWriteJson:
                 "test json",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -454,7 +264,6 @@ class TestWriteJson:
                 "test json",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -463,33 +272,6 @@ class TestWriteJson:
                 loaded_data = json.load(f)
             assert loaded_data["id"] == str(test_uuid)
             assert loaded_data["name"] == "test"
-
-    def test_write_json_to_storage_prefix(self) -> None:
-        """Test writing JSON data to storage prefix."""
-        test_data = {"name": "Alice", "age": 30}
-        mock_client = Mock()
-        mock_client.object_exists.return_value = False
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-
-        with patch("ray_curator.utils.writer_utils.write_bytes") as mock_write_bytes:
-            write_json(
-                test_data,
-                mock_prefix,
-                "test json",
-                "test_video.mp4",
-                verbose=False,
-                client=mock_client,
-            )
-
-            mock_write_bytes.assert_called_once()
-            args, kwargs = mock_write_bytes.call_args
-
-            # Check that the first argument is bytes (JSON data)
-            assert isinstance(args[0], bytes)
-            json_content = args[0].decode("utf-8")
-            loaded_data = json.loads(json_content)
-            assert loaded_data == test_data
 
     def test_write_json_formatting(self) -> None:
         """Test that JSON is properly formatted with indentation."""
@@ -504,7 +286,6 @@ class TestWriteJson:
                 "test json",
                 "test_video.mp4",
                 verbose=False,
-                client=None,
             )
 
             content = dest_path.read_text()
@@ -533,7 +314,6 @@ class TestWriteCsv:
                 "test_video.mp4",
                 test_data,
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -541,34 +321,6 @@ class TestWriteCsv:
             with dest_path.open("r") as f:
                 reader = csv.reader(f)
                 rows = list(reader)
-            assert rows == test_data
-
-    def test_write_csv_to_storage_prefix(self) -> None:
-        """Test writing CSV data to storage prefix."""
-        test_data = [["name", "age"], ["Alice", "30"]]
-        mock_client = Mock()
-        mock_client.object_exists.return_value = False
-
-        mock_prefix = Mock(spec=storage_client.StoragePrefix)
-
-        with patch("ray_curator.utils.writer_utils.write_bytes") as mock_write_bytes:
-            write_csv(
-                mock_prefix,
-                "test csv",
-                "test_video.mp4",
-                test_data,
-                verbose=False,
-                client=mock_client,
-            )
-
-            mock_write_bytes.assert_called_once()
-            args, kwargs = mock_write_bytes.call_args
-
-            # Check that the first argument is bytes (CSV data)
-            assert isinstance(args[0], bytes)
-            csv_content = args[0].decode("utf-8")
-            reader = csv.reader(io.StringIO(csv_content))
-            rows = list(reader)
             assert rows == test_data
 
     def test_write_csv_empty_data(self) -> None:
@@ -584,7 +336,6 @@ class TestWriteCsv:
                 "test_video.mp4",
                 test_data,
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()
@@ -610,7 +361,6 @@ class TestWriteCsv:
                 "test_video.mp4",
                 test_data,
                 verbose=False,
-                client=None,
             )
 
             assert dest_path.exists()

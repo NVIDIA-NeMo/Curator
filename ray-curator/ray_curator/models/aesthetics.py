@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Model Aesthetics."""
 
 from pathlib import Path
@@ -62,22 +76,13 @@ class AestheticScorer(ModelInterface):
     def __init__(self, model_dir: str) -> None:
         """Initialize the aesthetic scorer interface."""
         super().__init__()
-        self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        # Use explicit CUDA device index for consistency with tests
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float32
         self.model_dir = model_dir
         # These will be initialized in setup()
         self.mlp = None
         self.weights_path = None
-
-    @property
-    def conda_env_name(self) -> str:
-        """Get the name of the conda environment required for this model.
-
-        Returns:
-            Name of the conda environment.
-
-        """
-        return "video_splitting"
 
     @property
     def model_id_names(self) -> list[str]:

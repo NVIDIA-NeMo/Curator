@@ -13,8 +13,7 @@ from ray_curator.stages.video.filtering.motion_vector_backend import (
     MotionInfo,
     VideoResolutionTooSmallError,
 )
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import ClipStats, VideoMetadata
+from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
 
 
 class TestMotionVectorDecodeStage:
@@ -23,10 +22,7 @@ class TestMotionVectorDecodeStage:
     def setup_method(self):
         """Set up test fixtures."""
         self.stage = MotionVectorDecodeStage(
-            num_cpus_per_worker=4.0,
-            verbose=False,
-            target_fps=2.0,
-            target_duration_ratio=0.5
+            num_cpus_per_worker=4.0, verbose=False, target_fps=2.0, target_duration_ratio=0.5
         )
 
         # Create a mock video with clips
@@ -42,7 +38,7 @@ class TestMotionVectorDecodeStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[
                 Clip(
@@ -50,23 +46,19 @@ class TestMotionVectorDecodeStage:
                     source_video="test_video.mp4",
                     span=(0.0, 5.0),
                     buffer=b"mock_clip_data_1",
-                    errors={}
+                    errors={},
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
                     source_video="test_video.mp4",
                     span=(5.0, 10.0),
                     buffer=b"mock_clip_data_2",
-                    errors={}
+                    errors={},
                 ),
-            ]
+            ],
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -106,13 +98,7 @@ class TestMotionVectorDecodeStage:
     def test_process_with_empty_buffer(self):
         """Test processing clips with empty buffer."""
         # Create a clip with empty buffer
-        empty_clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0),
-            buffer=None,
-            errors={}
-        )
+        empty_clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0), buffer=None, errors={})
         self.mock_video.clips = [empty_clip]
 
         result = self.stage.process(self.mock_task)
@@ -183,11 +169,7 @@ class TestMotionVectorDecodeStage:
 
     def test_process_with_custom_parameters(self):
         """Test processing with custom parameters."""
-        custom_stage = MotionVectorDecodeStage(
-            num_cpus_per_worker=8.0,
-            target_fps=5.0,
-            target_duration_ratio=0.8
-        )
+        custom_stage = MotionVectorDecodeStage(num_cpus_per_worker=8.0, target_fps=5.0, target_duration_ratio=0.8)
 
         mock_decoded_data = Mock(spec=DecodedData)
         mock_decoded_data.frames = [Mock()]
@@ -216,7 +198,7 @@ class TestMotionFilterStage:
             per_patch_min_256_threshold=0.000001,
             num_gpus_per_worker=0.25,
             motion_filter_batch_size=256,
-            verbose=False
+            verbose=False,
         )
 
         # Create a mock video with clips containing decoded motion data
@@ -232,7 +214,7 @@ class TestMotionFilterStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
             clips=[
                 Clip(
@@ -240,33 +222,23 @@ class TestMotionFilterStage:
                     source_video="test_video.mp4",
                     span=(0.0, 5.0),
                     buffer=b"mock_clip_data_1",
-                    decoded_motion_data=DecodedData(
-                        frames=[Mock()],
-                        frame_size=torch.Size([480, 640, 3])
-                    ),
-                    errors={}
+                    decoded_motion_data=DecodedData(frames=[Mock()], frame_size=torch.Size([480, 640, 3])),
+                    errors={},
                 ),
                 Clip(
                     uuid=uuid.uuid4(),
                     source_video="test_video.mp4",
                     span=(5.0, 10.0),
                     buffer=b"mock_clip_data_2",
-                    decoded_motion_data=DecodedData(
-                        frames=[Mock()],
-                        frame_size=torch.Size([480, 640, 3])
-                    ),
-                    errors={}
+                    decoded_motion_data=DecodedData(frames=[Mock()], frame_size=torch.Size([480, 640, 3])),
+                    errors={},
                 ),
             ],
             filtered_clips=[],
-            clip_stats=ClipStats()
+            clip_stats=ClipStats(),
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test the name property."""
@@ -286,15 +258,20 @@ class TestMotionFilterStage:
     def test_outputs_property(self):
         """Test the outputs property."""
         outputs = self.stage.outputs()
-        assert outputs == (["data"], ["decoded_motion_data", "motion_score_global_mean", "motion_score_per_patch_min_256", "filtered_clips", "clip_stats"])
+        assert outputs == (
+            ["data"],
+            [
+                "decoded_motion_data",
+                "motion_score_global_mean",
+                "motion_score_per_patch_min_256",
+                "filtered_clips",
+                "clip_stats",
+            ],
+        )
 
     def test_process_with_small_motion(self):
         """Test processing clips with small motion."""
-        mock_motion_info = MotionInfo(
-            is_small_motion=True,
-            per_patch_min_256=0.0000005,
-            global_mean=0.0005
-        )
+        mock_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -309,11 +286,7 @@ class TestMotionFilterStage:
 
     def test_process_with_large_motion(self):
         """Test processing clips with large motion."""
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -349,11 +322,7 @@ class TestMotionFilterStage:
         """Test processing with score_only mode."""
         score_only_stage = MotionFilterStage(score_only=True)
 
-        mock_motion_info = MotionInfo(
-            is_small_motion=True,
-            per_patch_min_256=0.0000005,
-            global_mean=0.0005
-        )
+        mock_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -368,17 +337,9 @@ class TestMotionFilterStage:
 
     def test_process_with_mixed_motion_clips(self):
         """Test processing with mixed motion clips."""
-        small_motion_info = MotionInfo(
-            is_small_motion=True,
-            per_patch_min_256=0.0000005,
-            global_mean=0.0005
-        )
+        small_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
-        large_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        large_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             # First clip has small motion, second has large motion
@@ -394,16 +355,9 @@ class TestMotionFilterStage:
 
     def test_process_with_custom_thresholds(self):
         """Test processing with custom thresholds."""
-        custom_stage = MotionFilterStage(
-            global_mean_threshold=0.001,
-            per_patch_min_256_threshold=0.0001
-        )
+        custom_stage = MotionFilterStage(global_mean_threshold=0.001, per_patch_min_256_threshold=0.0001)
 
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.0005,
-            global_mean=0.0008
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.0005, global_mean=0.0008)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -420,11 +374,7 @@ class TestMotionFilterStage:
         """Test processing with GPU enabled."""
         gpu_stage = MotionFilterStage(num_gpus_per_worker=0.1)
 
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -440,11 +390,7 @@ class TestMotionFilterStage:
         """Test processing with GPU disabled."""
         cpu_stage = MotionFilterStage(num_gpus_per_worker=0)
 
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -460,11 +406,7 @@ class TestMotionFilterStage:
         """Test processing with custom batch size."""
         custom_stage = MotionFilterStage(motion_filter_batch_size=128)
 
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -480,11 +422,7 @@ class TestMotionFilterStage:
         """Test processing with verbose mode enabled."""
         verbose_stage = MotionFilterStage(verbose=True)
 
-        mock_motion_info = MotionInfo(
-            is_small_motion=True,
-            per_patch_min_256=0.0000005,
-            global_mean=0.0005
-        )
+        mock_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -496,11 +434,7 @@ class TestMotionFilterStage:
 
     def test_process_cleans_up_decoded_motion_data(self):
         """Test that decoded motion data is cleaned up after processing."""
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -513,11 +447,7 @@ class TestMotionFilterStage:
 
     def test_process_sets_motion_scores(self):
         """Test that motion scores are properly set on clips."""
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
@@ -542,11 +472,7 @@ class TestMotionFilterStage:
 
     def test_process_integration_with_video_task(self):
         """Test integration with VideoTask structure."""
-        mock_motion_info = MotionInfo(
-            is_small_motion=False,
-            per_patch_min_256=0.001,
-            global_mean=0.002
-        )
+        mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
         with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info

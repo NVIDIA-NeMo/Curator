@@ -8,7 +8,7 @@ from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.cosmos_embed1 import CosmosEmbed1
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import VideoTask
+from ray_curator.tasks.video import VideoTask
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
 
 
@@ -19,6 +19,7 @@ class CosmosEmbed1FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including frame extraction,
     model initialization, and input frame creation.
     """
+
     model_dir: str = "models/cosmos_embed1"
     variant: Literal["224p", "336p", "448p"] = "336p"
     target_fps: float = 2.0
@@ -52,7 +53,9 @@ class CosmosEmbed1FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
                 continue
             if self.frame_extraction_signature not in clip.extracted_frames:
                 clip.errors[f"frames-{self.frame_extraction_signature}"] = "missing"
-                logger.error(f"Clip {clip.uuid} has buffer but no extracted frames for {self.frame_extraction_signature}")
+                logger.error(
+                    f"Clip {clip.uuid} has buffer but no extracted frames for {self.frame_extraction_signature}"
+                )
                 continue
 
             frames = clip.extracted_frames[self.frame_extraction_signature]
@@ -82,7 +85,9 @@ class CosmosEmbed1FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
             clip.extracted_frames.clear()
 
         if self.verbose:
-            logger.info(f"Cosmos-Embed1 frame creation stage completed for {len(video.clips)} clips in {video.input_video}")
+            logger.info(
+                f"Cosmos-Embed1 frame creation stage completed for {len(video.clips)} clips in {video.input_video}"
+            )
         return task
 
 
@@ -93,6 +98,7 @@ class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including frame extraction,
     model initialization, and input frame creation.
     """
+
     model_dir: str = "models/cosmos_embed1"
     variant: Literal["224p", "336p", "448p"] = "336p"
     texts_to_verify: list[str] | None = None
@@ -113,10 +119,8 @@ class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
         self.model = CosmosEmbed1(variant=self.variant, utils_only=False, model_dir=self.model_dir)
         self.model.setup()
 
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpu_memory_gb=self.gpu_memory_gb)
-
+    def __post_init__(self) -> None:
+        self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
