@@ -121,10 +121,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
     needs: [pre-flight, cicd-wait-in-queue]
-    runs-on: ${{ matrix.os }}
+    runs-on: linux-amd64-cpu16
     name: L0_Unit_Test_CPU_python-${{ matrix.python-version }}
     environment: nemo-ci
     if: |
