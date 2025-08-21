@@ -72,7 +72,7 @@ video = [
     "einops",
 ]
 video_cuda = [
-    "PyNvVideoCodec==2.0.2",
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "cvcuda_cu12",
     "pycuda",
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
