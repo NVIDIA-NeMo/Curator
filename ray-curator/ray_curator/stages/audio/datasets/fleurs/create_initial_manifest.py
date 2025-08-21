@@ -70,9 +70,6 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioBatch]):
     _name: str = "CreateInitialManifestFleurs"
     _batch_size: int = 1
 
-    def num_workers(self) -> int:
-        return 1
-
     def process_transcript(self, file_path: str) -> list[AudioBatch]:
         """
         Parse transcript TSV file and put it inside manifest.

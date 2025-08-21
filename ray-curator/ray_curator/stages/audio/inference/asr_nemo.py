@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 import nemo.collections.asr as nemo_asr
 import torch
@@ -21,6 +22,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
     """
 
     model_name: str
+    asr_model: Any | None = None
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
     name: str = "ASR_inference"
@@ -31,19 +33,19 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
         return torch.device("cuda") if self.resources.gpus > 0 else torch.device("cpu")
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
-        # TODO: load asr_model file only once per node
-        pass
+        self.setup()
 
     def setup(self, _worker_metadata: WorkerMetadata = None) -> None:
         """Initialise heavy object self.asr_model: nemo_asr.models.ASRModel"""
-        try:
-            map_location = self.check_cuda()
-            self.asr_model = nemo_asr.models.ASRModel.from_pretrained(
-                model_name=self.model_name, map_location=map_location
-            )
-        except Exception as e:
-            msg = f"Failed to download {self.model_name}"
-            raise RuntimeError(msg) from e
+        if not self.asr_model:
+            try:
+                map_location = self.check_cuda()
+                self.asr_model = nemo_asr.models.ASRModel.from_pretrained(
+                    model_name=self.model_name, map_location=map_location
+                )
+            except Exception as e:
+                msg = f"Failed to download {self.model_name}"
+                raise RuntimeError(msg) from e
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
