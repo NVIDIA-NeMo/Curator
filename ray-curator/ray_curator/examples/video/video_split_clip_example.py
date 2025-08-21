@@ -2,6 +2,8 @@ import argparse
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
+from ray_curator.stages.video.caption.caption_generation import CaptionGenerationStage
+from ray_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
 from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
@@ -15,7 +17,7 @@ from ray_curator.stages.video.preview.preview import PreviewStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: C901
+def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: PLR0912, C901
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
@@ -141,12 +143,41 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
             raise ValueError(msg)
 
-    if args.generate_previews:
+    if args.generate_captions:
         pipeline.add_stage(
-            PreviewStage(
-                target_fps=args.preview_target_fps,
-                target_height=args.preview_target_height,
+            CaptionPreparationStage(
+                model_variant=args.captioning_algorithm,
+                prompt_variant=args.captioning_prompt_variant,
+                prompt_text=args.captioning_prompt_text,
+                sampling_fps=args.captioning_sampling_fps,
+                window_size=args.captioning_window_size,
+                remainder_threshold=args.captioning_remainder_threshold,
+                preprocess_dtype=args.captioning_preprocess_dtype,
+                model_does_preprocess=args.captioning_model_does_preprocess,
+                generate_previews=args.generate_previews,
                 verbose=args.verbose,
+            )
+        )
+        if args.generate_previews:
+            pipeline.add_stage(
+                PreviewStage(
+                    target_fps=args.preview_target_fps,
+                    target_height=args.preview_target_height,
+                    verbose=args.verbose,
+                )
+            )
+
+        pipeline.add_stage(
+            CaptionGenerationStage(
+                model_dir=args.model_dir,
+                model_variant=args.captioning_algorithm,
+                caption_batch_size=args.captioning_batch_size,
+                fp8=args.captioning_use_fp8_weights,
+                max_output_tokens=args.captioning_max_output_tokens,
+                model_does_preprocess=args.captioning_model_does_preprocess,
+                generate_stage2_caption=args.captioning_stage2_caption,
+                stage2_prompt_text=args.captioning_stage2_prompt_text,
+                disable_mmcache=not args.captioning_use_vllm_mmcache,
             )
         )
 
@@ -158,10 +189,10 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             dry_run=args.dry_run,
             generate_embeddings=args.generate_embeddings,
             generate_previews=args.generate_previews,
-            generate_captions=False,  # TODO: Change this once we have a caption stage
+            generate_captions=args.generate_captions,
             embedding_algorithm=args.embedding_algorithm,
-            caption_models=None,  # TODO: Add caption models
-            enhanced_caption_models=None,  # TODO: Add enhanced caption models
+            caption_models=[args.captioning_algorithm],
+            enhanced_caption_models=[args.enhanced_caption_models],
             verbose=args.verbose,
         )
     )
@@ -458,6 +489,118 @@ if __name__ == "__main__":
         type=int,
         default=240,
         help="Target height for preview generation.",
+    )
+    parser.add_argument(
+        "--generate-captions",
+        dest="generate_captions",
+        action="store_true",
+        default=False,
+        help="Whether to generate captions for clips.",
+    )
+    parser.add_argument(
+        "--captioning-algorithm",
+        type=str,
+        default="qwen",
+        choices=["qwen"],
+        help="Captioning algorithm to use in annotation pipeline.",
+    )
+    parser.add_argument(
+        "--captioning-window-size",
+        type=int,
+        default=256,
+        help="Window size for captioning algorithm.",
+    )
+    parser.add_argument(
+        "--captioning-remainder-threshold",
+        type=int,
+        default=128,
+        help="Remainder threshold for captioning algorithm.",
+    )
+    parser.add_argument(
+        "--captioning-prompt-variant",
+        type=str,
+        default="default",
+        choices=[
+            "default",
+            "av",
+            "av-surveillance",
+        ],
+        help="Prompt variant for captioning algorithm.",
+    )
+    parser.add_argument(
+        "--captioning-prompt-text",
+        type=str,
+        default=None,
+        help="Prompt text for captioning algorithm.",
+    )
+    parser.add_argument(
+        "--captioning-sampling-fps",
+        type=float,
+        default=2.0,
+        help="Controls number of frames sampled per second from input clip for captioning model",
+    )
+    parser.add_argument(
+        "--captioning-preprocess-dtype",
+        type=str,
+        default="float16",
+        choices=[
+            "float32",
+            "float16",
+            "bfloat16",
+            "uint8",
+        ],
+        help="Precision for tensor preprocess operations in QwenInputPreparationStage.",
+    )
+    parser.add_argument(
+        "--captioning-model-does-preprocess",
+        dest="captioning_model_does_preprocess",
+        action="store_true",
+        default=False,
+        help="If set, Captioning model will handle preprocessing (resize, rescale, normalize) instead of our code.",
+    )
+    parser.add_argument(
+        "--captioning-stage2-caption",
+        dest="captioning_stage2_caption",
+        action="store_true",
+        default=False,
+        help="If set, generated captions are used as input prompts again into QwenVL to refine them",
+    )
+    parser.add_argument(
+        "--captioning-stage2-prompt-text",
+        type=str,
+        default=None,
+        help="Specify the input prompt used to generate stage2 Qwen captions",
+    )
+    parser.add_argument(
+        "--captioning-batch-size",
+        type=int,
+        default=8,
+        help="Batch size for Qwen captioning stage.",
+    )
+    parser.add_argument(
+        "--captioning-use-fp8-weights",
+        action="store_true",
+        default=False,
+        help="Whether to use fp8 weights for Qwen VL model or not.",
+    )
+    parser.add_argument(
+        "--captioning-max-output-tokens",
+        type=int,
+        default=512,
+        help="Max number of output tokens requested from captioning model",
+    )
+    parser.add_argument(
+        "--captioning-use-vllm-mmcache",
+        action="store_true",
+        default=False,
+        help="vLLM MultiModal Cache Usage, default disabled for better performance and GPU Utilization",
+    )
+    parser.add_argument(
+        "--enhanced-caption-models",
+        type=str,
+        default="qwen_lm",
+        choices=["qwen_lm"],
+        help="Enhanced LLM models to use to improve captions",
     )
     args = parser.parse_args()
     main(args)
