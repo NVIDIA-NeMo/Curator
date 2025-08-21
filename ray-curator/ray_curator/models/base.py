@@ -28,16 +28,6 @@ class ModelInterface(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def conda_env_name(self) -> str:
-        """Returns the name of the conda environment that this model must be run from.
-
-        Returns:
-            A string representing the conda environment name.
-
-        """
-
-    @property
-    @abc.abstractmethod
     def model_id_names(self) -> list[str]:
         """Returns a list of model IDs associated with the model.
 

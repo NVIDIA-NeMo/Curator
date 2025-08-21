@@ -8,7 +8,6 @@ from uuid import UUID
 import numpy as np
 import numpy.typing as npt
 
-from ray_curator.stages.video.filtering.motion_vector_backend import DecodedData
 from ray_curator.utils.decoder_utils import extract_video_metadata
 
 from .tasks import Task
@@ -21,7 +20,8 @@ class _Window:
     This class stores information about a video window, including its source, timing,
     extracted frames, motion data, aesthetic scores, and generated captions.
     """
-        # Start frame number of this window
+
+    # Start frame number of this window
     start_frame: int
     # End frame number of this window
     end_frame: int
@@ -68,7 +68,7 @@ class Clip:
     buffer: bytes | None = None
     extracted_frames: dict[str, npt.NDArray[np.uint8]] = field(default_factory=dict)
     # motion
-    decoded_motion_data: DecodedData | None = None
+    decoded_motion_data: None = None  # TODO: Add motion data type in the motion filter PR
     motion_score_global_mean: float | None = None
     motion_score_per_patch_min_256: float | None = None
     # aesthetic
@@ -146,6 +146,7 @@ class Clip:
             total_size += window.get_major_size()
         return total_size
 
+
 @dataclass
 class ClipStats:
     """Statistics for video clips including filtering, transcoding, and captioning results.
@@ -182,6 +183,7 @@ class ClipStats:
         self.total_clip_duration += other.total_clip_duration
         self.max_clip_duration = max(self.max_clip_duration, other.max_clip_duration)
 
+
 @dataclass
 class VideoMetadata:
     """Metadata for video content including dimensions, timing, and codec information.
@@ -210,6 +212,7 @@ class Video:
     This class stores information about a video segment, including its source, timing,
     extracted frames, motion data, aesthetic scores, and generated captions.
     """
+
     input_video: pathlib.Path
     source_bytes: bytes | None = None
     # video metadata
@@ -340,16 +343,18 @@ class Video:
         # TODO: Support StorageClient type input
         return self.input_video.as_posix()
 
+
 @dataclass
 class VideoTask(Task[Video]):
     """
     Task for processing a single video.
     """
+
     data: Video = field(default_factory=Video)
 
     def validate(self) -> bool:
         """Validate the task data."""
-        if not os.path.exists(self.data.input_video):
+        if isinstance(self.data.input_video, pathlib.Path) and not os.path.exists(self.data.input_video):
             print(f"Video {self.data.input_video} does not exist")
             return False
         return True
@@ -358,38 +363,3 @@ class VideoTask(Task[Video]):
     def num_items(self) -> int:
         """Get the number of items in this task."""
         return 1
-
-class SplitPipeTask(Task[Video]):
-    """
-    Task for splitting a video into multiple clips.
-    """
-    data: Video = field(default_factory=Video)
-
-    @property
-    def fraction(self) -> float:
-        """Calculate fraction of processed video in the task.
-
-        Returns:
-            Fraction of processed video.
-
-        """
-        return self.video.fraction
-
-    @property
-    def weight(self) -> float:
-        """Calculate weight of video in the task.
-
-        Returns:
-            Weight of video.
-
-        """
-        return self.video.weight
-
-    def get_major_size(self) -> int:
-        """Calculate memory size of video in the task.
-
-        Returns:
-            Total size in bytes.
-
-        """
-        return self.video.get_major_size()

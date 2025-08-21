@@ -12,8 +12,7 @@ from loguru import logger
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Clip, ClipStats, Video, VideoMetadata, VideoTask
-from ray_curator.utils import storage_client
+from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
 from ray_curator.utils.storage_utils import get_full_path
 from ray_curator.utils.writer_utils import write_bytes, write_json, write_parquet
 
@@ -25,6 +24,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including embedding generation,
     metadata extraction, and writing to storage.
     """
+
     output_path: str
     input_path: str
     upload_clips: bool
@@ -54,7 +54,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return Resources(cpus=0.25)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self.storage_client = None # we currently write everything to a local storage
         self._iv2_embedding_buffer: list[dict[str, Any]] = []
         self._ce1_embedding_buffer: list[dict[str, Any]] = []
 
@@ -115,25 +114,23 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         """Get sha256 of byte array."""
         return hashlib.sha256(buffer).hexdigest()
 
-
     def _write_data(
         self,
         buffer: bytes,
-        dest: storage_client.StoragePrefix | pathlib.Path,
+        dest: pathlib.Path,
         desc: str,
         source_video: str,
     ) -> None:
-        write_bytes(buffer, dest, desc, source_video, verbose=self.verbose, client=self.storage_client)
+        write_bytes(buffer, dest, desc, source_video, verbose=self.verbose)
 
     def _write_json_data(
         self,
         data: dict,  # type: ignore[type-arg]
-        dest: storage_client.StoragePrefix | pathlib.Path,
+        dest: pathlib.Path,
         desc: str,
         source_video: str,
     ) -> None:
-        write_json(data, dest, desc, source_video, verbose=self.verbose, client=self.storage_client)
-
+        write_json(data, dest, desc, source_video, verbose=self.verbose)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
@@ -230,7 +227,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                 "embedding",
                 video.input_path,
                 verbose=self.verbose,
-                client=self.storage_client,
             )
             self._iv2_embedding_buffer.clear()
 
@@ -246,7 +242,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
                 "embedding",
                 video.input_path,
                 verbose=self.verbose,
-                client=self.storage_client,
             )
             self._ce1_embedding_buffer.clear()
 
@@ -256,7 +251,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         window: tuple[int, int],
         path_prefix: str,
         file_type: str,
-    ) -> storage_client.StoragePrefix | pathlib.Path:
+    ) -> pathlib.Path:
         output_window_file = f"{window[0]}_{window[1]}.{file_type}"
         return get_full_path(path_prefix, str(video_span_uuid), output_window_file)
 
@@ -265,11 +260,11 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         video_span_uuid: uuid.UUID,
         path_prefix: str,
         file_type: str,
-    ) -> storage_client.StoragePrefix | pathlib.Path:
+    ) -> pathlib.Path:
         output_clip_file = f"{video_span_uuid}.{file_type}"
         return get_full_path(path_prefix, output_clip_file)
 
-    def _get_video_uri(self, input_video_path: str) -> storage_client.StoragePrefix | pathlib.Path:
+    def _get_video_uri(self, input_video_path: str) -> pathlib.Path:
         if not input_video_path.startswith(self.input_path):
             msg = f"Input video path {input_video_path} does not start with {self.input_path}"
             raise ValueError(msg)
@@ -277,7 +272,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         output_path_videos = self.get_output_path_processed_videos(self.output_path)
         return get_full_path(output_path_videos, video_metadata_path)
 
-    def _get_clip_chunk_uri(self, input_video_path: str, idx: int) -> storage_client.StoragePrefix | pathlib.Path:
+    def _get_clip_chunk_uri(self, input_video_path: str, idx: int) -> pathlib.Path:
         if not input_video_path.startswith(self.input_path):
             msg = f"Input video path {input_video_path} does not start with {self.input_path}"
             raise ValueError(msg)
@@ -447,10 +442,7 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
         return clip_stats
 
     def _write_video_metadata(self, video: Video) -> None:
-        if isinstance(video.input_video, storage_client.StoragePrefix):
-            input_video_path = video.input_video.path
-        else:
-            input_video_path = video.input_video.as_posix()
+        input_video_path = video.input_video.as_posix()
         data: dict[str, Any] = {}
         # write video-level metadata from the first clip chunk
         if video.clip_chunk_index == 0:

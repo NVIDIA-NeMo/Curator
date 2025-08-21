@@ -1,6 +1,5 @@
 arxiv==2.1.0
 arxiv-downloader
-cchardet
 nltk==3.8.1
 pdfminer.six==20221105
 poppler-utils

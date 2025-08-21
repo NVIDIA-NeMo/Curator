@@ -1,6 +1,5 @@
 enabled: true
 additional_trustees:
-  - ryantwolf
   - ericharper
   - ko3n1g
   - chtruong814
@@ -12,8 +11,10 @@ additional_trustees:
   - singhva
   - VibhuJawa
   - arhamm1
+  - suiyoubi
+  - abhinavg4
+  - huvunvidia
 additional_vetters:
-  - ryantwolf
   - ericharper
   - ko3n1g
   - chtruong814
@@ -25,5 +26,8 @@ additional_vetters:
   - singhva
   - VibhuJawa
   - arhamm1
+  - suiyoubi
+  - abhinavg4
+  - huvunvidia
 auto_sync_draft: false
 auto_sync_ready: true

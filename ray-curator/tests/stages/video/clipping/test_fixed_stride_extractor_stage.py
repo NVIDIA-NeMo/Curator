@@ -7,8 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from ray_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
-from ray_curator.tasks import Clip, Video, VideoTask
-from ray_curator.tasks.video import VideoMetadata
+from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 
 class TestFixedStrideExtractorStage:
@@ -17,10 +16,7 @@ class TestFixedStrideExtractorStage:
     def setup_method(self):
         """Set up test fixtures."""
         self.stage = FixedStrideExtractorStage(
-            clip_len_s=5.0,
-            clip_stride_s=2.5,
-            min_clip_length_s=1.0,
-            limit_clips=10
+            clip_len_s=5.0, clip_stride_s=2.5, min_clip_length_s=1.0, limit_clips=10
         )
 
         # Create a mock video with complete metadata
@@ -36,16 +32,12 @@ class TestFixedStrideExtractorStage:
                 video_codec="h264",
                 pixel_format="yuv420p",
                 audio_codec="aac",
-                bit_rate_k=5000
+                bit_rate_k=5000,
             ),
-            clips=[]
+            clips=[],
         )
 
-        self.mock_task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=self.mock_video
-        )
+        self.mock_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=self.mock_video)
 
     def test_name_property(self):
         """Test that the name property returns the correct value."""
@@ -98,11 +90,7 @@ class TestFixedStrideExtractorStage:
         """Test processing when video already has clips and limit is reached."""
         # Add existing clips to reach the limit
         for i in range(self.stage.limit_clips):
-            clip = Clip(
-                uuid=uuid.uuid4(),
-                source_video="test_video.mp4",
-                span=(i * 5.0, (i + 1) * 5.0)
-            )
+            clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(i * 5.0, (i + 1) * 5.0))
             self.mock_video.clips.append(clip)
 
         result = self.stage.process(self.mock_task)
@@ -156,16 +144,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=600,  # 20 seconds at 30fps
                 duration=20.0,
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -180,7 +164,7 @@ class TestFixedStrideExtractorStage:
             (10.0, 15.0),
             (12.5, 17.5),
             (15.0, 20.0),
-            (17.5, 20.0)
+            (17.5, 20.0),
         ]
 
         assert len(result.data.clips) == len(expected_clips)
@@ -193,8 +177,7 @@ class TestFixedStrideExtractorStage:
             expected_start_event = int(expected_span[0] * video.metadata.framerate)
             expected_end_event = int(expected_span[1] * video.metadata.framerate)
             expected_uuid = uuid.uuid5(
-                uuid.NAMESPACE_URL,
-                f"test_video.mp4_{expected_start_event}_{expected_end_event}"
+                uuid.NAMESPACE_URL, f"test_video.mp4_{expected_start_event}_{expected_end_event}"
             )
             assert clip.uuid == expected_uuid
 
@@ -205,7 +188,7 @@ class TestFixedStrideExtractorStage:
             clip_len_s=2.0,
             clip_stride_s=1.0,
             min_clip_length_s=3.0,  # Longer than clip_len_s
-            limit_clips=10
+            limit_clips=10,
         )
 
         video = Video(
@@ -217,16 +200,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=600,  # 20 seconds
                 duration=20.0,
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -239,7 +218,7 @@ class TestFixedStrideExtractorStage:
             clip_len_s=1.0,
             clip_stride_s=0.5,
             min_clip_length_s=0.5,
-            limit_clips=3  # Limit to 3 clips
+            limit_clips=3,  # Limit to 3 clips
         )
 
         video = Video(
@@ -251,25 +230,17 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=900,  # 30 seconds
                 duration=30.0,
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
         # Add existing clips to reach the limit
         for i in range(stage.limit_clips):
-            clip = Clip(
-                uuid=uuid.uuid4(),
-                source_video="test_video.mp4",
-                span=(i * 1.0, (i + 1) * 1.0)
-            )
+            clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(i * 1.0, (i + 1) * 1.0))
             video.clips.append(clip)
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -282,7 +253,7 @@ class TestFixedStrideExtractorStage:
             clip_len_s=5.0,
             clip_stride_s=2.5,
             min_clip_length_s=1.0,
-            limit_clips=0  # No limit
+            limit_clips=0,  # No limit
         )
 
         result = stage.process(self.mock_task)
@@ -303,16 +274,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=30,  # 1 second
                 duration=1.0,
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -331,16 +298,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=150,  # 5 seconds (exactly clip_len_s)
                 duration=5.0,
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -395,7 +358,7 @@ class TestFixedStrideExtractorStage:
                 clip_len_s=clip_len_s,
                 clip_stride_s=clip_stride_s,
                 min_clip_length_s=min_clip_length_s,
-                limit_clips=limit_clips
+                limit_clips=limit_clips,
             )
 
             # Create a fresh video for each test case
@@ -411,16 +374,12 @@ class TestFixedStrideExtractorStage:
                     video_codec="h264",
                     pixel_format="yuv420p",
                     audio_codec="aac",
-                    bit_rate_k=5000
+                    bit_rate_k=5000,
                 ),
-                clips=[]
+                clips=[],
             )
 
-            task = VideoTask(
-                task_id="test_task",
-                dataset_name="test_dataset",
-                data=video
-            )
+            task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
             result = stage.process(task)
 
@@ -439,7 +398,7 @@ class TestFixedStrideExtractorStage:
             clip_len_s=1.0,
             clip_stride_s=0.5,
             min_clip_length_s=0.5,
-            limit_clips=3  # This currently only applies to existing clips
+            limit_clips=3,  # This currently only applies to existing clips
         )
 
         video = Video(
@@ -451,16 +410,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=150,  # 5 seconds
                 duration=5.0,
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = stage.process(task)
 
@@ -480,16 +435,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=150,
                 duration=5.0,
-                video_codec=None  # Missing codec
+                video_codec=None,  # Missing codec
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -510,16 +461,12 @@ class TestFixedStrideExtractorStage:
                 framerate=30.0,
                 num_frames=1,  # Very small number of frames
                 duration=0.033,  # About 1/30 second
-                video_codec="h264"
+                video_codec="h264",
             ),
-            clips=[]
+            clips=[],
         )
 
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
