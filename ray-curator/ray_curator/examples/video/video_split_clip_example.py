@@ -658,6 +658,7 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Prompt text for further enhancing captions using EnhanceCaptionStage w/ Qwen-LM.",
+    )
     parser.add_argument(
         "--enhanced-caption-models",
         type=str,
