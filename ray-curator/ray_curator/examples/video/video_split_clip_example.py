@@ -15,7 +15,7 @@ from ray_curator.stages.video.preview.preview import PreviewStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline: # noqa: C901
+def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: C901
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
@@ -142,11 +142,13 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline: # noq
             raise ValueError(msg)
 
     if args.generate_previews:
-        pipeline.add_stage(PreviewStage(
-            target_fps=args.preview_target_fps,
-            target_height=args.preview_target_height,
-            verbose=args.verbose,
-        ))
+        pipeline.add_stage(
+            PreviewStage(
+                target_fps=args.preview_target_fps,
+                target_height=args.preview_target_height,
+                verbose=args.verbose,
+            )
+        )
 
     pipeline.add_stage(
         ClipWriterStage(
