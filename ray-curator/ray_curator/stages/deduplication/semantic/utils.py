@@ -14,15 +14,14 @@
 
 from typing import TYPE_CHECKING
 
-import pyarrow.parquet as pq
-from fsspec.parquet import open_parquet_file
-
 if TYPE_CHECKING:
     import cudf
     import cupy as cp
 
 from typing import Any
 
+import pyarrow.parquet as pq
+from fsspec.parquet import open_parquet_file
 from loguru import logger
 
 
@@ -54,8 +53,8 @@ def break_parquet_partition_into_groups(
 
     # Break files into subgroups
     subgroups = [files[i : i + max_files_per_subgroup] for i in range(0, len(files), max_files_per_subgroup)]
-
-    logger.debug(
-        f"Broke {len(files)} files into {len(subgroups)} subgroups with max {max_files_per_subgroup} files per subgroup"
-    )
+    if len(subgroups) > 1:
+        logger.debug(
+            f"Broke {len(files)} files into {len(subgroups)} subgroups with max {max_files_per_subgroup} files per subgroup"
+        )
     return subgroups

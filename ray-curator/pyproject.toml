@@ -23,7 +23,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
+    "cosmos-xenna",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
