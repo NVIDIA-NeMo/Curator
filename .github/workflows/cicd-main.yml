@@ -161,11 +161,6 @@ jobs:
 
           cd ray-curator
           uv sync --link-mode copy --locked --extra text --extra video --group test
-
-      - name: Run tests (CPU)
-        run: |
-          source ./venv/bin/activate
-          cd ray-curator
           uv run coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
