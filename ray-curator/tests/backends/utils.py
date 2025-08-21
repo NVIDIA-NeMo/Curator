@@ -104,7 +104,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
         """Process a batch of tasks and add length field."""
         # Get the counter actor by name
-        counter_actor = ray.get_actor("stage_call_counter")
+        counter_actor = ray.get_actor("stage_call_counter", namespace="stage_call_counter")
         stage_identifier = f"{self._name}_{self.column_name}"
         ray.get(counter_actor.increment.remote(stage_identifier))
 
@@ -225,7 +225,11 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, A
 
     # Create a named counter actor that can be referenced by name
     # we use detached lifetime so that the actor is not killed until the end of the test
-    StageCallCounter.options(name="stage_call_counter", lifetime="detached").remote(output_dir)
+    ray.init(ignore_reinit_error=True)
+    StageCallCounter.options(name="stage_call_counter", namespace="stage_call_counter", lifetime="detached").remote(
+        output_dir
+    )
+    ray.shutdown()
 
     pipeline = Pipeline(
         name="integration_test_pipeline", description="Integration test pipeline for backend comparison"

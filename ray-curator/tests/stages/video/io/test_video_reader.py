@@ -90,16 +90,6 @@ class TestVideoReaderStage:
             assert result is True
             assert video.source_bytes == b""
 
-    def test_download_video_bytes_s3_error(self) -> None:
-        """Test _download_video_bytes raises error for S3 paths."""
-        video = Video(input_video="s3://bucket/video.mp4")
-        stage = VideoReaderStage()
-
-        result = stage._download_video_bytes(video)
-
-        assert result is False
-        assert "S3 client is required" in video.errors["download"]
-
     def test_extract_and_validate_metadata_success(self) -> None:
         """Test _extract_and_validate_metadata with successful metadata extraction."""
         video = Video(input_video=pathlib.Path("/test/video.mp4"))
@@ -178,18 +168,7 @@ class TestVideoReaderStage:
             assert result.task_id == f"{file_path}_processed"
             assert result.dataset_name == "test_dataset"
             assert isinstance(result.data, Video)
-            assert result.data.input_video == pathlib.Path(file_path)
-
-    def test_process_multiple_files_error(self) -> None:
-        """Test process method raises error with multiple files."""
-        file_group_task = FileGroupTask(
-            task_id="test_task", dataset_name="test_dataset", data=["/test/video1.mp4", "/test/video2.mp4"]
-        )
-
-        stage = VideoReaderStage()
-
-        with pytest.raises(ValueError, match="Expected 1 file, got 2"):
-            stage.process(file_group_task)
+            assert result.data.input_video == file_path
 
     def test_process_download_failure(self) -> None:
         """Test process method when download fails."""
@@ -258,7 +237,7 @@ class TestVideoReaderStage:
             mock_log.assert_called_once()
             # Check that the video passed to log method has the correct input_video
             logged_video = mock_log.call_args[0][0]
-            assert logged_video.input_video == pathlib.Path(file_path)
+            assert logged_video.input_video == file_path
 
     def test_download_video_bytes_error_handling(self) -> None:
         """Test _download_video_bytes error handling and logging."""
@@ -420,15 +399,6 @@ class TestVideoReaderStage:
         assert formatted["weight"] == "unknown"
         assert formatted["bit_rate"] == "3000K"
 
-    def test_process_no_files_error(self) -> None:
-        """Test process method raises error with no files."""
-        file_group_task = FileGroupTask(task_id="test_task", dataset_name="test_dataset", data=[])
-
-        stage = VideoReaderStage()
-
-        with pytest.raises(ValueError, match="Expected 1 file, got 0"):
-            stage.process(file_group_task)
-
     def test_process_creates_correct_task_id(self) -> None:
         """Test process method creates correct task ID from file path."""
         test_cases = [
@@ -516,17 +486,6 @@ class TestVideoReaderStage:
             assert result is False
             mock_warn.assert_called_with("Failed to extract metadata for /test/corrupted.mp4: Corrupted file")
 
-    def test_s3_path_error_message(self) -> None:
-        """Test that S3 path error contains proper message."""
-        video = Video(input_video="s3://my-bucket/videos/test.mp4")
-        stage = VideoReaderStage()
-
-        result = stage._download_video_bytes(video)
-
-        assert result is False
-        assert "download" in video.errors
-        assert "S3 client is required for S3 destination" in video.errors["download"]
-
     @pytest.mark.parametrize("file_extension", [".mp4", ".avi", ".mov", ".mkv", ".webm"])
     def test_process_with_various_file_extensions(self, file_extension: str) -> None:
         """Test process method works with various video file extensions."""
@@ -541,7 +500,7 @@ class TestVideoReaderStage:
             result = stage.process(file_group_task)
 
             assert isinstance(result, VideoTask)
-            assert result.data.input_video == pathlib.Path(file_path)
+            assert result.data.input_video == file_path
 
     def test_deepcopy_preservation(self) -> None:
         """Test that deepcopy correctly preserves metadata and stage performance."""

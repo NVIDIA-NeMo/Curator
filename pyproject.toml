@@ -103,6 +103,7 @@ cuda12x_nightly = [
 ]
 # Installs CPU + GPU text and image curation modules
 image = [
+    "nvidia-dali",
     "nvidia-dali-cuda120",
     "nvidia-nvjpeg2k-cu12",
     "timm>=1.0.8",
@@ -110,6 +111,7 @@ image = [
 ]
 # Installs CPU + GPU text and image curation modules with RAPIDS Nightlies
 image_nightly = [
+    "nvidia-dali",
     "nvidia-dali-cuda120",
     "nvidia-nvjpeg2k-cu12",
     "timm>=1.0.8",

@@ -3,20 +3,26 @@ import argparse
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage, FixedStrideExtractorStage
+from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
+from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
+from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
+from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
+from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
+from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader import VideoReader
+from ray_curator.stages.video.preview.preview import PreviewStage
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
-
+def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: C901
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReader(
-        input_video_path=args.video_folder,
-        video_limit=args.video_limit,
-        verbose=args.verbose
-    ))
+    pipeline.add_stage(
+        VideoReader(input_video_path=args.video_dir, video_limit=args.video_limit, verbose=args.verbose)
+    )
 
     if args.splitting_algorithm == "fixed_stride":
         pipeline.add_stage(
@@ -27,26 +33,143 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 limit_clips=args.limit_clips,
             )
         )
+    elif args.splitting_algorithm == "transnetv2":
+        pipeline.add_stage(
+            VideoFrameExtractionStage(
+                decoder_mode=args.transnetv2_frame_decoder_mode,
+                verbose=args.verbose,
+            )
+        )
+        pipeline.add_stage(
+            TransNetV2ClipExtractionStage(
+                model_dir=args.model_dir,
+                threshold=args.transnetv2_threshold,
+                min_length_s=args.transnetv2_min_length_s,
+                max_length_s=args.transnetv2_max_length_s,
+                max_length_mode=args.transnetv2_max_length_mode,
+                crop_s=args.transnetv2_crop_s,
+                gpu_memory_gb=args.transnetv2_gpu_memory_gb,
+                limit_clips=args.limit_clips,
+                verbose=args.verbose,
+            )
+        )
     else:
         msg = f"Splitting algorithm {args.splitting_algorithm} not supported"
         raise ValueError(msg)
 
-    pipeline.add_stage(ClipTranscodingStage(
-        num_cpus_per_worker=args.transcode_cpus_per_worker,
-        encoder=args.transcode_encoder,
-        encoder_threads=args.transcode_encoder_threads,
-        encode_batch_size=args.transcode_ffmpeg_batch_size,
-        use_hwaccel=args.transcode_use_hwaccel,
-        use_input_bit_rate=args.transcode_use_input_video_bit_rate,
-        num_clips_per_chunk=args.clip_re_chunk_size,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ClipTranscodingStage(
+            num_cpus_per_worker=args.transcode_cpus_per_worker,
+            encoder=args.transcode_encoder,
+            encoder_threads=args.transcode_encoder_threads,
+            encode_batch_size=args.transcode_ffmpeg_batch_size,
+            use_hwaccel=args.transcode_use_hwaccel,
+            use_input_bit_rate=args.transcode_use_input_video_bit_rate,
+            num_clips_per_chunk=args.clip_re_chunk_size,
+            verbose=args.verbose,
+        )
+    )
+
+    if args.motion_filter != "disable":
+        pipeline.add_stage(
+            MotionVectorDecodeStage(
+                target_fps=args.motion_decode_target_fps,
+                target_duration_ratio=args.motion_decode_target_duration_ratio,
+                num_cpus_per_worker=args.motion_decode_cpus_per_worker,
+            )
+        )
+        pipeline.add_stage(
+            MotionFilterStage(
+                score_only=args.motion_filter == "score-only",
+                global_mean_threshold=args.motion_global_mean_threshold,
+                per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
+                num_gpus_per_worker=args.motion_score_gpus_per_worker,
+                motion_filter_batch_size=args.motion_score_batch_size,
+                verbose=args.verbose,
+            )
+        )
+
+    has_embeddings = args.generate_embeddings
+    has_aesthetics = args.aesthetic_threshold is not None
+    purposes = []
+    if has_aesthetics:
+        purposes.append(FramePurpose.AESTHETICS)
+    if has_embeddings:
+        purposes.append(FramePurpose.EMBEDDINGS)
+    if len(purposes) != 0:
+        pipeline.add_stage(
+            ClipFrameExtractionStage(
+                extraction_policies=(FrameExtractionPolicy.sequence,),
+                extract_purposes=purposes,
+                target_res=(
+                    args.clip_extraction_target_res,
+                    args.clip_extraction_target_res,
+                ),
+                verbose=args.verbose,
+            )
+        )
+    if args.aesthetic_threshold is not None:
+        pipeline.add_stage(
+            ClipAestheticFilterStage(
+                model_dir=args.model_dir,
+                score_threshold=args.aesthetic_threshold,
+                reduction=args.aesthetic_reduction,
+                num_gpus_per_worker=args.aesthetic_gpus_per_worker,
+                verbose=args.verbose,
+            )
+        )
+    if args.generate_embeddings:
+        if args.embedding_algorithm.startswith("cosmos-embed1"):
+            variant = args.embedding_algorithm.split("-")[-1]
+            pipeline.add_stage(
+                CosmosEmbed1FrameCreationStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    target_fps=FramePurpose.EMBEDDINGS.value,
+                    verbose=args.verbose,
+                )
+            )
+            pipeline.add_stage(
+                CosmosEmbed1EmbeddingStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    gpu_memory_gb=args.embedding_gpu_memory_gb,
+                    verbose=args.verbose,
+                )
+            )
+        else:
+            msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
+            raise ValueError(msg)
+
+    if args.generate_previews:
+        pipeline.add_stage(
+            PreviewStage(
+                target_fps=args.preview_target_fps,
+                target_height=args.preview_target_height,
+                verbose=args.verbose,
+            )
+        )
+
+    pipeline.add_stage(
+        ClipWriterStage(
+            output_path=args.output_clip_path,
+            input_path=args.video_dir,
+            upload_clips=args.upload_clips,
+            dry_run=args.dry_run,
+            generate_embeddings=args.generate_embeddings,
+            generate_previews=args.generate_previews,
+            generate_captions=False,  # TODO: Change this once we have a caption stage
+            embedding_algorithm=args.embedding_algorithm,
+            caption_models=None,  # TODO: Add caption models
+            enhanced_caption_models=None,  # TODO: Add enhanced caption models
+            verbose=args.verbose,
+        )
+    )
 
     return pipeline
 
 
 def main(args: argparse.Namespace) -> None:
-
     pipeline = create_video_splitting_pipeline(args)
 
     # Print pipeline description
@@ -63,13 +186,16 @@ def main(args: argparse.Namespace) -> None:
     # Print results
     print("\nPipeline completed!")
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
-    parser.add_argument("--video-folder", type=str, default="/home/aot/Videos")
+    parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
+    parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
-    parser.add_argument("--output-clip-path", type=str, default="/mnt/mint/output")
+    parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
+
     parser.add_argument(
         "--no-upload-clips",
         dest="upload_clips",
@@ -116,6 +242,43 @@ if __name__ == "__main__":
         default="pynvc",
         choices=["pynvc", "ffmpeg_gpu", "ffmpeg_cpu"],
         help="Choose between ffmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
+    )
+    parser.add_argument(
+        "--transnetv2-threshold",
+        type=float,
+        default=0.4,
+        help="Threshold for transnetv2 clip extraction stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-min-length-s",
+        type=float,
+        default=2.0,
+        help="Minimum length of clips (in seconds) for transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-max-length-s",
+        type=float,
+        default=10.0,
+        help="Maximum length of clips (in seconds) for transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-max-length-mode",
+        type=str,
+        default="stride",
+        choices=["truncate", "stride"],
+        help="Mode for handling clips longer than max_length_s in transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-crop-s",
+        type=float,
+        default=0.5,
+        help="Crop length (in seconds) for transnetv2 splitting stage.",
+    )
+    parser.add_argument(
+        "--transnetv2-gpu-memory-gb",
+        type=float,
+        default=10.0,
+        help="GPU memory (in GB) for transnetv2 splitting stage.",
     )
 
     # Transcoding arguments
@@ -234,7 +397,6 @@ if __name__ == "__main__":
         default=-1,
         help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
     )
-
     # Aesthetic arguments
     parser.add_argument(
         "--aesthetic-threshold",
@@ -242,19 +404,34 @@ if __name__ == "__main__":
         default=None,
         help="If specified (e.g. 3.5), filter out clips with an aesthetic score below this threshold.",
     )
+    parser.add_argument(
+        "--aesthetic-reduction",
+        choices=[
+            "mean",
+            "min",
+        ],
+        default="min",
+        help="Method to reduce the frame-level aesthetic scores.",
+    )
+    parser.add_argument(
+        "--aesthetic-gpus-per-worker",
+        type=float,
+        default=0.25,
+        help="Number of GPUs per worker allocated to aesthetic filter.",
+    )
     # Embedding arguments
     parser.add_argument(
         "--embedding-algorithm",
         type=str,
-        default="internvideo2",
-        choices=["cosmos-embed1", "internvideo2"],
+        default="cosmos-embed1-224p",
+        choices=["cosmos-embed1-224p", "cosmos-embed1-336p", "cosmos-embed1-448p", "internvideo2"],
         help="Embedding algorithm to use.",
     )
     parser.add_argument(
-        "--embedding-gpus-per-worker",
+        "--embedding-gpu-memory-gb",
         type=float,
-        default=1.0,
-        help="Number of GPUs per worker for InternVideo2 or Cosmos-Embed1 embedding stage.",
+        default=20.0,
+        help="GPU memory in GB per worker for Cosmos-Embed1 embedding stage.",
     )
     parser.add_argument(
         "--no-generate-embeddings",
@@ -262,6 +439,25 @@ if __name__ == "__main__":
         action="store_false",
         default=True,
         help="Whether to generate embeddings for clips.",
+    )
+    parser.add_argument(
+        "--generate-previews",
+        dest="generate_previews",
+        action="store_true",
+        default=False,
+        help="Whether to generate previews for clip windows.",
+    )
+    parser.add_argument(
+        "--preview-target-fps",
+        type=int,
+        default=1,
+        help="Target FPS for preview generation.",
+    )
+    parser.add_argument(
+        "--preview-target-height",
+        type=int,
+        default=240,
+        help="Target height for preview generation.",
     )
     args = parser.parse_args()
     main(args)

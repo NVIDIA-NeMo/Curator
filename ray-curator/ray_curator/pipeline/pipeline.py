@@ -166,7 +166,7 @@ class Pipeline:
 
         return "\n".join(lines)
 
-    def run(self, executor: BaseExecutor, initial_tasks: list[Task] | None = None) -> list[Task] | None:
+    def run(self, executor: BaseExecutor | None = None, initial_tasks: list[Task] | None = None) -> list[Task] | None:
         """Run the pipeline.
 
         Args:
@@ -177,4 +177,9 @@ class Pipeline:
             list[Task] | None: List of tasks
         """
         self.build()
+        if executor is None:
+            from ray_curator.backends.xenna import XennaExecutor
+
+            executor = XennaExecutor()
+
         return executor.execute(self.stages, initial_tasks)

@@ -42,6 +42,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
+        cache_dir: The Hugging Face cache directory. Defaults to None.
         hf_token: Hugging Face token for downloading the model, if needed. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -58,6 +59,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        cache_dir: str | None = None,
         hf_token: str | None = None,
         text_field: str = "text",
         max_chars: int | None = None,
@@ -69,6 +71,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self._name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
 
         self.model_identifier = model_identifier
+        self.cache_dir = cache_dir
         self.hf_token = hf_token
         self.text_field = text_field
         self.max_chars = max_chars
@@ -90,18 +93,30 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(repo_id=self.model_identifier, token=self.hf_token, local_files_only=False)
+            snapshot_download(
+                repo_id=self.model_identifier,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+            self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
     @lru_cache(maxsize=1)  # noqa: B019
-    def load_cfg(self) -> AutoConfig:
-        return AutoConfig.from_pretrained(self.model_identifier, local_files_only=True)
+    def load_cfg(self, local_files_only: bool = True) -> AutoConfig:
+        return AutoConfig.from_pretrained(
+            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only
+        )
 
-    def setup(self, _: WorkerMetadata | None = None) -> None:
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_identifier, padding_side=self.padding_side, local_files_only=True
+            self.model_identifier,
+            padding_side=self.padding_side,
+            cache_dir=self.cache_dir,
+            local_files_only=local_files_only,
         )
         if self.unk_token:
             self.tokenizer.pad_token = self.tokenizer.unk_token
@@ -112,7 +127,10 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             # Guard against the HF bug
             # which sets max_seq_length to max(int) for some models
             if self.max_seq_length > 1e5:  # noqa: PLR2004
-                self.max_seq_length = self.load_cfg().max_position_embeddings
+                self.max_seq_length = self.load_cfg(local_files_only=local_files_only).max_position_embeddings
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()

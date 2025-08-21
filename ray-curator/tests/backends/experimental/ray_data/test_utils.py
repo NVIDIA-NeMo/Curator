@@ -19,7 +19,9 @@ class TestGetAvailableCpuGpuResources:
         # Test with Ray resources from conftest.py
         cpus, gpus = get_available_cpu_gpu_resources()
         assert cpus == 11
-        assert gpus == 0.0
+        # GPU count depends on whether GPU tests are running in this session
+        # Can be 0 (CPU-only) or 2 (GPU-enabled) depending on test selection
+        assert gpus in [0.0, 2.0]
 
     @patch("ray.available_resources", return_value={"CPU": 4.0, "node:10.0.0.1": 1.0, "memory": 1000000000})
     def test_get_available_cpu_gpu_resources_mock_no_gpus(self, mock_available_resources: MagicMock):

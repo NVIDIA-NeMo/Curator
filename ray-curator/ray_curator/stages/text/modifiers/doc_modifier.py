@@ -19,9 +19,12 @@ class DocumentModifier(ABC):
     """
     Abstract base class for text-based document modifiers.
 
-    Subclasses must implement `modify_document` to transform input text and
-    return the modified text. The `backend` property can be overridden to
-    signal a specific dataframe backend requirement.
+    Subclasses must implement `modify_document` to transform input value(s)
+    and return the modified value. This supports both single-input and
+    multi-input usage:
+    - Single input: `modify_document(value)`
+    - Multiple inputs: `modify_document(**values)` where each input field is
+      expanded as a keyword argument (e.g., `modify_document(column_1=..., column_2=...)`).
     """
 
     def __init__(self) -> None:
@@ -32,8 +35,8 @@ class DocumentModifier(ABC):
         self._ngrams = None
 
     @abstractmethod
-    def modify_document(self, text: str) -> str:
-        """Transform the provided document text and return the result."""
+    def modify_document(self, *args: object, **kwargs: object) -> object:
+        """Transform the provided value(s) and return the result."""
         raise NotImplementedError
 
     @property

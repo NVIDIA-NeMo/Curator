@@ -8,9 +8,9 @@ content_type: "reference"
 modality: "universal"
 ---
 
-(reference-execution-backends)=
-
 <!-- TODO: further elaborate on what Xenna is and what Ray Data is, and detailed explanations for each parameter -->
+
+(reference-execution-backends)=
 
 # Pipeline Execution Backends
 
@@ -69,29 +69,12 @@ results = pipeline.run(executor)
 
 - Emits an experimental warning; the API and performance characteristics may change.
 
-### `RayActorPoolExecutor` (experimental)
-
-```python
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-
-executor = RayActorPoolExecutor(
-    config={
-        # Optional capacity reservations used by the actor planning logic
-        "reserved_cpus": 0.0,
-        "reserved_gpus": 0.0,
-    }
-)
-results = pipeline.run(executor)
-```
-
-- Uses Ray’s `ActorPool` for fine-grained load balancing and back-pressure control.
-
 ## Choosing a Backend
 
 Both options can deliver strong performance; choose based on API fit and maturity:
 
 - **`XennaExecutor`**: default for most workloads due to maturity and extensive real‑world usage (including video pipelines); supports streaming and batch execution with auto‑scaling.
-- **Ray Data (experimental)**: a good fit when your pipeline uses Ray Data datasets/APIs; the interface is still experimental and may change.
+- **`RayDataExecutor`(experimental)**: uses Ray Data API for scalable data processing; the interface is still experimental and may change.
 
 ## Minimal End-to-End example
 

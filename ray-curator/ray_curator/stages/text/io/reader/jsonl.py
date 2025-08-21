@@ -22,6 +22,8 @@ import pyarrow as pa
 import pyarrow.json as pj
 from loguru import logger
 
+from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import CompositeStage, ProcessingStage
 from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import DocumentBatch, FileGroupTask, _EmptyTask
@@ -34,18 +36,50 @@ class JsonlReaderStage(ProcessingStage[FileGroupTask, DocumentBatch]):
     This stage accepts FileGroupTasks created by FilePartitioningStage
     and reads the actual file contents into DocumentBatches.
 
+    Args:
+        columns (list[str], optional): If specified, only read these columns. Defaults to None.
+        reader (str, optional): Reader to use ("pyarrow" or "pandas"). Defaults to "pandas".
+        reader_kwargs (dict[str, Any], optional): Keyword arguments for the reader. Defaults to {}.
+        _generate_ids (bool): Whether to generate monotonically increasing IDs across all files.
+            This uses IdGenerator actor, which needs to be instantiated before using this stage.
+            This can be slow, so it is recommended to use AddId stage instead, unless monotonically increasing IDs
+            are required.
+        _assign_ids (bool): Whether to assign monotonically increasing IDs from an IdGenerator.
+            This uses IdGenerator actor, which needs to be instantiated before using this stage.
+            This can be slow, so it is recommended to use AddId stage instead, unless monotonically increasing IDs
+            are required.
     """
 
     columns: list[str] | None = None  # If specified, only read these columns
     reader: str = "pandas"  # "pandas" or "pyarrow"
     reader_kwargs: dict[str, Any] = field(default_factory=dict)
     _name: str = "jsonl_reader"
+    _generate_ids: bool = False
+    _assign_ids: bool = False
+
+    def __post_init__(self):
+        if self._generate_ids and self._assign_ids:
+            msg = "Cannot generate and assign IDs at the same time"
+            raise ValueError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.columns or []
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        if self._generate_ids or self._assign_ids:
+            from ray_curator.stages.deduplication.id_generator import get_id_generator_actor
+
+            try:
+                self.id_generator = get_id_generator_actor()
+            except ValueError:
+                msg = (
+                    "ID generator is required when self._generate_ids or self._assign_ids is True, "
+                    "and the actor 'id_generator' does not exist. Please start the id_generator actor."
+                )
+                raise RuntimeError(msg) from None
 
     def process(self, task: FileGroupTask) -> DocumentBatch:
         """
@@ -126,7 +160,40 @@ class JsonlReaderStage(ProcessingStage[FileGroupTask, DocumentBatch]):
             return None
 
         # Concatenate all dataframes
-        return pd.concat(dfs, ignore_index=True)
+        df = pd.concat(dfs, ignore_index=True)
+        if self._generate_ids:
+            return self._generate_ids_func(file_paths, df)
+        if self._assign_ids:
+            return self._assign_ids_func(file_paths, df)
+        return df
+
+    def _assign_ids_func(self, filepath: str | list[str], df: pd.DataFrame) -> pd.DataFrame:
+        import numpy as np
+        import ray
+
+        from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+        if CURATOR_DEDUP_ID_STR not in df.columns:
+            # Get the ID generator actor and retrieve the previously registered ID range
+            min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(filepath, None))
+            df[CURATOR_DEDUP_ID_STR] = np.arange(min_id, max_id + 1)
+        else:
+            logger.warning(f"Column {CURATOR_DEDUP_ID_STR} already exists in {filepath}, not re-assigning IDs")
+        return df
+
+    def _generate_ids_func(self, filepath: str | list[str], df: pd.DataFrame) -> pd.DataFrame:
+        import numpy as np
+        import ray
+
+        from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+        if CURATOR_DEDUP_ID_STR not in df.columns:
+            num_rows = len(df)
+            min_id = ray.get(self.id_generator.register_batch.remote(filepath, num_rows))
+            df[CURATOR_DEDUP_ID_STR] = np.arange(min_id, min_id + num_rows)
+        else:
+            logger.warning(f"Column {CURATOR_DEDUP_ID_STR} already exists in {filepath}, not generating new IDs")
+        return df
 
     def _read_with_pyarrow(
         self, file_paths: list[str], reader_kwargs: dict[str, Any], columns: list[str] | None
@@ -134,6 +201,9 @@ class JsonlReaderStage(ProcessingStage[FileGroupTask, DocumentBatch]):
         """Read JSONL files using PyArrow."""
 
         tables = []
+        if self._generate_ids or self._assign_ids:
+            msg = "Generating or assigning IDs is not supported for PyArrow reader"
+            raise NotImplementedError(msg)
 
         for file_path in file_paths:
             try:
@@ -168,6 +238,10 @@ class JsonlReaderStage(ProcessingStage[FileGroupTask, DocumentBatch]):
         # Concatenate all tables
         return pa.concat_tables(tables)
 
+    def ray_stage_spec(self) -> None:
+        # Explicitly set this to false, otherwise due to the setup method, the stage will be treated as an actor stage
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: False}
+
 
 @dataclass
 class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
@@ -186,6 +260,8 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     reader_kwargs: dict[str, Any] | None = None
     storage_options: dict[str, Any] | None = None
     task_type: Literal["document", "image", "video", "audio"] = "document"
+    _generate_ids: bool = False
+    _assign_ids: bool = False
     _name: str = "jsonl_reader"
 
     def __post_init__(self):
@@ -212,6 +288,8 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
                 columns=self.columns,
                 reader=self.reader,
                 reader_kwargs=self.reader_kwargs or {},
+                _generate_ids=self._generate_ids,
+                _assign_ids=self._assign_ids,
             ),
         ]
 

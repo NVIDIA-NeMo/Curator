@@ -8,8 +8,7 @@ import rmm
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
-    CURATOR_ID_GENERATOR_ACTOR_NAME,
-    IdGenerator,
+    get_id_generator_actor,
 )
 from ray_curator.stages.deduplication.io_utils import DeduplicationIO
 from ray_curator.stages.resources import Resources
@@ -254,9 +253,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
     def setup(self, _worker_metadata: "WorkerMetadata | None" = None) -> None:
         """Initialize the GPU MinHash processor and ID generator."""
         # Initialize the ID generator (will be shared across workers)
-        self.id_generator = IdGenerator.options(
-            name=CURATOR_ID_GENERATOR_ACTOR_NAME, get_if_exists=True, lifetime="detached"
-        ).remote()
+        self.id_generator = get_id_generator_actor()
 
         # Initialize the GPU minhash processor
         self.minhash_processor = GPUMinHash(
