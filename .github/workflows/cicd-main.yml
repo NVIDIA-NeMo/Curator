@@ -146,19 +146,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Set up UV
+        uses: astral-sh/setup-uv@v1
+        with:
+          version: 0.7.2
       - name: Install NeMo-Curator and pytest
+        env:
+          UV_PROJECT_ENVIRONMENT: ./venv
         run: |
-          pip install -U pip
+          uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
+          source ./venv/bin/activate
+
+          export PATH="./bin/:$PATH"
+
           cd ray-curator
-          pip install --no-cache-dir ".[dev]"
-          pip install --no-cache-dir ".[text]"
-          pip install --no-cache-dir ".[video]"
-          pip install --no-cache-dir pytest-asyncio coverage
+          uv sync --link-mode copy --locked --extra text --extra video --group test
 
       - name: Run tests (CPU)
         run: |
+          source ./venv/bin/activate
           cd ray-curator
-          python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
+          uv run coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
