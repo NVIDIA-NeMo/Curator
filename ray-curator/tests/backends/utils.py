@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Test utilities for backend integration tests.
 
 This module provides shared utilities for creating test data, pipelines,
@@ -18,11 +32,11 @@ import ray
 from loguru import logger
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.backends.experimental.ray_data.utils import RayStageSpecKeys
+from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.io.reader import JsonlReader
-from ray_curator.stages.io.writer import JsonlWriter
+from ray_curator.stages.text.io.reader import JsonlReader
+from ray_curator.stages.text.io.writer import JsonlWriter
 from ray_curator.tasks import DocumentBatch
 
 
@@ -30,12 +44,16 @@ from ray_curator.tasks import DocumentBatch
 class StageCallCounter:
     """Ray actor to count how many times each stage is called."""
 
-    def __init__(self):
+    def __init__(self, output_dir: Path):
         self.counters = Counter()
+        self.output_dir = output_dir  # Store output_dir as instance variable
 
     def increment(self, stage_name: str) -> int:
         """Increment the counter for a stage and return the new count."""
         self.counters[stage_name] += 1
+        # dump the counters to a file (so that even after the actor is killed, the counters are persisted)
+        with open(self.output_dir / "call_counters.json", "w") as f:
+            json.dump(self.counters, f)
         return self.counters[stage_name]
 
     def get_count(self, stage_name: str) -> int:
@@ -57,7 +75,7 @@ FILES_PER_PARTITION = 2
 
 def create_test_data(output_dir: Path, num_files: int) -> None:
     """Create test JSONL files for integration testing."""
-    output_dir.mkdir(exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     sample_documents = [{"id": f"doc_{i}", "text": f"Test document {i}"} for i in range(TOTAL_DOCUMENTS)]
 
@@ -86,7 +104,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
         """Process a batch of tasks and add length field."""
         # Get the counter actor by name
-        counter_actor = ray.get_actor("stage_call_counter")
+        counter_actor = ray.get_actor("stage_call_counter", namespace="stage_call_counter")
         stage_identifier = f"{self._name}_{self.column_name}"
         ray.get(counter_actor.increment.remote(stage_identifier))
 
@@ -203,9 +221,15 @@ class StageWithSetup(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, Any]:
     """Create a test pipeline for integration testing."""
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # Create a named counter actor that can be referenced by name
-    counter_actor = StageCallCounter.options(name="stage_call_counter").remote()
+    # we use detached lifetime so that the actor is not killed until the end of the test
+    ray.init(ignore_reinit_error=True)
+    StageCallCounter.options(name="stage_call_counter", namespace="stage_call_counter", lifetime="detached").remote(
+        output_dir
+    )
+    ray.shutdown()
 
     pipeline = Pipeline(
         name="integration_test_pipeline", description="Integration test pipeline for backend comparison"
@@ -234,7 +258,7 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, A
     # Add JsonlWriter stage
     pipeline.add_stage(JsonlWriter(output_dir=str(output_dir)))
 
-    return pipeline, counter_actor
+    return pipeline
 
 
 @contextmanager

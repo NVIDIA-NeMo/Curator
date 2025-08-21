@@ -17,6 +17,8 @@ import base64
 import io
 import json
 import os
+
+os.environ["CUDF_SPILL"] = "on"
 import tarfile
 from pathlib import Path
 from typing import Any
@@ -155,7 +157,7 @@ def process_structured_data(structured_data: list[dict[str, Any]]) -> pd.DataFra
     )
 
 
-def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, DocumentDataset, DocumentDataset]:
+def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, DocumentDataset]:
     """
     Process different types of document data (text, image, structured) and convert them into
     DocumentDataset-wrapped Dask DataFrames.
@@ -169,14 +171,12 @@ def process_data(data_type_map: dict[str, list]) -> tuple[DocumentDataset, Docum
             DocumentDatasets for text, image, and structured data respectively.
     """
     text_df = process_textual_data(data_type_map["text"])
-    image_df = process_image_data(data_type_map["image"])
     struct_df = process_structured_data(data_type_map["structured"])
 
     text_ddf = DocumentDataset(dd.from_pandas(text_df, npartitions=2))
-    image_ddf = DocumentDataset(dd.from_pandas(image_df, npartitions=2))
     struct_ddf = DocumentDataset(dd.from_pandas(struct_df, npartitions=2))
 
-    return text_ddf, image_ddf, struct_ddf
+    return text_ddf, struct_ddf
 
 
 def run_text_curation_pipeline(args: dict, text_ddf: DocumentDataset, struct_ddf: DocumentDataset) -> None:  # noqa: PLR0915
@@ -285,7 +285,7 @@ def save_image(base64_str: str, output_path: str) -> None:
     image.save(output_path, format="JPEG")
 
 
-def process_image_data(data_type_map: dict[str, Any]) -> None:
+def process_image_data(data_type_map: dict[str, Any]) -> ImageTextPairDataset:
     image_data = data_type_map["image"]
     shard_size = 1000
     parquet_rows = []
@@ -355,7 +355,8 @@ def run_image_curation_pipeline(dataset: DocumentDataset) -> None:
     dataset = embedding_model(dataset)
     embeddings_dataset = DocumentDataset(dataset.metadata)
 
-    semantic_dedup_outputs = "semantic_deduplication"
+    # Use absolute paths to avoid Dask worker directory mismatch issues
+    semantic_dedup_outputs = os.path.abspath("semantic_deduplication")
     os.makedirs(semantic_dedup_outputs, exist_ok=True)
 
     # Run clustering
@@ -376,7 +377,6 @@ def run_image_curation_pipeline(dataset: DocumentDataset) -> None:
     emb_by_cluster_output = os.path.join(clustering_output, "embs_by_nearest_center")
     duplicate_output = os.path.join(semantic_dedup_outputs, "duplicates")
 
-    # Error here
     semantic_dedup = SemanticClusterLevelDedup(
         n_clusters=1,
         emb_by_clust_dir=emb_by_cluster_output,
@@ -389,7 +389,7 @@ def run_image_curation_pipeline(dataset: DocumentDataset) -> None:
     semantic_dedup.compute_semantic_match_dfs()
     deduplicated_dataset_ids = semantic_dedup.extract_dedup_data(eps_to_extract=1.0)
 
-    deduplicated_dataset_path = "./deduplicated_dataset"
+    deduplicated_dataset_path = os.path.abspath("./deduplicated_dataset")
     dataset.metadata["is_unique"] = dataset.metadata["key"].isin(deduplicated_dataset_ids.df["key"].compute())
     dataset.to_webdataset(deduplicated_dataset_path, "is_unique")
 
@@ -411,7 +411,7 @@ def main() -> None:
     print("Args: ", args)
 
     # Load the data type map
-    nv_ingest_path = "../ingest/sources/separated_extracted_data/data_type_map.json"
+    nv_ingest_path = os.path.abspath("../ingest/sources/separated_extracted_data/data_type_map.json")
     with open(nv_ingest_path, encoding="utf-8") as f:
         data_type_map = json.load(f)
 
