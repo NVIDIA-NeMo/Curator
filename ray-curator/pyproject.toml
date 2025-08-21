@@ -80,6 +80,7 @@ video = [
     "torchvision",
     "einops",
     "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
+    "easydict",
 ]
 video_cuda = [
     "PyNvVideoCodec==1.0.2",
