@@ -10,8 +10,7 @@ import pytest
 
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.tasks import Clip, ClipStats, Video, VideoMetadata, VideoTask
-from ray_curator.tasks.video import _Window
+from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask, _Window
 
 
 class TestClipWriterStage:
@@ -158,14 +157,9 @@ class TestClipWriterStage:
 
     def test_setup_method(self):
         """Test setup method."""
-        with patch("ray_curator.stages.video.io.clip_writer.storage_client") as mock_storage_client:
-            mock_storage_client.get_client.return_value = MagicMock()
-
-            self.stage.setup()
-
-            assert self.stage.storage_client is None  # Currently hardcoded to None
-            assert self.stage._iv2_embedding_buffer == []
-            assert self.stage._ce1_embedding_buffer == []
+        self.stage.setup()
+        assert self.stage._iv2_embedding_buffer == []
+        assert self.stage._ce1_embedding_buffer == []
 
     def test_static_output_path_methods(self):
         """Test static methods for generating output paths."""
@@ -214,7 +208,6 @@ class TestClipWriterStage:
             test_desc,
             test_source,
             verbose=True,
-            client=None,
         )
 
     @patch("ray_curator.stages.video.io.clip_writer.write_json")
@@ -234,7 +227,6 @@ class TestClipWriterStage:
             test_desc,
             test_source,
             verbose=True,
-            client=None,
         )
 
     @patch("ray_curator.stages.video.io.clip_writer.get_full_path")
@@ -400,9 +392,10 @@ class TestClipWriterStage:
         """Test _write_clip_window_webp with webp data."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_data") as mock_write_data, \
-             patch.object(self.stage, "_get_window_uri") as mock_get_window_uri:
-
+        with (
+            patch.object(self.stage, "_write_data") as mock_write_data,
+            patch.object(self.stage, "_get_window_uri") as mock_get_window_uri,
+        ):
             mock_get_window_uri.return_value = "/test/path"
 
             result = self.stage._write_clip_window_webp(self.mock_clip_with_buffer)
@@ -426,9 +419,10 @@ class TestClipWriterStage:
         """Test _write_clip_mp4 with buffer data."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_data") as mock_write_data, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri:
-
+        with (
+            patch.object(self.stage, "_write_data") as mock_write_data,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
 
             result = self.stage._write_clip_mp4(self.mock_clip_with_buffer)
@@ -454,9 +448,7 @@ class TestClipWriterStage:
         """Test _write_clip_mp4 with filtered=True."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_data"), \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri:
-
+        with patch.object(self.stage, "_write_data"), patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri:
             mock_get_clip_uri.return_value = "/test/path"
 
             result = self.stage._write_clip_mp4(self.mock_filtered_clip, filtered=True)
@@ -481,9 +473,10 @@ class TestClipWriterStage:
         """Test _write_clip_embedding with embeddings."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_data") as mock_write_data, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri:
-
+        with (
+            patch.object(self.stage, "_write_data") as mock_write_data,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
 
             result = self.stage._write_clip_embedding(self.mock_clip_with_buffer)
@@ -519,10 +512,11 @@ class TestClipWriterStage:
         """Test _write_clip_metadata with full clip data."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri, \
-             patch.object(self.mock_clip_with_buffer, "extract_metadata") as mock_extract_metadata:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+            patch.object(self.mock_clip_with_buffer, "extract_metadata") as mock_extract_metadata,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
             mock_extract_metadata.return_value = {"custom_field": "custom_value"}
 
@@ -561,10 +555,11 @@ class TestClipWriterStage:
         """Test _write_clip_metadata with minimal clip data."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri, \
-             patch.object(self.mock_clip_no_buffer, "extract_metadata") as mock_extract_metadata:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+            patch.object(self.mock_clip_no_buffer, "extract_metadata") as mock_extract_metadata,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
             mock_extract_metadata.return_value = None
 
@@ -586,10 +581,11 @@ class TestClipWriterStage:
         """Test _write_clip_metadata with filtered=True."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri, \
-             patch.object(self.mock_filtered_clip, "extract_metadata") as mock_extract_metadata:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+            patch.object(self.mock_filtered_clip, "extract_metadata") as mock_extract_metadata,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
             mock_extract_metadata.return_value = None
 
@@ -616,9 +612,10 @@ class TestClipWriterStage:
         self.stage.dry_run = True
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.mock_clip_with_buffer, "extract_metadata") as mock_extract_metadata:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.mock_clip_with_buffer, "extract_metadata") as mock_extract_metadata,
+        ):
             mock_extract_metadata.return_value = {"custom_field": "custom_value"}
 
             result = self.stage._write_clip_metadata(self.mock_clip_with_buffer, self.mock_video_metadata)
@@ -630,10 +627,11 @@ class TestClipWriterStage:
         """Test _write_video_metadata for first chunk."""
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_video_uri") as mock_get_video_uri, \
-             patch.object(self.stage, "_get_clip_chunk_uri") as mock_get_clip_chunk_uri:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_video_uri") as mock_get_video_uri,
+            patch.object(self.stage, "_get_clip_chunk_uri") as mock_get_clip_chunk_uri,
+        ):
             mock_get_video_uri.return_value = "/test/video/path"
             mock_get_clip_chunk_uri.return_value = "/test/chunk/path"
 
@@ -662,9 +660,10 @@ class TestClipWriterStage:
         self.stage.setup()
         self.mock_video.clip_chunk_index = 1
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_chunk_uri") as mock_get_clip_chunk_uri:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_clip_chunk_uri") as mock_get_clip_chunk_uri,
+        ):
             mock_get_clip_chunk_uri.return_value = "/test/chunk/path"
 
             self.stage._write_video_metadata(self.mock_video)
@@ -684,15 +683,16 @@ class TestClipWriterStage:
 
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_clip_embedding_to_buffer") as mock_write_embedding_buffer, \
-             patch.object(self.stage, "_write_clip_mp4"), \
-             patch.object(self.stage, "_write_clip_window_webp"), \
-             patch.object(self.stage, "_write_clip_embedding"), \
-             patch.object(self.stage, "_write_clip_metadata"), \
-             patch.object(self.stage, "_write_video_embeddings_to_parquet"), \
-             patch.object(self.stage, "_write_video_metadata"), \
-             patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
-
+        with (
+            patch.object(self.stage, "_write_clip_embedding_to_buffer") as mock_write_embedding_buffer,
+            patch.object(self.stage, "_write_clip_mp4"),
+            patch.object(self.stage, "_write_clip_window_webp"),
+            patch.object(self.stage, "_write_clip_embedding"),
+            patch.object(self.stage, "_write_clip_metadata"),
+            patch.object(self.stage, "_write_video_embeddings_to_parquet"),
+            patch.object(self.stage, "_write_video_metadata"),
+            patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger,
+        ):
             result = self.stage.process(self.mock_task)
 
             assert isinstance(result, VideoTask)
@@ -700,7 +700,9 @@ class TestClipWriterStage:
 
             # Verify all methods were called
             assert mock_write_embedding_buffer.call_count == 2  # For each clip
-            assert mock_executor.submit.call_count == 12  # 4 per clip (2 clips) + 2 for filtered clip + 2 for video level
+            assert (
+                mock_executor.submit.call_count == 12
+            )  # 4 per clip (2 clips) + 2 for filtered clip + 2 for video level
 
             # Verify cleanup was performed
             for clip in result.data.clips:
@@ -729,11 +731,12 @@ class TestClipWriterStage:
 
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_clip_embedding_to_buffer"), \
-             patch.object(self.stage, "_write_video_embeddings_to_parquet"), \
-             patch.object(self.stage, "_write_video_metadata"), \
-             patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
-
+        with (
+            patch.object(self.stage, "_write_clip_embedding_to_buffer"),
+            patch.object(self.stage, "_write_video_embeddings_to_parquet"),
+            patch.object(self.stage, "_write_video_metadata"),
+            patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger,
+        ):
             result = self.stage.process(self.mock_task)
 
             assert isinstance(result, VideoTask)
@@ -752,10 +755,11 @@ class TestClipWriterStage:
             mock_future.result.return_value = None
             mock_executor.submit.return_value = mock_future
 
-            with patch.object(self.stage, "_write_clip_embedding_to_buffer"), \
-                 patch.object(self.stage, "_write_video_embeddings_to_parquet"), \
-                 patch.object(self.stage, "_write_video_metadata"):
-
+            with (
+                patch.object(self.stage, "_write_clip_embedding_to_buffer"),
+                patch.object(self.stage, "_write_video_embeddings_to_parquet"),
+                patch.object(self.stage, "_write_video_metadata"),
+            ):
                 self.stage.process(self.mock_task)
 
                 mock_executor_class.assert_called_once_with(max_workers=8)
@@ -784,9 +788,10 @@ class TestClipWriterStage:
             mock_future.result.return_value = None
             mock_executor.submit.return_value = mock_future
 
-            with patch.object(self.stage, "_write_video_embeddings_to_parquet"), \
-                 patch.object(self.stage, "_write_video_metadata"):
-
+            with (
+                patch.object(self.stage, "_write_video_embeddings_to_parquet"),
+                patch.object(self.stage, "_write_video_metadata"),
+            ):
                 result = self.stage.process(empty_task)
 
                 assert isinstance(result, VideoTask)
@@ -799,10 +804,11 @@ class TestClipWriterStage:
         self.stage.enhanced_caption_models = []
         self.stage.setup()
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri, \
-             patch.object(self.mock_clip_with_buffer, "extract_metadata") as mock_extract_metadata:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+            patch.object(self.mock_clip_with_buffer, "extract_metadata") as mock_extract_metadata,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
             mock_extract_metadata.return_value = {"custom_field": "custom_value"}
 
@@ -835,10 +841,11 @@ class TestClipWriterStage:
             windows=[],
         )
 
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri, \
-             patch.object(clip_with_errors, "extract_metadata") as mock_extract_metadata:
-
+        with (
+            patch.object(self.stage, "_write_json_data") as mock_write_json,
+            patch.object(self.stage, "_get_clip_uri") as mock_get_clip_uri,
+            patch.object(clip_with_errors, "extract_metadata") as mock_extract_metadata,
+        ):
             mock_get_clip_uri.return_value = "/test/path"
             mock_extract_metadata.return_value = None
 
@@ -868,40 +875,3 @@ class TestClipWriterStage:
 
                 assert isinstance(result, ClipStats)
                 mock_logger.error.assert_called()
-
-    def test_with_storage_prefix_paths(self):
-        """Test methods that handle StoragePrefix paths."""
-        from ray_curator.utils import storage_client
-
-        # Create a mock StoragePrefix with a path that matches the input_path
-        mock_storage_prefix = MagicMock(spec=storage_client.StoragePrefix)
-        mock_storage_prefix.path = "/test/input/subdir/video.mp4"
-
-        # Test with StoragePrefix input_video
-        video_with_storage_prefix = Video(
-            input_video=mock_storage_prefix,
-            metadata=self.mock_video_metadata,
-            clips=[],
-            filtered_clips=[],
-            clip_chunk_index=0,
-        )
-
-        with patch.object(self.stage, "_write_json_data") as mock_write_json, \
-             patch.object(self.stage, "_get_clip_chunk_uri") as mock_get_clip_chunk_uri:
-
-            mock_get_clip_chunk_uri.return_value = "/test/chunk/path"
-
-            self.stage._write_video_metadata(video_with_storage_prefix)
-
-            # Should be called twice: once for video metadata and once for clip chunk metadata
-            assert mock_write_json.call_count == 2
-
-            # Check the first call (video metadata)
-            video_call = mock_write_json.call_args_list[0]
-            video_data = video_call[0][0]
-            assert video_data["video"] == "/test/input/subdir/video.mp4"
-
-            # Check the second call (clip chunk metadata)
-            chunk_call = mock_write_json.call_args_list[1]
-            chunk_data = chunk_call[0][0]
-            assert chunk_data["video"] == "/test/input/subdir/video.mp4"

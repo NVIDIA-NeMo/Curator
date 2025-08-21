@@ -68,7 +68,8 @@ class _TransNetV2(nn.Module):
         self.SDDCNN = nn.ModuleList(
             [StackedDDCNNV2(in_filters=3, n_blocks=rs, filters=rf, stochastic_depth_drop_prob=0.0)]
             + [
-                StackedDDCNNV2(in_filters=(rf * 2 ** (i - 1)) * 4, n_blocks=rs, filters=rf * 2**i) for i in range(1, rl)
+                StackedDDCNNV2(in_filters=(rf * 2 ** (i - 1)) * 4, n_blocks=rs, filters=rf * 2**i)
+                for i in range(1, rl)
             ],
         )
 
@@ -550,16 +551,6 @@ class TransNetV2(ModelInterface):
         """Initialize the TransNetV2 model interface."""
         super().__init__()
         self.model_dir = model_dir
-
-    @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "video_splitting"
 
     @property
     def model_id_names(self) -> list[str]:

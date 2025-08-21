@@ -17,14 +17,13 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
     This class processes video clips through a series of steps including reading,
     generating webp previews, and writing to storage.
     """
+
     target_fps: float = 1.0
     target_height: int = 240
     verbose: bool = False
     num_cpus_per_worker: float = 4.0
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(cpus=self.num_cpus_per_worker)
+    compression_level: int = 6  # 0-6, 0 is lossless, 6 is lossy
+    quality: int = 50  # 0-100, 0 is worst quality, 100 is best quality
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
@@ -32,8 +31,22 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
 
+    def __post_init__(self) -> None:
+        self._resources = Resources(cpus=self.num_cpus_per_worker)
+
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data
+
+        if video.metadata.framerate < self.target_fps:
+            logger.warning(
+                f"Video {video.input_video} has framerate {video.metadata.framerate} < {self.target_fps}, preview generation quality will be degraded."
+            )
+
+        if video.metadata.height < self.target_height:
+            logger.warning(
+                f"Video {video.input_video} has height {video.metadata.height} < {self.target_height}, preview generation quality will be degraded."
+            )
+
         for clip in video.clips:
             for window in clip.windows:
                 self._generate_preview(window)
@@ -67,13 +80,11 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
                 "-lossless",
                 str(0),
                 "-compression_level",
-                str(6),
+                str(self.compression_level),
                 "-q:v",
-                str(50),
+                str(self.quality),
                 "-loop",
                 "0",
-                "-threads",
-                str(int(self.resources.cpus)),
                 output_webp.as_posix(),
             ]
 

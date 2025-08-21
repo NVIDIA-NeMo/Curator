@@ -7,10 +7,10 @@ from loguru import logger
 from ray.data import Dataset
 
 from ray_curator.backends.base import BaseStageAdapter
-from ray_curator.backends.experimental.utils import get_worker_metadata_and_node_id
+from ray_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from ray_curator.stages.base import ProcessingStage
 
-from .utils import RayStageSpecKeys, calculate_concurrency_for_actors_for_stage, is_actor_stage
+from .utils import calculate_concurrency_for_actors_for_stage, is_actor_stage
 
 
 class RayDataStageAdapter(BaseStageAdapter):
