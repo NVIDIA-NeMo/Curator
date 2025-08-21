@@ -14,7 +14,7 @@ class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
         return [
             DocumentBatch(
                 data=pd.DataFrame(task.data),
-                task_id="",
-                dataset_name="ObjectToBatch",
+                task_id=task.task_id,
+                dataset_name=task.dataset_name,
             )
         ]

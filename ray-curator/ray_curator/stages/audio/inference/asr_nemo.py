@@ -26,7 +26,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
     asr_model: Any | None = None
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
-    name: str = "ASR_inference"
+    _name: str = "ASR_inference"
     _batch_size: int = 16
     _resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
