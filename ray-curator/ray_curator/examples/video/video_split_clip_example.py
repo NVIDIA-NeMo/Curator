@@ -179,7 +179,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 generate_stage2_caption=args.captioning_stage2_caption,
                 stage2_prompt_text=args.captioning_stage2_prompt_text,
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
-                verbose=args.verbose,
             )
         )
 
