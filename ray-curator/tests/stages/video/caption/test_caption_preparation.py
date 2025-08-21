@@ -72,7 +72,7 @@ class TestCaptionPreparationStage:
             remainder_threshold=64,
             model_does_preprocess=True,
             preprocess_dtype="float16",
-            generate_previews=False
+            generate_previews=False,
         )
 
     def test_init_default_values(self):
@@ -121,23 +121,14 @@ class TestCaptionPreparationStage:
     def _create_test_video_task(self) -> VideoTask:
         """Create a test VideoTask with sample data."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
 
-        clip1 = Clip(
-            uuid=uuid4(),
-            source_video="test1.mp4",
-            span=(0.0, 10.0),
-            buffer=b"test_video_buffer_1"
-        )
+        clip1 = Clip(uuid=uuid4(), source_video="test1.mp4", span=(0.0, 10.0), buffer=b"test_video_buffer_1")
         # Mock attributes for original code bugs/quirks
         clip1.id = clip1.uuid
 
-        clip2 = Clip(
-            uuid=uuid4(),
-            source_video="test2.mp4",
-            span=(10.0, 20.0),
-            buffer=b"test_video_buffer_2"
-        )
+        clip2 = Clip(uuid=uuid4(), source_video="test2.mp4", span=(10.0, 20.0), buffer=b"test_video_buffer_2")
         # Mock attributes for original code bugs/quirks
         clip2.id = clip2.uuid
 
@@ -153,7 +144,7 @@ class TestCaptionPreparationStage:
         mock_formatter = Mock()
         mock_formatter.generate_inputs.return_value = {
             "prompt": "test formatted prompt",
-            "multi_modal_data": {"video": torch.randn(10, 3, 224, 224)}
+            "multi_modal_data": {"video": torch.randn(10, 3, 224, 224)},
         }
         self.stage.prompt_formatter = mock_formatter
 
@@ -167,13 +158,13 @@ class TestCaptionPreparationStage:
 
         mock_split_video.side_effect = [
             # First clip returns
-            ([b"window1_bytes", b"window2_bytes"],
-             [torch.randn(5, 3, 224, 224), torch.randn(5, 3, 224, 224)],
-             [window_info_1, window_info_2]),
+            (
+                [b"window1_bytes", b"window2_bytes"],
+                [torch.randn(5, 3, 224, 224), torch.randn(5, 3, 224, 224)],
+                [window_info_1, window_info_2],
+            ),
             # Second clip returns
-            ([b"window3_bytes"],
-             [torch.randn(8, 3, 224, 224)],
-             [WindowFrameInfo(start=0, end=8)])
+            ([b"window3_bytes"], [torch.randn(8, 3, 224, 224)], [WindowFrameInfo(start=0, end=8)]),
         ]
 
         # Mock resources
@@ -223,12 +214,13 @@ class TestCaptionPreparationStage:
     def test_process_clip_without_buffer(self, mock_logger: Mock):
         """Test process method with clip that has no buffer."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(
             uuid=uuid4(),
             source_video="test.mp4",
             span=(0.0, 5.0),
-            buffer=None  # No buffer
+            buffer=None,  # No buffer
         )
         # Mock the id attribute since original code uses clip.id but Clip only has uuid
         clip.id = clip.uuid
@@ -262,7 +254,7 @@ class TestCaptionPreparationStage:
         mock_split_video.return_value = (
             [b"window_bytes"],
             [torch.randn(5, 3, 224, 224)],
-            [WindowFrameInfo(start=0, end=5)]
+            [WindowFrameInfo(start=0, end=5)],
         )
 
         # Mock resources
@@ -298,7 +290,7 @@ class TestCaptionPreparationStage:
         mock_split_video.return_value = (
             [b"preview_bytes"],
             [torch.randn(3, 3, 224, 224)],
-            [WindowFrameInfo(start=0, end=3)]
+            [WindowFrameInfo(start=0, end=3)],
         )
 
         # Mock resources
@@ -327,11 +319,7 @@ class TestCaptionPreparationStage:
         mock_split_video.return_value = (
             [b"window1", b"window2", b"window3"],
             [torch.randn(5, 3, 224, 224), torch.randn(8, 3, 224, 224), torch.randn(3, 3, 224, 224)],
-            [
-                WindowFrameInfo(start=0, end=5),
-                WindowFrameInfo(start=5, end=13),
-                WindowFrameInfo(start=13, end=16)
-            ]
+            [WindowFrameInfo(start=0, end=5), WindowFrameInfo(start=5, end=13), WindowFrameInfo(start=13, end=16)],
         )
 
         # Mock resources
@@ -340,13 +328,9 @@ class TestCaptionPreparationStage:
 
             # Create task with single clip
             import pathlib
+
             video = Video(input_video=pathlib.Path("test.mp4"))
-            clip = Clip(
-                uuid=uuid4(),
-                source_video="test.mp4",
-                span=(0.0, 20.0),
-                buffer=b"test_buffer"
-            )
+            clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 20.0), buffer=b"test_buffer")
             # Mock attributes for original code bugs/quirks
             clip.id = clip.uuid
             video.clips = [clip]
