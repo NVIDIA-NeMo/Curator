@@ -2,11 +2,26 @@ from pathlib import Path
 from typing import Any
 
 from transformers import AutoTokenizer
-from vllm import LLM, SamplingParams
+
+try:
+    from vllm import LLM, SamplingParams
+
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+
+    # Create dummy classes for type hints when vllm is not available
+    class LLM:
+        pass
+
+    class SamplingParams:
+        pass
+
 
 from ray_curator.models.base import ModelInterface
 
 _QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
+
 
 class QwenLM(ModelInterface):
     """Qwen language model."""
@@ -21,6 +36,10 @@ class QwenLM(ModelInterface):
         self.max_output_tokens = max_output_tokens
 
     def setup(self) -> None:
+        if not VLLM_AVAILABLE:
+            msg = "vllm is required for QwenLM model but is not installed. Please install vllm: pip install vllm"
+            raise ImportError(msg)
+
         self.weight_file = str(Path(self.model_dir) / _QWEN_LM_MODEL_ID)
         self.llm = LLM(
             model=self.weight_file,

@@ -21,6 +21,7 @@ _ENHANCE_PROMPTS = {
     """,
 }
 
+
 @dataclass
 class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that enhances video captions using language models.
@@ -28,6 +29,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     This stage takes existing captions and uses LLM (e.g. Qwen) to generate
     more detailed and refined descriptions of the video content.
     """
+
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
     prompt_variant: str = "default"
@@ -113,16 +115,16 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
 
         return "qwen" in window.caption
 
-    def _generate_and_assign_captions(self, video: Video, mapping: dict[int, tuple[int, int]], inputs: list[dict[str, Any]]) -> None:
+    def _generate_and_assign_captions(
+        self, video: Video, mapping: dict[int, tuple[int, int]], inputs: list[dict[str, Any]]
+    ) -> None:
         """Generate enhanced captions and assign them to video windows."""
         captions = []
         for i in range(0, len(inputs), self.model_batch_size):
-            captions.extend(self.model.generate(inputs[i:i+self.model_batch_size]))
+            captions.extend(self.model.generate(inputs[i : i + self.model_batch_size]))
 
         if len(captions) != len(inputs):
-            logger.error(
-                f"Caption generation failed: expected {len(inputs)} captions, got {len(captions)}"
-            )
+            logger.error(f"Caption generation failed: expected {len(inputs)} captions, got {len(captions)}")
             return
 
         for idx, result in enumerate(captions):
@@ -135,9 +137,9 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
                     f"Caption for clip {video.clips[clip_idx].uuid} window {window_idx}: {original_caption}",
                 )
                 logger.info(
-                    f"Enhanced QwenLM Caption for clip {video.clips[clip_idx].uuid} "
-                    f"window {window_idx}: {result}",
+                    f"Enhanced QwenLM Caption for clip {video.clips[clip_idx].uuid} window {window_idx}: {result}",
                 )
+
 
 def _get_enhance_prompt(prompt_variant: str, prompt_text: str | None, *, verbose: bool = False) -> str:
     if prompt_text is not None:

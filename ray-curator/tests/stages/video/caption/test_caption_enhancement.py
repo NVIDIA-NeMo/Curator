@@ -122,15 +122,11 @@ class TestCaptionEnhancementStage:
     def _create_test_video_task_with_captions(self) -> VideoTask:
         """Create a test VideoTask with sample data including captions."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
 
         # Create clips with windows that have captions
-        clip1 = Clip(
-            uuid=uuid4(),
-            source_video="test1.mp4",
-            span=(0.0, 10.0),
-            buffer=b"test_buffer_1"
-        )
+        clip1 = Clip(uuid=uuid4(), source_video="test1.mp4", span=(0.0, 10.0), buffer=b"test_buffer_1")
 
         # Add windows with existing captions
         window1 = _Window(start_frame=0, end_frame=5)
@@ -143,12 +139,7 @@ class TestCaptionEnhancementStage:
 
         clip1.windows = [window1, window2]
 
-        clip2 = Clip(
-            uuid=uuid4(),
-            source_video="test2.mp4",
-            span=(10.0, 20.0),
-            buffer=b"test_buffer_2"
-        )
+        clip2 = Clip(uuid=uuid4(), source_video="test2.mp4", span=(10.0, 20.0), buffer=b"test_buffer_2")
 
         # Add window with caption
         window3 = _Window(start_frame=10, end_frame=15)
@@ -162,15 +153,11 @@ class TestCaptionEnhancementStage:
     def _create_test_video_task_empty_clips(self) -> VideoTask:
         """Create a test VideoTask with empty clips."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
 
         # Create clip with no windows
-        clip = Clip(
-            uuid=uuid4(),
-            source_video="test.mp4",
-            span=(0.0, 10.0),
-            buffer=b"test_buffer"
-        )
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test_buffer")
         clip.windows = []
         video.clips = [clip]
         return VideoTask(task_id="test", dataset_name="test", data=video)
@@ -178,14 +165,10 @@ class TestCaptionEnhancementStage:
     def _create_test_video_task_no_captions(self) -> VideoTask:
         """Create a test VideoTask with windows but no captions."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
 
-        clip = Clip(
-            uuid=uuid4(),
-            source_video="test.mp4",
-            span=(0.0, 10.0),
-            buffer=b"test_buffer"
-        )
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test_buffer")
 
         # Add window without caption
         window = _Window(start_frame=0, end_frame=5)
@@ -202,9 +185,11 @@ class TestCaptionEnhancementStage:
         mock_model = Mock()
         # Since batch_size=2, with 3 inputs we get 2 batches: [0,1] and [2]
         mock_model.generate.side_effect = [
-            ["Enhanced: A person walks confidently down a busy city street with tall buildings",
-             "Enhanced: The person enters a modern glass building through the main entrance"],  # First batch
-            ["Enhanced: Multiple cars and vehicles drive by on the busy urban road with traffic"]  # Second batch
+            [
+                "Enhanced: A person walks confidently down a busy city street with tall buildings",
+                "Enhanced: The person enters a modern glass building through the main entrance",
+            ],  # First batch
+            ["Enhanced: Multiple cars and vehicles drive by on the busy urban road with traffic"],  # Second batch
         ]
         self.stage.model = mock_model
         self.stage.prompt = "Enhance this caption:"
@@ -287,7 +272,7 @@ class TestCaptionEnhancementStage:
         # Create a large number of captions to test batching
         mock_model.generate.side_effect = [
             ["Enhanced caption 1", "Enhanced caption 2"],  # First batch
-            ["Enhanced caption 3"]  # Second batch
+            ["Enhanced caption 3"],  # Second batch
         ]
         self.stage.model = mock_model
         self.stage.model_batch_size = 2  # Small batch size to force multiple batches
@@ -295,12 +280,13 @@ class TestCaptionEnhancementStage:
 
         # Create task with 3 windows (will require 2 batches)
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 30.0), buffer=b"test")
 
         for i in range(3):
-            window = _Window(start_frame=i*10, end_frame=(i+1)*10)
-            window.caption = {"qwen": f"Caption {i+1}"}
+            window = _Window(start_frame=i * 10, end_frame=(i + 1) * 10)
+            window.caption = {"qwen": f"Caption {i + 1}"}
             window.enhanced_caption = {}
             clip.windows.append(window)
 
@@ -315,7 +301,7 @@ class TestCaptionEnhancementStage:
         # Verify all enhanced captions were set
         for i, window in enumerate(task.data.clips[0].windows):
             assert "qwen_lm" in window.enhanced_caption
-            assert window.enhanced_caption["qwen_lm"] == f"Enhanced caption {i+1}"
+            assert window.enhanced_caption["qwen_lm"] == f"Enhanced caption {i + 1}"
 
     def test_process_returns_same_task(self):
         """Test that process method returns the same task object."""
@@ -323,7 +309,7 @@ class TestCaptionEnhancementStage:
         # Since batch_size=2, with 3 inputs we get 2 batches: [0,1] and [2]
         mock_model.generate.side_effect = [
             ["Enhanced caption 1", "Enhanced caption 2"],  # First batch
-            ["Enhanced caption 3"]  # Second batch
+            ["Enhanced caption 3"],  # Second batch
         ]
         self.stage.model = mock_model
 
@@ -343,6 +329,7 @@ class TestCaptionEnhancementStage:
 
         # Create simple task with one caption
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test")
         window = _Window(start_frame=0, end_frame=5)
