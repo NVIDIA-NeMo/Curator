@@ -7,16 +7,16 @@ from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExt
 from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
+from ray_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
 from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
-from ray_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
 from ray_curator.stages.video.io.video_reader import VideoReader
 from ray_curator.stages.video.preview.preview import PreviewStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: C901
+def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: C901, PLR0912
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 

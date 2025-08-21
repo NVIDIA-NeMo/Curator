@@ -133,7 +133,7 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
     @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    def test_process_successful_frame_creation(self, mock_extract_frames: "MagicMock") -> None:
+    def test_process_successful_frame_creation(self, mock_extract_frames: "MagicMock") -> None:  # noqa: ARG002
         """Test successful frame creation process."""
         # Create test data
         clip = Clip(
