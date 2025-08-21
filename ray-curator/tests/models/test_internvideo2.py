@@ -12,7 +12,7 @@ from ray_curator.stages.video.embedding.internvideo2 import (
     InternVideo2EmbeddingStage,
     InternVideo2FrameCreationStage,
 )
-from ray_curator.tasks import Clip, Video, VideoTask
+from ray_curator.tasks.video import Clip, Video, VideoTask
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)
@@ -133,7 +133,7 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
     @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    def test_process_successful_frame_creation(self) -> None:
+    def test_process_successful_frame_creation(self, mock_extract_frames: "MagicMock") -> None:
         """Test successful frame creation process."""
         # Create test data
         clip = Clip(

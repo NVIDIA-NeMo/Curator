@@ -7,7 +7,7 @@ from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.internvideo2_mm import InternVideo2MultiModality
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Video, VideoTask
+from ray_curator.tasks.video import Video, VideoTask
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
 
 

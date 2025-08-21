@@ -79,6 +79,7 @@ video = [
     "opencv-python",
     "torchvision",
     "einops",
+    "InternVideo @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
 ]
 video_cuda = [
     "PyNvVideoCodec==1.0.2",

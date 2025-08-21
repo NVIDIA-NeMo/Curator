@@ -410,7 +410,7 @@ class TestHelperFunctions:
 
     @patch("builtins.open", new_callable=mock_open)
     @patch("ray_curator.models.internvideo2_mm.json.load")
-    def test_create_config(self, mock_json_load: "MagicMock") -> None:
+    def test_create_config(self, mock_json_load: "MagicMock", mock_open_file) -> None:
         """Test _create_config function."""
         mock_config = {"model": {"vision_encoder": {}, "text_encoder": {}}}
         mock_json_load.return_value = mock_config
