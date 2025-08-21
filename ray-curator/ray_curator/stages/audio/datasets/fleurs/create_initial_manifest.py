@@ -93,7 +93,7 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioBatch]):
 
                 entries.append({self.filepath_key: os.path.abspath(wav_file), self.text_key: transcript_text})
                 count += 1
-                if count == self._batch_size:
+                if count == self.batch_size:
                     speech_task = AudioBatch(
                         task_id=f"task_id_{file_path}",
                         dataset_name=f"Fleurs_{self.lang}_{self.split}_{self.raw_data_dir}",

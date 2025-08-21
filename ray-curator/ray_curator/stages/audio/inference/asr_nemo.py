@@ -16,6 +16,7 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
 
     Args:
         model_name (str): name of the speech recognition NeMo model. See full list at https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/asr/all_chkpt.html
+        asr_model (Any): ASR model object. Defaults to None
         filepath_key (str): which key of the data object should be used to find the path to audiofile. Defaults to “audio_filepath”
         pred_text_key (str): key is used to identify the field containing the predicted transcription associated with a particular audio sample. Defaults to “pred_text”
         name (str): Stage name. Defaults to "ASR_inference"
