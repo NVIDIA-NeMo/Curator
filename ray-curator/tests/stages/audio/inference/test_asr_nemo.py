@@ -1,25 +1,13 @@
 """Test suite for InferenceAsrNemoStage."""
 
-import os
 from unittest.mock import patch
 
 from ray_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from ray_curator.tasks import AudioBatch
 
 
-def get_e2e_test_data_path() -> str:
-    """Returns path to e2e test data"""
-    test_data_root = os.getenv("TEST_DATA_ROOT")
-    if test_data_root:  # assume it's present locally
-        return test_data_root
-    else:
-        raise ValueError
-
-
 class TestAsrNeMoStage:
     """Test suite for TestAsrInference."""
-
-    test_data_root = get_e2e_test_data_path()
 
     def test_stage_properties(self) -> None:
         """Test stage properties."""
