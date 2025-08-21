@@ -146,31 +146,26 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Set up UV
-        uses: astral-sh/setup-uv@v1
-        with:
-          version: 0.7.2
       - name: Install NeMo-Curator and run tests
-        env:
-          UV_PROJECT_ENVIRONMENT: ./venv
         run: |
-          uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
-          source ./venv/bin/activate
-
-          export PATH="./bin/:$PATH"
-
+          pip install -U pip
           cd ray-curator
-          uv sync --link-mode copy --locked --extra text --extra video --group test
-          uv run python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
+          pip install --no-cache-dir ".[text]"
+          pip install --no-cache-dir ".[video]"
+          pip install --no-cache-dir --group test
+
+      - name: Run tests (CPU)
+        run: |
+          cd ray-curator
+          python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
         shell: bash
         run: |
-          source ./venv/bin/activate
           cd ray-curator
-          uv python -m coverage xml
-          uv python -m coverage report
+          python -m coverage xml
+          python -m coverage report
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
