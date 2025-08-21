@@ -36,44 +36,45 @@ ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
 # Install pixi
-RUN apt-get update && apt-get install -y curl ca-certificates git \
-    && curl -fsSL https://pixi.sh/install.sh | bash \
-    && rm -rf /var/lib/apt/lists/*
-ENV PATH="/root/.pixi/bin:$PATH"
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12-dev \
+    python3 \
+    python3-dev \
+    python3-venv \
+    python-is-python3\
+    curl \
+    git \
+    rm -rf /var/lib/apt/lists/*
+
+RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
+    python get-pip.py && \
+    rm get-pip.py
 
 WORKDIR /opt
+
+# Install uv
+ENV UV_VERSION="0.7.2"
+RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV UV_CACHE_DIR=/opt/uv_cache
+ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
+ENV UV_LINK_MODE=copy
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
 # Copy configuration files
-COPY ray-curator/pyproject.toml ./
-COPY ray-curator/ray_curator ./ray_curator
+COPY ray-curator /opt/ray-curator
 
 # Install dependencies
-RUN pixi install -e $CURATOR_ENVIRONMENT
+RUN cd ray-curator && \
+    uv sync --link-mode copy --locked --extra all --all-groups
 
-RUN pixi shell-hook -e $CURATOR_ENVIRONMENT -s bash > /shell-hook && \
-    echo "#!/bin/bash" > /opt/entrypoint.sh && \
-    cat /shell-hook >> /opt/entrypoint.sh && \
-    echo 'exec "$@"' >> /opt/entrypoint.sh && \
-    chmod +x /opt/entrypoint.sh
+COPY <<EOF /opt/venv/env.sh
+export UV_PROJECT_ENVIRONMENT=/opt/venv
+export PATH="/opt/venv/bin:$PATH"
+export UV_LINK_MODE=copy
+export PATH="/root/.local/bin:$PATH"
+EOF
 
-##############################################################################
-# Final stage
-##############################################################################
-
-FROM cuda AS nemo_curator
-
-WORKDIR /opt
-
-RUN apt-get update && apt-get install -y ca-certificates git \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY . .
-
-# Copy pixi environment
-COPY --from=build /opt/.pixi/envs /opt/.pixi/envs
-COPY --from=build /opt/entrypoint.sh /opt/entrypoint.sh
-COPY --from=build /opt/ray_curator /opt/ray_curator
-
-WORKDIR /workspace
-
-ENTRYPOINT ["/opt/entrypoint.sh"]
+RUN chmod +x /opt/venv/env.sh
