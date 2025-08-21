@@ -35,7 +35,7 @@ ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
-# Install pixi
+# Install base dependency
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -63,7 +63,42 @@ ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
-# Copy configuration files
+FROM build as nemo_curator
+
+# install video dependency
+RUN apt-get update && apt-get install -y \
+    libcrypt-dev \
+    autoconf \
+    automake \
+    build-essential \
+    cmake \
+    libaom-dev \
+    libass-dev \
+    libdav1d-dev \
+    libdrm-dev \
+    libfreetype6-dev \
+    libgnutls28-dev \
+    libnuma-dev \
+    libopenh264-dev \
+    libtool \
+    libva-dev \
+    libvorbis-dev \
+    libvpx-dev \
+    libwebp-dev \
+    pkg-config \
+    texinfo \
+    vainfo \
+    wget \
+    yasm \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install ffmpeg
+COPY ray-curator/docker/common/install_ffmpeg.sh .
+RUN bash install_ffmpeg.sh --FFMPEG_VERSION=7.0.1 --NVCODEC_VERSION=12.1.14.0 && \
+    rm install_ffmpeg.sh
+
+# Copy ray-curator
 COPY ray-curator /opt/ray-curator
 
 # Install dependencies
