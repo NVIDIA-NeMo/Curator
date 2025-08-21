@@ -86,6 +86,7 @@ video_cuda = [
     "cvcuda_cu12",
     "pycuda",
     "vllm",
+    "flash_attn",
 ]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
