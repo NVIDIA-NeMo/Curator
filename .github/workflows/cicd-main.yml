@@ -150,7 +150,7 @@ jobs:
         uses: astral-sh/setup-uv@v1
         with:
           version: 0.7.2
-      - name: Install NeMo-Curator and pytest
+      - name: Install NeMo-Curator and run tests
         env:
           UV_PROJECT_ENVIRONMENT: ./venv
         run: |
@@ -161,15 +161,16 @@ jobs:
 
           cd ray-curator
           uv sync --link-mode copy --locked --extra text --extra video --group test
-          uv run coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
+          uv run python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
         shell: bash
         run: |
+          source ./venv/bin/activate
           cd ray-curator
-          python -m coverage xml
-          python -m coverage report
+          uv python -m coverage xml
+          uv python -m coverage report
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
