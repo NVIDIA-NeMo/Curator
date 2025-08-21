@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 import importlib
 from typing import Any
 from unittest.mock import Mock, patch
@@ -20,7 +21,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ray_curator.stages.text.models import tokenizer
 from ray_curator.stages.text.models.tokenizer import TokenizerStage
 from ray_curator.stages.text.models.utils import (
     ATTENTION_MASK_COLUMN,
@@ -104,14 +104,15 @@ def setup_mocks(mock_tokenizer: Mock):
 
         # snapshot_download doesn't need special setup, just needs to not fail
 
+        # Drop any cached version of tokenizer.py and reload it
+        sys.modules.pop("ray_curator.stages.text.models.tokenizer", None)
+        importlib.import_module("ray_curator.stages.text.models.tokenizer")
+
         yield {
             "auto_tokenizer": mock_auto_tokenizer,
             "auto_config": mock_auto_config,
             "snapshot_download": mock_snapshot_download,
         }
-
-        # After yield, reload to restore original classes
-        importlib.reload(tokenizer)
 
 
 def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):  # noqa: ARG001
