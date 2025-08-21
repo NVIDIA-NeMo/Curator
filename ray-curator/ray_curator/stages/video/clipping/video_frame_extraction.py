@@ -9,16 +9,18 @@ from loguru import logger
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import VideoTask
+from ray_curator.tasks.video import VideoTask
 from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
 try:
     from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
+
     _PYNVC_AVAILABLE = True
 except ImportError:
     logger.warning("PyNvcFrameExtractor not available, PyNvCodec mode will fall back to FFmpeg")
     PyNvcFrameExtractor = None
     _PYNVC_AVAILABLE = False
+
 
 def get_frames_from_ffmpeg(
     video_file: Path,
@@ -86,6 +88,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     This stage handles video frame extraction using either FFmpeg (CPU/GPU) or PyNvCodec,
     converting video content into standardized frame arrays for downstream processing.
     """
+
     output_hw: tuple[int, int] = (27, 48)
     pyncv_batch_size: int = 64
     decoder_mode: str = "pynvc"
@@ -119,6 +122,11 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                 logger.warning("PyNvcFrameExtractor not available, will fall back to FFmpeg for video processing")
                 self.pynvc_frame_extractor = None
 
+    def __post_init__(self) -> None:
+        if self.decoder_mode == "pynvc":
+            self._resources = Resources(gpu_memory_gb=10)
+        else:
+            self._resources = Resources(cpus=4.0)
 
     def process(self, task: VideoTask) -> VideoTask:
         width, height = self.output_hw
@@ -171,11 +179,3 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
             if self.verbose:
                 logger.info(f"Loaded video as numpy uint8 array with shape {video.frame_array.shape}")
         return task
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        if self.decoder_mode == "pynvc":
-            return Resources(gpu_memory_gb=10)
-        else:
-            return Resources(cpus=4.0)

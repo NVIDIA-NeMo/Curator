@@ -57,10 +57,7 @@ class TestPromptFormatter:
         # Create mock video tensor
         video_tensor = torch.randn(1, 3, 224, 224)
 
-        result = formatter.generate_inputs(
-            prompt="Test prompt",
-            video_inputs=video_tensor
-        )
+        result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
         # Verify the result structure
         assert isinstance(result, dict)
@@ -70,19 +67,9 @@ class TestPromptFormatter:
         assert result["multi_modal_data"]["video"] is video_tensor
 
         # Verify processor was called correctly
-        expected_message = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video"},
-                    {"type": "text", "text": "Test prompt"}
-                ]
-            }
-        ]
+        expected_message = [{"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt"}]}]
         mock_processor_instance.apply_chat_template.assert_called_once_with(
-            expected_message,
-            tokenizer=False,
-            add_generation_prompt=True
+            expected_message, tokenizer=False, add_generation_prompt=True
         )
 
         # Verify text_prompt was cached
@@ -100,10 +87,7 @@ class TestPromptFormatter:
 
         video_tensor = torch.randn(1, 3, 224, 224)
 
-        result = formatter.generate_inputs(
-            prompt="Test prompt",
-            video_inputs=video_tensor
-        )
+        result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor)
 
         # Verify cached prompt is used
         assert result["prompt"] == "cached_prompt"
@@ -125,11 +109,7 @@ class TestPromptFormatter:
 
         video_tensor = torch.randn(1, 3, 224, 224)
 
-        result = formatter.generate_inputs(
-            prompt="Test prompt",
-            video_inputs=video_tensor,
-            override_text_prompt=True
-        )
+        result = formatter.generate_inputs(prompt="Test prompt", video_inputs=video_tensor, override_text_prompt=True)
 
         # Verify new prompt is generated and cached
         assert result["prompt"] == "new_formatted_prompt"
@@ -157,13 +137,7 @@ class TestPromptFormatter:
         result = self.formatter.create_message("Test prompt text")
 
         expected_message = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "video"},
-                    {"type": "text", "text": "Test prompt text"}
-                ]
-            }
+            {"role": "user", "content": [{"type": "video"}, {"type": "text", "text": "Test prompt text"}]}
         ]
 
         assert result == expected_message
@@ -196,9 +170,7 @@ class TestPromptFormatter:
 
         # Create formatter and verify processor initialization
         formatter = PromptFormatter(prompt_variant="qwen")
-        mock_processor_class.from_pretrained.assert_called_once_with(
-            VARIANT_MAPPING["qwen"]
-        )
+        mock_processor_class.from_pretrained.assert_called_once_with(VARIANT_MAPPING["qwen"])
 
         # Test processor method call
         mock_processor_instance.apply_chat_template.return_value = "test_output"
@@ -206,7 +178,5 @@ class TestPromptFormatter:
 
         # Verify apply_chat_template was called with correct parameters
         mock_processor_instance.apply_chat_template.assert_called_once_with(
-            formatter.create_message("test prompt"),
-            tokenizer=False,
-            add_generation_prompt=True
+            formatter.create_message("test prompt"), tokenizer=False, add_generation_prompt=True
         )

@@ -94,11 +94,7 @@ class TestMakeTemporaryDir:
             target_dir = pathlib.Path(parent_dir)
             prefix = "full_test_"
 
-            with make_temporary_dir(
-                prefix=prefix,
-                target_dir=target_dir,
-                delete=True
-            ) as tmp_dir:
+            with make_temporary_dir(prefix=prefix, target_dir=target_dir, delete=True) as tmp_dir:
                 assert isinstance(tmp_dir, pathlib.Path)
                 assert tmp_dir.exists()
                 assert tmp_dir.is_dir()
@@ -179,10 +175,7 @@ class TestMakeNamedTemporaryFile:
             suffix = ".test"
 
             with make_named_temporary_file(
-                prefix=prefix,
-                suffix=suffix,
-                delete=True,
-                target_dir=target_dir
+                prefix=prefix, suffix=suffix, delete=True, target_dir=target_dir
             ) as tmp_file:
                 assert isinstance(tmp_file, pathlib.Path)
                 assert tmp_file.exists()

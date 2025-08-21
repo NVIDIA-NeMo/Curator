@@ -1,5 +1,4 @@
 import argparse
-import time
 
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.pipeline import Pipeline
@@ -14,22 +13,19 @@ from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1Embeddi
 from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.stages.video.io.video_reader_download import VideoReaderDownloadStage
+from ray_curator.stages.video.io.video_reader import VideoReader
 from ray_curator.stages.video.preview.preview import PreviewStage
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy
+from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
-
+def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: PLR0912, C901
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
     # Add stages
-    pipeline.add_stage(VideoReaderDownloadStage(
-        input_video_path=args.video_dir,
-        video_limit=args.video_limit,
-        verbose=args.verbose
-    ))
+    pipeline.add_stage(
+        VideoReader(input_video_path=args.video_dir, video_limit=args.video_limit, verbose=args.verbose)
+    )
 
     if args.splitting_algorithm == "fixed_stride":
         pipeline.add_stage(
@@ -60,107 +56,117 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 verbose=args.verbose,
             )
         )
-
     else:
         msg = f"Splitting algorithm {args.splitting_algorithm} not supported"
         raise ValueError(msg)
 
-    pipeline.add_stage(ClipTranscodingStage(
-        num_cpus_per_worker=args.transcode_cpus_per_worker,
-        encoder=args.transcode_encoder,
-        encoder_threads=args.transcode_encoder_threads,
-        encode_batch_size=args.transcode_ffmpeg_batch_size,
-        use_hwaccel=args.transcode_use_hwaccel,
-        use_input_bit_rate=args.transcode_use_input_video_bit_rate,
-        num_clips_per_chunk=args.clip_re_chunk_size,
-        verbose=args.verbose,
-    ))
+    pipeline.add_stage(
+        ClipTranscodingStage(
+            num_cpus_per_worker=args.transcode_cpus_per_worker,
+            encoder=args.transcode_encoder,
+            encoder_threads=args.transcode_encoder_threads,
+            encode_batch_size=args.transcode_ffmpeg_batch_size,
+            use_hwaccel=args.transcode_use_hwaccel,
+            use_input_bit_rate=args.transcode_use_input_video_bit_rate,
+            num_clips_per_chunk=args.clip_re_chunk_size,
+            verbose=args.verbose,
+        )
+    )
 
     if args.motion_filter != "disable":
-        pipeline.add_stage(MotionVectorDecodeStage(
-            num_cpus_per_worker=args.motion_decode_cpus_per_worker,
-            verbose=args.verbose,
-            target_fps=args.motion_decode_target_fps,
-            target_duration_ratio=args.motion_decode_target_duration_ratio,
-        ))
-        pipeline.add_stage(MotionFilterStage(
-            score_only=args.motion_filter == "score-only",
-            global_mean_threshold=args.motion_global_mean_threshold,
-            per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
-            num_gpus_per_worker=args.motion_score_gpus_per_worker,
-            motion_filter_batch_size=args.motion_score_batch_size,
-            verbose=args.verbose,
-        ))
-
+        pipeline.add_stage(
+            MotionVectorDecodeStage(
+                target_fps=args.motion_decode_target_fps,
+                target_duration_ratio=args.motion_decode_target_duration_ratio,
+                num_cpus_per_worker=args.motion_decode_cpus_per_worker,
+            )
+        )
+        pipeline.add_stage(
+            MotionFilterStage(
+                score_only=args.motion_filter == "score-only",
+                global_mean_threshold=args.motion_global_mean_threshold,
+                per_patch_min_256_threshold=args.motion_per_patch_min_256_threshold,
+                num_gpus_per_worker=args.motion_score_gpus_per_worker,
+                motion_filter_batch_size=args.motion_score_batch_size,
+                verbose=args.verbose,
+            )
+        )
 
     has_embeddings = args.generate_embeddings
     has_aesthetics = args.aesthetic_threshold is not None
-    # If both aesthetics AND embeddings are needed: [1, 2] - extract frames at both 1 FPS and 2 FPS
-    # If only aesthetics is needed: [1] - extract frames at 1 FPS
-    # If only embeddings is needed: [2] - extract frames at 2 FPS
-    target_fps: list[float | int] = (
-        [1, 2] if has_aesthetics and has_embeddings else [1] if has_aesthetics else [2] if has_embeddings else []
-    )
-
-    if target_fps:
-        pipeline.add_stage(ClipFrameExtractionStage(
-            extraction_policies=(FrameExtractionPolicy.sequence,),
-            target_fps=target_fps,
-            target_res=(
-                args.clip_extraction_target_res,
-                args.clip_extraction_target_res,
-            ),
-            verbose=args.verbose,
-        ))
-
+    purposes = []
+    if has_aesthetics:
+        purposes.append(FramePurpose.AESTHETICS)
+    if has_embeddings:
+        purposes.append(FramePurpose.EMBEDDINGS)
+    if len(purposes) != 0:
+        pipeline.add_stage(
+            ClipFrameExtractionStage(
+                extraction_policies=(FrameExtractionPolicy.sequence,),
+                extract_purposes=purposes,
+                target_res=(
+                    args.clip_extraction_target_res,
+                    args.clip_extraction_target_res,
+                ),
+                verbose=args.verbose,
+            )
+        )
     if args.aesthetic_threshold is not None:
-        pipeline.add_stage(ClipAestheticFilterStage(
-            model_dir=args.model_dir,
-            score_threshold=args.aesthetic_threshold,
-            reduction=args.aesthetic_reduction,
-            num_gpus_per_worker=args.aesthetic_gpus_per_worker,
-            verbose=args.verbose,
-        ))
-
-    if args.generate_embeddings and args.embedding_algorithm.startswith("cosmos-embed1"):
-        variant = args.embedding_algorithm.split("-")[-1]
-        pipeline.add_stage(CosmosEmbed1FrameCreationStage(
-            model_dir=args.model_dir,
-            variant=variant,
-            target_fps=2.0,
-            verbose=args.verbose,
-        ))
-        pipeline.add_stage(CosmosEmbed1EmbeddingStage(
-            model_dir=args.model_dir,
-            variant=variant,
-            gpu_memory_gb=args.embedding_gpu_memory_gb,
-            verbose=args.verbose,
-        ))
-    else:
-        msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
-        raise ValueError(msg)
-
+        pipeline.add_stage(
+            ClipAestheticFilterStage(
+                model_dir=args.model_dir,
+                score_threshold=args.aesthetic_threshold,
+                reduction=args.aesthetic_reduction,
+                num_gpus_per_worker=args.aesthetic_gpus_per_worker,
+                verbose=args.verbose,
+            )
+        )
+    if args.generate_embeddings:
+        if args.embedding_algorithm.startswith("cosmos-embed1"):
+            variant = args.embedding_algorithm.split("-")[-1]
+            pipeline.add_stage(
+                CosmosEmbed1FrameCreationStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    target_fps=FramePurpose.EMBEDDINGS.value,
+                    verbose=args.verbose,
+                )
+            )
+            pipeline.add_stage(
+                CosmosEmbed1EmbeddingStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    gpu_memory_gb=args.embedding_gpu_memory_gb,
+                    verbose=args.verbose,
+                )
+            )
+        else:
+            msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
+            raise ValueError(msg)
 
     if args.generate_captions:
-
-        pipeline.add_stage(CaptionPreparationStage(
-            model_variant=args.captioning_algorithm,
-            prompt_variant=args.captioning_prompt_variant,
-            prompt_text=args.captioning_prompt_text,
-            sampling_fps=args.captioning_sampling_fps,
-            window_size=args.captioning_window_size,
-            remainder_threshold=args.captioning_remainder_threshold,
-            preprocess_dtype=args.captioning_preprocess_dtype,
-            model_does_preprocess=args.captioning_model_does_preprocess, # TODO: Change this once we have a caption stage
-            generate_previews=args.generate_previews,
-            verbose=args.verbose,
-        ))
-        if args.generate_previews:
-            pipeline.add_stage(PreviewStage(
-                target_fps=args.preview_target_fps,
-                target_height=args.preview_target_height,
+        pipeline.add_stage(
+            CaptionPreparationStage(
+                model_variant=args.captioning_algorithm,
+                prompt_variant=args.captioning_prompt_variant,
+                prompt_text=args.captioning_prompt_text,
+                sampling_fps=args.captioning_sampling_fps,
+                window_size=args.captioning_window_size,
+                remainder_threshold=args.captioning_remainder_threshold,
+                preprocess_dtype=args.captioning_preprocess_dtype,
+                model_does_preprocess=args.captioning_model_does_preprocess,
+                generate_previews=args.generate_previews,
                 verbose=args.verbose,
-            ))
+            )
+        )
+        if args.generate_previews:
+            pipeline.add_stage(
+                PreviewStage(
+                    target_fps=args.preview_target_fps,
+                    target_height=args.preview_target_height,
+                    verbose=args.verbose,
+                )
+            )
 
         pipeline.add_stage(
             CaptionGenerationStage(
@@ -174,7 +180,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
                 stage2_prompt_text=args.captioning_stage2_prompt_text,
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
                 verbose=args.verbose,
-        ))
+            )
+        )
 
         if args.enhance_captions:
             pipeline.add_stage(CaptionEnhancementStage(
@@ -199,7 +206,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
             generate_captions=args.generate_captions,
             embedding_algorithm=args.embedding_algorithm,
             caption_models=[args.captioning_algorithm],
-            enhanced_caption_models=["qwen_lm"],
+            enhanced_caption_models=[args.enhanced_caption_models],
             verbose=args.verbose,
         )
     )
@@ -208,9 +215,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:
 
 
 def main(args: argparse.Namespace) -> None:
-
-    print("Starting pipeline execution...")
-    start_time = time.time()
     pipeline = create_video_splitting_pipeline(args)
 
     # Print pipeline description
@@ -221,17 +225,12 @@ def main(args: argparse.Namespace) -> None:
     executor = XennaExecutor()
 
     # Execute pipeline
+    print("Starting pipeline execution...")
     pipeline.run(executor)
-    end_time = time.time()
 
-    # Calculate and print execution time
-    execution_time = end_time - start_time
-    hours, remainder = divmod(execution_time, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
+    # Print results
     print("\nPipeline completed!")
-    print(f"Total execution time: {int(hours):02d}:{int(minutes):02d}:{seconds:.2f}")
-    print(f"Total execution time: {execution_time:.2f} seconds")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -241,6 +240,7 @@ if __name__ == "__main__":
     parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
+
     parser.add_argument(
         "--no-upload-clips",
         dest="upload_clips",
@@ -292,57 +292,40 @@ if __name__ == "__main__":
         "--transnetv2-threshold",
         type=float,
         default=0.4,
-        help=(
-            "TransNetV2 probability threshold above which a frame is classified as a shot transition. "
-            "Default is 0.4, which prioritizes recall over precision."
-        ),
+        help="Threshold for transnetv2 clip extraction stage.",
     )
     parser.add_argument(
         "--transnetv2-min-length-s",
         type=float,
         default=2.0,
-        help=(
-            "Minimum length of clips (in seconds) for TransNetV2 splitting stage. "
-            "If specified, will remove any scenes below this length."
-        ),
+        help="Minimum length of clips (in seconds) for transnetv2 splitting stage.",
     )
     parser.add_argument(
         "--transnetv2-max-length-s",
         type=float,
-        default=60.0,
-        help=(
-            "Maximum length of clips (in seconds) for TransNetV2 splitting stage. "
-            "If specified, will deal with the scene by the `max_length_mode` specified."
-        ),
+        default=10.0,
+        help="Maximum length of clips (in seconds) for transnetv2 splitting stage.",
     )
     parser.add_argument(
         "--transnetv2-max-length-mode",
         type=str,
         default="stride",
         choices=["truncate", "stride"],
-        help=(
-            "Maximum length mode for TransNetV2 splitting stage. "
-            "If `truncate`, will truncate the scene to `max_length_s`. "
-            "If `stride`, will generate a number of max_length_s scenes until the end of the scene. "
-            "If the end scene is less than `min_length_s`, it will drop the last scene."
-        ),
+        help="Mode for handling clips longer than max_length_s in transnetv2 splitting stage.",
     )
     parser.add_argument(
         "--transnetv2-crop-s",
         type=float,
         default=0.5,
-        help=(
-            "Crop size for TransNetV2 splitting stage. If specified, will crop each scene at start and end. "
-            "E.g. 0.25 will crop ~250ms from start, and ~250ms from end frame (reducing all clips by ~0.5 seconds). "
-            "If cropped scenes result in zero-length scenes, these will be filtered."
-        ),
+        help="Crop length (in seconds) for transnetv2 splitting stage.",
     )
     parser.add_argument(
         "--transnetv2-gpu-memory-gb",
         type=float,
-        default=10,
-        help="GPU memory in GB per worker for TransNetV2 splitting stage.",
+        default=10.0,
+        help="GPU memory (in GB) for transnetv2 splitting stage.",
     )
+
     # Transcoding arguments
     parser.add_argument(
         "--transcode-cpus-per-worker",
@@ -459,7 +442,6 @@ if __name__ == "__main__":
         default=-1,
         help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
     )
-
     # Aesthetic arguments
     parser.add_argument(
         "--aesthetic-threshold",
@@ -676,6 +658,12 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Prompt text for further enhancing captions using EnhanceCaptionStage w/ Qwen-LM.",
+    parser.add_argument(
+        "--enhanced-caption-models",
+        type=str,
+        default="qwen_lm",
+        choices=["qwen_lm"],
+        help="Enhanced LLM models to use to improve captions",
     )
     args = parser.parse_args()
     main(args)

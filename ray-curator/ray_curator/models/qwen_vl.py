@@ -14,8 +14,10 @@ _QWEN_VARIANTS_INFO = {
     "qwen": _QWEN2_5_VL_MODEL_ID,
 }
 
+
 class QwenVL(ModelInterface):
-    def __init__(self,  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913
+        self,
         model_dir: str,
         model_variant: str,
         caption_batch_size: int,
@@ -24,7 +26,7 @@ class QwenVL(ModelInterface):
         model_does_preprocess: bool = False,
         disable_mmcache: bool = False,
         stage2_prompt_text: str | None = None,
-        verbose: bool = False
+        verbose: bool = False,
     ):
         self.model_dir = model_dir
         self.model_variant = model_variant
@@ -65,13 +67,12 @@ class QwenVL(ModelInterface):
             max_tokens=self.max_output_tokens,
             stop_token_ids=[],
         )
-        logger.info("CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences")
+        logger.info(
+            "CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences"
+        )
 
     def generate(
-        self,
-        videos: list[dict[str, Any]],
-        generate_stage2_caption: bool = False,
-        batch_size: int = 16
+        self, videos: list[dict[str, Any]], generate_stage2_caption: bool = False, batch_size: int = 16
     ) -> list[str]:
         generated_text = []
         for batch_videos in grouping.split_by_chunk_size(videos, batch_size):

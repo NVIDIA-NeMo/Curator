@@ -1,5 +1,34 @@
 # Changelog
 
+## NVIDIA NeMo Curator 0.9.0
+
+### Major Features and Enhancements
+
+- New How-to Data Recipes (Tutorials)
+  - Multimodal DAPT Curation w/ PDF Extraction
+  - Llama Nemotron Data Curation 
+  - LLM NIM - PII Redaction
+- Performance and Code Optimizations
+  - Simplified Clustering Logic: Significantly improved semantic deduplication clustering performance
+  - Removed convoluted backend switching logic that caused performance issues
+  - Eliminated expensive length assertions that could cause timeouts on large datasets
+  - Improved GPU utilization during KMeans clustering operations
+  - Tested on 37M embedding dataset (80GB) across 7 GPUs with substantial performance gains
+
+### Bug Fixes
+
+- FastText Download URL Fix
+  - Corrected the `fasttext` model download URL in nemotron-cc tutorial
+  - Changed from `dl.fbaipublicfiles.com/fastText/` to `dl.fbaipublicfiles.com/fasttext/`
+  - Ensures reliable model downloads for language identification
+- NeMo Retriever Tutorial Bug Fix
+  - Fixed lambda function bug in `RetrieverEvalSetGenerator`
+  - Corrected score assignment from `df["question"].apply(lambda: 1)` to `df["score"] = 1`
+- API Usage Updates
+  - Updated examples and tutorials to use correct `DocumentDataset` API
+  - Replaced deprecated `write_to_disk(result, output_dir, output_type="parquet")` with `result.to_parquet(output_dir)`
+  - Updated exact deduplication workflows: `deduplicator.remove()` now returns `DocumentDataset` directly
+
 ## NVIDIA NeMo Curator 0.8.0
 
 - Llama Based PII Redaction

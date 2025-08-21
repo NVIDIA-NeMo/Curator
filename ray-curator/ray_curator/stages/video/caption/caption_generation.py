@@ -18,6 +18,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     This stage processes prepared video windows through the specified vision-language model to
     generate descriptive captions, with support for both synchronous and asynchronous processing.
     """
+
     model_dir: str = "models/qwen"
     model_variant: str = "qwen"
     caption_batch_size: int = 16
@@ -38,7 +39,15 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         if self.model_variant == "qwen":
-            self.model = QwenVL(model_dir=self.model_dir, model_variant=self.model_variant, caption_batch_size=self.caption_batch_size, fp8=self.fp8, max_output_tokens=self.max_output_tokens, model_does_preprocess=self.model_does_preprocess, disable_mmcache=self.disable_mmcache)
+            self.model = QwenVL(
+                model_dir=self.model_dir,
+                model_variant=self.model_variant,
+                caption_batch_size=self.caption_batch_size,
+                fp8=self.fp8,
+                max_output_tokens=self.max_output_tokens,
+                model_does_preprocess=self.model_does_preprocess,
+                disable_mmcache=self.disable_mmcache,
+            )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
             raise ValueError(msg)
@@ -84,7 +93,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         _captions = list(captions)
         for req_id, caption in _captions:
             clip_idx, window_idx = mapping[req_id]
-            video.clips[clip_idx].windows[window_idx].caption["qwen"] = caption
+            video.clips[clip_idx].windows[window_idx].caption[self.model_variant] = caption
             if self.verbose:
                 logger.info(f"Caption for clip {video.clips[clip_idx].uuid} window {window_idx}: {caption}")
 
