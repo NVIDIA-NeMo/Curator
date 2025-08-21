@@ -67,7 +67,7 @@ class TestCaptionGenerationStage:
             fp8=False,
             max_output_tokens=256,
             model_does_preprocess=True,
-            disable_mmcache=True
+            disable_mmcache=True,
         )
         mock_model.setup.assert_called_once()
         assert self.stage.model == mock_model
@@ -87,41 +87,32 @@ class TestCaptionGenerationStage:
     def _create_test_video_task(self) -> VideoTask:
         """Create a test VideoTask with sample data."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
 
         # Create clips with windows
-        clip1 = Clip(
-            uuid=uuid4(),
-            source_video="test1.mp4",
-            span=(0.0, 10.0),
-            buffer=b"test_buffer_1"
-        )
+        clip1 = Clip(uuid=uuid4(), source_video="test1.mp4", span=(0.0, 10.0), buffer=b"test_buffer_1")
 
         # Add windows with qwen_llm_input
         window1 = _Window(
             start_frame=0,
             end_frame=10,
-            qwen_llm_input={"prompt": "test prompt 1", "multi_modal_data": {"video": "test_data_1"}}
+            qwen_llm_input={"prompt": "test prompt 1", "multi_modal_data": {"video": "test_data_1"}},
         )
         window2 = _Window(
             start_frame=10,
             end_frame=20,
-            qwen_llm_input={"prompt": "test prompt 2", "multi_modal_data": {"video": "test_data_2"}}
+            qwen_llm_input={"prompt": "test prompt 2", "multi_modal_data": {"video": "test_data_2"}},
         )
         clip1.windows = [window1, window2]
 
-        clip2 = Clip(
-            uuid=uuid4(),
-            source_video="test2.mp4",
-            span=(10.0, 20.0),
-            buffer=b"test_buffer_2"
-        )
+        clip2 = Clip(uuid=uuid4(), source_video="test2.mp4", span=(10.0, 20.0), buffer=b"test_buffer_2")
 
         # Add window with qwen_llm_input
         window3 = _Window(
             start_frame=0,
             end_frame=15,
-            qwen_llm_input={"prompt": "test prompt 3", "multi_modal_data": {"video": "test_data_3"}}
+            qwen_llm_input={"prompt": "test prompt 3", "multi_modal_data": {"video": "test_data_3"}},
         )
         clip2.windows = [window3]
 
@@ -169,17 +160,11 @@ class TestCaptionGenerationStage:
 
         # Create simple task with one window
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
-        clip = Clip(
-            uuid=uuid4(),
-            source_video="test.mp4",
-            span=(0.0, 5.0),
-            buffer=b"test_buffer"
-        )
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         window = _Window(
-            start_frame=0,
-            end_frame=5,
-            qwen_llm_input={"prompt": "test", "multi_modal_data": {"video": "data"}}
+            start_frame=0, end_frame=5, qwen_llm_input={"prompt": "test", "multi_modal_data": {"video": "data"}}
         )
         clip.windows = [window]
         video.clips = [clip]
@@ -195,13 +180,9 @@ class TestCaptionGenerationStage:
         self.stage.model = mock_model
 
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
-        clip = Clip(
-            uuid=uuid4(),
-            source_video="test.mp4",
-            span=(0.0, 5.0),
-            buffer=b"test_buffer"
-        )
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         # No windows added
         video.clips = [clip]
         task = VideoTask(task_id="test", dataset_name="test", data=video)
@@ -223,13 +204,9 @@ class TestCaptionGenerationStage:
         self.stage.model = mock_model
 
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
-        clip = Clip(
-            uuid=uuid4(),
-            source_video="test.mp4",
-            span=(0.0, 5.0),
-            buffer=b"test_buffer"
-        )
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         # Window without qwen_llm_input
         window = _Window(start_frame=0, end_frame=5, qwen_llm_input=None)
         clip.windows = [window]
@@ -239,34 +216,26 @@ class TestCaptionGenerationStage:
         self.stage.process(task)
 
         # Verify error was logged and set
-        mock_logger.error.assert_called_once_with(
-            f"Clip {clip.uuid} window 0 has no prepared inputs."
-        )
+        mock_logger.error.assert_called_once_with(f"Clip {clip.uuid} window 0 has no prepared inputs.")
         assert clip.errors["window-0"] == "empty"
 
     def test_assign_captions(self):
         """Test _assign_captions method."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
-        clip1 = Clip(
-            uuid=uuid4(),
-            source_video="test1.mp4",
-            span=(0.0, 10.0)
-        )
-        clip1.windows = [
-            _Window(start_frame=0, end_frame=10),
-            _Window(start_frame=10, end_frame=20)
-        ]
-        clip2 = Clip(
-            uuid=uuid4(),
-            source_video="test2.mp4",
-            span=(10.0, 20.0)
-        )
+        clip1 = Clip(uuid=uuid4(), source_video="test1.mp4", span=(0.0, 10.0))
+        clip1.windows = [_Window(start_frame=0, end_frame=10), _Window(start_frame=10, end_frame=20)]
+        clip2 = Clip(uuid=uuid4(), source_video="test2.mp4", span=(10.0, 20.0))
         clip2.windows = [_Window(start_frame=0, end_frame=15)]
         video.clips = [clip1, clip2]
 
         mapping = {0: (0, 0), 1: (0, 1), 2: (1, 0)}
-        captions = [(0, "Caption for clip1 window1"), (1, "Caption for clip1 window2"), (2, "Caption for clip2 window1")]
+        captions = [
+            (0, "Caption for clip1 window1"),
+            (1, "Caption for clip1 window2"),
+            (2, "Caption for clip2 window1"),
+        ]
 
         self.stage._assign_captions(video, mapping, captions)
 
@@ -278,6 +247,7 @@ class TestCaptionGenerationStage:
     def test_assign_captions_with_logging(self, mock_logger: Mock):
         """Test _assign_captions method logs summary information."""
         import pathlib
+
         video = Video(input_video=pathlib.Path("test_video.mp4"))
         video.clip_chunk_index = 0
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0))
@@ -296,9 +266,7 @@ class TestCaptionGenerationStage:
         # Restore original verbose setting
         self.stage.verbose = original_verbose
 
-        mock_logger.info.assert_called_once_with(
-            "Generated 1 captions for video test_video.mp4 chunk-0 with 1 clips"
-        )
+        mock_logger.info.assert_called_once_with("Generated 1 captions for video test_video.mp4 chunk-0 with 1 clips")
 
     def test_process_with_stage2_caption(self):
         """Test process method with stage2 caption generation enabled."""
@@ -309,17 +277,11 @@ class TestCaptionGenerationStage:
 
         # Create simple task with one window
         import pathlib
+
         video = Video(input_video=pathlib.Path("test.mp4"))
-        clip = Clip(
-            uuid=uuid4(),
-            source_video="test.mp4",
-            span=(0.0, 5.0),
-            buffer=b"test_buffer"
-        )
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         window = _Window(
-            start_frame=0,
-            end_frame=5,
-            qwen_llm_input={"prompt": "test", "multi_modal_data": {"video": "data"}}
+            start_frame=0, end_frame=5, qwen_llm_input={"prompt": "test", "multi_modal_data": {"video": "data"}}
         )
         clip.windows = [window]
         video.clips = [clip]
@@ -329,9 +291,7 @@ class TestCaptionGenerationStage:
 
         # Verify model.generate was called with stage2 flag
         mock_model.generate.assert_called_once_with(
-            [{"prompt": "test", "multi_modal_data": {"video": "data"}}],
-            generate_stage2_caption=True,
-            batch_size=2
+            [{"prompt": "test", "multi_modal_data": {"video": "data"}}], generate_stage2_caption=True, batch_size=2
         )
 
     def test_process_returns_same_task(self):
