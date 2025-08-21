@@ -85,7 +85,7 @@ def sample_document_batch() -> DocumentBatch:
     return DocumentBatch(task_id="test_task", dataset_name="test_dataset", data=data)
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def setup_mocks(mock_tokenizer: Mock):
     with (
         patch("ray_curator.stages.text.models.tokenizer.AutoTokenizer") as mock_auto_tokenizer,
@@ -109,20 +109,7 @@ def setup_mocks(mock_tokenizer: Mock):
         }
 
 
-def test_mocks_are_working_automatically():
-    # This test can create a TokenizerStage and call setup() without any issues
-    # because the setup_mocks fixture is automatically applied due to autouse=True
-    stage = TokenizerStage(model_identifier="test/model")
-
-    # This would fail without the mocks being active
-    stage.setup()
-
-    # Verify the tokenizer was mocked correctly
-    assert stage.tokenizer is not None
-    assert hasattr(stage.tokenizer, "batch_encode_plus")
-
-
-def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch):
+def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):
     stage = TokenizerStage(model_identifier="test/model", sort_by_length=True, text_field="text")
 
     stage.setup()
@@ -147,7 +134,7 @@ def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentB
     assert all(0 <= order < len(sample_document_batch.to_pandas()) for order in result[SEQ_ORDER_COLUMN])
 
 
-def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: DocumentBatch):
+def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):
     stage = TokenizerStage(model_identifier="test/model", sort_by_length=False, text_field="text")
 
     stage.setup()
@@ -169,7 +156,7 @@ def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: Document
     assert original_texts == result_texts
 
 
-def test_tokenizer_stage_max_chars_truncation():
+def test_tokenizer_stage_max_chars_truncation(setup_mocks: dict[str, Mock]):
     data = pd.DataFrame(
         {"text": ["This is a very long text that should be truncated when max_chars is set to a small value"]}
     )
@@ -185,7 +172,7 @@ def test_tokenizer_stage_max_chars_truncation():
     assert truncated_text == "This is a very long "
 
 
-def test_tokenizer_stage_setup_unk_token():
+def test_tokenizer_stage_setup_unk_token(setup_mocks: dict[str, Mock]):
     stage = TokenizerStage(model_identifier="test/model", unk_token=True)
 
     stage.setup()
