@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import importlib
 from typing import Any
 from unittest.mock import Mock, patch
 
@@ -19,6 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from ray_curator.stages.text.models import tokenizer
 from ray_curator.stages.text.models.tokenizer import TokenizerStage
 from ray_curator.stages.text.models.utils import (
     ATTENTION_MASK_COLUMN,
@@ -107,6 +109,9 @@ def setup_mocks(mock_tokenizer: Mock):
             "auto_config": mock_auto_config,
             "snapshot_download": mock_snapshot_download,
         }
+
+        # After yield, reload to restore original classes
+        importlib.reload(tokenizer)
 
 
 def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):  # noqa: ARG001
