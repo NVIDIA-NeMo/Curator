@@ -11,7 +11,7 @@ from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.stages.resources import Resources
 from ray_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
 from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from ray_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
 
 from .utils import break_parquet_partition_into_groups, get_array_from_df
 
@@ -89,13 +89,11 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.oversampling_factor = oversampling_factor
         self.max_samples_per_batch = max_samples_per_batch
 
-        self.read_kwargs = read_kwargs if read_kwargs is not None else {}
-        self.write_kwargs = write_kwargs if write_kwargs is not None else {}
+        self.read_kwargs = read_kwargs.copy() if read_kwargs is not None else {}
+        self.write_kwargs = write_kwargs.copy() if write_kwargs is not None else {}
 
-        for key in self.write_kwargs:
-            if key in {"partition_file_name", "partition_cols", "index"}:
-                msg = f"Key {key} is not supported for KMeansReadFitWriteStage"
-                raise ValueError(msg)
+        check_disallowed_kwargs(self.read_kwargs, ["columns", "assign_id"])
+        check_disallowed_kwargs(self.write_kwargs, ["partition_file_name", "partition_cols", "index"])
 
         self.input_storage_options = self.read_kwargs.pop("storage_options", {})
         self.output_storage_options = self.write_kwargs.pop("storage_options", {})
