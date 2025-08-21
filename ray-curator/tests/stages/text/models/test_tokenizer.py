@@ -109,7 +109,7 @@ def setup_mocks(mock_tokenizer: Mock):
         }
 
 
-def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):
+def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):  # noqa: ARG001
     stage = TokenizerStage(model_identifier="test/model", sort_by_length=True, text_field="text")
 
     stage.setup()
@@ -134,7 +134,7 @@ def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentB
     assert all(0 <= order < len(sample_document_batch.to_pandas()) for order in result[SEQ_ORDER_COLUMN])
 
 
-def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):
+def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: DocumentBatch, setup_mocks: dict[str, Mock]):  # noqa: ARG001
     stage = TokenizerStage(model_identifier="test/model", sort_by_length=False, text_field="text")
 
     stage.setup()
@@ -156,7 +156,7 @@ def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: Document
     assert original_texts == result_texts
 
 
-def test_tokenizer_stage_max_chars_truncation(setup_mocks: dict[str, Mock]):
+def test_tokenizer_stage_max_chars_truncation(setup_mocks: dict[str, Mock]):  # noqa: ARG001
     data = pd.DataFrame(
         {"text": ["This is a very long text that should be truncated when max_chars is set to a small value"]}
     )
@@ -172,7 +172,7 @@ def test_tokenizer_stage_max_chars_truncation(setup_mocks: dict[str, Mock]):
     assert truncated_text == "This is a very long "
 
 
-def test_tokenizer_stage_setup_unk_token(setup_mocks: dict[str, Mock]):
+def test_tokenizer_stage_setup_unk_token(setup_mocks: dict[str, Mock]):  # noqa: ARG001
     stage = TokenizerStage(model_identifier="test/model", unk_token=True)
 
     stage.setup()

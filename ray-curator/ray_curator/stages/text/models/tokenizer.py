@@ -14,7 +14,7 @@
 
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
@@ -23,9 +23,7 @@ import torch
 from huggingface_hub import snapshot_download
 from transformers import AutoConfig, AutoTokenizer
 
-if TYPE_CHECKING:
-    from ray_curator.backends.base import NodeInfo, WorkerMetadata
-
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import DocumentBatch
 
