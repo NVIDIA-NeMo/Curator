@@ -16,8 +16,8 @@ _QWEN_VARIANTS_INFO = {
 
 
 class QwenVL(ModelInterface):
-    def __init__(
-        self,  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913
+        self,
         model_dir: str,
         model_variant: str,
         caption_batch_size: int,
