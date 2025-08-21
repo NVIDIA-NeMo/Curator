@@ -132,15 +132,15 @@ def check_disallowed_kwargs(
     disallowed_keys: list[str],
     raise_error: bool = True,
 ) -> None:
-    """Check if any of the disllowed keys are in provided kwargs
+    """Check if any of the disallowed keys are in provided kwargs
     Used for read/write kwargs in stages.
     Args:
         kwargs: The dictionary to check
-        disllowed_keys: The keys that are not allowed.
-        raise_error: Whether to raise an error if any of the disllowed keys are in the kwargs.
+        disallowed_keys: The keys that are not allowed.
+        raise_error: Whether to raise an error if any of the disallowed keys are in the kwargs.
     Raises:
-        ValueError: If any of the disllowed keys are in the kwargs and raise_error is True.
-        Warning: If any of the disllowed keys are in the kwargs and raise_error is False.
+        ValueError: If any of the disallowed keys are in the kwargs and raise_error is True.
+        Warning: If any of the disallowed keys are in the kwargs and raise_error is False.
     Returns:
         None
     """
