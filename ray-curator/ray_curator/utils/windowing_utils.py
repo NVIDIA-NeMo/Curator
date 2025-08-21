@@ -173,6 +173,7 @@ def split_video_into_windows(  # noqa: PLR0913
                     mp4_bytes_list.append(tmp_file.read_bytes())
         return mp4_bytes_list, video_frames, windows
 
+
 IMAGE_FACTOR = 28
 MIN_PIXELS = 4 * 28 * 28
 MAX_PIXELS = 16384 * 28 * 28

@@ -43,6 +43,7 @@ _ENHANCE_PROMPTS = {
     """,
 }
 
+
 # Use with Captioning Stage
 def _get_prompt(
     prompt_variant: str,
@@ -57,9 +58,11 @@ def _get_prompt(
         prompt = _PROMPTS[prompt_variant]
     return prompt
 
+
 @dataclass
 class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
+
     model_variant: str = "qwen"
     prompt_variant: str = "default"
     prompt_text: str | None = None
@@ -113,7 +116,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Error in Caption preparation: {e}")
-                    clip.errors["qwen_input"] = str(e)
+                    clip.errors[f"{self.model_variant}_input"] = str(e)
                     continue
 
                 clip.windows.append(

@@ -27,7 +27,7 @@ class TestQwenVL:
             model_does_preprocess=False,
             disable_mmcache=False,
             stage2_prompt_text="Stage 2 prompt: ",
-            verbose=False
+            verbose=False,
         )
 
     def test_constants(self) -> None:
@@ -39,9 +39,7 @@ class TestQwenVL:
     def test_initialization_default_parameters(self) -> None:
         """Test initialization with default parameters."""
         qwen_vl = QwenVL(
-            model_dir=self.model_dir,
-            model_variant=self.model_variant,
-            caption_batch_size=self.caption_batch_size
+            model_dir=self.model_dir, model_variant=self.model_variant, caption_batch_size=self.caption_batch_size
         )
 
         assert qwen_vl.model_dir == self.model_dir
@@ -72,11 +70,7 @@ class TestQwenVL:
     def test_initialization_different_variant(self) -> None:
         """Test initialization with different model variant."""
         # Note: This test assumes the variant exists in _QWEN_VARIANTS_INFO
-        qwen_vl = QwenVL(
-            model_dir="/another/path",
-            model_variant="qwen",
-            caption_batch_size=8
-        )
+        qwen_vl = QwenVL(model_dir="/another/path", model_variant="qwen", caption_batch_size=8)
 
         expected_weight_file = str(pathlib.Path("/another/path") / _QWEN_VARIANTS_INFO["qwen"])
         assert qwen_vl.weight_file == expected_weight_file
@@ -149,7 +143,7 @@ class TestQwenVL:
             model_dir=self.model_dir,
             model_variant=self.model_variant,
             caption_batch_size=self.caption_batch_size,
-            fp8=False
+            fp8=False,
         )
 
         mock_llm_instance = Mock()
@@ -170,7 +164,7 @@ class TestQwenVL:
             model_variant=self.model_variant,
             caption_batch_size=self.caption_batch_size,
             model_does_preprocess=True,
-            disable_mmcache=True
+            disable_mmcache=True,
         )
 
         qwen_vl.setup()
@@ -196,7 +190,7 @@ class TestQwenVL:
         # Mock input videos
         videos = [
             {"prompt": "Describe this video", "multi_modal_data": {"video": "video1"}},
-            {"prompt": "What is happening?", "multi_modal_data": {"video": "video2"}}
+            {"prompt": "What is happening?", "multi_modal_data": {"video": "video2"}},
         ]
 
         # Mock grouping function to return one batch
@@ -360,11 +354,7 @@ class TestQwenVL:
         assert self.qwen_vl.weight_file == expected_path
 
         # Test with different paths
-        qwen_vl2 = QwenVL(
-            model_dir="/different/path",
-            model_variant="qwen",
-            caption_batch_size=1
-        )
+        qwen_vl2 = QwenVL(model_dir="/different/path", model_variant="qwen", caption_batch_size=1)
         expected_path2 = str(pathlib.Path("/different/path") / _QWEN_VARIANTS_INFO["qwen"])
         assert qwen_vl2.weight_file == expected_path2
 
@@ -375,7 +365,7 @@ class TestQwenVL:
             model_dir=self.model_dir,
             model_variant=self.model_variant,
             caption_batch_size=self.caption_batch_size,
-            max_output_tokens=custom_tokens
+            max_output_tokens=custom_tokens,
         )
 
         assert qwen_vl.max_output_tokens == custom_tokens
@@ -389,7 +379,7 @@ class TestQwenVL:
             model_dir=self.model_dir,
             model_variant=self.model_variant,
             caption_batch_size=self.caption_batch_size,
-            max_output_tokens=custom_tokens
+            max_output_tokens=custom_tokens,
         )
 
         qwen_vl.setup()

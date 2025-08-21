@@ -17,7 +17,7 @@ from ray_curator.stages.video.preview.preview import PreviewStage
 from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 
 
-def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: C901
+def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # noqa: PLR0912, C901
     # Define pipeline
     pipeline = Pipeline(name="video_splitting", description="Split videos into clips")
 
@@ -143,27 +143,29 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
             raise ValueError(msg)
 
-
     if args.generate_captions:
-
-        pipeline.add_stage(CaptionPreparationStage(
-            model_variant=args.captioning_algorithm,
-            prompt_variant=args.captioning_prompt_variant,
-            prompt_text=args.captioning_prompt_text,
-            sampling_fps=args.captioning_sampling_fps,
-            window_size=args.captioning_window_size,
-            remainder_threshold=args.captioning_remainder_threshold,
-            preprocess_dtype=args.captioning_preprocess_dtype,
-            model_does_preprocess=args.captioning_model_does_preprocess,
-            generate_previews=args.generate_previews,
-            verbose=args.verbose,
-        ))
-        if args.generate_previews:
-            pipeline.add_stage(PreviewStage(
-                target_fps=args.preview_target_fps,
-                target_height=args.preview_target_height,
+        pipeline.add_stage(
+            CaptionPreparationStage(
+                model_variant=args.captioning_algorithm,
+                prompt_variant=args.captioning_prompt_variant,
+                prompt_text=args.captioning_prompt_text,
+                sampling_fps=args.captioning_sampling_fps,
+                window_size=args.captioning_window_size,
+                remainder_threshold=args.captioning_remainder_threshold,
+                preprocess_dtype=args.captioning_preprocess_dtype,
+                model_does_preprocess=args.captioning_model_does_preprocess,
+                generate_previews=args.generate_previews,
                 verbose=args.verbose,
-            ))
+            )
+        )
+        if args.generate_previews:
+            pipeline.add_stage(
+                PreviewStage(
+                    target_fps=args.preview_target_fps,
+                    target_height=args.preview_target_height,
+                    verbose=args.verbose,
+                )
+            )
 
         pipeline.add_stage(
             CaptionGenerationStage(
@@ -177,7 +179,8 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 stage2_prompt_text=args.captioning_stage2_prompt_text,
                 disable_mmcache=not args.captioning_use_vllm_mmcache,
                 verbose=args.verbose,
-        ))
+            )
+        )
 
     pipeline.add_stage(
         ClipWriterStage(
