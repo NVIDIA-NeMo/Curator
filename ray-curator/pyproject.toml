@@ -77,7 +77,7 @@ video_cuda = [
     "cvcuda_cu12",
     "pycuda",
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "flash_attn<=2.8.3",
+    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
 ]
 
@@ -129,8 +129,16 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
-    { index = "pytorch", marker = "sys_platform != 'darwin'" },
-    { index = "pypi", marker = "sys_platform == 'darwin'" },
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchaudio = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
 
 [tool.coverage.paths]
