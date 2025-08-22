@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import warnings
+from pathlib import Path
 
 import fsspec
 from fsspec.core import get_filesystem_class, split_protocol
+from loguru import logger
 
 FILETYPE_TO_DEFAULT_EXTENSIONS = {
     "parquet": [".parquet"],
@@ -61,6 +62,29 @@ def delete_dir(
         fs.rm(path, recursive=True)
 
 
+def create_or_overwrite_dir(
+    path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
+) -> None:
+    """
+    Creates a directory if it does not exist and overwrites it if it does.
+    Warning: This function will delete all files in the directory if it exists.
+    """
+    if fs is None and storage_options is None:
+        err_msg = "fs or storage_options must be provided"
+        raise ValueError(err_msg)
+    elif fs is not None and storage_options is not None:
+        err_msg = "fs and storage_options cannot be provided together"
+        raise ValueError(err_msg)
+    elif fs is None:
+        fs = get_fs(path, storage_options)
+
+    if is_not_empty(path, fs):
+        logger.warning(f"Output directory {path} is not empty. Deleting it.")
+        delete_dir(path, fs)
+
+    fs.mkdirs(path, exist_ok=True)
+
+
 def filter_files_by_extension(
     files_list: list[str],
     keep_extensions: str | list[str],
@@ -77,7 +101,7 @@ def filter_files_by_extension(
             filtered_files.append(file)
 
     if len(files_list) != len(filtered_files):
-        warnings.warn("Skipped at least one file due to unmatched file extension(s).", stacklevel=2)
+        logger.warning("Skipped at least one file due to unmatched file extension(s).")
 
     return filtered_files
 
@@ -102,3 +126,51 @@ def get_all_files_paths_under(
     if keep_extensions is not None:
         file_ls = filter_files_by_extension(file_ls, keep_extensions)
     return file_ls
+
+
+def infer_dataset_name_from_path(path: str) -> str:
+    """Infer a dataset name from a path, handling both local and cloud storage paths.
+    Args:
+        path: Local path or cloud storage URL (e.g. s3://, abfs://)
+    Returns:
+        Inferred dataset name from the path
+    """
+    # Split protocol and path for cloud storage
+    protocol, pure_path = split_protocol(path)
+    if protocol is None:
+        # Local path handling
+        first_file = Path(path)
+        if first_file.parent.name and first_file.parent.name != ".":
+            return first_file.parent.name.lower()
+        return first_file.stem.lower()
+    else:
+        path_parts = pure_path.rstrip("/").split("/")
+        if len(path_parts) <= 1:
+            return path_parts[0]
+        return path_parts[-1].lower()
+
+
+def check_disallowed_kwargs(
+    kwargs: dict,
+    disallowed_keys: list[str],
+    raise_error: bool = True,
+) -> None:
+    """Check if any of the disallowed keys are in provided kwargs
+    Used for read/write kwargs in stages.
+    Args:
+        kwargs: The dictionary to check
+        disallowed_keys: The keys that are not allowed.
+        raise_error: Whether to raise an error if any of the disallowed keys are in the kwargs.
+    Raises:
+        ValueError: If any of the disallowed keys are in the kwargs and raise_error is True.
+        Warning: If any of the disallowed keys are in the kwargs and raise_error is False.
+    Returns:
+        None
+    """
+    found_keys = set(kwargs).intersection(disallowed_keys)
+    if raise_error and found_keys:
+        msg = f"Unsupported keys in kwargs: {', '.join(found_keys)}"
+        raise ValueError(msg)
+    elif found_keys:
+        msg = f"Unsupported keys in kwargs: {', '.join(found_keys)}"
+        logger.warning(msg)

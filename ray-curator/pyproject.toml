@@ -23,7 +23,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
+    "cosmos-xenna",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
@@ -79,12 +79,15 @@ video = [
     "opencv-python",
     "torchvision",
     "einops",
+    "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
+    "easydict",
 ]
 video_cuda = [
     "PyNvVideoCodec==1.0.2",
     "cvcuda_cu12",
     "pycuda",
     "vllm",
+    "flash_attn",
 ]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
