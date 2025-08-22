@@ -77,7 +77,7 @@ video_cuda = [
     "cvcuda_cu12",
     "pycuda",
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "flash_attn<=2.8.0",
+    "flash_attn<=2.8.3",
     "torch<=2.8.0",
 ]
 
