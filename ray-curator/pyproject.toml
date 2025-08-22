@@ -79,6 +79,7 @@ video_cuda = [
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
+    "torchaudio",
 ]
 
 video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
@@ -107,7 +108,7 @@ test = [
     "pytest-loguru",
     "scikit-learn",
 ]
-dev = ["internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality"]
+dev = ["internvideo2-multi-modality; (platform_machine == 'x86_64' and sys_platform != 'darwin')"]
 
 [tool.uv]
 default-groups = ["test"]
@@ -128,6 +129,7 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
+internvideo2-multi-modality = { git = "git+https://github.com/suiyoubi/InternVideo.git", subdirectory="InternVideo2/multi_modality", rev = "curator" }
 torch = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
@@ -140,6 +142,7 @@ torchvision = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
+
 
 [tool.coverage.paths]
 source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]
