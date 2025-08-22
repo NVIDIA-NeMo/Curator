@@ -15,22 +15,15 @@
 import sys
 from unittest.mock import Mock, patch
 
-import pytest
+sys.modules["vllm"] = Mock()
 
-
-@pytest.fixture(autouse=True)
-def mock_modules():
-    modules_to_mock = ["vllm", "transformers"]
-    for module_name in modules_to_mock:
-        sys.modules[module_name] = Mock()
+from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
 
 
 class TestQwenLM:
     """Test cases for QwenLM model class."""
 
     def setup_method(self) -> None:
-        from ray_curator.models.qwen_lm import QwenLM
-
         self.model_dir = "/test/model/dir"
         self.caption_batch_size = 4
         self.fp8 = True
@@ -43,8 +36,6 @@ class TestQwenLM:
         )
 
     def test_constants(self) -> None:
-        from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
-
         assert _QWEN_LM_MODEL_ID == "Qwen/Qwen2.5-14B-Instruct"
 
     def test_initialization(self) -> None:
@@ -54,14 +45,11 @@ class TestQwenLM:
         assert self.qwen_lm.max_output_tokens == self.max_output_tokens
 
     def test_model_id_names(self) -> None:
-        from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
-
         model_ids = self.qwen_lm.model_id_names()
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
         assert model_ids[0] == _QWEN_LM_MODEL_ID
 
-    @pytest.mark.skip(reason="vllm installation is required")
     @patch("ray_curator.models.qwen_lm.AutoTokenizer")
     @patch("ray_curator.models.qwen_lm.SamplingParams")
     @patch("ray_curator.models.qwen_lm.LLM")
@@ -113,7 +101,6 @@ class TestQwenLM:
         assert self.qwen_lm.sampling_params == mock_sampling_params
         assert self.qwen_lm.tokenizer == mock_tokenizer
 
-    @pytest.mark.skip(reason="vllm installation is required")
     @patch("ray_curator.models.qwen_lm.AutoTokenizer")
     @patch("ray_curator.models.qwen_lm.SamplingParams")
     @patch("ray_curator.models.qwen_lm.LLM")
@@ -121,8 +108,6 @@ class TestQwenLM:
     def test_setup_without_fp8(
         self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
     ) -> None:
-        from ray_curator.models.qwen_lm import QwenLM
-
         # Create QwenLM without fp8
         qwen_lm_no_fp8 = QwenLM(
             model_dir=self.model_dir,
@@ -309,10 +294,7 @@ class TestQwenLM:
             [test_input], tokenize=False, add_generation_prompt=True
         )
 
-    @pytest.mark.skip(reason="vllm installation is required")
     def test_weight_file_path_construction(self) -> None:
-        from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID
-
         with patch("ray_curator.models.qwen_lm.Path") as mock_path:
             mock_path_instance = Mock()
             expected_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
@@ -331,7 +313,6 @@ class TestQwenLM:
                 mock_path_instance.__truediv__.assert_called_once_with(_QWEN_LM_MODEL_ID)
                 assert self.qwen_lm.weight_file == expected_path
 
-    @pytest.mark.skip(reason="vllm installation is required")
     def test_sampling_params_configuration(self) -> None:
         with (
             patch("ray_curator.models.qwen_lm.LLM"),
