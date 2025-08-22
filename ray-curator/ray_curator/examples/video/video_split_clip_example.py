@@ -10,6 +10,7 @@ from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExt
 from ray_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from ray_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
 from ray_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
+from ray_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
 from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from ray_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -128,7 +129,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 CosmosEmbed1FrameCreationStage(
                     model_dir=args.model_dir,
                     variant=variant,
-                    target_fps=FramePurpose.EMBEDDINGS.value,
+                    target_fps=2.0,
                     verbose=args.verbose,
                 )
             )
@@ -136,6 +137,21 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 CosmosEmbed1EmbeddingStage(
                     model_dir=args.model_dir,
                     variant=variant,
+                    gpu_memory_gb=args.embedding_gpu_memory_gb,
+                    verbose=args.verbose,
+                )
+            )
+        elif args.embedding_algorithm.startswith("internvideo2"):
+            pipeline.add_stage(
+                InternVideo2FrameCreationStage(
+                    model_dir=args.model_dir,
+                    target_fps=2.0,
+                    verbose=args.verbose,
+                )
+            )
+            pipeline.add_stage(
+                InternVideo2EmbeddingStage(
+                    model_dir=args.model_dir,
                     gpu_memory_gb=args.embedding_gpu_memory_gb,
                     verbose=args.verbose,
                 )
@@ -183,16 +199,18 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
         )
 
         if args.enhance_captions:
-            pipeline.add_stage(CaptionEnhancementStage(
-                model_dir=args.model_dir,
-                model_variant=args.enhance_captions_algorithm,
-                prompt_variant=args.enhance_captioning_prompt_variant,
-                prompt_text=args.enhance_captions_prompt_text,
-                model_batch_size=args.enhance_captions_batch_size,
-                fp8=args.enhance_captions_use_fp8_weights,
-                max_output_tokens=args.enhance_captions_max_output_tokens,
-                verbose=args.verbose,
-            ))
+            pipeline.add_stage(
+                CaptionEnhancementStage(
+                    model_dir=args.model_dir,
+                    model_variant=args.enhance_captions_algorithm,
+                    prompt_variant=args.enhance_captioning_prompt_variant,
+                    prompt_text=args.enhance_captions_prompt_text,
+                    model_batch_size=args.enhance_captions_batch_size,
+                    fp8=args.enhance_captions_use_fp8_weights,
+                    max_output_tokens=args.enhance_captions_max_output_tokens,
+                    verbose=args.verbose,
+                )
+            )
 
     pipeline.add_stage(
         ClipWriterStage(
