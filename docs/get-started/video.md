@@ -7,6 +7,7 @@ difficulty: "beginner"
 content_type: "tutorial"
 modality: "video-only"
 only: not ga
+orphan: true
 ---
 
 (gs-video)=
@@ -48,7 +49,7 @@ docker tag nvcr.io/nvidia/nemo/nemo-curator-video:0.6.0 nemo_video_curator:1.0.0
 ```
 
 ```{seealso}
-For details on video container environments and configurations, see [Video Curator Environments](reference-infrastructure-container-environments-video).
+For details on video container environments and configurations, see Video Curator Environments.
 ```
 :::
 
@@ -146,4 +147,4 @@ export PATH="$PATH:$HOME/.local/bin"
 
 ## Next Steps
 
-Explore the [Video Curation documentation](video-overview).
+Explore the Video Curation documentation.

@@ -134,6 +134,18 @@ all_nightly = [
     "nemo_curator[image_nightly]",
 ]
 
+[dependency-groups]
+docs = [
+    "sphinx",
+    "myst-parser",
+    "sphinx-autodoc2",
+    "sphinx-copybutton",
+    "nvidia-sphinx-theme",
+    "sphinx-design",
+    "sphinxcontrib-mermaid",
+    "swagger-plugin-for-sphinx",
+]
+
 [project.scripts]
 get_common_crawl_urls = "nemo_curator.scripts.get_common_crawl_urls:console_script"
 get_wikipedia_urls = "nemo_curator.scripts.get_wikipedia_urls:console_script"
