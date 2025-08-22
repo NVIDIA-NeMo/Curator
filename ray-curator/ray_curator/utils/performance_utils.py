@@ -38,7 +38,7 @@ class StagePerfStats:
         actor_idle_time: Time the actor spent idle in seconds.
         input_data_size_mb: Size of input data in megabytes.
         num_items_processed: Number of items processed in this stage.
-        custom_stats: Custom statistics to track.
+        custom_metrics: Custom metrics to track.
     """
 
     stage_name: str
@@ -46,7 +46,7 @@ class StagePerfStats:
     actor_idle_time: float = 0.0
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
-    custom_stats: dict[str, float] = attrs.field(factory=dict)
+    custom_metrics: dict[str, float] = attrs.field(factory=dict)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
@@ -56,9 +56,9 @@ class StagePerfStats:
             actor_idle_time=self.actor_idle_time + other.actor_idle_time,
             input_data_size_mb=self.input_data_size_mb + other.input_data_size_mb,
             num_items_processed=self.num_items_processed + other.num_items_processed,
-            custom_stats={
-                key: self.custom_stats.get(key, 0.0) + other.custom_stats.get(key, 0.0)
-                for key in set(self.custom_stats.keys()) | set(other.custom_stats.keys())
+            custom_metrics={
+                key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
+                for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
             },
         )
 
@@ -77,7 +77,7 @@ class StagePerfStats:
         self.actor_idle_time = 0.0
         self.input_data_size_mb = 0.0
         self.num_items_processed = 0
-        self.custom_stats = {}
+        self.custom_metrics = {}
 
     def to_dict(self) -> dict[str, float | int]:
         """Convert the stats to a dictionary."""
@@ -87,15 +87,15 @@ class StagePerfStats:
         """Return (metric_name, metric_value) pairs.
 
         Built-in fields are returned as (name, value).
-        custom_stats are flattened as ("custom.<custom_key>", value).
+        custom_metrics are flattened as ("custom.<custom_key>", value).
         """
         res = self.to_dict()
         # Remove non-metric identifier
         res.pop("stage_name", None)
-        # Extract and drop the raw custom_stats dict from the flattened output
-        custom_stats = res.pop("custom_stats", {})
-        # Flatten custom_stats with a stable prefix
-        for key, value in custom_stats.items():
+        # Extract and drop the raw custom_metrics dict from the flattened output
+        custom_metrics = res.pop("custom_metrics", {})
+        # Flatten custom_metrics with a stable prefix
+        for key, value in custom_metrics.items():
             res[f"custom.{key}"] = value
         return list(res.items())
 
