@@ -146,13 +146,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install NeMo-Curator and run tests
+      - name: Install NeMo-Curator and pytest
         run: |
           pip install -U pip
           cd ray-curator
           pip install --no-cache-dir ".[text]"
           pip install --no-cache-dir ".[video]"
-          pip install --no-cache-dir --group test --group dev
+          pip install --no-cache-dir "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality"
+          pip install --no-cache-dir --group test
 
       - name: Run tests (CPU)
         run: |
