@@ -152,7 +152,7 @@ jobs:
           cd ray-curator
           pip install --no-cache-dir ".[text]"
           pip install --no-cache-dir ".[video]"
-          pip install --no-cache-dir --group test
+          pip install --no-cache-dir --group test --group dev
 
       - name: Run tests (CPU)
         run: |
