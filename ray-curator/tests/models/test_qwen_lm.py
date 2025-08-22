@@ -15,6 +15,7 @@
 import sys
 from unittest.mock import Mock, patch
 
+# Mock vllm before importing the module to avoid dependency issues
 sys.modules["vllm"] = Mock()
 
 from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
