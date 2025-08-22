@@ -100,11 +100,14 @@ dali_cpu = [
     # Install from NVIDIA index directly in CI; don't pull nvidia-pyindex here to avoid wheel build
     "nvidia-dali",
 ]
-
+audio=[
+    "nemo_toolkit[asr]",
+]
 all = [
     "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
     "ray_curator[video]",
+    "ray_curator[audio]",
 ]
 
 [tool.pixi.workspace]
@@ -123,7 +126,7 @@ ffmpeg = "*"  # Add FFmpeg from conda-forge
 
 [tool.pixi.environments]
 default = ["all"]
-dev = ["deduplication_cuda12x", "text", "video", "dev"]
+dev = ["deduplication_cuda12x", "text", "video", "audio", "dev"]
 
 [tool.pixi.pypi-dependencies]
 ray-curator = { path = ".", editable = true }

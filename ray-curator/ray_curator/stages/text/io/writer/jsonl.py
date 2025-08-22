@@ -27,6 +27,7 @@ class JsonlWriter(BaseWriter):
     # Additional kwargs for pandas.DataFrame.to_json
     file_extension: str = "jsonl"
     jsonl_kwargs: dict[str, Any] = field(default_factory=dict)
+    force_ascii: bool = True
 
     @property
     def name(self) -> str:
@@ -41,6 +42,7 @@ class JsonlWriter(BaseWriter):
             "lines": True,
             "orient": "records",
             "storage_options": self.storage_options,
+            "force_ascii": self.force_ascii,
         }
 
         # Add any additional kwargs, allowing them to override defaults
