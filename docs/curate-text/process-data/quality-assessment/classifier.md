@@ -95,6 +95,24 @@ The classifier-based filtering process involves:
 
 ## Usage
 
+Run classifiers with a Curator pipeline.
+
+```python
+from ray_curator.pipeline import Pipeline
+from ray_curator.backends.xenna.executor import XennaExecutor
+from ray_curator.stages.text.io.reader import JsonlReader
+from ray_curator.stages.text.classifiers.domain import DomainClassifier
+from ray_curator.stages.text.io.writer import ParquetWriter
+
+pipeline = Pipeline(name="domain_classification")
+pipeline.add_stage(JsonlReader(file_paths="input_data/*.jsonl", files_per_partition=8))
+pipeline.add_stage(DomainClassifier(filter_by=["Games", "Sports"], pred_column="domain_pred"))
+pipeline.add_stage(ParquetWriter(output_dir="/path/to/output/classified"))
+
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
 :::{note}
 Training fastText classifiers requires using CLI commands. The trained models can then be used with the Python API for filtering datasets.
 :::
