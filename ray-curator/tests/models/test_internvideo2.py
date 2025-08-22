@@ -111,11 +111,8 @@ class TestInternVideo2FrameCreationStage:
         assert clip.errors[f"frames-{self.stage._frame_extraction_signature}"] == "missing"
         assert result == task
 
-    @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
     @patch("ray_curator.models.internvideo2_mm._create_config")
-    def test_process_successful_frame_creation(
-        self, mock_create_config: "MagicMock", mock_extract_frames: "MagicMock"
-    ) -> None:  # noqa: ARG002
+    def test_process_successful_frame_creation(self, mock_create_config: "MagicMock") -> None:
         """Test successful frame creation process."""
         # Mock the config
         mock_config = Mock()
