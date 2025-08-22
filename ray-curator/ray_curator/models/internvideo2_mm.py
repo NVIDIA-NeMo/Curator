@@ -33,7 +33,9 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from ray_curator.models.base import ModelInterface
 
-_MODEL_CONFIG_PATH = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"
+_MODEL_CONFIG_PATH = (
+    pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"
+)
 _BERT_CONFIG_PATH = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "config_bert_large.json"
 INTERNVIDEO2_MODEL_ID: Final = "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
 INTERNVIDEO2_MODEL_FILE: Final = "InternVideo2-stage2_1b-224p-f4.pt"

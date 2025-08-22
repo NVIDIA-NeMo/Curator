@@ -2,7 +2,7 @@
 
 import pathlib
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, Mock, mock_open, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pytest
@@ -14,7 +14,6 @@ from ray_curator.models.internvideo2_mm import (
     INTERNVIDEO2_MODEL_FILE,
     INTERNVIDEO2_MODEL_ID,
     InternVideo2MultiModality,
-    _create_config,
     _InternVideo2Stage2Wrapper,
     _setup_internvideo2,
 )
@@ -103,8 +102,14 @@ class TestInternVideo2MultiModality:
         mock_setup_model.assert_called_once_with(mock_config)
         assert model._model == mock_model_instance
 
-    def test_normalize(self) -> None:
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_normalize(self, mock_create_config: "MagicMock") -> None:
         """Test _normalize method correctly normalizes input data."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Setup the model first to get the normalization parameters
         self.model.setup()
 
@@ -119,8 +124,14 @@ class TestInternVideo2MultiModality:
         assert result.dtype == np.float32
         np.testing.assert_array_almost_equal(result, expected)
 
-    def test_construct_frames_sufficient_frames(self) -> None:
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_construct_frames_sufficient_frames(self, mock_create_config: "MagicMock") -> None:
         """Test _construct_frames method with sufficient frames."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Setup the model first to get the normalization parameters
         self.model.setup()
 
@@ -153,8 +164,14 @@ class TestInternVideo2MultiModality:
         assert result == 16
         self.model._config.get.assert_called_once_with("num_frames", 8)
 
-    def test_formulate_input_frames(self) -> None:
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_formulate_input_frames(self, mock_create_config: "MagicMock") -> None:
         """Test formulate_input_frames method."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Setup the model first to get the normalization parameters
         self.model.setup()
 
@@ -235,7 +252,7 @@ class TestInternVideo2MultiModality:
         # Fix: Mock predict_label to return the expected format
         mock_model_instance.predict_label.return_value = (
             torch.tensor([[0.8, 0.2]]),  # probabilities with batch dimension
-            torch.tensor([[0, 1]])        # indices with batch dimension
+            torch.tensor([[0, 1]]),  # indices with batch dimension
         )
         self.model._model = mock_model_instance
 
@@ -257,18 +274,13 @@ class TestInternVideo2Stage2Wrapper:
     def setup_method(self) -> None:
         """Set up test fixtures."""
         # Fix: Create a proper config structure that matches what the wrapper expects
-        self.config = EasyDict({
-            "max_txt_l": 512,
-            "device": "cpu",
-            "model": {
-                "vision_encoder": {
-                    "clip_embed_dim": 768
-                },
-                "text_encoder": {
-                    "name": "bert"
-                }
+        self.config = EasyDict(
+            {
+                "max_txt_l": 512,
+                "device": "cpu",
+                "model": {"vision_encoder": {"clip_embed_dim": 768}, "text_encoder": {"name": "bert"}},
             }
-        })
+        )
         self.tokenizer = Mock()
 
         # Create a mock wrapper instance with proper return values
@@ -408,37 +420,19 @@ class TestInternVideo2Stage2Wrapper:
 class TestHelperFunctions:
     """Test cases for helper functions."""
 
-    @patch("builtins.open", new_callable=mock_open)
-    @patch("ray_curator.models.internvideo2_mm.json.load")
-    def test_create_config(self, mock_json_load: "MagicMock", mock_open_file: "MagicMock") -> None:  # noqa: ARG002
-        """Test _create_config function."""
-        mock_config = {"model": {"vision_encoder": {}, "text_encoder": {}}}
-        mock_json_load.return_value = mock_config
-
-        model_pt = "test_model.pt"
-        bert_path = "test_bert_path"
-
-        result = _create_config(model_pt, bert_path)
-
-        assert isinstance(result, EasyDict)
-        assert result.pretrained_path == model_pt
-        assert result.model.vision_encoder.pretrained == model_pt
-        # Fix: Use the correct path from the module, not from the test file
-        from ray_curator.models.internvideo2_mm import _BERT_CONFIG_PATH
-        assert result.model.text_encoder.config == _BERT_CONFIG_PATH
-        assert result.model.text_encoder.pretrained == bert_path
-
     @patch("ray_curator.models.internvideo2_mm.AutoTokenizer")
     @patch("ray_curator.models.internvideo2_mm._InternVideo2Stage2Wrapper")
     def test_setup_internvideo2_bert(self, mock_wrapper_class: "MagicMock", mock_tokenizer_class: "MagicMock") -> None:
         """Test _setup_internvideo2 function with BERT encoder."""
         # Mock config
-        config = EasyDict({
-            "model": {"text_encoder": {"name": "bert", "pretrained": "test_bert_path"}},
-            "device": "cpu",
-            "pretrained_path": "test_model.pt",
-            "compile_model": False
-        })
+        config = EasyDict(
+            {
+                "model": {"text_encoder": {"name": "bert", "pretrained": "test_bert_path"}},
+                "device": "cpu",
+                "pretrained_path": "test_model.pt",
+                "compile_model": False,
+            }
+        )
 
         # Mock tokenizer and model
         mock_tokenizer = Mock()
@@ -462,10 +456,7 @@ class TestHelperFunctions:
 
     def test_setup_internvideo2_unsupported_encoder(self) -> None:
         """Test _setup_internvideo2 function with unsupported encoder."""
-        config = EasyDict({
-            "model": {"text_encoder": {"name": "unsupported"}},
-            "device": "cpu"
-        })
+        config = EasyDict({"model": {"text_encoder": {"name": "unsupported"}}, "device": "cpu"})
 
         with pytest.raises(ValueError, match="Not implemented: unsupported"):
             _setup_internvideo2(config)

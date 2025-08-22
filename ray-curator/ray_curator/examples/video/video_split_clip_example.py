@@ -125,29 +125,37 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
     if args.generate_embeddings:
         if args.embedding_algorithm.startswith("cosmos-embed1"):
             variant = args.embedding_algorithm.split("-")[-1]
-            pipeline.add_stage(CosmosEmbed1FrameCreationStage(
-                model_dir=args.model_dir,
-                variant=variant,
-                target_fps=2.0,
-                verbose=args.verbose,
-            ))
-            pipeline.add_stage(CosmosEmbed1EmbeddingStage(
-                model_dir=args.model_dir,
-                variant=variant,
-                gpu_memory_gb=args.embedding_gpu_memory_gb,
-                verbose=args.verbose,
-            ))
+            pipeline.add_stage(
+                CosmosEmbed1FrameCreationStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    target_fps=2.0,
+                    verbose=args.verbose,
+                )
+            )
+            pipeline.add_stage(
+                CosmosEmbed1EmbeddingStage(
+                    model_dir=args.model_dir,
+                    variant=variant,
+                    gpu_memory_gb=args.embedding_gpu_memory_gb,
+                    verbose=args.verbose,
+                )
+            )
         elif args.embedding_algorithm.startswith("internvideo2"):
-            pipeline.add_stage(InternVideo2FrameCreationStage(
-                model_dir=args.model_dir,
-                target_fps=2.0,
-                verbose=args.verbose,
-            ))
-            pipeline.add_stage(InternVideo2EmbeddingStage(
-                model_dir=args.model_dir,
-                gpu_memory_gb=args.embedding_gpu_memory_gb,
-                verbose=args.verbose,
-            ))
+            pipeline.add_stage(
+                InternVideo2FrameCreationStage(
+                    model_dir=args.model_dir,
+                    target_fps=2.0,
+                    verbose=args.verbose,
+                )
+            )
+            pipeline.add_stage(
+                InternVideo2EmbeddingStage(
+                    model_dir=args.model_dir,
+                    gpu_memory_gb=args.embedding_gpu_memory_gb,
+                    verbose=args.verbose,
+                )
+            )
         else:
             msg = f"Embedding algorithm {args.embedding_algorithm} not supported"
             raise ValueError(msg)
@@ -191,16 +199,18 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
         )
 
         if args.enhance_captions:
-            pipeline.add_stage(CaptionEnhancementStage(
-                model_dir=args.model_dir,
-                model_variant=args.enhance_captions_algorithm,
-                prompt_variant=args.enhance_captioning_prompt_variant,
-                prompt_text=args.enhance_captions_prompt_text,
-                model_batch_size=args.enhance_captions_batch_size,
-                fp8=args.enhance_captions_use_fp8_weights,
-                max_output_tokens=args.enhance_captions_max_output_tokens,
-                verbose=args.verbose,
-            ))
+            pipeline.add_stage(
+                CaptionEnhancementStage(
+                    model_dir=args.model_dir,
+                    model_variant=args.enhance_captions_algorithm,
+                    prompt_variant=args.enhance_captioning_prompt_variant,
+                    prompt_text=args.enhance_captions_prompt_text,
+                    model_batch_size=args.enhance_captions_batch_size,
+                    fp8=args.enhance_captions_use_fp8_weights,
+                    max_output_tokens=args.enhance_captions_max_output_tokens,
+                    verbose=args.verbose,
+                )
+            )
 
     pipeline.add_stage(
         ClipWriterStage(

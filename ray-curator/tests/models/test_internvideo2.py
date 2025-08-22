@@ -26,11 +26,7 @@ class TestInternVideo2FrameCreationStage:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
-        self.stage = InternVideo2FrameCreationStage(
-            target_fps=2.0,
-            verbose=True,
-            model_dir="test_InternVideo2"
-        )
+        self.stage = InternVideo2FrameCreationStage(target_fps=2.0, verbose=True, model_dir="test_InternVideo2")
 
     def test_initialization_defaults(self) -> None:
         """Test stage initialization with default parameters."""
@@ -42,11 +38,7 @@ class TestInternVideo2FrameCreationStage:
 
     def test_initialization_custom_params(self) -> None:
         """Test stage initialization with custom parameters."""
-        stage = InternVideo2FrameCreationStage(
-            target_fps=5.0,
-            verbose=True,
-            model_dir="custom_path"
-        )
+        stage = InternVideo2FrameCreationStage(target_fps=5.0, verbose=True, model_dir="custom_path")
         assert stage.target_fps == 5.0
         assert stage.verbose is True
         assert stage.model_dir == "custom_path"
@@ -71,10 +63,7 @@ class TestInternVideo2FrameCreationStage:
 
         self.stage.setup()
 
-        mock_model_class.assert_called_once_with(
-            model_dir="test_InternVideo2",
-            utils_only=True
-        )
+        mock_model_class.assert_called_once_with(model_dir="test_InternVideo2", utils_only=True)
         mock_model.setup.assert_called_once()
         assert self.stage._model == mock_model
         assert self.stage._extraction_policy.value == 3  # FrameExtractionPolicy.sequence.value
@@ -83,18 +72,10 @@ class TestInternVideo2FrameCreationStage:
     def test_process_empty_buffer(self) -> None:
         """Test process method handles empty buffer correctly."""
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.buffer = None
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -102,22 +83,20 @@ class TestInternVideo2FrameCreationStage:
         assert clip.errors["buffer"] == "empty"
         assert result == task
 
-    def test_process_missing_frames(self) -> None:
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_process_missing_frames(self, mock_create_config: "MagicMock") -> None:
         """Test process method handles missing frames correctly."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.buffer = b"fake_video_data"
         clip.extracted_frames = {}  # Empty frames
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         self.stage._model = Mock()
@@ -133,14 +112,18 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
     @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    def test_process_successful_frame_creation(self, mock_extract_frames: "MagicMock") -> None:  # noqa: ARG002
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_process_successful_frame_creation(
+        self, mock_create_config: "MagicMock", mock_extract_frames: "MagicMock"
+    ) -> None:  # noqa: ARG002
         """Test successful frame creation process."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.buffer = b"fake_video_data"
 
         # Mock extracted frames
@@ -150,11 +133,7 @@ class TestInternVideo2FrameCreationStage:
         clip.extracted_frames = {self.stage._frame_extraction_signature: mock_frames}
 
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         mock_model = Mock()
@@ -174,14 +153,18 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
     @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    def test_process_frame_regeneration(self, mock_extract_frames: "MagicMock") -> None:
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_process_frame_regeneration(
+        self, mock_create_config: "MagicMock", mock_extract_frames: "MagicMock"
+    ) -> None:
         """Test frame regeneration when not enough frames are available."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.buffer = b"fake_video_data"
 
         # Mock insufficient frames
@@ -191,11 +174,7 @@ class TestInternVideo2FrameCreationStage:
         clip.extracted_frames = {self.stage._frame_extraction_signature: mock_frames}
 
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         mock_model = Mock()
@@ -213,14 +192,16 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
     @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    def test_process_max_fps_exceeded(self, mock_extract_frames: "MagicMock") -> None:
+    @patch("ray_curator.models.internvideo2_mm._create_config")
+    def test_process_max_fps_exceeded(self, mock_create_config: "MagicMock", mock_extract_frames: "MagicMock") -> None:
         """Test process method handles max FPS exceeded correctly."""
+        # Mock the config
+        mock_config = Mock()
+        mock_config.get.return_value = 8  # Default num_frames
+        mock_create_config.return_value = mock_config
+
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.buffer = b"fake_video_data"
 
         # Mock insufficient frames
@@ -230,11 +211,7 @@ class TestInternVideo2FrameCreationStage:
         clip.extracted_frames = {self.stage._frame_extraction_signature: mock_frames}
 
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         mock_model = Mock()
@@ -260,7 +237,7 @@ class TestInternVideo2EmbeddingStage:
             texts_to_verify=["test_text"],
             verbose=True,
             gpu_memory_gb=10.0,
-            model_dir="test_InternVideo2"
+            model_dir="test_InternVideo2",
         )
 
     def test_initialization_defaults(self) -> None:
@@ -280,7 +257,7 @@ class TestInternVideo2EmbeddingStage:
             texts_to_verify=["text1", "text2"],
             verbose=True,
             gpu_memory_gb=20.0,
-            model_dir="custom_path"
+            model_dir="custom_path",
         )
         assert stage.num_gpus_per_worker == 2.0
         assert stage.texts_to_verify == ["text1", "text2"]
@@ -323,18 +300,10 @@ class TestInternVideo2EmbeddingStage:
     def test_process_missing_frames(self) -> None:
         """Test process method handles missing frames correctly."""
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.intern_video_2_frames = None
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         result = self.stage.process(task)
 
@@ -345,18 +314,10 @@ class TestInternVideo2EmbeddingStage:
     def test_process_successful_embedding(self) -> None:
         """Test successful embedding generation."""
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.intern_video_2_frames = rng.random((1, 8, 3, 224, 224)).astype(np.float32)
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         mock_model = Mock()
@@ -388,18 +349,10 @@ class TestInternVideo2EmbeddingStage:
     def test_process_embedding_failure(self) -> None:
         """Test embedding generation failure handling."""
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.intern_video_2_frames = rng.random((1, 8, 3, 224, 224)).astype(np.float32)
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model to return empty embedding
         mock_model = Mock()
@@ -431,18 +384,10 @@ class TestInternVideo2EmbeddingStage:
     def test_process_with_text_verification(self) -> None:
         """Test embedding generation with text verification."""
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.intern_video_2_frames = rng.random((1, 8, 3, 224, 224)).astype(np.float32)
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         mock_model = Mock()
@@ -473,25 +418,13 @@ class TestInternVideo2EmbeddingStage:
     def test_process_without_text_verification(self) -> None:
         """Test embedding generation without text verification."""
         # Create stage without text verification
-        stage = InternVideo2EmbeddingStage(
-            texts_to_verify=None,
-            verbose=False,
-            model_dir="test_InternVideo2"
-        )
+        stage = InternVideo2EmbeddingStage(texts_to_verify=None, verbose=False, model_dir="test_InternVideo2")
 
         # Create test data
-        clip = Clip(
-            uuid=uuid.uuid4(),
-            source_video="test_video.mp4",
-            span=(0.0, 5.0)
-        )
+        clip = Clip(uuid=uuid.uuid4(), source_video="test_video.mp4", span=(0.0, 5.0))
         clip.intern_video_2_frames = rng.random((1, 8, 3, 224, 224)).astype(np.float32)
         video = Video(input_video=pathlib.Path("test_video.mp4"), clips=[clip])
-        task = VideoTask(
-            task_id="test_task",
-            dataset_name="test_dataset",
-            data=video
-        )
+        task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video)
 
         # Mock the model
         mock_model = Mock()
