@@ -31,10 +31,10 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 from ray_curator.models.base import ModelInterface
 from ray_curator.models.pos_embed import interpolate_pos_embed_internvideo2_new
 
-# Get the directory containing this file dynamically
-_CURRENT_FILE_DIR = pathlib.Path(__file__).parent
-_MODEL_CONFIG_PATH = _CURRENT_FILE_DIR / "configs" / "internvideo2_mm_config_model.json"
-_BERT_CONFIG_PATH = _CURRENT_FILE_DIR / "configs" / "internvideo2_mm_config_bert.json"
+# Load config from the internvideo2_multi_modality package
+import internvideo2_multi_modality
+_MODEL_CONFIG_PATH = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"
+_BERT_CONFIG_PATH = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "config_bert_large.json"
 INTERNVIDEO2_MODEL_ID: Final = "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
 INTERNVIDEO2_MODEL_FILE: Final = "InternVideo2-stage2_1b-224p-f4.pt"
 BERT_MODEL_ID: Final = "google-bert/bert-large-uncased"
@@ -154,8 +154,18 @@ def _create_config(model_pt: str, bert_path: str) -> EasyDict:
         config = json.load(fin)
     config["pretrained_path"] = model_pt
     config["model"]["vision_encoder"]["pretrained"] = model_pt
+    # Load BERT config from the package instead of local file
     config["model"]["text_encoder"]["config"] = _BERT_CONFIG_PATH
     config["model"]["text_encoder"]["pretrained"] = bert_path
+    
+    # Update all text encoder configs to use package paths
+    for encoder_name, encoder_config in config["TextEncoders"].items():
+        if "config" in encoder_config:
+            # Convert package path to actual file path
+            config_name = encoder_config["config"].split(".")[-1]  # Get the last part (e.g., "config_bert_large")
+            package_config_path = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / f"{config_name}.json"
+            encoder_config["config"] = str(package_config_path)
+    
     return EasyDict(config)
 
 
