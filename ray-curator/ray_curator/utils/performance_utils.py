@@ -1,3 +1,16 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Performance utilities for tracking stage performance metrics."""
 
 from __future__ import annotations
@@ -70,16 +83,21 @@ class StagePerfStats:
         """Convert the stats to a dictionary."""
         return attrs.asdict(self)
 
-    def items(self) -> dict[str, float | int]:
-        """Return a dictionary of the stats.
-        If custom_stats are present, they are flattened into the format <stage_name>.<custom_stat_name>
+    def items(self) -> list[tuple[str, float | int]]:
+        """Return (metric_name, metric_value) pairs.
+
+        Built-in fields are returned as (name, value).
+        custom_stats are flattened as ("custom.<custom_key>", value).
         """
         res = self.to_dict()
-        res.pop("stage_name")
-        # flatten custom_stats
-        for key, value in self.custom_stats.items():
-            res[f"{self.stage_name}.{key}"] = value
-        return res
+        # Remove non-metric identifier
+        res.pop("stage_name", None)
+        # Extract and drop the raw custom_stats dict from the flattened output
+        custom_stats = res.pop("custom_stats", {})
+        # Flatten custom_stats with a stable prefix
+        for key, value in custom_stats.items():
+            res[f"custom.{key}"] = value
+        return list(res.items())
 
 
 class StageTimer:
