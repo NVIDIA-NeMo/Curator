@@ -13,7 +13,7 @@ modality: "universal"
 
 NeMo Curator is an open-source, enterprise-grade platform for scalable, privacy-aware data curation across text, image, and video modalities.
 
-NeMo Curator helps you prepare high-quality, compliant datasets for large language model (LLM) and generative artificial intelligence (AI) training. Whether you work in the cloud, on-premises, or in a hybrid environment, NeMo Curator supports your workflow.
+NeMo Curator, part of the NVIDIA NeMo software suite for managing the AI agent lifecycle, helps you prepare high-quality, compliant datasets for large language model (LLM) and generative artificial intelligence (AI) training. Whether you work in the cloud, on-premises, or in a hybrid environment, NeMo Curator supports your workflow.
 
 ## Target Users
 
