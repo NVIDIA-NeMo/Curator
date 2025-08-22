@@ -6,7 +6,6 @@ personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "concept"
 modality: "video-only"
-only: not ga
 ---
 
 (about-concepts-video)=

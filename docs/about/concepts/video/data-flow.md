@@ -6,7 +6,6 @@ personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "concept"
 modality: "video-only"
-only: not ga
 ---
 
 (about-concepts-video-data-flow)=
@@ -14,8 +13,9 @@ only: not ga
 
 Understanding how data moves through NeMo Curator's video curation pipelines is key to optimizing performance and resource usage.
 
-- Data moves between stages via Ray's distributed object store, allowing for efficient, in-memory data transfer between distributed actors.
-- In streaming mode, only the final results are written to disk, reducing I/O overhead and improving throughput.
+- Data moves between stages via Ray's distributed object store, enabling efficient, in-memory transfer between distributed actors.
+- In streaming mode, the executor returns only final stage outputs while intermediate state stays in memory, reducing I/O overhead and improving throughput.
 - The autoscaler continuously balances resources to maximize pipeline throughput, dynamically allocating workers to stages as needed.
+- Writer stages persist outputs at the end of the pipeline, including clip media, embeddings (pickle and parquet variants), and metadata JSON files.
 
 This architecture ensures that large-scale video datasets can be processed efficiently, with minimal data movement and optimal use of available hardware. 
