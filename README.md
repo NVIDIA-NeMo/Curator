@@ -94,12 +94,20 @@ The modules within NeMo Curator were primarily designed to process and curate hi
 The following figure shows that the use of different data curation modules implemented in NeMo Curator led to improved model zero-shot downstream task performance.
 
 <p align="center">
-  <img src="./docs/user-guide/assets/readme/chart.png" alt="drawing" width="700"/>
+  <img src="./docs/_images/ablation.png" alt="drawing" width="700"/>
 </p>
 
-NeMo Curator leverages NVIDIA RAPIDS™ libraries like cuDF, cuML, and cuGraph along with Dask to scale workloads across multi-node, multi-GPU environments, significantly reducing data processing time. With NeMo Curator, developers can achieve 16X faster processing for text. Refer to the chart below to learn more details.
+NeMo Curator leverages NVIDIA RAPIDS™ libraries like cuDF, cuML, and cuGraph along with Dask to scale workloads across multi-node, multi-GPU environments, significantly reducing data processing time. With NeMo Curator, developers achieve approximately 16× faster fuzzy‑deduplication on an 8 TB RedPajama‑v2 subset, with ~40% lower TCO and near‑linear scaling on 1–4 H100 80 GB nodes. Refer to the chart below to learn more details.
 
-NeMo Curator scales near linearly which means that developers can accelerate their data processing by adding more compute. For  deduplicating the 1.96 Trillion token subset of the RedPajama V2 dataset, NeMo Curator took  0.5 hours with 32 NVIDIA H100 GPUs. Refer to the scaling chart below to learn more
+<p align="center">
+  <img src="./docs/_images/text-benchmarks.png" alt="drawing" width="700"/>
+</p>
+
+NeMo Curator exhibits near‑linear scaling for fuzzy deduplication. On an 8 TB RedPajama‑v2 subset (~1.78 trillion tokens), processing time drops from 2.05 hours on one H100 80 GB node to 0.50 hours on four nodes. Refer to the scaling chart below to learn more:
+
+<p align="center">
+  <img src="./docs/_images/scaling.png" alt="drawing" width="700"/>
+</p>
 
 ## Contribute to NeMo Curator
 
