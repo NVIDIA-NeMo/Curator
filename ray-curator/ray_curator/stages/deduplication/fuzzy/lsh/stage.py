@@ -7,6 +7,7 @@ from loguru import logger
 from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.deduplication.fuzzy.lsh.lsh import LSHActor
+from ray_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask
@@ -60,7 +61,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     minhashes_per_band: int
     # Data parameters
     id_field: str = CURATOR_DEDUP_ID_STR
-    minhash_field: str = "_minhash_signature"
+    minhash_field: str = CURATOR_DEFAULT_MINHASH_FIELD
     output_dir: str = "./"
     read_kwargs: dict[str, Any] | None = None
     write_kwargs: dict[str, Any] | None = None

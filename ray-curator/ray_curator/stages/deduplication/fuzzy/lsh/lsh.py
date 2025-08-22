@@ -12,6 +12,7 @@ import cudf
 from loguru import logger
 from rapidsmpf.utils.cudf import pylibcudf_to_cudf_dataframe
 
+from ray_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD, CURATOR_LSH_BUCKET_FIELD
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from ray_curator.stages.shuffler.rapidsmpf_shuffler import BulkRapidsMPFShuffler
 
@@ -84,7 +85,7 @@ class LSHActor(BulkRapidsMPFShuffler):
         num_bands: int,
         minhashes_per_band: int,
         id_field: str = CURATOR_DEDUP_ID_STR,
-        minhash_field: str = "_minhash_signature",
+        minhash_field: str = CURATOR_DEFAULT_MINHASH_FIELD,
         output_path: str = "./",
         rmm_pool_size: int = 1024 * 1024 * 1024,
         spill_memory_limit: int | Literal["auto"] | None = "auto",
@@ -96,7 +97,7 @@ class LSHActor(BulkRapidsMPFShuffler):
         super().__init__(
             nranks=nranks,
             total_nparts=total_nparts,
-            shuffle_on=["_bucket_id"],  # TODO: Move to a constant
+            shuffle_on=[CURATOR_LSH_BUCKET_FIELD],
             output_path=output_path,
             rmm_pool_size=rmm_pool_size,
             spill_memory_limit=spill_memory_limit,
@@ -169,10 +170,10 @@ class LSHActor(BulkRapidsMPFShuffler):
             )
 
         value_vars = [f"_bucket_{i}" for i in range(len(band_ranges))]
-        melted_df = id_df.melt(id_vars=[self.id_field], value_name="_bucket_id", value_vars=value_vars)
+        melted_df = id_df.melt(id_vars=[self.id_field], value_name=CURATOR_LSH_BUCKET_FIELD, value_vars=value_vars)
 
         # Keep only the columns we need
-        return melted_df[[self.id_field, "_bucket_id"]]
+        return melted_df[[self.id_field, CURATOR_LSH_BUCKET_FIELD]]
 
     def read_and_insert(self, filepaths: list[str], band_range: tuple[int, int]) -> None:
         """
@@ -237,9 +238,9 @@ class LSHActor(BulkRapidsMPFShuffler):
             # TODO: Add support for generating LSH index with single-document buckets that can be reused in incremental runs
             # Find bucket_ids that appear more than once (have multiple documents)
             # Keep only rows with buckets that are duplicated
-            df = df[df["_bucket_id"].duplicated(keep=False)]
+            df = df[df[CURATOR_LSH_BUCKET_FIELD].duplicated(keep=False)]
         # Group by bucket_id and aggregate document IDs
-        return df.groupby("_bucket_id")[self.id_field].agg(list).list.sort_values().reset_index()
+        return df.groupby(CURATOR_LSH_BUCKET_FIELD)[self.id_field].agg(list).list.sort_values().reset_index()
 
     def extract_and_group(self) -> Iterator[tuple[int, cudf.DataFrame]]:
         """
@@ -255,7 +256,7 @@ class LSHActor(BulkRapidsMPFShuffler):
             and their corresponding document ID lists.
         """
         # Fixed column names for pylibcudf conversion
-        column_names = [self.id_field, "_bucket_id"]
+        column_names = [self.id_field, CURATOR_LSH_BUCKET_FIELD]
         for partition_id, partition in self.extract():
             # Convert to cuDF DataFrame
             df = pylibcudf_to_cudf_dataframe(partition, column_names=column_names)

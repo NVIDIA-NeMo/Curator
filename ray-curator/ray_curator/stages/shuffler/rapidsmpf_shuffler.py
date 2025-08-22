@@ -64,12 +64,14 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         self.shuffle_on = shuffle_on
         self.output_path = output_path
         self.total_nparts = total_nparts
-        self.rmm_pool_size = align_down_to_256(rmm_pool_size)
+        self.rmm_pool_size = align_down_to_256(rmm_pool_size) if rmm_pool_size is not None else None
 
         if isinstance(spill_memory_limit, int):
             self.spill_memory_limit = align_down_to_256(spill_memory_limit)
         elif spill_memory_limit == "auto":
-            self.spill_memory_limit = align_down_to_256(0.8 * self.rmm_pool_size)
+            self.spill_memory_limit = (
+                align_down_to_256(0.8 * self.rmm_pool_size) if self.rmm_pool_size is not None else None
+            )
         elif spill_memory_limit is None:
             self.spill_memory_limit = None
         else:

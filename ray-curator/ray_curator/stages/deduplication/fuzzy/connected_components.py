@@ -23,6 +23,7 @@ from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
 
 from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
+from ray_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
 from ray_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
@@ -39,22 +40,22 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
     def __init__(
         self,
         output_dir: str,
-        source_column: str = f"{CURATOR_DEDUP_ID_STR}_x",
-        destination_column: str = f"{CURATOR_DEDUP_ID_STR}_y",
+        source_field: str = f"{CURATOR_DEDUP_ID_STR}_x",
+        destination_field: str = f"{CURATOR_DEDUP_ID_STR}_y",
         read_kwargs: dict | None = None,
         write_kwargs: dict | None = None,
     ):
         """
         Args:
             output_dir: The directory to write the resulting connected components to.
-            source_column: The column name containing the document ids of the source of the edge.
-            destination_column: The column name containing the document ids of the destination of the edge.
+            source_field: The field name containing the document ids of the source of the edge.
+            destination_field: The field name containing the document ids of the destination of the edge.
             read_kwargs: Keyword arguments to pass for reading the input files.
             write_kwargs: Keyword arguments to pass for writing the output files.
         """
 
-        self.source_column = source_column
-        self.destination_column = destination_column
+        self.source_field = source_field
+        self.destination_field = destination_field
         self.read_kwargs = read_kwargs if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
@@ -159,34 +160,34 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
 
     def process_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
         """
-        Process an input file, compute minhashes, and write results to an output file.
-        Automatically adds a unique _curator_id field to each document if not present.
+        Process a batch of input files containing edges between documents.
+        Compute the weakly connected components of the graph and write a mapping of document ids to their connected component id.
 
         Parameters
         ----------
-        infiles: str, list[str]
-            Path to input file (JSONL format) or list of paths
-        outfile: str
-            Path to output file (Parquet format)
-        columns: list, optional
-            Columns to read from input file
+        tasks: list[FileGroupTask]
+            A list of FileGroupTasks containing the input files.
+        Returns
+        -------
+        list[FileGroupTask]
+            A list of FileGroupTasks containing the output doc_id to connected component id mapping.
         """
         input_files = []
         for task in tasks:
             input_files.extend(task.data)
         output_file = self.output_fs.sep.join([self.output_dir, f"{tasks[0].task_id}.parquet"])
-        edgelist_columns = [self.source_column, self.destination_column]
+        edgelist_columns = [self.source_field, self.destination_field]
         dfs = []
         for input_file in input_files:
             dfs.append(self.read_parquet(input_file, columns=edgelist_columns, **self.read_kwargs))
         df = cudf.concat(dfs)
         # remove duplicate edges
         df = df.drop_duplicates(subset=edgelist_columns, ignore_index=True)
-        vertices, labels = self.weakly_connected_components(df, self.source_column, self.destination_column)
+        vertices, labels = self.weakly_connected_components(df, self.source_field, self.destination_field)
         df = cudf.DataFrame(
             {
                 CURATOR_DEDUP_ID_STR: vertices,
-                "_duplicate_group_id": labels,
+                CURATOR_FUZZY_DUPLICATE_GROUP_FIELD: labels,
             }
         )
         self.write_parquet(df=df, filepath=output_file, index=False, **self.write_kwargs)

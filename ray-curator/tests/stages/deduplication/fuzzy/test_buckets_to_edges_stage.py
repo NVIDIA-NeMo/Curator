@@ -20,9 +20,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from ray_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from ray_curator.tasks import FileGroupTask
+
+BucketsToEdgesStage = pytest.importorskip(
+    "ray_curator.stages.deduplication.fuzzy.buckets_to_edges"
+).BucketsToEdgesStage
 
 
 @pytest.fixture
@@ -82,6 +85,8 @@ def input_task(sample_files: list[str]) -> FileGroupTask:
     )
 
 
+# Marking as GPU so that they don't get skiped on GPU CI runs
+@pytest.mark.gpu
 class TestBucketsToEdgesStage:
     """Test suite for BucketsToEdgesStage ProcessingStage."""
 
