@@ -70,7 +70,6 @@ video = [
     "opencv-python",
     "torchvision",
     "einops",
-    "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
     "easydict",
 ]
 
@@ -78,7 +77,6 @@ video_cuda = [
     "cvcuda_cu12",
     "pycuda",
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "vllm",
     "flash_attn<=2.8.0",
     "torch<=2.8.0",
 ]
@@ -109,6 +107,7 @@ test = [
     "pytest-loguru",
     "scikit-learn",
 ]
+dev = ["internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality"]
 
 [tool.uv]
 default-groups = ["test"]
