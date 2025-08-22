@@ -23,7 +23,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna @ git+https://github.com/nvidia-cosmos/cosmos-xenna.git@main",
+    "cosmos-xenna",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
@@ -70,12 +70,17 @@ video = [
     "opencv-python",
     "torchvision",
     "einops",
+    "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
+    "easydict",
 ]
 
 video_cuda = [
     "cvcuda_cu12",
     "pycuda",
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm",
+    "flash_attn<=2.8.0",
+    "torch<=2.8.0",
 ]
 
 video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
@@ -94,8 +99,8 @@ all = [
 ]
 
 [dependency-groups]
+build = ["setuptools", "torch<=2.8.0"]
 linting = ["pre-commit", "ruff==0.11.4"]
-
 test = [
     "debugpy",
     "pytest",
@@ -107,10 +112,27 @@ test = [
 
 [tool.uv]
 default-groups = ["test"]
+no-build-isolation-package = ["flash-attn"]
 
 [[tool.uv.index]]
 name = "nvidia"
 url = "https://pypi.nvidia.com"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch", marker = "sys_platform != 'darwin'" },
+    { index = "pypi", marker = "sys_platform == 'darwin'" },
+]
 
 [tool.coverage.paths]
 source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]

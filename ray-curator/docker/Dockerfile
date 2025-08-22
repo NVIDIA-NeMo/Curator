@@ -104,6 +104,7 @@ COPY ray-curator /opt/ray-curator
 
 # Install dependencies
 RUN cd ray-curator && \
+    uv sync --locked --only-group build && \
     if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
         uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
     else \
