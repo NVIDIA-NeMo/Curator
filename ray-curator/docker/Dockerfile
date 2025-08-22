@@ -30,7 +30,7 @@ FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
 
 FROM cuda AS build
 
-ARG CURATOR_ENV=dev
+ARG CURATOR_ENV=ci
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
@@ -104,7 +104,11 @@ COPY ray-curator /opt/ray-curator
 
 # Install dependencies
 RUN cd ray-curator && \
-    uv sync --link-mode copy --locked --extra all --all-groups
+    if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
+        uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
+    else \
+        uv sync --link-mode copy --locked --extra all --all-groups; \
+    fi;
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv

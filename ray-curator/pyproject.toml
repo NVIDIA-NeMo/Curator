@@ -71,12 +71,14 @@ video = [
     "torchvision",
     "einops",
 ]
+
 video_cuda = [
-    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "cvcuda_cu12",
     "pycuda",
     "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
+
+video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
 dali = [

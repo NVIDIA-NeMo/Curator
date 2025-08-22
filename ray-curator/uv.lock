@@ -4158,7 +4158,6 @@ all = [
     { name = "pycld2" },
     { name = "pycuda" },
     { name = "pylibraft-cu12" },
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "resiliparse" },
@@ -4205,8 +4204,10 @@ video = [
 video-cuda = [
     { name = "cvcuda-cu12" },
     { name = "pycuda" },
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+video-nvenc = [
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 
 [package.dev-dependencies]
@@ -4252,7 +4253,7 @@ requires-dist = [
     { name = "pycld2", marker = "extra == 'text'" },
     { name = "pycuda", marker = "extra == 'video-cuda'" },
     { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "==2.0.2" },
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-nvenc'", specifier = "==2.0.2" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
     { name = "ray", extras = ["default", "data"], specifier = ">=2.48" },
@@ -4270,7 +4271,7 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'" },
     { name = "warcio", marker = "extra == 'text'" },
 ]
-provides-extras = ["text", "deduplication-cuda12x", "video", "video-cuda", "dali", "all"]
+provides-extras = ["text", "deduplication-cuda12x", "video", "video-cuda", "video-nvenc", "dali", "all"]
 
 [package.metadata.requires-dev]
 linting = [
