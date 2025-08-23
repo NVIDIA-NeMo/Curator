@@ -21,7 +21,7 @@ import pandas as pd
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.text.io.writer.utils import get_deterministic_hash
 from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import check_disllowed_kwargs
+from ray_curator.utils.file_utils import check_disallowed_kwargs
 
 
 @dataclass
@@ -53,8 +53,8 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         self.read_kwargs = self.read_kwargs.copy() if self.read_kwargs is not None else {}
         self.write_kwargs = self.write_kwargs.copy() if self.write_kwargs is not None else {}
 
-        check_disllowed_kwargs(self.read_kwargs, ["filters", "engine"])
-        check_disllowed_kwargs(self.write_kwargs, ["index", "row_group_size"])
+        check_disallowed_kwargs(self.read_kwargs, ["filters", "engine"])
+        check_disallowed_kwargs(self.write_kwargs, ["index", "row_group_size"])
 
         self.input_storage_options = self.read_kwargs.pop("storage_options", None) if self.read_kwargs else None
         self.output_storage_options = self.write_kwargs.pop("storage_options", None) if self.write_kwargs else None

@@ -135,6 +135,7 @@ class RayActorPoolRAFTAdapter(BaseStageAdapter):
             self._setup_raft()
             # Set the RAFT handle on the stage so it can access it
             self.stage._raft_handle = self._raft_handle
+            self.stage._actor_pool_size = self._pool_size
             # This calls the stage's setup method
             super().setup(worker_metadata)
         except Exception as e:

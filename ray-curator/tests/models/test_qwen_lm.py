@@ -1,11 +1,22 @@
-"""Unit tests for QwenLM model."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import sys
 from unittest.mock import Mock, patch
 
 # Mock vllm before importing the module to avoid dependency issues
 sys.modules["vllm"] = Mock()
-sys.modules["transformers"] = Mock()
 
 from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
 
@@ -14,7 +25,6 @@ class TestQwenLM:
     """Test cases for QwenLM model class."""
 
     def setup_method(self) -> None:
-        """Set up test fixtures."""
         self.model_dir = "/test/model/dir"
         self.caption_batch_size = 4
         self.fp8 = True
@@ -27,18 +37,15 @@ class TestQwenLM:
         )
 
     def test_constants(self) -> None:
-        """Test that module constants are correctly defined."""
         assert _QWEN_LM_MODEL_ID == "Qwen/Qwen2.5-14B-Instruct"
 
     def test_initialization(self) -> None:
-        """Test initialization with parameters."""
         assert self.qwen_lm.model_dir == self.model_dir
         assert self.qwen_lm.caption_batch_size == self.caption_batch_size
         assert self.qwen_lm.fp8 == self.fp8
         assert self.qwen_lm.max_output_tokens == self.max_output_tokens
 
     def test_model_id_names(self) -> None:
-        """Test model_id_names method returns correct model IDs."""
         model_ids = self.qwen_lm.model_id_names()
         assert isinstance(model_ids, list)
         assert len(model_ids) == 1
@@ -51,7 +58,6 @@ class TestQwenLM:
     def test_setup_with_fp8(
         self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
     ) -> None:
-        """Test setup method with fp8 quantization enabled."""
         # Mock Path behavior
         mock_path_instance = Mock()
         mock_path_instance.__truediv__ = Mock(return_value="/test/model/dir/Qwen/Qwen2.5-14B-Instruct")
@@ -103,7 +109,6 @@ class TestQwenLM:
     def test_setup_without_fp8(
         self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
     ) -> None:
-        """Test setup method without fp8 quantization."""
         # Create QwenLM without fp8
         qwen_lm_no_fp8 = QwenLM(
             model_dir=self.model_dir,
@@ -139,7 +144,6 @@ class TestQwenLM:
         )
 
     def test_generate_single_input(self) -> None:
-        """Test generate method with single input."""
         # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
@@ -181,7 +185,6 @@ class TestQwenLM:
         assert result == ["Generated response"]
 
     def test_generate_multiple_inputs(self) -> None:
-        """Test generate method with multiple inputs."""
         # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
@@ -226,7 +229,6 @@ class TestQwenLM:
         assert result == ["Response 1", "Response 2"]
 
     def test_generate_empty_input(self) -> None:
-        """Test generate method with empty input list."""
         # Setup mocks
         mock_llm = Mock()
         mock_tokenizer = Mock()
@@ -294,7 +296,6 @@ class TestQwenLM:
         )
 
     def test_weight_file_path_construction(self) -> None:
-        """Test that weight file path is constructed correctly."""
         with patch("ray_curator.models.qwen_lm.Path") as mock_path:
             mock_path_instance = Mock()
             expected_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
@@ -314,7 +315,6 @@ class TestQwenLM:
                 assert self.qwen_lm.weight_file == expected_path
 
     def test_sampling_params_configuration(self) -> None:
-        """Test that sampling parameters are configured correctly."""
         with (
             patch("ray_curator.models.qwen_lm.LLM"),
             patch("ray_curator.models.qwen_lm.AutoTokenizer"),
