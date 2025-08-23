@@ -13,6 +13,8 @@
 # limitations under the License.
 
 
+from typing import Optional, List
+from presidio_analyzer import EntityRecognizer
 import pandas as pd
 
 from nemo_curator.modifiers import DocumentModifier
@@ -52,6 +54,7 @@ class PiiModifier(DocumentModifier):
         supported_entities: list[str] | None = None,
         anonymize_action: str = "redact",
         batch_size: int = DEFAULT_BATCH_SIZE,
+        custom_analyzer_recognizers: Optional[List[EntityRecognizer]] = None,
         device: str = "gpu",
         **kwargs,
     ):
@@ -63,6 +66,7 @@ class PiiModifier(DocumentModifier):
         self.kwargs = kwargs
 
         self.batch_size = batch_size
+        self.custom_analyzer_recognizers = custom_analyzer_recognizers
         self.device = device
 
     @batched
@@ -102,5 +106,6 @@ class PiiModifier(DocumentModifier):
             **self.kwargs,
         )
         deidentifier.analyzer.nlp_engine.nlp[deidentifier.language].max_length = DEFAULT_MAX_DOC_SIZE
-
+        for recognizer in self.custom_analyzer_recognizers:
+            deidentifier.analyzer.registry.add_recognizer(recognizer)
         return deidentifier
