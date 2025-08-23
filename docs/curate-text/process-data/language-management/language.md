@@ -63,52 +63,51 @@ from ray_curator.stages.text.modules import ScoreFilter
 
 def create_language_identification_pipeline(data_dir: str) -> Pipeline:
     """Create a pipeline for language identification."""
-    
+
     # Define pipeline
     pipeline = Pipeline(
-        name="language_identification", 
+        name="language_identification",
         description="Identify document languages using FastText"
     )
-    
+
     # Add stages
     # 1. Reader stage - creates tasks from JSONL files
     pipeline.add_stage(
         JsonlReader(
             file_paths=data_dir,
             files_per_partition=2,  # Each task processes 2 files
-            reader="pandas"
         )
     )
-    
+
     # 2. Language identification with filtering
     # IMPORTANT: Download lid.176.bin or lid.176.ftz from https://fasttext.cc/docs/en/language-identification.html
     fasttext_model_path = "/path/to/lid.176.bin"  # or lid.176.ftz (compressed)
     pipeline.add_stage(
         ScoreFilter(
-            FastTextLangId(model_path=fasttext_model_path, min_langid_score=0.3), 
+            FastTextLangId(model_path=fasttext_model_path, min_langid_score=0.3),
             score_field="language"
         )
     )
-    
+
     return pipeline
 
 def main():
     # Create pipeline
     pipeline = create_language_identification_pipeline("./data")
-    
+
     # Print pipeline description
     print(pipeline.describe())
-    
+
     # Create executor and run
     executor = XennaExecutor()
     results = pipeline.run(executor)
-    
+
     # Process results
     print(f"Pipeline completed! Processed {len(results)} batches")
-    
+
     total_documents = sum(task.num_items for task in results) if results else 0
     print(f"Total documents processed: {total_documents}")
-    
+
     # Access language scores
     for i, batch in enumerate(results):
         if batch.num_items > 0:

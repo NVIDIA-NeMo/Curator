@@ -240,7 +240,6 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, A
         JsonlReader(
             file_paths=str(input_dir),
             files_per_partition=FILES_PER_PARTITION,
-            reader="pandas",
         )
     )
 
@@ -256,7 +255,7 @@ def create_test_pipeline(input_dir: Path, output_dir: Path) -> tuple[Pipeline, A
     pipeline.add_stage(StageWithSetup())
 
     # Add JsonlWriter stage
-    pipeline.add_stage(JsonlWriter(output_dir=str(output_dir)))
+    pipeline.add_stage(JsonlWriter(path=str(output_dir)))
 
     return pipeline
 

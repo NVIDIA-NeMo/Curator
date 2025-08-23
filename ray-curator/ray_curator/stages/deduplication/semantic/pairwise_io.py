@@ -21,7 +21,7 @@ from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import get_all_files_paths_under, get_fs, infer_dataset_name_from_path
+from ray_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
 
 if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
@@ -101,7 +101,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
         dataset_name = infer_dataset_name_from_path(self.input_path)
 
         for centroid_id, centroid_dir in centroid_dirs.items():
-            partition_files = get_all_files_paths_under(
+            partition_files = get_all_file_paths_under(
                 centroid_dir,
                 recurse_subdirectories=True,
                 keep_extensions=[".parquet"],

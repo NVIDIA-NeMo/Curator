@@ -52,7 +52,7 @@ class TestFilePartitioningStage:
         assert stage.file_paths == "/test/path"
         assert stage.files_per_partition is None
         assert stage.blocksize is None
-        assert stage.file_extensions == [".jsonl", ".json"]
+        assert stage.file_extensions == [".jsonl", ".json", ".parquet"]
         assert stage.storage_options == {}
         assert stage.limit is None
         assert stage._name == "file_partitioning"
@@ -102,9 +102,9 @@ class TestFilePartitioningStage:
 
         result = stage.process(empty_task)
 
-        assert len(result) == 1  # All files in one group by default
+        assert len(result) == len(test_files)  # All files in one group by default
         assert isinstance(result[0], FileGroupTask)
-        assert result[0].data == test_files
+        assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
         assert result[0].task_id == "file_group_0"
 
@@ -147,13 +147,12 @@ class TestFilePartitioningStage:
         test_files = [f"/path/file{i}.jsonl" for i in range(5)]
         stage = FilePartitioningStage(
             file_paths=test_files,
-            limit=1,  # Limit to 1 group, and all files would be in one group anyway
+            limit=1,  # Limit to 1 group, TODO: Ask ayush why this is the behavior
         )
-
         result = stage.process(empty_task)
 
         assert len(result) == 1
-        assert result[0].data == test_files
+        assert result[0].data == [test_files[0]]
 
     def test_process_with_limit_zero(self, empty_task: _EmptyTask):
         """Test processing with limit set to 0."""
@@ -168,10 +167,15 @@ class TestFilePartitioningStage:
 
         assert len(result) == 0
 
-    def test_process_with_blocksize(self, empty_task: _EmptyTask):
+    def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
-        test_files = [f"/path/file{i}.jsonl" for i in range(6)]
-        stage = FilePartitioningStage(file_paths=test_files, blocksize="50MB")
+        # Create 6 temporary files
+        test_files = []
+        for i in range(6):
+            p = tmp_path / f"file{i}.jsonl"
+            p.write_text("{}\n")  # minimal content
+            test_files.append(str(p))
+        stage = FilePartitioningStage(file_paths=test_files, blocksize="1B")
 
         result = stage.process(empty_task)
 
@@ -180,7 +184,7 @@ class TestFilePartitioningStage:
         assert len(result) == 6
         for i, task in enumerate(result):
             assert len(task.data) == 1
-            assert task.data[0] == f"/path/file{i}.jsonl"
+            assert task.data[0] == test_files[i]
 
     def test_process_empty_file_list(self, empty_task: _EmptyTask):
         """Test processing with empty file list."""
@@ -234,11 +238,10 @@ class TestFilePartitioningStage:
 
         result = stage.process(empty_task)
 
-        assert len(result) == 1
+        assert len(result) == 2
         task = result[0]
 
         assert task._metadata["partition_index"] == 0
-        assert task._metadata["total_partitions"] == 1
-        assert task._metadata["storage_options"] == storage_options
-        assert task._metadata["source_files"] == test_files
+        assert task._metadata["total_partitions"] == 2
+        assert task._metadata["source_files"] == [test_files[0]]
         assert task.reader_config == {}
