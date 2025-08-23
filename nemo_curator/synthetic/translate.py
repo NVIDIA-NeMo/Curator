@@ -227,6 +227,64 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         )
         return responses[0]
 
+    def generate_from_dataframe(self, df, text_column: str, batch_size: int = 32, output_column: str = "translated_text", **kwargs) -> "pd.DataFrame":
+        """
+        Pipeline: Translate a pandas DataFrame column in batches and return DataFrame with new column.
+        Args:
+            df: pandas DataFrame containing text data.
+            text_column: Name of the column to translate.
+            batch_size: Number of rows per batch.
+            output_column: Name of the column to store translations.
+            kwargs: Extra arguments for self.generate.
+        Returns:
+            DataFrame with new column containing translations.
+        """
+        import pandas as pd
+        results = []
+        n = len(df)
+        for start in range(0, n, batch_size):
+            end = min(start + batch_size, n)
+            batch = df.iloc[start:end]
+            texts = batch[text_column].tolist()
+            batch_translations = self.generate(texts, **kwargs)
+            results.extend(batch_translations)
+        df[output_column] = results
+        return df
+
+    async def async_generate_from_dataframe(self, df, text_column: str, batch_size: int = 32, output_column: str = "translated_text", **kwargs):
+        """
+        Asynchronous pipeline: Translate a pandas DataFrame column in batches using async requests and return DataFrame with new column.
+        Args:
+            df: pandas DataFrame containing text data.
+            text_column: Name of the column to translate.
+            batch_size: Number of rows per batch.
+            output_column: Name of the column to store translations.
+            kwargs: Extra arguments for self.generate.
+        Returns:
+            DataFrame with new column containing translations.
+        """
+        import pandas as pd
+        import asyncio
+
+        async def async_generate(texts, **kwargs):
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self.generate, texts, **kwargs)
+
+        n = len(df)
+        tasks = []
+        for start in range(0, n, batch_size):
+            end = min(start + batch_size, n)
+            batch = df.iloc[start:end]
+            texts = batch[text_column].tolist()
+            tasks.append(async_generate(texts, **kwargs))
+
+        results = []
+        batch_translations_list = await asyncio.gather(*tasks)
+        for batch_translations in batch_translations_list:
+            results.extend(batch_translations)
+        df[output_column] = results
+        return df
+
 # Example usage for both function and YAML config
 if __name__ == "__main__":
     # Function-based usage
@@ -253,3 +311,24 @@ if __name__ == "__main__":
     # YAML-based usage (parameters only, text provided in code)
     generator_yaml = TranslationDataGenerator.from_yaml("config/translation_config.yaml")
     print(generator_yaml.generate_from_yaml("config/translation_config.yaml", text))
+
+    # Pipeline DataFrame usage
+    import pandas as pd
+    df = pd.DataFrame(
+        {
+            "text": [
+                "Once upon a time, there were three little pig brothers...",
+                "The quick brown fox jumps over the lazy dog.",
+            ]
+        }
+    )
+    df_translated = generator_yaml.generate_from_dataframe(df, text_column="text", batch_size=16)
+    print(df_translated.head())
+
+    # Async test for async_generate_from_dataframe
+    import asyncio
+    async def test_async_generate_from_dataframe():
+        df_translated = await generator_yaml.async_generate_from_dataframe(df, text_column="text", batch_size=16)
+        print("[Async]\n", df_translated.head())
+
+    asyncio.run(test_async_generate_from_dataframe())
