@@ -1,28 +1,36 @@
-from transformers import AutoTokenizer
+"""
+The work logic and prompts here are referenced from [Github: andrewyng/translation-agent](https://github.com/andrewyng/translation-agent).
+"""
+
+import yaml
 import re
-from openai import OpenAI
-from nemo_curator import OpenAIClient
+from nemo_curator.synthetic.generator import SyntheticDataGenerator
 from nemo_curator.synthetic.prompts import (
     INITIAL_TRANSLATION_PROMPT,
     REFLECTION_COUNTRY_TRANSLATION_PROMPT,
     REFLECTION_TRANSLATION_PROMPT,
-    IMPROVE_TRANSLATION_PROMPT
+    IMPROVE_TRANSLATION_PROMPT,
 )
+from nemo_curator import OpenAIClient
+from openai import OpenAI
+from transformers import AutoTokenizer
 
 class TextSplitter:
-    def __init__(self, model_name:str="", hf_token:str="", max_token_per_chunk:int=4096):
+    """
+    Utility class for splitting text into chunks based on token count.
+    """
+    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096):
         self.model_name = model_name
         self.hf_token = hf_token
         self.max_token_per_chunk = max_token_per_chunk
-        try:
-            if self.model_name != "":
-                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=self.hf_token, use_fast=True)
-            else:
-                raise ValueError("Model name is empty. Please provide a valid model name.")
-        except Exception as e:
-            raise ValueError(f"Error loading tokenizer\n{e}")
+        # Load tokenizer for counting tokens
+        if self.model_name:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=self.hf_token, use_fast=True)
+        else:
+            raise ValueError("Model name is empty. Please provide a valid model name.")
 
-    def split_sentences(self, text: str) -> list:
+    def split_sentences(self, text: str) -> list[str]:
+        # Split text into sentences using punctuation
         pattern = r'([^。！？；.!?;]*[。！？；.!?;])'
         sentences = re.findall(pattern, text, flags=re.UNICODE)
         last = re.sub(pattern, '', text)
@@ -31,11 +39,11 @@ class TextSplitter:
         return [s.strip() for s in sentences if s.strip()]
 
     def num_tokens_in_string_hf(self, input_str: str) -> int:
-        num_tokens = len(self.tokenizer.encode(input_str))
-        return num_tokens
+        # Count tokens in a string using the tokenizer
+        return len(self.tokenizer.encode(input_str))
 
-
-    def split_long_text(self, text: str, max_tokens: int=None) -> list:
+    def split_long_text(self, text: str, max_tokens: int = None) -> list[str]:
+        # Split long text into chunks based on max token count
         if max_tokens is None:
             max_tokens = self.max_token_per_chunk
         sentences = self.split_sentences(text)
@@ -54,71 +62,37 @@ class TextSplitter:
             chunks.append(current_chunk)
         return chunks
 
-class FormatAgent():
-    def __init__(self,
-                 base_url:str="https://integrate.api.nvidia.com/v1",
-                 api_key:str="",
-                 model:str="",
-                 temperature:float=1.0,
-                 top_p:float=1.0,
-                 max_tokens:int=8192,
-                 prompt_tmp:str="",
-                 ):
+class TranslationDataGenerator(SyntheticDataGenerator):
+    """
+    Synthetic data generator for translation tasks.
+    Supports both function-based and YAML-based configuration.
+    """
+    def __init__(
+        self,
+        base_url: str = "https://integrate.api.nvidia.com/v1",
+        api_key: str = "",
+        init_translate_model: str = "openai/gpt-oss-20b",
+        reflection_model: str = "openai/gpt-oss-20b",
+        improvement_model: str = "openai/gpt-oss-20b",
+        hf_tokenizer: str = "openai/gpt-oss-20b",
+        hf_token: str = "",
+        max_token_per_chunk: int = 5000,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        max_tokens: int = 8192,
+        source_lang: str = "English",
+        target_lang: str = "Traditional Chinese",
+        country: str = "Taiwan",
+    ):
+        super().__init__()
+        # Initialize parameters for translation pipeline
         self.base_url = base_url
         self.api_key = api_key
-        self.model = model
-        self.openai_client = OpenAI(
-            base_url=self.base_url,
-            api_key=self.api_key,
-        )
-        self.client = OpenAIClient(self.openai_client)
-        self.temperature = temperature
-        self.top_p = top_p
-        self.max_tokens = max_tokens
-        self.prompt_tmp = prompt_tmp
-
-    def run(self, input:dict):
-        prompt = self.prompt_tmp.format(**input)
-        if len(prompt) == 0:
-            raise ValueError("Prompt template is empty after formatting. Please provide a valid prompt template and input data.")
-        responses = self.client.query_model(
-            model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-            temperature=self.temperature,
-            top_p=self.top_p,
-            max_tokens=self.max_tokens, 
-        )
-        return responses[0]
-
-class TranslationWorkflow():
-    def __init__(self,
-                 base_url:str="https://integrate.api.nvidia.com/v1",
-                 api_key:str="",
-                 init_translate_model:str="openai/gpt-oss-20b",
-                 reflection_model:str="openai/gpt-oss-20b",
-                 improvement_model:str="openai/gpt-oss-20b",
-                 hf_tokenizer:str="openai/gpt-oss-20b",
-                 hf_token:str="",
-                 max_token_per_chunk:int=5000,
-                 temperature:float=1.0,
-                 top_p:float=1.0,
-                 max_tokens:int=8192,
-                 source_lang:str="English",
-                 target_lang:str="Traditional Chinese",
-                 country:str="Taiwan",
-                 ):
-        self.initial_translation_agent = FormatAgent(base_url=base_url, api_key=api_key, model=init_translate_model, prompt_tmp=INITIAL_TRANSLATION_PROMPT)
-        if country:
-            self.reflection_agent = FormatAgent(base_url=base_url, api_key=api_key, model=reflection_model, prompt_tmp=REFLECTION_COUNTRY_TRANSLATION_PROMPT)
-        else:
-            self.reflection_agent = FormatAgent(base_url=base_url, api_key=api_key, model=reflection_model, prompt_tmp=REFLECTION_TRANSLATION_PROMPT)
-        self.improve_translation_agent = FormatAgent(base_url=base_url, api_key=api_key, model=improvement_model, prompt_tmp=IMPROVE_TRANSLATION_PROMPT)
+        self.init_translate_model = init_translate_model
+        self.reflection_model = reflection_model
+        self.improvement_model = improvement_model
         self.hf_tokenizer = hf_tokenizer
+        self.hf_token = hf_token
         self.max_token_per_chunk = max_token_per_chunk
         self.temperature = temperature
         self.top_p = top_p
@@ -126,84 +100,138 @@ class TranslationWorkflow():
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.country = country
-        self.hf_token = hf_token
+        self.openai_client = OpenAI(base_url=self.base_url, api_key=self.api_key)
+        self.client = OpenAIClient(self.openai_client)
+        self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk)
 
-    def demo_run(self, text:str):
-        chunks = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk).split_long_text(text, max_tokens=self.max_token_per_chunk)
-        translated_chunks = []
-        for chunk in chunks:
-            initial_translation_result = self.initial_translation_agent.run(
-                input = {
-                    "source_lang": self.source_lang,
-                    "source_text": chunk,
-                    "target_lang": self.target_lang,
-                }
-            )
-            print(f"initial_translation_result:\n{initial_translation_result}")
-            reflection_result = self.reflection_agent.run(
-                input = {
-                    "source_lang": self.source_lang,
-                    "source_text": chunk,
-                    "target_lang": self.target_lang,
-                    "translation_1": initial_translation_result,
-                    "country": self.country if self.country else "N/A",
-                }
-            )
-            print(f"reflection_result:\n{reflection_result}")
-            improve_translation_result = self.improve_translation_agent.run(
-                input = {
-                    "source_lang": self.source_lang,
-                    "source_text": chunk,
-                    "target_lang": self.target_lang,
-                    "translation_1": initial_translation_result,
-                    "reflection": reflection_result,
-                }
-            )
-            print(f"improve_translation_result:\n{improve_translation_result}")
-            translated_chunks.append(improve_translation_result)
-        return format("\n".join(translated_chunks))
-    
-    def run(self, text:str):
-        chunks = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk).split_long_text(text, max_tokens=self.max_token_per_chunk)
-        translated_chunks = []
-        for chunk in chunks:
-            initial_translation_result = self.initial_translation_agent.run(
-                input = {
-                    "source_lang": self.source_lang,
-                    "source_text": chunk,
-                    "target_lang": self.target_lang,
-                }
-            )
-            reflection_result = self.reflection_agent.run(
-                input = {
-                    "source_lang": self.source_lang,
-                    "source_text": chunk,
-                    "target_lang": self.target_lang,
-                    "translation_1": initial_translation_result,
-                    "country": self.country if self.country else "N/A",
-                }
-            )
-            improve_translation_result = self.improve_translation_agent.run(
-                input = {
-                    "source_lang": self.source_lang,
-                    "source_text": chunk,
-                    "target_lang": self.target_lang,
-                    "translation_1": initial_translation_result,
-                    "reflection": reflection_result,
-                }
-            )
-            translated_chunks.append(improve_translation_result)
-        return format("\n".join(translated_chunks))
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> "TranslationDataGenerator":
+        """
+        Create a TranslationDataGenerator instance from a YAML configuration file.
+        Args:
+            yaml_path: Path to the YAML configuration file.
+        Returns:
+            TranslationDataGenerator instance.
+        """
+        with open(yaml_path, "r") as f:
+            config = yaml.safe_load(f)
+        # Remove 'text' key if present, only pass valid constructor args
+        config = dict(config)  # Make a copy
+        config.pop('text', None)
+        return cls(**config)
 
+    def generate(self, llm_prompt: str | list[str]) -> list[str]:
+        """
+        Main pipeline for translation generation.
+        Args:
+            llm_prompt: The input text to be translated (str or list of str).
+        Returns:
+            List of improved translations.
+        """
+        if isinstance(llm_prompt, str):
+            chunks = self.text_splitter.split_long_text(llm_prompt, max_tokens=self.max_token_per_chunk)
+        else:
+            chunks = llm_prompt
+        results = []
+        for chunk in chunks:
+            initial = self._run_init_translation(chunk)
+            reflection = self._run_reflection(chunk, initial)
+            improved = self._run_improve_translation(chunk, initial, reflection)
+            results.append(improved)
+        return results
+
+    def generate_from_yaml(self, yaml_path: str, text: str) -> str:
+        """
+        Run the translation pipeline using parameters from a YAML configuration file, with text provided in code.
+        Args:
+            yaml_path: Path to the YAML file containing parameters.
+            text: The text to translate (provided in code).
+        Returns:
+            Concatenated translation string.
+        """
+        with open(yaml_path, "r") as f:
+            config = yaml.safe_load(f)
+        # Only use parameters from YAML, ignore any text key
+        translations = self.generate(text)
+        return self.parse_response(translations)
+
+    def parse_response(self, llm_response: str | list[str]) -> str:
+        """
+        Parse the LLM response(s) into a single formatted string.
+        Args:
+            llm_response: List of improved translations.
+        Returns:
+            Concatenated translation string.
+        """
+        if isinstance(llm_response, list):
+            return "\n".join(llm_response)
+        return llm_response
+
+    def _run_init_translation(self, text: str) -> str:
+        # Run initial translation step
+        prompt = INITIAL_TRANSLATION_PROMPT.format(
+            source_lang=self.source_lang,
+            source_text=text,
+            target_lang=self.target_lang,
+        )
+        responses = self.client.query_model(
+            model=self.init_translate_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            top_p=self.top_p,
+            max_tokens=self.max_tokens,
+        )
+        return responses[0]
+
+    def _run_reflection(self, text: str, initial_translation_result: str) -> str:
+        # Run reflection step to improve translation
+        if self.country:
+            prompt = REFLECTION_COUNTRY_TRANSLATION_PROMPT.format(
+                source_lang=self.source_lang,
+                source_text=text,
+                target_lang=self.target_lang,
+                translation_1=initial_translation_result,
+                country=self.country,
+            )
+        else:
+            prompt = REFLECTION_TRANSLATION_PROMPT.format(
+                source_lang=self.source_lang,
+                source_text=text,
+                target_lang=self.target_lang,
+                translation_1=initial_translation_result,
+            )
+        responses = self.client.query_model(
+            model=self.reflection_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            top_p=self.top_p,
+            max_tokens=self.max_tokens,
+        )
+        return responses[0]
+
+    def _run_improve_translation(self, text: str, initial_translation_result: str, reflection_result: str) -> str:
+        # Run improvement step to finalize translation
+        prompt = IMPROVE_TRANSLATION_PROMPT.format(
+            source_lang=self.source_lang,
+            source_text=text,
+            target_lang=self.target_lang,
+            translation_1=initial_translation_result,
+            reflection=reflection_result,
+        )
+        responses = self.client.query_model(
+            model=self.improvement_model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            top_p=self.top_p,
+            max_tokens=self.max_tokens,
+        )
+        return responses[0]
+
+# Example usage for both function and YAML config
 if __name__ == "__main__":
-    text = """Once upon a time, there were three little pig brothers. They decided to each build a house to protect themselves from the big bad wolf. The eldest pig was the laziest; he quickly built a house out of straw and lay down to rest. The second pig was a bit more diligent and built a house out of wood, which was sturdier than the straw house. The youngest pig was the smartest and most hardworking. He spent a lot of time building a solid house out of bricks. One day, the big bad wolf came! He wanted to eat the pigs. He first arrived at the eldest pig's straw house, took a deep breath—'Huff—'—and blew the house down! The eldest pig ran to the second pig's house in fright. The wolf chased after him and arrived at the wooden house. He took another deep breath—'Huff—'—and blew the wooden house down too! The two pigs quickly ran to the youngest pig's brick house. The wolf was furious and ran to the brick house, took a deep breath, and blew with all his might. But the brick house didn't move at all! The wolf blew until his face turned red, but it was no use. Finally, the wolf tried to climb down the chimney, but the youngest pig had already prepared a pot of boiling water. The wolf fell in, got scalded, and ran away, never daring to bother the pigs again. From then on, the three little pigs lived happily and safely in their sturdy brick house."""
-    print("\nUsing Hugging Face tokenizer:")
-    textsplitter_obj = TextSplitter(model_name="openai/gpt-oss-20b")
-    chunks = textsplitter_obj.split_long_text(text, max_tokens=100)
-    for i, chunk in enumerate(chunks):
-        print(f"Chunk {i + 1}: {chunk}")
-
-    translation_workflow = TranslationWorkflow(
+    # Function-based usage
+    text = "Once upon a time, there were three little pig brothers..."
+    generator = TranslationDataGenerator(
         base_url="http://localhost:11434/v1",
         api_key="",
         init_translate_model="gpt-oss:latest",
@@ -219,5 +247,9 @@ if __name__ == "__main__":
         target_lang="Traditional Chinese",
         country="Taiwan",
     )
-    translation_workflow.demo_run(text)
-    
+    translations = generator.generate(text)
+    print(generator.parse_response(translations))
+
+    # YAML-based usage (parameters only, text provided in code)
+    generator_yaml = TranslationDataGenerator.from_yaml("config/translation_config.yaml")
+    print(generator_yaml.generate_from_yaml("config/translation_config.yaml", text))
