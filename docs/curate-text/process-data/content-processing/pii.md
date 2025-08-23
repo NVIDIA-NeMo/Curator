@@ -35,6 +35,7 @@ The PII de-identification tool helps you remove the following sensitive data fro
 | `"US_DRIVER_LICENSE"` | US driver's licenses |
 | `"US_PASSPORT"` | US passport numbers |
 | `"LOCATION"` | Location information |
+| `"Custom(User Defined)"` | Custom information |
 
 ### Redaction Format
 
@@ -61,6 +62,48 @@ This consistent formatting makes it easy to identify processed content and under
 ## Usage
 
 Here's how to read, de-identify, and write a dataset:
+
+### Custom PII Recognizers
+
+NeMo Curator supports custom PII entity recognizers via the `custom_analyzer_recognizers` parameter. For example:
+
+```python
+from nemo_curator.pii.custom_recognizers_sample import crypto_recognizer, medical_license_recognizer, iban_generic_recognizer
+# from presidio_analyzer import PatternRecognizer, Pattern
+
+# crypto_recognizer = PatternRecognizer(
+#     supported_entity="CRYPTO",
+#     patterns=[
+#         Pattern(name="Ethereum wallet", regex="0x[a-fA-F0-9]{40}", score=0.9)
+#     ]
+# )
+
+# medical_license_recognizer = PatternRecognizer(
+#     supported_entity="MEDICAL_LICENSE",
+#     patterns=[
+#         Pattern(name="Medical license", regex="MED[0-9]{7}", score=0.9)
+#     ]
+# )
+
+# iban_generic_recognizer = PatternRecognizer(
+#     supported_entity="IBAN_CODE",
+#     patterns=[
+#         Pattern(
+#             name = "IBAN Code",
+#             regex = r"\b([A-Z]{2})([0-9]{2})([A-Z]{4})([A-Z0-9]{14})\b",
+#             score = 0.9,
+#         )
+#     ]
+# )
+from nemo_curator.pii.custom_recognizers_sample import crypto_recognizer, medical_license_recognizer, iban_generic_recognizer
+modifier = PiiModifier(
+    supported_entities=["CRYPTO", "MEDICAL_LICENSE", "IBAN_CODE"],
+    anonymize_action="replace",
+    custom_analyzer_recognizers=[crypto_recognizer, medical_license_recognizer, iban_generic_recognizer],
+)
+```
+
+As shown above, you can define custom recognizers for Ethereum wallets, medical licenses, IBAN codes, etc., and include them in the PII processing workflow.
 
 ::::{tab-set}
 
