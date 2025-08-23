@@ -58,6 +58,17 @@ class StageMeta(ABCMeta):
 
         return cls
 
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Check if either of process or process_batch is overridden
+        # Enforce that exactly one of process or process_batch is overridden
+        process_overridden = cls.process is not ProcessingStage.process
+        process_batch_overridden = cls.process_batch is not ProcessingStage.process_batch
+
+        if process_overridden == process_batch_overridden:
+            msg = "Subclass must override exactly one of 'process' or 'process_batch', but not both or neither."
+            raise TypeError(msg)
+
 
 def get_stage_class(name: str) -> type[ProcessingStage]:
     """Retrieve a registered stage class by its *class name*.
@@ -132,7 +143,6 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         return not missing_top_level_attrs and not missing_data_attrs
 
-    @abstractmethod
     def process(self, task: X) -> Y | list[Y]:
         """Process a task and return the result.
         Args:
@@ -158,20 +168,6 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
         with each element corresponding to the result of processing the task
         at the same index.
         """
-        # Default implementation: process tasks one by one
-        # This is only used as a fallback if a stage doesn't override this method
-        results = []
-        for task in tasks:
-            if not self.validate_input(task):
-                msg = f"Task {task!s} failed validation for stage {self}"
-                raise ValueError(msg)
-
-            result = self.process(task)
-            if isinstance(result, list):
-                results.extend(result)
-            else:
-                results.append(result)
-        return results
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:
         """Setup method called once per node in distributed settings.
@@ -282,6 +278,29 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
             Dictionary containing Ray-specific configuration
         """
         return {}
+
+    # --- Custom per-stage metrics helpers ---
+    def _log_metrics(self, metrics: dict[str, float]) -> None:
+        """Record custom metrics for this stage (e.g., sub-stage timings)."""
+        if not hasattr(self, "_custom_metrics") or self._custom_metrics is None:
+            self._custom_metrics = {}
+        for name, value in metrics.items():
+            if isinstance(value, (int, float)):
+                self._custom_metrics[name] = float(value)
+            else:
+                msg = f"Can't record non-numeric metric {name} value={value!r}"
+                logger.warning(msg)
+
+    def _log_metric(self, name: str, value: float) -> None:
+        return self._log_metrics({name: value})
+
+    def _consume_custom_metrics(self) -> dict[str, float]:
+        """Return and clear metrics recorded during the last process call."""
+        if not hasattr(self, "_custom_metrics") or self._custom_metrics is None:
+            self._custom_metrics = {}
+        metrics: dict[str, float] = dict(self._custom_metrics)
+        self._custom_metrics.clear()
+        return metrics
 
 
 class CompositeStage(ProcessingStage[X, Y], ABC):

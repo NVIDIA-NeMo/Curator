@@ -46,7 +46,7 @@ class BaseStageAdapter:
     def __init__(self, stage: "ProcessingStage"):
         self.stage = stage
 
-    def process_batch(self, tasks: list[Task]) -> list[Task]:
+    def process_batch(self, tasks: list[Task]) -> list[Task]:  # noqa: C901
         """Process a batch of tasks.
 
         Args:
@@ -59,20 +59,47 @@ class BaseStageAdapter:
         if not hasattr(self, "_timer") or self._timer is None:
             self._timer = StageTimer(self.stage)
 
-        # Calculate input data size for timer
-        input_size = sum(task.num_items for task in tasks)
-        # Initialize performance timer for this batch
-        self._timer.reinit(input_size)
+        if self.stage.supports_batch_processing():
+            # TODO: Decide if we validate the input for each task or just the first one
+            self.stage.validate_input(tasks[0])
+            # Calculate input data size for timer
+            input_size = sum(task.num_items for task in tasks)
+            # Initialize performance timer for this batch
+            self._timer.reinit(input_size)
 
-        with self._timer.time_process(input_size):
-            # Use the batch processing logic
-            results = self.stage.process_batch(tasks)
+            with self._timer.time_process(input_size):
+                # Use the batch processing logic
+                results: list[Task] = self.stage.process_batch(tasks)
 
-        # Log performance stats and add to result tasks
-        _, stage_perf_stats = self._timer.log_stats()
-        for task in results:
-            task.add_stage_perf(stage_perf_stats)
-
+            # Log performance stats and add to result tasks
+            _, stage_perf_stats = self._timer.log_stats()
+            # Consume and attach any custom metrics recorded by the stage during this call
+            custom_metrics = self.stage._consume_custom_metrics()
+            if custom_metrics:
+                stage_perf_stats.custom_metrics.update(custom_metrics)
+            for task in results:
+                task.add_stage_perf(stage_perf_stats)
+        else:
+            # The stage does not support batch processing, so we process each task individually
+            results: list[Task] = []
+            for task in tasks:
+                if not self.stage.validate_input(task):
+                    msg = f"Task {task!s} failed validation for stage {self.stage}"
+                    raise ValueError(msg)
+                self._timer.reinit(task.num_items)
+                with self._timer.time_process(task.num_items):
+                    result: Task | list[Task] = self.stage.process(task)
+                _, task_perf_stats = self._timer.log_stats()
+                # Consume and attach any custom metrics recorded by the stage during this call
+                custom_metrics = self.stage._consume_custom_metrics()
+                if custom_metrics:
+                    task_perf_stats.custom_metrics.update(custom_metrics)
+                if isinstance(result, list):
+                    for r in result:
+                        r.add_stage_perf(task_perf_stats)
+                elif isinstance(result, Task):
+                    result.add_stage_perf(task_perf_stats)
+                results.append(result)
         return results
 
     def setup_on_node(self, node_info: NodeInfo | None = None, worker_metadata: WorkerMetadata | None = None) -> None:

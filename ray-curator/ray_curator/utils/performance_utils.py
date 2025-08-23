@@ -1,3 +1,16 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Performance utilities for tracking stage performance metrics."""
 
 from __future__ import annotations
@@ -25,6 +38,7 @@ class StagePerfStats:
         actor_idle_time: Time the actor spent idle in seconds.
         input_data_size_mb: Size of input data in megabytes.
         num_items_processed: Number of items processed in this stage.
+        custom_metrics: Custom metrics to track.
     """
 
     stage_name: str
@@ -32,6 +46,7 @@ class StagePerfStats:
     actor_idle_time: float = 0.0
     input_data_size_mb: float = 0.0
     num_items_processed: int = 0
+    custom_metrics: dict[str, float] = attrs.field(factory=dict)
 
     def __add__(self, other: StagePerfStats) -> StagePerfStats:
         """Add two StagePerfStats."""
@@ -41,6 +56,10 @@ class StagePerfStats:
             actor_idle_time=self.actor_idle_time + other.actor_idle_time,
             input_data_size_mb=self.input_data_size_mb + other.input_data_size_mb,
             num_items_processed=self.num_items_processed + other.num_items_processed,
+            custom_metrics={
+                key: self.custom_metrics.get(key, 0.0) + other.custom_metrics.get(key, 0.0)
+                for key in set(self.custom_metrics.keys()) | set(other.custom_metrics.keys())
+            },
         )
 
     def __radd__(self, other: int | StagePerfStats) -> StagePerfStats:
@@ -58,10 +77,27 @@ class StagePerfStats:
         self.actor_idle_time = 0.0
         self.input_data_size_mb = 0.0
         self.num_items_processed = 0
+        self.custom_metrics = {}
 
     def to_dict(self) -> dict[str, float | int]:
         """Convert the stats to a dictionary."""
         return attrs.asdict(self)
+
+    def items(self) -> list[tuple[str, float | int]]:
+        """Return (metric_name, metric_value) pairs.
+
+        Built-in fields are returned as (name, value).
+        custom_metrics are flattened as ("custom.<custom_key>", value).
+        """
+        res = self.to_dict()
+        # Remove non-metric identifier
+        res.pop("stage_name", None)
+        # Extract and drop the raw custom_metrics dict from the flattened output
+        custom_metrics = res.pop("custom_metrics", {})
+        # Flatten custom_metrics with a stable prefix
+        for key, value in custom_metrics.items():
+            res[f"custom.{key}"] = value
+        return list(res.items())
 
 
 class StageTimer:

@@ -14,6 +14,7 @@ from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecuto
 from ray_curator.backends.experimental.ray_data import RayDataExecutor
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.tasks import FileGroupTask
+from ray_curator.tasks.utils import TaskPerfUtils
 
 from .utils import (
     EXPECTED_NUM_STAGES,
@@ -154,6 +155,24 @@ class TestBackendIntegrations:
                 == task._stage_perf[5].num_items_processed
                 == 1
             ), "Mismatch in number of items processed by stages after split_into_rows"
+
+    def test_perf_stats_combined(self):
+        """Test that the performance statistics are correctly combined."""
+        # Also check custom metrics aggregation with TaskPerfUtils
+        stage_metrics = TaskPerfUtils.collect_stage_metrics(self.output_tasks)
+        # Non-zero checks for core metrics
+        for m in stage_metrics.values():
+            import numpy as np
+
+            assert isinstance(m["process_time"], np.ndarray)
+            assert isinstance(m["num_items_processed"], np.ndarray)
+            assert m["process_time"].all() > 0.0
+            assert m["num_items_processed"].all() > 0.0
+
+        # Non-zero check for custom metrics we injected
+        assert stage_metrics["add_length"]["custom.counter_actor_increment_s"].all() > 0.0
+        assert stage_metrics["add_length"]["custom.compute_len_s"].all() > 0.0
+        assert stage_metrics["split_into_rows"]["custom.split_into_rows_time_s"].all() > 0.0
 
     def test_ray_data_execution_plan(self):
         """Test that Ray Data creates the expected execution plan with correct stage organization."""
