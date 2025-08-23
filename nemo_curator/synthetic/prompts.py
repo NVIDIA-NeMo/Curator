@@ -165,7 +165,7 @@ When writing suggestions, pay attention to whether there are ways to improve the
 
 Write a list of specific, helpful and constructive suggestions for improving the translation.\nEach suggestion should address one specific part of the translation.\nOutput only the suggestions and nothing else."""
 
-REFLECTION_COUNTRY_PROMPT = """Your task is to carefully read a source text and a translation from {source_lang} to {target_lang}, and then give constructive criticisms and helpful suggestions to improve the translation. \
+REFLECTION_TRANSLATION_PROMPT = """Your task is to carefully read a source text and a translation from {source_lang} to {target_lang}, and then give constructive criticisms and helpful suggestions to improve the translation. \
 
 The source text and initial translation, delimited by XML tags <SOURCE_TEXT></SOURCE_TEXT> and <TRANSLATION></TRANSLATION>, are as follows:
 
