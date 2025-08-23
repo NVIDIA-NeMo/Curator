@@ -106,6 +106,7 @@ class PiiModifier(DocumentModifier):
             **self.kwargs,
         )
         deidentifier.analyzer.nlp_engine.nlp[deidentifier.language].max_length = DEFAULT_MAX_DOC_SIZE
-        for recognizer in self.custom_analyzer_recognizers:
-            deidentifier.analyzer.registry.add_recognizer(recognizer)
+        if self.custom_analyzer_recognizers is not None:
+            for recognizer in self.custom_analyzer_recognizers:
+                deidentifier.analyzer.registry.add_recognizer(recognizer)
         return deidentifier
