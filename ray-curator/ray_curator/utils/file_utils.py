@@ -49,10 +49,7 @@ def is_not_empty(
 def delete_dir(
     path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
 ) -> None:
-    if fs is None and storage_options is None:
-        err_msg = "fs or storage_options must be provided"
-        raise ValueError(err_msg)
-    elif fs is not None and storage_options is not None:
+    if fs is not None and storage_options is not None:
         err_msg = "fs and storage_options cannot be provided together"
         raise ValueError(err_msg)
     elif fs is None:

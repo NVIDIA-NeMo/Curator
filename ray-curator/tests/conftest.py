@@ -99,6 +99,8 @@ def _build_ray_command(temp_dir: str, num_cpus: int, num_gpus: int, object_store
         str(dashboard_port),
         "--ray-client-server-port",
         str(ray_client_server_port),
+        "--dashboard-host",
+        "0.0.0.0",  # noqa: S104
         "--temp-dir",
         str(temp_dir),
         "--num-cpus",
