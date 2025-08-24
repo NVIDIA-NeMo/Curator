@@ -51,21 +51,23 @@ Create the `TranslationDataGenerator` instance:
 ```python
 from nemo_curator.synthetic.translate import TranslationDataGenerator
 
+# Create a TranslationDataGenerator instance with specified parameters
 generator = TranslationDataGenerator(
-    base_url="http://localhost:8000/v1",
-    api_key="<insert API key>",
-    init_translate_model="gpt-oss:latest",
-    reflection_model="gpt-oss:latest",
-    improvement_model="gpt-oss:latest",
-    hf_tokenizer="openai/gpt-oss-20b",
-    hf_token="",
-    temperature=1.0,
-    top_p=1.0,
-    max_tokens=8192,
-    max_token_per_chunk=5000,
-    source_lang="English",
-    target_lang="Traditional Chinese",
-    country="Taiwan"
+    base_url="http://localhost:11434/v1",                   # (Change this) Base URL for local API (P.S: Ollama supports the OpenAI API format.)
+    api_key="",                                             # API key (empty if not required)
+    init_translate_model="gpt-oss:latest",                  # Initial translation model
+    reflection_model="gpt-oss:latest",                      # Reflection model for improvement
+    improvement_model="gpt-oss:latest",                     # Model for translation improvement
+    hf_tokenizer="openai/gpt-oss-20b" ,                     # (Change this) HuggingFace model for tokenization
+    hf_token=None,                                            # (Change this) HuggingFace authentication token
+    temperature=1.0,                                        # Sampling temperature for generation
+    top_p=1.0,                                              # Nucleus sampling parameter
+    max_tokens=8192,                                        # Maximum tokens for input
+    stop=["<|return|>","<|endoftext|>", "<|call|>"],        # (Change this) Stop TOKEN sequences
+    max_token_per_chunk=5000,                               # Max tokens per chunk for translation
+    source_lang="English",                                  # Source language
+    target_lang="Traditional Chinese",                      # Target language
+    country="Taiwan",                                       # (Optional) Country context for translation
 )
 ```
 
@@ -133,23 +135,6 @@ asyncio.run(async_translate())
 
 ---
 
-## Advanced Configuration
-
-Customize translation with model parameters and prompts:
-
-```python
-# Adjust temperature, top_p, and max_tokens for your use case
-custom_generator = TranslationDataGenerator(
-    ...,
-    temperature=0.7,
-    top_p=0.95,
-    max_tokens=2048,
-    ...
-)
-```
-
----
-
 ## Pipeline Steps Explained
 
 1. **Initial Translation**: The input text is translated using the specified LLM model.
@@ -181,24 +166,48 @@ country: "Taiwan"
 
 ---
 
-## Comprehensive Translation Workflow
+## Dataset Translation Example (using HuggingFace Datasets as a template)
 
-Combine translation with other NeMo Curator synthetic data generation methods for advanced document processing.
+### Initial TranslationDataGenerator
 
 ```python
-def process_document_comprehensive(text, generator):
-    """Translate and further process a document."""
-    translation = generator.generate(text)
-    # You can add additional synthetic data steps here
-    return {
-        "original_text": text,
-        "translated_text": generator.parse_response(translation)
-    }
+# (Optional) Import BaseSettings from pydantic for configuration management
+from pydantic.v1 import BaseSettings
 
-sample_text = "The Amazon rainforest covers 2.1 million square miles across nine countries in South America."
-result = process_document_comprehensive(sample_text, generator)
-print(result)
+# (Optional) Define a Settings class to store model and API configuration
+class Settings(BaseSettings):
+    hf_token: str = None                            # (Change this) HuggingFace token for authentication
+    hf_model: str = "openai/gpt-oss-20b"            # (Change this) HuggingFace model for tokenization
+    model_name: str = "gpt-oss:latest"              # (Change this) Local model name
+    base_url: str = "http://localhost:11434/v1"     # (Change this) Base URL for local API (P.S: Ollama supports the OpenAI API format.)
+
+# Instantiate the Settings object to access configuration
+setting = Settings()
+
+# Import the TranslationDataGenerator for synthetic translation tasks
+from nemo_curator.synthetic.translate import TranslationDataGenerator
+
+# Create a TranslationDataGenerator instance with specified parameters
+generator = TranslationDataGenerator(
+    base_url=setting.base_url,                              # API endpoint
+    api_key="",                                             # API key (empty if not required)
+    init_translate_model=setting.model_name,                # Initial translation model
+    reflection_model=setting.model_name,                    # Reflection model for improvement
+    improvement_model=setting.model_name,                   # Model for translation improvement
+    hf_tokenizer=setting.hf_model,                          # Tokenizer model from HuggingFace
+    hf_token=setting.hf_token,                              # HuggingFace authentication token
+    temperature=1.0,                                        # Sampling temperature for generation
+    top_p=1.0,                                              # Nucleus sampling parameter
+    max_tokens=8192,                                        # Maximum tokens for input
+    stop=["<|return|>","<|endoftext|>", "<|call|>"],        # Stop TOKEN sequences
+    max_token_per_chunk=5000,                               # Max tokens per chunk for translation
+    source_lang="English",                                  # Source language
+    target_lang="Traditional Chinese",                      # Target language
+    country="Taiwan",                                       # (Optional) Country context for translation
+)
 ```
+
+### 
 
 ---
 

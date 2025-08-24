@@ -211,4 +211,8 @@ Please take into account the expert suggestions when editing the translation. Ed
 (iv) terminology (inappropriate for context, inconsistent use), or
 (v) other errors.
 
-Output only the new translation and nothing else."""
+Please translate the text and output only in the following format, with no additional content, no keys, no quotes, and no JSON:
+<IMPROVED_TRANSLATION>
+...
+</IMPROVED_TRANSLATION>
+"""

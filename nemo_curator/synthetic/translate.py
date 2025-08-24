@@ -15,16 +15,39 @@ from nemo_curator import OpenAIClient
 from openai import OpenAI
 from transformers import AutoTokenizer
 
+def extract_content(s:str, debug:bool=False) -> str|None:
+    match = re.search(r'<IMPROVED_TRANSLATION>(.*?)</IMPROVED_TRANSLATION>', s, re.DOTALL)
+    if match:
+        extracted = match.group(1).strip()
+        if debug:
+            print(f"EXTRACTED: {extracted}")
+        return extracted
+    else:
+        if "</IMPROVED_TRANSLATION>" in s:
+            s = s.replace("</IMPROVED_TRANSLATION>", "")
+            if debug:
+                print(f"EXTRACTED (no closing tag): remove </IMPROVED_TRANSLATION>")
+        elif "<IMPROVED_TRANSLATION>" in s:
+            s = s.replace("<IMPROVED_TRANSLATION>", "")
+            if debug:
+                print(f"EXTRACTED (no opening tag): remove <IMPROVED_TRANSLATION>")
+        else:
+            if debug:
+                print("No tags found.")
+        return s
+
 class TextSplitter:
     """
     Utility class for splitting text into chunks based on token count.
     """
-    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096):
+    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096, tokenizer: AutoTokenizer = None):
         self.model_name = model_name
         self.hf_token = hf_token
         self.max_token_per_chunk = max_token_per_chunk
         # Load tokenizer for counting tokens
-        if self.model_name:
+        if tokenizer is not None:
+            self.tokenizer = tokenizer
+        elif self.model_name:
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=self.hf_token, use_fast=True)
         else:
             raise ValueError("Model name is empty. Please provide a valid model name.")
@@ -80,6 +103,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         temperature: float = 1.0,
         top_p: float = 1.0,
         max_tokens: int = 8192,
+        stop: list[str] = None,
         source_lang: str = "English",
         target_lang: str = "Traditional Chinese",
         country: str = "Taiwan",
@@ -100,9 +124,16 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.country = country
+        if stop is not None:
+            self.stop = stop
+            self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.hf_tokenizer, use_auth_token=self.hf_token)
+            self.stop = [self.tokenizer.decode([self.tokenizer.eos_token_id])]
+            self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk, tokenizer=self.tokenizer)
         self.openai_client = OpenAI(base_url=self.base_url, api_key=self.api_key)
         self.client = OpenAIClient(self.openai_client)
-        self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk)
+        
 
     @classmethod
     def from_yaml(cls, yaml_path: str) -> "TranslationDataGenerator":
@@ -120,7 +151,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         config.pop('text', None)
         return cls(**config)
 
-    def generate(self, llm_prompt: str | list[str]) -> list[str]:
+    def generate(self, llm_prompt: str | list[str], debug: bool = False) -> list[str]:
         """
         Main pipeline for translation generation.
         Args:
@@ -137,7 +168,8 @@ class TranslationDataGenerator(SyntheticDataGenerator):
             initial = self._run_init_translation(chunk)
             reflection = self._run_reflection(chunk, initial)
             improved = self._run_improve_translation(chunk, initial, reflection)
-            results.append(improved)
+            extract_data = extract_content(improved, debug=debug)
+            results.append(extract_data)
         return results
 
     def generate_from_yaml(self, yaml_path: str, text: str) -> str:
@@ -164,7 +196,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
             Concatenated translation string.
         """
         if isinstance(llm_response, list):
-            return "\n".join(llm_response)
+            return "\n".join([x for x in llm_response if isinstance(x, str) and x is not None])
         return llm_response
 
     def _run_init_translation(self, text: str) -> str:
@@ -177,6 +209,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         responses = self.client.query_model(
             model=self.init_translate_model,
             messages=[{"role": "user", "content": prompt}],
+            stop=self.stop,
             temperature=self.temperature,
             top_p=self.top_p,
             max_tokens=self.max_tokens,
@@ -203,6 +236,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         responses = self.client.query_model(
             model=self.reflection_model,
             messages=[{"role": "user", "content": prompt}],
+            stop=self.stop,
             temperature=self.temperature,
             top_p=self.top_p,
             max_tokens=self.max_tokens,
@@ -221,6 +255,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         responses = self.client.query_model(
             model=self.improvement_model,
             messages=[{"role": "user", "content": prompt}],
+            stop=self.stop,
             temperature=self.temperature,
             top_p=self.top_p,
             max_tokens=self.max_tokens,
@@ -290,20 +325,21 @@ if __name__ == "__main__":
     # Function-based usage
     text = "Once upon a time, there were three little pig brothers..."
     generator = TranslationDataGenerator(
-        base_url="http://localhost:11434/v1",
-        api_key="",
-        init_translate_model="gpt-oss:latest",
-        reflection_model="gpt-oss:latest",
-        improvement_model="gpt-oss:latest",
-        hf_tokenizer="openai/gpt-oss-20b",
-        hf_token="",
-        temperature=1.0,
-        top_p=1.0,
-        max_tokens=8192,
-        max_token_per_chunk=5000,
-        source_lang="English",
-        target_lang="Traditional Chinese",
-        country="Taiwan",
+        base_url="http://localhost:11434/v1",                   # (Change this) Base URL for local API (P.S: Ollama supports the OpenAI API format.)
+        api_key="",                                             # API key (empty if not required)
+        init_translate_model="gpt-oss:latest",                  # Initial translation model
+        reflection_model="gpt-oss:latest",                      # Reflection model for improvement
+        improvement_model="gpt-oss:latest",                     # Model for translation improvement
+        hf_tokenizer="openai/gpt-oss-20b" ,                     # (Change this) HuggingFace model for tokenization
+        hf_token=None,                                            # (Change this) HuggingFace authentication token
+        temperature=1.0,                                        # Sampling temperature for generation
+        top_p=1.0,                                              # Nucleus sampling parameter
+        max_tokens=8192,                                        # Maximum tokens for input
+        stop=["<|return|>","<|endoftext|>", "<|call|>"],        # (Change this) Stop TOKEN sequences
+        max_token_per_chunk=5000,                               # Max tokens per chunk for translation
+        source_lang="English",                                  # Source language
+        target_lang="Traditional Chinese",                      # Target language
+        country="Taiwan",                                       # (Optional) Country context for translation
     )
     translations = generator.generate(text)
     print(generator.parse_response(translations))
