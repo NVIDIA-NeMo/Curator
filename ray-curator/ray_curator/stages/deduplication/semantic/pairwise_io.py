@@ -48,7 +48,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
             limit: Maximum number of partitions to process
         """
         self.input_path = input_path
-        self.storage_options = storage_options if storage_options is not None else {}
+        self.storage_options = storage_options
         self._name = "pairwise_file_partitioning"
         self.fs: AbstractFileSystem | None = None
 

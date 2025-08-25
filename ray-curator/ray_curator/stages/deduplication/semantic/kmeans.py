@@ -95,8 +95,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         check_disallowed_kwargs(self.read_kwargs, ["columns", "assign_id"])
         check_disallowed_kwargs(self.write_kwargs, ["partition_file_name", "partition_cols", "index"])
 
-        self.input_storage_options = self.read_kwargs.pop("storage_options", {})
-        self.output_storage_options = self.write_kwargs.pop("storage_options", {})
+        self.input_storage_options = self.read_kwargs.pop("storage_options", None)
+        self.output_storage_options = self.write_kwargs.pop("storage_options", None)
 
         self._name = "KMeansStage"
         self._resources = Resources(cpus=1.0, gpus=1.0)
