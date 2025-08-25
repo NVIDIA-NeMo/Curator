@@ -10,27 +10,44 @@
 - NVIDIA GPU (optional)
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12.x
+- uv
+
+```
+# We use `uv` for package management and environment isolation.
+pip3 install uv
+
+# If you cannot install at the system level, you can install for your user with
+pip3 install --user uv
+```
 
 ### Installation
 
-1. Standard Installation
-    ```bash
-    # From the root of the NeMo-Curator repository
-    cd ray-curator
-    pip install --extra-index-url https://pypi.nvidia.com .
-    ```
-2. Dev Installation (with testing dependencies and editable install)
+NeMo Curator uses [uv](https://docs.astral.sh/uv/) for package management.
 
-    ```
-    cd ray-curator
-    pip install --extra-index-url https://pypi.nvidia.com -e ".[dev]"
-    ```
+You can configure uv with the following commands:
+
+```bash
+uv sync
+```
+
+You can additionally sync optional dependency groups:
+
+```bash
+uv sync --extra text
+
+# Sync multiple dependency groups
+uv sync --extra text --extra video
+
+# Sync all (includes dali, deduplication_cuda12x, text, video, video_cuda)
+uv sync --extra all
+```
 
 ### Dev Pattern
 
 - All upstream work/changes with the new API and ray backend should target the `NeMo-Curator/ray-api` branch.
 - When re-using code already in `NeMo-Curator/nemo_curator`, use `git mv` to move those source files into the `ray-curator/ray_curator` namespace.
 - Sign and signoff commits with `git commit -sS`. (May be relaxed in the future)
+- If project dependencies are updated a new uv lock file needs to be generated. Run `uv lock` and add the changes of the new uv.lock file.
 
 ### Testing
 
