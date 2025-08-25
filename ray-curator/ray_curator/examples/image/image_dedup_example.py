@@ -19,13 +19,16 @@ import time
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.examples.image.helper import download_webdataset
 from ray_curator.pipeline import Pipeline
-from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
-from ray_curator.stages.image.io.image_reader import ImageReaderStage
-from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+from ray_curator.stages.file_partitioning import FilePartitioningStage
+from ray_curator.stages.image.dedup.dedup_filter import DedupFilterStage
+from ray_curator.stages.image.embedders.clip_embedder import (
+    ConvertEmbeddingsToDocumentBatchStage,
+    ImageEmbeddingStage,
+)
+from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.dedup.dedup_filter import DedupFilterStage
 from ray_curator.stages.text.io.writer.parquet import ParquetWriter
-from ray_curator.stages.image.embedders.clip_embedder import ConvertEmbeddingsToDocumentBatchStage
 from ray_curator.stages.image.io.image_writer import ImageWriterStage
 
 def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -69,12 +72,7 @@ def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
 
 def create_embedding_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     """Create image deduplication pipeline with embedding deduplication."""
-
-    # Define pipeline
-    pipeline = Pipeline(name="image_deduplication", description="Deduplicate images with embeddings")
-
-    # Stage 1: Semantic deduplication
-    pipeline = SemanticDeduplicationWorkflow(
+    return SemanticDeduplicationWorkflow(
         input_path=args.embeddings_dir,
         output_path=args.removal_parquets_dir,
         id_field="image_id",
@@ -90,8 +88,6 @@ def create_embedding_deduplication_pipeline(args: argparse.Namespace) -> Pipelin
         write_kwargs={"storage_options": {}},
         verbose=args.verbose,
     )
-
-    return pipeline
 
 def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     """Create image deduplication pipeline with image deduplication."""

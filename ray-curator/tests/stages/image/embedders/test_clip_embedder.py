@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage, ConvertEmbeddingsToDocumentBatchStage
-from ray_curator.tasks import ImageBatch, ImageObject, DocumentBatch
+from ray_curator.stages.image.embedders.clip_embedder import ConvertEmbeddingsToDocumentBatchStage, ImageEmbeddingStage
+from ray_curator.tasks import DocumentBatch, ImageBatch, ImageObject
 
 
 class TestImageEmbeddingStage:
@@ -390,7 +390,7 @@ class TestImageEmbeddingStage:
         rng = np.random.default_rng(123)
         import tempfile
 
-        tmp_dir = tempfile.gettempdir()
+        with tempfile.TemporaryDirectory() as tmp_dir:
         images = [
             ImageObject(
                 image_id=f"img_{i:03d}",

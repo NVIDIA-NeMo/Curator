@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 import os
 
-from loguru import logger
 import pyarrow.parquet as pq
+from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -38,13 +38,13 @@ class DedupFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def setup(self, worker_metadata=None) -> None:  # noqa: ANN001
+    def setup(self, _worker_metadata=None) -> None:  # noqa: ANN001
         removal_parquets = [os.path.join(self.removal_parquets_dir, f) for f in os.listdir(self.removal_parquets_dir) if f.endswith(".parquet")]
         if not removal_parquets:
             msg = f"No parquet files found in {self.removal_parquets_dir}"
             logger.error(msg)
             raise FileNotFoundError(msg)
-        
+
         for removal_parquet in removal_parquets:
             table = pq.read_table(removal_parquet, columns=[self.id_column])
 

@@ -3,6 +3,7 @@
 from collections.abc import Generator
 from dataclasses import dataclass
 
+import pandas as pd
 import torch
 from loguru import logger
 
@@ -10,8 +11,7 @@ from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.clip import CLIPImageEmbeddings
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks import ImageBatch, DocumentBatch
-import pandas as pd
+from ray_curator.tasks import DocumentBatch, ImageBatch
 
 @dataclass
 class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
