@@ -127,11 +127,11 @@ class RayClient:
         if self.ray_process:
             self.ray_process.kill()
             self.ray_process.wait()
-            # Current there is no good way of stopping a particular ray cluster. https://github.com/ray-project/ray/issues/54989
-            # We kill the ray gcs process to stop the cluster. but still we have some ray processes running.
-            msg = "Nemo Curator has stopped the ray cluster it started by killing the ray gcs process. "
-            msg += "It is advised to wait for a few seconds before running any ray commands to ensure ray can clenup other processes."
-            msg += "If you are seeing any ray commands like `ray status` failing, please ensure /tmp/ray/ray_current_cluster has correct information."
+            # Currently there is no good way of stopping a particular Ray cluster. https://github.com/ray-project/ray/issues/54989
+            # We kill the Ray GCS process to stop the cluster, but still we have some Ray processes running.
+            msg = "NeMo Curator has stopped the Ray cluster it started by killing the Ray GCS process. "
+            msg += "It is advised to wait for a few seconds before running any Ray commands to ensure Ray can cleanup other processes."
+            msg += "If you are seeing any Ray commands like `ray status` failing, please ensure /tmp/ray/ray_current_cluster has correct information."
             logger.info(msg)
 
 
