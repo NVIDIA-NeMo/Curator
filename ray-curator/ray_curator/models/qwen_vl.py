@@ -13,8 +13,10 @@
 # limitations under the License.
 import pathlib
 import re
+from pathlib import Path
 from typing import Any
 
+from huggingface_hub import snapshot_download
 from loguru import logger
 
 try:
@@ -137,3 +139,16 @@ class QwenVL(ModelInterface):
                 logger.error(f"Error generating caption for batch: {e}")
                 raise
         return generated_text
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the QwenVL model on the node."""
+        model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+            return
+        snapshot_download(
+            repo_id=_QWEN2_5_VL_MODEL_ID,
+            local_dir=model_dir_path,
+        )
+        logger.info(f"QwenVL weights downloaded to: {model_dir_path}")

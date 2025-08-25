@@ -20,6 +20,8 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 import torch
+from huggingface_hub import snapshot_download
+from loguru import logger
 from transformers import CLIPModel, CLIPProcessor
 
 from .aesthetics import AestheticScorer
@@ -79,6 +81,18 @@ class CLIPImageEmbeddings(ModelInterface):
         # Normalize embeddings
         return embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)  # type: ignore[no-any-return]
 
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the CLIPImageEmbeddings model on the node."""
+        model_dir_path = Path(model_dir) / _CLIP_MODEL_ID
+        if model_dir_path.exists():
+            return
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        snapshot_download(
+            repo_id=_CLIP_MODEL_ID,
+            local_dir=model_dir_path,
+        )
+        logger.info(f"CLIPImageEmbeddings weights downloaded to: {model_dir_path}")
 
 class CLIPAestheticScorer(ModelInterface):
     """A model that chains CLIPImageEmbeddings and AestheticScorer models."""
@@ -122,3 +136,9 @@ class CLIPAestheticScorer(ModelInterface):
             raise RuntimeError(msg)
         embeddings = self._clip_model(images)
         return self._aesthetic_model(embeddings)
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the CLIPAestheticScorer model on the node."""
+        CLIPImageEmbeddings.download_weights_on_node(model_dir)
+        AestheticScorer.download_weights_on_node(model_dir)

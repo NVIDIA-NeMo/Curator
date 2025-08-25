@@ -26,6 +26,8 @@ from collections.abc import Callable
 from typing import Final
 
 import torch
+from huggingface_hub import hf_hub_download
+from loguru import logger
 from torch import nn
 from torch.nn import functional
 
@@ -585,3 +587,30 @@ class TransNetV2(ModelInterface):
         """
         with torch.no_grad():
             return self._model(inputs)  # type: ignore[no-any-return]
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download TransNetV2 weights on the node.
+
+        Args:
+            model_dir: Directory to save the model weights. If None, uses self.model_dir.
+        """
+
+        # Create the model directory if it doesn't exist
+        model_dir_path = pathlib.Path(model_dir) / _TRANSNETV2_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        model_file = model_dir_path / _TRANSNETV2_MODEL_WEIGHTS
+        if model_file.exists():
+            return
+
+        # Download the weights file from Hugging Face
+        hf_hub_download(
+            repo_id=_TRANSNETV2_MODEL_ID,
+            filename=_TRANSNETV2_MODEL_WEIGHTS,
+            cache_dir=model_dir_path,
+            local_dir=model_dir_path,
+            local_dir_use_symlinks=False,
+        )
+
+        logger.info(f"TransNetV2 weights downloaded to: {model_file}")
+

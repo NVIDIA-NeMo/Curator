@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
+from huggingface_hub import hf_hub_download
+from loguru import logger
 from safetensors.torch import load_file
 from torch import nn
 
@@ -82,7 +84,6 @@ class AestheticScorer(ModelInterface):
         self.model_dir = model_dir
         # These will be initialized in setup()
         self.mlp = None
-        self.weights_path = None
 
     @property
     def model_id_names(self) -> list[str]:
@@ -96,13 +97,15 @@ class AestheticScorer(ModelInterface):
 
     def setup(self) -> None:
         """Set up the aesthetic scoring model by loading weights."""
-        self.weights_path = str(Path(self.model_dir) / self.model_id_names[0] / "model.safetensors")
-
         self.mlp = MLP()
-        state_dict = load_file(self.weights_path)
+        state_dict = load_file(self.get_weights_path())
         self.mlp.load_state_dict(state_dict)
         self.mlp.to(self.device)
         self.mlp.eval()
+
+    def get_weights_path(self) -> str:
+        """Get the path to the weights for the aesthetic scorer."""
+        return str(Path(self.model_dir) / _AESTHETICS_MODEL_ID / "model.safetensors")
 
     @torch.no_grad()
     def __call__(self, embeddings: torch.Tensor | npt.NDArray[np.float32]) -> torch.Tensor:
@@ -118,3 +121,20 @@ class AestheticScorer(ModelInterface):
         if isinstance(embeddings, np.ndarray):
             embeddings = torch.from_numpy(embeddings.copy())
         return self.mlp(embeddings.to(self.device)).squeeze(1)  # type: ignore[no-any-return]
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the aesthetic scorer on the node."""
+        model_dir_path = Path(model_dir) / _AESTHETICS_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        model_file = model_dir_path / "model.safetensors"
+        if model_file.exists():
+            return
+        hf_hub_download(
+            repo_id=_AESTHETICS_MODEL_ID,
+            filename="model.safetensors",
+            cache_dir=model_dir_path,
+            local_dir=model_dir_path,
+            local_dir_use_symlinks=False,
+        )
+        logger.info(f"Aesthetic scorer weights downloaded to: {model_file}")

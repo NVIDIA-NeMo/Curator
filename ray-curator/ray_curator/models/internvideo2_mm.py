@@ -27,6 +27,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from easydict import EasyDict
+from huggingface_hub import snapshot_download
 from internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
@@ -240,16 +241,6 @@ class InternVideo2MultiModality(ModelInterface):
     def model_id_names(self) -> list[str]:
         return [INTERNVIDEO2_MODEL_ID, BERT_MODEL_ID]
 
-    @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "unified"
-
     def setup(self) -> None:
         """Set up the InternVideo2MultiModality model.
 
@@ -356,3 +347,27 @@ class InternVideo2MultiModality(ModelInterface):
         assert self._model is not None  # noqa: S101
         probs, idxs = self._model.predict_label(video_embd, text_embds_tensor, top=count)
         return probs.cpu().numpy()[0].tolist(), idxs.cpu().long().numpy()[0].tolist()
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the InternVideo2 model on the node."""
+        model_dir_path = Path(model_dir) / INTERNVIDEO2_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        if not model_dir_path.exists() or not any(model_dir_path.glob("*.pt")):
+            snapshot_download(
+                repo_id=INTERNVIDEO2_MODEL_ID,
+                local_dir=model_dir_path,
+            )
+            logger.info(f"InternVideo2 weights downloaded to: {model_dir_path}")
+
+        # Download Bert weights
+        bert_model_dir_path = Path(model_dir) / BERT_MODEL_ID
+        bert_model_dir_path.mkdir(parents=True, exist_ok=True)
+        if bert_model_dir_path.exists() and any(bert_model_dir_path.glob("*.safetensors")):
+            return
+        snapshot_download(
+            repo_id=BERT_MODEL_ID,
+            local_dir=bert_model_dir_path,
+            ignore_patterns=["*.msgpack", "*.bin", "*.ot", "*.h5", "*.gz"],  # Ignore all weight files except safetensors
+        )
+        logger.info(f"Bert weights downloaded to: {bert_model_dir_path}")

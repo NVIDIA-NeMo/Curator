@@ -17,7 +17,7 @@ from typing import Literal
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.models.cosmos_embed1 import CosmosEmbed1
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -103,6 +103,10 @@ class CosmosEmbed1FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
             )
         return task
 
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the CosmosEmbed1 model on the node."""
+        CosmosEmbed1.download_processor_config_on_node(self.model_dir, self.variant)
+
 
 @dataclass
 class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
@@ -162,3 +166,7 @@ class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
         if self.verbose:
             logger.info(f"Cosmos-Embed1 embedding stage completed for {len(video.clips)} clips in {video.input_video}")
         return task
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the CosmosEmbed1 model on the node."""
+        CosmosEmbed1.download_weights_on_node(self.model_dir, self.variant)
