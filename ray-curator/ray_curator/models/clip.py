@@ -21,8 +21,8 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 import torch
-from transformers import CLIPModel, CLIPProcessor
 from torchvision import transforms  # type: ignore[import-untyped]
+from transformers import CLIPModel, CLIPProcessor
 
 from .aesthetics import AestheticScorer
 from .base import ModelInterface
@@ -89,7 +89,7 @@ class CLIPImageEmbeddings(ModelInterface):
 
         """
         # If images is a numpy array (all images are the same size), run self.transforms
-        # on the entire array, which is more efficient. Otherwise, e.g. images is a list 
+        # on the entire array, which is more efficient. Otherwise, e.g. images is a list
         # (images have different sizes), run self.processor.
         if isinstance(images, np.ndarray):
             # (N, H, W, C) -> (N, C, H, W)
@@ -98,7 +98,7 @@ class CLIPImageEmbeddings(ModelInterface):
         else:
             inputs = self.processor(images=images, return_tensors="pt")["pixel_values"]
             inputs = inputs.to(self.device)
-        
+
         embed = self.clip.get_image_features(pixel_values=inputs)
 
         # Normalize embeddings

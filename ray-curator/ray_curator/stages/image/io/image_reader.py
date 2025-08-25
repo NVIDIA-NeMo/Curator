@@ -133,14 +133,12 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
 
     def _stream_batches(self, tar_files: list[pathlib.Path]) -> Generator[ImageBatch, None, None]:
         """Emit one ImageBatch per DALI run across all provided tar files."""
-        batch_id = 0
-        for image_objects in self._read_tars_with_dali(tar_files):
+        for batch_id, image_objects in enumerate(self._read_tars_with_dali(tar_files)):
             yield ImageBatch(
                 task_id=f"image_batch_{batch_id}",
                 dataset_name="tar_files",
                 data=image_objects,
             )
-            batch_id += 1
 
     def process(self, task: FileGroupTask) -> list[ImageBatch]:
         tar_file_paths = task.data

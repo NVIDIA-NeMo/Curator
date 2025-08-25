@@ -60,23 +60,23 @@ class TestCLIPImageEmbeddings:
         self.model.setup()
 
         # Assert transforms configured
-        import torchvision.transforms as T  # type: ignore
+        import torchvision.transforms as transforms
 
         assert self.model.transforms is not None
-        assert isinstance(self.model.transforms, T.Compose)
+        assert isinstance(self.model.transforms, transforms.Compose)
         tfs = list(self.model.transforms.transforms)  # type: ignore[attr-defined]
         # Expected order and key attributes
-        assert isinstance(tfs[0], T.Resize)
+        assert isinstance(tfs[0], transforms.Resize)
         assert tfs[0].size == 224
-        assert getattr(tfs[0], "interpolation").name == "BICUBIC"
-        assert getattr(tfs[0], "antialias") is True
+        assert tfs[0].interpolation.name == "BICUBIC"
+        assert tfs[0].antialias is True
 
-        assert isinstance(tfs[1], T.CenterCrop)
+        assert isinstance(tfs[1], transforms.CenterCrop)
         assert tfs[1].size == 224
 
         assert type(tfs[2]).__name__ == "ConvertImageDtype"
 
-        assert isinstance(tfs[3], T.Normalize)
+        assert isinstance(tfs[3], transforms.Normalize)
         assert pytest.approx(tfs[3].mean, rel=1e-5) == (0.48145466, 0.4578275, 0.40821073)
         assert pytest.approx(tfs[3].std, rel=1e-5) == (0.26862954, 0.26130258, 0.27577711)
 
