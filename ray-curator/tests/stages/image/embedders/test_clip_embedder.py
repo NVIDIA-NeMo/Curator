@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
-from ray_curator.tasks import ImageBatch, ImageObject
+from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage, ConvertEmbeddingsToDocumentBatchStage
+from ray_curator.tasks import ImageBatch, ImageObject, DocumentBatch
 
 
 class TestImageEmbeddingStage:
@@ -413,3 +413,76 @@ class TestImageEmbeddingStage:
             assert img.embedding is not None
             assert isinstance(img.embedding, np.ndarray)
             assert img.embedding.shape == (16,)
+
+
+class TestConvertEmbeddingsToDocumentBatchStage:
+    """Tests for ConvertEmbeddingsToDocumentBatchStage."""
+
+    @pytest.fixture
+    def convert_stage(self) -> ConvertEmbeddingsToDocumentBatchStage:
+        return ConvertEmbeddingsToDocumentBatchStage()
+
+    @pytest.fixture
+    def image_batch_with_embeddings(self) -> ImageBatch:
+        rng = np.random.default_rng(7)
+        images: list[ImageObject] = []
+        for i in range(3):
+            embedding = rng.normal(size=(8,)).astype(np.float32)
+            images.append(
+                ImageObject(
+                    image_id=f"img_{i:03d}",
+                    image_path=f"/tmp/img_{i:03d}.jpg",
+                    image_data=rng.integers(0, 255, (16, 16, 3), dtype=np.uint8),
+                    embedding=embedding,
+                )
+            )
+        return ImageBatch(
+            data=images,
+            dataset_name="ds_test",
+            task_id="task_123",
+            _metadata={"foo": "bar"},
+            _stage_perf={"stage": 1.23},
+        )
+
+    def test_conversion_outputs_document_batch(
+        self,
+        convert_stage: ConvertEmbeddingsToDocumentBatchStage,
+        image_batch_with_embeddings: ImageBatch,
+    ) -> None:
+        out = convert_stage.process(image_batch_with_embeddings)
+        assert isinstance(out, DocumentBatch)
+
+        df = out.to_pandas()
+        assert list(df.columns) == ["image_id", "embeddings"]
+        assert len(df) == 3
+
+        # Validate that image_ids and embeddings are correctly propagated
+        src_ids = [img.image_id for img in image_batch_with_embeddings.data]
+        out_ids = df["image_id"].tolist()
+        assert src_ids == out_ids
+
+        # Compare embeddings row-wise
+        for i, img in enumerate(image_batch_with_embeddings.data):
+            np.testing.assert_allclose(df.iloc[i]["embeddings"], img.embedding)
+
+    def test_metadata_and_ids_are_preserved(
+        self,
+        convert_stage: ConvertEmbeddingsToDocumentBatchStage,
+        image_batch_with_embeddings: ImageBatch,
+    ) -> None:
+        out = convert_stage.process(image_batch_with_embeddings)
+
+        # Task id should be suffixed with stage name
+        assert out.task_id == f"{image_batch_with_embeddings.task_id}_{convert_stage.name}"
+        # Dataset name and metadata should be carried over
+        assert out.dataset_name == image_batch_with_embeddings.dataset_name
+        assert out._metadata == image_batch_with_embeddings._metadata
+        assert out._stage_perf == image_batch_with_embeddings._stage_perf
+
+    def test_empty_input_creates_empty_dataframe(self, convert_stage: ConvertEmbeddingsToDocumentBatchStage) -> None:
+        empty_batch = ImageBatch(data=[], dataset_name="ds", task_id="t0")
+        out = convert_stage.process(empty_batch)
+        df = out.to_pandas()
+        assert isinstance(out, DocumentBatch)
+        assert list(df.columns) == ["image_id", "embeddings"]
+        assert len(df) == 0
