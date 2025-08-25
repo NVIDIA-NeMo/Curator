@@ -34,10 +34,7 @@ def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.A
 def is_not_empty(
     path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
 ) -> bool:
-    if fs is None and storage_options is None:
-        err_msg = "fs or storage_options must be provided"
-        raise ValueError(err_msg)
-    elif fs is not None and storage_options is not None:
+    if fs is not None and storage_options is not None:
         err_msg = "fs and storage_options cannot be provided together"
         raise ValueError(err_msg)
     elif fs is None:
@@ -49,10 +46,7 @@ def is_not_empty(
 def delete_dir(
     path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
 ) -> None:
-    if fs is None and storage_options is None:
-        err_msg = "fs or storage_options must be provided"
-        raise ValueError(err_msg)
-    elif fs is not None and storage_options is not None:
+    if fs is not None and storage_options is not None:
         err_msg = "fs and storage_options cannot be provided together"
         raise ValueError(err_msg)
     elif fs is None:
@@ -69,10 +63,7 @@ def create_or_overwrite_dir(
     Creates a directory if it does not exist and overwrites it if it does.
     Warning: This function will delete all files in the directory if it exists.
     """
-    if fs is None and storage_options is None:
-        err_msg = "fs or storage_options must be provided"
-        raise ValueError(err_msg)
-    elif fs is not None and storage_options is not None:
+    if fs is not None and storage_options is not None:
         err_msg = "fs and storage_options cannot be provided together"
         raise ValueError(err_msg)
     elif fs is None:

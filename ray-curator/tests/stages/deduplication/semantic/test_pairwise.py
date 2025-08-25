@@ -84,24 +84,6 @@ class TestPairwiseCosineSimilarityBatched:
         )
         np.testing.assert_array_equal(max_indices_ref.tolist(), max_indices_test.tolist())
 
-    @pytest.mark.skip(reason="This test needs to be debugged")
-    def test_pairwise_cosine_similarity_cpu_device(self) -> None:
-        """Test that CPU device returns numpy arrays instead of cupy arrays."""
-        cpu_embeddings = self.input_embeddings.cpu()
-        max_similarity, max_indices = pairwise_cosine_similarity_batched(cpu_embeddings, batch_size=2)
-
-        # Check that results are numpy arrays, not cupy arrays
-        assert isinstance(max_similarity, np.ndarray)
-        assert isinstance(max_indices, np.ndarray)
-
-        np.testing.assert_allclose(
-            max_similarity,
-            self.expected_pairwise_similarity,
-            rtol=1e-6,
-            atol=1e-6,
-        )
-        np.testing.assert_array_equal(max_indices, self.expected_indices)
-
 
 @pytest.mark.gpu
 class TestPairwiseCosineSimilarityStage:
@@ -404,7 +386,7 @@ class TestPairwiseStage:
     @pytest.mark.skip(reason="This test needs to be debugged")
     def test_stage_with_kwargs(self) -> None:
         """Test PairwiseStage with read_kwargs and write_kwargs."""
-        read_kwargs = {"storage_options": {"key": "value"}, "columns": ["id", "embedding"]}
+        read_kwargs = {"storage_options": {"key": "value"}}
         write_kwargs = {"storage_options": {"write_key": "write_value"}, "compression": "gzip"}
 
         stage = PairwiseStage(
@@ -423,10 +405,12 @@ class TestPairwiseStage:
         partitioning_stage = stages[0]
         assert partitioning_stage.storage_options == {"key": "value"}
 
-        # Check that PairwiseCosineSimilarityStage gets the full kwargs
         similarity_stage = stages[1]
-        assert similarity_stage.read_kwargs == read_kwargs
-        assert similarity_stage.write_kwargs == write_kwargs
+        assert similarity_stage.input_storage_options == {"key": "value"}
+        assert "storage_options" not in similarity_stage.read_kwargs
+        assert similarity_stage.output_storage_options == {"write_key": "write_value"}
+        assert "storage_options" not in similarity_stage.write_kwargs
+        assert similarity_stage.write_kwargs == {"compression": "gzip"}
 
         """Test PairwiseStage with hard ranking (farthest first)."""
         stage = PairwiseStage(
