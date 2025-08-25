@@ -73,7 +73,8 @@ RUN bash install_ffmpeg.sh && \
 
 RUN \
   --mount=type=bind,source=ray-curator/pyproject.toml,target=/tmp/ray-curator/pyproject.toml \
-  --mount=type=bind,source=ray-curator/uv.lock,target=/tmp/ray-curator/uv.lock \ <<"EOF" bash -ex
+  --mount=type=bind,source=ray-curator/uv.lock,target=/tmp/ray-curator/uv.lock <<"EOF" bash -ex
+
   cd /tmp/ray-curator
   uv sync --locked --only-group build
   if [ $CURATOR_ENVIRONMENT = "dev" ]; then
