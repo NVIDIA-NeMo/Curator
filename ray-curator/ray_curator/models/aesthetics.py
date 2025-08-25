@@ -19,14 +19,15 @@ from pathlib import Path
 import numpy as np
 import numpy.typing as npt
 import torch
-from huggingface_hub import hf_hub_download
 from loguru import logger
 from safetensors.torch import load_file
 from torch import nn
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface
 
 _AESTHETICS_MODEL_ID = "ttj/sac-logos-ava1-l14-linearMSE"
+_AESTHETICS_MODEL_REVISION = "1e77fa05081323d99725fc40a9bf9f88180490e7"
 
 
 class MLP(nn.Module):
@@ -130,11 +131,10 @@ class AestheticScorer(ModelInterface):
         model_file = model_dir_path / "model.safetensors"
         if model_file.exists():
             return
-        hf_hub_download(
-            repo_id=_AESTHETICS_MODEL_ID,
-            filename="model.safetensors",
-            cache_dir=model_dir_path,
+        download_model_from_hf(
+            model_id=_AESTHETICS_MODEL_ID,
             local_dir=model_dir_path,
-            local_dir_use_symlinks=False,
+            filename="model.safetensors",
+            revision=_AESTHETICS_MODEL_REVISION,
         )
         logger.info(f"Aesthetic scorer weights downloaded to: {model_file}")

@@ -27,12 +27,12 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from easydict import EasyDict
-from huggingface_hub import snapshot_download
 from internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from ray_curator.models.base import ModelInterface
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 _MODEL_CONFIG_PATH = (
     pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"
@@ -354,8 +354,8 @@ class InternVideo2MultiModality(ModelInterface):
         model_dir_path = Path(model_dir) / INTERNVIDEO2_MODEL_ID
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if not model_dir_path.exists() or not any(model_dir_path.glob("*.pt")):
-            snapshot_download(
-                repo_id=INTERNVIDEO2_MODEL_ID,
+            download_model_from_hf(
+                model_id=INTERNVIDEO2_MODEL_ID,
                 local_dir=model_dir_path,
             )
             logger.info(f"InternVideo2 weights downloaded to: {model_dir_path}")
@@ -365,8 +365,8 @@ class InternVideo2MultiModality(ModelInterface):
         bert_model_dir_path.mkdir(parents=True, exist_ok=True)
         if bert_model_dir_path.exists() and any(bert_model_dir_path.glob("*.safetensors")):
             return
-        snapshot_download(
-            repo_id=BERT_MODEL_ID,
+        download_model_from_hf(
+            model_id=BERT_MODEL_ID,
             local_dir=bert_model_dir_path,
             ignore_patterns=[
                 "*.msgpack",

@@ -26,11 +26,11 @@ from collections.abc import Callable
 from typing import Final
 
 import torch
-from huggingface_hub import hf_hub_download
 from loguru import logger
 from torch import nn
 from torch.nn import functional
 
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 from .base import ModelInterface
 
 _TRANSNETV2_MODEL_ID: Final = "Sn4kehead/TransNetV2"
@@ -604,12 +604,10 @@ class TransNetV2(ModelInterface):
             return
 
         # Download the weights file from Hugging Face
-        hf_hub_download(
-            repo_id=_TRANSNETV2_MODEL_ID,
-            filename=_TRANSNETV2_MODEL_WEIGHTS,
-            cache_dir=model_dir_path,
+        download_model_from_hf(
+            model_id=_TRANSNETV2_MODEL_ID,
             local_dir=model_dir_path,
-            local_dir_use_symlinks=False,
+            filename=_TRANSNETV2_MODEL_WEIGHTS,
         )
 
         logger.info(f"TransNetV2 weights downloaded to: {model_file}")

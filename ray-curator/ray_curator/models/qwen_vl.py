@@ -16,8 +16,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-from huggingface_hub import snapshot_download
 from loguru import logger
+
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
@@ -38,6 +39,7 @@ from ray_curator.models.base import ModelInterface
 from ray_curator.utils import grouping
 
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+_QWEN2_5_VL_MODEL_REVISION = "cc594898137f460bfe9f0759e9844b3ce807cfb5"
 
 _QWEN_VARIANTS_INFO = {
     "qwen": _QWEN2_5_VL_MODEL_ID,
@@ -147,8 +149,9 @@ class QwenVL(ModelInterface):
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
-        snapshot_download(
-            repo_id=_QWEN2_5_VL_MODEL_ID,
+        download_model_from_hf(
+            model_id=_QWEN2_5_VL_MODEL_ID,
             local_dir=model_dir_path,
+            revision=_QWEN2_5_VL_MODEL_REVISION,
         )
         logger.info(f"QwenVL weights downloaded to: {model_dir_path}")

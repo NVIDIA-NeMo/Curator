@@ -20,14 +20,15 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 import torch
-from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import CLIPModel, CLIPProcessor
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 from .aesthetics import AestheticScorer
 from .base import ModelInterface
 
 _CLIP_MODEL_ID: Final = "openai/clip-vit-large-patch14"
+_CLIP_MODEL_REVISION: Final = "32bd64288804d66eefd0ccbe215aa642df71cc41"
 
 
 class CLIPImageEmbeddings(ModelInterface):
@@ -85,12 +86,14 @@ class CLIPImageEmbeddings(ModelInterface):
     def download_weights_on_node(cls, model_dir: str) -> None:
         """Download the weights for the CLIPImageEmbeddings model on the node."""
         model_dir_path = Path(model_dir) / _CLIP_MODEL_ID
-        if model_dir_path.exists():
+        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
         model_dir_path.mkdir(parents=True, exist_ok=True)
-        snapshot_download(
-            repo_id=_CLIP_MODEL_ID,
+        download_model_from_hf(
+            model_id=_CLIP_MODEL_ID,
             local_dir=model_dir_path,
+            revision=_CLIP_MODEL_REVISION,
+            ignore_patterns=["*.msgpack", "*.bin", "*.ot", "*.h5", "*.gz"],
         )
         logger.info(f"CLIPImageEmbeddings weights downloaded to: {model_dir_path}")
 

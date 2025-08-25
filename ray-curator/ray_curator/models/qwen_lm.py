@@ -14,9 +14,9 @@
 from pathlib import Path
 from typing import Any
 
-from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
@@ -36,6 +36,7 @@ except ImportError:
 from ray_curator.models.base import ModelInterface
 
 _QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
+_QWEN_LM_MODEL_REVISION = "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8"
 
 
 class QwenLM(ModelInterface):
@@ -82,8 +83,9 @@ class QwenLM(ModelInterface):
         model_dir_path.mkdir(parents=True, exist_ok=True)
         if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
             return
-        snapshot_download(
-            repo_id=_QWEN_LM_MODEL_ID,
+        download_model_from_hf(
+            model_id=_QWEN_LM_MODEL_ID,
             local_dir=model_dir_path,
+            revision=_QWEN_LM_MODEL_REVISION,
         )
         logger.info(f"QwenLM weights downloaded to: {model_dir_path}")
