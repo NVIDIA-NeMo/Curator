@@ -27,6 +27,35 @@ for i in "$@"; do
     shift
 done
 
+# Install video dependency
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y \
+    libcrypt-dev \
+    autoconf \
+    automake \
+    build-essential \
+    cmake \
+    libaom-dev \
+    libass-dev \
+    libdav1d-dev \
+    libdrm-dev \
+    libfreetype6-dev \
+    libgnutls28-dev \
+    libnuma-dev \
+    libopenh264-dev \
+    libtool \
+    libva-dev \
+    libvorbis-dev \
+    libvpx-dev \
+    libwebp-dev \
+    pkg-config \
+    texinfo \
+    vainfo \
+    wget \
+    yasm \
+    zlib1g-dev
+
 # Install NVCODEC
 wget -O /tmp/nv-codec-headers.tar.gz https://github.com/FFmpeg/nv-codec-headers/releases/download/n${NVCODEC_VERSION}/nv-codec-headers-${NVCODEC_VERSION}.tar.gz
 tar xzvf /tmp/nv-codec-headers.tar.gz -C /tmp/

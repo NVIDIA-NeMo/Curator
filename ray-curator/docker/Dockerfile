@@ -64,52 +64,29 @@ ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
-FROM build as nemo_curator
-
-# install video dependency
-RUN apt-get update && apt-get install -y \
-    libcrypt-dev \
-    autoconf \
-    automake \
-    build-essential \
-    cmake \
-    libaom-dev \
-    libass-dev \
-    libdav1d-dev \
-    libdrm-dev \
-    libfreetype6-dev \
-    libgnutls28-dev \
-    libnuma-dev \
-    libopenh264-dev \
-    libtool \
-    libva-dev \
-    libvorbis-dev \
-    libvpx-dev \
-    libwebp-dev \
-    pkg-config \
-    texinfo \
-    vainfo \
-    wget \
-    yasm \
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+FROM build AS nemo_curator
 
 # Install ffmpeg
 COPY ray-curator/docker/common/install_ffmpeg.sh .
-RUN bash install_ffmpeg.sh --FFMPEG_VERSION=7.0.1 --NVCODEC_VERSION=12.1.14.0 && \
+RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
+
+RUN \
+  --mount=type=bind,source=ray-curator/pyproject.toml,target=/tmp/ray-curator/pyproject.toml \
+  --mount=type=bind,source=ray-curator/uv.lock,target=/tmp/ray-curator/uv.lock \ <<"EOF" bash -ex
+  cd /tmp/ray-curator
+  uv sync --locked --only-group build
+  if [ $CURATOR_ENVIRONMENT = "dev" ]; then
+      uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups;
+  else
+      uv sync --link-mode copy --locked --extra all --all-groups;
+  fi;
+EOF
+
+FROM nemo_curator AS nemo_curator_final
 
 # Copy ray-curator
 COPY ray-curator /opt/ray-curator
-
-# Install dependencies
-RUN cd ray-curator && \
-    uv sync --locked --only-group build && \
-    if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
-        uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
-    else \
-        uv sync --link-mode copy --locked --extra all --all-groups; \
-    fi;
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
