@@ -102,7 +102,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         max_token_per_chunk: int = 5000,
         temperature: float = 1.0,
         top_p: float = 1.0,
-        max_tokens: int = 8192,
+        max_tokens: int = 24576,
         stop: list[str] = None,
         source_lang: str = "English",
         target_lang: str = "Traditional Chinese",
@@ -334,7 +334,7 @@ if __name__ == "__main__":
         hf_token=None,                                            # (Change this) HuggingFace authentication token
         temperature=1.0,                                        # Sampling temperature for generation
         top_p=1.0,                                              # Nucleus sampling parameter
-        max_tokens=8192,                                        # Maximum tokens for input
+        max_tokens=24576,                                        # Maximum tokens for input
         stop=["<|return|>","<|endoftext|>", "<|call|>"],        # (Change this) Stop TOKEN sequences
         max_token_per_chunk=5000,                               # Max tokens per chunk for translation
         source_lang="English",                                  # Source language

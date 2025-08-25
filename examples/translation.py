@@ -13,7 +13,7 @@ if __name__ == "__main__":
         hf_token="",
         temperature=1.0,
         top_p=1.0,
-        max_tokens=8192,
+        max_tokens=24576,
         max_token_per_chunk=5000,
         source_lang="English",
         target_lang="Traditional Chinese",
