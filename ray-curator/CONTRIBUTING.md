@@ -10,7 +10,7 @@
 - NVIDIA GPU (optional)
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12.x
--uv
+- uv
 
 ```
 # We use `uv` for package management and environment isolation.
@@ -27,7 +27,6 @@ NeMo Curator uses [uv](https://docs.astral.sh/uv/) for package management.
 You can configure uv with the following commands:
 
 ```bash
-uv sync --only-group build  # Installs build dependencies required by TransformerEngine
 uv sync
 ```
 
