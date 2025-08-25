@@ -613,4 +613,3 @@ class TransNetV2(ModelInterface):
         )
 
         logger.info(f"TransNetV2 weights downloaded to: {model_file}")
-

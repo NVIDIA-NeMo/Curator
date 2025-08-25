@@ -368,6 +368,12 @@ class InternVideo2MultiModality(ModelInterface):
         snapshot_download(
             repo_id=BERT_MODEL_ID,
             local_dir=bert_model_dir_path,
-            ignore_patterns=["*.msgpack", "*.bin", "*.ot", "*.h5", "*.gz"],  # Ignore all weight files except safetensors
+            ignore_patterns=[
+                "*.msgpack",
+                "*.bin",
+                "*.ot",
+                "*.h5",
+                "*.gz",
+            ],  # Ignore all weight files except safetensors
         )
         logger.info(f"Bert weights downloaded to: {bert_model_dir_path}")

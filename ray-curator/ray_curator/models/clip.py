@@ -94,6 +94,7 @@ class CLIPImageEmbeddings(ModelInterface):
         )
         logger.info(f"CLIPImageEmbeddings weights downloaded to: {model_dir_path}")
 
+
 class CLIPAestheticScorer(ModelInterface):
     """A model that chains CLIPImageEmbeddings and AestheticScorer models."""
 
