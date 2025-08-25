@@ -103,11 +103,17 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
         """Process a batch of tasks and add length field."""
-        # Get the counter actor by name
+        import time
+
+        # Get the counter actor by name and record timing for the actor+increment call
+        t_actor0 = time.perf_counter()
         counter_actor = ray.get_actor("stage_call_counter", namespace="stage_call_counter")
         stage_identifier = f"{self._name}_{self.column_name}"
         ray.get(counter_actor.increment.remote(stage_identifier))
+        t_actor1 = time.perf_counter()
 
+        # Compute len(...) timing across this batch
+        t_compute0 = time.perf_counter()
         results = []
         for input_data in tasks:
             df = input_data.to_pandas()
@@ -121,6 +127,14 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     _stage_perf=input_data._stage_perf,
                 )
             )
+        t_compute1 = time.perf_counter()
+        # Record custom timing metrics for this stage batch
+        self._log_metrics(
+            {
+                "counter_actor_increment_s": t_actor1 - t_actor0,
+                "compute_len_s": t_compute1 - t_compute0,
+            }
+        )
         return results
 
     def process(self, input_data: DocumentBatch) -> DocumentBatch:
@@ -146,6 +160,9 @@ class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     _name = "split_into_rows"
 
     def process(self, input_data: DocumentBatch) -> list[DocumentBatch]:
+        import time
+
+        t0 = time.perf_counter()
         df = input_data.to_pandas()
         # Remove source_files from metadata to prevent file collision issues
         # When splitting a document into individual rows, each row would inherit
@@ -170,6 +187,9 @@ class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     _stage_perf=input_data._stage_perf.copy(),
                 )
             )
+        # Record custom timing for row splitting
+        t1 = time.perf_counter()
+        self._log_metric("split_into_rows_time_s", t1 - t0)
         return tasks
 
     def ray_stage_spec(self) -> dict[str, bool]:
