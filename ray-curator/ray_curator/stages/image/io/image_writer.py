@@ -1,19 +1,34 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import hashlib
 import io
 import os
 import tarfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-from loguru import logger
+
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
-import hashlib
+from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
-from ray_curator.tasks.image import ImageBatch, ImageObject
 from ray_curator.tasks.file_group import FileGroupTask
+from ray_curator.tasks.image import ImageBatch
 
 
 @dataclass
@@ -28,34 +43,18 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     output_dir: str
     images_per_tar: int = 1000
     verbose: bool = False
-    # Local filesystem only; no cloud storage options
+    deterministic_name: bool = True
+    remove_image_data: bool = False
 
     _name: str = "image_writer"
-
-    # Runtime fields
-    _actor_id: str = field(default="", init=False, repr=False)
-    _tar_seq: int = field(default=0, init=False, repr=False)
 
     @property
     def resources(self) -> Resources:
         # CPU-only writer
         return Resources()
 
-    def __post_init__(self) -> None:  # noqa: D401
+    def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
-
-    def setup(self, worker_metadata=None) -> None:  # noqa: ANN001
-        """Initialize unique actor prefix for output filenames.
-
-        Uses provided ``worker_metadata.worker_id`` if available; otherwise falls back to
-        ``hostname-pid-<short-uuid>``. Ensures filenames are unique across actors.
-        """
-
-        if getattr(worker_metadata, "worker_id", None):
-            base = str(worker_metadata.worker_id)
-        else:
-            base = f"{os.getpid()}"
-        self._actor_id = f"{base}-{uuid.uuid4().hex[:16]}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -63,41 +62,42 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def get_deterministic_hash(inputs: list[str], seed: str = "") -> str:
-        """Create a deterministic hash from inputs."""
-        combined = "|".join(sorted(inputs)) + "|" + seed
-        return hashlib.sha256(combined.encode()).hexdigest()[:12]
-
     def construct_base_name(self, task: ImageBatch) -> str:
         """Construct a base name for tar files within this actor."""
+
+        def get_deterministic_hash(inputs: list[str], seed: str = "") -> str:
+            """Create a deterministic hash from inputs."""
+            combined = "|".join(sorted(inputs)) + "|" + seed
+            return hashlib.sha256(combined.encode()).hexdigest()[:12]
+
         if self.deterministic_name:
-            unique_image_paths = [hashlib.sha256(img.image_path.encode()).hexdigest()[:12] for img in task.data]
-            base_name = f"images-{self.get_deterministic_hash(unique_image_paths)}"
+            image_paths = [img.image_path for img in task.data]
+            base_name = f"images-{get_deterministic_hash(image_paths, task.task_id)}"
         else:
             base_name = f"images-{uuid.uuid4().hex[:16]}"
         return base_name
 
-    def construct_tar_base_name(self, task: ImageBatch) -> str:
-        """Construct a base name for a tar file."""
-        return f"images-{self._actor_id}-{self._tar_seq:06d}"
-
     def _encode_image_to_bytes(self, image: np.ndarray) -> tuple[bytes, str]:
         """Encode image array to JPEG bytes; always returns (bytes, ".jpg")."""
 
-        from PIL import Image  # type: ignore
+        from PIL import Image  # type: ignore[import-not-found]
 
         img = image
         if img.dtype != np.uint8:
             img = np.clip(img, 0, 255).astype(np.uint8)
-        if img.ndim == 2:
+        channels_gray = 2
+        channels_rgb = 3
+        channels_rgba = 4
+
+        if img.ndim == channels_gray:
             mode = "L"
-        elif img.shape[2] == 3:
+        elif img.shape[2] == channels_rgb:
             mode = "RGB"
-        elif img.shape[2] == 4:
+        elif img.shape[2] == channels_rgba:
             mode = "RGBA"
         else:
             mode = "RGB"
-            img = img[..., :3]
+            img = img[..., :channels_rgb]
 
         with io.BytesIO() as buffer:
             Image.fromarray(img, mode=mode).save(buffer, format="JPEG", quality=92)
@@ -112,12 +112,16 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
         tar_filename = f"{base_name}.tar"
         tar_path = os.path.join(self.output_dir, tar_filename)
 
-        with open(tar_path, "wb") as fobj:
-            with tarfile.open(fileobj=fobj, mode="w") as tf:
-                for member_name, payload in members:
-                    info = tarfile.TarInfo(name=member_name)
-                    info.size = len(payload)
-                    tf.addfile(info, io.BytesIO(payload))
+        # Assert to prevent accidental overwrite if a file with the same name already exists
+        if os.path.exists(tar_path):
+            err = f"Collision detected: refusing to overwrite existing tar file: {tar_path}"
+            raise AssertionError(err)
+
+        with open(tar_path, "wb") as fobj, tarfile.open(fileobj=fobj, mode="w") as tf:
+            for member_name, payload in members:
+                info = tarfile.TarInfo(name=member_name)
+                info.size = len(payload)
+                tf.addfile(info, io.BytesIO(payload))
 
         logger.debug(f"Wrote tar: {tar_path} with {len(members)} images")
         return tar_path
@@ -130,6 +134,11 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         parquet_filename = f"{base_name}.parquet"
         parquet_path = os.path.join(self.output_dir, parquet_filename)
+
+        # Assert to prevent accidental overwrite if a file with the same name already exists
+        if os.path.exists(parquet_path):
+            err = f"Collision detected: refusing to overwrite existing parquet file: {parquet_path}"
+            raise AssertionError(err)
 
         # Convert rows to Arrow Table (assumes uniform keys across rows)
         table = pa.Table.from_pylist(rows)
@@ -155,7 +164,8 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
             members: list[tuple[str, bytes]] = []
             for idx, img_obj in enumerate(chunk):
                 if img_obj.image_data is None:
-                    raise ValueError("ImageObject.image_data is None; cannot write image bytes")
+                    msg = "ImageObject.image_data is None; cannot write image bytes"
+                    raise ValueError(msg)
 
                 payload, ext = self._encode_image_to_bytes(img_obj.image_data)
                 member_basename = img_obj.image_id or f"{start + idx:06d}"
@@ -164,11 +174,10 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
             # Write tar and its corresponding parquet for this chunk
             if members:
-                # Define the common base name once per tar/parquet pair and advance sequence
-                tar_seq_used = self._tar_seq
-                base_name = self.construct_tar_base_name(task)
-                self._tar_seq += 1
-
+                # Use per-task chunk index
+                chunk_index = start // self.images_per_tar
+                base_prefix = self.construct_base_name(task)
+                base_name = f"{base_prefix}-{chunk_index:06d}"
                 tar_path = self._write_tar(base_name, members)
                 tar_paths.append(tar_path)
 
@@ -183,9 +192,19 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
                             "member_name": f"{member_basename}.jpg",
                             "original_path": img_obj.image_path,
                             # Store user metadata as JSON-ish via repr to avoid pandas dependency
-                            "metadata": repr(img_obj.metadata) if isinstance(img_obj.metadata, dict) else str(img_obj.metadata),
+                            "metadata": repr(img_obj.metadata)
+                            if isinstance(img_obj.metadata, dict)
+                            else str(img_obj.metadata),
                         }
                     )
+
+                # Remove image data if requested
+                # This is useful for:
+                #  + Efficient downstream stages that don't need the image data
+                #  + Finishing pipeline without gathering images data across actors
+                if self.remove_image_data:
+                    for img_obj in chunk:
+                        img_obj.image_data = None
 
                 parquet_path = self._write_parquet(base_name, metadata_rows_for_tar)
                 parquet_paths.append(parquet_path)

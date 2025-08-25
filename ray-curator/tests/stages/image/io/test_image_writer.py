@@ -280,3 +280,36 @@ def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_p
     out_path = stage._write_parquet(base, [{"k": 2}])
     assert out_path == str(tmp_path / f"{base}.parquet")
     assert written.get("path") == out_path
+
+
+@pytest.mark.parametrize("remove", [True, False])
+def test_process_respects_remove_image_data_flag(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path, remove: bool
+) -> None:
+    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+
+    stage = image_writer_stage_cls(output_dir=str(tmp_path), images_per_tar=2, remove_image_data=remove)
+    stage.setup()
+
+    # Avoid PIL dependency by stubbing encoder to return fixed bytes and extension
+    monkeypatch.setattr(
+        image_writer_stage_cls,
+        "_encode_image_to_bytes",
+        lambda _self, _arr: (b"imgbytes", ".jpg"),
+    )
+
+    # Build a few images
+    images = [
+        ImageObject(image_id=f"img{i}", image_path=f"/p/{i}.jpg", image_data=np.zeros((2, 2, 3), np.uint8))
+        for i in range(4)
+    ]
+
+    batch = ImageBatch(task_id="t1", dataset_name="ds", data=images)
+    _out = stage.process(batch)
+
+    # Image data should be removed only when the flag is True
+    for img in images:
+        if remove:
+            assert img.image_data is None
+        else:
+            assert img.image_data is not None
