@@ -1,5 +1,7 @@
-from huggingface_hub import hf_hub_download, snapshot_download
 from pathlib import Path
+
+from huggingface_hub import hf_hub_download, snapshot_download
+
 
 def download_model_from_hf(
     model_id: str,
@@ -9,10 +11,10 @@ def download_model_from_hf(
     revision: str | None = None,
 ) -> None:
     """Download a model from Hugging Face.
-    
+
     This function downloads either a specific file or the entire model repository
     from Hugging Face Hub to a local directory.
-    
+
     Args:
         model_id (str): The Hugging Face model identifier (e.g., 'gpt2', 'bert-base-uncased')
         local_dir (str | Path): Local directory where the model will be downloaded
@@ -23,27 +25,28 @@ def download_model_from_hf(
             Defaults to None.
         revision (str | None, optional): Git revision (branch, tag, or commit hash) to download.
             Defaults to None (latest main branch).
-    
+
     Raises:
         ValueError: If both filename and ignore_patterns are provided (not supported).
-    
+
     Examples:
         # Download entire model repository
         download_model_from_hf('gpt2', './models/gpt2')
-        
+
         # Download specific file
         download_model_from_hf('gpt2', './models/gpt2', filename='config.json')
-        
+
         # Download with ignore patterns
-        download_model_from_hf('gpt2', './models/gpt2', 
+        download_model_from_hf('gpt2', './models/gpt2',
                               ignore_patterns=['*.bin', '*.safetensors'])
-        
+
         # Download specific revision
         download_model_from_hf('gpt2', './models/gpt2', revision='main')
     """
     if filename:
         if ignore_patterns:
-            raise ValueError("ignore_patterns is not supported when filename is provided")
+            msg = "ignore_patterns is not supported when filename is provided"
+            raise ValueError(msg)
         hf_hub_download(
             repo_id=model_id,
             local_dir=local_dir,

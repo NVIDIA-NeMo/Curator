@@ -22,6 +22,7 @@ import torch
 from loguru import logger
 from safetensors.torch import load_file
 from torch import nn
+
 from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface

@@ -31,6 +31,7 @@ from torch import nn
 from torch.nn import functional
 
 from ray_curator.utils.hf_download_utils import download_model_from_hf
+
 from .base import ModelInterface
 
 _TRANSNETV2_MODEL_ID: Final = "Sn4kehead/TransNetV2"

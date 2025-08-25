@@ -22,6 +22,7 @@ import numpy.typing as npt
 import torch
 from loguru import logger
 from transformers import CLIPModel, CLIPProcessor
+
 from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 from .aesthetics import AestheticScorer
