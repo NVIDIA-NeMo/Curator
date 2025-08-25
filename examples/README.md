@@ -20,6 +20,7 @@ These include:
 | raw_download_common_crawl.py          | Download the raw compressed WARC files from Common Crawl without extracting them.                                |
 | semdedup_example.py                   | Use the `SemDedup` class to perform semantic deduplication on text data.                                         |
 | task_decontamination.py               | Remove segments of downstream evaluation tasks from a dataset.                                                   |
+| translation.py                        | Language/region translation using `TranslationDataGenerator` for any Base-LLM supported language.                |
 
 Before running any of these scripts, we strongly recommend displaying `python <script name>.py --help` to ensure that any needed or relevant arguments are specified.
 
