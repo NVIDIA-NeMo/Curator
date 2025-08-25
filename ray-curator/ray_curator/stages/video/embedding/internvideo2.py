@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.models.internvideo2_mm import InternVideo2MultiModality
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -160,3 +160,7 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
                 )
 
         return task
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the InternVideo2 model on the node."""
+        InternVideo2MultiModality.download_weights_on_node(self.model_dir)
