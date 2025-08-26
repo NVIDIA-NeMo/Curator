@@ -12,10 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ray_curator.stages.text.io.writer.jsonl import JsonlWriter
-from ray_curator.stages.text.io.writer.parquet import ParquetWriter
+"""Constants for Prometheus and Grafana monitoring services."""
 
-__all__ = [
-    "JsonlWriter",
-    "ParquetWriter",
-]
+DEFAULT_NEMO_CURATOR_METRICS_PATH = "/tmp/nemo_curator_metrics"  # noqa: S108

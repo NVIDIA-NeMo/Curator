@@ -23,7 +23,7 @@ from typing import Any
 from loguru import logger
 
 from ray_curator.stages.text.download import DocumentIterator
-from ray_curator.utils.file_utils import get_all_files_paths_under
+from ray_curator.utils.file_utils import get_all_file_paths_under
 
 # The iterator and extractor code are in large part taken
 # from the Red-Pajama repo
@@ -186,7 +186,7 @@ class ArxivIterator(DocumentIterator):
         with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir, tarfile.open(file_path) as tf:
             # Use safe extraction instead of extractall to prevent path traversal attacks
             _safe_extract(tf, tmpdir)
-            for _i, item in enumerate(get_all_files_paths_under(tmpdir, recurse_subdirectories=True)):
+            for _i, item in enumerate(get_all_file_paths_under(tmpdir, recurse_subdirectories=True)):
                 if self._counter > 0 and self._counter % self._log_frequency == 0:
                     logger.info(f"Extracted {self._counter} papers from {file_path}")
                 self._counter += 1

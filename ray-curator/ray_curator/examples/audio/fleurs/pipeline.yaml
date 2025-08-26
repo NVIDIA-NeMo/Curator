@@ -64,4 +64,5 @@ processors:
 
   - _target_: ray_curator.stages.text.io.writer.JsonlWriter
     output_dir: ${output_dir}
-    force_ascii: False
+    write_kwargs:
+      "force_ascii": False

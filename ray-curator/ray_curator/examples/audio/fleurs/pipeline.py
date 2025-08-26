@@ -36,7 +36,12 @@ def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
     result_dir = os.path.join(args.raw_data_dir, "result")
     if os.path.isdir(result_dir):
         shutil.rmtree(result_dir)  # clean up resulting folder
-    pipeline.add_stage(JsonlWriter(output_dir=result_dir, force_ascii=False))
+    pipeline.add_stage(
+        JsonlWriter(
+            output_dir=result_dir,
+            write_kwargs={"force_ascii": False},
+        )
+    )
     return pipeline
 
 
