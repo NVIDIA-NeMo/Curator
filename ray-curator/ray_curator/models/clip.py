@@ -1,11 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -60,7 +59,8 @@ class CLIPImageEmbeddings(ModelInterface):
         self.clip = CLIPModel.from_pretrained(weight_file).to(self.device).eval()
         self.processor = CLIPProcessor.from_pretrained(weight_file)
 
-        # torchvision transforms that match CLIP preprocessor_config.json:
+        # torchvision transforms that match CLIP preprocessor_config.json
+        # (https://huggingface.co/openai/clip-vit-base-patch32/blob/main/preprocessor_config.json)
         self.transforms = transforms.Compose(
             [
                 transforms.Resize(
