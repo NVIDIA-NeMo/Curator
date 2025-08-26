@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-import nemo.collections.asr as nemo_asr
+from loguru import logger
+
+try:
+    import nemo.collections.asr as nemo_asr
+except ImportError:
+    logger.warning("Cann't import NeMo speech!")
 import torch
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata

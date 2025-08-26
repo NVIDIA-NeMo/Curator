@@ -44,6 +44,7 @@ class TestFleursWer:
         p.add_stage(JsonlReader(file_paths=file_paths))
         return p.run(self.executor)
 
+    @pytest.mark.skip("Import NeMo without apex")
     @pytest.mark.gpu
     def test_py_run_pipeline(self):
         # General arguments
@@ -110,6 +111,7 @@ class TestFleursWer:
 
         assert predict[0].data.drop(self.drop_fields, axis=1).equals(target[0].data.drop(self.drop_fields, axis=1))
 
+    @pytest.mark.skip("Import NeMo without apex")
     @pytest.mark.gpu
     def test_yaml_run_pipeline(self):
         conf_path = os.path.join(self.examples_audio_path, "fleurs/pipeline.yaml")
