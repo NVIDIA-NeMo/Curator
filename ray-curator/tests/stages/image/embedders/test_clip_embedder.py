@@ -428,10 +428,14 @@ class TestConvertEmbeddingsToDocumentBatchStage:
         images: list[ImageObject] = []
         for i in range(3):
             embedding = rng.normal(size=(8,)).astype(np.float32)
+            import os
+            import tempfile
+            tmp_dir = os.path.join(tempfile.gettempdir(), "nemo_curator_tests")
+            os.makedirs(tmp_dir, exist_ok=True)
             images.append(
                 ImageObject(
                     image_id=f"img_{i:03d}",
-                    image_path=f"/tmp/nemo_curator_test_img_{i:03d}.jpg",
+                    image_path=os.path.join(tmp_dir, f"img_{i:03d}.jpg"),
                     image_data=rng.integers(0, 255, (16, 16, 3), dtype=np.uint8),
                     embedding=embedding,
                 )
