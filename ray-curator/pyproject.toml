@@ -81,7 +81,6 @@ video = [
     "opencv-python",
     "torchvision",
     "einops",
-    "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
     "easydict",
 ]
 video_cuda = [
@@ -135,6 +134,9 @@ source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/h
 
 [tool.ruff]
 line-length = 119
+exclude = [
+    "externals/**",
+]
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [

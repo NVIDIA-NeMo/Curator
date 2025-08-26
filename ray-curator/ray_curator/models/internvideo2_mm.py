@@ -20,23 +20,20 @@ from pathlib import Path
 from typing import Final
 
 import cv2
-
-# Load config from the internvideo2_multi_modality package
-import internvideo2_multi_modality
 import numpy as np
 import numpy.typing as npt
 import torch
 from easydict import EasyDict
-from internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from ray_curator.models.base import ModelInterface
+from ray_curator.modules.internvideo import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 
 _MODEL_CONFIG_PATH = (
-    pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"
+    pathlib.Path(__file__).parent.parent.parent / "externals" / "InternVideo" / "InternVideo2" / "multi_modality" / "configs" / "internvideo2_mm_config_model.json"
 )
-_BERT_CONFIG_PATH = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "config_bert_large.json"
+_BERT_CONFIG_PATH = pathlib.Path(__file__).parent.parent.parent / "externals" / "InternVideo" / "InternVideo2" / "multi_modality" / "configs" / "config_bert_large.json"
 INTERNVIDEO2_MODEL_ID: Final = "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
 INTERNVIDEO2_MODEL_FILE: Final = "InternVideo2-stage2_1b-224p-f4.pt"
 BERT_MODEL_ID: Final = "google-bert/bert-large-uncased"

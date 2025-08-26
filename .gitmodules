@@ -1,0 +1,4 @@
+[submodule "ray-curator/externals/InternVideo"]
+	path = ray-curator/externals/InternVideo
+	url = https://github.com/suiyoubi/InternVideo.git
+	branch = curator
