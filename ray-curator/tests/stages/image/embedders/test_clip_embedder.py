@@ -431,7 +431,7 @@ class TestConvertEmbeddingsToDocumentBatchStage:
             images.append(
                 ImageObject(
                     image_id=f"img_{i:03d}",
-                    image_path=f"/tmp/img_{i:03d}.jpg",
+                    image_path=f"/tmp/nemo_curator_test_img_{i:03d}.jpg",
                     image_data=rng.integers(0, 255, (16, 16, 3), dtype=np.uint8),
                     embedding=embedding,
                 )

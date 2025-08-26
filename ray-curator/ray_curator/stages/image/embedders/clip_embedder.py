@@ -16,8 +16,8 @@ from collections.abc import Generator
 from dataclasses import dataclass
 
 import pandas as pd
-import torch
 from loguru import logger
+import torch
 
 from ray_curator.backends.base import WorkerMetadata
 from ray_curator.models.clip import CLIPImageEmbeddings
