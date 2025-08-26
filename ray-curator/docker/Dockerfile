@@ -66,8 +66,8 @@ COPY ray-curator/docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
+RUN mkdir ray-curator
 COPY ray-curator/pyproject.toml ray-curator/uv.lock /opt/ray-curator
-
 RUN cd /opt/ray-curator && \
   uv sync --locked --only-group build && \
   if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
