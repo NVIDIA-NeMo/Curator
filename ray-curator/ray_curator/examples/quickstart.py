@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """
 Quickstart example for Ray Curator
 
@@ -31,6 +32,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.core.client import RayClient
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -216,10 +218,12 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
 def main() -> None:
     """Main function to run the pipeline."""
     # Create pipeline
+    ray_client = RayClient()
+    ray_client.start()
     pipeline = Pipeline(name="sentiment_analysis", description="Analyze sentiment of sample sentences")
 
     # Add stages
-    pipeline.add_stage(TaskCreationStage(num_sentences_per_task=3, num_tasks=2))
+    pipeline.add_stage(TaskCreationStage(num_sentences_per_task=3, num_tasks=200))
     pipeline.add_stage(WordCountStage())
     pipeline.add_stage(SentimentStage(model_name="cardiffnlp/twitter-roberta-base-sentiment-latest", batch_size=2))
 
@@ -242,6 +246,8 @@ def main() -> None:
         for i, task in enumerate(results):
             print(f"\nTask {i}:")
             print(task.data)
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":

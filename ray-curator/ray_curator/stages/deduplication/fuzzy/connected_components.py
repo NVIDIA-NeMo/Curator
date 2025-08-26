@@ -63,7 +63,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         self._batch_size = None
 
         # Handle output directory cleanup logic
-        self.output_fs = get_fs(output_dir, self.write_kwargs.get("storage_options", {}))
+        self.output_fs = get_fs(output_dir, self.write_kwargs.get("storage_options"))
         self.output_dir = self.output_fs.sep.join([output_dir, self.name])
         create_or_overwrite_dir(self.output_dir, self.output_fs)
 
@@ -196,7 +196,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
                 task_id=tasks[0].task_id,
                 data=[output_file],
                 _metadata={
-                    "storage_options": self.write_kwargs.get("storage_options", {}),
+                    "storage_options": self.write_kwargs.get("storage_options"),
                     "num_vertices": len(vertices),
                 },
             )

@@ -14,12 +14,26 @@
 
 """Tests for FilePartitioningStage."""
 
+import os
 from pathlib import Path
 
 import pytest
 
 from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.tasks import FileGroupTask, _EmptyTask
+
+
+def _create_test_jsonl_files(base_dir: Path | str, num_files: int, subdir: str | None = None) -> list[str]:
+    """Create num_files minimal JSONL files in base_dir[/subdir] and return their paths."""
+    base = Path(base_dir)
+    target_dir = base / subdir if subdir else base
+    os.makedirs(target_dir, exist_ok=True)
+    files: list[str] = []
+    for i in range(num_files):
+        file_path = target_dir / f"file{i}.jsonl"
+        file_path.write_text("{}\n")
+        files.append(str(file_path))
+    return files
 
 
 class TestFilePartitioningStage:
@@ -52,7 +66,7 @@ class TestFilePartitioningStage:
         assert stage.file_paths == "/test/path"
         assert stage.files_per_partition is None
         assert stage.blocksize is None
-        assert stage.file_extensions == [".jsonl", ".json"]
+        assert stage.file_extensions == [".jsonl", ".json", ".parquet"]
         assert stage.storage_options == {}
         assert stage.limit is None
         assert stage._name == "file_partitioning"
@@ -95,33 +109,34 @@ class TestFilePartitioningStage:
         spec = stage.ray_stage_spec()
         assert spec["is_fanout_stage"] is True
 
-    def test_process_with_file_list(self, empty_task: _EmptyTask):
+    def test_process_with_file_list(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with a list of files."""
-        test_files = ["/path/file1.jsonl", "/path/file2.jsonl", "/path/file3.jsonl"]
+        # Create these files in the tmp_path:
+        test_files = _create_test_jsonl_files(tmp_path, num_files=3, subdir="path")
         stage = FilePartitioningStage(file_paths=test_files)
 
         result = stage.process(empty_task)
 
-        assert len(result) == 1  # All files in one group by default
+        assert len(result) == len(test_files)  # 3 files in 3 groups
         assert isinstance(result[0], FileGroupTask)
-        assert result[0].data == test_files
+        assert result[0].data == [test_files[0]]
         assert result[0].dataset_name == "path"
         assert result[0].task_id == "file_group_0"
 
-    def test_process_with_files_per_partition(self, empty_task: _EmptyTask):
+    def test_process_with_files_per_partition(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with files_per_partition setting."""
-        test_files = ["/path/file1.jsonl", "/path/file2.jsonl", "/path/file3.jsonl", "/path/file4.jsonl"]
+        test_files = _create_test_jsonl_files(tmp_path, num_files=4, subdir="path")
         stage = FilePartitioningStage(file_paths=test_files, files_per_partition=2)
 
         result = stage.process(empty_task)
 
         assert len(result) == 2  # 4 files / 2 per partition
-        assert result[0].data == ["/path/file1.jsonl", "/path/file2.jsonl"]
-        assert result[1].data == ["/path/file3.jsonl", "/path/file4.jsonl"]
+        assert result[0].data == test_files[:2]
+        assert result[1].data == test_files[2:]
 
-    def test_process_with_limit(self, empty_task: _EmptyTask):
+    def test_process_with_limit(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with limit parameter - this is the main test for the limit functionality."""
-        test_files = [f"/path/file{i}.jsonl" for i in range(10)]
+        test_files = _create_test_jsonl_files(tmp_path, num_files=10, subdir="path")
         stage = FilePartitioningStage(
             file_paths=test_files,
             files_per_partition=2,  # This would normally create 5 groups
@@ -132,9 +147,9 @@ class TestFilePartitioningStage:
 
         # Should only return 3 file groups due to limit
         assert len(result) == 3
-        assert result[0].data == ["/path/file0.jsonl", "/path/file1.jsonl"]
-        assert result[1].data == ["/path/file2.jsonl", "/path/file3.jsonl"]
-        assert result[2].data == ["/path/file4.jsonl", "/path/file5.jsonl"]
+        assert result[0].data == test_files[:2]
+        assert result[1].data == test_files[2:4]
+        assert result[2].data == test_files[4:6]
 
         # Verify metadata
         for i, task in enumerate(result):
@@ -142,22 +157,21 @@ class TestFilePartitioningStage:
             assert task._metadata["partition_index"] == i
             assert task._metadata["total_partitions"] == 5  # Total partitions before limit
 
-    def test_process_with_limit_single_partition(self, empty_task: _EmptyTask):
+    def test_process_with_limit_single_partition(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test limit when all files would be in a single partition."""
-        test_files = [f"/path/file{i}.jsonl" for i in range(5)]
+        test_files = _create_test_jsonl_files(tmp_path, num_files=5, subdir="path")
         stage = FilePartitioningStage(
             file_paths=test_files,
-            limit=1,  # Limit to 1 group, and all files would be in one group anyway
+            limit=1,  # Limit to 1 group, TODO: Ask ayush why this is the behavior
         )
-
         result = stage.process(empty_task)
 
         assert len(result) == 1
-        assert result[0].data == test_files
+        assert result[0].data == [test_files[0]]
 
-    def test_process_with_limit_zero(self, empty_task: _EmptyTask):
+    def test_process_with_limit_zero(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with limit set to 0."""
-        test_files = [f"/path/file{i}.jsonl" for i in range(5)]
+        test_files = _create_test_jsonl_files(tmp_path, num_files=5, subdir="path")
         stage = FilePartitioningStage(
             file_paths=test_files,
             files_per_partition=1,
@@ -168,10 +182,10 @@ class TestFilePartitioningStage:
 
         assert len(result) == 0
 
-    def test_process_with_blocksize(self, empty_task: _EmptyTask):
+    def test_process_with_blocksize(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test processing with blocksize setting."""
-        test_files = [f"/path/file{i}.jsonl" for i in range(6)]
-        stage = FilePartitioningStage(file_paths=test_files, blocksize="50MB")
+        test_files = _create_test_jsonl_files(tmp_path, num_files=6)
+        stage = FilePartitioningStage(file_paths=test_files, blocksize="1B")
 
         result = stage.process(empty_task)
 
@@ -180,7 +194,7 @@ class TestFilePartitioningStage:
         assert len(result) == 6
         for i, task in enumerate(result):
             assert len(task.data) == 1
-            assert task.data[0] == f"/path/file{i}.jsonl"
+            assert task.data[0] == test_files[i]
 
     def test_process_empty_file_list(self, empty_task: _EmptyTask):
         """Test processing with empty file list."""
@@ -190,12 +204,12 @@ class TestFilePartitioningStage:
 
         assert len(result) == 0
 
-    def test_get_dataset_name(self):
+    def test_get_dataset_name(self, tmp_path: Path):
         """Test dataset name extraction."""
         stage = FilePartitioningStage(file_paths=[])
 
         # Test with files
-        files = ["/parent/dir/file1.jsonl", "/parent/dir/file2.jsonl"]
+        files = _create_test_jsonl_files(tmp_path, num_files=2, subdir="parent/dir")
         dataset_name = stage._get_dataset_name(files)
         assert dataset_name == "dir"
 
@@ -226,19 +240,18 @@ class TestFilePartitioningStage:
         assert stage._parse_size("2TB") == 2 * 1024 * 1024 * 1024 * 1024
         assert stage._parse_size("100") == 100  # No unit defaults to bytes
 
-    def test_task_metadata(self, empty_task: _EmptyTask):
+    def test_task_metadata(self, empty_task: _EmptyTask, tmp_path: Path):
         """Test that created tasks have proper metadata."""
-        test_files = ["/path/file1.jsonl", "/path/file2.jsonl"]
+        test_files = _create_test_jsonl_files(tmp_path, num_files=2, subdir="path")
         storage_options = {"option1": "value1"}
         stage = FilePartitioningStage(file_paths=test_files, storage_options=storage_options)
 
         result = stage.process(empty_task)
 
-        assert len(result) == 1
+        assert len(result) == 2
         task = result[0]
 
         assert task._metadata["partition_index"] == 0
-        assert task._metadata["total_partitions"] == 1
-        assert task._metadata["storage_options"] == storage_options
-        assert task._metadata["source_files"] == test_files
+        assert task._metadata["total_partitions"] == 2
+        assert task._metadata["source_files"] == [test_files[0]]
         assert task.reader_config == {}

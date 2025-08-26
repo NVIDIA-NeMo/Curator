@@ -15,7 +15,6 @@
 """JSONL reader composite stage."""
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -24,7 +23,12 @@ from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import get_all_files_paths_under
+from ray_curator.utils.file_utils import (
+    _split_files_as_per_blocksize,
+    get_all_file_paths_and_size_under,
+    get_all_file_paths_under,
+    infer_dataset_name_from_path,
+)
 
 
 @dataclass
@@ -46,9 +50,11 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     def __post_init__(self):
         """Initialize default values."""
         if self.file_extensions is None:
-            self.file_extensions = [".jsonl", ".json"]
+            self.file_extensions = [".jsonl", ".json", ".parquet"]
         if self.storage_options is None:
             self.storage_options = {}
+        if self.blocksize is not None:
+            self._blocksize = self._parse_size(self.blocksize)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -73,21 +79,20 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         This stage expects a simple Task with file paths information
         and outputs multiple FileGroupTasks for parallel processing.
         """
-        # Get list of files
-        files = self._get_file_list()
+        files = self._get_file_list_with_sizes() if self.blocksize else self._get_file_list()
         logger.info(f"Found {len(files)} files")
-        if not files:
-            logger.warning(f"No files found matching pattern: {self.file_paths}")
+        if len(files) == 0:
+            logger.warning(f"No files found under {self.file_paths}")
             return []
-
         # Partition files
         if self.files_per_partition:
             partitions = self._partition_by_count(files, self.files_per_partition)
         elif self.blocksize:
-            partitions = self._partition_by_size(files, self.blocksize)
+            partitions = self._partition_by_size(files, self._blocksize)
         else:
-            # All files in one group
-            partitions = [files]
+            # Default to one file per partition
+            logger.info("No partitions specified, defaulting to one file per partition")
+            partitions = self._partition_by_count(files, 1)
 
         # Create FileGroupTask for each partition
         tasks = []
@@ -95,6 +100,8 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
         for i, file_group in enumerate(partitions):
             if self.limit is not None and len(tasks) >= self.limit:
+                # We should revisit this behavior.
+                # https://github.com/NVIDIA-NeMo/Curator/issues/948
                 logger.info(f"Reached limit of {self.limit} file groups")
                 break
             file_task = FileGroupTask(
@@ -104,7 +111,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
                 _metadata={
                     "partition_index": i,
                     "total_partitions": len(partitions),
-                    "storage_options": self.storage_options,
                     "source_files": file_group,  # Add source files for deterministic naming during write stage
                 },
                 reader_config={},  # Empty - will be populated by reader stage
@@ -114,37 +120,73 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         logger.info(f"Created {len(tasks)} file groups from {len(files)} files")
         return tasks
 
-    def _get_file_list(self) -> list[str]:
-        """Get the list of files to process."""
-        logger.info(f"Getting file list for {self.file_paths}")
+    def _get_file_list_with_sizes(self) -> list[tuple[str, int]]:
+        """
+        Get the list of files to process.
+        """
+        logger.debug(f"Getting file list with sizes for {self.file_paths}")
         if isinstance(self.file_paths, str):
-            # TODO: This needs to change for fsspec
-            path = Path(self.file_paths)
-            if path.is_file():
-                return [str(path)]
-            else:
-                # Directory or pattern
-                return get_all_files_paths_under(
-                    self.file_paths,
-                    recurse_subdirectories=True,
-                    keep_extensions=self.file_extensions,
-                    storage_options=self.storage_options,
+            # Directory: list contents (recursively) and filter extensions
+            output_ls = get_all_file_paths_and_size_under(
+                self.file_paths,
+                recurse_subdirectories=True,
+                keep_extensions=self.file_extensions,
+                storage_options=self.storage_options,
+            )
+        elif isinstance(self.file_paths, list):
+            output_ls = []
+            for path in self.file_paths:
+                output_ls.extend(
+                    get_all_file_paths_and_size_under(
+                        path,
+                        recurse_subdirectories=False,
+                        keep_extensions=self.file_extensions,
+                        storage_options=self.storage_options,
+                    )
                 )
         else:
-            # List of files
-            return self.file_paths
+            msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
+            raise TypeError(msg)
+        return sorted(output_ls, key=lambda x: x[1])
+
+    def _get_file_list(self) -> list[str]:
+        """
+        Get the list of files to process.
+        """
+        logger.debug(f"Getting file list for {self.file_paths}")
+        if isinstance(self.file_paths, str):
+            # Directory: list contents (recursively) and filter extensions
+            output_ls = get_all_file_paths_under(
+                self.file_paths,
+                recurse_subdirectories=True,
+                keep_extensions=self.file_extensions,
+                storage_options=self.storage_options,
+            )
+        elif isinstance(self.file_paths, list):
+            output_ls = []
+            for path in self.file_paths:
+                output_ls.extend(
+                    get_all_file_paths_under(
+                        path,
+                        recurse_subdirectories=False,
+                        keep_extensions=self.file_extensions,
+                        storage_options=self.storage_options,
+                    )
+                )
+        else:
+            msg = f"Invalid file paths: {self.file_paths}, must be a string or list of strings"
+            raise TypeError(msg)
+        return sorted(output_ls)
 
     def _get_dataset_name(self, files: list[str]) -> str:
-        """Extract dataset name from file paths."""
-        if files:
-            # Use the parent directory name or first file stem
-            # TODO: This needs to change for fsspec
-            first_file = Path(files[0])
-            if first_file.parent.name and first_file.parent.name != ".":
-                return first_file.parent.name
-            else:
-                return first_file.stem
-        return "dataset"
+        """Extract dataset name from file paths (fsspec-compatible)."""
+        if not files:
+            return "dataset"
+
+        if isinstance(files[0], tuple):
+            return infer_dataset_name_from_path(files[0][0])
+        else:
+            return infer_dataset_name_from_path(files[0])
 
     def _partition_by_count(self, files: list[str], count: int) -> list[list[str]]:
         """Partition files by count."""
@@ -153,21 +195,16 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             partitions.append(files[i : i + count])
         return partitions
 
-    def _partition_by_size(self, files: list[str], blocksize: int | str) -> list[list[str]]:
+    def _partition_by_size(self, files: list[tuple[str, int]], blocksize: int | str) -> list[list[str]]:
         """Partition files by target size.
-
-        Note: This is a simplified implementation. A full implementation
-        would check actual file sizes and create balanced partitions.
+        Args:
+            files: A list of tuples (file_path, file_size)
+            blocksize: The target size of the partitions
+        Returns:
+            A list of lists, where each inner list contains the file paths of the files in the partitionN
         """
-        # Convert blocksize to bytes if string
-        if isinstance(blocksize, str):
-            blocksize = self._parse_size(blocksize)
-
-        # TODO: We should calculate the average file size
-        avg_file_size = 100 * 1024 * 1024  # 100MB
-        files_per_block = max(1, blocksize // avg_file_size)
-
-        return self._partition_by_count(files, files_per_block)
+        sorted_files = sorted(files, key=lambda x: x[1])
+        return _split_files_as_per_blocksize(sorted_files, blocksize)
 
     def _parse_size(self, size_str: str) -> int:
         """Parse size string like '128MB' to bytes."""
