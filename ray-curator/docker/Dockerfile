@@ -66,8 +66,8 @@ COPY ray-curator/docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-RUN mkdir ray-curator
-COPY ray-curator/pyproject.toml ray-curator/uv.lock /opt/ray-curator
+# Copy ray-curator
+COPY ray-curator /opt/ray-curator
 RUN cd /opt/ray-curator && \
   uv sync --locked --only-group build && \
   if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
@@ -75,11 +75,6 @@ RUN cd /opt/ray-curator && \
   else \
       uv sync --link-mode copy --locked --extra all --all-groups; \
   fi;
-
-FROM nemo_curator AS nemo_curator_final
-
-# Copy ray-curator
-COPY ray-curator /opt/ray-curator
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
