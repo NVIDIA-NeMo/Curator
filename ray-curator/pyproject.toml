@@ -160,11 +160,6 @@ ignore = [
 ]
 fixable = ["ALL"]
 
-[tool.ruff.lint.isort]
-known-first-party = ["ray_curator"]
-combine-as-imports = true
-force-sort-within-sections = true
-
 
 [tool.ruff.lint.extend-per-file-ignores]
 "ray_curator/examples/**" = [
