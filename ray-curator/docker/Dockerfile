@@ -48,10 +48,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -O https://bootstrap.pypa.io/get-pip.py && \
-    python get-pip.py && \
-    rm get-pip.py
-
 WORKDIR /opt
 
 # Install uv
@@ -60,7 +56,6 @@ RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
-ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
@@ -71,18 +66,15 @@ COPY ray-curator/docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-RUN \
-  --mount=type=bind,source=ray-curator/pyproject.toml,target=/opt/ray-curator/pyproject.toml \
-  --mount=type=bind,source=ray-curator/uv.lock,target=/opt/ray-curator/uv.lock <<"EOF" bash -ex
+COPY ray-curator/pyproject.toml ray-curator/uv.lock /opt/ray-curator
 
-  cd /opt/ray-curator
-  uv sync --locked --only-group build
-  if [ $CURATOR_ENVIRONMENT = "dev" ]; then
-      uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups;
-  else
-      uv sync --link-mode copy --locked --extra all --all-groups;
+RUN cd /opt/ray-curator && \
+  uv sync --locked --only-group build && \
+  if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
+      uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
+  else \
+      uv sync --link-mode copy --locked --extra all --all-groups; \
   fi;
-EOF
 
 FROM nemo_curator AS nemo_curator_final
 
