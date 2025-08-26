@@ -36,7 +36,13 @@ class TestInternVideoIntegration:
         """Set up test fixtures."""
         # Get the path to the submodule for testing
         # The test file is in tests/models/, so we need to go up to ray-curator root
-        self.submodule_path = pathlib.Path(__file__).parent.parent.parent / "externals" / "InternVideo" / "InternVideo2" / "multi_modality"
+        self.submodule_path = (
+            pathlib.Path(__file__).parent.parent.parent
+            / "externals"
+            / "InternVideo"
+            / "InternVideo2"
+            / "multi_modality"
+        )
 
     def test_submodule_path_exists(self) -> None:
         """Test that the InternVideo submodule path exists."""
@@ -157,6 +163,7 @@ class TestInternVideoIntegrationErrorHandling:
 
         # Check that it's a function
         import types
+
         assert isinstance(_ensure_internvideo_installed, types.FunctionType)
 
 
