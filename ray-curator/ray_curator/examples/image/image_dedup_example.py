@@ -22,10 +22,7 @@ from ray_curator.pipeline import Pipeline
 from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.stages.image.dedup.dedup_filter import DedupFilterStage
-from ray_curator.stages.image.embedders.clip_embedder import (
-    ConvertEmbeddingsToDocumentBatchStage,
-    ImageEmbeddingStage,
-)
+from ray_curator.stages.image.embedders.clip_embedder import ConvertEmbeddingsToDocumentBatchStage, ImageEmbeddingStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.io.image_writer import ImageWriterStage
 from ray_curator.stages.text.io.writer.parquet import ParquetWriter
@@ -118,6 +115,7 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     # Stage 3: Write filtered images to disk
     pipeline.add_stage(ImageWriterStage(
         output_dir=args.output_dataset_dir,
+        remove_image_data=True,
         verbose=args.verbose,
     ))
 

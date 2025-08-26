@@ -15,8 +15,8 @@
 from dataclasses import dataclass, field
 import os
 
-from loguru import logger
 import pyarrow.parquet as pq
+from loguru import logger
 
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources

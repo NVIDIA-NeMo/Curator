@@ -224,6 +224,11 @@ ignore = [
     "COM812", # Disable the trailing comma in linter, because ruff formatter ensures it
 ]
 fixable = ["ALL"]
+[tool.ruff.lint.isort]
+# Treat these as first-party packages for import sorting
+known-first-party = ["nemo_curator", "ray_curator"]
+combine-as-imports = true
+force-sort-within-sections = true
 [tool.ruff.lint.per-file-ignores]
 "nemo_curator/modules/__init__.py" = ["E402"]
 "nemo_curator/__init__.py" = ["F401", "F403"]
