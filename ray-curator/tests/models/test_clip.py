@@ -60,7 +60,7 @@ class TestCLIPImageEmbeddings:
         self.model.setup()
 
         # Assert transforms configured
-        import torchvision.transforms as transforms
+        from torchvision import transforms
 
         assert self.model.transforms is not None
         assert isinstance(self.model.transforms, transforms.Compose)
@@ -72,7 +72,12 @@ class TestCLIPImageEmbeddings:
         assert tfs[0].antialias is True
 
         assert isinstance(tfs[1], transforms.CenterCrop)
-        assert tfs[1].size == 224
+        # torchvision may represent size as int or (h, w)
+        cc_size = tfs[1].size
+        if isinstance(cc_size, tuple):
+            assert cc_size == (224, 224)
+        else:
+            assert cc_size == 224
 
         assert type(tfs[2]).__name__ == "ConvertImageDtype"
 
@@ -122,11 +127,20 @@ class TestCLIPImageEmbeddings:
         model = CLIPImageEmbeddings(model_dir="test_models/clip")
         assert model.device == "cpu"
 
-    @patch("ray_curator.models.clip.torch.cuda.is_available", return_value=False)
-    def test_call_with_numpy_array_uses_transforms_and_normalizes(self, _mock_cuda: Mock) -> None:
+    def test_call_with_numpy_array_uses_transforms_and_normalizes(self) -> None:
         """Calling with numpy array should use torchvision transforms path and return unit-norm embeddings."""
         # Arrange
-        self.model.setup()
+        with (
+            patch("ray_curator.models.clip.torch.cuda.is_available", return_value=False),
+            patch("ray_curator.models.clip.CLIPModel") as mock_clip_model,
+            patch("ray_curator.models.clip.CLIPProcessor") as mock_processor,
+        ):
+            mock_model_instance = Mock()
+            mock_model_instance.to.return_value = mock_model_instance
+            mock_model_instance.eval.return_value = mock_model_instance
+            mock_clip_model.from_pretrained.return_value = mock_model_instance
+            mock_processor.from_pretrained.return_value = Mock()
+            self.model.setup()
         assert self.model.transforms is not None
         # Mock CLIP forward
         mock_clip = Mock()
@@ -179,7 +193,14 @@ class TestCLIPImageEmbeddings:
         # Assert processor path used
         mock_processor.assert_called_once_with(images=images, return_tensors="pt")
         self.model.transforms.assert_not_called()
-        mock_clip.get_image_features.assert_called_once_with(pixel_values=pixel_values)
+        mock_clip.get_image_features.assert_called_once()
+        _, kwargs = mock_clip.get_image_features.call_args
+        assert "pixel_values" in kwargs
+        pv = kwargs["pixel_values"]
+        assert isinstance(pv, torch.Tensor)
+        assert tuple(pv.shape) == tuple(pixel_values.shape)
+        # Device may be CPU or CUDA depending on env; ensure match to model device type
+        assert pv.device.type == torch.device(self.model.device).type
 
         norms = torch.linalg.vector_norm(out, dim=-1)
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
