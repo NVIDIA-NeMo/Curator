@@ -34,6 +34,7 @@ dependencies = [
     "ray[default,data]>=2.48",
     "torch",
     "transformers>=4.48.0",
+    "jupyter",
 ]
 
 [project.optional-dependencies]

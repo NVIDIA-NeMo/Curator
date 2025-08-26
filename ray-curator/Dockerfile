@@ -64,7 +64,7 @@ FROM cuda AS nemo_curator
 
 WORKDIR /opt
 
-RUN apt-get update && apt-get install -y ca-certificates git \
+RUN apt-get update && apt-get install -y ca-certificates git wget \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .
