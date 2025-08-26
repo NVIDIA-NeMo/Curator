@@ -391,7 +391,7 @@ class TestImageEmbeddingStage:
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-        images = [
+            images = [
             ImageObject(
                 image_id=f"img_{i:03d}",
                 image_path=f"{tmp_dir}/img_{i:03d}.jpg",

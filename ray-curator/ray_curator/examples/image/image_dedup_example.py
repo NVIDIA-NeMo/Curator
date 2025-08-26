@@ -21,7 +21,6 @@ from ray_curator.examples.image.helper import download_webdataset
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.stages.image.dedup.dedup_filter import DedupFilterStage
 from ray_curator.stages.image.embedders.clip_embedder import (
     ConvertEmbeddingsToDocumentBatchStage,
     ImageEmbeddingStage,
