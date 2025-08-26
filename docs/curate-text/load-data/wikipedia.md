@@ -59,7 +59,7 @@ wikipedia_stage = WikipediaDownloadExtractStage(
 
 # Create writer stage to save results
 writer_stage = JsonlWriter(
-    output_dir="./wikipedia_output"
+    path="./wikipedia_output"
 )
 
 # Create and configure pipeline
@@ -94,15 +94,15 @@ for lang in languages:
         download_dir=f"./downloads/{lang}",
         dump_date="20240401"
     )
-    
+
     writer_stage = JsonlWriter(
-        output_dir=f"./output/{lang}"
+        path=f"./output/{lang}"
     )
-    
+
     pipeline = Pipeline(name=f"wikipedia_{lang}")
     pipeline.add_stage(wikipedia_stage)
     pipeline.add_stage(writer_stage)
-    
+
     # Execute
     results = pipeline.run(XennaExecutor())
 ```

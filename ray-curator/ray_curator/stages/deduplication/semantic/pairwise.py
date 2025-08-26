@@ -274,7 +274,6 @@ class PairwiseStage(CompositeStage[_EmptyTask, FileGroupTask]):
     verbose: bool = False
     read_kwargs: dict[str, Any] | None = None
     write_kwargs: dict[str, Any] | None = None
-    limit: int | None = None
     # Ranking (for backward compatibility)
     which_to_keep: Literal["hard", "easy", "random"] = "hard"
     sim_metric: Literal["cosine", "l2"] = "cosine"

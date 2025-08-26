@@ -12,8 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from .base import SemanticDeduplicationWorkflow
 from .identify_duplicates import IdentifyDuplicatesStage
 from .pairwise import PairwiseStage
 from .ranking import RankingStrategy
 
-__all__ = ["IdentifyDuplicatesStage", "PairwiseStage", "RankingStrategy"]
+__all__ = ["IdentifyDuplicatesStage", "PairwiseStage", "RankingStrategy", "SemanticDeduplicationWorkflow"]
