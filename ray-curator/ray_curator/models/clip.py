@@ -29,7 +29,7 @@ from .aesthetics import AestheticScorer
 from .base import ModelInterface
 
 _CLIP_MODEL_ID: Final = "openai/clip-vit-large-patch14"
-_CLIP_MODEL_REVISION: Final = "32bd64288804d66eefd0ccbe215aa642df71cc41"
+_CLIP_MODEL_REVISION: Final = "32bd642"
 
 
 class CLIPImageEmbeddings(ModelInterface):

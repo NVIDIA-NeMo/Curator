@@ -28,7 +28,7 @@ from ray_curator.utils.hf_download_utils import download_model_from_hf
 from .base import ModelInterface
 
 _AESTHETICS_MODEL_ID = "ttj/sac-logos-ava1-l14-linearMSE"
-_AESTHETICS_MODEL_REVISION = "1e77fa05081323d99725fc40a9bf9f88180490e7"
+_AESTHETICS_MODEL_REVISION = "1e77fa0"
 
 
 class MLP(nn.Module):

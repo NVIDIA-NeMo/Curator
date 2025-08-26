@@ -37,7 +37,7 @@ except ImportError:
 from ray_curator.models.base import ModelInterface
 
 _QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
-_QWEN_LM_MODEL_REVISION = "cf98f3b3bbb457ad9e2bb7baf9a0125b6b88caa8"
+_QWEN_LM_MODEL_REVISION = "cf98f3b"
 
 
 class QwenLM(ModelInterface):

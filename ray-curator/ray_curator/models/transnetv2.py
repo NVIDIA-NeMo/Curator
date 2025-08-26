@@ -36,7 +36,7 @@ from .base import ModelInterface
 
 _TRANSNETV2_MODEL_ID: Final = "Sn4kehead/TransNetV2"
 _TRANSNETV2_MODEL_WEIGHTS: Final = "transnetv2-pytorch-weights.pth"
-
+_TRANSNETV2_MODEL_REVISION: Final = "db6ceab"
 
 class _TransNetV2(nn.Module):
     def __init__(  # noqa: PLR0913
@@ -609,6 +609,7 @@ class TransNetV2(ModelInterface):
             model_id=_TRANSNETV2_MODEL_ID,
             local_dir=model_dir_path,
             filename=_TRANSNETV2_MODEL_WEIGHTS,
+            revision=_TRANSNETV2_MODEL_REVISION,
         )
 
         logger.info(f"TransNetV2 weights downloaded to: {model_file}")

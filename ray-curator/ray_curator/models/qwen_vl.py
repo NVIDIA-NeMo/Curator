@@ -39,7 +39,7 @@ from ray_curator.models.base import ModelInterface
 from ray_curator.utils import grouping
 
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
-_QWEN2_5_VL_MODEL_REVISION = "cc594898137f460bfe9f0759e9844b3ce807cfb5"
+_QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
 _QWEN_VARIANTS_INFO = {
     "qwen": _QWEN2_5_VL_MODEL_ID,

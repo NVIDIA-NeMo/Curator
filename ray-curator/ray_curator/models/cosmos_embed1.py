@@ -33,6 +33,12 @@ _COSMOS_EMBED1_VARIANTS_INFO: Final = {
     "448p": "nvidia/Cosmos-Embed1-448p",
 }
 
+COSMOS_EMBED1_MODEL_REVISION_INFO: Final = {
+    "224p": "85f5627",
+    "336p": "5d8309d",
+    "448p": "9f4ff4d",
+}
+
 
 class CosmosEmbed1(ModelInterface):
     """Cosmos-Embed1 embedding model."""
@@ -209,5 +215,6 @@ class CosmosEmbed1(ModelInterface):
             model_id=_COSMOS_EMBED1_VARIANTS_INFO[variant],
             local_dir=model_dir_path,
             ignore_patterns=["*.safetensors"],
+            revision=COSMOS_EMBED1_MODEL_REVISION_INFO[variant],
         )
         logger.info(f"CosmosEmbed1 {variant} processor config downloaded to: {model_dir_path}")
