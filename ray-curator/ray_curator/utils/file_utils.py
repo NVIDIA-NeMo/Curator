@@ -12,11 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
+
+import posixpath
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import fsspec
 from fsspec.core import get_filesystem_class, split_protocol
+from fsspec.utils import infer_storage_options
 from loguru import logger
+
+from ray_curator.utils.client_utils import is_remote_url
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    import pandas as pd
 
 FILETYPE_TO_DEFAULT_EXTENSIONS = {
     "parquet": [".parquet"],
@@ -97,26 +109,240 @@ def filter_files_by_extension(
     return filtered_files
 
 
-def get_all_files_paths_under(
-    input_dir: str,
+def _split_files_as_per_blocksize(
+    sorted_file_sizes: list[tuple[str, int]], max_byte_per_chunk: int
+) -> list[list[str]]:
+    partitions = []
+    current_partition = []
+    current_size = 0
+
+    for file, size in sorted_file_sizes:
+        if current_size + size > max_byte_per_chunk:
+            if current_partition:
+                partitions.append(current_partition)
+            current_partition = []
+            current_size = 0
+        current_partition.append(file)
+        current_size += size
+    if current_partition:
+        partitions.append(current_partition)
+
+    logger.debug(
+        f"Split {len(sorted_file_sizes)} files into {len(partitions)} partitions with max size {(max_byte_per_chunk / 1024 / 1024):.2f} MB."
+    )
+    return partitions
+
+
+def _gather_extention(path: str) -> str:
+    """
+    Gather the extension of a given path.
+    Args:
+        path: The path to get the extension from.
+    Returns:
+        The extension of the path.
+    """
+    name = posixpath.basename(path.rstrip("/"))
+    return posixpath.splitext(name)[1][1:].casefold()
+
+
+def _gather_file_records(  # noqa: PLR0913
+    path: str,
+    recurse_subdirectories: bool,
+    keep_extensions: str | list[str] | None,
+    storage_options: dict[str, str] | None,
+    fs: fsspec.AbstractFileSystem | None,
+    include_size: bool,
+) -> list[tuple[str, int]]:
+    """
+    Gather file records from a given path.
+    Args:
+        path: The path to get the file paths from.
+        recurse_subdirectories: Whether to recurse subdirectories.
+        keep_extensions: The extensions to keep.
+        storage_options: The storage options to use.
+        fs: The filesystem to use.
+        include_size: Whether to include the size of the files.
+    Returns:
+        A list of tuples (file_path, file_size).
+    """
+    fs = fs or fsspec.core.url_to_fs(path, **(storage_options or {}))[0]
+    allowed_exts = (
+        None
+        if keep_extensions is None
+        else {
+            e.casefold().lstrip(".")
+            for e in ([keep_extensions] if isinstance(keep_extensions, str) else keep_extensions)
+        }
+    )
+    normalize = fs.unstrip_protocol if is_remote_url(path) else (lambda x: x)
+    roots = fs.expand_path(path, recursive=False)
+    records = []
+
+    for root in roots:
+        if fs.isdir(root):
+            listing = fs.find(
+                root,
+                maxdepth=None if recurse_subdirectories else 1,
+                withdirs=False,
+                detail=include_size,
+            )
+            if include_size:
+                entries = [(p, info.get("size")) for p, info in listing.items()]
+            else:
+                entries = [(p, None) for p in listing]
+
+        elif fs.exists(root):
+            entries = [(root, fs.info(root).get("size") if include_size else None)]
+        else:
+            entries = []
+
+        for raw_path, raw_size in entries:
+            if (allowed_exts is None) or (_gather_extention(raw_path) in allowed_exts):
+                records.append((normalize(raw_path), -1 if include_size and raw_size is None else raw_size))
+
+    return records
+
+
+def get_all_file_paths_under(
+    path: str,
     recurse_subdirectories: bool = False,
     keep_extensions: str | list[str] | None = None,
-    storage_options: dict | None = None,
+    storage_options: dict[str, str] | None = None,
     fs: fsspec.AbstractFileSystem | None = None,
 ) -> list[str]:
-    # TODO: update with a more robust fsspec method
-    if fs is None:
-        fs = get_fs(input_dir, storage_options)
+    """
+    Get all file paths under a given path.
+    Args:
+        path: The path to get the file paths from.
+        recurse_subdirectories: Whether to recurse subdirectories.
+        keep_extensions: The extensions to keep.
+        storage_options: The storage options to use.
+        fs: The filesystem to use.
+    Returns:
+        A list of file paths.
+    """
+    return sorted(
+        [
+            p
+            for p, _ in _gather_file_records(
+                path, recurse_subdirectories, keep_extensions, storage_options, fs, include_size=False
+            )
+        ]
+    )
 
-    file_ls = fs.find(input_dir, maxdepth=None if recurse_subdirectories else 1)
-    if "://" in input_dir:
-        protocol = input_dir.split("://")[0]
-        file_ls = [f"{protocol}://{f}" for f in file_ls]
 
-    file_ls.sort()
-    if keep_extensions is not None:
-        file_ls = filter_files_by_extension(file_ls, keep_extensions)
-    return file_ls
+def get_all_file_paths_and_size_under(
+    path: str,
+    recurse_subdirectories: bool = False,
+    keep_extensions: str | list[str] | None = None,
+    storage_options: dict[str, str] | None = None,
+    fs: fsspec.AbstractFileSystem | None = None,
+) -> list[tuple[str, int]]:
+    """
+    Get all file paths and their sizes under a given path.
+    Args:
+        path: The path to get the file paths from.
+        recurse_subdirectories: Whether to recurse subdirectories.
+        keep_extensions: The extensions to keep.
+        storage_options: The storage options to use.
+        fs: The filesystem to use.
+    Returns:
+        A list of tuples (file_path, file_size).
+    """
+    # sort by size
+    return sorted(
+        [
+            (p, int(s))
+            for p, s in _gather_file_records(
+                path, recurse_subdirectories, keep_extensions, storage_options, fs, include_size=True
+            )
+        ],
+        key=lambda x: x[1],
+    )
+
+
+def infer_protocol_from_paths(paths: Iterable[str]) -> str | None:
+    """Infer a protocol from a list of paths, if any.
+
+    Returns the first detected protocol scheme (e.g., "s3", "gcs", "gs", "abfs")
+    or None for local paths.
+    """
+    for path in paths:
+        opts = infer_storage_options(path)
+        protocol = opts.get("protocol")
+        if protocol and protocol not in {"file", "local"}:
+            return protocol
+    return None
+
+
+def pandas_select_columns(df: pd.DataFrame, columns: list[str] | None, file_path: str) -> pd.DataFrame | None:
+    """Project a Pandas DataFrame onto existing columns, logging warnings for missing ones.
+
+    Returns the projected DataFrame. If no requested columns exist, returns None.
+    """
+
+    if columns is None:
+        return df
+
+    existing_columns = [col for col in columns if col in df.columns]
+    missing_columns = [col for col in columns if col not in df.columns]
+
+    if missing_columns:
+        logger.warning(f"Columns {missing_columns} not found in {file_path}")
+
+    if existing_columns:
+        return df[existing_columns]
+
+    logger.error(f"None of the requested columns found in {file_path}")
+    return None
+
+
+def check_output_mode(
+    mode: Literal["overwrite", "append", "error", "ignore"],
+    fs: fsspec.AbstractFileSystem,
+    path: str,
+    append_mode_implemented: bool = False,
+) -> None:
+    """
+    Validate and act on the write mode for an output directory.
+
+    Modes:
+    - "overwrite": delete existing `output_dir` recursively if it exists.
+    - "append": no-op here; raises if append is not implemented.
+    - "error": raise FileExistsError if `output_dir` already exists.
+    - "ignore": no-op.
+    """
+    normalized = mode.strip().lower()
+    allowed = {"overwrite", "append", "error", "ignore"}
+    if normalized not in allowed:
+        msg = f"Invalid mode: {mode!r}. Allowed: {sorted(allowed)}"
+        raise ValueError(msg)
+
+    if normalized == "ignore":
+        if not fs.exists(path):
+            fs.makedirs(path)
+        return
+
+    if normalized == "append":
+        if not append_mode_implemented:
+            msg = "append mode is not implemented yet"
+            raise NotImplementedError(msg)
+        return
+
+    if normalized == "overwrite":
+        if fs.exists(path):
+            msg = f"Removing output directory {path} for overwrite mode"
+            logger.info(msg)
+            delete_dir(path=path, fs=fs)
+        else:
+            msg = f"Overwrite mode: output directory {path} does not exist; nothing to remove"
+            logger.info(msg)
+        return
+
+    if normalized == "error" and fs.exists(path):
+        msg = f"Output directory {path} already exists"
+        raise FileExistsError(msg)
+    return
 
 
 def infer_dataset_name_from_path(path: str) -> str:
