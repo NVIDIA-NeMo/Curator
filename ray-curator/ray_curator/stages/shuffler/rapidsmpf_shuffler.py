@@ -1,14 +1,22 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.
-"""
-This module implements a bulk-synchronous shuffle class using UCXX communication compatible with Ray Actors.
-"""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import cudf
-import pylibcudf as plc
 import rmm.mr
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
@@ -22,6 +30,7 @@ from ray_curator.stages.deduplication.gpu_utils import align_down_to_256
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    import pylibcudf as plc
     from rapidsmpf.shuffler import Shuffler
 
 
@@ -47,6 +56,10 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         If None spilling is disabled.
     enable_statistics
         Whether to collect shuffle statistics.
+    read_kwargs
+        Keyword arguments for cudf.read_parquet method.
+    write_kwargs
+        Keyword arguments for cudf.to_parquet method.
     """
 
     def __init__(  # noqa: PLR0913
@@ -59,17 +72,21 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         spill_memory_limit: int | Literal["auto"] | None = "auto",
         *,
         enable_statistics: bool = False,
+        read_kwargs: dict[str, Any] | None = None,
+        write_kwargs: dict[str, Any] | None = None,
     ):
         super().__init__(nranks)
         self.shuffle_on = shuffle_on
         self.output_path = output_path
         self.total_nparts = total_nparts
-        self.rmm_pool_size = align_down_to_256(rmm_pool_size)
+        self.rmm_pool_size = align_down_to_256(rmm_pool_size) if rmm_pool_size is not None else None
 
         if isinstance(spill_memory_limit, int):
             self.spill_memory_limit = align_down_to_256(spill_memory_limit)
         elif spill_memory_limit == "auto":
-            self.spill_memory_limit = align_down_to_256(0.8 * self.rmm_pool_size)
+            self.spill_memory_limit = (
+                align_down_to_256(int(0.8 * self.rmm_pool_size)) if self.rmm_pool_size is not None else None
+            )
         elif spill_memory_limit is None:
             self.spill_memory_limit = None
         else:
@@ -77,6 +94,8 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
             raise ValueError(err_msg)
 
         self.enable_statistics = enable_statistics
+        self.read_kwargs = read_kwargs if read_kwargs is not None else {}
+        self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
     def setup_worker(self, root_address_bytes: bytes) -> None:
         """
@@ -122,9 +141,9 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         if self.shuffler is not None:
             self.shuffler.shutdown()
 
-    def read_batch(self, paths: list[str]) -> tuple[plc.Table, list[str]]:
+    def read_batch(self, paths: list[str]) -> tuple[cudf.DataFrame | None, list[str]]:
         """
-        Read a single batch of Parquet files.
+        Read a single batch of Parquet files using cuDF.
 
         Parameters
         ----------
@@ -133,11 +152,11 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
 
         Returns
         -------
-            A tuple containing the read in table and the column names.
+            A tuple containing the DataFrame (or None if empty) and the column names.
         """
-        options = plc.io.parquet.ParquetReaderOptions.builder(plc.io.SourceInfo(paths)).build()
-        tbl_w_meta = plc.io.parquet.read_parquet(options)
-        return (tbl_w_meta.tbl, tbl_w_meta.column_names(include_children=False))
+        df = cudf.read_parquet(paths, **self.read_kwargs)
+        column_names = list(df.columns)
+        return (df, column_names)
 
     def write_table(
         self,
@@ -145,9 +164,9 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         output_path: str,
         partition_id: int | str,
         column_names: list[str],
-    ) -> None:
+    ) -> str:
         """
-        Write a pylibcudf Table to a Parquet file.
+        Write a pylibcudf Table to a Parquet file using cuDF.
 
         Parameters
         ----------
@@ -155,25 +174,28 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
             The table to write.
         output_path
             The path to write the table to.
-        id
+        partition_id
             Partition id used for naming the output file.
         column_names
             The column names of the table.
         """
         path = f"{output_path}/part.{partition_id}.parquet"
+        write_kwargs = self.write_kwargs.copy()
+        write_kwargs["index"] = write_kwargs.get("index", False)
         pylibcudf_to_cudf_dataframe(
             table,
             column_names=column_names,
-        ).to_parquet(path)
+        ).to_parquet(path, **write_kwargs)
+        return path
 
     def insert_chunk(self, table: plc.Table | cudf.DataFrame, column_names: list[str]) -> None:
         """
-        Insert a pylibcudf Table into the shuffler.
+        Insert a pylibcudf Table or cuDF DataFrame into the shuffler.
 
         Parameters
         ----------
         table
-            The table to insert.
+            The table or DataFrame to insert.
         column_names
             The column names of the table.
         """
@@ -191,7 +213,7 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         )
         self.shuffler.insert_chunks(packed_inputs)
 
-    def read_and_insert(self, paths: list[str], batchsize: int = 1) -> list[str]:
+    def read_and_insert(self, paths: list[str], batchsize: int | None = None) -> list[str]:
         """
         Read the list of parquet files every batchsize and insert the partitions into the shuffler.
 
@@ -199,15 +221,21 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         ----------
         paths
             List of file paths to the Parquet files.
+        batchsize
+            Number of files to read in each batch.
 
         Returns
         -------
             The column names of the table.
         """
+        column_names = None
+        if batchsize is None:
+            batchsize = len(paths)
         for i in range(0, len(paths), batchsize):
-            tbl, column_names = self.read_batch(paths[i : i + batchsize])
-            self.insert_chunk(tbl, column_names)
-        self.insert_finished()
+            df, batch_column_names = self.read_batch(paths[i : i + batchsize])
+            if not column_names:
+                column_names = batch_column_names
+            self.insert_chunk(df, column_names)
         return column_names
 
     def insert_finished(self) -> None:
@@ -236,7 +264,7 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
             )
             yield partition_id, partition
 
-    def extract_and_write(self, column_names: list[str]) -> None:
+    def extract_and_write(self, column_names: list[str]) -> list[tuple[int, str]]:
         """
         Extract and write shuffled partitions.
 
@@ -245,5 +273,8 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         column_names
             The column names of the table.
         """
+        partition_paths = []
         for partition_id, partition in self.extract():
-            self.write_table(partition, self.output_path, partition_id, column_names)
+            path = self.write_table(partition, self.output_path, partition_id, column_names)
+            partition_paths.append((partition_id, path))
+        return partition_paths
