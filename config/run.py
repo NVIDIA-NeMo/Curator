@@ -25,7 +25,6 @@ import sys
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
-
 from ray_curator.core.client import RayClient
 from ray_curator.pipeline import Pipeline
 
