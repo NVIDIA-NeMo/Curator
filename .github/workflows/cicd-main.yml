@@ -137,6 +137,8 @@ jobs:
       && !cancelled()
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Optionally free up space on Ubuntu
         run: |
           sudo rm -rf /usr/share/dotnet
