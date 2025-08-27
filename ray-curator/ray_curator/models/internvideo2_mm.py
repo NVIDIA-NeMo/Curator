@@ -30,7 +30,8 @@ from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from ray_curator import internvideo2_multi_modality
-from ray_curator.internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
+from ray_curator.internvideo2_multi_modality.models.internvideo2_stage2_visual import InternVideo2_Stage2_visual
+from ray_curator.internvideo2_multi_modality.models.backbones.internvideo2.pos_embed import interpolate_pos_embed_internvideo2_new
 from ray_curator.models.base import ModelInterface
 from ray_curator.utils.hf_download_utils import download_model_from_hf
 
