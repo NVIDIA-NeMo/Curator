@@ -63,6 +63,6 @@ processors:
   - _target_: ray_curator.stages.audio.io.convert.AudioToDocumentStage
 
   - _target_: ray_curator.stages.text.io.writer.JsonlWriter
-    output_dir: ${output_dir}
+    path: ${output_dir}
     write_kwargs:
       "force_ascii": False
