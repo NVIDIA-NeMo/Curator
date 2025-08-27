@@ -14,6 +14,7 @@ from nemo_curator.synthetic.prompts import (
 from nemo_curator import OpenAIClient
 from openai import OpenAI
 from transformers import AutoTokenizer
+import spacy
 
 def extract_content(s:str, debug:bool=False) -> str|None:
     match = re.search(r'<IMPROVED_TRANSLATION>(.*?)</IMPROVED_TRANSLATION>', s, re.DOTALL)
@@ -40,10 +41,11 @@ class TextSplitter:
     """
     Utility class for splitting text into chunks based on token count.
     """
-    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096, tokenizer: AutoTokenizer = None):
+    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096, tokenizer: AutoTokenizer = None, spacy_model: str = "en_core_web_lg"):
         self.model_name = model_name
         self.hf_token = hf_token
         self.max_token_per_chunk = max_token_per_chunk
+        self.nlp = spacy.load(spacy_model)
         # Load tokenizer for counting tokens
         if tokenizer is not None:
             self.tokenizer = tokenizer
@@ -53,13 +55,9 @@ class TextSplitter:
             raise ValueError("Model name is empty. Please provide a valid model name.")
 
     def split_sentences(self, text: str) -> list[str]:
-        # Split text into sentences using punctuation
-        pattern = r'([^。！？；.!?;]*[。！？；.!?;])'
-        sentences = re.findall(pattern, text, flags=re.UNICODE)
-        last = re.sub(pattern, '', text)
-        if last:
-            sentences.append(last)
-        return [s.strip() for s in sentences if s.strip()]
+        # split sentences by spaCy
+        doc = self.nlp(text)
+        return [sent.text for sent in doc.sents]
 
     def num_tokens_in_string_hf(self, input_str: str) -> int:
         # Count tokens in a string using the tokenizer
@@ -73,7 +71,8 @@ class TextSplitter:
         chunks = []
         current_chunk = ''
         for sentence in sentences:
-            test_chunk = current_chunk + sentence
+            # Separate sentences with spaces
+            test_chunk = current_chunk + " " + sentence
             token_count = self.num_tokens_in_string_hf(test_chunk)
             if token_count > max_tokens:
                 if current_chunk:
@@ -107,6 +106,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         source_lang: str = "English",
         target_lang: str = "Traditional Chinese",
         country: str = "Taiwan",
+        spacy_model: str = "en_core_web_lg"
     ):
         super().__init__()
         # Initialize parameters for translation pipeline
@@ -124,13 +124,14 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.country = country
+        self.spacy_model = spacy_model
         if stop is not None:
             self.stop = stop
-            self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk)
+            self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk, spacy_model=self.spacy_model)
         else:
             self.tokenizer = AutoTokenizer.from_pretrained(self.hf_tokenizer, use_auth_token=self.hf_token)
             self.stop = [self.tokenizer.decode([self.tokenizer.eos_token_id])]
-            self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk, tokenizer=self.tokenizer)
+            self.text_splitter = TextSplitter(model_name=self.hf_tokenizer, hf_token=self.hf_token, max_token_per_chunk=self.max_token_per_chunk, tokenizer=self.tokenizer, spacy_model=self.spacy_model)
         self.openai_client = OpenAI(base_url=self.base_url, api_key=self.api_key)
         self.client = OpenAIClient(self.openai_client)
         
@@ -340,7 +341,9 @@ if __name__ == "__main__":
         source_lang="English",                                  # Source language
         target_lang="Traditional Chinese",                      # Target language
         country="Taiwan",                                       # (Optional) Country context for translation
+        spacy_model="en_core_web_lg"                            # (default) spaCy model for sentence splitting
     )
+
     translations = generator.generate(text)
     print(generator.parse_response(translations))
 
