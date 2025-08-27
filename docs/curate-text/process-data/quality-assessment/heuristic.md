@@ -54,55 +54,36 @@ The filtering process typically involves:
 
 ## Usage
 
-::::{tab-set}
+Build a Curator pipeline with a reader, one or more `ScoreFilter` stages, and a writer:
 
-:::{tab-item} Python
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import (
+from ray_curator.pipeline.pipeline import Pipeline
+from ray_curator.backends.xenna.executor import XennaExecutor
+from ray_curator.stages.text.io.reader.jsonl import JsonlReader
+from ray_curator.stages.text.filters.heuristic_filter import (
     WordCountFilter,
     RepeatingTopNGramsFilter,
-    PunctuationFilter
+    PunctuationFilter,
+)
+from ray_curator.stages.text.modules.score_filter import ScoreFilter
+from ray_curator.stages.text.io.writer.jsonl import JsonlWriter
+
+pipeline = Pipeline(name="heuristic_filtering")
+pipeline.add_stage(
+    JsonlReader(file_paths="input_data/*.jsonl", files_per_partition=8)
+).add_stage(
+    ScoreFilter(WordCountFilter(min_words=80), text_field="text", score_field="word_count")
+).add_stage(
+    ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85), text_field="text")
+).add_stage(
+    ScoreFilter(RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18), text_field="text")
+).add_stage(
+    JsonlWriter(output_dir="high_quality_output/")
 )
 
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
-
-# Create a filter chain using Sequential
-filter_step = nc.Sequential([
-    nc.ScoreFilter(
-        WordCountFilter(min_words=80),
-        text_field="text",
-        score_field="word_count",
-    ),
-    nc.ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=4, max_repeating_ngram_ratio=0.16)),
-])
-
-# Apply the filters to get the high-quality subset
-high_quality_data = filter_step(dataset)
-
-# Save the results
-high_quality_data.to_json("high_quality_output/", write_to_filename=True)
+executor = XennaExecutor()
+pipeline.run(executor)
 ```
-:::
-
-:::{tab-item} Command Line
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --output-removed-document-dir=/path/to/output/low_quality \
-  --output-document-score-dir=/path/to/output/scores \
-  --log-dir=/path/to/logs/heuristic_filter
-```
-:::
-
-::::
 
 ## Available Filters
 
