@@ -64,10 +64,6 @@ class TestInternVideo2MultiModality:
         expected_names = [INTERNVIDEO2_MODEL_ID, BERT_MODEL_ID]
         assert self.model.model_id_names() == expected_names
 
-    def test_conda_env_name(self) -> None:
-        """Test conda_env_name property returns correct string."""
-        assert self.model.conda_env_name == "unified"
-
     @patch("ray_curator.models.internvideo2_mm._create_config")
     def test_setup_utils_only(self, mock_create_config: "MagicMock") -> None:
         """Test setup method with utils_only=True."""

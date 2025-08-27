@@ -44,7 +44,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     images_per_tar: int = 1000
     verbose: bool = False
     deterministic_name: bool = True
-    # Local filesystem only; no cloud storage options
+    remove_image_data: bool = False
 
     _name: str = "image_writer"
 
@@ -197,6 +197,14 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
                             else str(img_obj.metadata),
                         }
                     )
+
+                # Remove image data if requested
+                # This is useful for:
+                #  + Efficient downstream stages that don't need the image data
+                #  + Finishing pipeline without gathering images data across actors
+                if self.remove_image_data:
+                    for img_obj in chunk:
+                        img_obj.image_data = None
 
                 parquet_path = self._write_parquet(base_name, metadata_rows_for_tar)
                 parquet_paths.append(parquet_path)

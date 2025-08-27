@@ -69,7 +69,7 @@ def init_cluster(  # noqa: PLR0913
     ray_temp_dir: str,
     ray_dashboard_port: int,
     ray_metrics_port: int,
-    ray_client_server_port: int,  # noqa: ARG001
+    ray_client_server_port: int,
     ray_dashboard_host: str,
     num_gpus: int | None = None,
     num_cpus: int | None = None,
@@ -91,8 +91,7 @@ def init_cluster(  # noqa: PLR0913
     ray_command.extend(["--metrics-export-port", str(ray_metrics_port)])
     ray_command.extend(["--dashboard-host", ray_dashboard_host])
     ray_command.extend(["--dashboard-port", str(ray_dashboard_port)])
-    # TODO: Current using this would give error when starting multiple ray cluster.
-    # ray_command.extend(["--ray-client-server-port", str(ray_client_server_port)]) # noqa: ERA001
+    ray_command.extend(["--ray-client-server-port", str(ray_client_server_port)])
     ray_command.extend(["--temp-dir", ray_temp_dir])
     ray_command.extend(["--disable-usage-stats"])
     if enable_object_spilling:
