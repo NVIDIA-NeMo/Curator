@@ -15,25 +15,41 @@
 import importlib
 from abc import ABC, abstractmethod
 
-from nemo_curator.utils.text_utils import get_words
+from ray_curator.stages.utils.text_utils import get_words
 
 
-class DownstreamTask(ABC):
+class EvaluationSetBase(ABC):
     def __init__(self):
         super().__init__()
         self._task_name = None
         self._ngrams = {}
+        self._dataset = None
+
+        # Automatically load dataset, generate ngrams, and clean up
+        self._load_dataset()
+        self.generate_ngrams()
+        self._cleanup_dataset()
+
+    @abstractmethod
+    def _load_dataset(self) -> None:
+        """Load the dataset into self._dataset. This method should be implemented by subclasses."""
 
     @abstractmethod
     def generate_ngrams(self) -> dict[str, int]:
-        pass
+        """Generate ngrams from the loaded dataset. This method should be implemented by subclasses."""
+
+    def _cleanup_dataset(self) -> None:
+        """Clean up the dataset to free memory after ngram generation."""
+        if hasattr(self, "_dataset"):
+            del self._dataset
+            self._dataset = None
 
     @property
     def ngrams(self) -> dict[str, int]:
         return self._ngrams
 
     def _update_ngrams(self, text: str, min_ngram_size: int = 8, max_ngram_size: int = 13) -> None:
-        words, positions = get_words(text)
+        words, _ = get_words(text)
         if len(words) < min_ngram_size:
             return
 
@@ -48,11 +64,12 @@ class DownstreamTask(ABC):
                 self._ngrams[seq] = 0
 
 
-def import_task(task_path: str) -> DownstreamTask:
+def import_task(task_path: str) -> EvaluationSetBase:
+    # TODO: See if we need this
     module_path, task_name = task_path.rsplit(".", 1)
     task_module = importlib.import_module(module_path)
     task_class = getattr(task_module, task_name)
-    if not issubclass(task_class, DownstreamTask):
+    if not issubclass(task_class, EvaluationSetBase):
         msg = (
             f"Input iterator {task_class.__name__} "
             "must be derived from DownstreamTask"
