@@ -27,6 +27,7 @@ dependencies = [
     "cosmos-xenna",
     "fsspec",
     "jieba==0.42.1",
+    "jupyter",
     "loguru",
     "mecab-python3",
     "pandas>=2.1.0",
@@ -34,7 +35,6 @@ dependencies = [
     "ray[default,data]>=2.49",
     "torch",
     "transformers>=4.48.0",
-    "jupyter",
 ]
 
 [project.optional-dependencies]
