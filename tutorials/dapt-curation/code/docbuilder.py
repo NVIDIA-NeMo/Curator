@@ -285,7 +285,7 @@ class GitHubIterator(DocumentIterator):
 
             try:
                 content = content.decode(encoding)
-            except UnicodeDecodeError:
+            except (UnicodeDecodeError, LookupError):
                 # If the file cannot be decoded, return None
                 return None
 
