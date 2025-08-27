@@ -54,8 +54,8 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         self.doc_id_field = doc_id_field
         self._check_io_kwargs(read_kwargs)
         self._check_io_kwargs(write_kwargs)
-        self.read_storage_options = read_kwargs.get("storage_options", {}) if read_kwargs is not None else {}
-        self.write_storage_options = write_kwargs.get("storage_options", {}) if write_kwargs is not None else {}
+        self.read_storage_options = read_kwargs.get("storage_options") if read_kwargs is not None else None
+        self.write_storage_options = write_kwargs.get("storage_options") if write_kwargs is not None else None
 
         self.output_fs = get_fs(output_dir, self.write_storage_options)
         self.output_dir = self.output_fs.sep.join([output_dir, self.name])

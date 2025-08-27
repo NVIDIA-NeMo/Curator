@@ -21,8 +21,8 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-import ray_curator.stages.text.io.writer.utils as writer_utils
 from ray_curator.stages.text.io.writer import ParquetWriter
+from ray_curator.stages.text.io.writer import utils as writer_utils
 from ray_curator.tasks import DocumentBatch
 
 
@@ -40,7 +40,7 @@ class TestParquetWriter:
         """Test ParquetWriter with different data types."""
         # Create writer with specific output directory for this test
         output_dir = os.path.join(tmpdir, f"parquet_{document_batch.task_id}")
-        writer = ParquetWriter(output_dir=output_dir)
+        writer = ParquetWriter(path=output_dir)
 
         # Setup
         writer.setup()
@@ -72,7 +72,6 @@ class TestParquetWriter:
         # Verify file was created
         assert result.task_id == document_batch.task_id  # Task ID should match input
         assert len(result.data) == 1
-        assert result._metadata["output_dir"] == output_dir
         assert result._metadata["format"] == "parquet"
         # assert previous keys from document_batch are present
         assert result._metadata["dummy_key"] == "dummy_value"
@@ -94,10 +93,24 @@ class TestParquetWriter:
         df = pd.read_parquet(file_path)
         pd.testing.assert_frame_equal(df, document_batch.to_pandas())
 
+    def test_parquet_writer_with_columns_subset(self, pandas_document_batch: DocumentBatch, tmpdir: str):
+        """Only selected columns should be written when columns are provided."""
+        output_dir = os.path.join(tmpdir, "parquet_columns_subset")
+        writer = ParquetWriter(path=output_dir, fields=["text", "score"])  # keep only subset
+
+        writer.setup()
+        result = writer.process(pandas_document_batch)
+
+        # Verify file content only contains selected columns
+        file_path = result.data[0]
+        df = pd.read_parquet(file_path)
+        expected = pandas_document_batch.to_pandas()[["text", "score"]]
+        pd.testing.assert_frame_equal(df, expected)
+
     def test_parquet_writer_with_custom_options(self, pandas_document_batch: DocumentBatch, tmpdir: str):
         """Test ParquetWriter with custom formatting options."""
         output_dir = os.path.join(tmpdir, "parquet_custom")
-        writer = ParquetWriter(output_dir=output_dir, parquet_kwargs={"compression": "gzip", "engine": "pyarrow"})
+        writer = ParquetWriter(path=output_dir, write_kwargs={"compression": "gzip", "engine": "pyarrow"})
 
         writer.setup()
         result = writer.process(pandas_document_batch)
@@ -116,12 +129,12 @@ class TestParquetWriter:
         for original_perf in pandas_document_batch._stage_perf:
             assert original_perf in result._stage_perf, "Original stage performance should be preserved"
 
-    def test_parquet_writer_with_parquet_kwargs_override(self, pandas_document_batch: DocumentBatch, tmpdir: str):
-        """Test that parquet_kwargs can override default parameters."""
+    def test_parquet_writer_with_write_kwargs_override(self, pandas_document_batch: DocumentBatch, tmpdir: str):
+        """Test that write_kwargs can override default parameters."""
         output_dir = os.path.join(tmpdir, "parquet_override")
         writer = ParquetWriter(
-            output_dir=output_dir,
-            parquet_kwargs={"index": True, "compression": "lz4"},  # Override defaults
+            path=output_dir,
+            write_kwargs={"index": True, "compression": "lz4"},  # Override defaults
         )
 
         writer.setup()
@@ -144,7 +157,7 @@ class TestParquetWriter:
         """Test ParquetWriter with custom file extension."""
         output_dir = os.path.join(tmpdir, "parquet_custom_ext")
         writer = ParquetWriter(
-            output_dir=output_dir,
+            path=output_dir,
             file_extension="pq",  # Use custom extension
         )
 

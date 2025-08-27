@@ -68,7 +68,7 @@ def main():
     pipeline.add_stage(arxiv_stage)
 
     # Add writer stage
-    writer = JsonlWriter(output_dir="./arxiv_output")
+    writer = JsonlWriter(path="./arxiv_output")
     pipeline.add_stage(writer)
 
     # Execute
@@ -125,7 +125,7 @@ The extractor returns per-paper text; the filename column is optionally added by
 ```json
 {
   "text": "Main body text extracted from LaTeX after cleaning...",
-  "file_name": "arXiv_src_2024_01.tar"  
+  "file_name": "arXiv_src_2024_01.tar"
 }
 ```
 

@@ -40,7 +40,7 @@ class TestJsonlWriter:
         """Test JsonlWriter with different data types."""
         # Create writer with specific output directory for this test
         output_dir = os.path.join(tmpdir, f"jsonl_{document_batch.task_id}")
-        writer = JsonlWriter(output_dir=output_dir)
+        writer = JsonlWriter(path=output_dir)
 
         # Setup
         writer.setup()
@@ -72,7 +72,6 @@ class TestJsonlWriter:
         # Verify file was created
         assert result.task_id == document_batch.task_id  # Task ID should match input
         assert len(result.data) == 1
-        assert result._metadata["output_dir"] == output_dir
         assert result._metadata["format"] == "jsonl"
         # assert previous keys from document_batch are present
         assert result._metadata["dummy_key"] == "dummy_value"
@@ -94,12 +93,26 @@ class TestJsonlWriter:
         df = pd.read_json(file_path, lines=True)
         pd.testing.assert_frame_equal(df, document_batch.to_pandas())
 
+    def test_jsonl_writer_with_columns_subset(self, pandas_document_batch: DocumentBatch, tmpdir: str):
+        """Only selected columns should be written when columns are provided."""
+        output_dir = os.path.join(tmpdir, "jsonl_columns_subset")
+        writer = JsonlWriter(path=output_dir, fields=["text", "score"])  # keep only subset
+
+        writer.setup()
+        result = writer.process(pandas_document_batch)
+
+        # Verify file content only contains selected columns
+        file_path = result.data[0]
+        df = pd.read_json(file_path, lines=True)
+        expected = pandas_document_batch.to_pandas()[["text", "score"]]
+        pd.testing.assert_frame_equal(df, expected)
+
     def test_jsonl_writer_with_custom_options(self, pandas_document_batch: DocumentBatch, tmpdir: str):
         """Test JsonlWriter with custom formatting options."""
         output_dir = os.path.join(tmpdir, "jsonl_custom")
         writer = JsonlWriter(
-            output_dir=output_dir,
-            jsonl_kwargs={"date_unit": "s"},
+            path=output_dir,
+            write_kwargs={"date_unit": "s"},
         )
 
         writer.setup()
@@ -119,14 +132,14 @@ class TestJsonlWriter:
         for original_perf in pandas_document_batch._stage_perf:
             assert original_perf in result._stage_perf, "Original stage performance should be preserved"
 
-    def test_jsonl_writer_with_jsonl_kwargs_override(self, pandas_document_batch: DocumentBatch, tmpdir: str):
-        """Test that jsonl_kwargs can override default parameters."""
+    def test_jsonl_writer_with_write_kwargs_override(self, pandas_document_batch: DocumentBatch, tmpdir: str):
+        """Test that write_kwargs can override default parameters."""
         output_dir = os.path.join(tmpdir, "jsonl_override")
 
         # Since default is lines=True, when passing orient=index, it should raise an error
         writer = JsonlWriter(
-            output_dir=output_dir,
-            jsonl_kwargs={"orient": "index"},  # Override via kwargs
+            path=output_dir,
+            write_kwargs={"orient": "index"},  # Override via kwargs
         )
 
         writer.setup()
@@ -135,9 +148,9 @@ class TestJsonlWriter:
 
         # Test with lines=False and custom file extension
         writer = JsonlWriter(
-            output_dir=output_dir,
+            path=output_dir,
             file_extension="json",  # Change file extension to .json
-            jsonl_kwargs={"orient": "index", "lines": False},  # Override via kwargs
+            write_kwargs={"orient": "index", "lines": False},  # Override via kwargs
         )
 
         writer.setup()
@@ -155,7 +168,7 @@ class TestJsonlWriter:
         """Test JsonlWriter with custom file extension."""
         output_dir = os.path.join(tmpdir, "jsonl_custom_ext")
         writer = JsonlWriter(
-            output_dir=output_dir,
+            path=output_dir,
             file_extension="ndjson",  # Use custom extension
         )
 
