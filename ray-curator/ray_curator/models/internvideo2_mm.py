@@ -22,9 +22,9 @@ from typing import Final
 import cv2
 
 # Load config from the internvideo2_multi_modality package
-import ray_curator.internvideo2_multi_modality
 import numpy as np
 import numpy.typing as npt
+import ray_curator.internvideo2_multi_modality as internvideo2_multi_modality
 import torch
 from easydict import EasyDict
 from ray_curator.internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
