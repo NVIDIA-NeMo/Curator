@@ -138,9 +138,15 @@ class RayClient:
 
 
 if __name__ == "__main__":
+    # Test for multiple ray clusters
     client = RayClient()
     client.start()
     import time
 
     time.sleep(10)  # Wait for ray to start
+    os.environ.pop("RAY_ADDRESS", None)
+    client2 = RayClient()
+    client2.start()
+    time.sleep(10)
+    client2.stop()
     client.stop()
