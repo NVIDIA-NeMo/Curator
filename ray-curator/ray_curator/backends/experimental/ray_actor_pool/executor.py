@@ -36,7 +36,7 @@ class RayActorPoolExecutor(BaseExecutor):
     def __init__(self, config: dict | None = None):
         super().__init__(config)
 
-    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:
+    def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
         """Execute the pipeline stages using ActorPool.
 
         Args:
@@ -61,7 +61,6 @@ class RayActorPoolExecutor(BaseExecutor):
             logger.info(
                 f"Setup on node complete for all stages. Starting Ray Actor Pool pipeline with {len(stages)} stages"
             )
-
             # Initialize with initial tasks
             current_tasks = initial_tasks or [EmptyTask]
             # Process through each stage with ActorPool
@@ -86,17 +85,25 @@ class RayActorPoolExecutor(BaseExecutor):
                     logger.info(
                         f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
                     )
-
+                    # TODO: Clean up branching logic and handling here
                     # Check if this is a RAFT stage and create appropriate actor pool
                     if stage.ray_stage_spec().get(RayStageSpecKeys.IS_RAFT_ACTOR, False):
                         logger.info(f"  Creating RAFT actor pool for stage: {stage.name}")
                         actor_pool = self._create_raft_actor_pool(stage, num_actors, session_id)
+                    elif stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+                        logger.info(f"  Creating Shuffle actors for stage: {stage.name}")
+                        actor_pool = self._create_rapidsmpf_actors(stage, num_actors, len(current_tasks))
                     else:
                         actor_pool = self._create_actor_pool(stage, num_actors)
                     logger.info(f"Created actor pool for {stage.name} with {num_actors} actors")
-                    current_tasks = self._process_stage_with_pool(actor_pool, stage, current_tasks)
-                    # Clean up actor pool
-                    self._cleanup_actor_pool(actor_pool)
+                    if stage.ray_stage_spec().get(RayStageSpecKeys.IS_SHUFFLE_STAGE, False):
+                        current_tasks = self._process_shuffle_stage_with_rapidsmpf_actors(actor_pool, current_tasks)
+                        # Clean up actor pool
+                        self._cleanup_actors(actor_pool)
+                    else:
+                        current_tasks = self._process_stage_with_pool(actor_pool, stage, current_tasks)
+                        # Clean up actor pool
+                        self._cleanup_actor_pool(actor_pool)
 
                     logger.info(f"  Output tasks: {len(current_tasks)}")
 
@@ -267,11 +274,11 @@ class RayActorPoolExecutor(BaseExecutor):
 
         return all_results
 
-    def _process_lsh_stage_with_rapidsmpf_actors(
+    def _process_shuffle_stage_with_rapidsmpf_actors(
         self,
         actors: list[ray.actor.ActorHandle],
         tasks: list[Task],
-        band_range: tuple[int, int],
+        band_range: tuple[int, int] | None = None,
     ) -> list[Task]:
         """Process Shuffle through the actors.
         Args:
@@ -281,15 +288,15 @@ class RayActorPoolExecutor(BaseExecutor):
         Returns:
             List of processed Task objects
         """
-
         actor_pool = ActorPool(actors)
         stage_batch_size: int = ray.get(actors[0].get_batch_size.remote())
         task_batches = self._generate_task_batches(tasks, batch_size=stage_batch_size)
+        insert_kwargs = {"band_range": band_range} if band_range is not None else {}
 
         # Step 1: Insert tasks into shuffler
         _ = list(
             actor_pool.map_unordered(
-                lambda actor, batch: actor.read_and_insert.remote(tasks=batch, band_range=band_range), task_batches
+                lambda actor, batch: actor.read_and_insert.remote(tasks=batch, **insert_kwargs), task_batches
             )
         )
 
@@ -352,7 +359,7 @@ class RayActorPoolExecutor(BaseExecutor):
             logger.info(f"  Creating RapidsMPFShuffling Actor Pool for stage: {stage.name}")
             actors = self._create_rapidsmpf_actors(stage, num_actors, len(original_input))
 
-            outputs = self._process_lsh_stage_with_rapidsmpf_actors(actors, original_input, band_range)
+            outputs = self._process_shuffle_stage_with_rapidsmpf_actors(actors, original_input, band_range)
             all_lsh_outputs.extend(outputs)
 
             # Clean up actors

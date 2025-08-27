@@ -13,9 +13,12 @@
 # limitations under the License.
 import pathlib
 import re
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
+
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
@@ -36,6 +39,7 @@ from ray_curator.models.base import ModelInterface
 from ray_curator.utils import grouping
 
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
+_QWEN2_5_VL_MODEL_REVISION = "cc59489"
 
 _QWEN_VARIANTS_INFO = {
     "qwen": _QWEN2_5_VL_MODEL_ID,
@@ -137,3 +141,17 @@ class QwenVL(ModelInterface):
                 logger.error(f"Error generating caption for batch: {e}")
                 raise
         return generated_text
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the QwenVL model on the node."""
+        model_dir_path = Path(model_dir) / _QWEN2_5_VL_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+            return
+        download_model_from_hf(
+            model_id=_QWEN2_5_VL_MODEL_ID,
+            local_dir=model_dir_path,
+            revision=_QWEN2_5_VL_MODEL_REVISION,
+        )
+        logger.info(f"QwenVL weights downloaded to: {model_dir_path}")

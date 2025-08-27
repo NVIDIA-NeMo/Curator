@@ -68,9 +68,10 @@ class _FakePipeline:
         return _FakeTensorList(self.batch_size)
 
 
-def _fake_create_pipeline_factory(total: int, batch: int) -> Callable[[str], _FakePipeline]:
-    def _factory(_tar_path: str) -> _FakePipeline:
-        return _FakePipeline(total_samples=total, batch_size=batch)
+def _fake_create_pipeline_factory(per_tar_total: int, batch: int) -> Callable[[list[str]], _FakePipeline]:
+    def _factory(tar_paths: list[str] | tuple[str, ...]) -> _FakePipeline:
+        num_paths = len(tar_paths) if isinstance(tar_paths, (list, tuple)) else 1
+        return _FakePipeline(total_samples=per_tar_total * num_paths, batch_size=batch)
 
     return _factory
 
@@ -154,7 +155,7 @@ def test_process_streams_batches_from_dali() -> None:
     with patch.object(
         ImageReaderStage,
         "_create_dali_pipeline",
-        side_effect=_fake_create_pipeline_factory(total=5, batch=2),
+        side_effect=_fake_create_pipeline_factory(per_tar_total=5, batch=2),
     ):
         batches = stage.process(task)
 

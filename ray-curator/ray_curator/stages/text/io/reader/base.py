@@ -132,4 +132,4 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         return df
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        return {RayStageSpecKeys.IS_ACTOR_STAGE: False}
+        return {RayStageSpecKeys.IS_ACTOR_STAGE: self._generate_ids or self._assign_ids}

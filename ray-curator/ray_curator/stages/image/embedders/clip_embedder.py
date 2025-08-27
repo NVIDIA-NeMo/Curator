@@ -25,6 +25,7 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
+    remove_image_data: bool = False
 
     @property
     def name(self) -> str:
@@ -88,6 +89,13 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
             # Store embeddings in ImageObject.embedding
             for i, image_obj in enumerate(batch):
                 image_obj.embedding = embeddings[i]
+
+                # Remove image data if requested
+                # This is useful for:
+                #  + Efficient downstream stages that don't need the image data
+                #  + Finishing pipeline without gathering images data across actors
+                if self.remove_image_data:
+                    image_obj.image_data = None
 
             if self.verbose:
                 logger.info(

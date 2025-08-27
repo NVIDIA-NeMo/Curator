@@ -47,6 +47,46 @@ class TestCLIPImageEmbeddings:
 
     @patch("ray_curator.models.clip.CLIPModel")
     @patch("ray_curator.models.clip.CLIPProcessor")
+    def test_setup_configures_expected_transforms(self, mock_processor: Mock, mock_clip_model: Mock) -> None:
+        """Ensure torchvision transforms pipeline matches CLIP preprocessor settings."""
+        # Arrange basic mocks
+        mock_model_instance = Mock()
+        mock_model_instance.to.return_value = mock_model_instance
+        mock_model_instance.eval.return_value = mock_model_instance
+        mock_clip_model.from_pretrained.return_value = mock_model_instance
+        mock_processor.from_pretrained.return_value = Mock()
+
+        # Act
+        self.model.setup()
+
+        # Assert transforms configured
+        from torchvision import transforms
+
+        assert self.model.transforms is not None
+        assert isinstance(self.model.transforms, transforms.Compose)
+        tfs = list(self.model.transforms.transforms)  # type: ignore[attr-defined]
+        # Expected order and key attributes
+        assert isinstance(tfs[0], transforms.Resize)
+        assert tfs[0].size == 224
+        assert tfs[0].interpolation.name == "BICUBIC"
+        assert tfs[0].antialias is True
+
+        assert isinstance(tfs[1], transforms.CenterCrop)
+        # torchvision may represent size as int or (h, w)
+        cc_size = tfs[1].size
+        if isinstance(cc_size, tuple):
+            assert cc_size == (224, 224)
+        else:
+            assert cc_size == 224
+
+        assert type(tfs[2]).__name__ == "ConvertImageDtype"
+
+        assert isinstance(tfs[3], transforms.Normalize)
+        assert pytest.approx(tfs[3].mean, rel=1e-5) == (0.48145466, 0.4578275, 0.40821073)
+        assert pytest.approx(tfs[3].std, rel=1e-5) == (0.26862954, 0.26130258, 0.27577711)
+
+    @patch("ray_curator.models.clip.CLIPModel")
+    @patch("ray_curator.models.clip.CLIPProcessor")
     def test_setup_success(self, mock_processor: Mock, mock_clip_model: Mock) -> None:
         """Test successful model setup."""
         # Mock the model loading
@@ -87,90 +127,83 @@ class TestCLIPImageEmbeddings:
         model = CLIPImageEmbeddings(model_dir="test_models/clip")
         assert model.device == "cpu"
 
-    def test_call_with_numpy_array(self) -> None:
-        """Test calling model with numpy array input."""
-        # Setup mock model
+    def test_call_with_numpy_array_uses_transforms_and_normalizes(self) -> None:
+        """Calling with numpy array should use torchvision transforms path and return unit-norm embeddings."""
+        # Arrange
+        with (
+            patch("ray_curator.models.clip.torch.cuda.is_available", return_value=False),
+            patch("ray_curator.models.clip.CLIPModel") as mock_clip_model,
+            patch("ray_curator.models.clip.CLIPProcessor") as mock_processor,
+        ):
+            mock_model_instance = Mock()
+            mock_model_instance.to.return_value = mock_model_instance
+            mock_model_instance.eval.return_value = mock_model_instance
+            mock_clip_model.from_pretrained.return_value = mock_model_instance
+            mock_processor.from_pretrained.return_value = Mock()
+            self.model.setup()
+        assert self.model.transforms is not None
+        # Mock CLIP forward
         mock_clip = Mock()
-        mock_processor = Mock()
-        mock_embeddings = torch.randn(2, 768)  # Use real tensor
-        mock_normalized_embeddings = torch.randn(2, 768)
+        # Deterministic embeddings to verify normalization easily
+        embed = torch.tensor([[3.0, 4.0], [1.0, 2.0]], dtype=torch.float32)
+        mock_clip.get_image_features.return_value = embed
+        self.model.clip = mock_clip
+        # Ensure processor is not consulted for numpy path
+        self.model.processor = Mock()
 
-        mock_clip.get_image_features.return_value = mock_embeddings
-        mock_processor.return_value = {"pixel_values": torch.randn(2, 3, 224, 224)}
+        # 2 RGB images 224x224
+        rng = np.random.default_rng(0)
+        images = rng.integers(0, 256, size=(2, 224, 224, 3), dtype=np.uint8)
+
+        # Act
+        out = self.model(images)
+
+        # Assert processor not used, transforms path used
+        self.model.processor.assert_not_called()
+        # Output is normalized row-wise
+        norms = torch.linalg.vector_norm(out, dim=-1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
+        # Expected normalized values from embed above
+        expected = embed / torch.linalg.vector_norm(embed, dim=-1, keepdim=True)
+        assert torch.allclose(out, expected, atol=1e-5)
+
+    def test_call_with_list_images_uses_processor_and_normalizes(self) -> None:
+        """Calling with a list should use processor path and return unit-norm embeddings."""
+        # Arrange
+        mock_clip = Mock()
+        embed = torch.tensor([[0.0, 2.0, 0.0], [2.0, 0.0, 0.0]], dtype=torch.float32)
+        mock_clip.get_image_features.return_value = embed
+        mock_processor = Mock()
+        pixel_values = torch.randn(2, 3, 224, 224)
+        mock_processor.return_value = {"pixel_values": pixel_values}
 
         self.model.clip = mock_clip
         self.model.processor = mock_processor
+        self.model.transforms = Mock()  # should not be called for list input
 
-        # Test input - use numpy.random.default_rng for modern API
-        rng = np.random.default_rng(42)
-        images = rng.integers(0, 255, size=(2, 224, 224, 3), dtype=np.uint8)
+        # Two images of potentially different sizes
+        rng = np.random.default_rng(1)
+        img1 = rng.integers(0, 256, size=(240, 240, 3), dtype=np.uint8)
+        img2 = rng.integers(0, 256, size=(200, 300, 3), dtype=np.uint8)
+        images = [img1, img2]
 
-        with (
-            patch("torch.from_numpy") as mock_from_numpy,
-            patch("torch.linalg.vector_norm") as mock_norm,
-            patch("ray_curator.models.clip.torch.linalg.vector_norm") as mock_norm2,
-        ):
-            mock_tensor = Mock()
-            mock_tensor.permute.return_value = mock_tensor
-            mock_tensor.to.return_value = mock_tensor
-            mock_from_numpy.return_value = mock_tensor
-            mock_norm.return_value = torch.ones(2, 1)
-            mock_norm2.return_value = torch.ones(2, 1)
+        # Act
+        out = self.model(images)
 
-            # Mock the entire normalization operation by patching the return
-            with patch.object(self.model, "__call__", wraps=self.model.__call__) as wrapped_call:
-                # Override the method to return our expected result
-                def mock_call(_images: np.ndarray) -> torch.Tensor:
-                    return mock_normalized_embeddings
+        # Assert processor path used
+        mock_processor.assert_called_once_with(images=images, return_tensors="pt")
+        self.model.transforms.assert_not_called()
+        mock_clip.get_image_features.assert_called_once()
+        _, kwargs = mock_clip.get_image_features.call_args
+        assert "pixel_values" in kwargs
+        pv = kwargs["pixel_values"]
+        assert isinstance(pv, torch.Tensor)
+        assert tuple(pv.shape) == tuple(pixel_values.shape)
+        # Device may be CPU or CUDA depending on env; ensure match to model device type
+        assert pv.device.type == torch.device(self.model.device).type
 
-                wrapped_call.side_effect = mock_call
-
-                result = self.model(images)
-
-            # Just verify the method was called - the tensor comparison is too fragile
-            assert result is not None
-            # Verify numpy conversion and permutation were attempted
-            mock_from_numpy.assert_called_once()
-
-    def test_call_with_torch_tensor(self) -> None:
-        """Test calling model with torch tensor input."""
-        # Setup mock model
-        mock_clip = Mock()
-        mock_processor = Mock()
-        mock_embeddings = torch.randn(2, 768)
-        mock_normalized_embeddings = torch.randn(2, 768)
-
-        mock_clip.get_image_features.return_value = mock_embeddings
-        mock_processor.return_value = {"pixel_values": torch.randn(2, 3, 224, 224)}
-
-        self.model.clip = mock_clip
-        self.model.processor = mock_processor
-
-        # Test input
-        images = torch.randint(0, 255, (2, 3, 224, 224), dtype=torch.uint8)
-
-        with (
-            patch("torch.linalg.vector_norm") as mock_norm,
-            patch("ray_curator.models.clip.torch.linalg.vector_norm") as mock_norm2,
-        ):
-            mock_norm.return_value = torch.ones(2, 1)
-            mock_norm2.return_value = torch.ones(2, 1)
-
-            # Mock the entire call to return expected result
-            with patch.object(self.model, "__call__", wraps=self.model.__call__) as wrapped_call:
-
-                def mock_call(_images: torch.Tensor) -> torch.Tensor:
-                    return mock_normalized_embeddings
-
-                wrapped_call.side_effect = mock_call
-
-                result = self.model(images)
-
-            # Just verify the method was called - the tensor comparison is too fragile
-            assert result is not None
-            # Verify processor and model forward
-            mock_processor.assert_called_once_with(images=images, return_tensors="pt")
-            mock_clip.get_image_features.assert_called_once()
+        norms = torch.linalg.vector_norm(out, dim=-1)
+        assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
 
 
 class TestCLIPAestheticScorer:
