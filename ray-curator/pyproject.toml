@@ -31,7 +31,7 @@ dependencies = [
     "mecab-python3",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.48",
+    "ray[default,data]>=2.49",
     "torch",
     "transformers>=4.48.0",
 ]
