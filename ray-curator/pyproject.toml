@@ -99,7 +99,7 @@ video_cuda = [
     "flash_attn",
 ]
 
-iternvideo2 = [
+internvideo2 = [
     "apex>=0.9.10dev",
     "av>=13.0.0",
     "deepspeed>=0.15.1",
