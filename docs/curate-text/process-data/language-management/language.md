@@ -8,148 +8,206 @@ content_type: "how-to"
 modality: "text-only"
 ---
 
+# Language Identification
+
 (text-process-data-languages-id)=
-# Language Identification and Unicode Fixing
 
 Large unlabeled text corpora often contain a variety of languages. NVIDIA NeMo Curator provides tools to accurately identify the language of each document, which is essential for language-specific curation tasks and building high-quality monolingual datasets.
 
-## Overview
+## How it Works
 
-Language identification is a critical step in text data curation for several reasons:
+NeMo Curator's language identification system works through a three-step process:
 
-- Many data curation steps are language-specific (for example, quality filtering with language-tuned heuristics)
-- Most curation pipelines focus on creating monolingual datasets
-- Document language is important metadata for model training and evaluation
+1. **Text Preprocessing**: For FastText classification, normalize input text by stripping whitespace and converting newlines to spaces.
 
-NeMo Curator provides utilities for language identification using fastText, which offers highly accurate language detection across 176 languages. While preliminary language identification may occur earlier in the pipeline (such as during Common Crawl extraction with pyCLD2), fastText provides more accurate results for a definitive classification.
+2. **FastText Language Detection**: The pre-trained FastText language identification model ([`lid.176.bin`]((https://fasttext.cc/docs/en/language-identification.html))) analyzes the preprocessed text and returns:
+   - A confidence score (0.0 to 1.0) indicating certainty of the prediction
+   - A language code (for example, "EN", "ES", "FR") in FastText's two-letter uppercase format
+
+3. **Filtering and Scoring**: The pipeline filters documents based on a configurable confidence threshold (`min_langid_score`) and stores both the confidence score and language code as metadata.
+
+### Language Detection Process
+
+The `FastTextLangId` filter implements this workflow by:
+
+- Loading the FastText language identification model on worker initialization
+- Processing text through `model.predict()` with `k=1` to get the top language prediction
+- Extracting the language code from FastText labels (for example, `__label__en` becomes "EN")
+- Comparing confidence scores against the threshold to determine document retention
+- Returning results as `[confidence_score, language_code]` for downstream processing
+
+This approach supports **176 languages** with high accuracy, making it suitable for large-scale multilingual dataset curation where language-specific processing and monolingual dataset creation are critical.
+
+## Before You Start
+
+- Language identification requires NeMo Curator with distributed backend support. For installation instructions, see the {ref}`admin-installation` guide.
+
+---
 
 ## Usage
+
+The following example demonstrates how to create a language identification pipeline using Curator with distributed processing.
 
 ::::{tab-set}
 
 :::{tab-item} Python
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.filters import FastTextLangId
+"""Language identification using Curator."""
 
-# Load your dataset
-files = get_all_files_paths_under("input_data/", keep_extensions="jsonl")
-dataset = DocumentDataset.read_json(files)
+from ray_curator.backends.xenna import XennaExecutor
+from ray_curator.pipeline import Pipeline
+from ray_curator.stages.text.filters import FastTextLangId
+from ray_curator.stages.text.io.reader import JsonlReader
+from ray_curator.stages.text.modules import ScoreFilter
 
-# Create language identification filter
-# IMPORTANT: Download lid.176.bin from https://fasttext.cc/docs/en/language-identification.html first
-langid_filter = nc.ScoreFilter(
-    FastTextLangId(
-        model_path="/path/to/lid.176.bin", 
-        min_langid_score=0.3  # Default confidence threshold (can be adjusted based on requirements)
-    ),
-    text_field="text",  # Field in your documents containing text to analyze
-    score_field="language",  # Field to store language identification results
-    score_type="object"  # The score is an object containing [score, language_code]
-)
+def create_language_identification_pipeline(data_dir: str) -> Pipeline:
+    """Create a pipeline for language identification."""
 
-# Apply language identification
-identified_dataset = langid_filter(dataset)
+    # Define pipeline
+    pipeline = Pipeline(
+        name="language_identification",
+        description="Identify document languages using FastText"
+    )
 
-# The language field contains [score, lang_code]
-# Extract just the language code if needed
-identified_dataset.df["language"] = identified_dataset.df["language"].apply(
-    lambda score: score[1]  # Extract language code from [score, lang_code]
-)
+    # Add stages
+    # 1. Reader stage - creates tasks from JSONL files
+    pipeline.add_stage(
+        JsonlReader(
+            file_paths=data_dir,
+            files_per_partition=2,  # Each task processes 2 files
+        )
+    )
 
-# Now each document has a language code field
-# You can filter for specific languages
-english_docs = identified_dataset[identified_dataset.df.language == "EN"]
+    # 2. Language identification with filtering
+    # IMPORTANT: Download lid.176.bin or lid.176.ftz from https://fasttext.cc/docs/en/language-identification.html
+    fasttext_model_path = "/path/to/lid.176.bin"  # or lid.176.ftz (compressed)
+    pipeline.add_stage(
+        ScoreFilter(
+            FastTextLangId(model_path=fasttext_model_path, min_langid_score=0.3),
+            score_field="language"
+        )
+    )
 
-# Save the dataset with language information
-identified_dataset.to_json("output_with_language/", write_to_filename=True)
+    return pipeline
+
+def main():
+    # Create pipeline
+    pipeline = create_language_identification_pipeline("./data")
+
+    # Print pipeline description
+    print(pipeline.describe())
+
+    # Create executor and run
+    executor = XennaExecutor()
+    results = pipeline.run(executor)
+
+    # Process results
+    print(f"Pipeline completed! Processed {len(results)} batches")
+
+    total_documents = sum(task.num_items for task in results) if results else 0
+    print(f"Total documents processed: {total_documents}")
+
+    # Access language scores
+    for i, batch in enumerate(results):
+        if batch.num_items > 0:
+            df = batch.to_pandas()
+            print(f"Batch {i} columns: {list(df.columns)}")
+            # Language scores are now in the 'language' field
+
+if __name__ == "__main__":
+    main()
 ```
-
-:::
-
-:::{tab-item} CLI
-
-### Identifying Languages
-
-```bash
-filter_documents \
-  --input-data-dir=/path/to/jsonl/files \
-  --filter-config-file=./config/fasttext_langid.yaml \
-  --log-scores \
-  --log-dir=./log/lang_id
-```
-
-This command applies the fastText model to compute language scores and codes for each document, adding this information as additional fields in each JSON document.
-
-### Separating Documents by Language
-
-Once language information is added to your documents, you can separate them by language:
-
-```bash
-separate_by_metadata \
-  --input-data-dir=/path/to/jsonl/files \
-  --input-metadata-field=language \
-  --output-data-dir=/path/to/output/by_language \
-  --output-metadata-distribution=./data/lang_distro.json
-```
-
-After running this command, the output directory will contain one subdirectory per language, with each containing only documents in that language.
 
 :::
 ::::
 
-## Configuration
-
-A typical configuration for language identification looks like:
-
-```yaml
-# Example fasttext_langid.yaml
-input_field: text
-filters:
-  - name: nemo_curator.filters.classifier_filter.FastTextLangId
-    log_score: True
-    params:
-      model_path: /path/to/lid.176.bin
-      min_langid_score: 0.3  # Default confidence threshold (adjust based on precision/recall needs)
-```
-
 ## Understanding Results
 
-The language identification process adds a field to each document:
+The language identification process adds a score field to each document batch:
 
-1. `language`: By default, this contains a list with two elements:
+1. **`language` field**: Contains the FastText language identification results as a string representation of a list with two elements (for backend compatibility):
    - Element 0: The confidence score (between 0 and 1)
-   - Element 1: The language code in fastText format (for example, "EN" for English, "ES" for Spanish)
+   - Element 1: The language code in FastText format (for example, "EN" for English, "ES" for Spanish)
+
+2. **Task-based processing**: Curator processes documents in batches (tasks), and results are available through the task's Pandas DataFrame:
+
+```python
+# Access results from pipeline execution
+for batch in results:
+    df = batch.to_pandas()
+    # Language scores are in the 'language' column
+    print(df[['text', 'language']].head())
+```
+
+:::{tip}
+For quick exploratory inspection, converting a `DocumentBatch` to a Pandas DataFrame is fine. For performance and scalability, write transformations as `ProcessingStage`s (or with the `@processing_stage` decorator) and run them inside a `Pipeline` with an executor. Curator’s parallelism and resource scheduling apply when code runs as pipeline stages; ad‑hoc Pandas code executes on the driver and will not scale.
+:::
+
+### Processing Language Results
+
+::::{tab-set}
+
+:::{tab-item} As Exploration (Pandas)
+
+```python
+import ast
+
+# Example: parse language results on the driver for quick inspection
+for batch in results:
+    df = batch.to_pandas()
+    if "language" in df.columns:
+        parsed = df["language"].apply(lambda v: ast.literal_eval(v) if isinstance(v, str) else v)
+        df["lang_score"] = parsed.apply(lambda p: float(p[0]))
+        df["lang_code"] = parsed.apply(lambda p: str(p[1]))
+        # Optional: apply a higher confidence threshold for ad hoc analysis
+        df = df[df["lang_score"] >= 0.7]
+    print(df[["text", "lang_code", "lang_score"]].head())
+```
+
+:::
+
+:::{tab-item} As Pipeline Stage
+
+```python
+import ast
+from ray_curator.stages.function_decorators import processing_stage
+from ray_curator.tasks import DocumentBatch
+
+def create_extract_language_fields_stage(min_confidence: float | None = None):
+    @processing_stage(name="extract_language_fields")
+    def extract_language_fields(batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+        if "language" in df.columns:
+            parsed = df["language"].apply(lambda v: ast.literal_eval(v) if isinstance(v, str) else v)
+            df["lang_score"] = parsed.apply(lambda p: float(p[0]))
+            df["lang_code"] = parsed.apply(lambda p: str(p[1]))
+            if min_confidence is not None:
+                df = df[df["lang_score"] >= min_confidence]
+
+        return DocumentBatch(
+            task_id=f"{batch.task_id}_extract_language_fields",
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+    return extract_language_fields
+
+# Add this stage to your pipeline after ScoreFilter
+pipeline.add_stage(create_extract_language_fields_stage(min_confidence=0.7))
+```
+
+:::
+
+::::
+
+A higher confidence score indicates greater certainty in the language identification. The `ScoreFilter` automatically filters documents below your specified `min_langid_score` threshold. The `extract_language_fields` stage shows how to further parse results and apply a higher threshold if needed.
 
 :::{note}
-FastText language codes are typically two-letter uppercase codes that may differ slightly from standard ISO 639-1 codes. The model supports 176 languages with high accuracy.
+Pipeline outputs may use the `language` field differently depending on the stage:
+
+- In the FastText classification path (`ScoreFilter(FastTextLangId)`), the selected `score_field` (often `language`) stores a string representation of a list: `[score, code]`.
+- In HTML extraction pipelines (for example, Common Crawl), CLD2 assigns a language name (for example, "ENGLISH") to the `language` column.
 :::
-
-As shown in the Python example, you can extract just the language code with a simple transform if needed.
-
-A higher confidence score indicates greater certainty in the language identification. You can adjust the threshold based on your requirements for precision.
-
-## Performance Considerations
-
-- Language identification is computationally intensive but highly scalable across processors
-- For large datasets, consider using a distributed Dask setup
-- The fastText model file (`lid.176.bin`) is approximately 130MB and must be accessible to all worker nodes
-- Processing speed depends on document length and available computational resources
-- Memory usage scales with the number of worker processes and batch sizes
-
-## Best Practices
-
-:::{important}
-**Model Download Required**: Download the fastText language identification model (`lid.176.bin`) from the [official fastText repository](https://fasttext.cc/docs/en/language-identification.html) before using this filter. The model file is approximately 130MB.
-:::
-
-- Set an appropriate confidence threshold based on your requirements:
-  - **Default threshold (0.3)**: Balanced approach suitable for most use cases
-  - **Higher threshold (0.7+)**: More precision but may discard borderline documents
-  - **Lower threshold (0.1-0.2)**: Higher recall but may include misclassified documents
-- Analyze the language distribution in your dataset to understand its composition
-- Consider a two-pass approach: first filter with a lower threshold, then manually review edge cases
-- For production workflows, validate language identification accuracy on a sample of your specific domain data 
