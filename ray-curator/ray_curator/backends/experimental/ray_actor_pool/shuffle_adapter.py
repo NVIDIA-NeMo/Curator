@@ -8,11 +8,12 @@ import ray
 from loguru import logger
 
 from ray_curator.backends.base import BaseStageAdapter
-from ray_curator.backends.experimental.utils import get_worker_metadata_and_node_id
+from ray_curator.backends.experimental.utils import RayStageSpecKeys, get_worker_metadata_and_node_id
 from ray_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:
     from ray_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
+    from ray_curator.stages.shuffler.stage import ShuffleStage
 
 
 @ray.remote
@@ -25,7 +26,7 @@ class ShuffleStageAdapter(BaseStageAdapter):
 
     def __init__(
         self,
-        stage: "LSHStage",
+        stage: "ShuffleStage | LSHStage",
         rank: int,
         nranks: int,
         num_input_tasks: int | None = None,
@@ -58,8 +59,12 @@ class ShuffleStageAdapter(BaseStageAdapter):
             if num_input_tasks is None:
                 err_msg = "Shuffle total_nparts could not be set automatically. Please set it manually during stage initialization."
                 raise ValueError(err_msg)
-
-            self.output_nparts = max(1, 2 ** math.floor(math.log2(num_input_tasks)))
+            if self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_LSH_STAGE, False):
+                # Rounds down to the nearest power of 2.
+                # Emperically this improves shuffle performance for LSH without significantly increasing the risk of OOMs.
+                self.output_nparts = max(1, 2 ** math.floor(math.log2(num_input_tasks)))
+            else:
+                self.output_nparts = max(1, num_input_tasks)
         else:
             self.output_nparts = stage_class_kwargs.get("total_nparts")
 
@@ -105,11 +110,14 @@ class ShuffleStageAdapter(BaseStageAdapter):
             raise RuntimeError(err_msg)
         self.stage._actor_obj.setup_worker(self.root_address)
 
-    def read_and_insert(self, tasks: list[FileGroupTask], band_range: tuple[int, int]) -> list[FileGroupTask]:
+    def read_and_insert(
+        self, tasks: list[FileGroupTask], band_range: tuple[int, int] | None = None
+    ) -> list[FileGroupTask]:
         """Read and insert tasks into the shuffler."""
+        insert_kwargs = {"band_range": band_range} if band_range is not None else {}
         results = []
         for task in tasks:
-            results.append(self.stage.read_and_insert(task, band_range))
+            results.append(self.stage.read_and_insert(task, **insert_kwargs))
         return results
 
     def insert_finished(self) -> None:

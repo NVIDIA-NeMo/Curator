@@ -1,3 +1,16 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import uuid
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
@@ -8,7 +21,7 @@ import numpy.typing as npt
 import torch
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.models import transnetv2
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -64,6 +77,10 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips.extracted_frames"]
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download TransNetV2 weights on the node."""
+        transnetv2.TransNetV2.download_weights_on_node(self.model_dir)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._model = transnetv2.TransNetV2(model_dir=self.model_dir)

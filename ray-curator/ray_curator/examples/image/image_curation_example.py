@@ -19,12 +19,12 @@ import time
 from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.examples.image.helper import download_webdataset
 from ray_curator.pipeline import Pipeline
+from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.io.image_writer import ImageWriterStage
-from ray_curator.stages.io.reader.file_partitioning import FilePartitioningStage
 
 
 def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
@@ -53,6 +53,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
         model_dir=args.model_dir,
         num_gpus_per_worker=args.embedding_gpus_per_worker,
         model_inference_batch_size=args.embedding_batch_size,
+        remove_image_data=False,
         verbose=args.verbose,
     ))
 
@@ -78,6 +79,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     pipeline.add_stage(ImageWriterStage(
         output_dir=args.output_dataset_dir,
         images_per_tar=args.images_per_tar,
+        remove_image_data=True,
         verbose=args.verbose,
     ))
 

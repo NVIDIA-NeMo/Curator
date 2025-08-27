@@ -32,6 +32,7 @@ from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from ray_curator.models.base import ModelInterface
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 _MODEL_CONFIG_PATH = (
     pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"
@@ -39,7 +40,9 @@ _MODEL_CONFIG_PATH = (
 _BERT_CONFIG_PATH = pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "config_bert_large.json"
 INTERNVIDEO2_MODEL_ID: Final = "OpenGVLab/InternVideo2-Stage2_1B-224p-f4"
 INTERNVIDEO2_MODEL_FILE: Final = "InternVideo2-stage2_1b-224p-f4.pt"
+INTERNVIDEO2_MODEL_REVISION: Final = "4362e1f"
 BERT_MODEL_ID: Final = "google-bert/bert-large-uncased"
+BERT_MODEL_REVISION: Final = "6da4b6a"
 
 
 class _InternVideo2Stage2Wrapper(InternVideo2_Stage2_visual):
@@ -240,16 +243,6 @@ class InternVideo2MultiModality(ModelInterface):
     def model_id_names(self) -> list[str]:
         return [INTERNVIDEO2_MODEL_ID, BERT_MODEL_ID]
 
-    @property
-    def conda_env_name(self) -> str:
-        """Get the conda environment name.
-
-        Returns:
-            The conda environment name.
-
-        """
-        return "unified"
-
     def setup(self) -> None:
         """Set up the InternVideo2MultiModality model.
 
@@ -356,3 +349,35 @@ class InternVideo2MultiModality(ModelInterface):
         assert self._model is not None  # noqa: S101
         probs, idxs = self._model.predict_label(video_embd, text_embds_tensor, top=count)
         return probs.cpu().numpy()[0].tolist(), idxs.cpu().long().numpy()[0].tolist()
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download the weights for the InternVideo2 model on the node."""
+        model_dir_path = Path(model_dir) / INTERNVIDEO2_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        if not model_dir_path.exists() or not any(model_dir_path.glob("*.pt")):
+            download_model_from_hf(
+                model_id=INTERNVIDEO2_MODEL_ID,
+                local_dir=model_dir_path,
+                revision=INTERNVIDEO2_MODEL_REVISION,
+            )
+            logger.info(f"InternVideo2 weights downloaded to: {model_dir_path}")
+
+        # Download Bert weights
+        bert_model_dir_path = Path(model_dir) / BERT_MODEL_ID
+        bert_model_dir_path.mkdir(parents=True, exist_ok=True)
+        if bert_model_dir_path.exists() and any(bert_model_dir_path.glob("*.safetensors")):
+            return
+        download_model_from_hf(
+            model_id=BERT_MODEL_ID,
+            local_dir=bert_model_dir_path,
+            ignore_patterns=[
+                "*.msgpack",
+                "*.bin",
+                "*.ot",
+                "*.h5",
+                "*.gz",
+            ],  # Ignore all weight files except safetensors
+            revision=BERT_MODEL_REVISION,
+        )
+        logger.info(f"Bert weights downloaded to: {bert_model_dir_path}")

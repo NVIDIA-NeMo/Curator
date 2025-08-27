@@ -60,7 +60,7 @@ cc_stage = CommonCrawlDownloadExtractStage(
 pipeline.add_stage(cc_stage)
 
 # Add writer stage to save as JSONL
-writer = JsonlWriter(output_dir="/output/folder")
+writer = JsonlWriter(path="/output/folder")
 pipeline.add_stage(writer)
 
 # Build and execute pipeline
@@ -93,7 +93,7 @@ Download and process web archive data from Common Crawl
 :::
 
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Wikipedia
-:link: text-load-data-wikipedia  
+:link: text-load-data-wikipedia
 :link-type: ref
 Download and extract Wikipedia articles from Wikipedia dumps
 +++

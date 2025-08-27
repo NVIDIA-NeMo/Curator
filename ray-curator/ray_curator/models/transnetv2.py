@@ -1,11 +1,10 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -27,14 +26,17 @@ from collections.abc import Callable
 from typing import Final
 
 import torch
+from loguru import logger
 from torch import nn
 from torch.nn import functional
+
+from ray_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface
 
 _TRANSNETV2_MODEL_ID: Final = "Sn4kehead/TransNetV2"
 _TRANSNETV2_MODEL_WEIGHTS: Final = "transnetv2-pytorch-weights.pth"
-
+_TRANSNETV2_MODEL_REVISION: Final = "db6ceab"
 
 class _TransNetV2(nn.Module):
     def __init__(  # noqa: PLR0913
@@ -586,3 +588,28 @@ class TransNetV2(ModelInterface):
         """
         with torch.no_grad():
             return self._model(inputs)  # type: ignore[no-any-return]
+
+    @classmethod
+    def download_weights_on_node(cls, model_dir: str) -> None:
+        """Download TransNetV2 weights on the node.
+
+        Args:
+            model_dir: Directory to save the model weights. If None, uses self.model_dir.
+        """
+
+        # Create the model directory if it doesn't exist
+        model_dir_path = pathlib.Path(model_dir) / _TRANSNETV2_MODEL_ID
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+        model_file = model_dir_path / _TRANSNETV2_MODEL_WEIGHTS
+        if model_file.exists():
+            return
+
+        # Download the weights file from Hugging Face
+        download_model_from_hf(
+            model_id=_TRANSNETV2_MODEL_ID,
+            local_dir=model_dir_path,
+            filename=_TRANSNETV2_MODEL_WEIGHTS,
+            revision=_TRANSNETV2_MODEL_REVISION,
+        )
+
+        logger.info(f"TransNetV2 weights downloaded to: {model_file}")

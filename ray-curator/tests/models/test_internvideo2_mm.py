@@ -1,3 +1,16 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 """Unit tests for internvideo2_mm.py model."""
 
 import pathlib
@@ -50,10 +63,6 @@ class TestInternVideo2MultiModality:
         """Test model_id_names method returns correct list."""
         expected_names = [INTERNVIDEO2_MODEL_ID, BERT_MODEL_ID]
         assert self.model.model_id_names() == expected_names
-
-    def test_conda_env_name(self) -> None:
-        """Test conda_env_name property returns correct string."""
-        assert self.model.conda_env_name == "unified"
 
     @patch("ray_curator.models.internvideo2_mm._create_config")
     def test_setup_utils_only(self, mock_create_config: "MagicMock") -> None:

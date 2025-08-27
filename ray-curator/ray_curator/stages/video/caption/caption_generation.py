@@ -1,10 +1,23 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.models.qwen_vl import QwenVL
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -52,6 +65,10 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             msg = f"Unsupported model variant: {self.model_variant}"
             raise ValueError(msg)
         self.model.setup()
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the QwenVL model on the node."""
+        QwenVL.download_weights_on_node(self.model_dir)
 
     def __post_init__(self) -> None:
         self._resources = Resources(gpus=1)

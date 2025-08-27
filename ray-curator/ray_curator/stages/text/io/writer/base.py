@@ -15,14 +15,16 @@
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import fsspec
+from fsspec.utils import infer_storage_options
 from loguru import logger
 
 import ray_curator.stages.text.io.writer.utils as writer_utils
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.tasks import DocumentBatch, FileGroupTask
+from ray_curator.utils.file_utils import check_output_mode
 
 
 @dataclass
@@ -33,16 +35,31 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     tasks to files, including file naming, metadata handling, and filesystem operations.
     """
 
-    output_dir: str
+    path: str
     file_extension: str
-    storage_options: dict[str, Any] = field(default_factory=dict)
+    write_kwargs: dict[str, Any] = field(default_factory=dict)
+    fields: list[str] | None = None
+    mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
     _name: str = "BaseWriter"
+    _fs_path: str = field(init=False, repr=False, default="")
+    _protocol: str = field(init=False, repr=False, default="file")
+    _has_explicit_protocol: bool = field(init=False, repr=False, default=False)
+    append_mode_implemented: bool = False
 
     def __post_init__(self):
-        from fsspec.utils import infer_storage_options
+        # Determine protocol and normalized filesystem path
+        path_opts = infer_storage_options(self.path)
+        protocol = path_opts.get("protocol", "file")
+        self._protocol = protocol or "file"
+        # Track if the user provided an explicit URL-style protocol in the path
+        self._has_explicit_protocol = "://" in self.path
+        # Use the filesystem-native path (no protocol) for fs operations
+        self._fs_path = path_opts.get("path", self.path)
 
-        storage_options_inferred = infer_storage_options(self.output_dir)
-        self.fs = fsspec.filesystem(storage_options_inferred["protocol"], **self.storage_options)
+        # Only pass user-provided storage options to fsspec
+        self.storage_options = (self.write_kwargs or {}).get("storage_options", {})
+        self.fs = fsspec.filesystem(protocol, **self.storage_options)
+        check_output_mode(self.mode, self.fs, self._fs_path, append_mode_implemented=self.append_mode_implemented)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -74,12 +91,9 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
 
-        # Create output directory
-        self.fs.makedirs(self.output_dir, exist_ok=True)
-
-        # Generate filename with appropriate extension
+        # Generate filename with appropriate extension using normalized fs path
         file_extension = self.get_file_extension()
-        file_path = self.fs.sep.join([self.output_dir, f"{filename}.{file_extension}"])
+        file_path = self.fs.sep.join([self._fs_path, f"{filename}.{file_extension}"])
 
         # Skip if file already exists (idempotent writes)
         if self.fs.exists(file_path):
@@ -95,7 +109,6 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
             data=[file_path],
             _metadata={
                 **task._metadata,
-                "output_dir": self.output_dir,
                 "format": self.get_file_extension(),
             },
             _stage_perf=task._stage_perf,
