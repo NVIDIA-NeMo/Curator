@@ -67,15 +67,6 @@ deduplication_cuda12x = [
     "rapidsmpf-cu12==25.6.*",
 ]
 
-dev = [
-    "debugpy",
-    "pre-commit",
-    "pytest",
-    "pytest-coverage",
-    "pytest-loguru",
-    "ruff==0.11.4",
-    "scikit-learn",
-]
 video = [
     "av==13.1.0",
     "opencv-python",
