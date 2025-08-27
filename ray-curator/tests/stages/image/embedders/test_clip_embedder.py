@@ -10,6 +10,46 @@ from ray_curator.stages.image.embedders.clip_embedder import ConvertEmbeddingsTo
 from ray_curator.tasks import DocumentBatch, ImageBatch, ImageObject
 
 
+@pytest.fixture
+def sample_image_objects() -> list[ImageObject]:
+    """Create sample ImageObject instances with image data (module-scoped for reuse)."""
+    rng = np.random.default_rng(42)
+    return [
+        ImageObject(
+            image_id="img_001",
+            image_path="/path/to/img1.jpg",
+            image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
+        ),
+        ImageObject(
+            image_id="img_002",
+            image_path="/path/to/img2.jpg",
+            image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
+        ),
+        ImageObject(
+            image_id="img_003",
+            image_path="/path/to/img3.jpg",
+            image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
+        ),
+        ImageObject(
+            image_id="img_004",
+            image_path="/path/to/img4.jpg",
+            image_data=rng.integers(0, 255, (224, 224, 3), dtype=np.uint8),
+        ),
+    ]
+
+
+@pytest.fixture
+def sample_image_batch(sample_image_objects: list[ImageObject]) -> ImageBatch:
+    """Create a sample ImageBatch (module-scoped for reuse)."""
+    return ImageBatch(
+        data=sample_image_objects,
+        dataset_name="test_dataset",
+        task_id="test_task_001",
+        _metadata={"test": "metadata"},
+        _stage_perf={},
+    )
+
+
 class TestImageEmbeddingStage:
     """Test suite for ImageEmbeddingStage."""
 
