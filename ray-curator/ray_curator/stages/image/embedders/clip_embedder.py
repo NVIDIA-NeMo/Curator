@@ -25,6 +25,7 @@ from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import DocumentBatch, ImageBatch
 
+
 @dataclass
 class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     """Stage for generating image embeddings using CLIP model.

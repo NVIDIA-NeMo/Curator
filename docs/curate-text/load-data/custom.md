@@ -19,7 +19,7 @@ Create custom data loading pipelines using Curator. This guide shows how to buil
 Curator uses a **4-step pipeline pattern** for custom data loading:
 
 1. **URL Generation**: Generate URLs from configuration or input parameters
-2. **Download**: Download files from URLs to local storage  
+2. **Download**: Download files from URLs to local storage
 3. **Iteration**: Extract raw records from downloaded files
 4. **Extraction** (Optional): Transform raw records into final structured format
 
@@ -70,7 +70,7 @@ from ray_curator.stages.text.download.base.url_generation import URLGenerator
 class CustomURLGenerator(URLGenerator):
     def __init__(self, config_param: str):
         self.config_param = config_param
-    
+
     def generate_urls(self) -> list[str]:
         """Generate list of URLs to download."""
         # Your URL generation logic here
@@ -89,21 +89,21 @@ from ray_curator.stages.text.download.base.download import DocumentDownloader
 class CustomDownloader(DocumentDownloader):
     def __init__(self, download_dir: str, verbose: bool = False):
         super().__init__(download_dir, verbose)
-    
+
     def _get_output_filename(self, url: str) -> str:
         """Extract filename from URL."""
         return url.split('/')[-1]
-    
+
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
         """Download file from URL to local path."""
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            
+
             with open(path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
-            
+
             return True, None
         except Exception as e:
             return False, str(e)
@@ -120,7 +120,7 @@ from ray_curator.stages.text.download.base.iterator import DocumentIterator
 class CustomIterator(DocumentIterator):
     def __init__(self, record_format: str = "jsonl"):
         self.record_format = record_format
-    
+
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         """Iterate over records in a file."""
         if self.record_format == "jsonl":
@@ -129,7 +129,7 @@ class CustomIterator(DocumentIterator):
                     if line.strip():
                         yield json.loads(line)
         # Add other format handlers as needed
-    
+
     def output_columns(self) -> list[str]:
         """Define output columns."""
         return ["content", "metadata", "id"]
@@ -147,30 +147,30 @@ class CustomExtractor(DocumentExtractor):
         # Skip invalid records
         if not record.get("content"):
             return None
-        
+
         # Extract and clean text
         cleaned_text = self._clean_text(record["content"])
-        
+
         # Generate unique ID if not present
         doc_id = record.get("id", self._generate_id(cleaned_text))
-        
+
         return {
             "text": cleaned_text,
             "id": doc_id,
             "source": record.get("metadata", {}).get("source", "unknown")
         }
-    
+
     def input_columns(self) -> list[str]:
         return ["content", "metadata", "id"]
-    
+
     def output_columns(self) -> list[str]:
         return ["text", "id", "source"]
-    
+
     def _clean_text(self, text: str) -> str:
         """Clean and normalize text."""
         # Your text cleaning logic here
         return text.strip()
-    
+
     def _generate_id(self, text: str) -> str:
         """Generate unique ID for text."""
         import hashlib
@@ -188,7 +188,7 @@ from .extract import CustomExtractor
 
 class CustomDataStage(DocumentDownloadExtractStage):
     """Custom data loading stage combining all components."""
-    
+
     def __init__(
         self,
         config_param: str,
@@ -280,7 +280,7 @@ def create_full_pipeline():
     ))
 
     # Output
-    pipeline.add_stage(JsonlWriter(output_dir="/output/processed"))
+    pipeline.add_stage(JsonlWriter(path="/output/processed"))
 
     return pipeline
 ``` -->

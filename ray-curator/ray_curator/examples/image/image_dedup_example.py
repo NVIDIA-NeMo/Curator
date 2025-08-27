@@ -27,6 +27,7 @@ from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.io.image_writer import ImageWriterStage
 from ray_curator.stages.text.io.writer.parquet import ParquetWriter
 
+
 def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
     """Create image curation pipeline with file partitioning, image reading, embedding, deduplication."""
 

@@ -265,8 +265,13 @@ class SemanticDeduplicationWorkflow:
             # Since we use the output of KMeans we don't need to pass any read_kwargs which were
             # passed to the KMeans stage.
             # We do need to pass the storage_options to the Pairwise stage.
+<<<<<<< HEAD
             read_kwargs={**self.write_kwargs.get("storage_options", {})},
             write_kwargs={**self.write_kwargs.get("storage_options", {})},
+=======
+            read_kwargs={"storage_options": self.write_kwargs.get("storage_options")},
+            write_kwargs={"storage_options": self.write_kwargs.get("storage_options")},
+>>>>>>> origin/ray-api
         )
         pipeline.add_stage(pairwise_stage)
 

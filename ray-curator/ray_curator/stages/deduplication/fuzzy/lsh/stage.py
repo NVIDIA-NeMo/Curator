@@ -96,7 +96,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             raise ValueError(err_msg)
 
         # Handle output directory and subdirectories
-        output_fs = get_fs(self.output_dir, storage_options=self.write_kwargs.get("storage_options", {}))
+        output_fs = get_fs(self.output_dir, storage_options=self.write_kwargs.get("storage_options"))
         output_base_dir = output_fs.sep.join([self.output_dir, self.name])
 
         if is_not_empty(output_base_dir, output_fs):

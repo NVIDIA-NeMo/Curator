@@ -1,4 +1,16 @@
-"""Simple tests for JsonlReaderStage ID generation functionality."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from pathlib import Path
 
@@ -8,7 +20,7 @@ import pytest
 from ray_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
-from ray_curator.stages.text.io.reader.jsonl import JsonlReaderStage
+from ray_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
 from ray_curator.tasks import FileGroupTask
 
 
@@ -44,6 +56,70 @@ class TestJsonlReaderWithoutIdGenerator:
             df = result.to_pandas()
             assert CURATOR_DEDUP_ID_STR not in df.columns
             assert len(df) == 2  # Each file has 2 rows
+
+    def test_columns_selection(self, file_group_tasks: list[FileGroupTask]) -> None:
+        """When columns are provided, only those are returned (existing ones)."""
+        for task in file_group_tasks:
+            stage = JsonlReaderStage(fields=["text"])  # select single column
+            result = stage.process(task)
+            df = result.to_pandas()
+            assert list(df.columns) == ["text"]
+            assert len(df) == 2
+
+    def test_storage_options_via_read_kwargs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reader should use storage options from reader.read_kwargs."""
+        # Create a file
+        file_path = tmp_path / "one.jsonl"
+        pd.DataFrame({"a": [1]}).to_json(file_path, orient="records", lines=True)
+
+        # Reader uses read_kwargs storage options
+        task = FileGroupTask(task_id="t1", dataset_name="ds", data=[str(file_path)], _metadata={})
+        stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
+
+        seen: dict[str, object] = {}
+
+        def fake_read_json(_path: object, *_args: object, **kwargs: object) -> pd.DataFrame:
+            seen["storage_options"] = kwargs.get("storage_options") if isinstance(kwargs, dict) else None
+            return pd.DataFrame({"a": [1]})
+
+        monkeypatch.setattr(pd, "read_json", fake_read_json)
+
+        out = stage.process(task)
+        assert seen["storage_options"] == {"auto_mkdir": True}
+        df = out.to_pandas()
+        assert len(df) == 1
+
+    def test_composite_reader_propagates_storage_options(self, tmp_path: Path) -> None:
+        """Composite JsonlReader should pass storage options to partitioning stage and underlying stage."""
+        f = tmp_path / "a.jsonl"
+        pd.DataFrame({"text": ["x"]}).to_json(f, orient="records", lines=True)
+        reader = JsonlReader(
+            file_paths=str(tmp_path), read_kwargs={"storage_options": {"anon": True}}, fields=["text"]
+        )
+        stages = reader.decompose()
+        # First stage is file partitioning, ensure storage options are set
+        first = stages[0]
+        assert getattr(first, "storage_options", None) == {"anon": True}
+
+    def test_reader_uses_storage_options_from_read_kwargs_when_task_has_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        f = tmp_path / "b.jsonl"
+        pd.DataFrame({"x": [1, 2]}).to_json(f, orient="records", lines=True)
+
+        seen: dict[str, object] = {}
+
+        def fake_read_json(_path: object, *_args: object, **kwargs: object) -> pd.DataFrame:
+            seen["storage_options"] = kwargs.get("storage_options") if isinstance(kwargs, dict) else None
+            return pd.DataFrame({"x": [1, 2]})
+
+        monkeypatch.setattr(pd, "read_json", fake_read_json)
+        task = FileGroupTask(task_id="t2", dataset_name="ds", data=[str(f)], _metadata={})
+        stage = JsonlReaderStage(read_kwargs={"storage_options": {"auto_mkdir": True}})
+        out = stage.process(task)
+        assert seen["storage_options"] == {"auto_mkdir": True}
+        df = out.to_pandas()
+        assert len(df) == 2
 
 
 class TestJsonlReaderWithIdGenerator:
