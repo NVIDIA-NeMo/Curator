@@ -133,6 +133,8 @@ class RayClient:
             msg += "It is advised to wait for a few seconds before running any Ray commands to ensure Ray can cleanup other processes."
             msg += "If you are seeing any Ray commands like `ray status` failing, please ensure /tmp/ray/ray_current_cluster has correct information."
             logger.info(msg)
+            # Clear the process to prevent double execution (atexit handler)
+            self.ray_process = None
 
 
 if __name__ == "__main__":

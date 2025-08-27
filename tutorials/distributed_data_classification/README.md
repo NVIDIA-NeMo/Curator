@@ -3,10 +3,10 @@ The following is a set of Jupyter notebook tutorials which demonstrate how to us
 The goal of using these classifiers is to help with data annotation, which is useful in data blending for foundation model training.
 
 Each of these classifiers are available on Hugging Face and can be run independently with the [Transformers](https://github.com/huggingface/transformers) library.
-By running them with NeMo Curator, the classifiers are accelerated using [CrossFit](https://github.com/rapidsai/crossfit), a library that leverages intellegent batching and RAPIDS to accelerate the offline inference on large datasets.
+By running them with NeMo Curator, the classifiers are accelerated using a heterogenous pipeline setup where tokenization is run across CPUs and model inference is run across GPUs.
 Each of the Jupyter notebooks in this directory demonstrate how to run the classifiers on text data and are easily scalable to large amounts of data.
 
-Before running any of these notebooks, please see this [Getting Started](https://github.com/NVIDIA/NeMo-Curator?tab=readme-ov-file#get-started) page for instructions on how to install NeMo Curator.
+Before running any of these notebooks, please see this [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html#admin-installation) page for instructions on how to install NeMo Curator. Be sure to use an installation method which includes GPU dependencies.
 
 ## List of Classifiers
 

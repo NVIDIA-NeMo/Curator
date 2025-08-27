@@ -17,7 +17,7 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
+from ray_curator.backends.base import NodeInfo, WorkerMetadata
 from ray_curator.models.qwen_vl import QwenVL
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.resources import Resources
@@ -65,6 +65,10 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             msg = f"Unsupported model variant: {self.model_variant}"
             raise ValueError(msg)
         self.model.setup()
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the QwenVL model on the node."""
+        QwenVL.download_weights_on_node(self.model_dir)
 
     def __post_init__(self) -> None:
         self._resources = Resources(gpus=1)
