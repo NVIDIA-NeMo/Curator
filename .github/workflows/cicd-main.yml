@@ -59,6 +59,7 @@ jobs:
         uses: step-security/changed-files@v45.0.1
         with:
           files: |
+            ray-curator/**
             nemo_curator/**
             .github/**
             pyproject.toml
@@ -148,33 +149,35 @@ jobs:
       - name: Install NeMo-Curator and pytest
         run: |
           pip install -U pip
-          pip install --no-cache-dir wheel
-          pip install --no-cache-dir .
-          pip install --no-cache-dir pytest pytest-asyncio coverage
+          cd ray-curator
+          pip install --no-cache-dir ".[dev]"
+          pip install --no-cache-dir ".[text]"
+          pip install --no-cache-dir ".[video]"
+          pip install --no-cache-dir pytest-asyncio coverage
 
-      - name: Run tests
+      - name: Run tests (CPU)
         run: |
-          python -m coverage run --branch --source=nemo_curator --omit=nemo_curator/scripts/* -m pytest -v --cpu
+          cd ray-curator
+          python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
         shell: bash
         run: |
+          cd ray-curator
           python -m coverage xml
           python -m coverage report
-
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: ${{ steps.check.outputs.coverage_report != 'none' }}
         with:
           name: ${{ steps.check.outputs.coverage_report }}
           path: |
-            coverage.xml
-            .coverage
+            ray-curator/coverage.xml
+            ray-curator/.coverage
           include-hidden-files: true
 
   cicd-gpu-tests:
@@ -237,7 +240,6 @@ jobs:
           # Get workflow run details and check job conclusions
           NUM_FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.conclusion == "failure") | .name] | length')
           NUM_CANCELLED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.conclusion == "cancelled") | .name] | length')
-
           if [[ ($NUM_FAILED -eq 0 && $NUM_CANCELLED -eq 0) || $DOCS_ONLY == 'true' ]]; then
             RESULT="success"
           elif [[ $NUM_CANCELLED -gt 0 ]]; then
@@ -245,10 +247,8 @@ jobs:
           else
             RESULT="failure"
           fi
-
           # Output the final status
           echo "code=$RESULT" | tee -a $GITHUB_OUTPUT
-
       - name: Checkout for GH CLI
         uses: actions/checkout@v4
 
@@ -276,13 +276,9 @@ jobs:
           issue-number: ${{ github.event.number }}
           body: |
             [🤖]: Hi @${{ github.event.pull_request.user.login }} 👋,
-
             We wanted to let you know that a [CICD pipeline](https://github.com/${{ env.REPOSITORY }}/actions/runs/${{ env.RUN_ID }}) for this PR just finished successfully.
-
             So it might be time to merge this PR or get some approvals.
-
             //cc @NVIDIA-NeMo/automation
-
       - name: "Pipeline not successful and not cancelled: Send Slack alert & create step summary"
         if: |
           steps.result.outputs.code == 'failure'
@@ -299,9 +295,7 @@ jobs:
           set -x
           pip install PyGithub
           export BRANCH_NAME=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
-
           python .github/scripts/notify.py
-
       - name: Exit
         if: ${{ always() }}
         env:
@@ -326,7 +320,7 @@ jobs:
       && !cancelled()
     strategy:
       matrix:
-        flag: [unit-test, e2e]
+        flag: [unit-test]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -341,7 +335,6 @@ jobs:
         if: always()
         run: |
           pip install coverage[toml]
-
           ls -al .
           ls -al coverage-*/
           coverage combine --keep $(ls coverage-*/.coverage)
@@ -365,11 +358,11 @@ jobs:
           include-hidden-files: true
 
   codecov-placeholder:
-     name: codecov/patch
-     needs: [pre-flight]
-     if: needs.pre-flight.outputs.docs_only == 'true'
-     runs-on: ubuntu-latest
-     steps:
-       - name: codecov_placeholder
-         run: |
-           echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
+    name: codecov/patch
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: codecov_placeholder
+        run: |
+          echo "This is a placeholder status check for when no tests are ran but the codecov status is expected"
