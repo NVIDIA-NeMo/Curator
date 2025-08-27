@@ -490,3 +490,51 @@ class TestConvertEmbeddingsToDocumentBatchStage:
         assert isinstance(out, DocumentBatch)
         assert list(df.columns) == ["image_id", "embeddings"]
         assert len(df) == 0
+    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    def test_remove_image_data_when_enabled(
+        self,
+        mock_clip_embeddings: Mock,
+        sample_image_batch: ImageBatch,
+    ) -> None:
+        """When remove_image_data=True, image_data should be cleared after processing."""
+        stage = ImageEmbeddingStage(model_inference_batch_size=2, remove_image_data=True)
+
+        mock_model_instance = Mock()
+        mock_model_instance.setup = Mock()
+        mock_model_instance.return_value = torch.randn(2, 512)
+        mock_clip_embeddings.return_value = mock_model_instance
+
+        stage.setup()
+        result = stage.process(sample_image_batch)
+
+        # Embeddings should be set
+        assert all(getattr(img, "embedding", None) is not None for img in result.data)
+        # Image data should be removed
+        assert all(img.image_data is None for img in result.data)
+
+    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    def test_preserve_image_data_when_disabled(
+        self,
+        mock_clip_embeddings: Mock,
+        sample_image_batch: ImageBatch,
+    ) -> None:
+        """When remove_image_data=False, image_data should remain intact after processing."""
+        stage = ImageEmbeddingStage(model_inference_batch_size=2, remove_image_data=False)
+
+        # Keep references to original arrays to verify they are preserved
+        original_arrays = [img.image_data for img in sample_image_batch.data]
+
+        mock_model_instance = Mock()
+        mock_model_instance.setup = Mock()
+        mock_model_instance.return_value = torch.randn(2, 512)
+        mock_clip_embeddings.return_value = mock_model_instance
+
+        stage.setup()
+        result = stage.process(sample_image_batch)
+
+        # Embeddings should be set
+        assert all(getattr(img, "embedding", None) is not None for img in result.data)
+        # Image data should be preserved
+        assert all(img.image_data is not None for img in result.data)
+        # Optionally, verify identity preservation (no replacement)
+        assert all(img.image_data is original_arrays[i] for i, img in enumerate(result.data))

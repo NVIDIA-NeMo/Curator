@@ -59,7 +59,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["image_data", "image_path", "image_id"]
 
-    def _create_dali_pipeline(self, tar_path: str) -> object:
+    def _create_dali_pipeline(self, tar_paths: list[str]) -> object:
         try:
             from nvidia.dali import fn, pipeline_def, types
         except ModuleNotFoundError as exc:  # pragma: no cover
@@ -74,10 +74,10 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             num_threads=self.num_threads,
             device_id=0,  # First device; unused for CPU-only DALI builds
         )
-        def webdataset_pipeline(_tar_path: str) -> object:
+        def webdataset_pipeline() -> object:
             # Read only JPGs to avoid Python-side JSON parsing overhead
             img_raw = fn.readers.webdataset(
-                paths=_tar_path,
+                paths=tar_paths,
                 ext=["jpg"],
                 missing_component_behavior="skip",
             )
@@ -85,19 +85,27 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             decode_device = "mixed" if torch.cuda.is_available() else "cpu"
             return fn.decoders.image(img_raw, device=decode_device, output_type=types.RGB)
 
-        pipe = webdataset_pipeline(tar_path)
+        pipe = webdataset_pipeline()
         pipe.build()
         return pipe
 
-    def _read_tar_with_dali(self, tar_path: pathlib.Path) -> Generator[list[ImageObject], None, None]:
-        """Yield lists of ImageObject per DALI run (one batch -> one yield)."""
-        pipe = self._create_dali_pipeline(str(tar_path))
+    def _read_tars_with_dali(self, tar_paths: list[pathlib.Path]) -> Generator[list[ImageObject], None, None]:
+        """Yield lists of ImageObject per DALI run over one or more tar files."""
+        pipe = self._create_dali_pipeline([str(p) for p in tar_paths])
 
         epoch_size_map = pipe.epoch_size()
         total_samples = epoch_size_map[next(iter(epoch_size_map.keys()))]
 
         samples_completed = 0
-        tar_prefix = tar_path.stem
+        # Use the tar filename stem as the id prefix for single shards; for grouped shards,
+        # synthesize a group prefix and place generated image paths under the tars' parent dir.
+        base_path = tar_paths[0] if len(tar_paths) == 1 else tar_paths[0].parent
+        id_prefix = (
+            tar_paths[0].stem
+            if len(tar_paths) == 1
+            else f"group_{tar_paths[0].stem}_x{len(tar_paths)}"
+        )
+
         while samples_completed < total_samples:
             img_batch = pipe.run()
             if isinstance(img_batch, tuple):
@@ -115,8 +123,8 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
                 img_np = img_item if isinstance(img_item, np.ndarray) else img_item.as_array()
                 image_objects.append(
                     ImageObject(
-                        image_path=str(tar_path / f"{tar_prefix}_{samples_completed + i:06d}.jpg"),
-                        image_id=f"{tar_prefix}_{samples_completed + i:06d}",
+                        image_path=str(base_path / f"{id_prefix}_{samples_completed + i:06d}.jpg"),
+                        image_id=f"{id_prefix}_{samples_completed + i:06d}",
                         image_data=img_np,
                     )
                 )
@@ -126,16 +134,13 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
                 yield image_objects
 
     def _stream_batches(self, tar_files: list[pathlib.Path]) -> Generator[ImageBatch, None, None]:
-        """Emit one ImageBatch per DALI run; no intermediate accumulation."""
-        batch_id = 0
-        for tar_path in tar_files:
-            for image_objects in self._read_tar_with_dali(tar_path):
-                yield ImageBatch(
-                    task_id=f"image_batch_{batch_id}",
-                    dataset_name="tar_files",
-                    data=image_objects,
-                )
-                batch_id += 1
+        """Emit one ImageBatch per DALI run across all provided tar files."""
+        for batch_id, image_objects in enumerate(self._read_tars_with_dali(tar_files)):
+            yield ImageBatch(
+                task_id=f"image_batch_{batch_id}",
+                dataset_name="tar_files",
+                data=image_objects,
+            )
 
     def process(self, task: FileGroupTask) -> list[ImageBatch]:
         tar_file_paths = task.data

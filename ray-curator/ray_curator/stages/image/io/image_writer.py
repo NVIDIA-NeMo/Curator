@@ -44,7 +44,6 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     images_per_tar: int = 1000
     verbose: bool = False
     deterministic_name: bool = True
-    # Local filesystem only; no cloud storage options
     remove_image_data: bool = False
 
     _name: str = "image_writer"
