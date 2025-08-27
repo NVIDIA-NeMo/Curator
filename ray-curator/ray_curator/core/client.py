@@ -148,5 +148,4 @@ if __name__ == "__main__":
     client2.start()
     time.sleep(10)
     client2.stop()
-
     client.stop()
