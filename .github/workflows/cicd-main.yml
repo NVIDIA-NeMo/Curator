@@ -156,6 +156,7 @@ jobs:
           pip install --no-cache-dir ".[dev]"
           pip install --no-cache-dir ".[text]"
           pip install --no-cache-dir ".[video]"
+          pip install --no-cache-dir ".[internvideo2]"
           pip install --no-cache-dir pytest-asyncio coverage
 
       - name: Run tests (CPU)
