@@ -22,12 +22,12 @@ from typing import Final
 import cv2
 
 # Load config from the internvideo2_multi_modality package
-import internvideo2_multi_modality
+import ray_curator.internvideo2_multi_modality
 import numpy as np
 import numpy.typing as npt
 import torch
 from easydict import EasyDict
-from internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
+from ray_curator.internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 

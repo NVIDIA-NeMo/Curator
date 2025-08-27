@@ -1,0 +1,3 @@
+[submodule "ray-curator/ray_curator/InternVideo2MultiModality"]
+	path = ray-curator/ray_curator/internvideo2_mutli_modality
+	url = git@github.com:thomasdhc/InternVideo2MultiModality.git

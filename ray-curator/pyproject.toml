@@ -3,7 +3,15 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["ray_curator", "ray_curator.*"]
+include = [
+    "ray_curator",
+    "ray_curator.*",
+    "ray_curator.internvideo2_multi_modality",
+    "ray_curator.internvideo2_multi_modality.*",
+]
+
+[tool.setuptools.package-data]
+"ray_curator.internvideo2_multi_modality" = ["*", "**.*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "ray_curator.package_info.__version__" }
