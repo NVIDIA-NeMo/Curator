@@ -5,8 +5,7 @@ sphinx-copybutton
 nvidia-sphinx-theme
 sphinx-autobuild
 sphinx-design
-pinecone
-openai
+docutils
 python-dotenv
 sphinxcontrib-mermaid
 swagger-plugin-for-sphinx
