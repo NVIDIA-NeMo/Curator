@@ -30,7 +30,7 @@ try:
     from nemo_curator.utils.nvcodec_utils import PyNvcFrameExtractor
 
     _PYNVC_AVAILABLE = True
-except ImportError:
+except (ImportError, RuntimeError):
     logger.warning("PyNvcFrameExtractor not available, PyNvCodec mode will fall back to FFmpeg")
     PyNvcFrameExtractor = None
     _PYNVC_AVAILABLE = False
