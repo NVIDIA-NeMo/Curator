@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Model Clips."""
-
 from pathlib import Path
 from typing import Final
 
@@ -24,7 +22,7 @@ from loguru import logger
 from torchvision import transforms  # type: ignore[import-untyped]
 from transformers import CLIPModel, CLIPProcessor
 
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 from .aesthetics import AestheticScorer
 from .base import ModelInterface

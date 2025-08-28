@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import os
 import pathlib
 import sys
@@ -21,7 +22,7 @@ from uuid import UUID
 import numpy as np
 import numpy.typing as npt
 
-from ray_curator.utils.decoder_utils import extract_video_metadata
+from nemo_curator.utils.decoder_utils import extract_video_metadata
 
 from .tasks import Task
 

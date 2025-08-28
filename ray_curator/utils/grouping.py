@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """Utility Functions for grouping iterables.
 
 This module provides a collection of utility functions designed to assist with common tasks related to manipulating

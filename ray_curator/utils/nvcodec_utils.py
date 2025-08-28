@@ -12,11 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""nvcodec_utils.
-
-Various helpers for GPU accelerated decode/encode.
-"""
-
 import enum
 import queue
 from pathlib import Path

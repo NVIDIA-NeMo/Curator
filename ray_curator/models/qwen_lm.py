@@ -11,13 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 from transformers import AutoTokenizer
 
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
@@ -34,7 +35,7 @@ except ImportError:
         pass
 
 
-from ray_curator.models.base import ModelInterface
+from nemo_curator.models.base import ModelInterface
 
 _QWEN_LM_MODEL_ID = "Qwen/Qwen2.5-14B-Instruct"
 _QWEN_LM_MODEL_REVISION = "cf98f3b"

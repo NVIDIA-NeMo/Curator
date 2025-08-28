@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import pathlib
 import re
 from pathlib import Path
@@ -18,7 +19,7 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 try:
     from vllm import LLM, SamplingParams
@@ -35,8 +36,8 @@ except ImportError:
         pass
 
 
-from ray_curator.models.base import ModelInterface
-from ray_curator.utils import grouping
+from nemo_curator.models.base import ModelInterface
+from nemo_curator.utils import grouping
 
 _QWEN2_5_VL_MODEL_ID = "Qwen/Qwen2.5-VL-7B-Instruct"
 _QWEN2_5_VL_MODEL_REVISION = "cc59489"

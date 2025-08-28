@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 r"""Model for fast shot transition detection.
 
 @article{soucek2020transnetv2,
@@ -30,7 +31,7 @@ from loguru import logger
 from torch import nn
 from torch.nn import functional
 
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface
 

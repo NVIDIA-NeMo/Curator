@@ -11,14 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Task data structures for the ray-curator pipeline framework."""
 
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
-from ray_curator.utils.performance_utils import StagePerfStats
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 T = TypeVar("T")
 

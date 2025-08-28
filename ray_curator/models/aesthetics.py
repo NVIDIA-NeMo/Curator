@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Model Aesthetics."""
-
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +21,7 @@ from loguru import logger
 from safetensors.torch import load_file
 from torch import nn
 
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface
 

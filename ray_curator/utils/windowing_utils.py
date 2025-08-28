@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Utilities which are used in multiple places in the pipeline and/or are unit-tested."""
 
 import math
 import subprocess
@@ -21,8 +20,8 @@ import torch
 from torchvision import transforms  # type: ignore[import-untyped]
 from torchvision.transforms import InterpolationMode, v2  # type: ignore[import-untyped]
 
-from ray_curator.utils.decoder_utils import decode_video_cpu_frame_ids, get_avg_frame_rate, get_frame_count
-from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
+from nemo_curator.utils.decoder_utils import decode_video_cpu_frame_ids, get_avg_frame_rate, get_frame_count
+from nemo_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
 
 @dataclass

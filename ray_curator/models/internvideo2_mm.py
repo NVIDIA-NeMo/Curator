@@ -1,18 +1,16 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-# http://www.apache.org/licenses/LICENSE-2.0
+#     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Wrapper for InternVideo2 model that inherits from the original implementation."""
 
 import json
 import pathlib
@@ -31,8 +29,8 @@ from internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from ray_curator.models.base import ModelInterface
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.models.base import ModelInterface
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 _MODEL_CONFIG_PATH = (
     pathlib.Path(internvideo2_multi_modality.__file__).parent / "configs" / "internvideo2_mm_config_model.json"

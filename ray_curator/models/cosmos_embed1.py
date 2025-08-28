@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Model Cosmos-Embed1."""
-
 from pathlib import Path
 from typing import Final, Literal, cast
 
@@ -23,7 +21,7 @@ import torch
 from loguru import logger
 from transformers import AutoModel, AutoProcessor
 
-from ray_curator.utils.hf_download_utils import download_model_from_hf
+from nemo_curator.utils.hf_download_utils import download_model_from_hf
 
 from .base import ModelInterface
 
