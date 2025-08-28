@@ -131,6 +131,7 @@ all = [
     "ray_curator[dali]",
     "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
+    "ray_curator[internvideo2]",
     "ray_curator[video]",
     "ray_curator[video_cuda]",
 ]
