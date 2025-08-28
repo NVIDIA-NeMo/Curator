@@ -1,2 +1,0 @@
-Hello, I am <name>David</name>. I was born on <birth_date>December 5, 1983</birth_date>. My email is <email>david@company.com</email> and you can call me on <phone_number>(845) 450 5693</phone_number>
-My SSN is <ssn>284-89-3485</ssn>. I live at <address>2456 Main Street, Silver Spring MD</address>
