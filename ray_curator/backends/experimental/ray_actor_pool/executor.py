@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import uuid
 from typing import TYPE_CHECKING
 
@@ -6,10 +20,10 @@ import ray
 from loguru import logger
 from ray.util.actor_pool import ActorPool
 
-from ray_curator.backends.base import BaseExecutor
-from ray_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
-from ray_curator.backends.utils import register_loguru_serializer
-from ray_curator.tasks import EmptyTask, Task
+from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
+from nemo_curator.backends.utils import register_loguru_serializer
+from nemo_curator.tasks import EmptyTask, Task
 
 from .adapter import RayActorPoolStageAdapter
 from .raft_adapter import RayActorPoolRAFTAdapter
@@ -17,8 +31,8 @@ from .shuffle_adapter import ShuffleStageAdapter
 from .utils import calculate_optimal_actors_for_stage, create_named_ray_actor_pool_stage_adapter
 
 if TYPE_CHECKING:
-    from ray_curator.stages.base import ProcessingStage
-    from ray_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
+    from nemo_curator.stages.base import ProcessingStage
+    from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
 
 _LARGE_INT = 2**31 - 1
 
