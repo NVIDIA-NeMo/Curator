@@ -1,0 +1,3 @@
+CURATOR_DEFAULT_MINHASH_FIELD = "_minhash_signature"
+CURATOR_LSH_BUCKET_FIELD = "_bucket_id"
+CURATOR_FUZZY_DUPLICATE_GROUP_FIELD = "_duplicate_group_id"

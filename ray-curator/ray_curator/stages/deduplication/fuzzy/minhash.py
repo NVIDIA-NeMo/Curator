@@ -6,14 +6,12 @@ import numpy as np
 import rmm
 
 from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.deduplication.id_generator import (
-    CURATOR_DEDUP_ID_STR,
-    get_id_generator_actor,
-)
+from ray_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
+from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from ray_curator.stages.deduplication.io_utils import DeduplicationIO
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import get_fs
+from ray_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
 if TYPE_CHECKING:
     from ray_curator.backends.base import WorkerMetadata
@@ -181,12 +179,12 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
 
     Parameters
     ----------
-    output_dir : str
-        Directory where minhash output files will be written
-    text_column : str, default="text"
-        Name of the column containing text to compute minhashes from
-    minhash_column : str, default="_minhash_signature"
-        Name of the column where minhash signatures will be stored
+    output_path : str
+        Base path where minhash output files will be written
+    text_field : str, default="text"
+        Name of the field containing text to compute minhashes from
+    minhash_field : str, default="_minhash_signature"
+        Name of the field where minhash signatures will be stored
     char_ngrams : int, default=24
         Width of character n-grams for minhashing
     num_hashes : int, default=260
@@ -205,8 +203,8 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
     Examples
     --------
     >>> stage = MinHashStage(
-    ...     output_dir="/path/to/minhash/output",
-    ...     text_column="content",
+    ...     output_path="/path/to/minhash/output",
+    ...     text_field="content",
     ...     num_hashes=128,
     ...     char_ngrams=5
     ... )
@@ -215,9 +213,9 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
 
     def __init__(  # noqa: PLR0913
         self,
-        output_dir: str,
-        text_column: str = "text",
-        minhash_column: str = "_minhash_signature",
+        output_path: str,
+        text_field: str = "text",
+        minhash_field: str = CURATOR_DEFAULT_MINHASH_FIELD,
         char_ngrams: int = 24,
         num_hashes: int = 260,
         seed: int = 42,
@@ -227,17 +225,12 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         write_kwargs: dict[str, Any] | None = None,
         pool: bool = True,
     ):
-        # Initialize parent classes
-        ProcessingStage.__init__(self)
-        DeduplicationIO.__init__(self, id_generator=None)
-
         # Set ProcessingStage attributes
         self._name = self.__class__.__name__
         self._resources = Resources(gpus=1.0)  # Requires 1 GPU
 
-        self.output_dir = output_dir
-        self.text_column = text_column
-        self.minhash_column = minhash_column
+        self.text_field = text_field
+        self.minhash_field = minhash_field
         self.char_ngrams = char_ngrams
         self.num_hashes = num_hashes
         self.seed = seed
@@ -250,10 +243,22 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         self.minhash_processor = None
         self.id_generator = None
 
+        self.output_fs = get_fs(output_path, self.write_kwargs.get("storage_options", {}))
+        self.output_path = self.output_fs.sep.join([output_path, self._name])
+        create_or_overwrite_dir(self.output_path, storage_options=self.write_kwargs.get("storage_options", {}))
+
     def setup(self, _worker_metadata: "WorkerMetadata | None" = None) -> None:
         """Initialize the GPU MinHash processor and ID generator."""
         # Initialize the ID generator (will be shared across workers)
-        self.id_generator = get_id_generator_actor()
+
+        try:
+            self.id_generator = get_id_generator_actor()
+        except ValueError as e:
+            err_msg = """
+            Failed to get ID generator actor. Start an ID generator actor via `create_id_generator_actor` if calling this stage directly.
+            If using the FuzzyDedup API this should be started automatically.
+            """
+            raise ValueError(err_msg) from e
 
         # Initialize the GPU minhash processor
         self.minhash_processor = GPUMinHash(
@@ -287,22 +292,21 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             msg = "MinHash processor or ID generator not initialized. Call setup() first."
             raise RuntimeError(msg)
 
-        fs = get_fs(self.output_dir, self.write_kwargs.get("storage_options"))
-        output_file = fs.sep.join([self.output_dir, self._name, f"{task.task_id}.parquet"])
+        output_file = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
 
         read_kwargs = self.read_kwargs.copy()
 
         # Read input file based on format
         if self.read_format == "jsonl":
-            df = self.read_jsonl(filepath=task.data, columns=[self.text_column], assign_id=True, **read_kwargs)
+            df = self.read_jsonl(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
         elif self.read_format == "parquet":
-            df = self.read_parquet(filepath=task.data, columns=[self.text_column], assign_id=True, **read_kwargs)
+            df = self.read_parquet(filepath=task.data, columns=[self.text_field], assign_id=True, **read_kwargs)
         else:
             msg = f"Unsupported read format: {self.read_format}"
             raise ValueError(msg)
 
         result_df = df[[CURATOR_DEDUP_ID_STR]]
-        result_df[self.minhash_column] = self.minhash_processor.compute_minhashes(df[self.text_column])
+        result_df[self.minhash_field] = self.minhash_processor.compute_minhashes(df[self.text_field])
 
         # Write output file
         self.write_parquet(df=result_df, filepath=output_file, **self.write_kwargs)
@@ -314,7 +318,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
             data=[output_file],
             _metadata={
                 **task._metadata,
-                "minhash_column": self.minhash_column,
+                "minhash_field": self.minhash_field,
                 "num_hashes": self.num_hashes,
                 "storage_options": self.write_kwargs.get("storage_options"),
             },
