@@ -55,7 +55,7 @@ We use ``ruff`` as our style guide. To fix your format run `pre-commit install &
 1. Methods should be atomic. A method shouldn't be longer than 88 lines, e.g. can be fit into the computer screen without scrolling.
 1. If a method has arguments that don't fit into one line, each argument should be in its own line for readability.
 1. Add ``__init__.py`` for every folder.
-1. F-strings are prefered to formatted strings.
+1. F-strings are preferred to formatted strings.
 1. Loggers are preferred to print.
 1. Private functions (functions start with ``_``) shouldn't be called outside its host file.
 1. If a comment lasts multiple lines, use ``'''`` instead of ``#``.

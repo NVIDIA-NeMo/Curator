@@ -106,7 +106,7 @@ The choice of the embedding model is provided in the default configuration. We e
 
 ### Choice of Answerability Filter
 
-For Answerability Filter, our recommendation is to go with the choice provided in the default configuation file. We confirmed that the checkbox-style prompt in the default configuration worked well for valid question filtering.
+For Answerability Filter, our recommendation is to go with the choice provided in the default configuration file. We confirmed that the checkbox-style prompt in the default configuration worked well for valid question filtering.
 
 However, the framework is flexible of the choice of LLM-as-a-Judge and different LLMs with different prompt templates might work better for certain use cases. You can also experiment with Likert-scale prompting if need be.
 
