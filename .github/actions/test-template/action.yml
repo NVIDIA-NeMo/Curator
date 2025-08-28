@@ -177,11 +177,7 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c '
           set -e
 
-<<<<<<< HEAD
-          source /opt/entrypoint.sh
-=======
           . /opt/venv/env.sh
->>>>>>> origin/main
           bash ray-curator/tests/${{ inputs.script }}.sh
         '
 
