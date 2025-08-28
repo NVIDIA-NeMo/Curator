@@ -30,11 +30,11 @@ NeMo Curator provides robust tools for managing multilingual text datasets throu
 Language management in NeMo Curator typically follows this pattern using the Pipeline API:
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.stages.text.io.reader import JsonlReader
-from ray_curator.stages.text.modules import ScoreFilter
-from ray_curator.stages.text.filters import FastTextLangId
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import FastTextLangId
 
 # 1) Build the pipeline
 pipeline = Pipeline(name="language_management")

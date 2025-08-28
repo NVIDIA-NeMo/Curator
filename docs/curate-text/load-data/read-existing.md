@@ -17,11 +17,11 @@ Use Curator's `JsonlReader` to read existing JSONL files into a pipeline, then o
 ## Example: Read JSONL and Filter
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna.executor import XennaExecutor
-from ray_curator.stages.text.io.reader import JsonlReader
-from ray_curator.stages.text.modules import ScoreFilter
-from ray_curator.stages.text.filters import WordCountFilter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna.executor import XennaExecutor
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter
 
 # Create pipeline for processing existing JSONL files
 pipeline = Pipeline(name="custom_data_processing")

@@ -65,7 +65,7 @@ your_data_source/
 #### URL Generator (`url_generation.py`)
 
 ```python
-from ray_curator.stages.text.download.base.url_generation import URLGenerator
+from nemo_curator.stages.text.download.base.url_generation import URLGenerator
 
 class CustomURLGenerator(URLGenerator):
     def __init__(self, config_param: str):
@@ -84,7 +84,7 @@ class CustomURLGenerator(URLGenerator):
 
 ```python
 import requests
-from ray_curator.stages.text.download.base.download import DocumentDownloader
+from nemo_curator.stages.text.download.base.download import DocumentDownloader
 
 class CustomDownloader(DocumentDownloader):
     def __init__(self, download_dir: str, verbose: bool = False):
@@ -115,7 +115,7 @@ class CustomDownloader(DocumentDownloader):
 import json
 from collections.abc import Iterator
 from typing import Any
-from ray_curator.stages.text.download.base.iterator import DocumentIterator
+from nemo_curator.stages.text.download.base.iterator import DocumentIterator
 
 class CustomIterator(DocumentIterator):
     def __init__(self, record_format: str = "jsonl"):
@@ -139,7 +139,7 @@ class CustomIterator(DocumentIterator):
 
 ```python
 from typing import Any
-from ray_curator.stages.text.download.base.extract import DocumentExtractor
+from nemo_curator.stages.text.download.base.extract import DocumentExtractor
 
 class CustomExtractor(DocumentExtractor):
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
@@ -180,7 +180,7 @@ class CustomExtractor(DocumentExtractor):
 ### 3. Create Composite Stage (`stage.py`)
 
 ```python
-from ray_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
+from nemo_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
 from .url_generation import CustomURLGenerator
 from .download import CustomDownloader
 from .iterator import CustomIterator
@@ -216,8 +216,8 @@ class CustomDataStage(DocumentDownloadExtractStage):
 ### Basic Pipeline
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
 from your_data_source.stage import CustomDataStage
 
 def main():
@@ -260,9 +260,9 @@ For executor options and configuration, refer to {ref}`reference-execution-backe
 <!-- ### Adding Processing Stages
 
 ```python
-from ray_curator.stages.modules import ScoreFilter
-from ray_curator.stages.filters import WordCountFilter
-from ray_curator.stages.io.writer import JsonlWriter
+from nemo_curator.stages.modules import ScoreFilter
+from nemo_curator.stages.filters import WordCountFilter
+from nemo_curator.stages.io.writer import JsonlWriter
 
 def create_full_pipeline():
     pipeline = Pipeline(name="full_processing")
