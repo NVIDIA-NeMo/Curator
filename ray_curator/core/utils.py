@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import ray
 from loguru import logger
 
-from ray_curator.core.constants import (
+from nemo_curator.core.constants import (
     DEFAULT_RAY_AUTOSCALER_METRIC_PORT,
     DEFAULT_RAY_DASHBOARD_METRIC_PORT,
 )

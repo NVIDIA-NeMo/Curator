@@ -11,11 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import argparse
 
-from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.video.io.video_reader import VideoReader
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.video.io.video_reader import VideoReader
 
 
 def create_video_reading_pipeline(args: argparse.Namespace) -> Pipeline:

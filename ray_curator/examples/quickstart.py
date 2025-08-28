@@ -30,13 +30,13 @@ import torch
 from loguru import logger
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.core.client import RayClient
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Task, _EmptyTask
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task, _EmptyTask
 
 SAMPLE_SENTENCES = [
     "I love this product",

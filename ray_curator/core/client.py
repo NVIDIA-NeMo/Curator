@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from ray_curator.core.constants import (
+from nemo_curator.core.constants import (
     DEFAULT_RAY_CLIENT_SERVER_PORT,
     DEFAULT_RAY_DASHBOARD_HOST,
     DEFAULT_RAY_DASHBOARD_PORT,
@@ -27,11 +27,11 @@ from ray_curator.core.constants import (
     DEFAULT_RAY_PORT,
     DEFAULT_RAY_TEMP_DIR,
 )
-from ray_curator.core.utils import (
+from nemo_curator.core.utils import (
     get_free_port,
     init_cluster,
 )
-from ray_curator.metrics.utils import (
+from nemo_curator.metrics.utils import (
     add_ray_prometheus_metrics_service_discovery,
     is_grafana_running,
     is_prometheus_running,

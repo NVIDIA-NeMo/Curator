@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from __future__ import annotations
 
 import asyncio
@@ -31,8 +32,8 @@ from PIL import Image
 from tqdm import tqdm
 
 if TYPE_CHECKING:
-    from ray_curator.tasks import ImageObject
-    from ray_curator.tasks.image import ImageBatch
+    from nemo_curator.tasks import ImageObject
+    from nemo_curator.tasks.image import ImageBatch
 
 # HTTP status codes
 HTTP_OK = 200

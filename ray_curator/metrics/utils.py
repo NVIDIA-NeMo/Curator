@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Utilities for Prometheus and Grafana monitoring services."""
-
 import os
 import re
 import subprocess
@@ -22,7 +20,7 @@ import psutil
 import requests
 import yaml
 
-from ray_curator.metrics.constants import DEFAULT_NEMO_CURATOR_METRICS_PATH
+from nemo_curator.metrics.constants import DEFAULT_NEMO_CURATOR_METRICS_PATH
 
 
 def is_prometheus_running() -> bool:
