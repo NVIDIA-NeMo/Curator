@@ -38,10 +38,10 @@ Data sources provide composite stages that combine these steps into complete dow
 :::{tab-item} Python
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna.executor import XennaExecutor
-from ray_curator.stages.text.download import CommonCrawlDownloadExtractStage
-from ray_curator.stages.io.writer import JsonlWriter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna.executor import XennaExecutor
+from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
+from nemo_curator.stages.io.writer import JsonlWriter
 
 # Create a pipeline for downloading Common Crawl data
 pipeline = Pipeline(

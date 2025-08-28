@@ -1,7 +1,0 @@
-beir
-nltk
-pandas
-pydantic
-sentence-transformers
-tqdm
-transformers

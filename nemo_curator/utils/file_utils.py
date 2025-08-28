@@ -12,447 +12,382 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import annotations
 
-import json
-import os
-import pathlib
-import warnings
-from functools import partial, reduce
+import posixpath
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
-import dask.bag as db
-import dask.dataframe as dd
-import numpy as np
-import pandas as pd
-from dask import delayed
+import fsspec
+from fsspec.core import get_filesystem_class, split_protocol
+from fsspec.utils import infer_storage_options
+from loguru import logger
 
-from nemo_curator.utils.distributed_utils import (
-    read_data,
-    single_partition_write_with_filename,
-)
+from nemo_curator.utils.client_utils import is_remote_url
 
-NEMO_CURATOR_HOME = os.environ.get("NEMO_CURATOR_HOME", os.path.join(os.path.expanduser("~"), ".nemo_curator"))
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
+    import pandas as pd
 
-def mkdir(d: str) -> None:
-    pathlib.Path(d).mkdir(parents=True, exist_ok=True)
+FILETYPE_TO_DEFAULT_EXTENSIONS = {
+    "parquet": [".parquet"],
+    "jsonl": [".jsonl", ".json"],
+}
 
 
-def expand_outdir_and_mkdir(outdir: str) -> str:
-    outdir = os.path.abspath(os.path.expanduser(outdir))
-    mkdir(outdir)
-    return outdir
+def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.AbstractFileSystem:
+    if not storage_options:
+        storage_options = {}
+    protocol, path = split_protocol(path)
+    return get_filesystem_class(protocol)(**storage_options)
+
+
+def is_not_empty(
+    path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
+) -> bool:
+    if fs is not None and storage_options is not None:
+        err_msg = "fs and storage_options cannot be provided together"
+        raise ValueError(err_msg)
+    elif fs is None:
+        fs = get_fs(path, storage_options)
+
+    return fs.exists(path) and fs.isdir(path) and fs.listdir(path)
+
+
+def delete_dir(
+    path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
+) -> None:
+    if fs is not None and storage_options is not None:
+        err_msg = "fs and storage_options cannot be provided together"
+        raise ValueError(err_msg)
+    elif fs is None:
+        fs = get_fs(path, storage_options)
+
+    if fs.exists(path) and fs.isdir(path):
+        fs.rm(path, recursive=True)
+
+
+def create_or_overwrite_dir(
+    path: str, fs: fsspec.AbstractFileSystem | None = None, storage_options: dict[str, str] | None = None
+) -> None:
+    """
+    Creates a directory if it does not exist and overwrites it if it does.
+    Warning: This function will delete all files in the directory if it exists.
+    """
+    if fs is not None and storage_options is not None:
+        err_msg = "fs and storage_options cannot be provided together"
+        raise ValueError(err_msg)
+    elif fs is None:
+        fs = get_fs(path, storage_options)
+
+    if is_not_empty(path, fs):
+        logger.warning(f"Output directory {path} is not empty. Deleting it.")
+        delete_dir(path, fs)
+
+    fs.mkdirs(path, exist_ok=True)
 
 
 def filter_files_by_extension(
     files_list: list[str],
     keep_extensions: str | list[str],
 ) -> list[str]:
-    """
-    Given a list of files, filter it to only include files matching given extension(s).
-
-    Args:
-        files_list: List of files.
-        keep_extensions: A string (e.g., "json") or a list of strings (e.g., ["json", "parquet"])
-            representing which file types to keep from files_list.
-
-    """
     filtered_files = []
-
     if isinstance(keep_extensions, str):
         keep_extensions = [keep_extensions]
 
-    file_extensions = [s if s.startswith(".") else "." + s for s in keep_extensions]
+    # Ensure that the extensions are prefixed with a dot
+    file_extensions = tuple([s if s.startswith(".") else f".{s}" for s in keep_extensions])
 
     for file in files_list:
-        if file.endswith(tuple(file_extensions)):
+        if file.endswith(file_extensions):
             filtered_files.append(file)
 
     if len(files_list) != len(filtered_files):
-        warnings.warn("Skipped at least one file due to unmatched file extension(s).", stacklevel=2)
+        logger.warning("Skipped at least one file due to unmatched file extension(s).")
 
     return filtered_files
 
 
-def get_all_files_paths_under(
-    root: str,
-    recurse_subdirectories: bool = True,
-    followlinks: bool = False,
-    keep_extensions: str | list[str] | None = None,
-) -> list[str]:
-    """
-    This function returns a list of all the files under a specified directory.
-    Args:
-        root: The path to the directory to read.
-        recurse_subdirecties: Whether to recurse into subdirectories.
-                              Please note that this can be slow for large
-                              number of files.
-        followlinks: Whether to follow symbolic links.
-        keep_extensions: A string or list of strings representing a file type
-                   or multiple file types to include in the output, e.g.,
-                   "jsonl" or ["jsonl", "parquet"].
-    """
-    if recurse_subdirectories:
-        file_ls = [os.path.join(r, f) for r, subdirs, files in os.walk(root, followlinks=followlinks) for f in files]
-    else:
-        # Only include files, not directories
-        file_ls = [entry.path for entry in os.scandir(root) if entry.is_file()]
-
-    file_ls.sort()
-
-    if keep_extensions is not None:
-        file_ls = filter_files_by_extension(file_ls, keep_extensions)
-
-    return file_ls
-
-
-# Using this for restarting jobs
-# can lead to problems when there is an error while
-# writing a file we can use the offset counter approach
-# in jaccard shuffle as a more robust way to restart jobs
-def get_remaining_files(
-    input_file_path: str,
-    output_file_path: str,
-    input_file_type: str,
-    output_file_type: str | None = None,
-    num_files: int = -1,
-) -> list[str]:
-    """
-    This function returns a list of the files that still remain to be read.
-
-    Args:
-        input_file_path: The path of the input files.
-        output_file_path: The path of the output files.
-        input_file_type: The type of the input files.
-        output_file_type: The type of the output files.
-        num_files: The max number of files to be returned. If -1, all files are returned.
-    Returns:
-        A list of files that still remain to be read.
-
-    """
-    if input_file_type == "pickle":
-        return [input_file_path]
-
-    if not os.path.exists(output_file_path):
-        expand_outdir_and_mkdir(output_file_path)
-    completed_files = [os.path.basename(entry.path) for entry in os.scandir(output_file_path)]
-    completed_files = set(completed_files)
-
-    input_files = [
-        entry.path
-        for entry in os.scandir(input_file_path)
-        if os.path.basename(entry.path) not in _update_filetype(completed_files, output_file_type, input_file_type)
-    ]
-    # Guard against non extension files if present in the input directory
-    input_files = [f for f in input_files if f.endswith(input_file_type)]
-    input_files.sort()
-
-    len_written_files = len(completed_files)
-    if num_files > 0:  # noqa: SIM108
-        left_to_sample = max(num_files - len_written_files, 0)
-    else:
-        left_to_sample = len(input_files)
-
-    return input_files[:left_to_sample]
-
-
-def _update_filetype(file_set: set[str], old_file_type: str | None, new_file_type: str | None) -> set[str]:
-    if old_file_type is None or new_file_type is None:
-        return file_set
-
-    if not old_file_type.startswith("."):
-        old_file_type = "." + old_file_type
-    if not new_file_type.startswith("."):
-        new_file_type = "." + new_file_type
-
-    if old_file_type == new_file_type:
-        return file_set
-
-    return {
-        (f"{os.path.splitext(file)[0]}{new_file_type}" if file.endswith(old_file_type) else file) for file in file_set
-    }
-
-
-def get_batched_files(
-    input_file_path: str,
-    output_file_path: str,
-    input_file_type: str,
-    batch_size: int = 64,
+def _split_files_as_per_blocksize(
+    sorted_file_sizes: list[tuple[str, int]], max_byte_per_chunk: int
 ) -> list[list[str]]:
-    """
-    This function returns a batch of files that still remain to be processed.
+    partitions = []
+    current_partition = []
+    current_size = 0
 
+    for file, size in sorted_file_sizes:
+        if current_size + size > max_byte_per_chunk:
+            if current_partition:
+                partitions.append(current_partition)
+            current_partition = []
+            current_size = 0
+        current_partition.append(file)
+        current_size += size
+    if current_partition:
+        partitions.append(current_partition)
+
+    logger.debug(
+        f"Split {len(sorted_file_sizes)} files into {len(partitions)} partitions with max size {(max_byte_per_chunk / 1024 / 1024):.2f} MB."
+    )
+    return partitions
+
+
+def _gather_extention(path: str) -> str:
+    """
+    Gather the extension of a given path.
     Args:
-        input_file_path: The path of the input files.
-        output_file_path: The path of the output files.
-        input_file_type: The type of the input files.
-        batch_size: The number of files to be processed at once
+        path: The path to get the extension from.
     Returns:
-        A batch of files that are not in the output directory.
+        The extension of the path.
     """
-    remaining_files = get_remaining_files(input_file_path, output_file_path, input_file_type)
-    for i in range(0, len(remaining_files), batch_size):
-        yield remaining_files[i : i + batch_size]
+    name = posixpath.basename(path.rstrip("/"))
+    return posixpath.splitext(name)[1][1:].casefold()
 
 
-def write_dataframe_by_meta(  # noqa: PLR0913
-    df: pd.DataFrame,
-    output_dir: str,
-    metadata_field: str,
-    remove_metadata: bool = False,
-    output_type: str = "jsonl",
-    include_values: list[str] | None = None,
-    exclude_values: list[str] | None = None,
-    filename_col: str = "file_name",
-) -> dict:
-    counts = df[metadata_field].value_counts().to_dict()
-
-    # Apply include_values or value_exclesion_filter if provided
-    if include_values is not None and include_values:
-        counts = {k: v for k, v in counts.items() if k in include_values}
-    elif exclude_values is not None and exclude_values:
-        counts = {k: v for k, v in counts.items() if k not in exclude_values}
-
-    for meta_value in counts:
-        meta_output_dir = expand_outdir_and_mkdir(os.path.join(output_dir, meta_value))
-        meta_slice = df[df[metadata_field] == meta_value]
-
-        if remove_metadata:
-            meta_slice = meta_slice.drop(columns=[metadata_field])
-        single_partition_write_with_filename(
-            meta_slice,
-            meta_output_dir,
-            output_type=output_type,
-            filename_col=filename_col,
-        )
-
-    return counts
-
-
-def merge_counts(first: dict, second: dict) -> dict:
-    for ngram, count in second.items():
-        first[ngram] = first.get(ngram, 0) + count
-
-    return first
-
-
-def write_record(  # noqa: PLR0913
-    input_dir: str,
-    file_name: str,
-    line: str,
-    field: str,
-    output_dir: str,
-    include_values: list[str] | None = None,
-    exclude_values: list[str] | None = None,
-) -> str | None:
-    try:
-        # Parse the JSON-encoded string 'line' into a Python dictionary
-        line = json.loads(line)
-
-        # Select category value
-        category = line[field]
-
-        if (exclude_values and category in exclude_values) or (include_values and category not in include_values):
-            return None
-
-        # Obtain the relative path
-        rel_path, file_name = os.path.split(os.path.relpath(file_name, start=os.path.abspath(input_dir)))
-
-        output_dir = os.path.join(output_dir, category, rel_path)
-        os.makedirs(output_dir, exist_ok=True)
-        with open(os.path.join(output_dir, file_name), "a") as f:
-            f.write(json.dumps(line) + "\n")
-
-        return category  # noqa: TRY300
-    except (KeyError, ValueError, json.JSONDecodeError):
-        return None
-
-
-def separate_by_metadata(  # noqa: PLR0913
-    input_data: dd.DataFrame | str,
-    output_dir: str,
-    metadata_field: str,
-    remove_metadata: bool = False,
-    output_type: str = "jsonl",
-    input_type: str = "jsonl",
-    include_values: list[str] | None = None,
-    exclude_values: list[str] | None = None,
-    filename_col: str = "file_name",
-) -> dict:
+def _gather_file_records(  # noqa: PLR0913
+    path: str,
+    recurse_subdirectories: bool,
+    keep_extensions: str | list[str] | None,
+    storage_options: dict[str, str] | None,
+    fs: fsspec.AbstractFileSystem | None,
+    include_size: bool,
+) -> list[tuple[str, int]]:
     """
-    Saves the dataframe to subfolders named after a metadata
-
+    Gather file records from a given path.
     Args:
-        input_data: Either a DataFrame or a string representing the path to the input directory.
-            If a DataFrame is provided, it must have a filename_col for the shard.
-        output_dir: The base directory for which all metadata based subdirs will be created under
-        metadata_field: The metadata field to split on
-        remove_metadata: Whether to remove the metadata from the dataframe when saving it
-        output_type: File type the dataset will be written to. Supported file formats include 'jsonl' (default),
-            'pickle', or 'parquet'. (default: jsonl)
-        include_values: A list of strings representing specific values to be selected or included.
-            If provided, only the items matching these values should be kept.
-        exclude_values: A list of strings representing specific values to be excluded or ignored.
-            If provided, any items matching these values should be skipped.
-        filename_col: The column name in the DataFrame that contains the filename. Default is "file_name".
-
+        path: The path to get the file paths from.
+        recurse_subdirectories: Whether to recurse subdirectories.
+        keep_extensions: The extensions to keep.
+        storage_options: The storage options to use.
+        fs: The filesystem to use.
+        include_size: Whether to include the size of the files.
     Returns:
-        A delayed dictionary mapping each metadata to the count of entries with that metadata value.
+        A list of tuples (file_path, file_size).
     """
+    fs = fs or fsspec.core.url_to_fs(path, **(storage_options or {}))[0]
+    allowed_exts = (
+        None
+        if keep_extensions is None
+        else {
+            e.casefold().lstrip(".")
+            for e in ([keep_extensions] if isinstance(keep_extensions, str) else keep_extensions)
+        }
+    )
+    normalize = fs.unstrip_protocol if is_remote_url(path) else (lambda x: x)
+    roots = fs.expand_path(path, recursive=False)
+    records = []
 
-    if include_values is not None and exclude_values is not None:
-        print("Error: 'include_values' and 'exclude_values' are mutually exclusive.")
-
-        return None
-
-    # Create output_dir if needed
-    if output_dir:
-        output_dir = expand_outdir_and_mkdir(output_dir)
-
-    if isinstance(input_data, str):
-        print(f"Reading {input_type} files from {input_data}", flush=True)
-
-        if input_type in ["json", "jsonl"] and output_type in ["json", "jsonl"]:
-            # Read JSONL files with streaming (line-by-line), and include file path
-            bag = db.read_text(
-                os.path.join(input_data, "**", f"*.{input_type}"),
-                include_path=True,
+    for root in roots:
+        if fs.isdir(root):
+            listing = fs.find(
+                root,
+                maxdepth=None if recurse_subdirectories else 1,
+                withdirs=False,
+                detail=include_size,
             )
+            if include_size:
+                entries = [(p, info.get("size")) for p, info in listing.items()]
+            else:
+                entries = [(p, None) for p in listing]
 
-            # Parse JSON lines and retain the file path
-            bag = bag.map(
-                lambda x: write_record(
-                    input_dir=input_data,
-                    file_name=x[1],
-                    line=x[0],
-                    field=metadata_field,
-                    output_dir=output_dir,
-                    include_values=include_values,
-                    exclude_values=exclude_values,
-                )
-            )
-
-            frequencies = dict(bag.frequencies().compute())
-            frequencies.pop(None, None)  # Remove None when applying filters
-
-            return delayed(reduce)(merge_counts, [frequencies])
+        elif fs.exists(root):
+            entries = [(root, fs.info(root).get("size") if include_size else None)]
         else:
-            input_data = read_data(
-                get_all_files_paths_under(input_data),
-                file_type=input_type,
-                backend="pandas",
-                add_filename=filename_col,
+            entries = []
+
+        for raw_path, raw_size in entries:
+            if (allowed_exts is None) or (_gather_extention(raw_path) in allowed_exts):
+                records.append((normalize(raw_path), -1 if include_size and raw_size is None else raw_size))
+
+    return records
+
+
+def get_all_file_paths_under(
+    path: str,
+    recurse_subdirectories: bool = False,
+    keep_extensions: str | list[str] | None = None,
+    storage_options: dict[str, str] | None = None,
+    fs: fsspec.AbstractFileSystem | None = None,
+) -> list[str]:
+    """
+    Get all file paths under a given path.
+    Args:
+        path: The path to get the file paths from.
+        recurse_subdirectories: Whether to recurse subdirectories.
+        keep_extensions: The extensions to keep.
+        storage_options: The storage options to use.
+        fs: The filesystem to use.
+    Returns:
+        A list of file paths.
+    """
+    return sorted(
+        [
+            p
+            for p, _ in _gather_file_records(
+                path, recurse_subdirectories, keep_extensions, storage_options, fs, include_size=False
             )
-    delayed_counts = [
-        delayed(write_dataframe_by_meta)(
-            partition,
-            output_dir,
-            metadata_field,
-            remove_metadata,
-            output_type,
-            include_values,
-            exclude_values,
-            filename_col,
-        )
-        for partition in input_data.to_delayed()
-    ]
-
-    return delayed(reduce)(merge_counts, delayed_counts)
-
-
-def parse_str_of_num_bytes(s: str, return_str: bool = False) -> str | int:
-    try:
-        last_char = s[-1].lower()
-        if last_char not in "kmg":
-            msg = f"Invalid size: {s}"
-            raise ValueError(msg)  # noqa: TRY301
-        power = "kmg".find(last_char) + 1
-        size = float(s[:-1]) * 1024**power
-    except ValueError:
-        msg = f"Invalid size: {s}"
-        raise ValueError(msg)  # noqa: B904
-    if return_str:
-        return s
-    else:
-        return int(size)
-
-
-def _save_jsonl(
-    documents: db.Bag,
-    output_path: str,
-    start_index: int = 0,
-    max_index: int = 10000,
-    prefix: str | None = None,
-) -> None:
-    """
-    Worker function to write out the data to jsonl files
-
-    """
-
-    def _encode_text(document: str) -> bytes:
-        return document.strip().encode("utf-8")
-
-    def _name(start_index: int, npad: int, prefix: str | None, i: int) -> str:
-        tag = str(start_index + i).rjust(npad, "0")
-        return f"{prefix}{tag}"
-
-    # Create the naming function
-    npad = int(np.log10(max_index) + 1)
-    name = partial(_name, start_index, npad, prefix)
-
-    output_glob_string = os.path.join(output_path, "*.jsonl")
-
-    output_files = documents.map(_encode_text).to_textfiles(
-        output_glob_string,
-        name_function=name,
+        ]
     )
 
-    # Delete empty files generated due to empty partitions in the bag
-    for output_file in output_files:
-        try:
-            if os.path.getsize(output_file) == 0:
-                os.remove(output_file)
-        except Exception as exception:  # noqa: BLE001, PERF203
-            print(
-                f"An exception occurred when trying to delete {output_file}.\n{exception}",
-                flush=True,
+
+def get_all_file_paths_and_size_under(
+    path: str,
+    recurse_subdirectories: bool = False,
+    keep_extensions: str | list[str] | None = None,
+    storage_options: dict[str, str] | None = None,
+    fs: fsspec.AbstractFileSystem | None = None,
+) -> list[tuple[str, int]]:
+    """
+    Get all file paths and their sizes under a given path.
+    Args:
+        path: The path to get the file paths from.
+        recurse_subdirectories: Whether to recurse subdirectories.
+        keep_extensions: The extensions to keep.
+        storage_options: The storage options to use.
+        fs: The filesystem to use.
+    Returns:
+        A list of tuples (file_path, file_size).
+    """
+    # sort by size
+    return sorted(
+        [
+            (p, int(s))
+            for p, s in _gather_file_records(
+                path, recurse_subdirectories, keep_extensions, storage_options, fs, include_size=True
             )
+        ],
+        key=lambda x: x[1],
+    )
 
 
-def reshard_jsonl(
-    input_dir: str,
-    output_dir: str,
-    output_file_size: str = "100M",
-    start_index: int = 0,
-    file_prefix: str = "",
+def infer_protocol_from_paths(paths: Iterable[str]) -> str | None:
+    """Infer a protocol from a list of paths, if any.
+
+    Returns the first detected protocol scheme (e.g., "s3", "gcs", "gs", "abfs")
+    or None for local paths.
+    """
+    for path in paths:
+        opts = infer_storage_options(path)
+        protocol = opts.get("protocol")
+        if protocol and protocol not in {"file", "local"}:
+            return protocol
+    return None
+
+
+def pandas_select_columns(df: pd.DataFrame, columns: list[str] | None, file_path: str) -> pd.DataFrame | None:
+    """Project a Pandas DataFrame onto existing columns, logging warnings for missing ones.
+
+    Returns the projected DataFrame. If no requested columns exist, returns None.
+    """
+
+    if columns is None:
+        return df
+
+    existing_columns = [col for col in columns if col in df.columns]
+    missing_columns = [col for col in columns if col not in df.columns]
+
+    if missing_columns:
+        logger.warning(f"Columns {missing_columns} not found in {file_path}")
+
+    if existing_columns:
+        return df[existing_columns]
+
+    logger.error(f"None of the requested columns found in {file_path}")
+    return None
+
+
+def check_output_mode(
+    mode: Literal["overwrite", "append", "error", "ignore"],
+    fs: fsspec.AbstractFileSystem,
+    path: str,
+    append_mode_implemented: bool = False,
 ) -> None:
     """
-    Reshards a directory of jsonl files to have a new (approximate) file size for each shard
+    Validate and act on the write mode for an output directory.
 
-    Args:
-        input_dir: The input directory containing jsonl files
-        output_dir: The output directory where the resharded jsonl files will be written
-        output_file_size: Approximate size of output files. Must specify with a string and
-            with the unit K, M or G for kilo, mega or gigabytes
-        start_index: Starting index for naming the output files. Note: The indices may not
-            be continuous if the sharding process would output an empty file in its place
-        file_prefix: Prefix to use to prepend to output file number
+    Modes:
+    - "overwrite": delete existing `output_dir` recursively if it exists.
+    - "append": no-op here; raises if append is not implemented.
+    - "error": raise FileExistsError if `output_dir` already exists.
+    - "ignore": no-op.
     """
+    normalized = mode.strip().lower()
+    allowed = {"overwrite", "append", "error", "ignore"}
+    if normalized not in allowed:
+        msg = f"Invalid mode: {mode!r}. Allowed: {sorted(allowed)}"
+        raise ValueError(msg)
 
-    # Output file size in bytes
-    blocksize = parse_str_of_num_bytes(output_file_size)
+    if normalized == "ignore":
+        if not fs.exists(path):
+            fs.makedirs(path)
+        return
 
-    input_files = list(get_all_files_paths_under(input_dir, keep_extensions="jsonl"))
+    if normalized == "append":
+        if not append_mode_implemented:
+            msg = "append mode is not implemented yet"
+            raise NotImplementedError(msg)
+        return
 
-    # Read in the dask bag
-    b = db.read_text(input_files, blocksize=blocksize)
+    if normalized == "overwrite":
+        if fs.exists(path):
+            msg = f"Removing output directory {path} for overwrite mode"
+            logger.info(msg)
+            delete_dir(path=path, fs=fs)
+        else:
+            msg = f"Overwrite mode: output directory {path} does not exist; nothing to remove"
+            logger.info(msg)
+        return
 
-    # Prepare the output
-    output_dir = expand_outdir_and_mkdir(output_dir)
+    if normalized == "error" and fs.exists(path):
+        msg = f"Output directory {path} already exists"
+        raise FileExistsError(msg)
+    return
 
-    # Save to balanced files
-    _save_jsonl(b, output_dir, start_index=start_index, prefix=file_prefix)
+
+def infer_dataset_name_from_path(path: str) -> str:
+    """Infer a dataset name from a path, handling both local and cloud storage paths.
+    Args:
+        path: Local path or cloud storage URL (e.g. s3://, abfs://)
+    Returns:
+        Inferred dataset name from the path
+    """
+    # Split protocol and path for cloud storage
+    protocol, pure_path = split_protocol(path)
+    if protocol is None:
+        # Local path handling
+        first_file = Path(path)
+        if first_file.parent.name and first_file.parent.name != ".":
+            return first_file.parent.name.lower()
+        return first_file.stem.lower()
+    else:
+        path_parts = pure_path.rstrip("/").split("/")
+        if len(path_parts) <= 1:
+            return path_parts[0]
+        return path_parts[-1].lower()
 
 
-def remove_path_extension(path: str) -> str:
-    p = pathlib.Path(path)
-    return os.path.join(p.parent, p.stem)
+def check_disallowed_kwargs(
+    kwargs: dict,
+    disallowed_keys: list[str],
+    raise_error: bool = True,
+) -> None:
+    """Check if any of the disallowed keys are in provided kwargs
+    Used for read/write kwargs in stages.
+    Args:
+        kwargs: The dictionary to check
+        disallowed_keys: The keys that are not allowed.
+        raise_error: Whether to raise an error if any of the disallowed keys are in the kwargs.
+    Raises:
+        ValueError: If any of the disallowed keys are in the kwargs and raise_error is True.
+        Warning: If any of the disallowed keys are in the kwargs and raise_error is False.
+    Returns:
+        None
+    """
+    found_keys = set(kwargs).intersection(disallowed_keys)
+    if raise_error and found_keys:
+        msg = f"Unsupported keys in kwargs: {', '.join(found_keys)}"
+        raise ValueError(msg)
+    elif found_keys:
+        msg = f"Unsupported keys in kwargs: {', '.join(found_keys)}"
+        logger.warning(msg)

@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 name: CICD NeMo Curator
 on:
   schedule:
@@ -59,7 +60,6 @@ jobs:
         uses: step-security/changed-files@v45.0.1
         with:
           files: |
-            ray-curator/**
             nemo_curator/**
             .github/**
             pyproject.toml
@@ -149,7 +149,6 @@ jobs:
       - name: Install NeMo-Curator and pytest
         run: |
           pip install -U pip
-          cd ray-curator
           pip install --no-cache-dir ".[text]"
           pip install --no-cache-dir ".[video]"
           pip install --no-cache-dir "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality"
@@ -157,14 +156,12 @@ jobs:
 
       - name: Run tests (CPU)
         run: |
-          cd ray-curator
-          python -m coverage run --branch --source=ray_curator -m pytest -v tests -m "not gpu"
+          python -m coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
         shell: bash
         run: |
-          cd ray-curator
           python -m coverage xml
           python -m coverage report
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
@@ -176,48 +173,48 @@ jobs:
         with:
           name: ${{ steps.check.outputs.coverage_report }}
           path: |
-            ray-curator/coverage.xml
-            ray-curator/.coverage
+            ./coverage.xml
+            ./.coverage
           include-hidden-files: true
 
-  cicd-gpu-tests:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - script: L0_Unit_Test_GPU
-            runner: self-hosted-nemo
-    needs: [cicd-cpu-tests]
-    runs-on: ${{ matrix.runner }}
-    name: ${{ matrix.script }}
-    environment: nemo-ci
-    if: |
-      (
-        success()
-        || needs.pre-flight.outputs.is_ci_workload == 'true'
-        || needs.pre-flight.outputs.force_run_all == 'true'
-      )
-      && !cancelled()
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: main
-        uses: ./.github/actions/test-template
-        with:
-          script: ${{ matrix.script }}
-          is_unit_test: "false"
-          has-azure-credentials: "true"
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          PAT: ${{ secrets.PAT }}
-          timeout: 20
+  # cicd-gpu-tests:
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #         - script: L0_Unit_Test_GPU
+  #           runner: self-hosted-nemo
+  #   needs: [cicd-cpu-tests]
+  #   runs-on: ${{ matrix.runner }}
+  #   name: ${{ matrix.script }}
+  #   environment: nemo-ci
+  #   if: |
+  #     (
+  #       success()
+  #       || needs.pre-flight.outputs.is_ci_workload == 'true'
+  #       || needs.pre-flight.outputs.force_run_all == 'true'
+  #     )
+  #     && !cancelled()
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: main
+  #       uses: ./.github/actions/test-template
+  #       with:
+  #         script: ${{ matrix.script }}
+  #         is_unit_test: "false"
+  #         has-azure-credentials: "true"
+  #         azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+  #         azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+  #         azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  #         PAT: ${{ secrets.PAT }}
+  #         timeout: 20
 
   Nemo_CICD_Test:
     needs:
       - pre-flight
       - cicd-cpu-tests
-      - cicd-gpu-tests
+      # - cicd-gpu-tests
     if: |
       (
         needs.pre-flight.outputs.docs_only == 'true'

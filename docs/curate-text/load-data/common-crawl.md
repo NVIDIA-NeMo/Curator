@@ -49,10 +49,10 @@ pip install s5cmd
 Here's how to create and run a Common Crawl processing pipeline:
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna.executor import XennaExecutor
-from ray_curator.stages.text.download import CommonCrawlDownloadExtractStage
-from ray_curator.stages.io.writer import JsonlWriter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna.executor import XennaExecutor
+from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
+from nemo_curator.stages.io.writer import JsonlWriter
 
 def main():
     # Create pipeline
@@ -94,7 +94,7 @@ For how pipelines execute across backends (`XennaExecutor`, `RayDataExecutor`), 
 To write Parquet instead of JSONL, use `ParquetWriter`:
 
 ```python
-from ray_curator.stages.io.writer import ParquetWriter
+from nemo_curator.stages.io.writer import ParquetWriter
 
 # Replace the JSONL writer with ParquetWriter
 writer = ParquetWriter(output_dir="./cc_output_parquet")
@@ -218,8 +218,8 @@ Curator supports several HTML text extraction algorithms:
 #### Configuring HTML Extractors
 
 ```python
-from ray_curator.stages.text.download.html_extractors import ResiliparseExtractor
-from ray_curator.stages.text.download.html_extractors import TrafilaturaExtractor
+from nemo_curator.stages.text.download.html_extractors import ResiliparseExtractor
+from nemo_curator.stages.text.download.html_extractors import TrafilaturaExtractor
 
 # Use Resiliparse for extraction
 cc_stage = CommonCrawlDownloadExtractStage(
@@ -270,11 +270,11 @@ cc_stage = CommonCrawlDownloadExtractStage(
 Curator supports several execution backends:
 
 ```python
-from ray_curator.backends.xenna import XennaExecutor
+from nemo_curator.backends.xenna import XennaExecutor
 executor = XennaExecutor()
 
 # Experimental Ray Data executor (optional)
-from ray_curator.backends.experimental.ray_data.executor import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
 executor = RayDataExecutor()
 ```
 
