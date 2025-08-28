@@ -1,4 +1,17 @@
-"""Test suite for nvcodec_utils module."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # ruff: noqa: ANN401, PT019
 
 from pathlib import Path
@@ -7,7 +20,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from ray_curator.utils.nvcodec_utils import (
+from nemo_curator.utils.nvcodec_utils import (
     FrameExtractionPolicy,
     NvVideoDecoder,
     PyNvcFrameExtractor,
@@ -37,7 +50,7 @@ class TestImportHandling:
         # When dependencies are present, it should have entries
         # Both cases are valid
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc", None)
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc", None)
     def test_video_batch_decoder_init_without_dependencies(self) -> None:
         """Test VideoBatchDecoder raises error when PyNvVideoCodec is not available."""
         with pytest.raises(RuntimeError, match="PyNvVideoCodec is not available"):
@@ -50,17 +63,17 @@ class TestImportHandling:
                 cvcuda_stream=Mock(),
             )
 
-    @patch("ray_curator.utils.nvcodec_utils.cuda", None)
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda", None)
-    @patch("ray_curator.utils.nvcodec_utils.nvcv", None)
-    @patch("ray_curator.utils.nvcodec_utils.Nvc", None)
+    @patch("nemo_curator.utils.nvcodec_utils.cuda", None)
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda", None)
+    @patch("nemo_curator.utils.nvcodec_utils.nvcv", None)
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc", None)
     def test_py_nvc_frame_extractor_without_dependencies(self) -> None:
         """Test PyNvcFrameExtractor fails gracefully when dependencies are missing."""
         with pytest.raises((RuntimeError, AttributeError)):
             PyNvcFrameExtractor(width=224, height=224, batch_size=2)
 
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda", None)
-    @patch("ray_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda", None)
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
     def test_gpu_decode_for_stitching_without_cvcuda(self, _mock_torch: Any) -> None:
         """Test gpu_decode_for_stitching fails gracefully when cvcuda is missing."""
         with pytest.raises(AttributeError):
@@ -77,7 +90,7 @@ class TestImportHandling:
         """Test that the module can be imported even when GPU dependencies are missing."""
         # If we got here, the import was successful
         # This test verifies that import failures are handled gracefully
-        from ray_curator.utils import nvcodec_utils
+        from nemo_curator.utils import nvcodec_utils
 
         # Verify the module has expected attributes
         assert hasattr(nvcodec_utils, "FrameExtractionPolicy")
@@ -98,7 +111,7 @@ class TestVideoBatchDecoder:
         self.mock_cuda_ctx = Mock()
         self.mock_cvcuda_stream = Mock()
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
     def test_init_valid_params(self, _mock_nvc: Any) -> None:
         """Test initialization with valid parameters."""
         decoder = VideoBatchDecoder(
@@ -119,7 +132,7 @@ class TestVideoBatchDecoder:
         assert decoder.decoder is None
         assert decoder.input_path is None
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
     def test_init_invalid_batch_size(self, _mock_nvc: Any) -> None:
         """Test initialization with invalid batch size."""
         with pytest.raises(ValueError, match="Batch size should be a valid number"):
@@ -132,7 +145,7 @@ class TestVideoBatchDecoder:
                 cvcuda_stream=self.mock_cvcuda_stream,
             )
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
     def test_get_fps_no_decoder(self, _mock_nvc: Any) -> None:
         """Test get_fps when no decoder is initialized."""
         decoder = VideoBatchDecoder(
@@ -146,10 +159,10 @@ class TestVideoBatchDecoder:
 
         assert decoder.get_fps() is None
 
-    @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
+    @patch("nemo_curator.utils.nvcodec_utils.NvVideoDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
     def test_call_first_time(self, _mock_nvc: Any, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
         """Test calling decoder for the first time."""
         # Setup mocks
@@ -163,7 +176,7 @@ class TestVideoBatchDecoder:
 
         # Mock pixel format mapping
         with patch.dict(
-            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            "nemo_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
             {mock_decoder_instance.pixelFormat: "YUV2RGB"},
         ):
             decoder = VideoBatchDecoder(
@@ -182,10 +195,10 @@ class TestVideoBatchDecoder:
             assert decoder.fps == 30
             assert result is None  # No frames returned
 
-    @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
+    @patch("nemo_curator.utils.nvcodec_utils.NvVideoDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available
     def test_call_unsupported_pixel_format(
         self, _mock_nvc: Any, _mock_torch: Any, _mock_cvcuda: Any, mock_nvdecoder: Any
     ) -> None:
@@ -216,7 +229,7 @@ class TestVideoBatchDecoder:
         with pytest.raises(ValueError, match="Unsupported pixel format"):
             decoder("test_video.mp4")
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")  # Ensure Nvc is available for this test
     def test_call_no_decoder(self, _mock_nvc: Any) -> None:
         """Test calling decoder when not initialized."""
         decoder = VideoBatchDecoder(
@@ -234,10 +247,10 @@ class TestVideoBatchDecoder:
         with pytest.raises(RuntimeError, match="Decoder is not initialized"):
             decoder("test_video.mp4")
 
-    @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.NvVideoDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     def test_call_dynamic_sizing(self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any) -> None:
         """Test calling decoder with dynamic width/height calculation (-1 values)."""
         # Setup mocks
@@ -260,7 +273,7 @@ class TestVideoBatchDecoder:
 
         # Mock pixel format mapping
         with patch.dict(
-            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            "nemo_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
             {mock_decoder_instance.pixelFormat: "YUV2RGB"},
         ):
             # Use -1 for dynamic sizing
@@ -286,10 +299,10 @@ class TestVideoBatchDecoder:
             assert decoder.target_width == 320  # round(640 / 2)
             assert decoder.target_height == 240  # round(480 / 2)
 
-    @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.NvVideoDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     def test_call_unexpected_layout_error(
         self, _mock_nvc: Any, _mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any
     ) -> None:
@@ -312,7 +325,7 @@ class TestVideoBatchDecoder:
 
         # Mock pixel format mapping
         with patch.dict(
-            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            "nemo_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
             {mock_decoder_instance.pixelFormat: "YUV2RGB"},
         ):
             decoder = VideoBatchDecoder(
@@ -327,10 +340,10 @@ class TestVideoBatchDecoder:
             with pytest.raises(ValueError, match="Unexpected tensor layout, NHWC expected"):
                 decoder("test_video.mp4")
 
-    @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.NvVideoDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     def test_call_full_processing_pipeline(
         self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any
     ) -> None:
@@ -388,7 +401,7 @@ class TestVideoBatchDecoder:
 
         # Mock pixel format mapping
         with patch.dict(
-            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            "nemo_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
             {mock_decoder_instance.pixelFormat: "YUV2RGB"},
         ):
             decoder = VideoBatchDecoder(
@@ -412,10 +425,10 @@ class TestVideoBatchDecoder:
             # Should return the resized tensor
             assert result == mock_rgb_resized_tensor
 
-    @patch("ray_curator.utils.nvcodec_utils.NvVideoDecoder")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.NvVideoDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     def test_call_batch_size_variation(
         self, _mock_nvc: Any, mock_torch: Any, mock_cvcuda: Any, mock_nvdecoder: Any
     ) -> None:
@@ -444,7 +457,7 @@ class TestVideoBatchDecoder:
 
         # Mock pixel format mapping
         with patch.dict(
-            "ray_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
+            "nemo_curator.utils.nvcodec_utils.pixel_format_to_cvcuda_code",
             {mock_decoder_instance.pixelFormat: "YUV2RGB"},
         ):
             decoder = VideoBatchDecoder(
@@ -478,8 +491,8 @@ class TestNvVideoDecoder:
         self.mock_cvcuda_stream = Mock()
         self.mock_cvcuda_stream.handle = Mock()
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.logger")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.logger")
     def test_init(self, _mock_logger: Any, mock_nvc: Any) -> None:
         """Test NvVideoDecoder initialization."""
         # Setup mocks
@@ -510,10 +523,10 @@ class TestNvVideoDecoder:
         assert decoder.local_frame_index == 0
         assert decoder.sent_frame_cnt == 0
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.nvcv")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
     def test_generate_decoded_frames(
         self, _mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
     ) -> None:
@@ -544,7 +557,7 @@ class TestNvVideoDecoder:
         result = decoder.generate_decoded_frames()
         assert result == []
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
     def test_get_next_frames_no_frames(self, mock_nvc: Any) -> None:
         """Test get_next_frames when no frames available."""
         # Setup mocks
@@ -572,8 +585,8 @@ class TestNvVideoDecoder:
         result = decoder.get_next_frames()
         assert result is None
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
     def test_get_next_frames_single_frame(self, _mock_torch: Any, mock_nvc: Any) -> None:
         """Test get_next_frames with single frame."""
         # Setup mocks
@@ -602,8 +615,8 @@ class TestNvVideoDecoder:
         result = decoder.get_next_frames()
         assert result == mock_frame
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
     def test_get_next_frames_multiple_frames(self, _mock_torch: Any, mock_nvc: Any) -> None:
         """Test get_next_frames with multiple frames."""
         # Setup mocks
@@ -637,10 +650,10 @@ class TestNvVideoDecoder:
         assert result == mock_result
         _mock_torch.cat.assert_called_once_with(mock_frames)
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.nvcv")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
     def test_generate_decoded_frames_with_frames(
         self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any
     ) -> None:
@@ -700,10 +713,10 @@ class TestNvVideoDecoder:
         # Should return the processed frames
         assert result == [mock_torch_nhwc]
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.nvcv")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
     def test_generate_decoded_frames_unexpected_layout(
         self, mock_nvcv: Any, _mock_cvcuda: Any, _mock_torch: Any, mock_nvc: Any
     ) -> None:
@@ -746,10 +759,10 @@ class TestNvVideoDecoder:
         with pytest.raises(ValueError, match="Unexpected tensor layout, NCHW expected"):
             decoder.generate_decoded_frames()
 
-    @patch("ray_curator.utils.nvcodec_utils.Nvc")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.nvcv")
+    @patch("nemo_curator.utils.nvcodec_utils.Nvc")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.nvcv")
     def test_generate_decoded_frames_partial_batch(
         self, mock_nvcv: Any, mock_cvcuda: Any, mock_torch: Any, mock_nvc: Any
     ) -> None:
@@ -825,10 +838,10 @@ class TestPyNvcFrameExtractor:
         self.height = 224
         self.batch_size = 4
 
-    @patch("ray_curator.utils.nvcodec_utils.cuda")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cuda")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.VideoBatchDecoder")
     def test_init(self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any) -> None:
         """Test PyNvcFrameExtractor initialization."""
         # Setup mocks
@@ -857,10 +870,10 @@ class TestPyNvcFrameExtractor:
             mock_stream,
         )
 
-    @patch("ray_curator.utils.nvcodec_utils.cuda")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cuda")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.VideoBatchDecoder")
     def test_call_full_extraction(
         self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any
     ) -> None:
@@ -900,10 +913,10 @@ class TestPyNvcFrameExtractor:
         mock_torch.cat.assert_called_once_with([mock_batch1, mock_batch2], dim=0)
         assert result == mock_result
 
-    @patch("ray_curator.utils.nvcodec_utils.cuda")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cuda")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.VideoBatchDecoder")
     def test_call_fps_extraction(
         self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any
     ) -> None:
@@ -948,10 +961,10 @@ class TestPyNvcFrameExtractor:
         mock_batch.__getitem__.assert_called_once_with(slice(None, None, 15))  # 30 / 2 = 15
         assert result == mock_result
 
-    @patch("ray_curator.utils.nvcodec_utils.cuda")
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cuda")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.VideoBatchDecoder")
     def test_call_fps_extraction_no_fps(
         self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any, mock_cuda: Any
     ) -> None:
@@ -992,9 +1005,9 @@ class TestPyNvcFrameExtractor:
 class TestGpuDecodeForStitching:
     """Test suite for gpu_decode_for_stitching function."""
 
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.VideoBatchDecoder")
     def test_gpu_decode_for_stitching(self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any) -> None:
         """Test gpu_decode_for_stitching function."""
         # Setup mocks
@@ -1048,9 +1061,9 @@ class TestGpuDecodeForStitching:
         # Should have 3 frames (frame 1 appears twice)
         assert len(result) == 3
 
-    @patch("ray_curator.utils.nvcodec_utils.cvcuda")
-    @patch("ray_curator.utils.nvcodec_utils.torch")
-    @patch("ray_curator.utils.nvcodec_utils.VideoBatchDecoder")
+    @patch("nemo_curator.utils.nvcodec_utils.cvcuda")
+    @patch("nemo_curator.utils.nvcodec_utils.torch")
+    @patch("nemo_curator.utils.nvcodec_utils.VideoBatchDecoder")
     def test_gpu_decode_for_stitching_complex_frame_list(
         self, mock_decoder_class: Any, mock_torch: Any, mock_cvcuda: Any
     ) -> None:
@@ -1148,7 +1161,7 @@ class TestGracefulDegradation:
     def test_error_messages_are_helpful(self) -> None:
         """Test that error messages guide users to install missing dependencies."""
         with (
-            patch("ray_curator.utils.nvcodec_utils.Nvc", None),
+            patch("nemo_curator.utils.nvcodec_utils.Nvc", None),
             pytest.raises(RuntimeError, match="PyNvVideoCodec is not available"),
         ):
             VideoBatchDecoder(
@@ -1163,7 +1176,7 @@ class TestGracefulDegradation:
     def test_all_classes_can_be_imported(self) -> None:
         """Test that all public classes can be imported regardless of dependency availability."""
         # All these should be importable even when dependencies are missing
-        from ray_curator.utils.nvcodec_utils import (
+        from nemo_curator.utils.nvcodec_utils import (
             FrameExtractionPolicy,
             NvVideoDecoder,
             PyNvcFrameExtractor,

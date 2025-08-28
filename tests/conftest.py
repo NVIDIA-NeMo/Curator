@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Unified test configuration for Ray Curator tests.
 
 This module provides smart Ray cluster setup that automatically configures
@@ -208,7 +222,7 @@ def ray_gpu_resources() -> dict[str, Any]:
 @pytest.fixture
 def ray_client_with_id_generator(shared_ray_client: None) -> None:  # noqa: ARG001
     """Create and manage ID generator actor for each test."""
-    from ray_curator.stages.deduplication.id_generator import (
+    from nemo_curator.stages.deduplication.id_generator import (
         create_id_generator_actor,
         kill_id_generator_actor,
     )

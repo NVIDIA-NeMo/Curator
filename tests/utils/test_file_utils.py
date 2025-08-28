@@ -12,16 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for file path listing utilities and the stage wrappers."""
-
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 import pytest
 
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.utils.file_utils import (
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.utils.file_utils import (
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
     infer_dataset_name_from_path,

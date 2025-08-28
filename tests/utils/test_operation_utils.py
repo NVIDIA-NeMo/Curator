@@ -1,10 +1,22 @@
-"""Test suite for operation_utils module."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import pathlib
 import tempfile
 from unittest.mock import Mock, patch
 
-from ray_curator.utils.operation_utils import (
+from nemo_curator.utils.operation_utils import (
     get_tmp_dir,
     make_named_temporary_file,
     make_pipeline_named_temporary_file,
@@ -190,7 +202,7 @@ class TestMakeNamedTemporaryFile:
 class TestMakePipelineTemporaryDir:
     """Test suite for make_pipeline_temporary_dir context manager."""
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_temporary_dir_default_params(self, mock_get_tmp_dir: Mock) -> None:
         """Test pipeline temporary directory creation with default parameters."""
         mock_tmp_dir = pathlib.Path("/tmp")  # noqa: S108
@@ -205,7 +217,7 @@ class TestMakePipelineTemporaryDir:
 
         assert not tmp_dir.exists()
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_temporary_dir_with_sub_dir(self, mock_get_tmp_dir: Mock) -> None:
         """Test pipeline temporary directory creation with sub directory."""
         mock_tmp_dir = pathlib.Path("/tmp")  # noqa: S108
@@ -222,7 +234,7 @@ class TestMakePipelineTemporaryDir:
 
         assert not tmp_dir.exists()
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_temporary_dir_creates_parent_dirs(self, mock_get_tmp_dir: Mock) -> None:
         """Test that pipeline temporary directory creates parent directories."""
         with tempfile.TemporaryDirectory() as base_dir:
@@ -243,7 +255,7 @@ class TestMakePipelineTemporaryDir:
 class TestMakePipelineNamedTemporaryFile:
     """Test suite for make_pipeline_named_temporary_file context manager."""
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_named_temporary_file_default_params(self, mock_get_tmp_dir: Mock) -> None:
         """Test pipeline named temporary file creation with default parameters."""
         mock_tmp_dir = pathlib.Path("/tmp")  # noqa: S108
@@ -258,7 +270,7 @@ class TestMakePipelineNamedTemporaryFile:
 
         assert not tmp_file.exists()
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_named_temporary_file_with_sub_dir(self, mock_get_tmp_dir: Mock) -> None:
         """Test pipeline named temporary file creation with sub directory."""
         mock_tmp_dir = pathlib.Path("/tmp")  # noqa: S108
@@ -275,7 +287,7 @@ class TestMakePipelineNamedTemporaryFile:
 
         assert not tmp_file.exists()
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_named_temporary_file_with_suffix(self, mock_get_tmp_dir: Mock) -> None:
         """Test pipeline named temporary file creation with custom suffix."""
         mock_tmp_dir = pathlib.Path("/tmp")  # noqa: S108
@@ -291,7 +303,7 @@ class TestMakePipelineNamedTemporaryFile:
 
         assert not tmp_file.exists()
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_named_temporary_file_creates_parent_dirs(self, mock_get_tmp_dir: Mock) -> None:
         """Test that pipeline named temporary file creates parent directories."""
         with tempfile.TemporaryDirectory() as base_dir:
@@ -308,7 +320,7 @@ class TestMakePipelineNamedTemporaryFile:
 
             assert not tmp_file.exists()
 
-    @patch("ray_curator.utils.operation_utils.get_tmp_dir")
+    @patch("nemo_curator.utils.operation_utils.get_tmp_dir")
     def test_make_pipeline_named_temporary_file_with_all_params(self, mock_get_tmp_dir: Mock) -> None:
         """Test pipeline named temporary file creation with all parameters."""
         mock_tmp_dir = pathlib.Path("/tmp")  # noqa: S108

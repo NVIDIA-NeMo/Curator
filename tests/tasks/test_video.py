@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Test suite for video tasks module."""
 
 import pathlib
 import tempfile
@@ -22,7 +21,7 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-from ray_curator.tasks.video import (
+from nemo_curator.tasks.video import (
     Clip,
     ClipStats,
     Video,
@@ -30,7 +29,7 @@ from ray_curator.tasks.video import (
     VideoTask,
     _Window,
 )
-from ray_curator.utils.decoder_utils import VideoMetadata as DecoderVideoMetadata
+from nemo_curator.utils.decoder_utils import VideoMetadata as DecoderVideoMetadata
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -141,7 +140,7 @@ class TestClip:
 
         assert clip.duration == 10.0
 
-    @patch("ray_curator.tasks.video.extract_video_metadata")
+    @patch("nemo_curator.tasks.video.extract_video_metadata")
     def test_extract_metadata_success(self, mock_extract: "MagicMock") -> None:
         """Test successful metadata extraction."""
         # Mock the metadata extraction
@@ -376,7 +375,7 @@ class TestVideo:
         assert isinstance(video.clip_stats, ClipStats)
         assert video.errors == {}
 
-    @patch("ray_curator.tasks.video.extract_video_metadata")
+    @patch("nemo_curator.tasks.video.extract_video_metadata")
     def test_populate_metadata_success(self, mock_extract: "MagicMock") -> None:
         """Test successful metadata population."""
         # Mock the metadata extraction

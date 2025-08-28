@@ -1,4 +1,16 @@
-"""Test suite for client_utils module."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import tempfile
 from unittest.mock import Mock
@@ -6,7 +18,7 @@ from unittest.mock import Mock
 import fsspec
 import pytest
 
-from ray_curator.utils.client_utils import FSPath
+from nemo_curator.utils.client_utils import FSPath
 
 
 class TestFSPath:
@@ -304,7 +316,7 @@ class TestFSPath:
 
     def test_is_remote_url_local_file(self) -> None:
         """Test is_remote_url with local file path."""
-        from ray_curator.utils.client_utils import is_remote_url
+        from nemo_curator.utils.client_utils import is_remote_url
 
         # Test with absolute local path
         assert not is_remote_url("/home/user/file.txt")
@@ -317,7 +329,7 @@ class TestFSPath:
 
     def test_is_remote_url_with_mock_fsspec(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with mocked fsspec to test protocol handling."""
-        from ray_curator.utils.client_utils import is_remote_url
+        from nemo_curator.utils.client_utils import is_remote_url
 
         # Mock the url_to_fs function
         def mock_url_to_fs(url: str) -> tuple:
@@ -337,7 +349,7 @@ class TestFSPath:
             else:
                 return MockFS(None), ""
 
-        monkeypatch.setattr("ray_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+        monkeypatch.setattr("nemo_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
 
         # Test with mocked protocols
         assert is_remote_url("s3://bucket/key")
@@ -348,7 +360,7 @@ class TestFSPath:
 
     def test_is_remote_url_multiple_protocols(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with filesystem that has multiple protocols."""
-        from ray_curator.utils.client_utils import is_remote_url
+        from nemo_curator.utils.client_utils import is_remote_url
 
         def mock_url_to_fs(_url: str) -> tuple:
             class MockFS:
@@ -358,14 +370,14 @@ class TestFSPath:
 
             return MockFS(), ""
 
-        monkeypatch.setattr("ray_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+        monkeypatch.setattr("nemo_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
 
         # Should return True since first protocol is "s3" (remote)
         assert is_remote_url("s3://bucket/key")
 
     def test_is_remote_url_no_protocol(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with filesystem that has no protocol."""
-        from ray_curator.utils.client_utils import is_remote_url
+        from nemo_curator.utils.client_utils import is_remote_url
 
         def mock_url_to_fs(_url: str) -> tuple:
             class MockFS:
@@ -375,7 +387,7 @@ class TestFSPath:
 
             return MockFS(), ""
 
-        monkeypatch.setattr("ray_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
+        monkeypatch.setattr("nemo_curator.utils.client_utils.url_to_fs", mock_url_to_fs)
 
         # Should return False since protocol is None
         assert not is_remote_url("unknown://path")

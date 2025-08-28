@@ -1,4 +1,16 @@
-"""Test suite for decoder_utils module."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import io
 import json
@@ -9,7 +21,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from ray_curator.utils.decoder_utils import (
+from nemo_curator.utils.decoder_utils import (
     FrameExtractionPolicy,
     FrameExtractionSignature,
     Resolution,
@@ -175,7 +187,7 @@ class TestExtractVideoMetadata:
         }
 
     @patch("subprocess.run")
-    @patch("ray_curator.utils.decoder_utils.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.utils.decoder_utils.make_pipeline_named_temporary_file")
     def test_extract_video_metadata_with_bytes(self, mock_temp_file: Mock, mock_subprocess: Mock) -> None:
         """Test extract_video_metadata with bytes input."""
         mock_video_data = b"fake_video_data"
@@ -239,7 +251,7 @@ class TestExtractVideoMetadata:
             extract_video_metadata(non_existent_path)
 
     @patch("subprocess.run")
-    @patch("ray_curator.utils.decoder_utils.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.utils.decoder_utils.make_pipeline_named_temporary_file")
     def test_extract_video_metadata_no_video_stream(self, mock_temp_file: Mock, mock_subprocess: Mock) -> None:
         """Test extract_video_metadata with no video stream."""
         mock_output = {
@@ -268,7 +280,7 @@ class TestExtractVideoMetadata:
             extract_video_metadata(b"fake_data")
 
     @patch("subprocess.run")
-    @patch("ray_curator.utils.decoder_utils.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.utils.decoder_utils.make_pipeline_named_temporary_file")
     def test_extract_video_metadata_no_duration(self, mock_temp_file: Mock, mock_subprocess: Mock) -> None:
         """Test extract_video_metadata with no duration information."""
         mock_output = {
@@ -566,7 +578,7 @@ class TestMockedVideoFunctions:
 
         assert result == 30.0
 
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     @patch("av.open")
     def test_get_avg_frame_rate_fallback(self, mock_av_open: Mock, mock_get_timestamps: Mock) -> None:
         """Test get_avg_frame_rate fallback to timestamp calculation."""
@@ -585,7 +597,7 @@ class TestMockedVideoFunctions:
         expected = 3.0 / 4  # (last - first) / num_frames
         assert result == expected
 
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     @patch("av.open")
     def test_get_avg_frame_rate_insufficient_frames(self, mock_av_open: Mock, mock_get_timestamps: Mock) -> None:
         """Test get_avg_frame_rate with insufficient frames."""
@@ -617,7 +629,7 @@ class TestMockedVideoFunctions:
 
         assert result == 300
 
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     @patch("av.open")
     def test_get_frame_count_fallback(self, mock_av_open: Mock, mock_get_timestamps: Mock) -> None:
         """Test get_frame_count fallback to timestamp counting."""
@@ -635,9 +647,9 @@ class TestMockedVideoFunctions:
 
         assert result == 4
 
-    @patch("ray_curator.utils.decoder_utils.decode_video_cpu_frame_ids")
-    @patch("ray_curator.utils.decoder_utils.sample_closest")
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.decode_video_cpu_frame_ids")
+    @patch("nemo_curator.utils.decoder_utils.sample_closest")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     def test_decode_video_cpu_basic(
         self, mock_get_timestamps: Mock, mock_sample_closest: Mock, mock_decode_frame_ids: Mock
     ) -> None:
@@ -664,8 +676,8 @@ class TestMockedVideoFunctions:
         mock_sample_closest.assert_called_once()
         mock_decode_frame_ids.assert_called_once()
 
-    @patch("ray_curator.utils.decoder_utils.decode_video_cpu")
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.decode_video_cpu")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     def test_extract_frames_sequence_policy(self, mock_get_timestamps: Mock, mock_decode_cpu: Mock) -> None:
         """Test extract_frames with sequence policy."""
         # Mock timestamps
@@ -685,8 +697,8 @@ class TestMockedVideoFunctions:
         mock_get_timestamps.assert_called_once()
         mock_decode_cpu.assert_called_once()
 
-    @patch("ray_curator.utils.decoder_utils.decode_video_cpu")
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.decode_video_cpu")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     def test_extract_frames_middle_policy(self, mock_get_timestamps: Mock, mock_decode_cpu: Mock) -> None:
         """Test extract_frames with middle policy."""
         # Mock timestamps - even number of frames
@@ -704,7 +716,7 @@ class TestMockedVideoFunctions:
         # Should call decode_cpu with middle frame timestamp
         mock_decode_cpu.assert_called_once()
 
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     def test_extract_frames_empty_video(self, mock_get_timestamps: Mock) -> None:
         """Test extract_frames with empty video."""
         mock_get_timestamps.return_value = np.array([], dtype=np.float32)
@@ -714,7 +726,7 @@ class TestMockedVideoFunctions:
         with pytest.raises(ValueError, match="Can't extract frames from empty video"):
             extract_frames(test_data, extraction_policy=FrameExtractionPolicy.sequence, sample_rate_fps=1.0)
 
-    @patch("ray_curator.utils.decoder_utils.get_video_timestamps")
+    @patch("nemo_curator.utils.decoder_utils.get_video_timestamps")
     def test_extract_frames_unsupported_policy(self, mock_get_timestamps: Mock) -> None:
         """Test extract_frames with unsupported extraction policy."""
         mock_timestamps = np.array([0.0, 1.0, 2.0], dtype=np.float32)

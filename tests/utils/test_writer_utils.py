@@ -1,4 +1,16 @@
-"""Test suite for writer_utils module."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 import csv
 import json
@@ -10,7 +22,7 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
-from ray_curator.utils.writer_utils import (
+from nemo_curator.utils.writer_utils import (
     JsonEncoderCustom,
     write_bytes,
     write_csv,
@@ -82,7 +94,7 @@ class TestWriteBytes:
             dest_path = pathlib.Path(tmp_dir) / "test.txt"
             dest_path.write_bytes(existing_data)
 
-            with patch("ray_curator.utils.writer_utils.logger") as mock_logger:
+            with patch("nemo_curator.utils.writer_utils.logger") as mock_logger:
                 write_bytes(
                     test_data,
                     dest_path,
@@ -106,7 +118,7 @@ class TestWriteBytes:
             dest_path = pathlib.Path(tmp_dir) / "test.txt"
             dest_path.write_bytes(existing_data)
 
-            with patch("ray_curator.utils.writer_utils.logger") as mock_logger:
+            with patch("nemo_curator.utils.writer_utils.logger") as mock_logger:
                 write_bytes(
                     test_data,
                     dest_path,
@@ -165,7 +177,7 @@ class TestWriteBytes:
         with tempfile.TemporaryDirectory() as tmp_dir:
             dest_path = pathlib.Path(tmp_dir) / "test.txt"
 
-            with patch("ray_curator.utils.writer_utils.logger") as mock_logger:
+            with patch("nemo_curator.utils.writer_utils.logger") as mock_logger:
                 write_bytes(
                     test_data,
                     dest_path,
