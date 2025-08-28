@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,14 +20,15 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import VideoTask
-from ray_curator.utils.operation_utils import make_pipeline_named_temporary_file
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import VideoTask
+from nemo_curator.utils.operation_utils import make_pipeline_named_temporary_file
+
 
 try:
-    from ray_curator.utils.nvcodec_utils import PyNvcFrameExtractor
+    from nemo_curator.utils.nvcodec_utils import PyNvcFrameExtractor
 
     _PYNVC_AVAILABLE = True
 except ImportError:
@@ -106,10 +108,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     pyncv_batch_size: int = 64
     decoder_mode: str = "pynvc"
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "video_frame_extraction"
+    _name: str = "video_frame_extraction"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

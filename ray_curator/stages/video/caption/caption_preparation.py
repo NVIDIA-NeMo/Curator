@@ -11,16 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from dataclasses import dataclass
 from itertools import zip_longest
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.models.prompt_formatter import PromptFormatter
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks.video import VideoTask, _Window
-from ray_curator.utils import windowing_utils
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.prompt_formatter import PromptFormatter
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks.video import VideoTask, _Window
+from nemo_curator.utils import windowing_utils
 
 _PROMPTS = {
     "default": """

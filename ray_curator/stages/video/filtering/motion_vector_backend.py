@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Backend using h264 motion vectors for optical flow filtering."""
 
 import io
 from dataclasses import dataclass

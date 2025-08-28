@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import copy
 import pathlib
 import subprocess
@@ -21,13 +22,13 @@ from typing import Any
 from cosmos_xenna.ray_utils.resources import _get_local_gpu_info, _make_gpu_resources_from_gpu_name
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources, _get_gpu_memory_gb
-from ray_curator.tasks.video import Clip, Video, VideoTask
-from ray_curator.utils import grouping
-from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources, _get_gpu_memory_gb
+from nemo_curator.tasks.video import Clip, Video, VideoTask
+from nemo_curator.utils import grouping
+from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 
 
 @dataclass
@@ -355,10 +356,7 @@ class FixedStrideExtractorStage(ProcessingStage[VideoTask, VideoTask]):
     min_clip_length_s: float
     limit_clips: int
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "fixed_stride_extractor"
+    _name: str = "fixed_stride_extractor"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import hashlib
 import io
 import pathlib
@@ -22,12 +23,12 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
-from ray_curator.utils.storage_utils import get_full_path
-from ray_curator.utils.writer_utils import write_bytes, write_json, write_parquet
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
+from nemo_curator.utils.storage_utils import get_full_path
+from nemo_curator.utils.writer_utils import write_bytes, write_json, write_parquet
 
 
 @dataclass
@@ -51,20 +52,14 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     max_workers: int = 6
     log_stats: bool = False
-
-    @property
-    def name(self) -> str:
-        return "clip_writer"
+    _name: str = "clip_writer"
+    _resources: Resources = Resources(cpus=0.25)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(cpus=0.25)
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         self._iv2_embedding_buffer: list[dict[str, Any]] = []

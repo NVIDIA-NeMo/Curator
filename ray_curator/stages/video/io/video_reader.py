@@ -18,13 +18,13 @@ from pathlib import Path
 
 from loguru import logger
 
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.client_partitioning import ClientPartitioningStage
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import _EmptyTask
-from ray_curator.tasks.file_group import FileGroupTask
-from ray_curator.tasks.video import Video, VideoTask
-from ray_curator.utils.client_utils import FSPath, is_remote_url
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.client_partitioning import ClientPartitioningStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.tasks import _EmptyTask
+from nemo_curator.tasks.file_group import FileGroupTask
+from nemo_curator.tasks.video import Video, VideoTask
+from nemo_curator.utils.client_utils import FSPath, is_remote_url
 
 
 @dataclass
@@ -254,10 +254,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
     def __post_init__(self):
         """Initialize the parent CompositeStage after dataclass initialization."""
         super().__init__()
-
-    @property
-    def name(self) -> str:
-        return "video_reader"
+        self._name = "video_reader"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent execution stages.

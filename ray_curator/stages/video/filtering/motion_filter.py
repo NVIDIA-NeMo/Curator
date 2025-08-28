@@ -11,15 +11,16 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import io
 from dataclasses import dataclass
 
 from loguru import logger
 
-import ray_curator.stages.video.filtering.motion_vector_backend as motion_backend
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import Video, VideoTask
+import nemo_curator.stages.video.filtering.motion_vector_backend as motion_backend
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import Video, VideoTask
 
 
 @dataclass
@@ -34,10 +35,7 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     target_fps: float = 2.0
     target_duration_ratio: float = 0.5
-
-    @property
-    def name(self) -> str:
-        return "motion_vector_decoding"
+    _name: str = "motion_vector_decoding"
 
     @property
     def resources(self) -> Resources:
@@ -104,10 +102,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
     num_gpus_per_worker: float = 0
     motion_filter_batch_size: int = 256
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "motion_filter"
+    _name: str = "motion_filter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

@@ -11,16 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import pathlib
 import subprocess
 from dataclasses import dataclass
 
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import Video, VideoTask, _Window
-from ray_curator.utils.operation_utils import make_pipeline_temporary_dir
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import Video, VideoTask, _Window
+from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
 
 
 @dataclass

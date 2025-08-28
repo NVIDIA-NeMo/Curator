@@ -11,17 +11,18 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import io
 from dataclasses import dataclass
 
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.models.internvideo2_mm import InternVideo2MultiModality
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import Video, VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.internvideo2_mm import InternVideo2MultiModality
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import Video, VideoTask
+from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
 
 
 @dataclass

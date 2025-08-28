@@ -11,18 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import io
 from dataclasses import dataclass
 from typing import Literal
 
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.models.cosmos_embed1 import CosmosEmbed1
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.cosmos_embed1 import CosmosEmbed1
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import VideoTask
+from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, extract_frames
 
 
 @dataclass
@@ -38,10 +39,7 @@ class CosmosEmbed1FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     target_fps: float = 2.0
     verbose: bool = False
     num_cpus: int = 3
-
-    @property
-    def name(self) -> str:
-        return "cosmos_embed1"
+    _name: str = "cosmos_embed1"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -121,10 +119,7 @@ class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     texts_to_verify: list[str] | None = None
     gpu_memory_gb: int = 20
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "cosmos_embed1_embedding"
+    _name: str = "cosmos_embed1_embedding"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

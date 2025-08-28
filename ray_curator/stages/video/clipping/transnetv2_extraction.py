@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import uuid
 from collections.abc import Callable, Generator
 from dataclasses import dataclass
@@ -21,11 +22,11 @@ import numpy.typing as npt
 import torch
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.models import transnetv2
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.video import Clip, Video, VideoTask
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models import transnetv2
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.video import Clip, Video, VideoTask
 
 
 @dataclass
@@ -67,10 +68,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     gpu_memory_gb: int = 10
     limit_clips: int = -1
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "transnetv2_clip_extraction"
+    _name: str = "transnetv2_clip_extraction"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
