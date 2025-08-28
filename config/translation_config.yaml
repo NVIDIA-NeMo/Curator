@@ -1,0 +1,18 @@
+# Example YAML configuration for TranslationDataGenerator
+# You can use this file with TranslationDataGenerator.from_yaml('config/translation_config.yaml')
+
+base_url: "http://localhost:11434/v1"
+api_key: ""
+init_translate_model: "gpt-oss:latest"
+reflection_model: "gpt-oss:latest"
+improvement_model: "gpt-oss:latest"
+hf_tokenizer: "openai/gpt-oss-20b"
+hf_token: ""
+max_token_per_chunk: 5000
+temperature: 1.0
+top_p: 1.0
+stop: ["<|return|>","<|endoftext|>", "<|call|>"]
+max_tokens: 24576
+source_lang: "English"
+target_lang: "Traditional Chinese"
+country: "Taiwan"
