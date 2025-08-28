@@ -16,12 +16,17 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import TYPE_CHECKING
+from unittest import mock
 
 import pytest
 
 from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.utils.file_utils import (
+    download_file,
+    extract_archive,
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
     infer_dataset_name_from_path,
@@ -340,3 +345,101 @@ class TestFilePartitioningStageGetters:
 
         with pytest.raises(TypeError, match="Invalid file paths"):
             stage._get_file_list_with_sizes()
+
+
+@pytest.fixture
+def temp_dir():
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        yield tmpdirname
+
+
+def test_download_file_file_already_exists(temp_dir: str):
+    # Create a dummy file that simulates already downloaded file
+    source_url = "http://example.com/test.txt"
+    filename = os.path.basename(source_url)
+    file_path = os.path.join(temp_dir, filename)
+
+    with open(file_path, "w") as f:
+        f.write("dummy content")
+
+    with mock.patch("wget.download") as mock_wget:
+        result = download_file(source_url, temp_dir, verbose=True)
+
+    # Should NOT attempt to download again
+    mock_wget.download.assert_not_called()
+    assert result == file_path
+
+
+def test_download_file_when_not_exists(temp_dir: str):
+    source_url = "http://example.com/test.txt"
+    filename = os.path.basename(source_url)
+    file_path = os.path.join(temp_dir, filename)
+
+    with mock.patch("wget.download") as mock_wget:
+        mock_wget.return_value = None
+        result = download_file(source_url, temp_dir, verbose=True)
+
+    # Should attempt to download
+    mock_wget.assert_called_once_with(source_url, temp_dir)
+    assert result == file_path
+
+
+@pytest.fixture
+def tar_setup():
+    # Patch is_tarfile and tarfile.open for tar scenario
+    with mock.patch("tarfile.is_tarfile", return_value=True), mock.patch("tarfile.open") as tar_open:
+        mock_archive = mock.MagicMock()
+        tar_open.return_value.__enter__.return_value = mock_archive
+        mock_archive.getnames.return_value = ["topdir/", "topdir/afile.txt"]
+        yield tar_open, mock_archive
+
+
+@pytest.fixture
+def zip_setup():
+    # Patch is_zipfile and ZipFile for zip scenario
+    with mock.patch("zipfile.is_zipfile", return_value=True), mock.patch("zipfile.ZipFile") as zip_open:
+        mock_archive = mock.MagicMock()
+        zip_open.return_value.__enter__.return_value = mock_archive
+        mock_archive.namelist.return_value = ["ziptopdir/afile.txt"]
+        yield zip_open, mock_archive
+
+
+def test_tar_already_extracted(tar_setup: tuple[mock.MagicMock, mock.MagicMock]):
+    tar_open, mock_archive = tar_setup
+    # Simulate extracted directory exists
+    with mock.patch("os.path.exists", return_value=True):
+        archive_path = "something.tar"
+        extract_path = "/extract/here"
+        result = extract_archive(archive_path, extract_path)
+        # Should return calculated dir, not extract again
+        assert result.endswith("afile.txt")
+        mock_archive.extractall.assert_not_called()
+
+
+def test_tar_extraction_needed(tar_setup: tuple[mock.MagicMock, mock.MagicMock]):
+    tar_open, mock_archive = tar_setup
+    with mock.patch("os.path.exists", return_value=False):
+        archive_path = "something.tar"
+        extract_path = "/extract/here"
+        result = extract_archive(archive_path, extract_path)
+        # Should call extractall
+        mock_archive.extractall.assert_called_once()
+        assert result.endswith("afile.txt")
+
+
+def test_force_extract_returns_none():
+    with mock.patch("tarfile.is_tarfile", return_value=True), mock.patch("tarfile.open"):
+        # Skips checking existence and always extracts
+        archive_path = "force.tar"
+        extract_path = "/extract/path"
+        result = extract_archive(archive_path, extract_path, force_extract=True)
+        assert result is None
+
+
+def test_unknown_format_raises():
+    with (
+        mock.patch("tarfile.is_tarfile", return_value=False),
+        mock.patch("zipfile.is_zipfile", return_value=False),
+        pytest.raises(RuntimeError),
+    ):
+        extract_archive("unknown.rnd", "/fake/path")
