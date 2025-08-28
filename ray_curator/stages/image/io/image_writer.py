@@ -25,10 +25,10 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.file_group import FileGroupTask
-from ray_curator.tasks.image import ImageBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.file_group import FileGroupTask
+from nemo_curator.tasks.image import ImageBatch
 
 
 @dataclass
@@ -45,13 +45,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     verbose: bool = False
     deterministic_name: bool = True
     remove_image_data: bool = False
-
     _name: str = "image_writer"
-
-    @property
-    def resources(self) -> Resources:
-        # CPU-only writer
-        return Resources()
 
     def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)

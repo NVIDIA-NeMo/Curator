@@ -20,9 +20,9 @@ import numpy as np
 import torch
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import FileGroupTask, ImageBatch, ImageObject
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import FileGroupTask, ImageBatch, ImageObject
 
 
 @dataclass

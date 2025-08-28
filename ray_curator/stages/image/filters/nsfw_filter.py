@@ -18,10 +18,10 @@ import numpy as np
 import torch
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.models.nsfw import NSFWScorer
-from ray_curator.stages.image.filters.base import BaseFilterStage
-from ray_curator.tasks import ImageBatch
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.nsfw import NSFWScorer
+from nemo_curator.stages.image.filters.base import BaseFilterStage
+from nemo_curator.tasks import ImageBatch
 
 
 @dataclass
@@ -33,10 +33,7 @@ class ImageNSFWFilterStage(BaseFilterStage):
     will be filtered out as NSFW content.
     """
     weights_path: str = None
-
-    @property
-    def name(self) -> str:
-        return "image_nsfw_filter"
+    _name: str = "image_nsfw_filter"
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Download NSFW model weights from LAION repository."""

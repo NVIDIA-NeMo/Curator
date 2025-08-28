@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base classes for processing stages."""
-
 from __future__ import annotations
 
 from abc import ABC, ABCMeta, abstractmethod
@@ -21,11 +19,11 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from loguru import logger
 
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Task
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task
 
 if TYPE_CHECKING:
-    from ray_curator.backends.base import NodeInfo, WorkerMetadata
+    from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 
 X = TypeVar("X", bound=Task)  # Input task type
 Y = TypeVar("Y", bound=Task)  # Output task type

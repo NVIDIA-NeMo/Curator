@@ -14,12 +14,12 @@
 
 from typing import Any, Literal
 
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.shuffler.rapidsmpf_shuffler import BulkRapidsMPFShuffler
-from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import create_or_overwrite_dir
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.shuffler.rapidsmpf_shuffler import BulkRapidsMPFShuffler
+from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
 
 class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):

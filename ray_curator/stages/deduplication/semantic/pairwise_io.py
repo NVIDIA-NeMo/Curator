@@ -16,12 +16,12 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
 
 if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
@@ -50,6 +50,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
         self.input_path = input_path
         self.storage_options = storage_options
         self._name = "pairwise_file_partitioning"
+        self._resources = Resources(cpus=0.5)
         self.fs: AbstractFileSystem | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -60,11 +61,6 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.fs = get_fs(self.input_path, storage_options=self.storage_options)
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        return Resources(cpus=0.5)
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""

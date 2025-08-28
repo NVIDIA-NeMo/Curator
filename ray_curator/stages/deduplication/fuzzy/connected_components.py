@@ -21,18 +21,18 @@ from loguru import logger
 from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
 
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.deduplication.id_generator import (
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
-from ray_curator.stages.deduplication.io_utils import DeduplicationIO
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks.file_group import FileGroupTask
-from ray_curator.utils.file_utils import create_or_overwrite_dir, get_fs
+from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks.file_group import FileGroupTask
+from nemo_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
 if TYPE_CHECKING:
-    from ray_curator.backends.base import WorkerMetadata
+    from nemo_curator.backends.base import WorkerMetadata
 
 
 class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationIO):

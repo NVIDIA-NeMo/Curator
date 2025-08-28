@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import json
 import uuid
 
@@ -20,7 +19,7 @@ import ray
 from loguru import logger
 from ray.actor import ActorHandle
 
-from ray_curator.backends.utils import register_loguru_serializer
+from nemo_curator.backends.utils import register_loguru_serializer
 
 CURATOR_DEDUP_ID_STR = "_curator_dedup_id"
 CURATOR_ID_GENERATOR_ACTOR_NAME = "curator_deduplication_id_generator"

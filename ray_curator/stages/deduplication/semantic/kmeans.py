@@ -1,17 +1,31 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 import cupy as cp
 import numpy as np
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.deduplication.io_utils import DeduplicationIO
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
-from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, check_disallowed_kwargs
 
 from .utils import break_parquet_partition_into_groups, get_array_from_df
 

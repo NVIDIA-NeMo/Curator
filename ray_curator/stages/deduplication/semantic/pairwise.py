@@ -23,12 +23,12 @@ import numpy as np
 import torch
 from loguru import logger
 
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.stages.deduplication.io_utils import DeduplicationIO
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import check_disallowed_kwargs
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.utils.file_utils import check_disallowed_kwargs
 
 from .pairwise_io import ClusterWiseFilePartitioningStage
 from .ranking import RankingStrategy

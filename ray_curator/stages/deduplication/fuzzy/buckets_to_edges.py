@@ -20,11 +20,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import delete_dir, get_fs, is_not_empty
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import delete_dir, get_fs, is_not_empty
 
 
 class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):

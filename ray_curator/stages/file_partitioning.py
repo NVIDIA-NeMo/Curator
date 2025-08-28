@@ -12,18 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""JSONL reader composite stage."""
-
 from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
 
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.file_utils import (
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.utils.file_utils import (
     _split_files_as_per_blocksize,
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
@@ -46,6 +44,7 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
     _name: str = "file_partitioning"
+    _resources: Resources = Resources(cpus=0.5)
 
     def __post_init__(self):
         """Initialize default values."""
@@ -61,11 +60,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return [], []
-
-    @property
-    def resources(self) -> Resources:
-        """Resource requirements for this stage."""
-        return Resources(cpus=0.5)
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""

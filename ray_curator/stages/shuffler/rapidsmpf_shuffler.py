@@ -25,7 +25,7 @@ from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.ray_utils import BaseShufflingActor
 
-from ray_curator.stages.deduplication.gpu_utils import align_down_to_256
+from nemo_curator.stages.deduplication.gpu_utils import align_down_to_256
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

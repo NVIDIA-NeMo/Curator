@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Resource requirements for pipeline stages."""
-
 from dataclasses import dataclass
 
 

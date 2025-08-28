@@ -28,17 +28,17 @@ import numpy as np
 from loguru import logger
 
 # Ray Curator imports
-from ray_curator.backends.base import BaseExecutor
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.pipeline import Pipeline
+from nemo_curator.backends.base import BaseExecutor
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
 
 # Stage imports
-from ray_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
-from ray_curator.stages.deduplication.semantic.kmeans import KMeansStage
-from ray_curator.stages.deduplication.semantic.pairwise import PairwiseStage
-from ray_curator.stages.deduplication.semantic.ranking import RankingStrategy
-from ray_curator.utils.file_utils import create_or_overwrite_dir
+from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
+from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
+from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage
+from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
 
 class SemanticDeduplicationWorkflow:

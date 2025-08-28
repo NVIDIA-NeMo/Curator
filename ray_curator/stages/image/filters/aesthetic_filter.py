@@ -18,10 +18,10 @@ import numpy as np
 import torch
 from loguru import logger
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.models.aesthetics import AestheticScorer
-from ray_curator.stages.image.filters.base import BaseFilterStage
-from ray_curator.tasks import ImageBatch
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.aesthetics import AestheticScorer
+from nemo_curator.stages.image.filters.base import BaseFilterStage
+from nemo_curator.tasks import ImageBatch
 
 
 @dataclass
@@ -36,10 +36,7 @@ class ImageAestheticFilterStage(BaseFilterStage):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     score_threshold: float = 0.5
     verbose: bool = False
-
-    @property
-    def name(self) -> str:
-        return "image_aesthetic_filter"
+    _name: str = "image_aesthetic_filter"
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the aesthetic filtering model."""

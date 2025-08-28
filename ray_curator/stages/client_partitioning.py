@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import json
 import posixpath
 from dataclasses import dataclass, field
@@ -19,10 +20,10 @@ from typing import Any
 import fsspec
 from fsspec.core import url_to_fs
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import FileGroupTask, _EmptyTask
-from ray_curator.utils.client_utils import FSPath
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.utils.client_utils import FSPath
 
 
 @dataclass

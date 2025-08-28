@@ -15,14 +15,14 @@
 """Utility decorators for creating ProcessingStage instances from simple functions.
 
 This module provides a :func:`processing_stage` decorator that turns a plain
-Python function into a concrete :class:`ray_curator.stages.base.ProcessingStage`.
+Python function into a concrete :class:`nemo_curator.stages.base.ProcessingStage`.
 
 Example
 -------
 
 ```python
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.function_decorators import processing_stage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.function_decorators import processing_stage
 
 
 @processing_stage(name="WordCountStage", resources=Resources(cpus=1.0), batch_size=1)
@@ -34,10 +34,10 @@ def word_count(task: SampleTask) -> SampleTask:
 
 The variable ``word_count`` now holds an *instance* of a concrete
 ``ProcessingStage`` subclass that can be added directly to a
-:class:`ray_curator.pipeline.Pipeline` like so:
+:class:`nemo_curator.pipeline.Pipeline` like so:
 
 ```python
-from ray_curator.pipeline import Pipeline
+from nemo_curator.pipeline import Pipeline
 
 
 pipeline = Pipeline(...)
@@ -57,9 +57,9 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, TypeVar, cast, overload
 
-from ray_curator.stages.base import _STAGE_REGISTRY, ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Task
+from nemo_curator.stages.base import _STAGE_REGISTRY, ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -93,7 +93,7 @@ def processing_stage(
     name:
         The *name* assigned to the resulting stage (``ProcessingStage.name``).
     resources:
-        Optional :class:`ray_curator.stages.resources.Resources`
+        Optional :class:`nemo_curator.stages.resources.Resources`
         or dict[str, float] describing the required compute resources.
         If *None* a default of ``Resources()`` is used.
     batch_size:
