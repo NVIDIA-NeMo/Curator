@@ -15,7 +15,9 @@
 
 import json
 import uuid
+from typing import Any
 
+import fsspec
 import ray
 from loguru import logger
 from ray.actor import ActorHandle
@@ -57,8 +59,9 @@ class IdGeneratorBase:
 
         return self.batch_registry[key]
 
-    def to_disk(self, filepath: str) -> None:
-        with open(filepath, "w") as f:
+    def to_disk(self, filepath: str, storage_options: dict[str, Any] | None = None) -> None:
+        storage_options = storage_options or {}
+        with fsspec.open(filepath, mode="w", **storage_options) as f:
             json.dump(
                 {
                     "next_id": self.next_id,
@@ -68,8 +71,9 @@ class IdGeneratorBase:
             )
 
     @classmethod
-    def from_disk(cls, filepath: str) -> "IdGeneratorBase":
-        with open(filepath) as f:
+    def from_disk(cls, filepath: str, storage_options: dict[str, Any] | None = None) -> "IdGeneratorBase":
+        storage_options = storage_options or {}
+        with fsspec.open(filepath, mode="r", **storage_options) as f:
             data = json.load(f)
         return cls(start_id=data["next_id"], batch_registry=data["batch_registry"])
 
@@ -87,12 +91,13 @@ def kill_id_generator_actor() -> None:
     ray.kill(get_id_generator_actor())
 
 
-def create_id_generator_actor(filepath: str | None = None) -> None:
+def create_id_generator_actor(filepath: str | None = None, storage_options: dict[str, Any] | None = None) -> None:
     """Create an id generator actor.
 
     Args:
         filepath (str): Path from where we want to load the id generator state json file.
             If None, a new actor is created.
+        storage_options (dict[str, Any] | None): Storage options to pass to fsspec.open.
     """
     register_loguru_serializer()  # TODO: instead of calling before each ray.init we can call it a packages __init__
     ray.init(ignore_reinit_error=True)
@@ -105,7 +110,8 @@ def create_id_generator_actor(filepath: str | None = None) -> None:
         else:
             # Create actor from saved state on disk
             # First load the data from disk
-            with open(filepath) as f:
+            storage_options = storage_options or {}
+            with fsspec.open(filepath, mode="r", **storage_options) as f:
                 data = json.load(f)
             # Create actor with loaded data
             _ = IdGenerator.options(
@@ -120,5 +126,6 @@ def create_id_generator_actor(filepath: str | None = None) -> None:
         ray.shutdown()
 
 
-def write_id_generator_to_disk(filepath: str) -> None:
-    ray.get(get_id_generator_actor().to_disk.remote(filepath))
+def write_id_generator_to_disk(filepath: str, storage_options: dict[str, Any] | None = None) -> None:
+    storage_options = storage_options or {}
+    ray.get(get_id_generator_actor().to_disk.remote(filepath, storage_options))
