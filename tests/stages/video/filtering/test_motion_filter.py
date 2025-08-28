@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for motion_filter.py."""
 
 import pathlib
 import uuid
@@ -19,14 +18,14 @@ from unittest.mock import Mock, patch
 
 import torch
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
-from ray_curator.stages.video.filtering.motion_vector_backend import (
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
+from nemo_curator.stages.video.filtering.motion_vector_backend import (
     DecodedData,
     MotionInfo,
     VideoResolutionTooSmallError,
 )
-from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
+from nemo_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
 
 
 class TestMotionVectorDecodeStage:
@@ -98,7 +97,7 @@ class TestMotionVectorDecodeStage:
         mock_decoded_data = Mock(spec=DecodedData)
         mock_decoded_data.frames = [Mock()]
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.return_value = mock_decoded_data
 
             result = self.stage.process(self.mock_task)
@@ -122,7 +121,7 @@ class TestMotionVectorDecodeStage:
 
     def test_process_with_resolution_too_small_error(self):
         """Test processing clips with resolution too small error."""
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.side_effect = VideoResolutionTooSmallError("Resolution too small")
 
             result = self.stage.process(self.mock_task)
@@ -133,7 +132,7 @@ class TestMotionVectorDecodeStage:
 
     def test_process_with_decode_exception(self):
         """Test processing clips with decode exception."""
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.side_effect = Exception("Decode failed")
 
             result = self.stage.process(self.mock_task)
@@ -147,7 +146,7 @@ class TestMotionVectorDecodeStage:
         mock_decoded_data = Mock(spec=DecodedData)
         mock_decoded_data.frames = []  # Empty frames list
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.return_value = mock_decoded_data
 
             result = self.stage.process(self.mock_task)
@@ -158,7 +157,7 @@ class TestMotionVectorDecodeStage:
 
     def test_process_with_none_decoded_data(self):
         """Test processing clips with None decoded data."""
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.return_value = None
 
             result = self.stage.process(self.mock_task)
@@ -171,7 +170,7 @@ class TestMotionVectorDecodeStage:
         """Test processing with verbose mode enabled."""
         verbose_stage = MotionVectorDecodeStage(verbose=True)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.side_effect = VideoResolutionTooSmallError("Resolution too small")
 
             # This should not raise an exception
@@ -187,7 +186,7 @@ class TestMotionVectorDecodeStage:
         mock_decoded_data = Mock(spec=DecodedData)
         mock_decoded_data.frames = [Mock()]
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.decode_for_motion") as mock_decode:
             mock_decode.return_value = mock_decoded_data
 
             custom_stage.process(self.mock_task)
@@ -286,7 +285,7 @@ class TestMotionFilterStage:
         """Test processing clips with small motion."""
         mock_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             result = self.stage.process(self.mock_task)
@@ -301,7 +300,7 @@ class TestMotionFilterStage:
         """Test processing clips with large motion."""
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             result = self.stage.process(self.mock_task)
@@ -337,7 +336,7 @@ class TestMotionFilterStage:
 
         mock_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             result = score_only_stage.process(self.mock_task)
@@ -354,7 +353,7 @@ class TestMotionFilterStage:
 
         large_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             # First clip has small motion, second has large motion
             mock_check.side_effect = [small_motion_info, large_motion_info]
 
@@ -372,7 +371,7 @@ class TestMotionFilterStage:
 
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.0005, global_mean=0.0008)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             custom_stage.process(self.mock_task)
@@ -389,7 +388,7 @@ class TestMotionFilterStage:
 
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             gpu_stage.process(self.mock_task)
@@ -405,7 +404,7 @@ class TestMotionFilterStage:
 
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             cpu_stage.process(self.mock_task)
@@ -421,7 +420,7 @@ class TestMotionFilterStage:
 
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             custom_stage.process(self.mock_task)
@@ -437,7 +436,7 @@ class TestMotionFilterStage:
 
         mock_motion_info = MotionInfo(is_small_motion=True, per_patch_min_256=0.0000005, global_mean=0.0005)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             # This should not raise an exception
@@ -449,7 +448,7 @@ class TestMotionFilterStage:
         """Test that decoded motion data is cleaned up after processing."""
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             result = self.stage.process(self.mock_task)
@@ -462,7 +461,7 @@ class TestMotionFilterStage:
         """Test that motion scores are properly set on clips."""
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             result = self.stage.process(self.mock_task)
@@ -487,7 +486,7 @@ class TestMotionFilterStage:
         """Test integration with VideoTask structure."""
         mock_motion_info = MotionInfo(is_small_motion=False, per_patch_min_256=0.001, global_mean=0.002)
 
-        with patch("ray_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
+        with patch("nemo_curator.stages.video.filtering.motion_vector_backend.check_if_small_motion") as mock_check:
             mock_check.return_value = mock_motion_info
 
             result = self.stage.process(self.mock_task)

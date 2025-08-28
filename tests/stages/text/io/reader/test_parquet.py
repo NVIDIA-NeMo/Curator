@@ -18,9 +18,9 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from ray_curator.stages.text.io.reader.parquet import ParquetReader, ParquetReaderStage
-from ray_curator.tasks.document import DocumentBatch
-from ray_curator.tasks.file_group import FileGroupTask
+from nemo_curator.stages.text.io.reader.parquet import ParquetReader, ParquetReaderStage
+from nemo_curator.tasks.document import DocumentBatch
+from nemo_curator.tasks.file_group import FileGroupTask
 
 
 @pytest.fixture
@@ -187,7 +187,7 @@ def test_parquet_reader_decompose_configuration(tmp_path: Path):
 
     # First stage: FilePartitioningStage with parquet extension filter
     first = stages[0]
-    from ray_curator.stages.file_partitioning import FilePartitioningStage
+    from nemo_curator.stages.file_partitioning import FilePartitioningStage
 
     assert isinstance(first, FilePartitioningStage)
     assert first.file_extensions == [".parquet"]

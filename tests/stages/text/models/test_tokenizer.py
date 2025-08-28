@@ -19,14 +19,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ray_curator.stages.text.models.tokenizer import TokenizerStage
-from ray_curator.stages.text.models.utils import (
+from nemo_curator.stages.text.models.tokenizer import TokenizerStage
+from nemo_curator.stages.text.models.utils import (
     ATTENTION_MASK_COLUMN,
     INPUT_ID_COLUMN,
     SEQ_ORDER_COLUMN,
     TOKEN_LENGTH_COLUMN,
 )
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.tasks import DocumentBatch
 
 
 class MockTokenizerOutput:
@@ -88,9 +88,9 @@ def sample_document_batch() -> DocumentBatch:
 @pytest.fixture(autouse=True)
 def setup_mocks(mock_tokenizer: Mock):
     with (
-        patch("ray_curator.stages.text.models.tokenizer.AutoTokenizer") as mock_auto_tokenizer,
-        patch("ray_curator.stages.text.models.tokenizer.AutoConfig") as mock_auto_config,
-        patch("ray_curator.stages.text.models.tokenizer.snapshot_download") as mock_snapshot_download,
+        patch("nemo_curator.stages.text.models.tokenizer.AutoTokenizer") as mock_auto_tokenizer,
+        patch("nemo_curator.stages.text.models.tokenizer.AutoConfig") as mock_auto_config,
+        patch("nemo_curator.stages.text.models.tokenizer.snapshot_download") as mock_snapshot_download,
     ):
         # Setup AutoTokenizer mock
         mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer

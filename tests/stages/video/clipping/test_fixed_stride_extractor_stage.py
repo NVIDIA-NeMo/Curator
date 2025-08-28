@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for FixedStrideExtractorStage."""
 
 import pathlib
 import uuid
@@ -19,8 +18,8 @@ from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
-from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
+from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
+from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 
 class TestFixedStrideExtractorStage:
@@ -327,7 +326,7 @@ class TestFixedStrideExtractorStage:
 
     def test_logging_behavior(self):
         """Test that appropriate logging occurs during processing."""
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             self.stage.process(self.mock_task)
 
             # Verify that info logging occurred

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import pytest
 
 # ruff: noqa: E402
@@ -19,7 +20,7 @@ cudf = pytest.importorskip("cudf", reason="utils tests require cudf")
 import cupy as cp
 import torch
 
-from ray_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
 
 
 @pytest.mark.gpu

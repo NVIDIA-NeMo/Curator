@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for motion_vector_backend.py."""
 
 import io
 from unittest.mock import Mock, patch
@@ -20,7 +19,7 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.video.filtering.motion_vector_backend import (
+from nemo_curator.stages.video.filtering.motion_vector_backend import (
     DecodedData,
     MotionInfo,
     VideoResolutionTooSmallError,

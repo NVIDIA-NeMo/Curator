@@ -12,18 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test suite for VideoReaderStage and VideoReader."""
-
 import pathlib
 from unittest import mock
 from unittest.mock import patch
 
 import pytest
 
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.stages.video.io.video_reader import VideoReader, VideoReaderStage
-from ray_curator.tasks.file_group import FileGroupTask
-from ray_curator.tasks.video import Video, VideoMetadata, VideoTask
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.video.io.video_reader import VideoReader, VideoReaderStage
+from nemo_curator.tasks.file_group import FileGroupTask
+from nemo_curator.tasks.video import Video, VideoMetadata, VideoTask
 
 
 class TestVideoReaderStage:
@@ -117,7 +115,7 @@ class TestVideoReaderStage:
         # Mock populate_metadata to raise an exception
         with (
             patch.object(video, "populate_metadata", side_effect=Exception("Metadata error")),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
+            patch("nemo_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -142,7 +140,7 @@ class TestVideoReaderStage:
             ),
         )
 
-        with patch("ray_curator.stages.video.io.video_reader.logger.info") as mock_log:
+        with patch("nemo_curator.stages.video.io.video_reader.logger.info") as mock_log:
             stage = VideoReaderStage()
             stage._log_video_info(video)
 
@@ -245,7 +243,7 @@ class TestVideoReaderStage:
 
         with (
             patch("pathlib.Path.open", side_effect=FileNotFoundError("Test error")),
-            patch("ray_curator.stages.video.io.video_reader.logger.error") as mock_log,
+            patch("nemo_curator.stages.video.io.video_reader.logger.error") as mock_log,
         ):
             stage = VideoReaderStage()
             result = stage._download_video_bytes(video)
@@ -300,7 +298,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", return_value=None),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
+            patch("nemo_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -315,7 +313,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", return_value=None),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
+            patch("nemo_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -330,7 +328,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", return_value=None),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
+            patch("nemo_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -478,7 +476,7 @@ class TestVideoReaderStage:
 
         with (
             patch.object(video, "populate_metadata", side_effect=RuntimeError("Corrupted file")),
-            patch("ray_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
+            patch("nemo_curator.stages.video.io.video_reader.logger.warning") as mock_warn,
         ):
             stage = VideoReaderStage()
             result = stage._extract_and_validate_metadata(video)
@@ -557,7 +555,7 @@ class TestVideoReader:
         assert stage.name == "video_reader"
 
         # Test that it's a composite stage (should raise error when trying to process)
-        from ray_curator.tasks import _EmptyTask
+        from nemo_curator.tasks import _EmptyTask
 
         empty_task = _EmptyTask(task_id="test", dataset_name="test", data=None)
         with pytest.raises(RuntimeError, match="Composite stage 'video_reader' should not be executed directly"):
@@ -660,7 +658,7 @@ class TestVideoReader:
 
     def test_post_init_calls_super(self) -> None:
         """Test that __post_init__ properly calls parent initialization."""
-        with patch("ray_curator.stages.base.CompositeStage.__init__") as mock_super_init:
+        with patch("nemo_curator.stages.base.CompositeStage.__init__") as mock_super_init:
             VideoReader(input_video_path="/test/videos")
 
             # Should have called parent __init__
@@ -703,7 +701,7 @@ class TestVideoReader:
         stage = VideoReader(input_video_path="/test/videos")
 
         # Should be a CompositeStage
-        from ray_curator.stages.base import CompositeStage
+        from nemo_curator.stages.base import CompositeStage
 
         assert isinstance(stage, CompositeStage)
 

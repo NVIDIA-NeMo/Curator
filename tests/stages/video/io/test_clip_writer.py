@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Test suite for ClipWriterStage."""
 
 import hashlib
 import pathlib
@@ -21,9 +20,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.io.clip_writer import ClipWriterStage
-from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask, _Window
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
+from nemo_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask, _Window
 
 
 class TestClipWriterStage:
@@ -204,7 +203,7 @@ class TestClipWriterStage:
         result = ClipWriterStage.calculate_sha256(test_data)
         assert result == expected_hash
 
-    @patch("ray_curator.stages.video.io.clip_writer.write_bytes")
+    @patch("nemo_curator.stages.video.io.clip_writer.write_bytes")
     def test_write_data(self, mock_write_bytes: MagicMock):
         """Test _write_data method."""
         self.stage.setup()
@@ -223,7 +222,7 @@ class TestClipWriterStage:
             verbose=True,
         )
 
-    @patch("ray_curator.stages.video.io.clip_writer.write_json")
+    @patch("nemo_curator.stages.video.io.clip_writer.write_json")
     def test_write_json_data(self, mock_write_json: MagicMock):
         """Test _write_json_data method."""
         self.stage.setup()
@@ -242,7 +241,7 @@ class TestClipWriterStage:
             verbose=True,
         )
 
-    @patch("ray_curator.stages.video.io.clip_writer.get_full_path")
+    @patch("nemo_curator.stages.video.io.clip_writer.get_full_path")
     def test_get_window_uri(self, mock_get_full_path: MagicMock):
         """Test _get_window_uri method."""
         mock_get_full_path.return_value = "/test/path"
@@ -261,7 +260,7 @@ class TestClipWriterStage:
         )
         assert result == "/test/path"
 
-    @patch("ray_curator.stages.video.io.clip_writer.get_full_path")
+    @patch("nemo_curator.stages.video.io.clip_writer.get_full_path")
     def test_get_clip_uri(self, mock_get_full_path: MagicMock):
         """Test _get_clip_uri method."""
         mock_get_full_path.return_value = "/test/path"
@@ -278,7 +277,7 @@ class TestClipWriterStage:
         )
         assert result == "/test/path"
 
-    @patch("ray_curator.stages.video.io.clip_writer.get_full_path")
+    @patch("nemo_curator.stages.video.io.clip_writer.get_full_path")
     def test_get_video_uri(self, mock_get_full_path: MagicMock):
         """Test _get_video_uri method."""
         mock_get_full_path.return_value = "/test/path"
@@ -294,7 +293,7 @@ class TestClipWriterStage:
         )
         assert result == "/test/path"
 
-    @patch("ray_curator.stages.video.io.clip_writer.get_full_path")
+    @patch("nemo_curator.stages.video.io.clip_writer.get_full_path")
     def test_get_clip_chunk_uri(self, mock_get_full_path: MagicMock):
         """Test _get_clip_chunk_uri method."""
         mock_get_full_path.return_value = "/test/path"
@@ -347,7 +346,7 @@ class TestClipWriterStage:
         self.stage.setup()
         clip = self.mock_clip_no_buffer
 
-        with patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
             result = self.stage._write_clip_embedding_to_buffer(clip)
 
             assert isinstance(result, ClipStats)
@@ -363,13 +362,13 @@ class TestClipWriterStage:
         self.stage.setup()
         clip = self.mock_clip_no_buffer
 
-        with patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
             result = self.stage._write_clip_embedding_to_buffer(clip)
 
             assert isinstance(result, ClipStats)
             mock_logger.error.assert_called()
 
-    @patch("ray_curator.stages.video.io.clip_writer.write_parquet")
+    @patch("nemo_curator.stages.video.io.clip_writer.write_parquet")
     def test_write_video_embeddings_to_parquet(self, mock_write_parquet: MagicMock):
         """Test _write_video_embeddings_to_parquet method."""
         self.stage.setup()
@@ -387,7 +386,7 @@ class TestClipWriterStage:
             assert len(self.stage._iv2_embedding_buffer) == 0
             assert len(self.stage._ce1_embedding_buffer) == 0
 
-    @patch("ray_curator.stages.video.io.clip_writer.write_parquet")
+    @patch("nemo_curator.stages.video.io.clip_writer.write_parquet")
     def test_write_video_embeddings_to_parquet_dry_run(self, mock_write_parquet: MagicMock):
         """Test _write_video_embeddings_to_parquet in dry run mode."""
         self.stage.dry_run = True
@@ -421,7 +420,7 @@ class TestClipWriterStage:
         """Test _write_clip_window_webp without webp data."""
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
             result = self.stage._write_clip_window_webp(self.mock_clip_no_buffer)
 
             assert isinstance(result, ClipStats)
@@ -449,7 +448,7 @@ class TestClipWriterStage:
         """Test _write_clip_mp4 without buffer data."""
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
             result = self.stage._write_clip_mp4(self.mock_clip_no_buffer)
 
             assert isinstance(result, ClipStats)
@@ -502,7 +501,7 @@ class TestClipWriterStage:
         """Test _write_clip_embedding without embeddings."""
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
             result = self.stage._write_clip_embedding(self.mock_clip_no_buffer)
 
             assert isinstance(result, ClipStats)
@@ -683,7 +682,7 @@ class TestClipWriterStage:
 
             assert mock_write_json.call_count == 1  # Only clip chunk metadata
 
-    @patch("ray_curator.stages.video.io.clip_writer.ThreadPoolExecutor")
+    @patch("nemo_curator.stages.video.io.clip_writer.ThreadPoolExecutor")
     def test_process_success(self, mock_executor_class: MagicMock):
         """Test process method with successful execution."""
         mock_executor = MagicMock()
@@ -704,7 +703,7 @@ class TestClipWriterStage:
             patch.object(self.stage, "_write_clip_metadata"),
             patch.object(self.stage, "_write_video_embeddings_to_parquet"),
             patch.object(self.stage, "_write_video_metadata"),
-            patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger,
+            patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger,
         ):
             result = self.stage.process(self.mock_task)
 
@@ -731,7 +730,7 @@ class TestClipWriterStage:
 
             mock_logger.info.assert_called()
 
-    @patch("ray_curator.stages.video.io.clip_writer.ThreadPoolExecutor")
+    @patch("nemo_curator.stages.video.io.clip_writer.ThreadPoolExecutor")
     def test_process_non_verbose(self, mock_executor_class: MagicMock):
         """Test process method in non-verbose mode."""
         self.stage.verbose = False
@@ -748,7 +747,7 @@ class TestClipWriterStage:
             patch.object(self.stage, "_write_clip_embedding_to_buffer"),
             patch.object(self.stage, "_write_video_embeddings_to_parquet"),
             patch.object(self.stage, "_write_video_metadata"),
-            patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger,
+            patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger,
         ):
             result = self.stage.process(self.mock_task)
 
@@ -760,7 +759,7 @@ class TestClipWriterStage:
         self.stage.max_workers = 8
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.io.clip_writer.ThreadPoolExecutor") as mock_executor_class:
+        with patch("nemo_curator.stages.video.io.clip_writer.ThreadPoolExecutor") as mock_executor_class:
             mock_executor = MagicMock()
             mock_executor_class.return_value.__enter__.return_value = mock_executor
 
@@ -793,7 +792,7 @@ class TestClipWriterStage:
             data=empty_video,
         )
 
-        with patch("ray_curator.stages.video.io.clip_writer.ThreadPoolExecutor") as mock_executor_class:
+        with patch("nemo_curator.stages.video.io.clip_writer.ThreadPoolExecutor") as mock_executor_class:
             mock_executor = MagicMock()
             mock_executor_class.return_value.__enter__.return_value = mock_executor
 
@@ -883,7 +882,7 @@ class TestClipWriterStage:
             self.stage.embedding_algorithm = algorithm
             self.stage.setup()
 
-            with patch("ray_curator.stages.video.io.clip_writer.logger") as mock_logger:
+            with patch("nemo_curator.stages.video.io.clip_writer.logger") as mock_logger:
                 result = self.stage._write_clip_embedding_to_buffer(self.mock_clip_no_buffer)
 
                 assert isinstance(result, ClipStats)

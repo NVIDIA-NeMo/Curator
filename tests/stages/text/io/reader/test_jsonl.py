@@ -17,11 +17,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from ray_curator.stages.deduplication.id_generator import (
+from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
 )
-from ray_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.stages.text.io.reader.jsonl import JsonlReader, JsonlReaderStage
+from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.fixture

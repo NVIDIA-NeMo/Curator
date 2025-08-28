@@ -15,7 +15,7 @@
 import pandas as pd
 import pytest
 
-from ray_curator.stages.text.modifiers import (
+from nemo_curator.stages.text.modifiers import (
     DocumentModifier,
     LineRemover,
     MarkdownRemover,
@@ -25,9 +25,9 @@ from ray_curator.stages.text.modifiers import (
     UnicodeReformatter,
     UrlRemover,
 )
-from ray_curator.stages.text.modules import Modify
-from ray_curator.stages.text.modules.modifier import _normalize_input_fields, _normalize_output_fields
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.text.modules import Modify
+from nemo_curator.stages.text.modules.modifier import _normalize_input_fields, _normalize_output_fields
+from nemo_curator.tasks import DocumentBatch
 
 
 def list_to_doc_batch(documents: list[str], col_name: str = "text") -> DocumentBatch:

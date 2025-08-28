@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ray_curator.stages.text.io.writer.utils import get_deterministic_hash
+from nemo_curator.stages.text.io.writer.utils import get_deterministic_hash
 
 
 class TestGetDeterministicHash:

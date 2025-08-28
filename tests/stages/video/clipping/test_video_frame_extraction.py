@@ -11,9 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Test suite for video_frame_extraction module."""
-# ruff: noqa: ANN401
 
+# ruff: noqa: ANN401
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -22,13 +21,13 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.clipping.video_frame_extraction import (
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.clipping.video_frame_extraction import (
     VideoFrameExtractionStage,
     get_frames_from_ffmpeg,
 )
-from ray_curator.tasks.video import Video, VideoMetadata, VideoTask
+from nemo_curator.tasks.video import Video, VideoMetadata, VideoTask
 
 
 class TestGetFramesFromFfmpeg:
@@ -40,7 +39,7 @@ class TestGetFramesFromFfmpeg:
         self.width = 224
         self.height = 224
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
     def test_get_frames_from_ffmpeg_cpu_success(self, mock_popen: Any) -> None:
         """Test successful frame extraction using CPU."""
         # Create mock process
@@ -77,7 +76,7 @@ class TestGetFramesFromFfmpeg:
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
     def test_get_frames_from_ffmpeg_gpu_success(self, mock_popen: Any) -> None:
         """Test successful frame extraction using GPU."""
         # Create mock process
@@ -118,8 +117,8 @@ class TestGetFramesFromFfmpeg:
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_get_frames_from_ffmpeg_gpu_failure_fallback(self, mock_logger: Any, mock_popen: Any) -> None:
         """Test GPU failure with fallback to CPU."""
         # Mock GPU failure, then CPU success
@@ -149,8 +148,8 @@ class TestGetFramesFromFfmpeg:
         assert isinstance(result, np.ndarray)
         assert result.dtype == np.uint8
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_get_frames_from_ffmpeg_cpu_failure(self, mock_logger: Any, mock_popen: Any) -> None:
         """Test CPU failure with no fallback."""
         # Create mock process with failure
@@ -167,7 +166,7 @@ class TestGetFramesFromFfmpeg:
         # Verify result is None
         assert result is None
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.subprocess.Popen")
     def test_get_frames_from_ffmpeg_reshape(self, mock_popen: Any) -> None:
         """Test that frames are properly reshaped."""
         # Create mock process with specific data size
@@ -260,8 +259,8 @@ class TestVideoFrameExtractionStage:
         assert isinstance(resources, Resources)
         assert resources.cpus == 4.0
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction._PYNVC_AVAILABLE", True)
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.PyNvcFrameExtractor")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction._PYNVC_AVAILABLE", True)
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.PyNvcFrameExtractor")
     def test_setup_pynvc_mode(self, mock_pynvc_extractor: Any) -> None:
         """Test setup method with PyNvCodec mode."""
         stage = VideoFrameExtractionStage(
@@ -290,8 +289,8 @@ class TestVideoFrameExtractionStage:
         # Should not create PyNvcFrameExtractor
         assert not hasattr(stage, "pynvc_frame_extractor") or stage.pynvc_frame_extractor is None
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction._PYNVC_AVAILABLE", False)
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction._PYNVC_AVAILABLE", False)
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_setup_pynvc_mode_unavailable(self, mock_logger: Any) -> None:
         """Test setup method with PyNvCodec mode when PyNvcFrameExtractor is not available."""
         stage = VideoFrameExtractionStage(decoder_mode="pynvc")
@@ -305,9 +304,9 @@ class TestVideoFrameExtractionStage:
         # Should not create PyNvcFrameExtractor
         assert stage.pynvc_frame_extractor is None
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_no_pynvc_extractor(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
         """Test process method without PyNvCodec extractor initialization."""
         stage = VideoFrameExtractionStage(decoder_mode="pynvc")
@@ -361,7 +360,7 @@ class TestVideoFrameExtractionStage:
         with pytest.raises(ValueError, match="Video source bytes are not available"):
             stage.process(task)
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_incomplete_metadata(self, mock_logger: Any) -> None:
         """Test process method with incomplete metadata."""
         stage = VideoFrameExtractionStage(decoder_mode="pynvc")
@@ -383,7 +382,7 @@ class TestVideoFrameExtractionStage:
         assert "metadata" in result.data.errors
         assert result.data.errors["metadata"] == "incomplete"
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
     def test_process_pynvc_success(self, mock_temp_file: Any) -> None:
         """Test successful processing with PyNvCodec."""
         stage = VideoFrameExtractionStage(decoder_mode="pynvc")
@@ -418,9 +417,9 @@ class TestVideoFrameExtractionStage:
         assert result.data.frame_array.shape == (10, 27, 48, 3)
         assert result.data.frame_array.dtype == np.uint8
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_pynvc_exception_fallback(
         self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any
     ) -> None:
@@ -471,9 +470,9 @@ class TestVideoFrameExtractionStage:
         assert result.data.frame_array is not None
         assert np.array_equal(result.data.frame_array, mock_frames)
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_ffmpeg_mode(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
         """Test processing with FFmpeg mode."""
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg")
@@ -518,9 +517,9 @@ class TestVideoFrameExtractionStage:
         assert result.data.frame_array is not None
         assert np.array_equal(result.data.frame_array, mock_frames)
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_ffmpeg_gpu_mode(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
         """Test processing with FFmpeg GPU mode."""
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg_gpu")
@@ -565,9 +564,9 @@ class TestVideoFrameExtractionStage:
         assert result.data.frame_array is not None
         assert np.array_equal(result.data.frame_array, mock_frames)
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_frame_extraction_failure(
         self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any
     ) -> None:
@@ -603,9 +602,9 @@ class TestVideoFrameExtractionStage:
         # Verify None was returned
         assert result is None
 
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
-    @patch("ray_curator.stages.video.clipping.video_frame_extraction.logger")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.make_pipeline_named_temporary_file")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.get_frames_from_ffmpeg")
+    @patch("nemo_curator.stages.video.clipping.video_frame_extraction.logger")
     def test_process_verbose_mode(self, mock_logger: Any, mock_get_frames: Any, mock_temp_file: Any) -> None:
         """Test processing with verbose mode enabled."""
         stage = VideoFrameExtractionStage(decoder_mode="ffmpeg", verbose=True)

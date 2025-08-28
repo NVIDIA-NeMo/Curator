@@ -11,20 +11,19 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for caption enhancement stage."""
 
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.video.caption.caption_enhancement import (
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.video.caption.caption_enhancement import (
     _ENHANCE_PROMPTS,
     CaptionEnhancementStage,
     _get_enhance_prompt,
 )
-from ray_curator.tasks.video import Clip, Video, VideoTask, _Window
+from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
 
 
 class TestCaptionEnhancementStage:
@@ -94,13 +93,13 @@ class TestCaptionEnhancementStage:
 
     def test_post_init_prompt_setup(self):
         """Test __post_init__ sets up prompt correctly."""
-        with patch("ray_curator.stages.video.caption.caption_enhancement._get_enhance_prompt") as mock_get_prompt:
+        with patch("nemo_curator.stages.video.caption.caption_enhancement._get_enhance_prompt") as mock_get_prompt:
             mock_get_prompt.return_value = "test prompt"
             stage = CaptionEnhancementStage(prompt_variant="default", prompt_text=None)
             mock_get_prompt.assert_called_once_with("default", None)
             assert stage.prompt == "test prompt"
 
-    @patch("ray_curator.stages.video.caption.caption_enhancement.QwenLM")
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.QwenLM")
     def test_setup_qwen_variant(self, mock_qwen_lm: Mock):
         """Test setup method with qwen variant."""
         mock_model = Mock()
@@ -127,7 +126,7 @@ class TestCaptionEnhancementStage:
     def test_setup_with_worker_metadata(self):
         """Test setup method with worker metadata (should be ignored)."""
         mock_model = Mock()
-        with patch("ray_curator.stages.video.caption.caption_enhancement.QwenLM", return_value=mock_model):
+        with patch("nemo_curator.stages.video.caption.caption_enhancement.QwenLM", return_value=mock_model):
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
             assert hasattr(self.stage, "model")
@@ -192,7 +191,7 @@ class TestCaptionEnhancementStage:
         video.clips = [clip]
         return VideoTask(task_id="test", dataset_name="test", data=video)
 
-    @patch("ray_curator.stages.video.caption.caption_enhancement.logger")
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_process_with_valid_captions(self, _mock_logger: Mock):  # noqa: PT019
         """Test process method with valid captions."""
         mock_model = Mock()
@@ -230,7 +229,7 @@ class TestCaptionEnhancementStage:
         # Verify the result is the same task
         assert result is task
 
-    @patch("ray_curator.stages.video.caption.caption_enhancement.logger")
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_process_with_empty_clips(self, mock_logger: Mock):
         """Test process method with clips that have no windows."""
         mock_model = Mock()
@@ -254,7 +253,7 @@ class TestCaptionEnhancementStage:
         # Verify the result is the same task
         assert result is task
 
-    @patch("ray_curator.stages.video.caption.caption_enhancement.logger")
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_process_with_no_captions(self, mock_logger: Mock):
         """Test process method with windows that have no captions."""
         mock_model = Mock()
@@ -331,7 +330,7 @@ class TestCaptionEnhancementStage:
 
         assert result is task
 
-    @patch("ray_curator.stages.video.caption.caption_enhancement.logger")
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_process_with_verbose_logging(self, mock_logger: Mock):
         """Test process method with verbose logging enabled."""
         mock_model = Mock()
@@ -384,7 +383,7 @@ class TestGetEnhancePrompt:
         with pytest.raises(ValueError, match="Invalid prompt variant: invalid"):
             _get_enhance_prompt("invalid", None)
 
-    @patch("ray_curator.stages.video.caption.caption_enhancement.logger")
+    @patch("nemo_curator.stages.video.caption.caption_enhancement.logger")
     def test_get_enhance_prompt_with_verbose(self, mock_logger: Mock):
         """Test _get_enhance_prompt with verbose logging."""
         result = _get_enhance_prompt("default", None, verbose=True)

@@ -11,16 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for caption generation stage."""
 
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
 import pytest
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.video.caption.caption_generation import CaptionGenerationStage
-from ray_curator.tasks.video import Clip, Video, VideoTask, _Window
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
+from nemo_curator.tasks.video import Clip, Video, VideoTask, _Window
 
 
 class TestCaptionGenerationStage:
@@ -65,7 +64,7 @@ class TestCaptionGenerationStage:
         outputs = self.stage.outputs()
         assert outputs == (["data"], ["clips"])
 
-    @patch("ray_curator.stages.video.caption.caption_generation.QwenVL")
+    @patch("nemo_curator.stages.video.caption.caption_generation.QwenVL")
     def test_setup_qwen_variant(self, mock_qwen_vl: Mock):
         """Test setup method with qwen variant."""
         mock_model = Mock()
@@ -185,7 +184,7 @@ class TestCaptionGenerationStage:
 
         self.stage.process(task)
 
-    @patch("ray_curator.stages.video.caption.caption_generation.logger")
+    @patch("nemo_curator.stages.video.caption.caption_generation.logger")
     def test_process_empty_windows(self, mock_logger: Mock):
         """Test process method with clips that have no windows."""
         mock_model = Mock()
@@ -209,7 +208,7 @@ class TestCaptionGenerationStage:
         # Model should not be called if no valid inputs
         mock_model.generate.assert_called_once_with([], generate_stage2_caption=False, batch_size=2)
 
-    @patch("ray_curator.stages.video.caption.caption_generation.logger")
+    @patch("nemo_curator.stages.video.caption.caption_generation.logger")
     def test_process_window_without_input(self, mock_logger: Mock):
         """Test process method with windows that have no qwen_llm_input."""
         mock_model = Mock()
@@ -256,7 +255,7 @@ class TestCaptionGenerationStage:
         assert video.clips[0].windows[1].caption["qwen"] == "Caption for clip1 window2"
         assert video.clips[1].windows[0].caption["qwen"] == "Caption for clip2 window1"
 
-    @patch("ray_curator.stages.video.caption.caption_generation.logger")
+    @patch("nemo_curator.stages.video.caption.caption_generation.logger")
     def test_assign_captions_with_logging(self, mock_logger: Mock):
         """Test _assign_captions method logs summary information."""
         import pathlib
@@ -325,7 +324,7 @@ class TestCaptionGenerationStage:
     def test_stage_with_worker_metadata(self):
         """Test setup method with worker metadata (should be ignored)."""
         mock_model = Mock()
-        with patch("ray_curator.stages.video.caption.caption_generation.QwenVL", return_value=mock_model):
+        with patch("nemo_curator.stages.video.caption.caption_generation.QwenVL", return_value=mock_model):
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
             assert hasattr(self.stage, "model")

@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for ClipTranscodingStage."""
 
 import copy
 import pathlib
@@ -22,10 +21,10 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
-from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTranscodingStage
+from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 
 # Mock GPU info class to simulate GPU information
@@ -115,7 +114,7 @@ class TestClipTranscodingStage:
         spec = self.stage.ray_stage_spec()
 
         # Verify the expected keys and values based on the git diff
-        from ray_curator.backends.experimental.utils import RayStageSpecKeys
+        from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 
         assert RayStageSpecKeys.IS_FANOUT_STAGE in spec
         assert spec[RayStageSpecKeys.IS_FANOUT_STAGE] is True
@@ -133,7 +132,7 @@ class TestClipTranscodingStage:
         """Test processing when video has no clips."""
         self.mock_video.clips = []
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             result = self.stage.process(self.mock_task)
 
             # Should return early and log warning
@@ -141,8 +140,8 @@ class TestClipTranscodingStage:
             assert "No clips to transcode" in mock_logger.warning.call_args[0][0]
             assert result.data.source_bytes is None
 
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir")
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size")
     def test_process_successful_transcoding(self, mock_split: MagicMock, mock_temp_dir: MagicMock) -> None:
         """Test successful transcoding process."""
         # Setup mocks
@@ -151,7 +150,7 @@ class TestClipTranscodingStage:
 
         with (
             patch.object(self.stage, "_extract_clips") as mock_extract,
-            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"),
+            patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger"),
             patch("pathlib.Path.write_bytes") as mock_write,
         ):
             result = self.stage.process(self.mock_task)
@@ -164,8 +163,8 @@ class TestClipTranscodingStage:
             assert isinstance(result[0], VideoTask)
             assert result[0].data.source_bytes is None  # Should be cleared
 
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir")
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size")
     def test_process_multiple_chunks(self, mock_split: MagicMock, mock_temp_dir: MagicMock) -> None:
         """Test processing with multiple clip chunks."""
         # Setup mocks to return multiple chunks
@@ -176,7 +175,7 @@ class TestClipTranscodingStage:
 
         with (
             patch.object(self.stage, "_extract_clips"),
-            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"),
+            patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger"),
             patch("pathlib.Path.write_bytes") as mock_write,
         ):
             result = self.stage.process(self.mock_task)
@@ -200,10 +199,10 @@ class TestClipTranscodingStage:
 
         with (
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
             ) as mock_temp_dir,
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
             ) as mock_split,
             patch.object(stage, "_extract_clips") as mock_extract,
             patch("pathlib.Path.write_bytes"),
@@ -334,7 +333,7 @@ class TestClipTranscodingStage:
         assert "copy" in command
         assert f"{clip.uuid}.mp4" in command
 
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
     def test_run_ffmpeg_command_success(self, mock_subprocess: MagicMock) -> None:
         """Test successful FFmpeg command execution."""
         command = ["ffmpeg", "-version"]
@@ -348,7 +347,7 @@ class TestClipTranscodingStage:
 
         mock_subprocess.assert_called_once_with(command, cwd=working_dir, stderr=subprocess.STDOUT)
 
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
     def test_run_ffmpeg_command_verbose(self, mock_subprocess: MagicMock) -> None:
         """Test FFmpeg command execution with verbose logging."""
         stage = ClipTranscodingStage(verbose=True, ffmpeg_verbose=True)
@@ -358,14 +357,14 @@ class TestClipTranscodingStage:
 
         mock_subprocess.return_value = b"ffmpeg output"
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             stage._run_ffmpeg_command(command, working_dir, clips)
 
             # Should log the command
             mock_logger.info.assert_called()
             mock_logger.warning.assert_called()  # For ffmpeg output
 
-    @patch("ray_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
+    @patch("nemo_curator.stages.video.clipping.clip_extraction_stages.subprocess.check_output")
     def test_run_ffmpeg_command_error(self, mock_subprocess: MagicMock) -> None:
         """Test FFmpeg command execution with error."""
         command = ["ffmpeg", "-invalid"]
@@ -386,7 +385,7 @@ class TestClipTranscodingStage:
         clips = self.mock_clips
         error = subprocess.CalledProcessError(1, command, b"error output")
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             self.stage._handle_ffmpeg_error(error, command, clips)
 
             # Should log errors
@@ -404,7 +403,7 @@ class TestClipTranscodingStage:
         clips = self.mock_clips
         error = subprocess.CalledProcessError(1, command, None)
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger"):
+        with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger"):
             self.stage._handle_ffmpeg_error(error, command, clips)
 
             # Should add string representation of error
@@ -438,10 +437,10 @@ class TestClipTranscodingStage:
         with (
             patch.object(self.mock_video, "is_10_bit_color", return_value=True),
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
             ) as mock_temp_dir,
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
             ) as mock_split,
             patch.object(self.stage, "_extract_clips") as mock_extract,
             patch("pathlib.Path.write_bytes"),
@@ -459,13 +458,13 @@ class TestClipTranscodingStage:
         """Test that clip statistics are logged during processing."""
         with (
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
             ) as mock_temp_dir,
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
             ) as mock_split,
             patch.object(self.stage, "_extract_clips"),
-            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger,
+            patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger,
             patch("pathlib.Path.write_bytes"),
         ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
@@ -484,13 +483,13 @@ class TestClipTranscodingStage:
 
         with (
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
             ) as mock_temp_dir,
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
             ) as mock_split,
             patch.object(stage, "_extract_clips"),
-            patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger,
+            patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger,
             patch("pathlib.Path.write_bytes"),
         ):
             mock_temp_dir.return_value.__enter__.return_value = self.temp_dir
@@ -509,10 +508,10 @@ class TestClipTranscodingStage:
 
         with (
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.make_pipeline_temporary_dir"
             ) as mock_temp_dir,
             patch(
-                "ray_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
+                "nemo_curator.stages.video.clipping.clip_extraction_stages.grouping.split_by_chunk_size"
             ) as mock_split,
             patch.object(stage, "_extract_clips") as mock_extract,
             patch("pathlib.Path.write_bytes"),
@@ -546,7 +545,7 @@ class TestClipTranscodingStage:
 
         empty_task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=empty_video)
 
-        with patch("ray_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_extraction_stages.logger") as mock_logger:
             result = stage.process(empty_task)
 
             # Should handle empty clips gracefully

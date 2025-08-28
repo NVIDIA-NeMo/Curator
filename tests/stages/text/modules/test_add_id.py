@@ -10,14 +10,13 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License
-# Unit tests for the AddId processing stage
+# limitations under the License.
 
 import pandas as pd
 import pytest
 
-from ray_curator.stages.text.modules.add_id import AddId
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.text.modules.add_id import AddId
+from nemo_curator.tasks import DocumentBatch
 
 
 def _sample_batch() -> DocumentBatch:

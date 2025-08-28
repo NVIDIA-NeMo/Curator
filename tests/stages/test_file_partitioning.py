@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for FilePartitioningStage."""
-
 import os
 from pathlib import Path
 
 import pytest
 
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 def _create_test_jsonl_files(base_dir: Path | str, num_files: int, subdir: str | None = None) -> list[str]:

@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Integration tests for IO readers with different executors."""
-
 import contextlib
 import importlib.metadata
 import json
@@ -24,16 +22,16 @@ import pandas as pd
 import pytest
 from packaging.version import Version
 
-from ray_curator.backends.experimental.ray_data import RayDataExecutor
-from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.deduplication.id_generator import (
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.id_generator import (
     CURATOR_DEDUP_ID_STR,
     create_id_generator_actor,
     kill_id_generator_actor,
 )
-from ray_curator.stages.text.io.reader.jsonl import JsonlReader
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
+from nemo_curator.tasks import DocumentBatch
 
 ray_version = Version(importlib.metadata.version("ray"))
 # TODO: Some Ray Data tests are skipped because they require ray >= 2.49.0 see https://github.com/ray-project/ray/issues/54841

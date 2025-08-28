@@ -14,7 +14,7 @@
 
 import torch
 
-from ray_curator.stages.text.models.utils import clip_tokens, format_name_with_suffix
+from nemo_curator.stages.text.models.utils import clip_tokens, format_name_with_suffix
 
 
 def test_format_name_with_suffix() -> None:

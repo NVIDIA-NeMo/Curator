@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for the PreviewStage class."""
 
 import pathlib
 import subprocess
@@ -21,9 +20,9 @@ from uuid import uuid4
 
 import pytest
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.preview.preview import PreviewStage
-from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask, _Window
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.preview.preview import PreviewStage
+from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask, _Window
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -116,7 +115,7 @@ class TestPreviewStage:
         stage = PreviewStage()
 
         # Mock logger to capture warning
-        with patch("ray_curator.stages.video.preview.preview.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.preview.preview.logger") as mock_logger:
             stage.process(task)
 
             # Verify warning was logged
@@ -140,7 +139,7 @@ class TestPreviewStage:
         stage = PreviewStage()
 
         # Mock logger to capture warning
-        with patch("ray_curator.stages.video.preview.preview.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.preview.preview.logger") as mock_logger:
             stage.process(task)
 
             # Verify warning was logged
@@ -180,7 +179,7 @@ class TestPreviewStage:
             mock_generate.assert_any_call(window2)
             mock_generate.assert_any_call(window3)
 
-    @patch("ray_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
+    @patch("nemo_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
     @patch("subprocess.check_output")
     def test_generate_preview_success(self, mock_subprocess: "MagicMock", mock_temp_dir: "MagicMock"):
         """Test successful preview generation."""
@@ -242,7 +241,7 @@ class TestPreviewStage:
             mock_output.read_bytes.assert_called_once()
             assert window.webp_bytes == b"fake_webp_data"
 
-    @patch("ray_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
+    @patch("nemo_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
     @patch("subprocess.check_output")
     def test_generate_preview_subprocess_error(self, mock_subprocess: "MagicMock", mock_temp_dir: "MagicMock"):
         """Test preview generation with subprocess error."""
@@ -271,7 +270,7 @@ class TestPreviewStage:
             mock_path.side_effect = [mock_input, mock_output]
 
             # Mock logger to capture error
-            with patch("ray_curator.stages.video.preview.preview.logger") as mock_logger:
+            with patch("nemo_curator.stages.video.preview.preview.logger") as mock_logger:
                 stage._generate_preview(window)
 
                 # Verify error was logged
@@ -288,7 +287,7 @@ class TestPreviewStage:
                 # Verify webp_bytes was not set
                 assert window.webp_bytes is None
 
-    @patch("ray_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
+    @patch("nemo_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
     @patch("subprocess.check_output")
     def test_generate_preview_with_ffmpeg_output(self, mock_subprocess: "MagicMock", mock_temp_dir: "MagicMock"):
         """Test preview generation when ffmpeg produces output."""
@@ -316,7 +315,7 @@ class TestPreviewStage:
             mock_path.side_effect = [mock_input, mock_output]
 
             # Mock logger to capture warning
-            with patch("ray_curator.stages.video.preview.preview.logger") as mock_logger:
+            with patch("nemo_curator.stages.video.preview.preview.logger") as mock_logger:
                 stage._generate_preview(window)
 
                 # Verify warning was logged about ffmpeg output
@@ -335,7 +334,7 @@ class TestPreviewStage:
         stage = PreviewStage()
 
         # Mock the temporary directory context manager
-        with patch("ray_curator.stages.video.preview.preview.make_pipeline_temporary_dir") as mock_temp_dir:
+        with patch("nemo_curator.stages.video.preview.preview.make_pipeline_temporary_dir") as mock_temp_dir:
             mock_temp_dir.return_value.__enter__.return_value = pathlib.Path("temp/preview")
 
             # When mp4_bytes is None, write_bytes will fail with TypeError

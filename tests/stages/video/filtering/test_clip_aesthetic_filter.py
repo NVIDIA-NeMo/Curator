@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for clip_aesthetic_filter.py."""
 
 import pathlib
 import uuid
@@ -20,11 +19,11 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
-from ray_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
+from nemo_curator.tasks.video import Clip, ClipStats, Video, VideoMetadata, VideoTask
+from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature
 
 
 class TestClipAestheticFilterStage:
@@ -151,7 +150,7 @@ class TestClipAestheticFilterStage:
         assert outputs_tasks == ["data"]
         assert outputs_fields == ["decoded_motion_data"]
 
-    @patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer")
+    @patch("nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer")
     def test_setup_success(self, mock_scorer_class: Mock) -> None:
         """Test successful setup."""
         mock_scorer = Mock()
@@ -172,7 +171,7 @@ class TestClipAestheticFilterStage:
         # Verify reduction function
         assert self.stage.reduction_fn == np.min
 
-    @patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer")
+    @patch("nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer")
     def test_setup_with_mean_reduction(self, mock_scorer_class: Mock) -> None:
         """Test setup with mean reduction."""
         stage = ClipAestheticFilterStage(reduction="mean")
@@ -183,7 +182,7 @@ class TestClipAestheticFilterStage:
 
         assert stage.reduction_fn == np.mean
 
-    @patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer")
+    @patch("nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer")
     def test_setup_with_invalid_reduction_raises_error(self, mock_scorer_class: Mock) -> None:
         """Test setup with invalid reduction raises error."""
         stage = ClipAestheticFilterStage(reduction="invalid")
@@ -198,7 +197,7 @@ class TestClipAestheticFilterStage:
         worker_metadata = WorkerMetadata(worker_id="test_worker")
 
         with patch(
-            "ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"
+            "nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"
         ) as mock_scorer_class:
             mock_scorer = Mock()
             mock_scorer_class.return_value = mock_scorer
@@ -504,13 +503,13 @@ class TestClipAestheticFilterStageIntegration:
         """Test that reduction string maps to correct numpy function."""
         # Test min reduction
         stage_min = ClipAestheticFilterStage(reduction="min")
-        with patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"):
+        with patch("nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"):
             stage_min.setup()
         assert stage_min.reduction_fn == np.min
 
         # Test mean reduction
         stage_mean = ClipAestheticFilterStage(reduction="mean")
-        with patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"):
+        with patch("nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"):
             stage_mean.setup()
         assert stage_mean.reduction_fn == np.mean
 
@@ -518,7 +517,7 @@ class TestClipAestheticFilterStageIntegration:
         """Test frame extraction signature generation."""
         stage = ClipAestheticFilterStage(target_fps=2.5)
 
-        with patch("ray_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"):
+        with patch("nemo_curator.stages.video.filtering.clip_aesthetic_filter.CLIPAestheticScorer"):
             stage.setup()
 
         expected_signature = FrameExtractionSignature(

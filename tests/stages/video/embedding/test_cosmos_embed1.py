@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for cosmos_embed1.py."""
 
 import pathlib
 import uuid
@@ -20,12 +19,12 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.embedding.cosmos_embed1 import (
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.embedding.cosmos_embed1 import (
     CosmosEmbed1EmbeddingStage,
     CosmosEmbed1FrameCreationStage,
 )
-from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
+from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -109,7 +108,7 @@ class TestCosmosEmbed1FrameCreationStage:
         assert stage.verbose is True
         assert stage.num_cpus == 8
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_setup(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test setup method."""
         mock_model = Mock()
@@ -127,7 +126,7 @@ class TestCosmosEmbed1FrameCreationStage:
         assert hasattr(self.stage, "frame_extraction_signature")
         assert hasattr(self.stage, "model")
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_success(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with successful frame processing."""
         # Mock the model
@@ -160,7 +159,7 @@ class TestCosmosEmbed1FrameCreationStage:
         # Verify model calls
         assert mock_model.formulate_input_frames.call_count == 2
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_missing_buffer(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with missing buffer."""
         mock_model = Mock()
@@ -177,7 +176,7 @@ class TestCosmosEmbed1FrameCreationStage:
         assert "buffer" in result.data.clips[0].errors
         assert result.data.clips[0].errors["buffer"] == "empty"
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_missing_frames(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with missing extracted frames."""
         mock_model = Mock()
@@ -194,8 +193,8 @@ class TestCosmosEmbed1FrameCreationStage:
             assert expected_error_key in clip.errors
             assert clip.errors[expected_error_key] == "missing"
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.extract_frames")
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.extract_frames")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_insufficient_frames_reextraction(
         self, mock_cosmos_embed1: "MagicMock", mock_extract_frames: "MagicMock"
     ) -> None:
@@ -228,8 +227,8 @@ class TestCosmosEmbed1FrameCreationStage:
         for clip in result.data.clips:
             assert clip.cosmos_embed1_frames == "mock_input_frames"
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.extract_frames")
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.extract_frames")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_clip_too_short(self, mock_cosmos_embed1: "MagicMock", mock_extract_frames: "MagicMock") -> None:
         """Test process method with clip too short to extract enough frames."""
         mock_model = Mock()
@@ -247,7 +246,7 @@ class TestCosmosEmbed1FrameCreationStage:
         # Mock re-extraction to still return insufficient frames
         mock_extract_frames.return_value = insufficient_frames
 
-        with patch("ray_curator.stages.video.embedding.cosmos_embed1.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.embedding.cosmos_embed1.logger") as mock_logger:
             self.stage.process(self.mock_task)
 
             # Verify error was logged
@@ -345,7 +344,7 @@ class TestCosmosEmbed1EmbeddingStage:
         assert stage.gpu_memory_gb == 8
         assert stage.verbose is True
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_setup(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test setup method."""
         mock_model = Mock()
@@ -359,7 +358,7 @@ class TestCosmosEmbed1EmbeddingStage:
         )
         mock_model.setup.assert_called_once()
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_success(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with successful embedding."""
         # Mock the model
@@ -388,7 +387,7 @@ class TestCosmosEmbed1EmbeddingStage:
         # Verify model calls
         assert mock_model.encode_video_frames.call_count == 2
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_with_text_verification(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with text verification."""
         # Mock the model
@@ -414,7 +413,7 @@ class TestCosmosEmbed1EmbeddingStage:
         assert mock_model.get_text_embedding.call_count == 4  # 2 texts x 2 clips
         assert mock_model.evaluate.call_count == 2
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_missing_frames(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with missing cosmos_embed1_frames."""
         mock_model = Mock()
@@ -437,7 +436,7 @@ class TestCosmosEmbed1EmbeddingStage:
         assert "cosmos_embed1_frames" in result.data.clips[0].errors
         assert result.data.clips[0].errors["cosmos_embed1_frames"] == "empty"
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_empty_embedding(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method with empty embedding."""
         # Mock the model to return empty embedding
@@ -451,7 +450,7 @@ class TestCosmosEmbed1EmbeddingStage:
 
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.embedding.cosmos_embed1.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.embedding.cosmos_embed1.logger") as mock_logger:
             result = self.stage.process(self.mock_task)
 
             # Check that error was logged and recorded
@@ -460,7 +459,7 @@ class TestCosmosEmbed1EmbeddingStage:
                 assert "cosmos_embed1_embedding" in clip.errors
                 assert clip.errors["cosmos_embed1_embedding"] == "failed"
 
-    @patch("ray_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
+    @patch("nemo_curator.stages.video.embedding.cosmos_embed1.CosmosEmbed1")
     def test_process_without_text_verification(self, mock_cosmos_embed1: "MagicMock") -> None:
         """Test process method without text verification."""
         # Create stage without texts_to_verify

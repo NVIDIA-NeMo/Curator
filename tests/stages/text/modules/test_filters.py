@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ray_curator.stages.text.filters import (
+from nemo_curator.stages.text.filters import (
     AlphaFilter,
     BoilerPlateStringFilter,
     BulletsFilter,
@@ -53,8 +53,8 @@ from ray_curator.stages.text.filters import (
     WordsWithoutAlphabetsFilter,
     XMLHeaderFilter,
 )
-from ray_curator.stages.text.modules import Filter, Score, ScoreFilter
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.text.modules import Filter, Score, ScoreFilter
+from nemo_curator.tasks import DocumentBatch
 
 
 class LetterCountFilter(DocumentFilter):
@@ -1154,7 +1154,7 @@ class TestCodeFilters:
                 "..",
                 "..",
                 "..",
-                "ray_curator",
+                "nemo_curator",
                 "utils",
                 "code_meta.csv",
             )

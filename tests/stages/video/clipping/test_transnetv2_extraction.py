@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for TransNetV2ClipExtractionStage."""
 
 import pathlib
 import uuid
@@ -22,7 +21,7 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.video.clipping.transnetv2_extraction import (
+from nemo_curator.stages.video.clipping.transnetv2_extraction import (
     TransNetV2ClipExtractionStage,
     _create_spans,
     _crop_scenes,
@@ -31,7 +30,7 @@ from ray_curator.stages.video.clipping.transnetv2_extraction import (
     _get_predictions,
     _get_scenes,
 )
-from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
+from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
 
 # Create a random number generator for test data
 rng = np.random.default_rng(42)
@@ -132,7 +131,7 @@ class TestTransNetV2ClipExtractionStage:
         assert stage.limit_clips == 10
         assert stage.verbose is True
 
-    @patch("ray_curator.models.transnetv2.TransNetV2")
+    @patch("nemo_curator.models.transnetv2.TransNetV2")
     def test_setup(self, mock_transnetv2_class: Mock):
         """Test setup method."""
         mock_model = Mock()
@@ -144,7 +143,7 @@ class TestTransNetV2ClipExtractionStage:
         mock_model.setup.assert_called_once()
         assert self.stage._model == mock_model
 
-    @patch("ray_curator.models.transnetv2.TransNetV2")
+    @patch("nemo_curator.models.transnetv2.TransNetV2")
     def test_process_success(self, mock_transnetv2_class: Mock):
         """Test successful processing of a video task."""
         # Mock the model
@@ -158,10 +157,10 @@ class TestTransNetV2ClipExtractionStage:
 
         # Mock the _get_predictions function to return controlled output
         with (
-            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions,
-            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes,
+            patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions,
+            patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes,
             patch(
-                "ray_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes"
+                "nemo_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes"
             ) as mock_get_filtered_scenes,
         ):
             mock_get_predictions.return_value = np.array([[0], [1], [0], [0], [1], [0]], dtype=np.uint8)
@@ -190,7 +189,7 @@ class TestTransNetV2ClipExtractionStage:
 
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_without_metadata)
 
-        with patch("ray_curator.models.transnetv2.TransNetV2"):
+        with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
 
             # Mock the has_metadata method to return False for null metadata
@@ -223,7 +222,7 @@ class TestTransNetV2ClipExtractionStage:
 
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_no_framerate)
 
-        with patch("ray_curator.models.transnetv2.TransNetV2"):
+        with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
             result = self.stage.process(task)
 
@@ -253,7 +252,7 @@ class TestTransNetV2ClipExtractionStage:
 
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_no_frames)
 
-        with patch("ray_curator.models.transnetv2.TransNetV2"):
+        with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
 
             with pytest.raises(ValueError, match="Run `FrameExtractionStage` stage prior"):
@@ -282,13 +281,13 @@ class TestTransNetV2ClipExtractionStage:
 
         task = VideoTask(task_id="test_task", dataset_name="test_dataset", data=video_wrong_shape)
 
-        with patch("ray_curator.models.transnetv2.TransNetV2"):
+        with patch("nemo_curator.models.transnetv2.TransNetV2"):
             self.stage.setup()
 
             with pytest.raises(ValueError, match="Expected frames of shape 27x48x3"):
                 self.stage.process(task)
 
-    @patch("ray_curator.models.transnetv2.TransNetV2")
+    @patch("nemo_curator.models.transnetv2.TransNetV2")
     def test_process_with_limit_clips(self, mock_transnetv2_class: Mock):
         """Test processing with clip limit."""
         # Create stage with clip limit
@@ -301,10 +300,10 @@ class TestTransNetV2ClipExtractionStage:
 
         # Mock helper functions to return many clips
         with (
-            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions,
-            patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes,
+            patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions,
+            patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_scenes") as mock_get_scenes,
             patch(
-                "ray_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes"
+                "nemo_curator.stages.video.clipping.transnetv2_extraction._get_filtered_scenes"
             ) as mock_get_filtered_scenes,
         ):
             mock_get_predictions.return_value = np.array([[0], [1], [0], [1], [0]], dtype=np.uint8)
@@ -658,7 +657,7 @@ class TestCreateSpans:
 class TestIntegration:
     """Integration tests for the complete pipeline."""
 
-    @patch("ray_curator.models.transnetv2.TransNetV2")
+    @patch("nemo_curator.models.transnetv2.TransNetV2")
     def test_complete_pipeline_integration(self, mock_transnetv2_class: Mock):
         """Test complete pipeline integration."""
         # Setup
@@ -695,7 +694,7 @@ class TestIntegration:
         # Setup and process
         stage.setup()
 
-        with patch("ray_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions:
+        with patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions:
             # Mock predictions to create some transitions
             mock_get_predictions.return_value = np.array([[0], [1], [0], [0], [1], [0]] * 25, dtype=np.uint8)
 

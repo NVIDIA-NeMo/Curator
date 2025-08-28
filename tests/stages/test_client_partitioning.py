@@ -1,12 +1,24 @@
-"""Tests for ClientPartitioningStage."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.client_partitioning import ClientPartitioningStage, _read_list_json_rel
-from ray_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.client_partitioning import ClientPartitioningStage, _read_list_json_rel
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 class TestClientPartitioningStage:
@@ -55,7 +67,7 @@ class TestClientPartitioningStage:
         assert stage.storage_options == {"key": "value"}
         assert stage.limit == 3
 
-    @patch("ray_curator.stages.client_partitioning.url_to_fs")
+    @patch("nemo_curator.stages.client_partitioning.url_to_fs")
     def test_setup(self, mock_url_to_fs: Mock) -> None:
         """Test setup method with and without storage options."""
         mock_fs = Mock()
@@ -76,8 +88,8 @@ class TestClientPartitioningStage:
         stage.setup()
         mock_url_to_fs.assert_called_with("/test/path", **storage_options)
 
-    @patch("ray_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
-    @patch("ray_curator.stages.client_partitioning.url_to_fs")
+    @patch("nemo_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
+    @patch("nemo_curator.stages.client_partitioning.url_to_fs")
     def test_process_basic_functionality(
         self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask
     ) -> None:
@@ -112,8 +124,8 @@ class TestClientPartitioningStage:
         assert str(result[0].data[0]).endswith("file1.jsonl")
         assert str(result[1].data[0]).endswith("file3.json")
 
-    @patch("ray_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
-    @patch("ray_curator.stages.client_partitioning.url_to_fs")
+    @patch("nemo_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
+    @patch("nemo_curator.stages.client_partitioning.url_to_fs")
     def test_process_partitioning_and_limits(
         self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask
     ) -> None:
@@ -145,8 +157,8 @@ class TestClientPartitioningStage:
 
         assert len(result) == 3
 
-    @patch("ray_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
-    @patch("ray_curator.stages.client_partitioning.url_to_fs")
+    @patch("nemo_curator.stages.client_partitioning.ClientPartitioningStage._list_relative")
+    @patch("nemo_curator.stages.client_partitioning.url_to_fs")
     def test_process_edge_cases(self, mock_url_to_fs: Mock, mock_list_relative: Mock, empty_task: _EmptyTask) -> None:
         """Test edge cases like empty file list and combined filters."""
         mock_fs = Mock()
@@ -190,7 +202,7 @@ class TestClientPartitioningStage:
 class TestReadListJsonRel:
     """Test suite for _read_list_json_rel function."""
 
-    @patch("ray_curator.stages.client_partitioning.fsspec.open")
+    @patch("nemo_curator.stages.client_partitioning.fsspec.open")
     def test_read_list_json_rel_success(self, mock_fsspec_open: Mock) -> None:
         """Test successful reading of list JSON file."""
         mock_file = MagicMock()
@@ -208,7 +220,7 @@ class TestReadListJsonRel:
         assert result == expected
         mock_fsspec_open.assert_called_once_with("/path/to/list.json", "rb", profile_name="test_profile")
 
-    @patch("ray_curator.stages.client_partitioning.fsspec.open")
+    @patch("nemo_curator.stages.client_partitioning.fsspec.open")
     def test_read_list_json_rel_error_cases(self, mock_fsspec_open: Mock) -> None:
         """Test error cases for reading list JSON."""
         # Test path mismatch
@@ -227,7 +239,7 @@ class TestReadListJsonRel:
         with pytest.raises(Exception, match="File not found"):
             _read_list_json_rel(root="/input/path", json_url="/path/to/list.json", storage_options={})
 
-    @patch("ray_curator.stages.client_partitioning.fsspec.open")
+    @patch("nemo_curator.stages.client_partitioning.fsspec.open")
     def test_read_list_json_rel_empty_list(self, mock_fsspec_open: Mock) -> None:
         """Test reading empty list JSON."""
         mock_file = MagicMock()

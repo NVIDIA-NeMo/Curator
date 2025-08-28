@@ -20,10 +20,10 @@ import pytest
 import torch
 from torch import nn
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.text.models.model import ModelStage
-from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, SEQ_ORDER_COLUMN
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.text.models.model import ModelStage
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, SEQ_ORDER_COLUMN
+from nemo_curator.tasks import DocumentBatch
 
 
 class MockTorchModel(nn.Module):
@@ -73,7 +73,7 @@ class MockModelStage(ModelStage):
 
 
 class TestModelStage:
-    @patch("ray_curator.stages.text.models.model.snapshot_download")
+    @patch("nemo_curator.stages.text.models.model.snapshot_download")
     def test_setup_on_node_success(self, mock_snapshot_download: Mock):
         mock_snapshot_download.return_value = "/path/to/model"
         stage = MockModelStage(
@@ -90,7 +90,7 @@ class TestModelStage:
             local_files_only=False,
         )
 
-    @patch("ray_curator.stages.text.models.model.snapshot_download")
+    @patch("nemo_curator.stages.text.models.model.snapshot_download")
     def test_setup_on_node_failure(self, mock_snapshot_download: Mock):
         mock_snapshot_download.side_effect = Exception("Download failed")
         stage = MockModelStage(model_identifier="test/model")
@@ -218,8 +218,8 @@ class TestModelStage:
         assert INPUT_ID_COLUMN in kwargs
         assert ATTENTION_MASK_COLUMN in kwargs
 
-    @patch("ray_curator.stages.text.models.model.torch.cuda.empty_cache")
-    @patch("ray_curator.stages.text.models.model.gc.collect")
+    @patch("nemo_curator.stages.text.models.model.torch.cuda.empty_cache")
+    @patch("nemo_curator.stages.text.models.model.gc.collect")
     def test_teardown(self, mock_gc_collect: Mock, mock_cuda_empty_cache: Mock):
         stage = MockModelStage(model_identifier="test/model")
 

@@ -14,10 +14,10 @@
 
 import pytest
 
-from ray_curator.stages.base import ProcessingStage, get_stage_class
-from ray_curator.stages.function_decorators import processing_stage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Task
+from nemo_curator.stages.base import ProcessingStage, get_stage_class
+from nemo_curator.stages.function_decorators import processing_stage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task
 
 
 class MockTask(Task[int]):

@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test suite for ParquetWriter."""
-
 import os
 import uuid
 from unittest import mock
@@ -21,9 +19,9 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-from ray_curator.stages.text.io.writer import ParquetWriter
-from ray_curator.stages.text.io.writer import utils as writer_utils
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.stages.text.io.writer import utils as writer_utils
+from nemo_curator.tasks import DocumentBatch
 
 
 class TestParquetWriter:

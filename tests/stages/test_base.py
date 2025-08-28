@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for base stage classes."""
-
 import pytest
 
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import Task
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import Task
 
 
 class MockTask(Task[dict]):

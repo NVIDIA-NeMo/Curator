@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for ClipFrameExtractionStage."""
 
 import io
 import math
@@ -20,10 +19,10 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
-from ray_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
-from ray_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, FramePurpose
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
+from nemo_curator.tasks.video import Clip, Video, VideoMetadata, VideoTask
+from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FrameExtractionSignature, FramePurpose
 
 
 class TestClipFrameExtractionStage:
@@ -163,7 +162,7 @@ class TestClipFrameExtractionStage:
         result = self.stage.lcm_multiple([3, 5, 7])
         assert result == 105
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_successful_extraction(self, mock_extract_frames: Mock) -> None:
         """Test successful frame extraction process."""
         # Mock extracted frames
@@ -192,7 +191,7 @@ class TestClipFrameExtractionStage:
                 ).to_str()
                 assert signature in clip.extracted_frames
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_clip_without_buffer(self, mock_extract_frames: Mock) -> None:
         """Test processing when clip has no buffer."""
         mock_frames = np.zeros((10, 480, 640, 3), dtype=np.uint8)
@@ -200,7 +199,7 @@ class TestClipFrameExtractionStage:
 
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
             result = self.stage.process(self.mock_task)
 
             # Should log error for clip without buffer
@@ -213,7 +212,7 @@ class TestClipFrameExtractionStage:
             assert "buffer" in clip_without_buffer.errors
             assert clip_without_buffer.errors["buffer"] == "empty"
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_frame_extraction_error(self, mock_extract_frames: Mock) -> None:
         """Test handling of frame extraction errors."""
         # Make extract_frames raise an exception
@@ -221,7 +220,7 @@ class TestClipFrameExtractionStage:
 
         self.stage.setup()
 
-        with patch("ray_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
             result = self.stage.process(self.mock_task)
 
             # Should log exceptions
@@ -234,7 +233,7 @@ class TestClipFrameExtractionStage:
                 assert clip.errors["frame_extraction"] == "video_decode_failed"
                 assert clip.buffer is None
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_with_lcm_optimization(self, mock_extract_frames: Mock) -> None:
         """Test processing with LCM optimization when all fps are integers."""
         # Setup stage with integer fps values
@@ -281,7 +280,7 @@ class TestClipFrameExtractionStage:
             expected_frames = mock_frames[:: int(12 / fps)]
             np.testing.assert_array_equal(clip.extracted_frames[signature], expected_frames)
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_without_lcm_optimization(self, mock_extract_frames: Mock) -> None:
         """Test processing without LCM optimization when fps contains floats."""
         # Setup stage with float fps values
@@ -315,7 +314,7 @@ class TestClipFrameExtractionStage:
         clip = result.data.clips[0]
         assert len(clip.extracted_frames) == 2
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_multiple_extraction_policies(self, mock_extract_frames: Mock) -> None:
         """Test processing with multiple extraction policies."""
         stage = ClipFrameExtractionStage(
@@ -362,7 +361,7 @@ class TestClipFrameExtractionStage:
         assert sequence_signature in clip.extracted_frames
         assert middle_signature in clip.extracted_frames
 
-    @patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
+    @patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames")
     def test_process_verbose_logging(self, mock_extract_frames: Mock) -> None:
         """Test verbose logging during processing."""
         stage = ClipFrameExtractionStage(verbose=True, target_fps=[2])
@@ -383,7 +382,7 @@ class TestClipFrameExtractionStage:
             ),
         )
 
-        with patch("ray_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
+        with patch("nemo_curator.stages.video.clipping.clip_frame_extraction.logger") as mock_logger:
             stage.process(task)
 
             # Should log frame extraction info
@@ -412,7 +411,7 @@ class TestClipFrameExtractionStage:
         ]
 
         for error_class, error_message in error_types:
-            with patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames") as mock_extract:
+            with patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames") as mock_extract:
                 mock_extract.side_effect = error_class(error_message)
 
                 stage = ClipFrameExtractionStage(target_fps=[2])
@@ -435,7 +434,7 @@ class TestClipFrameExtractionStage:
                     ),
                 )
 
-                with patch("ray_curator.stages.video.clipping.clip_frame_extraction.logger"):
+                with patch("nemo_curator.stages.video.clipping.clip_frame_extraction.logger"):
                     result = stage.process(task)
 
                     # Should handle error and reset buffer
@@ -511,7 +510,7 @@ class TestClipFrameExtractionStage:
         stage = ClipFrameExtractionStage(target_fps=[2])
         stage.setup()
 
-        with patch("ray_curator.stages.video.clipping.clip_frame_extraction.extract_frames") as mock_extract:
+        with patch("nemo_curator.stages.video.clipping.clip_frame_extraction.extract_frames") as mock_extract:
             mock_extract.return_value = np.zeros((10, 480, 640, 3), dtype=np.uint8)
 
             result = stage.process(task)

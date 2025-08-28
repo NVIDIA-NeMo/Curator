@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import pytest
 
 # ruff: noqa: E402
@@ -24,10 +25,10 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 from transformers import AutoConfig, AutoModel, AutoTokenizer
 
-from ray_curator.stages.text.embedders.base import EmbeddingCreatorStage, EmbeddingModelStage
-from ray_curator.stages.text.models.tokenizer import TokenizerStage
-from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage, EmbeddingModelStage
+from nemo_curator.stages.text.models.tokenizer import TokenizerStage
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from nemo_curator.tasks import DocumentBatch
 
 
 class TestEmbeddingModelStage:
@@ -123,7 +124,7 @@ class TestEmbeddingModelStage:
             assert torch.allclose(result[i], expected_normalized, atol=1e-5)
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
-    @patch("ray_curator.stages.text.embedders.base.AutoModel")
+    @patch("nemo_curator.stages.text.embedders.base.AutoModel")
     def test_process_end_to_end(self, mock_auto_model: Mock, pooling_strategy: str) -> None:
         """Test end-to-end process() with both pooling strategies."""
         # Create a mock model that returns deterministic embeddings
@@ -278,7 +279,7 @@ class TestEmbeddingCreatorStage:
         assert len(stages) == 2  # TokenizerStage + EmbeddingModelStage
 
         # Verify stage types
-        from ray_curator.stages.text.models.tokenizer import TokenizerStage
+        from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 
         assert isinstance(stages[0], TokenizerStage)
         assert isinstance(stages[1], EmbeddingModelStage)

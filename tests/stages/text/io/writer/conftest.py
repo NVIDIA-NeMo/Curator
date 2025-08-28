@@ -12,13 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared fixtures for writer tests."""
-
 import pandas as pd
 import pytest
 
-from ray_curator.tasks import DocumentBatch
-from ray_curator.utils.performance_utils import StagePerfStats
+from nemo_curator.tasks import DocumentBatch
+from nemo_curator.utils.performance_utils import StagePerfStats
 
 
 @pytest.fixture

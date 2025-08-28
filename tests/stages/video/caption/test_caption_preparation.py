@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Tests for caption preparation stage."""
 
 from unittest.mock import Mock, patch
 from uuid import uuid4
@@ -19,15 +18,15 @@ from uuid import uuid4
 import pytest
 import torch
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.video.caption.caption_preparation import (
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.video.caption.caption_preparation import (
     _ENHANCE_PROMPTS,
     _PROMPTS,
     CaptionPreparationStage,
     _get_prompt,
 )
-from ray_curator.tasks.video import Clip, Video, VideoTask
-from ray_curator.utils.windowing_utils import WindowFrameInfo
+from nemo_curator.tasks.video import Clip, Video, VideoTask
+from nemo_curator.utils.windowing_utils import WindowFrameInfo
 
 
 class TestGetPromptFunction:
@@ -113,7 +112,7 @@ class TestCaptionPreparationStage:
         outputs = self.stage.outputs()
         assert outputs == ([], [])
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
     def test_setup(self, mock_prompt_formatter: Mock):
         """Test setup method initializes PromptFormatter."""
         mock_formatter = Mock()
@@ -126,7 +125,7 @@ class TestCaptionPreparationStage:
 
     def test_setup_with_worker_metadata(self):
         """Test setup method with worker metadata (should be ignored)."""
-        with patch("ray_curator.stages.video.caption.caption_preparation.PromptFormatter") as mock_formatter:
+        with patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter") as mock_formatter:
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
             mock_formatter.assert_called_once_with("qwen")
@@ -149,8 +148,8 @@ class TestCaptionPreparationStage:
 
         return VideoTask(task_id="test", dataset_name="test", data=video)
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
-    @patch("ray_curator.stages.video.caption.caption_preparation._get_prompt")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
+    @patch("nemo_curator.stages.video.caption.caption_preparation._get_prompt")
     def test_process_successful(self, mock_get_prompt: Mock, mock_split_video: Mock):
         """Test successful caption preparation process."""
         # Setup mock formatter
@@ -223,7 +222,7 @@ class TestCaptionPreparationStage:
             assert window1.qwen_llm_input["prompt"] == "test formatted prompt"
             assert "video" in window1.qwen_llm_input["multi_modal_data"]
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.logger")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.logger")
     def test_process_clip_without_buffer(self, mock_logger: Mock):
         """Test process method with clip that has no buffer."""
         import pathlib
@@ -252,9 +251,9 @@ class TestCaptionPreparationStage:
         # Verify no windows were created
         assert len(clip.windows) == 0
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
-    @patch("ray_curator.stages.video.caption.caption_preparation._get_prompt")
-    @patch("ray_curator.stages.video.caption.caption_preparation.logger")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
+    @patch("nemo_curator.stages.video.caption.caption_preparation._get_prompt")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.logger")
     def test_process_formatter_error(self, mock_logger: Mock, mock_get_prompt: Mock, mock_split_video: Mock):
         """Test process method when formatter raises exception."""
         # Setup mock formatter that raises exception
@@ -287,8 +286,8 @@ class TestCaptionPreparationStage:
             # Verify no windows were created for the failed clip
             assert len(result.data.clips[0].windows) == 0
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
-    @patch("ray_curator.stages.video.caption.caption_preparation._get_prompt")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
+    @patch("nemo_curator.stages.video.caption.caption_preparation._get_prompt")
     def test_process_with_generate_previews_enabled(self, mock_get_prompt: Mock, mock_split_video: Mock):
         """Test process method with generate_previews enabled."""
         # Enable previews
@@ -317,8 +316,8 @@ class TestCaptionPreparationStage:
             call_args = mock_split_video.call_args_list[0]
             assert call_args[1]["return_bytes"] is True
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
-    @patch("ray_curator.stages.video.caption.caption_preparation._get_prompt")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
+    @patch("nemo_curator.stages.video.caption.caption_preparation._get_prompt")
     def test_process_multiple_windows_different_frame_ranges(self, mock_get_prompt: Mock, mock_split_video: Mock):
         """Test process method creates windows with correct frame ranges."""
         # Setup mocks
@@ -395,7 +394,7 @@ class TestCaptionPreparationStage:
         assert "camera mounted on a car" in _PROMPTS["av"]
         assert "surveillance camera" in _PROMPTS["av-surveillance"]
 
-    @patch("ray_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
+    @patch("nemo_curator.stages.video.caption.caption_preparation.windowing_utils.split_video_into_windows")
     def test_process_empty_windowing_result(self, mock_split_video: Mock):
         """Test process method when windowing returns empty results."""
         # Setup formatter
