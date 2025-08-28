@@ -146,7 +146,6 @@ torchvision = [
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
 
-
 [tool.coverage.paths]
 source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]
 
