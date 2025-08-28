@@ -16,16 +16,16 @@ import argparse
 import os
 import time
 
-from ray_curator.examples.image.helper import download_webdataset
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.stages.image.deduplication.removal import ImageDuplicatesRemovalStage
-from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
-from ray_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage
-from ray_curator.stages.image.io.image_reader import ImageReaderStage
-from ray_curator.stages.image.io.image_writer import ImageWriterStage
-from ray_curator.stages.text.io.writer.parquet import ParquetWriter
+from nemo_curator.examples.image.helper import download_webdataset
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.deduplication.removal import ImageDuplicatesRemovalStage
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
+from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 
 def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:

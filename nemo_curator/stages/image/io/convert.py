@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DocumentBatch, ImageBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import DocumentBatch, ImageBatch
 
 
 @dataclass

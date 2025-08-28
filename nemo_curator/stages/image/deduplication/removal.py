@@ -20,8 +20,8 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import ImageBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import ImageBatch
 
 
 @dataclass
