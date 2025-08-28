@@ -39,10 +39,7 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
     remove_image_data: bool = False
-
-    @property
-    def name(self) -> str:
-        return "image_embedding"
+    _name: str = "image_embedding"
 
     @property
     def resources(self) -> Resources:
@@ -122,10 +119,7 @@ class ConvertEmbeddingsToDocumentBatchStage(ProcessingStage[ImageBatch, Document
     """
     Convert embeddings to DocumentBatch
     """
-
-    @property
-    def name(self) -> str:
-        return "convert_embeddings_to_document_batch"
+    _name: str = "convert_embeddings_to_document_batch"
 
     def process(self, task: ImageBatch) -> DocumentBatch:
         """

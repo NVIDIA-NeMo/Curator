@@ -16,12 +16,11 @@ import argparse
 import os
 import time
 
-from ray_curator.backends.xenna import XennaExecutor
 from ray_curator.examples.image.helper import download_webdataset
 from ray_curator.pipeline import Pipeline
 from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.stages.image.dedup.dedup_filter import DedupFilterStage
+from ray_curator.stages.image.deduplication.removal import ImageDuplicatesRemovalStage
 from ray_curator.stages.image.embedders.clip_embedder import ConvertEmbeddingsToDocumentBatchStage, ImageEmbeddingStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.io.image_writer import ImageWriterStage
@@ -67,20 +66,15 @@ def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
 
     return pipeline
 
-def create_embedding_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
+def create_embedding_deduplication_workflow(args: argparse.Namespace) -> Pipeline:
     """Create image deduplication pipeline with embedding deduplication."""
     return SemanticDeduplicationWorkflow(
         input_path=args.embeddings_dir,
         output_path=args.removal_parquets_dir,
         id_field="image_id",
         embedding_field="embeddings",
-        metadata_fields = ["image_id"],
         n_clusters=100,
-        distance_metric="cosine",
-        which_to_keep="random",
         eps=0.01,
-        random_state=42,
-        # Store locally: ensure fsspec gets a filesystem via empty storage_options
         read_kwargs={"storage_options": {}},
         write_kwargs={"storage_options": {}},
         verbose=args.verbose,
@@ -107,9 +101,9 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
     ))
 
     # Stage 2: Read removal list from parquet file and filter images
-    pipeline.add_stage(DedupFilterStage(
+    pipeline.add_stage(ImageDuplicatesRemovalStage(
         removal_parquets_dir=args.removal_parquets_dir + "/duplicates",
-        id_column="id",
+        duplicate_id_field="id",
         verbose=args.verbose,
     ))
 
@@ -160,23 +154,20 @@ def main(args: argparse.Namespace) -> None:
         print("\n" + "=" * 50 + "\n")
 
     # Step 2: Create and run curation pipelines
-    # Create executor
-    executor = XennaExecutor()
-
     # Step 2.1: Create image embedding pipeline
     print("Step 2.1: Running image embedding pipeline...")
     start_time = time.time()
     pipeline = create_image_embedding_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run(executor)
+    pipeline.run()
 
-    # Step 2.2: Create image deduplication pipeline
+    # Step 2.2: Create image deduplication pipeline (pairwise executor is XennaExecutor by default)
     print("Step 2.2: Running image deduplication pipeline...")
     start_time = time.time()
-    pipeline = create_embedding_deduplication_pipeline(args)
+    pipeline = create_embedding_deduplication_workflow(args)
     print("\n" + "=" * 50 + "\n")
-    pipeline.run(pairwise_executor=executor)
+    pipeline.run()
 
     # Step 2.3: Create image deduplication pipeline
     print("Step 2.3: Running image deduplication pipeline...")
@@ -184,7 +175,7 @@ def main(args: argparse.Namespace) -> None:
     pipeline = create_image_deduplication_pipeline(args)
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-    pipeline.run(executor)
+    pipeline.run()
 
     end_time = time.time()
 
