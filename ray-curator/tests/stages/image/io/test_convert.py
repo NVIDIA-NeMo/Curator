@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from ray_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage
@@ -14,14 +13,14 @@ def rng() -> np.random.Generator:
 
 
 @pytest.fixture
-def image_batch_with_embeddings(rng: np.random.Generator) -> ImageBatch:
+def image_batch_with_embeddings(rng: np.random.Generator, tmp_path) -> ImageBatch:
     images: list[ImageObject] = []
     for i in range(3):
         embedding = rng.normal(size=(8,)).astype(np.float32)
         images.append(
             ImageObject(
                 image_id=f"img_{i:03d}",
-                image_path=f"/tmp/img_{i:03d}.jpg",
+                image_path=str(tmp_path / f"img_{i:03d}.jpg"),
                 image_data=rng.integers(0, 255, (16, 16, 3), dtype=np.uint8),
                 embedding=embedding,
             )
@@ -83,17 +82,17 @@ class TestConvertImageBatchToDocumentBatchStage:
         assert list(df.columns) == ["image_id", "embedding", "image_path"]
         assert len(df) == 0
 
-    def test_missing_attribute_yields_none(self, rng: np.random.Generator) -> None:
+    def test_missing_attribute_yields_none(self, rng: np.random.Generator, tmp_path) -> None:
         # Build images without the 'embedding' attribute
         images = [
             ImageObject(
                 image_id="no_embed_1",
-                image_path="/tmp/a.jpg",
+                image_path=str(tmp_path / "a.jpg"),
                 image_data=rng.integers(0, 255, (8, 8, 3), dtype=np.uint8),
             ),
             ImageObject(
                 image_id="no_embed_2",
-                image_path="/tmp/b.jpg",
+                image_path=str(tmp_path / "b.jpg"),
                 image_data=rng.integers(0, 255, (8, 8, 3), dtype=np.uint8),
             ),
         ]
