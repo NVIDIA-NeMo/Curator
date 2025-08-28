@@ -35,7 +35,7 @@ try:
         Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,  # type: ignore[import-untyped]
         Nvc.Pixel_Format.NV12: cvcuda.ColorConversion.YUV2RGB_NV12,  # type: ignore[import-untyped]
     }
-except ImportError:
+except (ImportError, RuntimeError):
     logger.warning("PyNvVideoCodec is not installed, some features will be disabled.")
     Nvc = None
     cvcuda = None

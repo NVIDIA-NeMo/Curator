@@ -104,6 +104,8 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if frames is None:
             error_msg = "Run `FrameExtractionStage` stage prior to `TransNetV2ClipExtractionStage`!"
             raise ValueError(error_msg)
+        if tuple(frames.shape[1:4]) == (48, 27, 3):
+            frames = frames.transpose(0, 2, 1, 3) # transpose weight and height
         if tuple(frames.shape[1:4]) != (27, 48, 3):
             error_msg = f"Expected frames of shape 27x48x3, got {frames.shape[1:4]}."
             raise ValueError(error_msg)
