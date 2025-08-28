@@ -67,68 +67,85 @@ deduplication_cuda12x = [
     "rapidsmpf-cu12==25.6.*",
 ]
 
-dev = [
-    "debugpy",
-    "pre-commit",
-    "pytest",
-    "pytest-coverage",
-    "pytest-loguru",
-    "ruff==0.11.4",
-    "scikit-learn",
-]
 video = [
     "av==13.1.0",
     "opencv-python",
     "torchvision",
     "einops",
-    "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality",
     "easydict",
 ]
+
 video_cuda = [
-    "PyNvVideoCodec==1.0.2",
     "cvcuda_cu12",
     "pycuda",
-    "vllm",
-    "flash_attn",
+    "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "torch<=2.8.0",
+    "torchaudio",
 ]
+
+video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
 dali = [
     "nvidia-dali-cuda120",
 ]
 
-# CPU-only DALI (for environments without CUDA, e.g., GitHub Actions)
-dali_cpu = [
-    # Install from NVIDIA index directly in CI; don't pull nvidia-pyindex here to avoid wheel build
-    "nvidia-dali",
-]
-
 all = [
+    "ray_curator[dali]",
     "ray_curator[deduplication_cuda12x]",
     "ray_curator[text]",
     "ray_curator[video]",
+    "ray_curator[video_cuda]",
 ]
 
-[tool.pixi.workspace]
-channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64"]
+[dependency-groups]
+build = ["setuptools", "torch<=2.8.0"]
+linting = ["pre-commit", "ruff==0.11.4"]
+test = [
+    "debugpy",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-coverage",
+    "pytest-loguru",
+    "scikit-learn",
+]
+dev = ["internvideo2-multi-modality; (platform_machine == 'x86_64' and sys_platform != 'darwin')"]
 
-# Specify PyPI index settings
-[tool.pixi.pypi-options]
-index-strategy = "unsafe-best-match"
-index-url = "https://pypi.org/simple"
-extra-index-urls = ["https://pypi.nvidia.com"]
+[tool.uv]
+package = true
+default-groups = ["test"]
+no-build-isolation-package = ["flash-attn"]
 
-[tool.pixi.dependencies]
-python = "3.12.*"
-ffmpeg = "*"  # Add FFmpeg from conda-forge
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
 
-[tool.pixi.environments]
-default = ["all"]
-dev = ["deduplication_cuda12x", "text", "video", "dev"]
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+explicit = true
 
-[tool.pixi.pypi-dependencies]
-ray-curator = { path = ".", editable = true }
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+internvideo2-multi-modality = { git = "git+https://github.com/suiyoubi/InternVideo.git", subdirectory="InternVideo2/multi_modality", rev = "curator" }
+torch = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchaudio = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+
 
 [tool.coverage.paths]
 source = ["./ray-curator/ray_curator", "/workspace/ray-curator/ray_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/ray-curator/ray_curator"]

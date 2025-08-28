@@ -8,8 +8,6 @@ on:
 jobs:
   cherry-pick:
     uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_cherry_pick.yml@v0.42.0
-    with:
-      target-branches-pattern: 'r[0-9]+\.[0-9]+\.[0-9]+|ray-api'
     secrets:
       PAT: ${{ secrets.PAT }}
       SLACK_WEBHOOK_ADMIN: ${{ secrets.SLACK_WEBHOOK_ADMIN }}
