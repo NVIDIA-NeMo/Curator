@@ -24,7 +24,7 @@ from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import delete_dir, get_fs, is_not_empty
+from ray_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
 
 class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
@@ -34,7 +34,7 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     Args:
         doc_id_field: The field name containing the document ids for each bucket.
-        output_dir: The directory to write the output file to.
+        output_path: The directory to write the output file to.
         read_kwargs: Keyword arguments to pass for reading the input files.
             Only the storage_options key is supported for now.
         write_kwargs: Keyword arguments to pass for writing the output files.
@@ -46,7 +46,7 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     def __init__(
         self,
-        output_dir: str,
+        output_path: str,
         doc_id_field: str = CURATOR_DEDUP_ID_STR,
         read_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
@@ -57,14 +57,11 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         self.read_storage_options = read_kwargs.get("storage_options") if read_kwargs is not None else None
         self.write_storage_options = write_kwargs.get("storage_options") if write_kwargs is not None else None
 
-        self.output_fs = get_fs(output_dir, self.write_storage_options)
-        self.output_dir = self.output_fs.sep.join([output_dir, self.name])
+        self.output_fs = get_fs(output_path, self.write_storage_options)
+        self.output_path = self.output_fs.sep.join([output_path, self.name])
 
         # Handle output directory cleanup logic
-        if is_not_empty(self.output_dir, self.output_fs):
-            logger.warning(f"Output directory {self.output_dir} is not empty. Deleting it.")
-            delete_dir(self.output_dir, self.output_fs)
-        self.output_fs.mkdirs(self.output_dir, exist_ok=True)
+        create_or_overwrite_dir(self.output_path, fs=self.output_fs)
 
     def _check_io_kwargs(self, kwargs: dict[str, Any] | None) -> None:
         if kwargs is not None:
@@ -81,7 +78,7 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         edges = [list(edge) for edge in edges]
         edges = pa.Table.from_pandas(pd.DataFrame(edges, columns=[f"{self.doc_id_field}_x", f"{self.doc_id_field}_y"]))
 
-        output_path = self.output_fs.sep.join([self.output_dir, f"{task.task_id}.parquet"])
+        output_path = self.output_fs.sep.join([self.output_path, f"{task._uuid}.parquet"])
         pq.write_table(edges, output_path, filesystem=self.output_fs)
         return FileGroupTask(
             task_id=f"{task.task_id}",

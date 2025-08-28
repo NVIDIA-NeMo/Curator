@@ -98,7 +98,7 @@ class TestConnectedComponentsStage:
         pipeline = Pipeline(name="test_connected_components_single")
         pipeline.add_stage(
             ConnectedComponentsStage(
-                output_dir=output_dir,
+                output_path=output_dir,
             )
         )
         executor = RayActorPoolExecutor()
@@ -125,7 +125,7 @@ class TestConnectedComponentsStage:
         pipeline = Pipeline(name="test_connected_components_multiple")
         pipeline.add_stage(
             ConnectedComponentsStage(
-                output_dir=output_dir,
+                output_path=output_dir,
             )
         )
 
@@ -161,7 +161,7 @@ class TestConnectedComponentsStage:
         pipeline = Pipeline(name="test_cleanup")
         pipeline.add_stage(
             ConnectedComponentsStage(
-                output_dir=str(output_dir),
+                output_path=str(output_dir),
             )
         )
         assert not dummy_file.exists()
@@ -169,7 +169,7 @@ class TestConnectedComponentsStage:
     def test_process_not_implemented(self, tmp_path: "Path", input_tasks: list[FileGroupTask]) -> None:
         """Test that process method raises NotImplementedError."""
         stage = ConnectedComponentsStage(
-            output_dir=str(tmp_path / "output"),
+            output_path=str(tmp_path / "output"),
         )
 
         with pytest.raises(NotImplementedError, match="only support process batch"):

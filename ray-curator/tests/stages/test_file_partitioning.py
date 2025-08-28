@@ -234,10 +234,14 @@ class TestFilePartitioningStage:
         stage = FilePartitioningStage(file_paths=[])
 
         assert stage._parse_size("100B") == 100
-        assert stage._parse_size("1KB") == 1024
-        assert stage._parse_size("1MB") == 1024 * 1024
-        assert stage._parse_size("1GB") == 1024 * 1024 * 1024
-        assert stage._parse_size("2TB") == 2 * 1024 * 1024 * 1024 * 1024
+        assert stage._parse_size("1KB") == 1000
+        assert stage._parse_size("1KiB") == 1024
+        assert stage._parse_size("1MB") == 1000 * 1000
+        assert stage._parse_size("1MiB") == 1024 * 1024
+        assert stage._parse_size("1GB") == 1000 * 1000 * 1000
+        assert stage._parse_size("1GiB") == 1024 * 1024 * 1024
+        assert stage._parse_size("2TB") == 2 * 1000 * 1000 * 1000 * 1000
+        assert stage._parse_size("2TiB") == 2 * 1024 * 1024 * 1024 * 1024
         assert stage._parse_size("100") == 100  # No unit defaults to bytes
 
     def test_task_metadata(self, empty_task: _EmptyTask, tmp_path: Path):
