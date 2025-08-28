@@ -28,4 +28,7 @@ class FileGroupTask(Task[list[str]]):
         if len(self.data) == 0:
             logger.warning(f"No files to process in task {self.task_id}")
             return False
+        if not isinstance(self.data, list):
+            err = f"Invalid data type in task {self.task_id}"
+            raise TypeError(err)
         return True

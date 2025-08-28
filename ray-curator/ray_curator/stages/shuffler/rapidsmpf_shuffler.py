@@ -25,7 +25,7 @@ from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.ray_utils import BaseShufflingActor
 
-from ray_curator.stages.deduplication.gpu_utils import align_down_to_256
+from ray_curator.stages.deduplication.gpu_utils import align_down_to_256, get_device_free_memory
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -49,7 +49,9 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
     output_path
         Path to write output files.
     rmm_pool_size
-        Size of the RMM memory pool in bytes.
+        Size of the RMM GPU memory pool in bytes.
+        If "auto", the memory pool is set to 90% of the free GPU memory.
+        If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
     spill_memory_limit
         Device memory limit in bytes for spilling to host.
         If "auto", the limit is set to 80% of the RMM pool size.
@@ -68,7 +70,7 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         total_nparts: int,
         shuffle_on: list[str],
         output_path: str = "./",
-        rmm_pool_size: int = 1024 * 1024 * 1024,
+        rmm_pool_size: int | Literal["auto"] | None = "auto",
         spill_memory_limit: int | Literal["auto"] | None = "auto",
         *,
         enable_statistics: bool = False,
@@ -79,8 +81,17 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         self.shuffle_on = shuffle_on
         self.output_path = output_path
         self.total_nparts = total_nparts
-        self.rmm_pool_size = align_down_to_256(rmm_pool_size) if rmm_pool_size is not None else None
 
+        if isinstance(rmm_pool_size, int):
+            self.rmm_pool_size = align_down_to_256(rmm_pool_size)
+        elif rmm_pool_size == "auto":
+            free_memory = get_device_free_memory()
+            self.rmm_pool_size = align_down_to_256(int(free_memory * 0.9)) if free_memory is not None else None
+        elif rmm_pool_size is None:
+            self.rmm_pool_size = None
+        else:
+            err_msg = f"Invalid rmm_pool_size: {rmm_pool_size}"
+            raise ValueError(err_msg)
         if isinstance(spill_memory_limit, int):
             self.spill_memory_limit = align_down_to_256(spill_memory_limit)
         elif spill_memory_limit == "auto":

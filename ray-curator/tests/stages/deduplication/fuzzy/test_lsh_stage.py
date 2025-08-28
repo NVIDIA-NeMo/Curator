@@ -72,7 +72,7 @@ class TestLSHStage:
     ) -> None:
         # Create LSHStage
         lsh_stage = LSHStage(
-            output_dir=str(tmp_path / "lsh_output"),
+            output_path=str(tmp_path / "lsh_output"),
             num_bands=3,
             minhashes_per_band=2,  # num_hashes=6 / num_buckets=3
             bands_per_iteration=bands_per_iteration,
@@ -134,7 +134,7 @@ class TestLSHStage:
 
         # Create a new LSHStage - this should trigger the overwrite behavior
         LSHStage(
-            output_dir=output_dir,
+            output_path=output_dir,
             num_bands=3,
             minhashes_per_band=2,
             bands_per_iteration=3,
@@ -191,7 +191,7 @@ class TestLSHStage:
 
         # Create LSHStage with custom column names
         lsh_stage = LSHStage(
-            output_dir=str(tmp_path / "lsh_custom_output"),
+            output_path=str(tmp_path / "lsh_custom_output"),
             num_bands=3,
             minhashes_per_band=2,
             bands_per_iteration=3,
@@ -260,7 +260,7 @@ class TestLSHStage:
 
         # Create LSHStage
         lsh_stage = LSHStage(
-            output_dir=str(tmp_path / "lsh_no_dup_output"),
+            output_path=str(tmp_path / "lsh_no_dup_output"),
             num_bands=5,
             minhashes_per_band=1,  # num_hashes=5 / num_buckets=5
             bands_per_iteration=1,
@@ -319,7 +319,7 @@ class TestLSHStage:
 
         # Create LSHStage
         lsh_stage = LSHStage(
-            output_dir=str(tmp_path / "lsh_partial_output"),
+            output_path=str(tmp_path / "lsh_partial_output"),
             num_bands=5,
             minhashes_per_band=1,
             bands_per_iteration=1,
@@ -360,7 +360,7 @@ class TestLSHStage:
         """Test that proper error is raised when actor object is not initialized."""
         # Create LSHStage
         lsh_stage = LSHStage(
-            output_dir=str(tmp_path / "lsh_no_actor"),
+            output_path=str(tmp_path / "lsh_no_actor"),
             num_bands=3,
             minhashes_per_band=2,
             bands_per_iteration=1,

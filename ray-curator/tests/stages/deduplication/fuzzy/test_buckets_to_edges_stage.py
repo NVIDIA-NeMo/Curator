@@ -20,9 +20,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from ray_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from ray_curator.tasks import FileGroupTask
+
+BucketsToEdgesStage = pytest.importorskip(
+    "ray_curator.stages.deduplication.fuzzy.buckets_to_edges"
+).BucketsToEdgesStage
 
 
 @pytest.fixture
@@ -82,13 +85,15 @@ def input_task(sample_files: list[str]) -> FileGroupTask:
     )
 
 
+# Marking as GPU so that they don't get skiped on GPU CI runs
+@pytest.mark.gpu
 class TestBucketsToEdgesStage:
     """Test suite for BucketsToEdgesStage ProcessingStage."""
 
     def test_basic_edge_creation(self, input_task: FileGroupTask, tmp_path: Path) -> None:
         """Test basic edge creation from bucket data."""
         stage = BucketsToEdgesStage(
-            output_dir=str(tmp_path / "output"),
+            output_path=str(tmp_path / "output"),
             doc_id_field=CURATOR_DEDUP_ID_STR,
         )
 
@@ -162,7 +167,7 @@ class TestBucketsToEdgesStage:
         )
 
         stage = BucketsToEdgesStage(
-            output_dir=str(tmp_path / "output"),
+            output_path=str(tmp_path / "output"),
             doc_id_field="custom_doc_id",
         )
 
@@ -205,7 +210,7 @@ class TestBucketsToEdgesStage:
         )
 
         stage = BucketsToEdgesStage(
-            output_dir=str(tmp_path / "output"),
+            output_path=str(tmp_path / "output"),
             doc_id_field=CURATOR_DEDUP_ID_STR,
         )
 
@@ -241,7 +246,7 @@ class TestBucketsToEdgesStage:
         )
 
         stage = BucketsToEdgesStage(
-            output_dir=str(tmp_path / "output"),
+            output_path=str(tmp_path / "output"),
             doc_id_field=CURATOR_DEDUP_ID_STR,
         )
 
@@ -274,7 +279,7 @@ class TestBucketsToEdgesStage:
         )
 
         stage = BucketsToEdgesStage(
-            output_dir=str(tmp_path / "output"),
+            output_path=str(tmp_path / "output"),
             doc_id_field=CURATOR_DEDUP_ID_STR,
         )
 
@@ -303,7 +308,7 @@ class TestBucketsToEdgesStage:
         assert existing_file.exists()
 
         stage = BucketsToEdgesStage(
-            output_dir=str(output_dir),
+            output_path=str(output_dir),
             doc_id_field=CURATOR_DEDUP_ID_STR,
         )
 
