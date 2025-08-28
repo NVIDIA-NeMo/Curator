@@ -26,7 +26,6 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import VideoTask
 from nemo_curator.utils.operation_utils import make_pipeline_named_temporary_file
 
-
 try:
     from nemo_curator.utils.nvcodec_utils import PyNvcFrameExtractor
 

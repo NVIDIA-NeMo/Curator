@@ -23,7 +23,10 @@ from nemo_curator.stages.video.clipping.clip_extraction_stages import ClipTransc
 from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from nemo_curator.stages.video.clipping.transnetv2_extraction import TransNetV2ClipExtractionStage
 from nemo_curator.stages.video.clipping.video_frame_extraction import VideoFrameExtractionStage
-from nemo_curator.stages.video.embedding.cosmos_embed1 import CosmosEmbed1EmbeddingStage, CosmosEmbed1FrameCreationStage
+from nemo_curator.stages.video.embedding.cosmos_embed1 import (
+    CosmosEmbed1EmbeddingStage,
+    CosmosEmbed1FrameCreationStage,
+)
 from nemo_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
 from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage

@@ -26,7 +26,6 @@ import pyarrow.parquet as pq
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.file_group import FileGroupTask
 from nemo_curator.tasks.image import ImageBatch
 
