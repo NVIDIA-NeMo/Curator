@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for internvideo2_mm.py model."""
 
 import pathlib
 from typing import TYPE_CHECKING
@@ -22,7 +21,7 @@ import pytest
 import torch
 from easydict import EasyDict
 
-from ray_curator.models.internvideo2_mm import (
+from nemo_curator.models.internvideo2_mm import (
     BERT_MODEL_ID,
     INTERNVIDEO2_MODEL_FILE,
     INTERNVIDEO2_MODEL_ID,
@@ -64,7 +63,7 @@ class TestInternVideo2MultiModality:
         expected_names = [INTERNVIDEO2_MODEL_ID, BERT_MODEL_ID]
         assert self.model.model_id_names() == expected_names
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_setup_utils_only(self, mock_create_config: "MagicMock") -> None:
         """Test setup method with utils_only=True."""
         mock_config = Mock()
@@ -95,8 +94,8 @@ class TestInternVideo2MultiModality:
         # Verify model is not initialized when utils_only=True
         assert self.model._model is None
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
-    @patch("ray_curator.models.internvideo2_mm._setup_internvideo2")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._setup_internvideo2")
     def test_setup_with_model(self, mock_setup_model: "MagicMock", mock_create_config: "MagicMock") -> None:
         """Test setup method with utils_only=False."""
         model = InternVideo2MultiModality(model_dir="test_dir", utils_only=False)
@@ -111,7 +110,7 @@ class TestInternVideo2MultiModality:
         mock_setup_model.assert_called_once_with(mock_config)
         assert model._model == mock_model_instance
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_normalize(self, mock_create_config: "MagicMock") -> None:
         """Test _normalize method correctly normalizes input data."""
         # Mock the config
@@ -133,7 +132,7 @@ class TestInternVideo2MultiModality:
         assert result.dtype == np.float32
         np.testing.assert_array_almost_equal(result, expected)
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_construct_frames_sufficient_frames(self, mock_create_config: "MagicMock") -> None:
         """Test _construct_frames method with sufficient frames."""
         # Mock the config
@@ -173,7 +172,7 @@ class TestInternVideo2MultiModality:
         assert result == 16
         self.model._config.get.assert_called_once_with("num_frames", 8)
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_formulate_input_frames(self, mock_create_config: "MagicMock") -> None:
         """Test formulate_input_frames method."""
         # Mock the config
@@ -204,7 +203,7 @@ class TestInternVideo2MultiModality:
 
         assert result.numel() == 0
 
-    @patch("ray_curator.models.internvideo2_mm.torch")
+    @patch("nemo_curator.models.internvideo2_mm.torch")
     def test_encode_video_frames_success(self, mock_torch: "MagicMock") -> None:
         """Test encode_video_frames method with valid input."""
         # Mock torch
@@ -429,8 +428,8 @@ class TestInternVideo2Stage2Wrapper:
 class TestHelperFunctions:
     """Test cases for helper functions."""
 
-    @patch("ray_curator.models.internvideo2_mm.AutoTokenizer")
-    @patch("ray_curator.models.internvideo2_mm._InternVideo2Stage2Wrapper")
+    @patch("nemo_curator.models.internvideo2_mm.AutoTokenizer")
+    @patch("nemo_curator.models.internvideo2_mm._InternVideo2Stage2Wrapper")
     def test_setup_internvideo2_bert(self, mock_wrapper_class: "MagicMock", mock_tokenizer_class: "MagicMock") -> None:
         """Test _setup_internvideo2 function with BERT encoder."""
         # Mock config
@@ -454,7 +453,7 @@ class TestHelperFunctions:
         mock_model.eval.return_value = mock_model
 
         # Mock torch.load
-        with patch("ray_curator.models.internvideo2_mm.torch.load") as mock_torch_load:
+        with patch("nemo_curator.models.internvideo2_mm.torch.load") as mock_torch_load:
             mock_torch_load.return_value = {"model": {"layer1": torch.randn(1, 1)}}
 
             result = _setup_internvideo2(config)

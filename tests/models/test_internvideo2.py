@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for internvideo2.py stages."""
 
 import pathlib
 import uuid
@@ -21,11 +20,11 @@ from unittest.mock import MagicMock, Mock, patch
 import numpy as np
 import torch
 
-from ray_curator.stages.video.embedding.internvideo2 import (
+from nemo_curator.stages.video.embedding.internvideo2 import (
     InternVideo2EmbeddingStage,
     InternVideo2FrameCreationStage,
 )
-from ray_curator.tasks.video import Clip, Video, VideoTask
+from nemo_curator.tasks.video import Clip, Video, VideoTask
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)
@@ -68,7 +67,7 @@ class TestInternVideo2FrameCreationStage:
         assert inputs == ["data"]
         assert outputs == ["clips"]
 
-    @patch("ray_curator.stages.video.embedding.internvideo2.InternVideo2MultiModality")
+    @patch("nemo_curator.stages.video.embedding.internvideo2.InternVideo2MultiModality")
     def test_setup(self, mock_model_class: "MagicMock") -> None:
         """Test setup method initializes model correctly."""
         mock_model = Mock()
@@ -96,7 +95,7 @@ class TestInternVideo2FrameCreationStage:
         assert clip.errors["buffer"] == "empty"
         assert result == task
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_process_missing_frames(self, mock_create_config: "MagicMock") -> None:
         """Test process method handles missing frames correctly."""
         # Mock the config
@@ -124,7 +123,7 @@ class TestInternVideo2FrameCreationStage:
         assert clip.errors[f"frames-{self.stage._frame_extraction_signature}"] == "missing"
         assert result == task
 
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_process_successful_frame_creation(self, mock_create_config: "MagicMock") -> None:
         """Test successful frame creation process."""
         # Mock the config
@@ -162,8 +161,8 @@ class TestInternVideo2FrameCreationStage:
 
         assert result == task
 
-    @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.stages.video.embedding.internvideo2.extract_frames")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_process_frame_regeneration(
         self, mock_create_config: "MagicMock", mock_extract_frames: "MagicMock"
     ) -> None:
@@ -201,8 +200,8 @@ class TestInternVideo2FrameCreationStage:
         mock_extract_frames.assert_called_once()
         assert result == task
 
-    @patch("ray_curator.stages.video.embedding.internvideo2.extract_frames")
-    @patch("ray_curator.models.internvideo2_mm._create_config")
+    @patch("nemo_curator.stages.video.embedding.internvideo2.extract_frames")
+    @patch("nemo_curator.models.internvideo2_mm._create_config")
     def test_process_max_fps_exceeded(self, mock_create_config: "MagicMock", mock_extract_frames: "MagicMock") -> None:
         """Test process method handles max FPS exceeded correctly."""
         # Mock the config
@@ -289,13 +288,13 @@ class TestInternVideo2EmbeddingStage:
 
     def test_resources(self) -> None:
         """Test resources property returns correct Resources object."""
-        from ray_curator.stages.resources import Resources
+        from nemo_curator.stages.resources import Resources
 
         resources = self.stage.resources
         assert isinstance(resources, Resources)
         assert resources.gpu_memory_gb == 10.0
 
-    @patch("ray_curator.stages.video.embedding.internvideo2.InternVideo2MultiModality")
+    @patch("nemo_curator.stages.video.embedding.internvideo2.InternVideo2MultiModality")
     def test_setup(self, mock_model_class: "MagicMock") -> None:
         """Test setup method initializes model correctly."""
         mock_model = Mock()

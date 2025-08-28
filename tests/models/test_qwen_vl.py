@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for QwenVL model."""
 
 import pathlib
 import re
@@ -20,7 +19,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from ray_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, _QWEN_VARIANTS_INFO, QwenVL
+from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, _QWEN_VARIANTS_INFO, QwenVL
 
 
 class TestQwenVL:
@@ -29,7 +28,7 @@ class TestQwenVL:
     def setup_method(self) -> None:
         """Set up test fixtures."""
         # Mock VLLM_AVAILABLE to True so tests can run without vllm installed
-        self.vllm_patcher = patch("ray_curator.models.qwen_vl.VLLM_AVAILABLE", True)
+        self.vllm_patcher = patch("nemo_curator.models.qwen_vl.VLLM_AVAILABLE", True)
         self.vllm_patcher.start()
 
         self.model_dir = "/test/model/dir"
@@ -105,9 +104,9 @@ class TestQwenVL:
         assert model_ids[0] == _QWEN_VARIANTS_INFO[self.model_variant]
         assert model_ids[0] == _QWEN2_5_VL_MODEL_ID
 
-    @patch("ray_curator.models.qwen_vl.LLM")
-    @patch("ray_curator.models.qwen_vl.SamplingParams")
-    @patch("ray_curator.models.qwen_vl.logger")
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
+    @patch("nemo_curator.models.qwen_vl.logger")
     def test_setup_with_fp8(self, mock_logger: Mock, mock_sampling_params: Mock, mock_llm: Mock) -> None:
         """Test setup method with fp8 quantization enabled."""
         # Mock the LLM and SamplingParams
@@ -155,8 +154,8 @@ class TestQwenVL:
             "CUDA graph enabled for sequences smaller than 16k tokens; adjust accordingly for even longer sequences"
         )
 
-    @patch("ray_curator.models.qwen_vl.LLM")
-    @patch("ray_curator.models.qwen_vl.SamplingParams")
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
     def test_setup_without_fp8(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
         """Test setup method with fp8 quantization disabled."""
         # Create QwenVL instance with fp8=False
@@ -176,8 +175,8 @@ class TestQwenVL:
         call_args = mock_llm.call_args
         assert call_args[1]["quantization"] is None
 
-    @patch("ray_curator.models.qwen_vl.LLM")
-    @patch("ray_curator.models.qwen_vl.SamplingParams")
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
     def test_setup_with_model_preprocessing(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
         """Test setup method with model preprocessing enabled."""
         qwen_vl = QwenVL(
@@ -200,7 +199,7 @@ class TestQwenVL:
         assert call_args[1]["mm_processor_kwargs"] == expected_mm_processor_kwargs
         assert call_args[1]["disable_mm_preprocessor_cache"] is True
 
-    @patch("ray_curator.models.qwen_vl.grouping.split_by_chunk_size")
+    @patch("nemo_curator.models.qwen_vl.grouping.split_by_chunk_size")
     def test_generate_simple_case(self, mock_split_by_chunk_size: Mock) -> None:
         """Test generate method with simple case (no stage2)."""
         # Setup mocks
@@ -240,7 +239,7 @@ class TestQwenVL:
         assert call_args[1]["sampling_params"] == self.qwen_vl.sampling_params
         assert call_args[1]["use_tqdm"] is False
 
-    @patch("ray_curator.models.qwen_vl.grouping.split_by_chunk_size")
+    @patch("nemo_curator.models.qwen_vl.grouping.split_by_chunk_size")
     def test_generate_multiple_batches(self, mock_split_by_chunk_size: Mock) -> None:
         """Test generate method with multiple batches."""
         mock_model = Mock()
@@ -287,8 +286,8 @@ class TestQwenVL:
         # Verify model.generate was called twice (once per batch)
         assert mock_model.generate.call_count == 2
 
-    @patch("ray_curator.models.qwen_vl.grouping.split_by_chunk_size")
-    @patch("ray_curator.models.qwen_vl.re.sub")
+    @patch("nemo_curator.models.qwen_vl.grouping.split_by_chunk_size")
+    @patch("nemo_curator.models.qwen_vl.re.sub")
     def test_generate_with_stage2_caption(self, mock_re_sub: Mock, mock_split_by_chunk_size: Mock) -> None:
         """Test generate method with stage2 caption generation."""
         # Setup mocks
@@ -333,8 +332,8 @@ class TestQwenVL:
             flags=re.DOTALL,
         )
 
-    @patch("ray_curator.models.qwen_vl.grouping.split_by_chunk_size")
-    @patch("ray_curator.models.qwen_vl.logger")
+    @patch("nemo_curator.models.qwen_vl.grouping.split_by_chunk_size")
+    @patch("nemo_curator.models.qwen_vl.logger")
     def test_generate_exception_handling(self, mock_logger: Mock, mock_split_by_chunk_size: Mock) -> None:
         """Test generate method exception handling."""
         # Setup mocks
@@ -391,8 +390,8 @@ class TestQwenVL:
 
         assert qwen_vl.max_output_tokens == custom_tokens
 
-    @patch("ray_curator.models.qwen_vl.LLM")
-    @patch("ray_curator.models.qwen_vl.SamplingParams")
+    @patch("nemo_curator.models.qwen_vl.LLM")
+    @patch("nemo_curator.models.qwen_vl.SamplingParams")
     def test_setup_sampling_params_with_custom_tokens(self, mock_sampling_params: Mock, mock_llm: Mock) -> None:  # noqa: ARG002
         """Test that SamplingParams uses the custom max_output_tokens."""
         custom_tokens = 256

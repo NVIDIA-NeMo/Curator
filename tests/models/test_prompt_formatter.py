@@ -11,14 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for PromptFormatter."""
 
 from unittest.mock import Mock, patch
 
 import pytest
 import torch
 
-from ray_curator.models.prompt_formatter import VARIANT_MAPPING, PromptFormatter
+from nemo_curator.models.prompt_formatter import VARIANT_MAPPING, PromptFormatter
 
 
 class TestPromptFormatter:
@@ -26,7 +25,7 @@ class TestPromptFormatter:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
-        with patch("ray_curator.models.prompt_formatter.AutoProcessor") as mock_processor:
+        with patch("nemo_curator.models.prompt_formatter.AutoProcessor") as mock_processor:
             mock_processor_instance = Mock()
             mock_processor.from_pretrained.return_value = mock_processor_instance
             self.formatter = PromptFormatter(prompt_variant="qwen")
@@ -39,7 +38,7 @@ class TestPromptFormatter:
 
     def test_initialization_valid_variant(self) -> None:
         """Test initialization with valid prompt variant."""
-        with patch("ray_curator.models.prompt_formatter.AutoProcessor") as mock_processor:
+        with patch("nemo_curator.models.prompt_formatter.AutoProcessor") as mock_processor:
             mock_processor_instance = Mock()
             mock_processor.from_pretrained.return_value = mock_processor_instance
 
@@ -55,7 +54,7 @@ class TestPromptFormatter:
         with pytest.raises(ValueError, match="Invalid prompt variant: invalid_variant"):
             PromptFormatter(prompt_variant="invalid_variant")
 
-    @patch("ray_curator.models.prompt_formatter.AutoProcessor")
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_generate_inputs_first_time(self, mock_processor_class: Mock) -> None:
         """Test generate_inputs method when text_prompt is None (first time)."""
         # Setup mock processor
@@ -86,7 +85,7 @@ class TestPromptFormatter:
         # Verify text_prompt was cached
         assert formatter.text_prompt == "formatted_prompt"
 
-    @patch("ray_curator.models.prompt_formatter.AutoProcessor")
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_generate_inputs_cached_prompt(self, mock_processor_class: Mock) -> None:
         """Test generate_inputs method when text_prompt is already cached."""
         # Setup mock processor
@@ -107,7 +106,7 @@ class TestPromptFormatter:
         # Verify processor was NOT called since prompt is cached
         mock_processor_instance.apply_chat_template.assert_not_called()
 
-    @patch("ray_curator.models.prompt_formatter.AutoProcessor")
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_generate_inputs_override_text_prompt(self, mock_processor_class: Mock) -> None:
         """Test generate_inputs method with override_text_prompt=True."""
         # Setup mock processor
@@ -129,7 +128,7 @@ class TestPromptFormatter:
         # Verify processor was called even though prompt was cached
         mock_processor_instance.apply_chat_template.assert_called_once()
 
-    @patch("ray_curator.models.prompt_formatter.AutoProcessor")
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_generate_inputs_no_video_inputs(self, mock_processor_class: Mock) -> None:
         """Test generate_inputs method with no video inputs."""
         mock_processor_instance = Mock()
@@ -173,7 +172,7 @@ class TestPromptFormatter:
 
         assert result[0]["content"][1]["text"] == special_prompt
 
-    @patch("ray_curator.models.prompt_formatter.AutoProcessor")
+    @patch("nemo_curator.models.prompt_formatter.AutoProcessor")
     def test_processor_interaction(self, mock_processor_class: Mock) -> None:
         """Test that the processor is correctly initialized and used."""
         mock_processor_instance = Mock()

@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-from ray_curator.core.client import RayClient
+from nemo_curator.core.client import RayClient
 
 # -----------------------------------------------------------------------------
 # Tests

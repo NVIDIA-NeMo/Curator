@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for cosmos_embed1.py model."""
 
 from typing import TYPE_CHECKING
 from unittest.mock import Mock, patch
@@ -20,7 +19,7 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.models.cosmos_embed1 import CosmosEmbed1
+from nemo_curator.models.cosmos_embed1 import CosmosEmbed1
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -67,8 +66,8 @@ class TestCosmosEmbed1:
         model_448p = CosmosEmbed1(variant="448p", model_dir="/test/model/dir")
         assert model_448p.model_id_names == ["nvidia/Cosmos-Embed1-448p"]
 
-    @patch("ray_curator.models.cosmos_embed1.Path")
-    @patch("ray_curator.models.cosmos_embed1.AutoProcessor")
+    @patch("nemo_curator.models.cosmos_embed1.Path")
+    @patch("nemo_curator.models.cosmos_embed1.AutoProcessor")
     def test_setup_utils_only(self, mock_processor: "MagicMock", mock_path: "MagicMock") -> None:
         """Test setup method with utils_only=True."""
         # Mock path exists
@@ -90,9 +89,9 @@ class TestCosmosEmbed1:
         )
         assert self.model._processor == mock_processor_instance
 
-    @patch("ray_curator.models.cosmos_embed1.Path")
-    @patch("ray_curator.models.cosmos_embed1.AutoProcessor")
-    @patch("ray_curator.models.cosmos_embed1.AutoModel")
+    @patch("nemo_curator.models.cosmos_embed1.Path")
+    @patch("nemo_curator.models.cosmos_embed1.AutoProcessor")
+    @patch("nemo_curator.models.cosmos_embed1.AutoModel")
     def test_setup_with_model(
         self, mock_model: "MagicMock", mock_processor: "MagicMock", mock_path: "MagicMock"
     ) -> None:
@@ -126,7 +125,7 @@ class TestCosmosEmbed1:
             local_files_only=True,
         )
 
-    @patch("ray_curator.models.cosmos_embed1.Path")
+    @patch("nemo_curator.models.cosmos_embed1.Path")
     def test_setup_missing_weights_dir(self, mock_path: "MagicMock") -> None:
         """Test setup method with missing weights directory."""
         mock_path.return_value.exists.return_value = False
@@ -134,8 +133,8 @@ class TestCosmosEmbed1:
         with pytest.raises(FileNotFoundError, match="Weights directory .* not found!"):
             self.model.setup()
 
-    @patch("ray_curator.models.cosmos_embed1.Path")
-    @patch("ray_curator.models.cosmos_embed1.AutoModel")
+    @patch("nemo_curator.models.cosmos_embed1.Path")
+    @patch("nemo_curator.models.cosmos_embed1.AutoModel")
     def test_setup_model_load_failure(self, mock_model: "MagicMock", mock_path: "MagicMock") -> None:
         """Test setup method with model loading failure."""
         model = CosmosEmbed1(variant="336p", utils_only=False, model_dir="/test/model/dir")
@@ -188,7 +187,7 @@ class TestCosmosEmbed1:
         rng = np.random.default_rng(42)
         frames = [rng.integers(0, 255, (224, 224, 3), dtype=np.uint8) for _ in range(8)]
 
-        with patch("ray_curator.models.cosmos_embed1.logger") as mock_logger:
+        with patch("nemo_curator.models.cosmos_embed1.logger") as mock_logger:
             result = self.model.formulate_input_frames(frames)
 
             # Verify error was logged and None returned
@@ -341,7 +340,7 @@ class TestCosmosEmbed1:
 
     def test_model_interface_inheritance(self) -> None:
         """Test that CosmosEmbed1 properly inherits from ModelInterface."""
-        from ray_curator.models.base import ModelInterface
+        from nemo_curator.models.base import ModelInterface
 
         model = CosmosEmbed1(model_dir="/test/model/dir")
         assert isinstance(model, ModelInterface)

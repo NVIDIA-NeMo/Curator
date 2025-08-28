@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 # Mock vllm before importing the module to avoid dependency issues
 sys.modules["vllm"] = Mock()
 
-from ray_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
 
 
 class TestQwenLM:
@@ -51,10 +51,10 @@ class TestQwenLM:
         assert len(model_ids) == 1
         assert model_ids[0] == _QWEN_LM_MODEL_ID
 
-    @patch("ray_curator.models.qwen_lm.AutoTokenizer")
-    @patch("ray_curator.models.qwen_lm.SamplingParams")
-    @patch("ray_curator.models.qwen_lm.LLM")
-    @patch("ray_curator.models.qwen_lm.Path")
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    @patch("nemo_curator.models.qwen_lm.Path")
     def test_setup_with_fp8(
         self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
     ) -> None:
@@ -102,10 +102,10 @@ class TestQwenLM:
         assert self.qwen_lm.sampling_params == mock_sampling_params
         assert self.qwen_lm.tokenizer == mock_tokenizer
 
-    @patch("ray_curator.models.qwen_lm.AutoTokenizer")
-    @patch("ray_curator.models.qwen_lm.SamplingParams")
-    @patch("ray_curator.models.qwen_lm.LLM")
-    @patch("ray_curator.models.qwen_lm.Path")
+    @patch("nemo_curator.models.qwen_lm.AutoTokenizer")
+    @patch("nemo_curator.models.qwen_lm.SamplingParams")
+    @patch("nemo_curator.models.qwen_lm.LLM")
+    @patch("nemo_curator.models.qwen_lm.Path")
     def test_setup_without_fp8(
         self, mock_path: Mock, mock_llm_class: Mock, mock_sampling_params_class: Mock, mock_tokenizer_class: Mock
     ) -> None:
@@ -296,16 +296,16 @@ class TestQwenLM:
         )
 
     def test_weight_file_path_construction(self) -> None:
-        with patch("ray_curator.models.qwen_lm.Path") as mock_path:
+        with patch("nemo_curator.models.qwen_lm.Path") as mock_path:
             mock_path_instance = Mock()
             expected_path = "/test/model/dir/Qwen/Qwen2.5-14B-Instruct"
             mock_path_instance.__truediv__ = Mock(return_value=expected_path)
             mock_path.return_value = mock_path_instance
 
             with (
-                patch("ray_curator.models.qwen_lm.LLM"),
-                patch("ray_curator.models.qwen_lm.SamplingParams"),
-                patch("ray_curator.models.qwen_lm.AutoTokenizer"),
+                patch("nemo_curator.models.qwen_lm.LLM"),
+                patch("nemo_curator.models.qwen_lm.SamplingParams"),
+                patch("nemo_curator.models.qwen_lm.AutoTokenizer"),
             ):
                 self.qwen_lm.setup()
 
@@ -316,10 +316,10 @@ class TestQwenLM:
 
     def test_sampling_params_configuration(self) -> None:
         with (
-            patch("ray_curator.models.qwen_lm.LLM"),
-            patch("ray_curator.models.qwen_lm.AutoTokenizer"),
-            patch("ray_curator.models.qwen_lm.Path") as mock_path,
-            patch("ray_curator.models.qwen_lm.SamplingParams") as mock_sampling_params_class,
+            patch("nemo_curator.models.qwen_lm.LLM"),
+            patch("nemo_curator.models.qwen_lm.AutoTokenizer"),
+            patch("nemo_curator.models.qwen_lm.Path") as mock_path,
+            patch("nemo_curator.models.qwen_lm.SamplingParams") as mock_sampling_params_class,
         ):
             mock_path_instance = Mock()
             mock_path_instance.__truediv__ = Mock(return_value="test_path")

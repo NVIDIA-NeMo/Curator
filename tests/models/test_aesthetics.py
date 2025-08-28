@@ -11,14 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for aesthetics models."""
 
 from unittest.mock import Mock, patch
 
 import numpy as np
 import torch
 
-from ray_curator.models.aesthetics import MLP, AestheticScorer
+from nemo_curator.models.aesthetics import MLP, AestheticScorer
 
 
 class TestMLP:
@@ -103,22 +102,22 @@ class TestAestheticScorer:
         assert len(model_ids) == 1
         assert model_ids[0] == "ttj/sac-logos-ava1-l14-linearMSE"
 
-    @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
+    @patch("nemo_curator.models.aesthetics.torch.cuda.is_available")
     def test_device_selection_with_cuda(self, mock_cuda_available: Mock) -> None:
         """Test device selection when CUDA is available."""
         mock_cuda_available.return_value = True
         model = AestheticScorer(model_dir="test_models/aesthetics")
         assert model.device in ["cuda", "cuda:0"]
 
-    @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
+    @patch("nemo_curator.models.aesthetics.torch.cuda.is_available")
     def test_device_selection_without_cuda(self, mock_cuda_available: Mock) -> None:
         """Test device selection when CUDA is not available."""
         mock_cuda_available.return_value = False
         model = AestheticScorer(model_dir="test_models/aesthetics")
         assert model.device == "cpu"
 
-    @patch("ray_curator.models.aesthetics.load_file")
-    @patch("ray_curator.models.aesthetics.MLP")
+    @patch("nemo_curator.models.aesthetics.load_file")
+    @patch("nemo_curator.models.aesthetics.MLP")
     def test_setup_success(self, mock_mlp_class: Mock, mock_load_file: Mock) -> None:
         """Test successful model setup."""
         # Mock state dict loading
@@ -241,7 +240,7 @@ class TestAestheticScorer:
 class TestModelIntegration:
     """Integration tests for aesthetic model components."""
 
-    @patch("ray_curator.models.aesthetics.torch.cuda.is_available")
+    @patch("nemo_curator.models.aesthetics.torch.cuda.is_available")
     def test_models_can_be_instantiated(self, mock_cuda_available: Mock) -> None:
         """Test that models can be instantiated without errors."""
         mock_cuda_available.return_value = False  # Use CPU for testing

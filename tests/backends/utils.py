@@ -31,13 +31,13 @@ import pandas as pd
 import ray
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.text.io.reader import JsonlReader
-from ray_curator.stages.text.io.writer import JsonlWriter
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.tasks import DocumentBatch
 
 
 @ray.remote(num_cpus=0.1)

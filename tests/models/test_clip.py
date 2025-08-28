@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for CLIP models."""
 
 import pathlib
 from unittest.mock import Mock, patch
@@ -20,7 +19,7 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
+from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
 
 
 class TestCLIPImageEmbeddings:
@@ -45,8 +44,8 @@ class TestCLIPImageEmbeddings:
         assert len(model_ids) == 1
         assert model_ids[0] == "openai/clip-vit-large-patch14"
 
-    @patch("ray_curator.models.clip.CLIPModel")
-    @patch("ray_curator.models.clip.CLIPProcessor")
+    @patch("nemo_curator.models.clip.CLIPModel")
+    @patch("nemo_curator.models.clip.CLIPProcessor")
     def test_setup_configures_expected_transforms(self, mock_processor: Mock, mock_clip_model: Mock) -> None:
         """Ensure torchvision transforms pipeline matches CLIP preprocessor settings."""
         # Arrange basic mocks
@@ -85,8 +84,8 @@ class TestCLIPImageEmbeddings:
         assert pytest.approx(tfs[3].mean, rel=1e-5) == (0.48145466, 0.4578275, 0.40821073)
         assert pytest.approx(tfs[3].std, rel=1e-5) == (0.26862954, 0.26130258, 0.27577711)
 
-    @patch("ray_curator.models.clip.CLIPModel")
-    @patch("ray_curator.models.clip.CLIPProcessor")
+    @patch("nemo_curator.models.clip.CLIPModel")
+    @patch("nemo_curator.models.clip.CLIPProcessor")
     def test_setup_success(self, mock_processor: Mock, mock_clip_model: Mock) -> None:
         """Test successful model setup."""
         # Mock the model loading
@@ -113,14 +112,14 @@ class TestCLIPImageEmbeddings:
         assert self.model.clip == mock_model_instance
         assert self.model.processor == mock_processor_instance
 
-    @patch("ray_curator.models.clip.torch.cuda.is_available")
+    @patch("nemo_curator.models.clip.torch.cuda.is_available")
     def test_device_selection_with_cuda(self, mock_cuda_available: Mock) -> None:
         """Test device selection when CUDA is available."""
         mock_cuda_available.return_value = True
         model = CLIPImageEmbeddings(model_dir="test_models/clip")
         assert model.device == "cuda"
 
-    @patch("ray_curator.models.clip.torch.cuda.is_available")
+    @patch("nemo_curator.models.clip.torch.cuda.is_available")
     def test_device_selection_without_cuda(self, mock_cuda_available: Mock) -> None:
         """Test device selection when CUDA is not available."""
         mock_cuda_available.return_value = False
@@ -131,9 +130,9 @@ class TestCLIPImageEmbeddings:
         """Calling with numpy array should use torchvision transforms path and return unit-norm embeddings."""
         # Arrange
         with (
-            patch("ray_curator.models.clip.torch.cuda.is_available", return_value=False),
-            patch("ray_curator.models.clip.CLIPModel") as mock_clip_model,
-            patch("ray_curator.models.clip.CLIPProcessor") as mock_processor,
+            patch("nemo_curator.models.clip.torch.cuda.is_available", return_value=False),
+            patch("nemo_curator.models.clip.CLIPModel") as mock_clip_model,
+            patch("nemo_curator.models.clip.CLIPProcessor") as mock_processor,
         ):
             mock_model_instance = Mock()
             mock_model_instance.to.return_value = mock_model_instance
@@ -226,8 +225,8 @@ class TestCLIPAestheticScorer:
         assert len(model_ids) == 1
         assert model_ids[0] == "openai/clip-vit-large-patch14"
 
-    @patch("ray_curator.models.clip.CLIPImageEmbeddings")
-    @patch("ray_curator.models.clip.AestheticScorer")
+    @patch("nemo_curator.models.clip.CLIPImageEmbeddings")
+    @patch("nemo_curator.models.clip.AestheticScorer")
     def test_setup_success(self, mock_aesthetic_scorer: Mock, mock_clip_embeddings: Mock) -> None:
         """Test successful model setup."""
         # Mock the models
@@ -332,7 +331,7 @@ class TestCLIPAestheticScorer:
 class TestModelIntegration:
     """Integration tests for CLIP model components."""
 
-    @patch("ray_curator.models.clip.torch.cuda.is_available")
+    @patch("nemo_curator.models.clip.torch.cuda.is_available")
     def test_models_can_be_instantiated(self, mock_cuda_available: Mock) -> None:
         """Test that models can be instantiated without errors."""
         mock_cuda_available.return_value = False  # Use CPU for testing

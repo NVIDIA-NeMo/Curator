@@ -11,14 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Unit tests for TransNetV2 model classes."""
 
 from unittest.mock import Mock, patch
 
 import pytest
 import torch
 
-from ray_curator.models.transnetv2 import (
+from nemo_curator.models.transnetv2 import (
     ColorHistograms,
     Conv3DConfigurable,
     DilatedDCNNV2,
@@ -410,7 +409,7 @@ class TestTransNetV2Interface:
 
     @patch("pathlib.Path.exists")
     @patch("torch.load")
-    @patch("ray_curator.models.transnetv2._TransNetV2")
+    @patch("nemo_curator.models.transnetv2._TransNetV2")
     def test_setup_success(self, mock_transnetv2_class: Mock, mock_torch_load: Mock, mock_exists: Mock):
         """Test successful setup with mock model file."""
         mock_exists.return_value = True
@@ -446,7 +445,7 @@ class TestTransNetV2Interface:
 
     @patch("pathlib.Path.exists")
     @patch("torch.load")
-    @patch("ray_curator.models.transnetv2._TransNetV2")
+    @patch("nemo_curator.models.transnetv2._TransNetV2")
     def test_call_after_setup(self, mock_transnetv2_class: Mock, mock_torch_load: Mock, mock_exists: Mock):
         """Test calling interface after setup."""
         mock_exists.return_value = True
