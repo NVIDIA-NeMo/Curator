@@ -38,7 +38,7 @@ requires-python = ">=3.10,<3.13"
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna",
+    "cosmos-xenna==0.1.2",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
@@ -92,7 +92,7 @@ video = [
 video_cuda = [
     "cvcuda_cu12",
     "pycuda",
-    "vllm; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
@@ -159,7 +159,6 @@ torchvision = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
-
 
 [tool.coverage.paths]
 source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]

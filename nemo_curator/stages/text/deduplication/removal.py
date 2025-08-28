@@ -28,9 +28,9 @@ from typing import Any
 
 import pandas as pd
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.tasks import DocumentBatch
 
 
 @dataclass

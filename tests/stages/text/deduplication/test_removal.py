@@ -18,9 +18,9 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.stages.text.deduplication.removal import TextDuplicatesRemovalStage
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.stages.text.deduplication.removal import TextDuplicatesRemovalStage
+from nemo_curator.tasks import DocumentBatch
 
 
 class TestTextDuplicatesRemovalStage:
