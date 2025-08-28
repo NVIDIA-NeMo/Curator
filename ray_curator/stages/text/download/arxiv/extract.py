@@ -15,7 +15,7 @@
 import re
 from typing import Any
 
-from ray_curator.stages.text.download import DocumentExtractor
+from nemo_curator.stages.text.download import DocumentExtractor
 
 # The iterator and extractor code are in large part taken
 # from the Red-Pajama repo

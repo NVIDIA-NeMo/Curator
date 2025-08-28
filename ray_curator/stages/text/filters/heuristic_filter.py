@@ -21,8 +21,8 @@ import requests
 from platformdirs import user_cache_dir
 from transformers import AutoTokenizer
 
-from ray_curator.stages.text.filters.doc_filter import DocumentFilter
-from ray_curator.stages.text.utils.constants import (
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
+from nemo_curator.stages.text.utils.constants import (
     bullet_list,
     common_english_words,
     ellipsis_marks,
@@ -36,7 +36,7 @@ from ray_curator.stages.text.utils.constants import (
     regex_url,
     white_space_list,
 )
-from ray_curator.stages.text.utils.text_utils import (
+from nemo_curator.stages.text.utils.text_utils import (
     get_ngrams,
     get_paragraphs,
     get_sentences,

@@ -14,8 +14,8 @@
 
 from dataclasses import dataclass
 
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
 from .download import DocumentDownloader, DocumentDownloadStage
 from .extract import DocumentExtractor, DocumentExtractStage

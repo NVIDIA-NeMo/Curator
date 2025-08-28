@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ray_curator.stages.text.io.writer.jsonl import JsonlWriter
-from ray_curator.stages.text.io.writer.parquet import ParquetWriter
+from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 __all__ = [
     "JsonlWriter",

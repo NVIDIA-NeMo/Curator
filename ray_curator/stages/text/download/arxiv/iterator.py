@@ -22,8 +22,8 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.stages.text.download import DocumentIterator
-from ray_curator.utils.file_utils import get_all_file_paths_under
+from nemo_curator.stages.text.download import DocumentIterator
+from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 # The iterator and extractor code are in large part taken
 # from the Red-Pajama repo

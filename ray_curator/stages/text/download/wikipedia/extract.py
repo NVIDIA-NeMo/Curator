@@ -18,7 +18,7 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.stages.text.download import DocumentExtractor
+from nemo_curator.stages.text.download import DocumentExtractor
 
 # The majority of this code is taken from the HuggingFace
 # implementation of the Wikipedia dataset preparation:

@@ -16,7 +16,7 @@ import os
 
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 
-from ray_curator.stages.text.models.utils import format_name_with_suffix
+from nemo_curator.stages.text.models.utils import format_name_with_suffix
 
 from .base import DistributedDataClassifier
 from .constants import DEBERTA_TOKENIZER_PADDING_SIDE

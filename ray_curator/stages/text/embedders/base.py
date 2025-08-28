@@ -22,12 +22,12 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 from transformers import AutoModel
 
-from ray_curator.backends.base import WorkerMetadata
-from ray_curator.stages.base import CompositeStage, ProcessingStage
-from ray_curator.stages.text.models.model import ModelStage
-from ray_curator.stages.text.models.tokenizer import TokenizerStage
-from ray_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+from nemo_curator.stages.text.models.model import ModelStage
+from nemo_curator.stages.text.models.tokenizer import TokenizerStage
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN
+from nemo_curator.tasks import DocumentBatch
 
 from .utils import create_list_series_from_1d_or_2d_ar
 

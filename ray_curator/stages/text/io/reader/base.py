@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Base tabular reader stage for JSONL and Parquet readers."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -25,11 +23,11 @@ import ray
 from loguru import logger
 
 if TYPE_CHECKING:
-    from ray_curator.backends.base import WorkerMetadata
+    from nemo_curator.backends.base import WorkerMetadata
 
-from ray_curator.backends.experimental.utils import RayStageSpecKeys
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
 
 @dataclass
@@ -59,7 +57,7 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         if self._generate_ids or self._assign_ids:
-            from ray_curator.stages.deduplication.id_generator import get_id_generator_actor
+            from nemo_curator.stages.deduplication.id_generator import get_id_generator_actor
 
             try:
                 self.id_generator = get_id_generator_actor()
@@ -111,7 +109,7 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     # ID helpers ----------------------------------------------------------------
     def _assign_ids_func(self, filepath: str | list[str], df: pd.DataFrame) -> pd.DataFrame:
-        from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+        from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
         if CURATOR_DEDUP_ID_STR not in df.columns:
             min_id, max_id = ray.get(self.id_generator.get_batch_range.remote(filepath, None))
@@ -121,7 +119,7 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         return df
 
     def _generate_ids_func(self, filepath: str | list[str], df: pd.DataFrame) -> pd.DataFrame:
-        from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+        from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 
         if CURATOR_DEDUP_ID_STR not in df.columns:
             num_rows = len(df)

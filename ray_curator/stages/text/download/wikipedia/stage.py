@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.text.download import DocumentDownloadExtractStage
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.text.download import DocumentDownloadExtractStage
 
 from .download import WikipediaDownloader
 from .extract import WikipediaExtractor
@@ -98,11 +98,7 @@ class WikipediaDownloadExtractStage(DocumentDownloadExtractStage):
             record_limit=record_limit,
             add_filename_column=add_filename_column,
         )
-
-    @property
-    def name(self) -> str:
-        """Return the name of this stage."""
-        return f"wikipedia_{self.language}_pipeline"
+        self._name = f"wikipedia_{self.language}_pipeline"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose this composite stage into its constituent stages."""

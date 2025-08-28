@@ -28,7 +28,7 @@ your_data_source/
 
 **URL Generator** (`url_generation.py`):
 ```python
-from ray_curator.stages.text.download import URLGenerator
+from nemo_curator.stages.text.download import URLGenerator
 
 class YourURLGenerator(URLGenerator):
     def generate_urls(self) -> list[str]:
@@ -38,7 +38,7 @@ class YourURLGenerator(URLGenerator):
 
 **Downloader** (`download.py`):
 ```python
-from ray_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download import DocumentDownloader
 
 class YourDownloader(DocumentDownloader):
     def _get_output_filename(self, url: str) -> str:
@@ -52,7 +52,7 @@ class YourDownloader(DocumentDownloader):
 
 **Iterator** (`iterator.py`):
 ```python
-from ray_curator.stages.text.download import DocumentIterator
+from nemo_curator.stages.text.download import DocumentIterator
 
 class YourIterator(DocumentIterator):
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
@@ -65,7 +65,7 @@ class YourIterator(DocumentIterator):
 
 **Extractor** (`extract.py`):
 ```python
-from ray_curator.stages.text.download import DocumentExtractor
+from nemo_curator.stages.text.download import DocumentExtractor
 
 class YourExtractor(DocumentExtractor):
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
@@ -82,7 +82,7 @@ class YourExtractor(DocumentExtractor):
 ### 3. Create Composite Stage (`stage.py`)
 
 ```python
-from ray_curator.stages.text.download import DocumentDownloadExtractStage
+from nemo_curator.stages.text.download import DocumentDownloadExtractStage
 
 class YourDownloadExtractStage(DocumentDownloadExtractStage):
     def __init__(self, config_param1, config_param2, download_dir: str, **kwargs):

@@ -15,7 +15,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.tasks import DocumentBatch
 
 from .base import BaseWriter
 
@@ -27,10 +27,7 @@ class JsonlWriter(BaseWriter):
     # Additional kwargs for pandas.DataFrame.to_json
     file_extension: str = "jsonl"
     write_kwargs: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def name(self) -> str:
-        return "jsonl_writer"
+    _name: str = "jsonl_writer"
 
     def write_data(self, task: DocumentBatch, file_path: str) -> None:
         """Write data to JSONL file using pandas DataFrame.to_json."""

@@ -15,9 +15,9 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.text.modifiers.doc_modifier import DocumentModifier
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+from nemo_curator.tasks import DocumentBatch
 
 
 @dataclass

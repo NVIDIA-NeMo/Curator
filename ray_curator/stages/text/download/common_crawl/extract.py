@@ -16,13 +16,13 @@ from typing import Any
 
 from loguru import logger
 
-from ray_curator.stages.text.download import DocumentExtractor
-from ray_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
-from ray_curator.stages.text.download.html_extractors.justext import JusTextExtractor
-from ray_curator.stages.text.download.html_extractors.resiliparse import ResiliparseExtractor
-from ray_curator.stages.text.download.html_extractors.trafilatura import TrafilaturaExtractor
-from ray_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
-from ray_curator.stages.text.download.utils import decode_html, lang_detect
+from nemo_curator.stages.text.download import DocumentExtractor
+from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
+from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
+from nemo_curator.stages.text.download.html_extractors.resiliparse import ResiliparseExtractor
+from nemo_curator.stages.text.download.html_extractors.trafilatura import TrafilaturaExtractor
+from nemo_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
+from nemo_curator.stages.text.download.utils import decode_html, lang_detect
 
 
 class CommonCrawlHTMLExtractor(DocumentExtractor):

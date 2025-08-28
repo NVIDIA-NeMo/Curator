@@ -12,17 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Parquet reader composite stage."""
-
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
 
-from ray_curator.stages.base import CompositeStage
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import DocumentBatch, _EmptyTask
-from ray_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from nemo_curator.stages.base import CompositeStage
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.tasks import DocumentBatch, _EmptyTask
+from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
 
 from .base import BaseReader
 

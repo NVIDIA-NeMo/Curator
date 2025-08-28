@@ -15,7 +15,7 @@
 import subprocess
 from dataclasses import dataclass
 
-from ray_curator.stages.text.download import URLGenerator
+from nemo_curator.stages.text.download import URLGenerator
 
 
 @dataclass

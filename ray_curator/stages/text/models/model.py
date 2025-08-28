@@ -25,10 +25,10 @@ import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.resources import Resources
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.tasks import DocumentBatch
 
 from .utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, SEQ_ORDER_COLUMN, clip_tokens, format_name_with_suffix
 

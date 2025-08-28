@@ -21,10 +21,10 @@ import fsspec
 from fsspec.utils import infer_storage_options
 from loguru import logger
 
-import ray_curator.stages.text.io.writer.utils as writer_utils
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DocumentBatch, FileGroupTask
-from ray_curator.utils.file_utils import check_output_mode
+import nemo_curator.stages.text.io.writer.utils as writer_utils
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.utils.file_utils import check_output_mode
 
 
 @dataclass

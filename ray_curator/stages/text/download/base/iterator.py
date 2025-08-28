@@ -21,9 +21,9 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.tasks import DocumentBatch, FileGroupTask
-from ray_curator.utils.column_utils import resolve_filename_column
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.utils.column_utils import resolve_filename_column
 
 
 class DocumentIterator(ABC):

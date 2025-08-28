@@ -20,7 +20,7 @@ import requests
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from ray_curator.stages.text.download import URLGenerator
+from nemo_curator.stages.text.download import URLGenerator
 
 # Request timeout in seconds
 REQUEST_TIMEOUT = 30

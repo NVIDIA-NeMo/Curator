@@ -17,7 +17,7 @@ import subprocess
 
 from loguru import logger
 
-from ray_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download import DocumentDownloader
 
 
 class ArxivDownloader(DocumentDownloader):

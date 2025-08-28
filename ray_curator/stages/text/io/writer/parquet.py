@@ -15,7 +15,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.tasks import DocumentBatch
 
 from .base import BaseWriter
 
@@ -27,10 +27,7 @@ class ParquetWriter(BaseWriter):
     # Additional kwargs for pandas.DataFrame.to_parquet
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     file_extension: str = "parquet"
-
-    @property
-    def name(self) -> str:
-        return "parquet_writer"
+    _name: str = "parquet_writer"
 
     def write_data(self, task: DocumentBatch, file_path: str) -> None:
         """Write data to Parquet file using pandas DataFrame.to_parquet."""

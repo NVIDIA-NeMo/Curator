@@ -23,7 +23,7 @@ from urllib.parse import urljoin
 import requests
 from loguru import logger
 
-from ray_curator.stages.text.download import URLGenerator
+from nemo_curator.stages.text.download import URLGenerator
 
 
 @dataclass

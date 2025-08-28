@@ -21,7 +21,7 @@ from loguru import logger
 # TODO: Consider using fastwarc https://github.com/NVIDIA-NeMo/Curator/issues/778
 from warcio.archiveiterator import ArchiveIterator
 
-from ray_curator.stages.text.download import DocumentIterator
+from nemo_curator.stages.text.download import DocumentIterator
 
 
 class CommonCrawlWarcIterator(DocumentIterator):

@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 from loguru import logger
 
-from ray_curator.stages.text.download import DocumentIterator
+from nemo_curator.stages.text.download import DocumentIterator
 
 
 class WikipediaIterator(DocumentIterator):

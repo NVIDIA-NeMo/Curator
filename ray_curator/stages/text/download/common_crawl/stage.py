@@ -14,9 +14,9 @@
 
 from typing import Literal
 
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.text.download import DocumentDownloadExtractStage
-from ray_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.text.download import DocumentDownloadExtractStage
+from nemo_curator.stages.text.download.html_extractors import HTMLExtractorAlgorithm
 
 from .download import CommonCrawlWARCDownloader
 from .extract import CommonCrawlHTMLExtractor

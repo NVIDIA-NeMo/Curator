@@ -19,10 +19,10 @@ from typing import Literal
 import pandas as pd
 from loguru import logger
 
-from ray_curator.backends.base import NodeInfo, WorkerMetadata
-from ray_curator.stages.base import ProcessingStage
-from ray_curator.stages.text.filters.doc_filter import DocumentFilter
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
+from nemo_curator.tasks import DocumentBatch
 
 
 @dataclass
