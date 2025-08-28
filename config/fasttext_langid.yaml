@@ -1,6 +1,0 @@
-input_field: text
-filters:
-  - name: nemo_curator.filters.classifier_filter.FastTextLangId
-    log_score: True
-    params:
-      model_path: <Path to the FasText language id model (e.g., lid.176.bin)>

@@ -1,0 +1,34 @@
+documentation: |
+  NeMo Curator Pipeline Configuration File
+  ########################################
+  This configuration file can be used to build any NeMo Curator pipeline.
+
+  This example loads JSONL files, applies a filter, runs a classifier, and saves the results.
+  To customize your own pipeline, you can add or remove stages from the stages list,
+  where _target_ is the stage class and includes all the parameters for the stage.
+
+  After editing this configuration file, you can run the pipeline using the run.py script within this directory:
+  SCRIPT_DIR=/path/to/this/directory
+  python ${SCRIPT_DIR}/run.py --config-path ${SCRIPT_DIR} --config-name example_pipeline.yaml
+
+input_path: ???
+output_path: ???
+
+stages:
+  - _target_: ray_curator.stages.text.io.reader.JsonlReader
+    file_paths: ${input_path}
+
+  - _target_: ray_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: ray_curator.stages.text.filters.heuristic_filter.WordCountFilter
+      min_words: 10
+      max_words: 10000
+    text_field: text
+    score_field: word_count
+
+  - _target_: ray_curator.stages.text.classifiers.QualityClassifier
+    text_field: text
+    pred_column: quality_pred
+
+  - _target_: ray_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_path}
