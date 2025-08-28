@@ -150,10 +150,10 @@ jobs:
         run: |
           pip install -U pip
           cd ray-curator
-          pip install --no-cache-dir ".[dev]"
           pip install --no-cache-dir ".[text]"
           pip install --no-cache-dir ".[video]"
-          pip install --no-cache-dir pytest-asyncio coverage
+          pip install --no-cache-dir "internvideo2-multi-modality @ git+https://github.com/suiyoubi/InternVideo.git@curator#subdirectory=InternVideo2/multi_modality"
+          pip install --no-cache-dir --group test
 
       - name: Run tests (CPU)
         run: |

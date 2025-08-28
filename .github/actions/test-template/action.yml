@@ -131,7 +131,8 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker build -f ray-curator/Dockerfile -t ray-curator .
+        docker system prune -af
+        docker build -f ray-curator/docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
@@ -176,7 +177,7 @@ runs:
         docker exec -t nemo_container_${{ github.run_id }} bash -c '
           set -e
 
-          source /opt/entrypoint.sh
+          . /opt/venv/env.sh
           bash ray-curator/tests/${{ inputs.script }}.sh
         '
 

@@ -89,7 +89,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     def __post_init__(self) -> None:
         self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
-    def process(self, task: VideoTask) -> VideoTask:
+    def process(self, task: VideoTask) -> VideoTask:  # noqa: C901
         video: Video = task.data
         video_name = video.input_video
         if not video.has_metadata():
@@ -104,6 +104,8 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if frames is None:
             error_msg = "Run `FrameExtractionStage` stage prior to `TransNetV2ClipExtractionStage`!"
             raise ValueError(error_msg)
+        if tuple(frames.shape[1:4]) == (48, 27, 3):
+            frames = frames.transpose(0, 2, 1, 3)  # transpose weight and height
         if tuple(frames.shape[1:4]) != (27, 48, 3):
             error_msg = f"Expected frames of shape 27x48x3, got {frames.shape[1:4]}."
             raise ValueError(error_msg)
