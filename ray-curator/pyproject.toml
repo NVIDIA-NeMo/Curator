@@ -47,6 +47,7 @@ text = [
     "trafilatura==2.0.0",
     "pycld2",
     "warcio",
+    "s5cmd",
     # Filters
     "fasttext==0.9.3",
     "sentencepiece",
