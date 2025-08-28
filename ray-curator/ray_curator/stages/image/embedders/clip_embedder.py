@@ -113,27 +113,3 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
                 )
 
         return task
-
-@dataclass
-class ConvertEmbeddingsToDocumentBatchStage(ProcessingStage[ImageBatch, DocumentBatch]):
-    """
-    Convert embeddings to DocumentBatch
-    """
-    _name: str = "convert_embeddings_to_document_batch"
-
-    def process(self, task: ImageBatch) -> DocumentBatch:
-        """
-        Convert embeddings to DocumentBatch
-        """
-
-        image_ids = [image_obj.image_id for image_obj in task.data]
-        embeddings = [image_obj.embedding for image_obj in task.data]
-        df = pd.DataFrame({"image_id": image_ids, "embeddings": embeddings})
-
-        return DocumentBatch(
-            task_id=f"{task.task_id}_{self.name}",
-            dataset_name=task.dataset_name,
-            data=df,
-            _metadata=task._metadata,
-            _stage_perf=task._stage_perf,
-        )

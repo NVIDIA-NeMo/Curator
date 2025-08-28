@@ -21,7 +21,8 @@ from ray_curator.pipeline import Pipeline
 from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from ray_curator.stages.file_partitioning import FilePartitioningStage
 from ray_curator.stages.image.deduplication.removal import ImageDuplicatesRemovalStage
-from ray_curator.stages.image.embedders.clip_embedder import ConvertEmbeddingsToDocumentBatchStage, ImageEmbeddingStage
+from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from ray_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage
 from ray_curator.stages.image.io.image_reader import ImageReaderStage
 from ray_curator.stages.image.io.image_writer import ImageWriterStage
 from ray_curator.stages.text.io.writer.parquet import ParquetWriter
@@ -57,11 +58,11 @@ def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
     ))
 
     # Stage 3: Convert embeddings to document batch
-    pipeline.add_stage(ConvertEmbeddingsToDocumentBatchStage())
+    pipeline.add_stage(ConvertImageBatchToDocumentBatchStage(fields=["image_id", "embedding"]))
 
     # Stage 4: Save embeddings to parquet file
     pipeline.add_stage(ParquetWriter(
-        output_dir=args.embeddings_dir,
+        path=args.embeddings_dir,
     ))
 
     return pipeline
@@ -72,7 +73,7 @@ def create_embedding_deduplication_workflow(args: argparse.Namespace) -> Pipelin
         input_path=args.embeddings_dir,
         output_path=args.removal_parquets_dir,
         id_field="image_id",
-        embedding_field="embeddings",
+        embedding_field="embedding",
         n_clusters=100,
         eps=0.01,
         read_kwargs={"storage_options": {}},

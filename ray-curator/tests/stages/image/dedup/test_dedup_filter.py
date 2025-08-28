@@ -42,7 +42,7 @@ def test_filters_with_default_id_column(tmp_path: Path) -> None:
 
 def test_filters_with_custom_id_column(tmp_path: Path) -> None:
     _write_parquet_ids(tmp_path, "b.parquet", ["x2"], id_column="image_id")
-    stage = ImageDuplicatesRemovalStage(removal_parquets_dir=tmp_path.as_posix(), id_column="image_id")
+    stage = ImageDuplicatesRemovalStage(removal_parquets_dir=tmp_path.as_posix(), duplicate_id_field="image_id")
     stage.setup()
 
     batch = _make_batch(["x1", "x2", "x3"])  # expect remove x2
