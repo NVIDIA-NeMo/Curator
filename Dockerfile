@@ -1,44 +1,79 @@
-# See https://github.com/rapidsai/ci-imgs for ARG options
-# NeMo Curator requires Python 3.12, Ubuntu 22.04/20.04, and CUDA 12 (or above)
-ARG CUDA_VER=12.5.1
-ARG LINUX_VER=ubuntu22.04
-ARG PYTHON_VER=3.12
-ARG IMAGE_LABEL
+# Copyright (c) 2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a
+# copy of this software and associated documentation files (the "Software"),
+# to deal in the Software without restriction, including without limitation
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,
+# and/or sell copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+# THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+# DEALINGS IN THE SOFTWARE.
 
-FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS curator-update
+ARG CUDA_VER=12.8.1
+ARG LINUX_VER=ubuntu24.04
 
-FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS deps
-LABEL "nemo.library"=${IMAGE_LABEL}
+FROM nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER} AS cuda
+
+
+########################################################################
+# Base image
+########################################################################
+
+FROM cuda AS build
+
+ARG CURATOR_ENV=dev
+ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
+
+ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
+
+# Install pixi
+RUN apt-get update && apt-get install -y curl ca-certificates git \
+    && curl -fsSL https://pixi.sh/install.sh | bash \
+    && rm -rf /var/lib/apt/lists/*
+ENV PATH="/root/.pixi/bin:$PATH"
+
 WORKDIR /opt
 
-# Re-declare ARGs after new FROM to make them available in this stage
-ARG CUDA_VER
+# Copy configuration files
+COPY ray-curator/pyproject.toml ./
+COPY ray-curator/ray_curator ./ray_curator
 
-# Install the minimal libcu* libraries needed by NeMo Curator
-RUN conda create -y --name curator -c nvidia/label/cuda-${CUDA_VER} -c conda-forge \
-  python=3.12 \
-  cuda-cudart \
-  libcufft \
-  libcublas \
-  libcurand \
-  libcusparse \
-  libcusolver \
-  cuda-nvvm && \
-  source activate curator && \
-  pip install --upgrade pytest pip pytest-coverage
+# Install dependencies
+RUN pixi install -e $CURATOR_ENVIRONMENT
 
-WORKDIR /tmp/Curator
-RUN \
-  --mount=type=bind,source=nemo_curator/__init__.py,target=/tmp/Curator/nemo_curator/__init__.py \
-  --mount=type=bind,source=nemo_curator/package_info.py,target=/tmp/Curator/nemo_curator/package_info.py \
-  --mount=type=bind,source=pyproject.toml,target=/tmp/Curator/pyproject.toml \
-  source activate curator && \
-  pip install --extra-index-url https://pypi.nvidia.com -e ".[all]"
+RUN pixi shell-hook -e $CURATOR_ENVIRONMENT -s bash > /shell-hook && \
+    echo "#!/bin/bash" > /opt/entrypoint.sh && \
+    cat /shell-hook >> /opt/entrypoint.sh && \
+    echo 'exec "$@"' >> /opt/entrypoint.sh && \
+    chmod +x /opt/entrypoint.sh
 
+##############################################################################
+# Final stage
+##############################################################################
 
-FROM rapidsai/ci-conda:cuda${CUDA_VER}-${LINUX_VER}-py${PYTHON_VER} AS final
+FROM cuda AS nemo_curator
 
-ENV PATH /opt/conda/envs/curator/bin:$PATH
-LABEL "nemo.library"=${IMAGE_LABEL}
+WORKDIR /opt
+
+RUN apt-get update && apt-get install -y ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+# Copy pixi environment
+COPY --from=build /opt/.pixi/envs /opt/.pixi/envs
+COPY --from=build /opt/entrypoint.sh /opt/entrypoint.sh
+COPY --from=build /opt/ray_curator /opt/ray_curator
+
 WORKDIR /workspace
-COPY --from=deps /opt/conda/envs/curator /opt/conda/envs/curator
+
+ENTRYPOINT ["/opt/entrypoint.sh"]
