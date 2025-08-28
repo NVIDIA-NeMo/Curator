@@ -2,15 +2,14 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from loguru import logger
-
 from ray_curator.backends.experimental.utils import RayStageSpecKeys
 from ray_curator.stages.base import ProcessingStage
 from ray_curator.stages.deduplication.fuzzy.lsh.lsh import LSHActor
+from ray_curator.stages.deduplication.fuzzy.utils import CURATOR_DEFAULT_MINHASH_FIELD
 from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from ray_curator.stages.resources import Resources
 from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import delete_dir, get_fs, is_not_empty
+from ray_curator.utils.file_utils import create_or_overwrite_dir, get_fs
 
 
 @dataclass
@@ -30,14 +29,16 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         Name of the ID field in input data.
     minhash_field
         Name of the minhash field in input data.
-    output_dir
-        Directory to write output files.
+    output_path
+        Base path to write output files.
     read_kwargs
         Keyword arguments for the read method.
     write_kwargs
         Keyword arguments for the write method.
     rmm_pool_size
         Size of the RMM GPU memory pool in bytes.
+        If "auto", the memory pool is set to 90% of the free GPU memory.
+        If None, the memory pool is set to 50% of the free GPU memory that can expand if needed.
     spill_memory_limit
         Device memory limit in bytes for spilling to host.
         If "auto", the limit is set to 80% of the RMM pool size.
@@ -60,12 +61,12 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     minhashes_per_band: int
     # Data parameters
     id_field: str = CURATOR_DEDUP_ID_STR
-    minhash_field: str = "_minhash_signature"
-    output_dir: str = "./"
+    minhash_field: str = CURATOR_DEFAULT_MINHASH_FIELD
+    output_path: str = "./"
     read_kwargs: dict[str, Any] | None = None
     write_kwargs: dict[str, Any] | None = None
     # Shuffle parameters
-    rmm_pool_size: int = 1024 * 1024 * 1024
+    rmm_pool_size: int | Literal["auto"] | None = "auto"
     spill_memory_limit: int | Literal["auto"] | None = "auto"
     enable_statistics: bool = False
     bands_per_iteration: int = 5  # number of bands to process in each iteration
@@ -96,17 +97,15 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             raise ValueError(err_msg)
 
         # Handle output directory and subdirectories
-        output_fs = get_fs(self.output_dir, storage_options=self.write_kwargs.get("storage_options"))
-        output_base_dir = output_fs.sep.join([self.output_dir, self.name])
+        output_fs = get_fs(self.output_path, storage_options=self.write_kwargs.get("storage_options"))
+        output_base_path = output_fs.sep.join([self.output_path, self.name])
 
-        if is_not_empty(output_base_dir, output_fs):
-            logger.warning(f"Output directory {output_base_dir} is not empty. Deleting it.")
-            delete_dir(output_base_dir, output_fs)
+        create_or_overwrite_dir(output_base_path, fs=output_fs)
 
         for band_range in self.get_band_iterations():
-            output_dir = output_fs.sep.join([output_base_dir, f"band_{band_range[0]}-band_{band_range[1]}"])
-            output_fs.makedirs(output_dir)
-            self.output_paths.append(output_dir)
+            output_path = output_fs.sep.join([output_base_path, f"band_{band_range[0]}-band_{band_range[1]}"])
+            create_or_overwrite_dir(output_path, fs=output_fs)
+            self.output_paths.append(output_path)
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
         err_msg = "LSHProcessingStage does not support the process method."
@@ -126,6 +125,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     def read_and_insert(self, task: FileGroupTask, band_range: tuple[int, int]) -> FileGroupTask:
         self._check_actor_obj()
         result = self._actor_obj.read_and_insert(task.data, band_range)
+        self._current_band_range = band_range
         self.output_columns = result
         self.dataset_name = task.dataset_name
         return task
@@ -136,19 +136,21 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
 
     def extract_and_write(self) -> list[FileGroupTask]:
         self._check_actor_obj()
-        partition_paths = self._actor_obj.extract_and_write()
+        current_band_min, current_band_max = self._current_band_range
+        partition_dicts = self._actor_obj.extract_and_write()
         return [
             FileGroupTask(
-                task_id=partition_id,
+                task_id=f"b{current_band_min}_b{current_band_max}_{partition_info['partition_id']}",
                 dataset_name=self.dataset_name + f"{self.name}",
-                data=path,
+                data=[partition_info["path"]],
                 _metadata={
-                    "partition_index": partition_id,
-                    "total_partitions": len(partition_paths),
+                    "partition_index": partition_info["partition_id"],
+                    "total_partitions": len(partition_dicts),
+                    "num_docs": partition_info["num_docs"],
                     "output_columns": self.output_columns,
                 },
             )
-            for partition_id, path in partition_paths
+            for partition_info in partition_dicts
         ]
 
     def teardown(self) -> None:

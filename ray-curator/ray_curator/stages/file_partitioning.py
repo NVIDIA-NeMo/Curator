@@ -37,6 +37,23 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     This stage runs as a dedicated processing stage (not on the driver)
     and creates file groups based on the partitioning strategy.
+
+    Parameters
+    ----------
+    file_paths: str | list[str]
+        Path to the input files.
+    files_per_partition: int | None = None
+        Number of files per partition. If provided, the blocksize is ignored.
+        Defaults to 1 if both files_per_partition and blocksize are not provided.
+    blocksize: int | str | None = None
+        Target size of the partitions.
+        Note: For compressed files, the compressed size is used for blocksize estimation.
+    file_extensions: list[str] | None = None
+        File extensions to filter.
+    storage_options: dict[str, Any] | None = None
+        Storage options to pass to the file system.
+    limit: int | None = None
+        Maximum number of partitions to create.
     """
 
     file_paths: str | list[str]
@@ -206,23 +223,80 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
         sorted_files = sorted(files, key=lambda x: x[1])
         return _split_files_as_per_blocksize(sorted_files, blocksize)
 
-    def _parse_size(self, size_str: str) -> int:
-        """Parse size string like '128MB' to bytes."""
-        size_str = size_str.upper().strip()
+    def _parse_size(self, s: float | str) -> int:
+        """
+        Taken from dask.utils.parse_bytes
+        https://github.com/dask/dask/blob/3801bedc7c71c83f37e836af71f740974c0434b3/dask/utils.py#L1585
+        Parse byte string to numbers.
 
-        # Check units in order from longest to shortest to avoid partial matches
-        units = [
-            ("TB", 1024 * 1024 * 1024 * 1024),
-            ("GB", 1024 * 1024 * 1024),
-            ("MB", 1024 * 1024),
-            ("KB", 1024),
-            ("B", 1),
-        ]
+        >>> parse_bytes('100')
+        100
+        >>> parse_bytes('100 MB')
+        100000000
+        >>> parse_bytes('100M')
+        100000000
+        >>> parse_bytes('5kB')
+        5000
+        >>> parse_bytes('5.4 kB')
+        5400
+        >>> parse_bytes('1kiB')
+        1024
+        >>> parse_bytes('1e6')
+        1000000
+        >>> parse_bytes('1e6 kB')
+        1000000000
+        >>> parse_bytes('MB')
+        1000000
+        >>> parse_bytes(123)
+        123
+        >>> parse_bytes('5 foos')
+        Traceback (most recent call last):
+            ...
+        ValueError: Could not interpret 'foos' as a byte unit
+        """
+        byte_sizes = {
+            "kB": 10**3,
+            "MB": 10**6,
+            "GB": 10**9,
+            "TB": 10**12,
+            "PB": 10**15,
+            "KiB": 2**10,
+            "MiB": 2**20,
+            "GiB": 2**30,
+            "TiB": 2**40,
+            "PiB": 2**50,
+            "B": 1,
+            "": 1,
+        }
+        byte_sizes = {k.lower(): v for k, v in byte_sizes.items()}
+        byte_sizes.update({k[0]: v for k, v in byte_sizes.items() if k and "i" not in k})
+        byte_sizes.update({k[:-1]: v for k, v in byte_sizes.items() if k and "i" in k})
 
-        for unit, multiplier in units:
-            if size_str.endswith(unit):
-                number = float(size_str[: -len(unit)])
-                return int(number * multiplier)
+        if isinstance(s, (int, float)):
+            return int(s)
+        s = s.replace(" ", "")
+        if not any(char.isdigit() for char in s):
+            s = "1" + s
 
-        # If no unit, assume bytes
-        return int(size_str)
+        for i in range(len(s) - 1, -1, -1):
+            if not s[i].isalpha():
+                break
+        index = i + 1
+
+        prefix = s[:index]
+        suffix = s[index:]
+
+        try:
+            n = float(prefix)
+        except ValueError as e:
+            msg = f"Could not interpret '{prefix}' as a number"
+            raise ValueError(msg) from e
+
+        try:
+            multiplier = byte_sizes[suffix.lower()]
+        except KeyError as e:
+            msg = f"Could not interpret '{suffix}' as a byte unit"
+            raise ValueError(msg) from e
+
+        result = n * multiplier
+        return int(result)
