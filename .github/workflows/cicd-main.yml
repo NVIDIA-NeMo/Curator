@@ -17,7 +17,7 @@ on:
     - cron: 0 0 * * *
   push:
     branches:
-      - ray-api
+      - main
       - "pull-request/[0-9]+"
 
 concurrency:
