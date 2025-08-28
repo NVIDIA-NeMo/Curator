@@ -14,15 +14,15 @@
 
 from pathlib import Path
 
-from ray_curator.stages.text.download.base.download import DocumentDownloadStage
-from ray_curator.stages.text.download.base.extract import DocumentExtractStage
-from ray_curator.stages.text.download.base.iterator import DocumentIterateStage
-from ray_curator.stages.text.download.base.url_generation import URLGenerationStage
-from ray_curator.stages.text.download.wikipedia.download import WikipediaDownloader
-from ray_curator.stages.text.download.wikipedia.extract import WikipediaExtractor
-from ray_curator.stages.text.download.wikipedia.iterator import WikipediaIterator
-from ray_curator.stages.text.download.wikipedia.stage import WikipediaDownloadExtractStage
-from ray_curator.stages.text.download.wikipedia.url_generation import WikipediaUrlGenerator
+from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
+from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
+from nemo_curator.stages.text.download.wikipedia.download import WikipediaDownloader
+from nemo_curator.stages.text.download.wikipedia.extract import WikipediaExtractor
+from nemo_curator.stages.text.download.wikipedia.iterator import WikipediaIterator
+from nemo_curator.stages.text.download.wikipedia.stage import WikipediaDownloadExtractStage
+from nemo_curator.stages.text.download.wikipedia.url_generation import WikipediaUrlGenerator
 
 
 class TestWikipediaDownloadExtractStage:

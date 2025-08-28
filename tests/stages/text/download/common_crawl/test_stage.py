@@ -17,19 +17,19 @@ from typing import Literal
 
 import pytest
 
-from ray_curator.stages.text.download.base.download import DocumentDownloadStage
-from ray_curator.stages.text.download.base.extract import DocumentExtractStage
-from ray_curator.stages.text.download.base.iterator import DocumentIterateStage
-from ray_curator.stages.text.download.base.url_generation import URLGenerationStage
-from ray_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
-from ray_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
-from ray_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage
-from ray_curator.stages.text.download.common_crawl.url_generation import (
+from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
+from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
+from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
+from nemo_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
+from nemo_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage
+from nemo_curator.stages.text.download.common_crawl.url_generation import (
     MainCommonCrawlUrlGenerator,
     NewsCommonCrawlUrlGenerator,
 )
-from ray_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
-from ray_curator.stages.text.download.html_extractors import JusTextExtractor, ResiliparseExtractor
+from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
+from nemo_curator.stages.text.download.html_extractors import JusTextExtractor, ResiliparseExtractor
 
 
 class TestCommonCrawlDownloadExtractStage:

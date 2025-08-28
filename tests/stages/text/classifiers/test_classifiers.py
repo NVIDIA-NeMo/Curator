@@ -17,8 +17,8 @@ import os
 import pandas as pd
 import pytest
 
-from ray_curator.stages.base import CompositeStage
-from ray_curator.stages.text.classifiers import (
+from nemo_curator.stages.base import CompositeStage
+from nemo_curator.stages.text.classifiers import (
     AegisClassifier,
     ContentTypeClassifier,
     DomainClassifier,
@@ -30,7 +30,7 @@ from ray_curator.stages.text.classifiers import (
     PromptTaskComplexityClassifier,
     QualityClassifier,
 )
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.tasks import DocumentBatch
 
 CACHE_DIR = "./hf_cache"
 

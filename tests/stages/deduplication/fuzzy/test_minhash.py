@@ -22,7 +22,7 @@ import pytest
 
 cudf = pytest.importorskip("cudf", reason="MinHash tests require cudf")
 
-from ray_curator.stages.deduplication.fuzzy.minhash import GPUMinHash
+from nemo_curator.stages.deduplication.fuzzy.minhash import GPUMinHash
 
 
 def minhash_overlap(minhash1: np.ndarray, minhash2: np.ndarray) -> float:

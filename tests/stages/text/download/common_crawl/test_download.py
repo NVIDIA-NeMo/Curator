@@ -18,7 +18,7 @@ from unittest import mock
 
 import pytest
 
-from ray_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
+from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCDownloader
 
 
 class TestCommonCrawlWARCDownloader:

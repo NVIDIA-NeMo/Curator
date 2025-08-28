@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -25,7 +24,7 @@ def test_get_array_from_df() -> None:
     import cudf
     import cupy as cp
 
-    from ray_curator.stages.deduplication.semantic.utils import get_array_from_df
+    from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
 
     """Test that get_array_from_df works correctly."""
     df = cudf.DataFrame(
@@ -47,9 +46,9 @@ def test_get_array_from_df() -> None:
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
 class TestBreakParquetPartitionIntoGroups:
     @patch("pyarrow.parquet.read_metadata", return_value=Mock(num_rows=10_000))
-    @patch("ray_curator.stages.deduplication.semantic.utils.open_parquet_file")
+    @patch("nemo_curator.stages.deduplication.semantic.utils.open_parquet_file")
     def test_calculation_logic(self, mock_open_parquet: Mock, mock_read_metadata: Mock) -> None:
-        from ray_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
+        from nemo_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
 
         """Test the calculation logic of break_parquet_partition_into_groups without actual files."""
         # Mock the parquet metadata to return a specific number of rows
@@ -79,7 +78,7 @@ class TestBreakParquetPartitionIntoGroups:
 
     def test_small_files_no_break(self, tmp_path: Path) -> None:
         """Test that break_parquet_partition_into_groups correctly splits files to avoid cuDF 2bn row limit."""
-        from ray_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
+        from nemo_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
 
         # Create test parquet files
         test_files = []
@@ -106,7 +105,7 @@ class TestBreakParquetPartitionIntoGroups:
 
     def test_large_files_break(self, tmp_path: Path) -> None:
         """Test break_parquet_partition_into_groups with large embedding dimension that forces multiple groups."""
-        from ray_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
+        from nemo_curator.stages.deduplication.semantic.utils import break_parquet_partition_into_groups
 
         # Create test parquet files
         test_files = []

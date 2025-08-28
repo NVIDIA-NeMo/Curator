@@ -13,7 +13,6 @@
 # limitations under the License.
 
 # ruff: noqa: E402
-
 import os
 from typing import TYPE_CHECKING
 
@@ -23,11 +22,11 @@ import pytest
 cudf = pytest.importorskip("cudf", reason="ConnectedComponentsStage tests require cudf")
 cugraph = pytest.importorskip("cugraph", reason="ConnectedComponentsStage tests require cugraph")
 
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:
     from pathlib import Path

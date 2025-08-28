@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 import numpy as np
 import pytest
 
-from ray_curator.tasks.image import ImageBatch, ImageObject
+from nemo_curator.tasks.image import ImageBatch, ImageObject
 
 
 def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
@@ -37,7 +37,7 @@ def _import_writer_with_stubbed_pyarrow() -> tuple[types.ModuleType, type]:
     if "pyarrow.parquet" not in sys.modules:
         sys.modules["pyarrow.parquet"] = types.SimpleNamespace(write_table=lambda _table, _path: None)
 
-    module = importlib.import_module("ray_curator.stages.image.io.image_writer")
+    module = importlib.import_module("nemo_curator.stages.image.io.image_writer")
     return module, module.ImageWriterStage
 
 
@@ -259,7 +259,7 @@ def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_p
     # Track writes without stubbing global sys.modules
     written: dict[str, object] = {}
 
-    module = importlib.import_module("ray_curator.stages.image.io.image_writer")
+    module = importlib.import_module("nemo_curator.stages.image.io.image_writer")
 
     # Patch module-local pyarrow bindings
     stub_pa = types.SimpleNamespace(Table=types.SimpleNamespace(from_pylist=lambda rows: ("T", rows)))

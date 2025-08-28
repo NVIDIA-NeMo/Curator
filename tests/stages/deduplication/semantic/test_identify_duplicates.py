@@ -20,14 +20,14 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.tasks import FileGroupTask
 
 cudf = pytest.importorskip("cudf")
 cuml = pytest.importorskip("cuml")
 cp = pytest.importorskip("cupy")
 
 
-from ray_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
+from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
 
 
 class TestIdentifyDuplicatesStage:

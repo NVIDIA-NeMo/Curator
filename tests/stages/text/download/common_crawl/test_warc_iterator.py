@@ -17,7 +17,7 @@ from unittest import mock
 
 from loguru import logger
 
-from ray_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
+from nemo_curator.stages.text.download.common_crawl.warc_iterator import CommonCrawlWarcIterator
 
 
 class TestCommonCrawlWarcIterator:

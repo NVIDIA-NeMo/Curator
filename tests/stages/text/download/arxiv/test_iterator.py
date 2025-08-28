@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from ray_curator.stages.text.download.arxiv.iterator import ArxivIterator, _safe_extract
+from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator, _safe_extract
 
 
 class TestArxivIterator:

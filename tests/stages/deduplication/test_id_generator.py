@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test suite for IdGenerator and related functions."""
-
 import json
 from pathlib import Path
 
 import pytest
 import ray
 
-from ray_curator.stages.deduplication.id_generator import (
+from nemo_curator.stages.deduplication.id_generator import (
     IdGeneratorBase,
     create_id_generator_actor,
     get_id_generator_actor,

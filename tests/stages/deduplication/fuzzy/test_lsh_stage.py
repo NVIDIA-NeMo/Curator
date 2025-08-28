@@ -13,7 +13,6 @@
 # limitations under the License.
 
 # ruff: noqa: E402
-
 import os
 from pathlib import Path
 
@@ -21,11 +20,11 @@ import pytest
 
 cudf = pytest.importorskip("cudf", reason="MinHashStage tests require cudf")
 
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.mark.gpu

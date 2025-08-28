@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 # ruff: noqa:E402
 import glob
 import os
@@ -25,7 +26,7 @@ import torch
 from sklearn.datasets import make_blobs
 
 cupy = pytest.importorskip("cupy")
-from ray_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 
 
 @pytest.mark.gpu
@@ -113,11 +114,11 @@ class TestSemanticDeduplicationWorkflow:
         # Run pipeline
         # Create executor based on type
         if executor_type == "xenna":
-            from ray_curator.backends.xenna import XennaExecutor
+            from nemo_curator.backends.xenna import XennaExecutor
 
             executor = XennaExecutor()
         elif executor_type == "ray_data":
-            from ray_curator.backends.experimental.ray_data import RayDataExecutor
+            from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
             executor = RayDataExecutor()
 

@@ -20,10 +20,10 @@ import pytest
 
 cudf = pytest.importorskip("cudf", reason="ShuffleStage tests require cudf")
 
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.shuffler.stage import ShuffleStage
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.shuffler.stage import ShuffleStage
+from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.mark.gpu

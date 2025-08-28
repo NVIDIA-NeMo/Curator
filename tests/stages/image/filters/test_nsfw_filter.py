@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
-from ray_curator.tasks import ImageBatch, ImageObject
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+from nemo_curator.tasks import ImageBatch, ImageObject
 
 
 class TestImageNSFWFilterStage:
@@ -95,7 +95,7 @@ class TestImageNSFWFilterStage:
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_setup(self, mock_nsfw_scorer: Mock, stage: ImageNSFWFilterStage) -> None:
         """Test stage setup."""
         mock_model = Mock()
@@ -107,7 +107,7 @@ class TestImageNSFWFilterStage:
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_process_filtering(
         self,
         mock_nsfw_scorer: Mock,
@@ -151,7 +151,7 @@ class TestImageNSFWFilterStage:
         # Check that the task has updated ID
         assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_process_high_nsfw_filtering(
         self,
         mock_nsfw_scorer: Mock,
@@ -177,7 +177,7 @@ class TestImageNSFWFilterStage:
 
     def test_different_thresholds(self, sample_image_batch: ImageBatch) -> None:
         """Test filtering with different thresholds."""
-        with patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer") as mock_nsfw_scorer:
+        with patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer") as mock_nsfw_scorer:
             mock_model = Mock()
             # Fixed scores: [0.2, 0.4, 0.6, 0.8]
             mock_model.return_value = torch.tensor([0.2, 0.4, 0.6, 0.8])
@@ -196,7 +196,7 @@ class TestImageNSFWFilterStage:
             lenient_result = lenient_stage.process(sample_image_batch)
             assert len(lenient_result.data) == 4
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_threshold_boundary_cases(
         self,
         mock_nsfw_scorer: Mock,
@@ -226,7 +226,7 @@ class TestImageNSFWFilterStage:
         for img in result.data:
             assert img.nsfw_score < 0.5
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_all_images_filtered(
         self,
         mock_nsfw_scorer: Mock,
@@ -255,7 +255,7 @@ class TestImageNSFWFilterStage:
         assert result.dataset_name == sample_image_batch.dataset_name
         assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_no_images_filtered(
         self,
         mock_nsfw_scorer: Mock,
@@ -284,7 +284,7 @@ class TestImageNSFWFilterStage:
         for img in result.data:
             assert img.nsfw_score < 0.5
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_batch_processing(
         self,
         mock_nsfw_scorer: Mock,
@@ -309,8 +309,8 @@ class TestImageNSFWFilterStage:
         # All should pass with score 0.3
         assert len(result.data) == 4
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
-    @patch("ray_curator.stages.image.filters.nsfw_filter.logger")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.logger")
     def test_verbose_logging(
         self,
         mock_logger: Mock,
@@ -343,7 +343,7 @@ class TestImageNSFWFilterStage:
                           if "NSFW" in str(call)]
         assert len(filtering_calls) > 0
 
-    @patch("ray_curator.stages.image.filters.nsfw_filter.NSFWScorer")
+    @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
     def test_empty_batch(self, mock_nsfw_scorer: Mock, stage: ImageNSFWFilterStage) -> None:
         """Test processing empty image batch."""
         empty_batch = ImageBatch(data=[], task_id="empty_test", dataset_name="test_dataset")
@@ -394,7 +394,7 @@ def test_image_nsfw_filter_on_gpu() -> None:
     stage = ImageNSFWFilterStage(model_dir="/unused", model_inference_batch_size=3, score_threshold=0.5)
 
     with patch(
-        "ray_curator.stages.image.filters.nsfw_filter.NSFWScorer",
+        "nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer",
         _DummyNSFWScorer,
     ):
         stage.setup_on_node()

@@ -16,12 +16,12 @@ from typing import Literal
 
 import pytest
 
-from ray_curator.stages.text.download.html_extractors import (
+from nemo_curator.stages.text.download.html_extractors import (
     JusTextExtractor,
     ResiliparseExtractor,
     TrafilaturaExtractor,
 )
-from ray_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
+from nemo_curator.stages.text.download.html_extractors.utils import get_stop_list_dict
 
 
 @pytest.fixture

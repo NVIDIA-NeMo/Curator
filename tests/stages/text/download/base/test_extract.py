@@ -18,9 +18,9 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.text.download.base.extract import DocumentExtractor, DocumentExtractStage
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.download.base.extract import DocumentExtractor, DocumentExtractStage
+from nemo_curator.tasks import DocumentBatch
 
 
 class MockDocumentExtractor(DocumentExtractor):

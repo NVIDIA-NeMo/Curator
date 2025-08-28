@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
-from ray_curator.tasks import ImageBatch, ImageObject
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.tasks import ImageBatch, ImageObject
 
 
 class TestImageAestheticFilterStage:
@@ -93,7 +93,7 @@ class TestImageAestheticFilterStage:
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_setup(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage) -> None:
         """Test stage setup."""
         mock_model = Mock()
@@ -105,7 +105,7 @@ class TestImageAestheticFilterStage:
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_process_filtering(
         self,
         mock_aesthetic_scorer: Mock,
@@ -147,7 +147,7 @@ class TestImageAestheticFilterStage:
         # Check that the task has updated ID
         assert result.task_id == f"{sample_image_batch.task_id}_{stage.name}"
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_threshold_variations(
         self, mock_aesthetic_scorer: Mock, sample_image_batch: ImageBatch, mock_model: Mock
     ) -> None:
@@ -173,8 +173,8 @@ class TestImageAestheticFilterStage:
         result_low = low_threshold_stage.process(sample_image_batch)
         assert len(result_low.data) == 4  # All should pass 0.1 threshold
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.logger")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.logger")
     @pytest.mark.usefixtures("stage")
     def test_verbose_logging(
         self,
@@ -201,7 +201,7 @@ class TestImageAestheticFilterStage:
         filtering_calls = [call for call in mock_logger.info.call_args_list if "Aesthetic filtering:" in str(call)]
         assert len(filtering_calls) > 0
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_empty_batch(self, mock_aesthetic_scorer: Mock, stage: ImageAestheticFilterStage) -> None:
         """Test processing empty image batch."""
         empty_batch = ImageBatch(data=[], task_id="empty_test", dataset_name="test_dataset")
@@ -215,7 +215,7 @@ class TestImageAestheticFilterStage:
         # Model should not be called for empty batch
         stage.model.assert_not_called()
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_no_embeddings(self, mock_aesthetic_scorer: Mock) -> None:
         """Test handling of images without embeddings."""
         # Create images without embeddings
@@ -241,7 +241,7 @@ class TestImageAestheticFilterStage:
         with pytest.raises((AttributeError, TypeError)):
             stage.process(batch)
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_edge_case_scores(
         self,
         mock_aesthetic_scorer: Mock,
@@ -266,7 +266,7 @@ class TestImageAestheticFilterStage:
         for img_obj in result.data:
             assert img_obj.aesthetic_score >= 0.5
 
-    @patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+    @patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
     def test_score_assignment_accuracy(
         self,
         mock_aesthetic_scorer: Mock,
@@ -308,7 +308,7 @@ class TestImageAestheticFilterStage:
         """Test that batch metadata is preserved."""
         stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5)
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             mock_model.return_value = torch.tensor([0.7, 0.8, 0.9, 1.0])  # All pass
             mock_aesthetic_scorer.return_value = mock_model
@@ -328,7 +328,7 @@ class TestImageAestheticFilterStage:
         """Test that image ordering is preserved through processing."""
         stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5)
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             # All scores above threshold, in descending order
             mock_model.return_value = torch.tensor([0.9, 0.8, 0.7, 0.6])
@@ -351,7 +351,7 @@ class TestImageAestheticFilterStage:
             model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=1
         )
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             # Return one score at a time since model_batch_size=1
             mock_model.return_value = torch.tensor([0.7])
@@ -372,7 +372,7 @@ class TestImageAestheticFilterStage:
             model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=4
         )
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             # Test exact threshold values - all 4 images in one batch
             # Use a clearer separation to avoid floating point precision issues
@@ -410,7 +410,7 @@ class TestImageAestheticFilterStage:
             model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=10
         )
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             # Return scores for 10 images at a time
             mock_model.return_value = torch.tensor([0.6] * 10)  # All pass
@@ -431,7 +431,7 @@ class TestImageAestheticFilterStage:
             model_dir="test_models/aesthetics", score_threshold=0.5, model_inference_batch_size=4
         )
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             # Use a range of scores - all 4 images in one batch
             mock_model.return_value = torch.tensor([0.1, 0.3, 0.7, 0.9])
@@ -454,7 +454,7 @@ class TestImageAestheticFilterStage:
         """Test that processing is safe for concurrent execution."""
         stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5)
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             mock_model.return_value = torch.tensor([0.7, 0.8, 0.9, 1.0])
             mock_aesthetic_scorer.return_value = mock_model
@@ -474,7 +474,7 @@ class TestImageAestheticFilterStage:
         """Test handling of model errors."""
         stage = ImageAestheticFilterStage(model_dir="test_models/aesthetics", score_threshold=0.5)
 
-        with patch("ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
+        with patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer") as mock_aesthetic_scorer:
             mock_model = Mock()
             # Simulate model error
             mock_model.side_effect = RuntimeError("Model failed")
@@ -522,7 +522,7 @@ def test_image_aesthetic_filter_on_gpu() -> None:
     stage = ImageAestheticFilterStage(model_dir="/unused", model_inference_batch_size=3, score_threshold=0.3)
 
     with patch(
-        "ray_curator.stages.image.filters.aesthetic_filter.AestheticScorer",
+        "nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer",
         _DummyAestheticScorer,
     ):
         stage.setup()

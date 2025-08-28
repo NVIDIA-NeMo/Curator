@@ -19,9 +19,9 @@ from unittest import mock
 
 import pytest
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.text.download.base.iterator import DocumentIterateStage, DocumentIterator
-from ray_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage, DocumentIterator
+from nemo_curator.tasks import DocumentBatch, FileGroupTask
 
 
 class MockDocumentIterator(DocumentIterator):

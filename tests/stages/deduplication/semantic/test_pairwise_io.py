@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 # ruff: noqa: E402
 from pathlib import Path
 
@@ -19,8 +20,8 @@ import pytest
 cudf = pytest.importorskip("cudf")
 cupy = pytest.importorskip("cupy")
 
-from ray_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-from ray_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU

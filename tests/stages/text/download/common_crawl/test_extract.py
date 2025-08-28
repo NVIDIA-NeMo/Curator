@@ -16,8 +16,8 @@ from typing import Literal
 
 import pytest
 
-from ray_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
-from ray_curator.stages.text.download.html_extractors import (
+from nemo_curator.stages.text.download.common_crawl.extract import CommonCrawlHTMLExtractor
+from nemo_curator.stages.text.download.html_extractors import (
     JusTextExtractor,
     ResiliparseExtractor,
     TrafilaturaExtractor,

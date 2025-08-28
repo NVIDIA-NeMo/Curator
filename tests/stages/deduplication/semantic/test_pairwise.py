@@ -25,14 +25,14 @@ cupy = pytest.importorskip("cupy")
 import cupy as cp
 import torch
 
-from ray_curator.stages.deduplication.semantic.pairwise import (
+from nemo_curator.stages.deduplication.semantic.pairwise import (
     PairwiseCosineSimilarityStage,
     PairwiseStage,
     pairwise_cosine_similarity_batched,
 )
-from ray_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-from ray_curator.stages.deduplication.semantic.ranking import RankingStrategy
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.mark.gpu
@@ -142,7 +142,7 @@ class TestPairwiseCosineSimilarityStage:
         assert "cosine_sim_score" in result_df.columns
         assert result_df["cosine_sim_score"].iloc[0] == 0.0
 
-    @patch("ray_curator.stages.deduplication.semantic.pairwise.break_parquet_partition_into_groups")
+    @patch("nemo_curator.stages.deduplication.semantic.pairwise.break_parquet_partition_into_groups")
     def test_multi_item_cluster(self, mock_break_into_groups: patch, tmp_path: Path) -> None:
         """Test processing a cluster with multiple items."""
         # Create test data with multiple embeddings (similar to setup_method in test_semdedup.py)
@@ -370,7 +370,7 @@ class TestPairwiseStage:
         assert len(stages) == 2
 
         # First stage should be ClusterWiseFilePartitioningStage
-        from ray_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+        from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
 
         assert isinstance(stages[0], ClusterWiseFilePartitioningStage)
         assert stages[0].input_path == "/input/path"
@@ -478,7 +478,7 @@ class TestPairwiseStage:
         input_files = [input_file_1, input_file_2]
 
         with patch(
-            "ray_curator.stages.deduplication.semantic.pairwise.break_parquet_partition_into_groups"
+            "nemo_curator.stages.deduplication.semantic.pairwise.break_parquet_partition_into_groups"
         ) as mock_break_into_groups:
             # Mock break_parquet_partition_into_groups to return one file per group
             mock_break_into_groups.return_value = [[str(input_files[0])], [str(input_files[1])]]

@@ -1,4 +1,16 @@
-"""End-to-end integration tests for KMeans semantic deduplication stage."""
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # ruff: noqa: E402
 from pathlib import Path
@@ -15,12 +27,12 @@ cp = pytest.importorskip("cupy")
 
 from sklearn.metrics import adjusted_rand_score
 
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
-from ray_curator.stages.deduplication.semantic.utils import get_array_from_df
-from ray_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
+from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
+from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+from nemo_curator.tasks import FileGroupTask
 
 N_CLUSTERS = 4
 N_SAMPLES_PER_CLUSTER = 10_000
@@ -440,7 +452,7 @@ class TestKMeansReadFitWriteStage:
         # Only mock break_parquet_partition_into_groups to force multiple groups
         with (
             patch(
-                "ray_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups"
+                "nemo_curator.stages.deduplication.semantic.kmeans.break_parquet_partition_into_groups"
             ) as mock_break,
             patch.object(stage, "read_parquet", side_effect=spy_read),
             patch.object(stage, "write_parquet", side_effect=spy_write),

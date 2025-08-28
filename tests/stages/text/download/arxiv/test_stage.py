@@ -15,15 +15,15 @@
 from pathlib import Path
 from unittest import mock
 
-from ray_curator.stages.text.download.arxiv.download import ArxivDownloader
-from ray_curator.stages.text.download.arxiv.extract import ArxivExtractor
-from ray_curator.stages.text.download.arxiv.iterator import ArxivIterator
-from ray_curator.stages.text.download.arxiv.stage import ArxivDownloadExtractStage
-from ray_curator.stages.text.download.arxiv.url_generation import ArxivUrlGenerator
-from ray_curator.stages.text.download.base.download import DocumentDownloadStage
-from ray_curator.stages.text.download.base.extract import DocumentExtractStage
-from ray_curator.stages.text.download.base.iterator import DocumentIterateStage
-from ray_curator.stages.text.download.base.url_generation import URLGenerationStage
+from nemo_curator.stages.text.download.arxiv.download import ArxivDownloader
+from nemo_curator.stages.text.download.arxiv.extract import ArxivExtractor
+from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
+from nemo_curator.stages.text.download.arxiv.stage import ArxivDownloadExtractStage
+from nemo_curator.stages.text.download.arxiv.url_generation import ArxivUrlGenerator
+from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
+from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 
 
 class TestArxivDownloadExtractStage:

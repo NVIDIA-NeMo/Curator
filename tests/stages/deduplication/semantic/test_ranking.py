@@ -12,13 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 # ruff: noqa: E402
 import pytest
 
 cudf = pytest.importorskip("cudf")
 
-from ray_curator.stages.deduplication.semantic.ranking import RankingStrategy
+from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 
 
 @pytest.mark.gpu

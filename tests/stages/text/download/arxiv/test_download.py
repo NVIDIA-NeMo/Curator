@@ -19,7 +19,7 @@ from unittest import mock
 
 import pytest
 
-from ray_curator.stages.text.download.arxiv.download import ArxivDownloader
+from nemo_curator.stages.text.download.arxiv.download import ArxivDownloader
 
 
 class FakeCompletedProcess:

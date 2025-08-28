@@ -1,3 +1,17 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
 
 from unittest.mock import Mock, patch
@@ -6,8 +20,8 @@ import numpy as np
 import pytest
 import torch
 
-from ray_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
-from ray_curator.tasks import ImageBatch, ImageObject
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.tasks import ImageBatch, ImageObject
 
 
 class TestImageEmbeddingStage:
@@ -77,7 +91,7 @@ class TestImageEmbeddingStage:
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_setup(self, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage) -> None:
         """Test stage setup."""
         mock_model = Mock()
@@ -94,7 +108,7 @@ class TestImageEmbeddingStage:
         mock_model.setup.assert_called_once()
         assert stage.model == mock_model
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     @patch("transformers.CLIPProcessor.from_pretrained")
     def test_process_embedding_generation(
         self,
@@ -140,7 +154,7 @@ class TestImageEmbeddingStage:
         # Check that original task is returned (not a new one)
         assert result is sample_image_batch
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     @patch("transformers.CLIPProcessor.from_pretrained")
     def test_batch_processing(
         self, mock_processor: Mock, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage, mock_model: Mock
@@ -185,7 +199,7 @@ class TestImageEmbeddingStage:
             assert hasattr(img_obj, "embedding")
             assert img_obj.embedding.shape == (512,)
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_empty_batch(self, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage) -> None:
         """Test processing empty image batch."""
         empty_batch = ImageBatch(data=[], task_id="empty_test", dataset_name="test_dataset")
@@ -199,8 +213,8 @@ class TestImageEmbeddingStage:
         # Model should not be called for empty batch
         stage.model.assert_not_called()
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
-    @patch("ray_curator.stages.image.embedders.clip_embedder.logger")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.logger")
     def test_verbose_logging(
         self,
         mock_logger: Mock,
@@ -222,7 +236,7 @@ class TestImageEmbeddingStage:
                           if "Generated embeddings for" in str(call)]
         assert len(embedding_calls) > 0
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     @patch("transformers.CLIPProcessor.from_pretrained")
     def test_preserves_other_image_attributes(
         self, mock_processor: Mock, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage, sample_image_batch: ImageBatch
@@ -250,7 +264,7 @@ class TestImageEmbeddingStage:
         assert hasattr(result.data[0], "metadata")
         assert result.data[0].metadata == {"caption": "test caption"}
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     @patch("transformers.CLIPProcessor.from_pretrained")
     def test_different_batch_sizes(
         self, mock_processor: Mock, mock_clip_embeddings: Mock, sample_image_batch: ImageBatch
@@ -292,7 +306,7 @@ class TestImageEmbeddingStage:
         assert len(small_result.data) == 4
         assert len(large_result.data) == 4
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_processor_integration(
         self, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage, sample_image_batch: ImageBatch
     ) -> None:
@@ -324,7 +338,7 @@ class TestImageEmbeddingStage:
     def test_embedding_shape_consistency(self, stage: ImageEmbeddingStage) -> None:
         """Test that embeddings have consistent shape across different inputs."""
         with (
-            patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings") as mock_clip_embeddings,
+            patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings") as mock_clip_embeddings,
             patch("transformers.CLIPProcessor.from_pretrained") as mock_processor,
         ):
             mock_clip_embeddings.return_value = Mock()
@@ -403,7 +417,7 @@ class TestImageEmbeddingStage:
 
         stage = ImageEmbeddingStage(model_dir="/does/not/matter", model_inference_batch_size=2, verbose=False)
         with patch(
-            "ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings",
+            "nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings",
             _DummyCLIPImageEmbeddings,
         ):
             stage.setup()
@@ -414,7 +428,7 @@ class TestImageEmbeddingStage:
             assert isinstance(img.embedding, np.ndarray)
             assert img.embedding.shape == (16,)
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_remove_image_data_when_enabled(
         self,
         mock_clip_embeddings: Mock,
@@ -436,7 +450,7 @@ class TestImageEmbeddingStage:
         # Image data should be removed
         assert all(img.image_data is None for img in result.data)
 
-    @patch("ray_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_preserve_image_data_when_disabled(
         self,
         mock_clip_embeddings: Mock,

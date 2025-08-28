@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 from unittest import mock
 
-from ray_curator.stages.text.download.wikipedia.download import WikipediaDownloader
+from nemo_curator.stages.text.download.wikipedia.download import WikipediaDownloader
 
 
 class TestWikipediaDownloader:

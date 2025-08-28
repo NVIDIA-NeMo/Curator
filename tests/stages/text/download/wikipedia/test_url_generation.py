@@ -19,7 +19,7 @@ import pytest
 import requests
 from bs4 import BeautifulSoup
 
-from ray_curator.stages.text.download.wikipedia.url_generation import WikipediaUrlGenerator
+from nemo_curator.stages.text.download.wikipedia.url_generation import WikipediaUrlGenerator
 
 
 class TestWikipediaUrlGenerator:

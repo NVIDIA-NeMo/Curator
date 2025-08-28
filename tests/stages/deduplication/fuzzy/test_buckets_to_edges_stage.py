@@ -20,9 +20,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from ray_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.fixture

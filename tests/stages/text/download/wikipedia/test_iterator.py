@@ -19,7 +19,7 @@ from unittest import mock
 
 import pytest
 
-from ray_curator.stages.text.download.wikipedia.iterator import WikipediaIterator
+from nemo_curator.stages.text.download.wikipedia.iterator import WikipediaIterator
 
 
 class TestWikipediaIterator:
@@ -561,7 +561,7 @@ class TestWikipediaIterator:
 
         # Patch ET.iterparse and logger
         with mock.patch("xml.etree.ElementTree.iterparse", mock_iterparse):  # noqa: SIM117
-            with mock.patch("ray_curator.stages.text.download.wikipedia.iterator.logger") as mock_logger:
+            with mock.patch("nemo_curator.stages.text.download.wikipedia.iterator.logger") as mock_logger:
                 iterator = WikipediaIterator(log_frequency=2)
                 test_file = tmp_path / "test.xml.bz2"
                 test_file.write_text("dummy content")

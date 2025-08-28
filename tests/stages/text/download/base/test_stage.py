@@ -15,12 +15,12 @@
 from pathlib import Path
 from unittest import mock
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.text.download.base.download import DocumentDownloadStage
-from ray_curator.stages.text.download.base.extract import DocumentExtractStage
-from ray_curator.stages.text.download.base.iterator import DocumentIterateStage
-from ray_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
-from ray_curator.stages.text.download.base.url_generation import URLGenerationStage
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.download.base.download import DocumentDownloadStage
+from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
+from nemo_curator.stages.text.download.base.iterator import DocumentIterateStage
+from nemo_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
+from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage
 
 from .test_download import MockDocumentDownloader
 from .test_extract import MockDocumentExtractor
@@ -343,10 +343,10 @@ class TestDocumentDownloadExtractStage:
         # Should still have all required stages
         assert len(stages) == 3
 
-    @mock.patch("ray_curator.stages.text.download.base.stage.URLGenerationStage")
-    @mock.patch("ray_curator.stages.text.download.base.stage.DocumentDownloadStage")
-    @mock.patch("ray_curator.stages.text.download.base.stage.DocumentIterateStage")
-    @mock.patch("ray_curator.stages.text.download.base.stage.DocumentExtractStage")
+    @mock.patch("nemo_curator.stages.text.download.base.stage.URLGenerationStage")
+    @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentDownloadStage")
+    @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentIterateStage")
+    @mock.patch("nemo_curator.stages.text.download.base.stage.DocumentExtractStage")
     def test_stage_initialization_mocking(
         self,
         mock_extract_stage: mock.Mock,

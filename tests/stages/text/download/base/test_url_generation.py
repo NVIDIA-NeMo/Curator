@@ -16,9 +16,9 @@ from unittest import mock
 
 import pytest
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.text.download.base.url_generation import URLGenerationStage, URLGenerator
-from ray_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.download.base.url_generation import URLGenerationStage, URLGenerator
+from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 class MockURLGenerator(URLGenerator):

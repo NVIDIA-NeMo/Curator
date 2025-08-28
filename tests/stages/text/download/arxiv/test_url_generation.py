@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ray_curator.stages.text.download.arxiv.url_generation import ArxivUrlGenerator
+from nemo_curator.stages.text.download.arxiv.url_generation import ArxivUrlGenerator
 
 
 class TestArxivUrlGenerator:

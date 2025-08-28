@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Unit tests for the DALI-based ImageReaderStage (no-resize)."""
-
 from __future__ import annotations
 
 import pathlib
@@ -29,8 +27,8 @@ import torch
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-from ray_curator.tasks.file_group import FileGroupTask
-from ray_curator.tasks.image import ImageBatch, ImageObject
+from nemo_curator.tasks.file_group import FileGroupTask
+from nemo_curator.tasks.image import ImageBatch, ImageObject
 
 
 class _FakeTensorList:
@@ -124,7 +122,7 @@ def _stub_dali_modules() -> None:
     sys.modules["nvidia.dali.pipeline"] = pipeline
 
 def test_inputs_outputs_and_name() -> None:
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(task_batch_size=3, verbose=False)
     assert stage.inputs() == ([], [])
@@ -133,7 +131,7 @@ def test_inputs_outputs_and_name() -> None:
 
 
 def test_init_allows_cpu_when_no_cuda() -> None:
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     # When CUDA is unavailable, the stage should initialize and use CPU DALI
     with patch("torch.cuda.is_available", return_value=False):
         stage = ImageReaderStage(task_batch_size=2, verbose=False)
@@ -141,7 +139,7 @@ def test_init_allows_cpu_when_no_cuda() -> None:
 
 
 def test_process_streams_batches_from_dali() -> None:
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     # Two tar files; each has 5 total samples, emitted in batches of 2 (2,2,1)
     task = FileGroupTask(
         task_id="t1",
@@ -169,7 +167,7 @@ def test_process_streams_batches_from_dali() -> None:
 
 
 def test_process_raises_on_empty_task() -> None:
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     empty = FileGroupTask(task_id="e1", dataset_name="ds", data=[])
 
     with patch("torch.cuda.is_available", return_value=True):
@@ -181,7 +179,7 @@ def test_process_raises_on_empty_task() -> None:
 
 
 def test_resources_with_cuda_available() -> None:
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     # Instantiate with CUDA available so __post_init__ passes
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(task_batch_size=2, verbose=False)
@@ -192,7 +190,7 @@ def test_resources_with_cuda_available() -> None:
 
 
 def test_resources_without_cuda() -> None:
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     # Create the stage with CUDA available to bypass the init guard
     with patch("torch.cuda.is_available", return_value=True):
         stage = ImageReaderStage(task_batch_size=2, verbose=False)
@@ -222,8 +220,8 @@ def test_dali_image_reader_on_gpu() -> None:
     if not tar_path.exists():  # pragma: no cover - missing asset
         pytest.skip(f"Sample dataset not found at {tar_path}")
 
-    from ray_curator.stages.image.io.image_reader import ImageReaderStage
-    from ray_curator.tasks import FileGroupTask
+    from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+    from nemo_curator.tasks import FileGroupTask
 
     stage = ImageReaderStage(task_batch_size=2, num_threads=2, verbose=False)
     task = FileGroupTask(task_id="t0", dataset_name="ds", data=[str(tar_path)])

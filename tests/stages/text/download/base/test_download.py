@@ -17,9 +17,9 @@ from unittest import mock
 
 import pytest
 
-from ray_curator.stages.resources import Resources
-from ray_curator.stages.text.download.base.download import DocumentDownloader, DocumentDownloadStage
-from ray_curator.tasks import FileGroupTask
+from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.download.base.download import DocumentDownloader, DocumentDownloadStage
+from nemo_curator.tasks import FileGroupTask
 
 
 class MockDocumentDownloader(DocumentDownloader):
