@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
-import pytest
+import pytest  # pyright: ignore[reportMissingImports]
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from ray_curator.stages.image.io.convert import ConvertImageBatchToDocumentBatchStage
 from ray_curator.tasks import DocumentBatch, ImageBatch, ImageObject
@@ -13,7 +18,7 @@ def rng() -> np.random.Generator:
 
 
 @pytest.fixture
-def image_batch_with_embeddings(rng: np.random.Generator, tmp_path) -> ImageBatch:
+def image_batch_with_embeddings(rng: np.random.Generator, tmp_path: Path) -> ImageBatch:
     images: list[ImageObject] = []
     for i in range(3):
         embedding = rng.normal(size=(8,)).astype(np.float32)
@@ -82,7 +87,7 @@ class TestConvertImageBatchToDocumentBatchStage:
         assert list(df.columns) == ["image_id", "embedding", "image_path"]
         assert len(df) == 0
 
-    def test_missing_attribute_yields_none(self, rng: np.random.Generator, tmp_path) -> None:
+    def test_missing_attribute_yields_none(self, rng: np.random.Generator, tmp_path: Path) -> None:
         # Build images without the 'embedding' attribute
         images = [
             ImageObject(
@@ -103,4 +108,3 @@ class TestConvertImageBatchToDocumentBatchStage:
         assert list(df.columns) == ["image_id", "embedding"]
         assert df.shape == (2, 2)
         assert df["embedding"].isna().all()
-
