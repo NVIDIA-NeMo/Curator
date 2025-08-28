@@ -41,7 +41,7 @@ class TextSplitter:
     """
     Utility class for splitting text into chunks based on token count.
     """
-    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096, tokenizer: AutoTokenizer = None, spacy_model: str = "en_core_web_lg"):
+    def __init__(self, model_name: str = "", hf_token: str = "", max_token_per_chunk: int = 4096, tokenizer: AutoTokenizer = None, spacy_model: str = "xx_sent_ud_sm"):
         self.model_name = model_name
         self.hf_token = hf_token
         self.max_token_per_chunk = max_token_per_chunk
@@ -106,7 +106,7 @@ class TranslationDataGenerator(SyntheticDataGenerator):
         source_lang: str = "English",
         target_lang: str = "Traditional Chinese",
         country: str = "Taiwan",
-        spacy_model: str = "en_core_web_lg"
+        spacy_model: str = "xx_sent_ud_sm"
     ):
         super().__init__()
         # Initialize parameters for translation pipeline
@@ -326,11 +326,11 @@ if __name__ == "__main__":
     # Function-based usage
     text = "Once upon a time, there were three little pig brothers..."
     generator = TranslationDataGenerator(
-        base_url="http://localhost:11434/v1",                   # (Change this) Base URL for local API (P.S: Ollama supports the OpenAI API format.)
+        base_url="http://localhost:8080/v1",                   # (Change this) Base URL for local API (P.S: Ollama supports the OpenAI API format.)
         api_key="",                                             # API key (empty if not required)
-        init_translate_model="gpt-oss:latest",                  # Initial translation model
-        reflection_model="gpt-oss:latest",                      # Reflection model for improvement
-        improvement_model="gpt-oss:latest",                     # Model for translation improvement
+        init_translate_model="/home/user/.cache/llama.cpp/unsloth_gpt-oss-20b-GGUF_gpt-oss-20b-F16.gguf",                  # Initial translation model
+        reflection_model="/home/user/.cache/llama.cpp/unsloth_gpt-oss-20b-GGUF_gpt-oss-20b-F16.gguft",                      # Reflection model for improvement
+        improvement_model="/home/user/.cache/llama.cpp/unsloth_gpt-oss-20b-GGUF_gpt-oss-20b-F16.gguf",                     # Model for translation improvement
         hf_tokenizer="openai/gpt-oss-20b" ,                     # (Change this) HuggingFace model for tokenization
         hf_token=None,                                            # (Change this) HuggingFace authentication token
         temperature=1.0,                                        # Sampling temperature for generation
@@ -341,33 +341,33 @@ if __name__ == "__main__":
         source_lang="English",                                  # Source language
         target_lang="Traditional Chinese",                      # Target language
         country="Taiwan",                                       # (Optional) Country context for translation
-        spacy_model="en_core_web_lg"                            # (default) spaCy model for sentence splitting
+        spacy_model="xx_sent_ud_sm"                            # (default) spaCy model for sentence splitting
     )
 
     translations = generator.generate(text)
     print(generator.parse_response(translations))
 
-    # YAML-based usage (parameters only, text provided in code)
-    generator_yaml = TranslationDataGenerator.from_yaml("config/translation_config.yaml")
-    print(generator_yaml.generate_from_yaml("config/translation_config.yaml", text))
+    # # YAML-based usage (parameters only, text provided in code)
+    # generator_yaml = TranslationDataGenerator.from_yaml("config/translation_config.yaml")
+    # print(generator_yaml.generate_from_yaml("config/translation_config.yaml", text))
 
-    # Pipeline DataFrame usage
-    import pandas as pd
-    df = pd.DataFrame(
-        {
-            "text": [
-                "Once upon a time, there were three little pig brothers...",
-                "The quick brown fox jumps over the lazy dog.",
-            ]
-        }
-    )
-    df_translated = generator_yaml.generate_from_dataframe(df, text_column="text", batch_size=16)
-    print(df_translated.head())
+    # # Pipeline DataFrame usage
+    # import pandas as pd
+    # df = pd.DataFrame(
+    #     {
+    #         "text": [
+    #             "Once upon a time, there were three little pig brothers...",
+    #             "The quick brown fox jumps over the lazy dog.",
+    #         ]
+    #     }
+    # )
+    # df_translated = generator_yaml.generate_from_dataframe(df, text_column="text", batch_size=16)
+    # print(df_translated.head())
 
-    # Async test for async_generate_from_dataframe
-    import asyncio
-    async def test_async_generate_from_dataframe():
-        df_translated = await generator_yaml.async_generate_from_dataframe(df, text_column="text", batch_size=16)
-        print("[Async]\n", df_translated.head())
+    # # Async test for async_generate_from_dataframe
+    # import asyncio
+    # async def test_async_generate_from_dataframe():
+    #     df_translated = await generator_yaml.async_generate_from_dataframe(df, text_column="text", batch_size=16)
+    #     print("[Async]\n", df_translated.head())
 
-    asyncio.run(test_async_generate_from_dataframe())
+    # asyncio.run(test_async_generate_from_dataframe())
