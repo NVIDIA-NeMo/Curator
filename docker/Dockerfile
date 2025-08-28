@@ -57,13 +57,11 @@ RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 FROM build AS nemo_curator
 
 # Install ffmpeg
-COPY ray-curator/docker/common/install_ffmpeg.sh .
+COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-# Copy ray-curator
-COPY ray-curator /opt/ray-curator
-RUN cd /opt/ray-curator && \
+RUN cd /opt && \
   uv sync --locked --only-group build && \
   if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
       uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
