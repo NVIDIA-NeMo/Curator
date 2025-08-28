@@ -14,12 +14,12 @@
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from ray_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
-from ray_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from ray_curator.stages.shuffler.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
-from ray_curator.stages.shuffler.stage import ShuffleStage
-from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import get_fs
+from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+from nemo_curator.stages.shuffler.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
+from nemo_curator.stages.shuffler.stage import ShuffleStage
+from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import get_fs
 
 if TYPE_CHECKING:
     import cudf

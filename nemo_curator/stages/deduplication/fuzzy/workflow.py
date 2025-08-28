@@ -1,23 +1,37 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import time
 from typing import Any, Literal
 
 from loguru import logger
 
-from ray_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
-from ray_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
-from ray_curator.stages.deduplication.fuzzy.identify_duplicates import IdentifyDuplicatesStage
-from ray_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
-from ray_curator.stages.deduplication.fuzzy.minhash import MinHashStage
-from ray_curator.stages.deduplication.id_generator import (
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
+from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
+from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import IdentifyDuplicatesStage
+from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
+from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
+from nemo_curator.stages.deduplication.id_generator import (
     create_id_generator_actor,
     kill_id_generator_actor,
     write_id_generator_to_disk,
 )
-from ray_curator.stages.file_partitioning import FilePartitioningStage
-from ray_curator.tasks import FileGroupTask
-from ray_curator.utils.file_utils import get_fs
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.tasks import FileGroupTask
+from nemo_curator.utils.file_utils import get_fs
 
 ID_GENERATOR_OUTPUT_FILENAME = "fuzzy_id_generator.json"
 
@@ -266,8 +280,8 @@ class FuzzyDeduplicationWorkflow:
         except ValueError:
             err_msg = """
             An existing id generator actor was found. Please remove or save the existing id generator with
-            `ray_curator.stages.deduplication.id_generator.write_id_generator_to_disk` (if needed) and remove the actor with
-            `ray_curator.stages.deduplication.id_generator.kill_id_generator_actor` before running the fuzzy deduplication pipeline.
+            `nemo_curator.stages.deduplication.id_generator.write_id_generator_to_disk` (if needed) and remove the actor with
+            `nemo_curator.stages.deduplication.id_generator.kill_id_generator_actor` before running the fuzzy deduplication pipeline.
             """
             raise RuntimeError(err_msg) from None
 
