@@ -191,12 +191,9 @@ def test_resources_with_cuda_available() -> None:
 
 def test_resources_without_cuda() -> None:
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
-    # Create the stage with CUDA available to bypass the init guard
-    with patch("torch.cuda.is_available", return_value=True):
-        stage = ImageReaderStage(task_batch_size=2, verbose=False)
-
-    # Now simulate CUDA being unavailable when accessing the property
+    # Create the stage without CUDA available
     with patch("torch.cuda.is_available", return_value=False):
+        stage = ImageReaderStage(task_batch_size=2, verbose=False)
         res = stage.resources
 
     assert res.gpus == 0
