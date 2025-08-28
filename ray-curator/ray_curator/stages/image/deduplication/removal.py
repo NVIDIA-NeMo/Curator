@@ -14,6 +14,7 @@
 
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.dataset as ds
@@ -30,11 +31,20 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
     The Parquet file must contain a column with image identifiers; by default this
     column is assumed to be ``id`` to match writer metadata. You can change
     the column name via ``duplicate_id_field``.
+
+    Args:
+        removal_parquets_dir: Directory containing Parquet files with image IDs to remove
+        duplicate_id_field: Name of the column containing image IDs to remove
+        verbose: Whether to log verbose output
+        num_workers_per_node: Number of workers per node for the stage. This is sometimes needed
+            to avoid OOM when concurrently running actors on one node loading the same removal
+            parquet files into memory.
     """
 
     removal_parquets_dir: str
     duplicate_id_field: str = "id"
     verbose: bool = False
+    num_workers_per_node: int | None = None
 
     _name: str = "image_dedup_filter"
 
@@ -86,3 +96,9 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
+
+    def xenna_stage_spec(self) -> dict[str, Any]:
+        spec: dict[str, Any] = {}
+        if self.num_workers_per_node is not None:
+            spec["num_workers_per_node"] = self.num_workers_per_node
+        return spec
