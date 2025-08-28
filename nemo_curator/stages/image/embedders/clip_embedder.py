@@ -40,12 +40,11 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     remove_image_data: bool = False
     _name: str = "image_embedding"
 
-    @property
-    def resources(self) -> Resources:
+    def __post_init__(self) -> None:
         if torch.cuda.is_available():
-            return Resources(gpus=self.num_gpus_per_worker)
+            self._resources = Resources(gpus=self.num_gpus_per_worker)
         else:
-            return Resources()
+            self._resources = Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

@@ -114,6 +114,9 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     model_dir: str = "InternVideo2"
     _name: str = "internvideo2_embedding"
 
+    def __post_init__(self) -> None:
+        self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
 
@@ -125,10 +128,6 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
         self._model.setup()
         if self.verbose:
             logger.info("InternVideo2 model setup completed.")
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data

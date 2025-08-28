@@ -39,19 +39,17 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     num_gpus_per_worker: float = 0.25
     _name: str = "image_reader"
 
-    @property
-    def resources(self) -> Resources:
-        if torch.cuda.is_available():
-            return Resources(gpus=self.num_gpus_per_worker)
-        else:
-            return Resources()
-
     def __post_init__(self) -> None:
         # Allow both GPU and CPU DALI; log mode for visibility
         if torch.cuda.is_available():
             logger.info("ImageReaderStage using DALI GPU decode.")
         else:
             logger.info("CUDA not available; ImageReaderStage using DALI CPU decode.")
+
+        if torch.cuda.is_available():
+            self._resources = Resources(gpus=self.num_gpus_per_worker)
+        else:
+            self._resources = Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

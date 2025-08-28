@@ -46,6 +46,9 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     target_fps: list[float | int] | None = None
     _name: str = "clip_frame_extraction"
 
+    def __post_init__(self) -> None:
+        self._resources = Resources(cpus=self.num_cpus)
+
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
@@ -62,10 +65,6 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         if self.target_res is None:
             self.target_res = (-1, -1)
         logger.info(f"ClipFrameExtractionStage will extract frames at {self.target_fps} FPS")
-
-    @property
-    def resources(self) -> Resources:
-        return Resources(cpus=self.num_cpus)
 
     def lcm_multiple(self, fps: list[float | int]) -> float | int:
         """Compute LCM of a list of fps targets."""
