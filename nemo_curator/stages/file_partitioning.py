@@ -44,7 +44,6 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
     storage_options: dict[str, Any] | None = None
     limit: int | None = None
     _name: str = "file_partitioning"
-    _resources: Resources = Resources(cpus=0.5)
 
     def __post_init__(self):
         """Initialize default values."""
@@ -54,6 +53,8 @@ class FilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask]):
             self.storage_options = {}
         if self.blocksize is not None:
             self._blocksize = self._parse_size(self.blocksize)
+
+        self._resources = Resources(cpus=0.5)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
