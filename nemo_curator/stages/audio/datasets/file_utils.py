@@ -15,9 +15,9 @@
 import os
 import tarfile
 import urllib
-import wget
 import zipfile
 
+import wget
 from loguru import logger
 
 
