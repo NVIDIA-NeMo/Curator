@@ -126,6 +126,7 @@ runs:
       uses: actions/checkout@v2
       with:
         path: NeMo-Curator
+        submodules: recursive
 
     - name: Build container
       shell: bash

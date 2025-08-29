@@ -1,0 +1,3 @@
+[submodule "nemo_curator/internvideo2_multi_modality"]
+	path = nemo_curator/internvideo2_multi_modality
+	url = https://github.com/thomasdhc/InternVideo2MultiModality.git
