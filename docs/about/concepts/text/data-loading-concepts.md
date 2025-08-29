@@ -266,6 +266,27 @@ dataset.to_json(
     "output_directory/",
     partition_on="language"
 )
+
+# Custom filename patterns using FilenameProvider
+from nemo_curator.stages.text.io.writer import (
+    JsonlWriter, 
+    DatasetNameFilenameProvider,
+    TemplateFilenameProvider
+)
+
+# Include dataset name in filenames
+writer = JsonlWriter(
+    path="output_directory/",
+    filename_provider=DatasetNameFilenameProvider()
+)
+
+# Custom naming template
+writer = JsonlWriter(
+    path="output_directory/",
+    filename_provider=TemplateFilenameProvider(
+        template="data_{dataset_name}_{task_id}"
+    )
+)
 ```
 
 {bdg-secondary}`human-readable` {bdg-secondary}`debugging-friendly`
@@ -292,9 +313,108 @@ dataset.to_parquet(
     "output_directory/",
     backend="cudf"
 )
+
+# Custom filename patterns using FilenameProvider
+from nemo_curator.stages.text.io.writer import (
+    ParquetWriter,
+    DatasetNameFilenameProvider, 
+    TemplateFilenameProvider
+)
+
+# Include dataset name in filenames
+writer = ParquetWriter(
+    path="output_directory/",
+    filename_provider=DatasetNameFilenameProvider()
+)
+
+# Custom naming template
+writer = ParquetWriter(
+    path="output_directory/",
+    filename_provider=TemplateFilenameProvider(
+        template="processed_{dataset_name}_{hash}"
+    )
+)
 ```
 
 {bdg-secondary}`high-performance` {bdg-secondary}`production-ready`
+
+:::
+
+::::
+
+## Custom Filename Patterns
+
+NeMo Curator provides flexible filename generation through FilenameProvider classes, similar to Ray Data's FilenameProvider concept. This allows you to control how output files are named.
+
+::::{tab-set}
+
+:::{tab-item} Dataset Name Provider
+:sync: dataset-name-provider
+
+**Include dataset name in filenames** - Automatically incorporates the dataset name into output filenames.
+
+```python
+from nemo_curator.stages.text.io.writer import (
+    JsonlWriter,
+    DatasetNameFilenameProvider
+)
+
+# Creates filenames like: my_dataset_abc123.jsonl
+writer = JsonlWriter(
+    path="output/",
+    filename_provider=DatasetNameFilenameProvider()
+)
+```
+
+{bdg-secondary}`dataset-aware` {bdg-secondary}`organized`
+
+:::
+
+:::{tab-item} Template Provider
+:sync: template-provider
+
+**Custom naming templates** - Full control over filename patterns using template variables.
+
+```python
+from nemo_curator.stages.text.io.writer import (
+    ParquetWriter,
+    TemplateFilenameProvider
+)
+
+# Available variables: {dataset_name}, {task_id}, {hash}, {extension}
+writer = ParquetWriter(
+    path="output/",
+    filename_provider=TemplateFilenameProvider(
+        template="processed_{dataset_name}_batch_{task_id}_{hash}"
+    )
+)
+# Creates: processed_my_dataset_batch_task_001_abc123.parquet
+```
+
+{bdg-secondary}`flexible` {bdg-secondary}`customizable`
+
+:::
+
+:::{tab-item} Default Provider
+:sync: default-provider
+
+**Default behavior** - Maintains backward compatibility with existing naming scheme.
+
+```python
+from nemo_curator.stages.text.io.writer import (
+    JsonlWriter,
+    DefaultFilenameProvider
+)
+
+# Same as not specifying any filename_provider
+writer = JsonlWriter(
+    path="output/",
+    filename_provider=DefaultFilenameProvider()  # Optional
+)
+# Creates: abc123def456.jsonl (deterministic hash)
+```
+
+{bdg-secondary}`backward-compatible` {bdg-secondary}`deterministic`
 
 :::
 
