@@ -98,11 +98,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
         # Use the tar filename stem as the id prefix for single shards; for grouped shards,
         # synthesize a group prefix and place generated image paths under the tars' parent dir.
         base_path = tar_paths[0] if len(tar_paths) == 1 else tar_paths[0].parent
-        id_prefix = (
-            tar_paths[0].stem
-            if len(tar_paths) == 1
-            else f"group_{tar_paths[0].stem}_x{len(tar_paths)}"
-        )
+        id_prefix = tar_paths[0].stem if len(tar_paths) == 1 else f"group_{tar_paths[0].stem}_x{len(tar_paths)}"
 
         while samples_completed < total_samples:
             img_batch = pipe.run()

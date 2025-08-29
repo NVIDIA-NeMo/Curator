@@ -58,7 +58,11 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         return ["data"], []
 
     def setup(self, _worker_metadata=None) -> None:  # noqa: ANN001
-        removal_parquets = [os.path.join(self.removal_parquets_dir, f) for f in os.listdir(self.removal_parquets_dir) if f.endswith(".parquet")]
+        removal_parquets = [
+            os.path.join(self.removal_parquets_dir, f)
+            for f in os.listdir(self.removal_parquets_dir)
+            if f.endswith(".parquet")
+        ]
         if not removal_parquets:
             msg = f"No parquet files found in {self.removal_parquets_dir}"
             logger.error(msg)
@@ -73,9 +77,7 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         self._ids_to_remove.update(ids_array)
 
         if self.verbose:
-            logger.debug(
-                f"Loaded {len(self._ids_to_remove)} IDs to remove from '{self.removal_parquets_dir}'"
-            )
+            logger.debug(f"Loaded {len(self._ids_to_remove)} IDs to remove from '{self.removal_parquets_dir}'")
 
     def process(self, task: ImageBatch) -> ImageBatch:
         original_count = len(task.data)
@@ -85,8 +87,7 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         removed_count = original_count - len(filtered_images)
         if self.verbose:
             logger.debug(
-                f"Dedup filtering: kept {len(filtered_images)}/{original_count} images, "
-                f"removed {removed_count} by ID"
+                f"Dedup filtering: kept {len(filtered_images)}/{original_count} images, removed {removed_count} by ID"
             )
 
         return ImageBatch(

@@ -201,7 +201,9 @@ class CosmosEmbed1(ModelInterface):
         logger.info(f"CosmosEmbed1 {variant} weights downloaded to: {model_dir_path}")
 
     @classmethod
-    def download_processor_config_on_node(cls, model_dir: str, variant: Literal["224p", "336p", "448p"] = "336p") -> None:
+    def download_processor_config_on_node(
+        cls, model_dir: str, variant: Literal["224p", "336p", "448p"] = "336p"
+    ) -> None:
         """Download the processor config for the CosmosEmbed1 model on the node."""
         model_dir_path = Path(model_dir) / _COSMOS_EMBED1_VARIANTS_INFO[variant]
         model_dir_path.mkdir(parents=True, exist_ok=True)

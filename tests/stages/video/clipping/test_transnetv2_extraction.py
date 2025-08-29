@@ -694,7 +694,9 @@ class TestIntegration:
         # Setup and process
         stage.setup()
 
-        with patch("nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions") as mock_get_predictions:
+        with patch(
+            "nemo_curator.stages.video.clipping.transnetv2_extraction._get_predictions"
+        ) as mock_get_predictions:
             # Mock predictions to create some transitions
             mock_get_predictions.return_value = np.array([[0], [1], [0], [0], [1], [0]] * 25, dtype=np.uint8)
 

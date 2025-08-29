@@ -33,6 +33,7 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     embeddings for each image. It assumes image data is already loaded
     in ImageObject.image_data and stores embeddings in ImageObject.embedding.
     """
+
     model_dir: str = None
     num_gpus_per_worker: float = 0.25
     model_inference_batch_size: int = 32  # Number of images to process through model at once
@@ -106,8 +107,6 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
                     image_obj.image_data = None
 
             if self.verbose:
-                logger.info(
-                    f"Generated embeddings for {len(batch)} images."
-                )
+                logger.info(f"Generated embeddings for {len(batch)} images.")
 
         return task

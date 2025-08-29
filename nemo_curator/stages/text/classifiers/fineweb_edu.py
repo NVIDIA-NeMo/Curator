@@ -110,7 +110,9 @@ class FineWebModelStage(ModelStage):
         ).cuda()
         self.model = self.configure_forward(model, self.autocast)
 
-    def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray]:
         logits = outputs.cpu().numpy()
 
         float_scores = logits.tolist()

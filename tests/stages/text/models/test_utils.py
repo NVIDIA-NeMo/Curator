@@ -35,9 +35,7 @@ def test_clip_tokens_right_padding():
     assert result["input_ids"].shape == (2, 4)
     assert result["attention_mask"].shape == (2, 4)
     assert torch.equal(result["input_ids"].to("cpu"), torch.tensor([[1, 2, 3, 0], [1, 2, 3, 4]]))
-    assert torch.equal(
-        result["attention_mask"].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]])
-    )
+    assert torch.equal(result["attention_mask"].to("cpu"), torch.tensor([[1, 1, 1, 0], [1, 1, 1, 1]]))
 
 
 # Test modified from CrossFit: https://github.com/rapidsai/crossfit/blob/main/tests/op/test_tokenize.py
@@ -53,9 +51,7 @@ def test_clip_tokens_left_padding():
     assert result["input_ids"].shape == (2, 4)
     assert result["attention_mask"].shape == (2, 4)
     assert torch.equal(result["input_ids"].to("cpu"), torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]]))
-    assert torch.equal(
-        result["attention_mask"].to("cpu"), torch.tensor([[0, 1, 1, 1], [1, 1, 1, 1]])
-    )
+    assert torch.equal(result["attention_mask"].to("cpu"), torch.tensor([[0, 1, 1, 1], [1, 1, 1, 1]]))
 
 
 # Test modified from CrossFit: https://github.com/rapidsai/crossfit/blob/main/tests/op/test_tokenize.py

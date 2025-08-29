@@ -157,7 +157,9 @@ def replace_substitutions_carefully(text: str, substitutions: dict) -> str:
         var_name = match.group(1).strip()
 
         # Only replace if it's an exact match for one of our MyST variables
-        if var_name in substitutions and not re.search(r"[.|\-+]", full_match):  # No dots, pipes, or whitespace control
+        if var_name in substitutions and not re.search(
+            r"[.|\-+]", full_match
+        ):  # No dots, pipes, or whitespace control
             replacement = str(substitutions[var_name])
             logger.debug(f"Carefully replacing {{ {var_name} }} with '{replacement}' in template language")
             return replacement

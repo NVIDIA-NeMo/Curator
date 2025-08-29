@@ -256,11 +256,15 @@ class PromptTaskComplexityModelStage(ModelStage):
         return ["data"], OUTPUT_COLUMNS
 
     def _setup(self, local_files_only: bool = True) -> None:
-        self.model = CustomDeberta.from_pretrained(
-            self.model_identifier,
-            cache_dir=self.cache_dir,
-            local_files_only=local_files_only,
-        ).cuda().eval()
+        self.model = (
+            CustomDeberta.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                local_files_only=local_files_only,
+            )
+            .cuda()
+            .eval()
+        )
         self.model.set_autocast(self.autocast)
 
     def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> torch.Tensor:

@@ -34,30 +34,31 @@ _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
 
 def _validate_stage_name(name: str) -> None:
     """Validate that a stage name follows snake_case convention.
-    
+
     Args:
         name: The stage name to validate
-        
+
     Raises:
         ValueError: If the name is not in snake_case format
     """
     if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
-        raise ValueError(f"Stage name must be snake_case, got '{name}'")
+        msg = f"Stage name must be snake_case, got '{name}'"
+        raise ValueError(msg)
 
 
 def _camel_to_snake_case(name: str) -> str:
     """Convert CamelCase to snake_case.
-    
+
     Args:
         name: CamelCase string to convert
-        
+
     Returns:
         snake_case version of the string
     """
     # Insert underscore before uppercase letters that follow lowercase letters or digits
-    s1 = re.sub('([a-z0-9])([A-Z])', r'\1_\2', name)
-    # Insert underscore before uppercase letters that are followed by lowercase letters  
-    s2 = re.sub('([A-Z])([A-Z][a-z])', r'\1_\2', s1)
+    s1 = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name)
+    # Insert underscore before uppercase letters that are followed by lowercase letters
+    s2 = re.sub("([A-Z])([A-Z][a-z])", r"\1_\2", s1)
     return s2.lower()
 
 
@@ -114,15 +115,15 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     _resources = Resources(cpus=1.0)
     _batch_size = 1
 
-    def __setattr__(self, key: str, value: Any) -> None:
-        if key == '_name' and isinstance(value, str):
+    def __setattr__(self, key: str, value: Any) -> None:  # noqa: ANN401
+        if key == "_name" and isinstance(value, str):
             _validate_stage_name(value)
         super().__setattr__(key, value)
 
     @property
     def name(self) -> str:
         return self._name
-    
+
     @name.setter
     def name(self, value: str) -> None:
         _validate_stage_name(value)
