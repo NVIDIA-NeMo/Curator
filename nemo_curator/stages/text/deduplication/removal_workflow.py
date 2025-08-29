@@ -135,7 +135,7 @@ class TextDuplicatesRemovalWorkflow:
             write_stage(
                 path=self.output_path,
                 **({"file_extension": self.output_file_extension} if self.output_file_extension else {}),
-                write_kwargs=self.output_kwargs or {},
+                write_kwargs=self.output_kwargs,
                 fields=self.output_fields,
                 **({"mode": self.output_mode} if self.output_mode else {}),
             )
@@ -164,8 +164,13 @@ class TextDuplicatesRemovalWorkflow:
             )
 
             create_id_generator_actor(self.id_generator_path, storage_options=self.id_generator_storage_options)
-            output = pipeline.run(executor, initial_tasks=initial_tasks)
-            kill_id_generator_actor(self.id_generator_path)
+            try:
+                output = pipeline.run(executor, initial_tasks=initial_tasks)
+            except Exception as e:
+                logger.error(f"Error running pipeline: {e}")
+                raise
+            finally:
+                kill_id_generator_actor()
             return output
 
         else:
