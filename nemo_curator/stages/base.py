@@ -110,31 +110,23 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     """
 
     _is_abstract_root = True  # prevent base from registering itself
+    _name = "processing_stage"
     _resources = Resources(cpus=1.0)
     _batch_size = 1
 
-    def __init__(self) -> None:
-        self._stage_name = "processing_stage"  # Default name for base class
-    
+    def __setattr__(self, key: str, value: Any) -> None:
+        if key == '_name' and isinstance(value, str):
+            _validate_stage_name(value)
+        super().__setattr__(key, value)
+
     @property
     def name(self) -> str:
-        # For backward compatibility, check if _name exists from old usage
-        if hasattr(self, '_name') and not hasattr(self, '_stage_name'):
-            return self._name
-        return getattr(self, '_stage_name', "processing_stage")
+        return self._name
     
     @name.setter
     def name(self, value: str) -> None:
         _validate_stage_name(value)
-        self._stage_name = value
-
-    # For backward compatibility, allow direct _name assignment but validate it
-    def __setattr__(self, key: str, value: Any) -> None:
-        if key == '_name' and isinstance(value, str):
-            _validate_stage_name(value)
-            super().__setattr__('_stage_name', value)
-        else:
-            super().__setattr__(key, value)
+        self._name = value
 
     @property
     def resources(self) -> Resources:
@@ -365,7 +357,6 @@ class CompositeStage(ProcessingStage[X, Y], ABC):
     """
 
     def __init__(self):
-        super().__init__()  # This will initialize _stage_name and validate naming
         self._with_operations = []
 
     def inputs(self) -> tuple[list[str], list[str]]:
