@@ -146,7 +146,7 @@ def copy_assets_early(app: Sphinx, _docname: str, _source: list[str]) -> None:
             logger.warning(f"Failed to copy CSS assets: {e}")
 
     # Mark as copied
-    app._ai_assistant_assets_copied = True  # noqa: SLF001
+    app._ai_assistant_assets_copied = True
 
 
 def setup(app: Sphinx) -> dict[str, Any]:

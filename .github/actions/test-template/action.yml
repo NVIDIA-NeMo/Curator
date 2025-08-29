@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 name: "Test Template"
 description: "Template for running NeMo tests in a containerized environment"
 
@@ -132,7 +133,7 @@ runs:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
         docker system prune -af
-        docker build -f ray-curator/docker/Dockerfile -t ray-curator .
+        docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
@@ -178,7 +179,7 @@ runs:
           set -e
 
           . /opt/venv/env.sh
-          bash ray-curator/tests/${{ inputs.script }}.sh
+          bash tests/${{ inputs.script }}.sh
         '
 
         RUN_TEST_EOF

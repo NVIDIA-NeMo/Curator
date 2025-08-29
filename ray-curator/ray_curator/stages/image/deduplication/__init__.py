@@ -1,1 +1,0 @@
-"""Image deduplication stages."""

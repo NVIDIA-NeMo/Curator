@@ -150,7 +150,7 @@ def copy_assets_early(app: Sphinx, _docname: str, _source: list[str]) -> None:
     bundle_javascript_modules(extension_dir, bundle_path)
 
     # Mark as copied
-    app._search_assets_copied = True  # noqa: SLF001
+    app._search_assets_copied = True
 
 
 def setup(app: Sphinx) -> dict[str, Any]:

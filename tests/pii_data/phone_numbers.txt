@@ -1,5 +1,0 @@
-You can call me at <phone_number>(814) 360 8593</phone_number>
-<phone_number>+1-212-456-7890</phone_number>
-<phone_number>+12312322334</phone_number>
-<phone_number>2312322334</phone_number>
-<phone_number>(231) 232-2334</phone_number>

@@ -13,190 +13,155 @@
 # limitations under the License.
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "nemo_curator"
-description = "Scalable Data Preprocessing Tool for Training Large Language Models"
-readme = { file = "README.md", content-type = "text/markdown" }
-authors = [
-    { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
-    { name = "Joseph Jennings", email = "jjennings@nvidia.com" },
-    { name = "Mostofa Patwary", email = "mpatwary@nvidia.com" },
-    { name = "Sandeep Subramanian", email = "sasubramania@nvidia.com" },
-    { name = "Shrimai Prabhumoye", email = "sprabhumoye@nvidia.com" },
-    { name = "Ayush Dattagupta", email = "adattagupta@nvidia.com" },
-    { name = "Vibhu Jawa", email = "vjawa@nvidia.com" },
-    { name = "Jiwei Liu", email = "jiweil@nvidia.com" },
-    { name = "Sarah Yurick", email = "syurick@nvidia.com" },
-    { name = "Praateek Mahajan", email = "praateekm@nvidia.com" },
-    { name = "Ryan Wolf", email = "rywolf@nvidia.com" },
-]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.12",
-]
-requires-python = ">=3.10"
-dependencies = [
-    "awscli>=1.22.55",
-    "beautifulsoup4",
-    "charset_normalizer>=3.1.0",
-    "comment_parser",
-    "crossfit>=0.0.9",
-    "dask-mpi>=2021.11.0",
-    "dask[complete]>=2021.7.1",
-    "datasets<4.0.0",
-    "distributed>=2021.7.1",
-    "fasttext==0.9.3",
-    "ftfy==6.1.1",
-    "in-place==0.5.0",
-    "jieba==0.42.1",
-    "justext==3.0.1",
-    "lxml_html_clean",
-    "mecab-python3",
-    "mwparserfromhell==0.6.5",
-    "numpy<2",
-    "openai",
-    "peft",
-    "platformdirs",
-    "presidio-analyzer==2.2.351",
-    "presidio-anonymizer==2.2.351",
-    "pycld2",
-    "resiliparse",
-    "sentencepiece",
-    "spacy>=3.6.0, <3.8.0",
-    "trafilatura==2.0.0",
-    "transformers>=4.48.0",
-    "unidic-lite==1.0.8",
-    "usaddress==0.5.10",
-    "warcio==1.7.4",
-    "zstandard==0.18.0",
-]
-dynamic = ["version"]
-
-[project.optional-dependencies]
-dev = [
-    "pre-commit",
-    "ruff==0.11.4",
-    "pytest"
-]
-# Installs CPU + GPU text curation modules
-cuda12x = [
-    "cudf-cu12==25.04",
-    "cugraph-cu12==25.04",
-    "cuml-cu12==25.04",
-    "dask-cuda==25.04",
-    "dask-cudf-cu12==25.04",
-    "spacy[cuda12x]>=3.6.0, <3.8.0",
-]
-# Installs CPU + GPU text curation modules with RAPIDS Nightlies
-cuda12x_nightly = [
-    "cudf-cu12>=25.06.0a0,<=25.06",
-    "cugraph-cu12>=25.06.0a0,<=25.06",
-    "cuml-cu12>=25.06.0a0,<=25.06",
-    "dask-cuda>=25.06.0a0,<=25.06",
-    "dask-cudf-cu12>=25.06.0a0,<=25.06",
-    "spacy[cuda12x]>=3.6.0, <3.8.0",
-]
-# Installs CPU + GPU text and image curation modules
-image = [
-    "nvidia-dali",
-    "nvidia-dali-cuda120",
-    "nvidia-nvjpeg2k-cu12",
-    "timm>=1.0.8",
-    "nemo_curator[cuda12x]",
-]
-# Installs CPU + GPU text and image curation modules with RAPIDS Nightlies
-image_nightly = [
-    "nvidia-dali",
-    "nvidia-dali-cuda120",
-    "nvidia-nvjpeg2k-cu12",
-    "timm>=1.0.8",
-    "nemo_curator[cuda12x_nightly]",
-]
-# Installs bitext curation modules
-bitext = [
-    "huggingface-hub",
-    "tqdm",
-    "transformers",
-    "nemo_curator[cuda12x]",
-]
-# Installs all of the above with Stable RAPIDS
-all = [
-    "nemo_curator[image]",
-    "nemo_curator[bitext]",
-]
-# Installs all of the above with RAPIDS Nightlies
-all_nightly = [
-    "nemo_curator[image_nightly]",
-]
-
-[project.scripts]
-get_common_crawl_urls = "nemo_curator.scripts.get_common_crawl_urls:console_script"
-get_wikipedia_urls = "nemo_curator.scripts.get_wikipedia_urls:console_script"
-download_and_extract = "nemo_curator.scripts.download_and_extract:console_script"
-text_cleaning = "nemo_curator.scripts.text_cleaning:console_script"
-add_id = "nemo_curator.scripts.add_id:console_script"
-make_data_shards = "nemo_curator.scripts.make_data_shards:console_script"
-prepare_fasttext_training_data = "nemo_curator.scripts.prepare_fasttext_training_data:console_script"
-train_fasttext = "nemo_curator.scripts.train_fasttext:console_script"
-filter_documents = "nemo_curator.scripts.filter_documents:console_script"
-separate_by_metadata = "nemo_curator.scripts.separate_by_metadata:console_script"
-prepare_task_data = "nemo_curator.scripts.prepare_task_data:console_script"
-find_matching_ngrams = "nemo_curator.scripts.find_matching_ngrams:console_script"
-remove_matching_ngrams = "nemo_curator.scripts.remove_matching_ngrams:console_script"
-gpu_compute_minhashes = "nemo_curator.scripts.fuzzy_deduplication.compute_minhashes:console_script"
-minhash_buckets = "nemo_curator.scripts.fuzzy_deduplication.minhash_lsh:console_script"
-jaccard_map_buckets = "nemo_curator.scripts.fuzzy_deduplication.map_buckets:console_script"
-jaccard_shuffle = "nemo_curator.scripts.fuzzy_deduplication.jaccard_shuffle:console_script"
-jaccard_compute = "nemo_curator.scripts.fuzzy_deduplication.jaccard_compute:console_script"
-gpu_connected_component = "nemo_curator.scripts.fuzzy_deduplication.connected_components:console_script"
-buckets_to_edges = "nemo_curator.scripts.fuzzy_deduplication.buckets_to_edges:console_script"
-gpu_exact_dups = "nemo_curator.scripts.find_exact_duplicates:console_script"
-deidentify = "nemo_curator.scripts.find_pii_and_deidentify:console_script"
-domain_classifier_inference = "nemo_curator.scripts.classifiers.domain_classifier_inference:console_script"
-quality_classifier_inference = "nemo_curator.scripts.classifiers.quality_classifier_inference:console_script"
-aegis_classifier_inference = "nemo_curator.scripts.classifiers.aegis_classifier_inference:console_script"
-fineweb_edu_classifier_inference = "nemo_curator.scripts.classifiers.fineweb_edu_classifier_inference:console_script"
-instruction_data_guard_classifier_inference = "nemo_curator.scripts.classifiers.instruction_data_guard_classifier_inference:console_script"
-multilingual_domain_classifier_inference = "nemo_curator.scripts.classifiers.multilingual_domain_classifier_inference:console_script"
-content_type_classifier_inference = "nemo_curator.scripts.classifiers.content_type_classifier_inference:console_script"
-prompt_task_complexity_classifier_inference = "nemo_curator.scripts.classifiers.prompt_task_complexity_classifier_inference:console_script"
-fineweb_mixtral_edu_classifier_inference = "nemo_curator.scripts.classifiers.fineweb_mixtral_edu_classifier_inference:console_script"
-fineweb_nemotron_edu_classifier_inference = "nemo_curator.scripts.classifiers.fineweb_nemotron_edu_classifier_inference:console_script"
-blend_datasets = "nemo_curator.scripts.blend_datasets:console_script"
-semdedup_extract_embeddings = "nemo_curator.scripts.semdedup.compute_embeddings:console_script"
-semdedup_clustering = "nemo_curator.scripts.semdedup.clustering:console_script"
-semdedup_extract_duplicate_ids = "nemo_curator.scripts.semdedup.extract_dedup_data:console_script"
-async_llm_pii_redaction = "nemo_curator.scripts.async_llm_pii_redaction:console_script"
-llm_pii_redaction = "nemo_curator.scripts.llm_pii_redaction:console_script"
-
-[project.urls]
-Homepage = "https://github.com/NVIDIA/NeMo-Curator"
-
-[tool.pytest.ini_options]
-markers = [
-    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
-    "asyncio: mark a test as asyncio (used by pytest-asyncio)"
-]
+[tool.setuptools.packages.find]
+include = ["nemo_curator", "nemo_curator.*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "nemo_curator.package_info.__version__" }
 
-[tool.setuptools.packages.find]
-include = ["*"]
-exclude = ["tests", "tests.*"]
+[project]
+name = "nemo-curator"
+version = "0.1.0"
+authors = [
+    { name = "Ayush Dattagupta", email = "adattagupta@nvidia.com" },
+    { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
+    { name = "Praateek Mahajan", email = "praateekm@nvidia.com" },
+    { name = "Sarah Yurick", email = "syurick@nvidia.com" },
+    { name = "Vibhu Jawa", email = "vjawa@nvidia.com" },
+]
+description = "Scalable Data Preprocessing Tool for Training Large Language Models"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "absl-py>=2.0.0,<3.0.0",
+    "comment_parser",
+    "cosmos-xenna==0.1.2",
+    "fsspec",
+    "jieba==0.42.1",
+    "loguru",
+    "mecab-python3",
+    "pandas>=2.1.0",
+    "pyarrow",
+    "ray[default,data]>=2.49",
+    "torch",
+    "transformers>=4.48.0",
+]
+
+[project.optional-dependencies]
+text = [
+    # Download / Extract
+    "beautifulsoup4",
+    "justext",
+    "lxml",
+    "resiliparse",
+    "trafilatura==2.0.0",
+    "pycld2",
+    "warcio",
+    # Filters
+    "fasttext==0.9.3",
+    "sentencepiece",
+    "mwparserfromhell==0.6.5",
+    # Aegis
+    "peft",
+    # Modifiers
+    "ftfy==6.1.1",
+]
+
+# Installs CPU + GPU text curation modules
+deduplication_cuda12x = [
+    "cudf-cu12==25.6.*",
+    "cugraph-cu12==25.6.*",
+    "cuml-cu12==25.6.*",
+    "nx-cugraph-cu12==25.6.*",
+    "pylibraft-cu12==25.6.*",
+    "raft-dask-cu12==25.6.*",
+    "rapidsmpf-cu12==25.6.*",
+]
+
+video = [
+    "av==13.1.0",
+    "opencv-python",
+    "torchvision",
+    "einops",
+    "easydict",
+]
+
+video_cuda = [
+    "cvcuda_cu12",
+    "pycuda",
+    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "torch<=2.8.0",
+    "torchaudio",
+]
+
+video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
+
+# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
+dali = [
+    "nvidia-dali-cuda120",
+]
+
+all = [
+    "nemo_curator[dali]",
+    "nemo_curator[deduplication_cuda12x]",
+    "nemo_curator[text]",
+    "nemo_curator[video]",
+    "nemo_curator[video_cuda]",
+]
+
+[dependency-groups]
+build = ["setuptools", "torch<=2.8.0"]
+linting = ["pre-commit", "ruff==0.11.4"]
+test = [
+    "debugpy",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-coverage",
+    "pytest-loguru",
+    "scikit-learn",
+]
+dev = ["internvideo2-multi-modality; (platform_machine == 'x86_64' and sys_platform != 'darwin')"]
+
+[tool.uv]
+package = true
+default-groups = ["test"]
+no-build-isolation-package = ["flash-attn"]
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+internvideo2-multi-modality = { git = "git+https://github.com/suiyoubi/InternVideo.git", subdirectory="InternVideo2/multi_modality", rev = "curator" }
+torch = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchaudio = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+torchvision = [
+    { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
 
 [tool.coverage.paths]
 source = ["./nemo_curator", "/workspace/nemo_curator", "/home/runner/_work/Curator/Curator/NeMo-Curator/nemo_curator"]
-
-[tool.coverage.run]
-omit = [
-    "nemo_curator/scripts/*",
-]
 
 [tool.ruff]
 line-length = 119
@@ -219,22 +184,31 @@ ignore = [
     "PD901",  # allow naming dataframes df
     "TD002",  # Allow TODO without author
     "TD003",  # Allow TODO without link
+    "TRY003", # Allow long exception messages rather than creating a new exception class
     "FIX002",  # Allow TODO to exist,
     "EXE002", # Don't require for a shebang to be present if it's executable
     "COM812", # Disable the trailing comma in linter, because ruff formatter ensures it
+    "SLF001", # Allow accessing private attributes
 ]
 fixable = ["ALL"]
-[tool.ruff.lint.per-file-ignores]
-"nemo_curator/modules/__init__.py" = ["E402"]
-"nemo_curator/__init__.py" = ["F401", "F403"]
-"**.ipynb" = ["EXE001", "EXE003", "EXE005"]
-"tests/**" = ["S101", "INP001"]
-"tutorials/**" = ["INP001", "N999"]
-"tutorials/distributed_data_classification/**" = ["ERA001"]
-"tutorials/nemo-retriever-synthetic-data-generation/notebooks/quickstart.ipynb" = ["E402"]
-"tutorials/distributed_data_classification/content-type-classification.ipynb" = ["PLE2515"]
-"tutorials/nemotron-cc/kenlm_utility.py" = ["RUF001"]
-"tutorials/single_node_tutorial/**" = ["ERA001"]
-"examples/**" = ["INP001"]
-"nemo_curator/utils/import_utils.py" = ["ANN001"]
-"nemo_curator/utils/aegis_utils.py" = ["W291", "RUF001"]
+
+
+[tool.ruff.lint.extend-per-file-ignores]
+"examples/**" = [
+    "INP001", # No __init__.py is required
+]
+"tests/**/*.py" = [
+    "S101", # asserts allowed in tests...
+    "ANN201", # Allow methods to not return something
+    "PLR2004", # Magic value used in comparison, ...
+]
+"tutorials/**" = [
+    "INP001", # No __init__.py is required
+    "PLE2515", # Ignore \u200b complaint
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
+]
