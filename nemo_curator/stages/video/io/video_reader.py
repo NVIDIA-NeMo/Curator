@@ -243,12 +243,12 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
 
     Args:
         input_video_path: Path to the directory containing video files
-        video_limit: Maximum number of videos to process (-1 for unlimited)
+        video_limit: Maximum number of videos to process (None for unlimited)
         verbose: Whether to enable verbose logging during download/processing
     """
 
     input_video_path: str
-    video_limit: int | None = -1
+    video_limit: int | None = None
     verbose: bool = False
 
     def __post_init__(self):
@@ -285,6 +285,6 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
         """Get a description of what this composite stage does."""
         return (
             f"Reads video files from '{self.input_video_path}' "
-            f"(limit: {self.video_limit if self.video_limit > 0 else 'unlimited'}) "
+            f"(limit: {self.video_limit if self.video_limit is not None else 'unlimited'}) "
             f"and downloads/processes them with metadata extraction"
         )
