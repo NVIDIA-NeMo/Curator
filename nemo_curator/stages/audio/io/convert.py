@@ -12,19 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .audio_batch import AudioBatch
-from .document import DocumentBatch
-from .file_group import FileGroupTask
-from .image import ImageBatch, ImageObject
-from .tasks import EmptyTask, Task, _EmptyTask
+import pandas as pd
 
-__all__ = [
-    "AudioBatch",
-    "DocumentBatch",
-    "EmptyTask",
-    "FileGroupTask",
-    "ImageBatch",
-    "ImageObject",
-    "Task",
-    "_EmptyTask",
-]
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import AudioBatch, DocumentBatch
+
+
+class AudioToDocumentStage(ProcessingStage[AudioBatch, DocumentBatch]):
+    """
+    Stage to conver DocumentObject to DocumentBatch
+
+    """
+
+    def process(self, task: AudioBatch) -> list[DocumentBatch]:
+        return [
+            DocumentBatch(
+                data=pd.DataFrame(task.data),
+                task_id=task.task_id,
+                dataset_name=task.dataset_name,
+            )
+        ]
