@@ -536,7 +536,7 @@ class TestVideoReader:
         stage = VideoReader(input_video_path="/test/videos")
 
         assert stage.input_video_path == "/test/videos"
-        assert stage.video_limit == -1
+        assert stage.video_limit is None
         assert stage.verbose is False
 
     def test_stage_initialization_custom_values(self) -> None:
@@ -587,14 +587,14 @@ class TestVideoReader:
 
     def test_decompose_unlimited_videos(self) -> None:
         """Test decomposition with unlimited video processing."""
-        stage = VideoReader(input_video_path="/unlimited/videos", video_limit=-1, verbose=False)
+        stage = VideoReader(input_video_path="/unlimited/videos", video_limit=None, verbose=False)
 
         stages = stage.decompose()
         file_stage = stages[0]
         reader_stage = stages[1]
 
-        # With -1 limit, should pass -1 to file partitioning stage
-        assert file_stage.limit == -1
+        # With None limit, should pass None to file partitioning stage
+        assert file_stage.limit is None
         assert reader_stage.verbose is False
 
     def test_decompose_different_paths(self) -> None:
@@ -610,7 +610,7 @@ class TestVideoReader:
 
     def test_get_description_unlimited(self) -> None:
         """Test get_description method with unlimited videos."""
-        stage = VideoReader(input_video_path="/test/videos", video_limit=-1)
+        stage = VideoReader(input_video_path="/test/videos", video_limit=None)
 
         description = stage.get_description()
         expected = (
@@ -627,18 +627,6 @@ class TestVideoReader:
         description = stage.get_description()
         expected = (
             "Reads video files from '/test/videos' (limit: 25) and downloads/processes them with metadata extraction"
-        )
-        assert description == expected
-
-    def test_get_description_zero_limit(self) -> None:
-        """Test get_description method with zero limit."""
-        stage = VideoReader(input_video_path="/test/videos", video_limit=0)
-
-        description = stage.get_description()
-        expected = (
-            "Reads video files from '/test/videos' "
-            "(limit: unlimited) "
-            "and downloads/processes them with metadata extraction"
         )
         assert description == expected
 
