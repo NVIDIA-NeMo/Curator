@@ -338,4 +338,3 @@ class TestFilePartitioningStageGetters:
 
         with pytest.raises(TypeError, match="Invalid file paths"):
             stage._get_file_list_with_sizes()
-

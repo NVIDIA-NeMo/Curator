@@ -387,5 +387,3 @@ class TestFSPath:
 
         # Should return False since protocol is None
         assert not is_remote_url("unknown://path")
-
-

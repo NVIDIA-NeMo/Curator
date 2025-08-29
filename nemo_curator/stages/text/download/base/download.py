@@ -97,7 +97,10 @@ class DocumentDownloader(ABC):
         temp_file = output_file + ".tmp"
 
         # If final file exists and is non-empty, assume it's complete
-        if self._fs.exists(self._fs._strip_protocol(output_file)) and self._fs.size(self._fs._strip_protocol(output_file)) > 0:
+        if (
+            self._fs.exists(self._fs._strip_protocol(output_file))
+            and self._fs.size(self._fs._strip_protocol(output_file)) > 0
+        ):
             if self._verbose:
                 logger.info(f"File: {output_file} exists. Not downloading")
             return output_file
