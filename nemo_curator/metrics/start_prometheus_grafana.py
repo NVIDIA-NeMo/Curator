@@ -26,7 +26,7 @@ from nemo_curator.metrics.utils import (
 # ----------------------------
 
 
-def get_ray_client(
+def start_prometheus_grafana(
     prometheus_web_port: int = DEFAULT_PROMETHEUS_WEB_PORT,
     grafana_web_port: int = DEFAULT_GRAFANA_WEB_PORT,
 ) -> None:
@@ -99,4 +99,4 @@ if __name__ == "__main__":
             print("Exiting...")
             sys.exit(0)
 
-    get_ray_client(args.prometheus_web_port, args.grafana_web_port)
+    start_prometheus_grafana(args.prometheus_web_port, args.grafana_web_port)
