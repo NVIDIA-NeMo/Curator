@@ -17,6 +17,7 @@ import os
 import shutil
 
 from loguru import logger
+
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
@@ -24,8 +25,8 @@ from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import Cr
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
-from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.resources import Resources
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
 def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
