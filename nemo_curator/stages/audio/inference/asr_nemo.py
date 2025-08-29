@@ -20,8 +20,10 @@ from loguru import logger
 try:
     import nemo.collections.asr as nemo_asr
 except ImportError:
-    logger.warning("Cann't import NeMo speech!")
+    logger.warning("Cannot import NeMo speech")
+
 import torch
+
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources

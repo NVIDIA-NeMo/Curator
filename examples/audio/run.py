@@ -17,6 +17,7 @@ import sys
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
+
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 

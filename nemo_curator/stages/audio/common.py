@@ -18,6 +18,7 @@ from operator import eq, ge, gt, le, lt, ne
 
 import soundfile
 from loguru import logger
+
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch, Task
 
