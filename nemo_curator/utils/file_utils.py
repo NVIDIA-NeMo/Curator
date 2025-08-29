@@ -368,37 +368,6 @@ def infer_dataset_name_from_path(path: str) -> str:
         return path_parts[-1].lower()
 
 
-def fs_join(base: str, *parts: str, fs: fsspec.AbstractFileSystem | None = None) -> str:
-    """
-    Join one or more path fragments on an fsspec filesystem.
-
-    Parameters
-    ----------
-    base : str
-        A base directory or URL (e.g. "s3://mybucket/prefix").
-    *parts : str
-        Additional path components to append.
-    fs : fsspec.AbstractFileSystem, optional
-        The filesystem on which the path lives. If not provided, it will be 
-        inferred from the base path.
-
-    Returns
-    -------
-    str
-        A fully‑qualified path with the original protocol reattached.
-    """
-    if fs is None:
-        fs = get_fs(base)
-    
-    # remove the scheme (e.g. "s3://") and trailing slash
-    base_no_proto = fs._strip_protocol(base).rstrip("/")
-    # join the pieces using forward slashes
-    all_parts = [base_no_proto] + [p.strip("/") for p in parts]
-    joined = "/".join(part for part in all_parts if part)
-    # reattach the protocol (e.g. "s3://")
-    return fs.unstrip_protocol(joined)
-
-
 def check_disallowed_kwargs(
     kwargs: dict,
     disallowed_keys: list[str],

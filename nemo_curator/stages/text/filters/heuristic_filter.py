@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os.path
-import posixpath
 import tarfile
 from typing import Literal
 
@@ -39,7 +38,6 @@ from nemo_curator.stages.text.utils.constants import (
     regex_url,
     white_space_list,
 )
-from nemo_curator.utils.file_utils import fs_join
 from nemo_curator.stages.text.utils.text_utils import (
     get_ngrams,
     get_paragraphs,
@@ -776,7 +774,7 @@ class HistogramFilter(DocumentFilter):
         self._fs, self._cache_dir_clean = url_to_fs(self._cache_dir)
         
         # Check if histograms directory exists using fsspec
-        histograms_path = fs_join(self._cache_dir, "histograms", fs=self._fs)
+        histograms_path = os.path.join(self._cache_dir, "histograms")
         if not self._fs.exists(self._fs._strip_protocol(histograms_path)):
             self._download_histograms()
 
@@ -799,12 +797,12 @@ class HistogramFilter(DocumentFilter):
 
         # Open a file to write the content
         self._fs.makedirs(self._fs._strip_protocol(self._cache_dir), exist_ok=True)
-        download_dest_path = fs_join(self._cache_dir, "histograms.tar.gz", fs=self._fs)
+        download_dest_path = os.path.join(self._cache_dir, "histograms.tar.gz")
         
         with self._fs.open(self._fs._strip_protocol(download_dest_path), "wb") as file:
             file.write(response.content)
 
-        extract_path = fs_join(self._cache_dir, "histograms", fs=self._fs)
+        extract_path = os.path.join(self._cache_dir, "histograms")
         
         # For local filesystem, use tarfile directly. For remote, would need different approach
         if self._fs.protocol == "file" or self._fs.protocol == ["file"]:
@@ -820,7 +818,7 @@ class HistogramFilter(DocumentFilter):
         """Load histogram files."""
 
         self._histogram = []
-        histogram_file_path = fs_join(
+        histogram_file_path = os.path.join(
             self._cache_dir,
             "histograms",
             "checkpoint",
@@ -828,7 +826,6 @@ class HistogramFilter(DocumentFilter):
             "cc60_multilingual",
             "clean_hists",
             self._lang,
-            fs=self._fs,
         )
         
         with self._fs.open(self._fs._strip_protocol(histogram_file_path)) as f:
