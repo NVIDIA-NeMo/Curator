@@ -27,7 +27,6 @@ from easydict import EasyDict
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-
 from nemo_curator import internvideo2_multi_modality
 from nemo_curator.internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from nemo_curator.models.base import ModelInterface
