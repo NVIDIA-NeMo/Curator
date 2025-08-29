@@ -15,9 +15,9 @@
 import os
 from dataclasses import dataclass
 
+from nemo_curator.stages.audio.datasets.file_utils import download_file, extract_archive
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import AudioBatch, _EmptyTask
-from nemo_curator.utils.file_utils import download_file, extract_archive
 
 
 def get_fleurs_url_list(lang: str, split: str) -> list[str]:
