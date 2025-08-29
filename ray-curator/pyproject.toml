@@ -28,6 +28,7 @@ dependencies = [
     "fsspec",
     "jieba==0.42.1",
     "loguru",
+    "editdistance",
     "mecab-python3",
     "pandas>=2.1.0",
     "pyarrow",
