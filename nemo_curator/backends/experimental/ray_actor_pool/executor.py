@@ -214,7 +214,7 @@ class RayActorPoolExecutor(BaseExecutor):
         root_address_bytes = ray.get(actors[0].setup_root.remote())
 
         # setup the workers in the cluster including root
-        ray.get([actor.setup_worker.remote(root_address_bytes) for actor in actors])
+        ray.get([actor.setup.remote(root_address_bytes) for actor in actors])
 
         logger.info("    UCXX setup complete")
 

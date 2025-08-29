@@ -23,6 +23,7 @@ from nemo_curator.backends.experimental.utils import RayStageSpecKeys, get_worke
 from nemo_curator.tasks import FileGroupTask
 
 if TYPE_CHECKING:
+    from nemo_curator.backends.base import WorkerMetadata
     from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
     from nemo_curator.stages.shuffler.stage import ShuffleStage
 
@@ -103,10 +104,11 @@ class ShuffleStageAdapter(BaseStageAdapter):
         """
         super().setup_on_node(self.node_info, self.worker_metadata)
 
-    def setup(self) -> None:
-        """Note: This method is unused"""
-        err_msg = "ShuffleStageAdapter.setup is not used in the current implementation"
-        raise NotImplementedError(err_msg)
+    def setup(self, root_address: bytes, worker_metadata: "WorkerMetadata | None" = None) -> None:
+        """Setup shuffle workers and stage"""
+        self.setup_worker(root_address)
+        # call the stage's setup method
+        super().setup(worker_metadata)
 
     def setup_root(self) -> None:
         """Setup the root actor."""
