@@ -230,6 +230,7 @@ class TestTextDuplicateRemovalWorkflowIntegration:
             output_filetype="parquet",
             input_id_field=CURATOR_DEDUP_ID_STR,
             ids_to_remove_duplicate_id_field="id",
+            input_task_limit=10,  # truncate to 10 tasks only
             input_kwargs={},
             ids_to_remove_read_kwargs={},
             output_kwargs={},
@@ -239,14 +240,14 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         output_tasks = workflow.run(executor, initial_tasks=initial_tasks)
 
         # Verify we get 20 output tasks (one per input task)
-        assert len(output_tasks) == 20, (
-            f"Expected 20 output tasks, got {len(output_tasks)} for {test_config.executor_cls.__name__}"
+        assert len(output_tasks) == 10, (
+            f"Expected 10 output tasks, got {len(output_tasks)} for {test_config.executor_cls.__name__}"
         )
 
         # Verify correctness remains the same as other tests
         combined_output_df = pd.concat([pd.read_parquet(task.data) for task in output_tasks], ignore_index=True)
-        assert len(combined_output_df) == 800, (
-            f"Expected 800 records, got {len(combined_output_df)} for {test_config.executor_cls.__name__}"
+        assert len(combined_output_df) == 400, (
+            f"Expected 400 records, got {len(combined_output_df)} for {test_config.executor_cls.__name__}"
         )
 
         # Verify no IDs divisible by 5 remain
