@@ -95,6 +95,9 @@ class IdentifyDuplicatesStage(ShuffleStage):
         """
         Get the removal ids for the given dataframe.
         """
+        if len(df) == 0:
+            return df[[self.document_id_field]]
+
         removal_ids = df[df[self.duplicate_group_field].duplicated(keep="first")][self.document_id_field]
         removal_ids = removal_ids.sort_values(ignore_index=True)
         return removal_ids.to_frame()

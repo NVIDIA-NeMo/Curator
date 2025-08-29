@@ -62,6 +62,9 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     bands_per_iteration
         Number of bands to process per shuffle iteration. Between 1 and num_bands.
         Higher values reduce the number of shuffle iterations but increase the memory usage.
+    total_nparts
+        Total number of partitions to write during the shuffle.
+        If None, the number of partitions will be decided automatically by the executor as the closest power of 2 <= number of input tasks.
     """
 
     _name = "LSHStage"
@@ -84,6 +87,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     spill_memory_limit: int | Literal["auto"] | None = "auto"
     enable_statistics: bool = False
     bands_per_iteration: int = 5  # number of bands to process in each iteration
+    total_nparts: int | None = None
 
     def __post_init__(self):
         super().__init__()
@@ -102,6 +106,7 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             "enable_statistics": self.enable_statistics,
             "read_kwargs": self.read_kwargs,
             "write_kwargs": self.write_kwargs,
+            "total_nparts": self.total_nparts,  # Can be None, executor will set it
         }
 
         if self.bands_per_iteration < 1 or self.bands_per_iteration > self.num_bands:

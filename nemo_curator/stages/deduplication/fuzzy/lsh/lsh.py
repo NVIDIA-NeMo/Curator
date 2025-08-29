@@ -245,6 +245,8 @@ class LSHActor(BulkRapidsMPFShuffler):
         -------
             DataFrame with bucket IDs and lists of document IDs.
         """
+        if len(df) == 0:
+            return df
         if not include_singles:
             # TODO: Add support for generating LSH index with single-document buckets that can be reused in incremental runs
             # Find bucket_ids that appear more than once (have multiple documents)

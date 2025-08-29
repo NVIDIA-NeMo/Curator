@@ -62,12 +62,19 @@ class TestLSHStage:
             },
         )
 
-    @pytest.mark.parametrize("bands_per_iteration", [2, 3])
+    @pytest.mark.parametrize(
+        ("bands_per_iteration", "total_nparts"),
+        [
+            (2, 4),
+            (3, None),
+        ],
+    )
     def test_lsh(
         self,
         minhash_data: FileGroupTask,
         tmp_path: Path,
         bands_per_iteration: int,
+        total_nparts: int | None,
     ) -> None:
         # Create LSHStage
         lsh_stage = LSHStage(
@@ -77,6 +84,7 @@ class TestLSHStage:
             bands_per_iteration=bands_per_iteration,
             minhash_field="_minhash_signature",
             id_field=CURATOR_DEDUP_ID_STR,
+            total_nparts=total_nparts,
         )
 
         # Create pipeline and executor
