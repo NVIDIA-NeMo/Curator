@@ -4,13 +4,14 @@ import sys
 import time
 
 from loguru import logger
-from ray_curator.core.utils import get_free_port
-from ray_curator.metrics.constants import (
+
+from nemo_curator.core.utils import get_free_port
+from nemo_curator.metrics.constants import (
     DEFAULT_GRAFANA_WEB_PORT,
     DEFAULT_NEMO_CURATOR_METRICS_PATH,
     DEFAULT_PROMETHEUS_WEB_PORT,
 )
-from ray_curator.metrics.utils import (
+from nemo_curator.metrics.utils import (
     download_and_extract_prometheus,
     download_grafana,
     is_grafana_running,

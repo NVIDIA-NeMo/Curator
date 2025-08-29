@@ -44,8 +44,6 @@ uv sync --extra all
 
 ### Dev Pattern
 
-- All upstream work/changes with the new API and ray backend should target the `NeMo-Curator/ray-api` branch.
-- When re-using code already in `NeMo-Curator/nemo_curator`, use `git mv` to move those source files into the `ray-curator/ray_curator` namespace.
 - Sign and signoff commits with `git commit -sS`. (May be relaxed in the future)
 - If project dependencies are updated a new uv lock file needs to be generated. Run `uv lock` and add the changes of the new uv.lock file.
 
