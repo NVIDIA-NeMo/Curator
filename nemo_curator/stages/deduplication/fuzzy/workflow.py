@@ -290,14 +290,14 @@ class FuzzyDeduplicationWorkflow:
             start_time = time.time()
             minhash_pipeline.run(executor=executor, initial_tasks=initial_tasks)
             minhash_end_time = time.time()
-            logger.info(f"Minhash pipeline completed in {minhash_end_time - start_time} seconds")
+            logger.info(f"Minhash pipeline completed in {(minhash_end_time - start_time):.2f} seconds")
 
             lsh_pipeline = self._create_lsh_pipeline()
             lsh_start_time = time.time()
             # LSH stage generates it's own input tasks from the minhash directory
             lsh_tasks = lsh_pipeline.run(executor=executor, initial_tasks=None)
             lsh_end_time = time.time()
-            logger.info(f"LSH pipeline completed in {lsh_end_time - lsh_start_time} seconds")
+            logger.info(f"LSH pipeline completed in {(lsh_end_time - lsh_start_time):.2f} seconds")
 
             valid_lsh_tasks = [task for task in lsh_tasks if task._metadata.get("num_docs", 0) > 0]
             if len(valid_lsh_tasks) == 0:
@@ -310,7 +310,7 @@ class FuzzyDeduplicationWorkflow:
                 )
                 connected_components_end_time = time.time()
                 logger.info(
-                    f"Connected components pipeline completed in {connected_components_end_time - connected_components_start_time} seconds"
+                    f"Connected components pipeline completed in {(connected_components_end_time - connected_components_start_time):.2f} seconds"
                 )
                 num_removed_documents = sum(
                     task._metadata.get("num_removal_ids", 0) for task in connected_components_tasks
@@ -329,6 +329,6 @@ class FuzzyDeduplicationWorkflow:
                 )
                 logger.info(f"Id generator written to {id_generator_path}")
             end_time = time.time()
-            logger.info(f"Fuzzy deduplication pipeline completed in {end_time - start_time} seconds")
+            logger.info(f"Fuzzy deduplication pipeline completed in {(end_time - start_time):.2f} seconds")
         finally:
             kill_id_generator_actor()

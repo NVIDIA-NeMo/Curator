@@ -39,7 +39,6 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     fields: list[str] | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    file_extensions: list[str] = field(default_factory=list)
     _name: str = ""
     _generate_ids: bool = False
     _assign_ids: bool = False

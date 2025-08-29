@@ -135,7 +135,7 @@ class TextDuplicatesRemovalWorkflow:
             write_stage(
                 path=self.output_path,
                 **({"file_extension": self.output_file_extension} if self.output_file_extension else {}),
-                write_kwargs=self.output_kwargs,
+                write_kwargs=self.output_kwargs or {},
                 fields=self.output_fields,
                 **({"mode": self.output_mode} if self.output_mode else {}),
             )
