@@ -114,14 +114,14 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     _batch_size = 1
 
     def __init__(self) -> None:
-        self._stage_name = "ProcessingStage"  # Default name for base class
+        self._stage_name = "processing_stage"  # Default name for base class
     
     @property
     def name(self) -> str:
         # For backward compatibility, check if _name exists from old usage
         if hasattr(self, '_name') and not hasattr(self, '_stage_name'):
             return self._name
-        return getattr(self, '_stage_name', "ProcessingStage")
+        return getattr(self, '_stage_name', "processing_stage")
     
     @name.setter
     def name(self, value: str) -> None:
@@ -365,6 +365,7 @@ class CompositeStage(ProcessingStage[X, Y], ABC):
     """
 
     def __init__(self):
+        super().__init__()  # This will initialize _stage_name and validate naming
         self._with_operations = []
 
     def inputs(self) -> tuple[list[str], list[str]]:

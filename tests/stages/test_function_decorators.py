@@ -42,7 +42,7 @@ class MockTask(Task[int]):
 resources_inc = Resources(cpus=1.5)
 
 
-@processing_stage(name="IncrementStage", resources=resources_inc, batch_size=4)
+@processing_stage(name="increment_stage", resources=resources_inc, batch_size=4)
 def increment_stage(task: MockTask) -> MockTask:
     task.data += 1
     return task
@@ -52,7 +52,7 @@ def increment_stage(task: MockTask) -> MockTask:
 resources_dup = Resources(cpus=0.5)
 
 
-@processing_stage(name="DuplicateStage", resources=resources_dup, batch_size=2)
+@processing_stage(name="duplicate_stage", resources=resources_dup, batch_size=2)
 def duplicate_stage(task: MockTask) -> list[MockTask]:
     return [task, task]
 
@@ -72,7 +72,7 @@ class TestProcessingStageDecorator:
 
         stage = increment_stage  # Decorator replaces the function with an instance
         assert isinstance(stage, ProcessingStage)
-        assert stage.name == "IncrementStage"
+        assert stage.name == "increment_stage"
         assert stage.resources == resources_inc
         assert stage.batch_size == 4
 
@@ -130,5 +130,5 @@ class TestProcessingStageDecorator:
 
     def test_stage_registry(self) -> None:
         """Uses get_stage_class to ensure that stage names are in the _STAGE_REGISTRY."""
-        assert get_stage_class("IncrementStage") is not None
-        assert get_stage_class("DuplicateStage") is not None
+        assert get_stage_class("increment_stage") is not None
+        assert get_stage_class("duplicate_stage") is not None
