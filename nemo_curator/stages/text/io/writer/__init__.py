@@ -12,10 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from nemo_curator.stages.text.io.writer.filename_provider import (
+    DatasetNameFilenameProvider,
+    DefaultFilenameProvider,
+    FilenameProvider,
+    TemplateFilenameProvider,
+)
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 __all__ = [
     "JsonlWriter",
     "ParquetWriter",
+    "FilenameProvider",
+    "DefaultFilenameProvider",
+    "DatasetNameFilenameProvider",
+    "TemplateFilenameProvider",
 ]

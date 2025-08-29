@@ -15,7 +15,7 @@
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
 import fsspec
 from fsspec.utils import infer_storage_options
@@ -25,6 +25,9 @@ import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import check_output_mode
+
+if TYPE_CHECKING:
+    from nemo_curator.stages.text.io.writer.filename_provider import FilenameProvider
 
 
 @dataclass
@@ -40,6 +43,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     fields: list[str] | None = None
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
+    filename_provider: "FilenameProvider | None" = None
     _name: str = "BaseWriter"
     _fs_path: str = field(init=False, repr=False, default="")
     _protocol: str = field(init=False, repr=False, default="file")
@@ -47,6 +51,11 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     append_mode_implemented: bool = False
 
     def __post_init__(self):
+        # Initialize default filename provider if none specified
+        if self.filename_provider is None:
+            from nemo_curator.stages.text.io.writer.filename_provider import DefaultFilenameProvider
+            self.filename_provider = DefaultFilenameProvider()
+            
         # Determine protocol and normalized filesystem path
         path_opts = infer_storage_options(self.path)
         protocol = path_opts.get("protocol", "file")
@@ -84,16 +93,11 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
         Returns:
             FileGroupTask: Task containing paths to written files
         """
-        # Get source files from metadata for deterministic naming
-        if source_files := task._metadata.get("source_files"):
-            filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
-        else:
-            logger.warning("The task does not have source_files in metadata, using UUID for base filename")
-            filename = uuid.uuid4().hex
-
-        # Generate filename with appropriate extension using normalized fs path
-        file_extension = self.get_file_extension()
-        file_path = self.fs.sep.join([self._fs_path, f"{filename}.{file_extension}"])
+        # Generate filename using the filename provider
+        filename = self.filename_provider.get_filename(task, self.get_file_extension())
+        
+        # Generate full file path using normalized fs path
+        file_path = self.fs.sep.join([self._fs_path, filename])
 
         # Skip if file already exists (idempotent writes)
         if self.fs.exists(file_path):
