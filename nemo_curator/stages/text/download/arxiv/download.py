@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import os
+import posixpath
 import subprocess
 
+import fsspec
 from loguru import logger
 
-from nemo_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download.base.download import DocumentDownloader
+from nemo_curator.utils.client_utils import fs_join
 
 
 class ArxivDownloader(DocumentDownloader):
@@ -34,7 +37,9 @@ class ArxivDownloader(DocumentDownloader):
         return url
 
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
-        s3path = os.path.join("s3://arxiv/src", url)
+        # Use fsspec-compatible path construction
+        s3_fs = fsspec.filesystem("s3")
+        s3path = fs_join(s3_fs, "s3://arxiv/src", url)
 
         if self._verbose:
             logger.info(f"Downloading {s3path} and writing to {path}")

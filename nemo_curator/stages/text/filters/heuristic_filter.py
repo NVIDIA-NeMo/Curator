@@ -13,11 +13,14 @@
 # limitations under the License.
 
 import os.path
+import posixpath
 import tarfile
 from typing import Literal
 
+import fsspec
 import huggingface_hub
 import requests
+from fsspec.core import url_to_fs
 from platformdirs import user_cache_dir
 from transformers import AutoTokenizer
 
@@ -36,6 +39,7 @@ from nemo_curator.stages.text.utils.constants import (
     regex_url,
     white_space_list,
 )
+from nemo_curator.utils.client_utils import fs_join
 from nemo_curator.stages.text.utils.text_utils import (
     get_ngrams,
     get_paragraphs,
@@ -768,7 +772,12 @@ class HistogramFilter(DocumentFilter):
         self._threshold_char = threshold_char
         self._name = "histogram"
 
-        if not os.path.isdir(os.path.join(self._cache_dir, "histograms")):
+        # Initialize filesystem for cache directory
+        self._fs, self._cache_dir_clean = url_to_fs(self._cache_dir)
+        
+        # Check if histograms directory exists using fsspec
+        histograms_path = fs_join(self._fs, self._cache_dir, "histograms")
+        if not self._fs.exists(self._fs._strip_protocol(histograms_path)):
             self._download_histograms()
 
         self._read_hist()
@@ -789,31 +798,40 @@ class HistogramFilter(DocumentFilter):
             raise requests.exceptions.RequestException(msg)
 
         # Open a file to write the content
-        os.makedirs(self._cache_dir, exist_ok=True)
-        download_dest_path = os.path.join(self._cache_dir, "histograms.tar.gz")
-        with open(download_dest_path, "wb") as file:
+        self._fs.makedirs(self._fs._strip_protocol(self._cache_dir), exist_ok=True)
+        download_dest_path = fs_join(self._fs, self._cache_dir, "histograms.tar.gz")
+        
+        with self._fs.open(self._fs._strip_protocol(download_dest_path), "wb") as file:
             file.write(response.content)
 
-        extract_path = os.path.join(self._cache_dir, "histograms")
-        with tarfile.open(download_dest_path, "r:gz") as tar:
-            # Extract all the contents into the specified directory
-            tar.extractall(path=extract_path)  # noqa: S202
+        extract_path = fs_join(self._fs, self._cache_dir, "histograms")
+        
+        # For local filesystem, use tarfile directly. For remote, would need different approach
+        if self._fs.protocol == "file" or self._fs.protocol == ["file"]:
+            with tarfile.open(self._fs._strip_protocol(download_dest_path), "r:gz") as tar:
+                # Extract all the contents into the specified directory
+                tar.extractall(path=self._fs._strip_protocol(extract_path))  # noqa: S202
+        else:
+            # For remote filesystems, more complex extraction would be needed
+            # This is beyond the scope of this minimal change
+            raise NotImplementedError("Histogram extraction not implemented for remote filesystems")
 
     def _read_hist(self) -> None:
         """Load histogram files."""
 
         self._histogram = []
-        with open(
-            os.path.join(
-                self._cache_dir,
-                "histograms",
-                "checkpoint",
-                "edunov",
-                "cc60_multilingual",
-                "clean_hists",
-                self._lang,
-            )
-        ) as f:
+        histogram_file_path = fs_join(
+            self._fs,
+            self._cache_dir,
+            "histograms",
+            "checkpoint",
+            "edunov",
+            "cc60_multilingual",
+            "clean_hists",
+            self._lang,
+        )
+        
+        with self._fs.open(self._fs._strip_protocol(histogram_file_path)) as f:
             for line in f:
                 c = line[0]
                 if c == self._threshold_char:

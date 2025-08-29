@@ -13,12 +13,15 @@
 # limitations under the License.
 
 import os
+import posixpath
 import subprocess
 from urllib.parse import urlparse
 
+import fsspec
 from loguru import logger
 
-from nemo_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download.base.download import DocumentDownloader
+from nemo_curator.utils.client_utils import fs_join
 
 
 class CommonCrawlWARCDownloader(DocumentDownloader):
@@ -59,7 +62,12 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         """
         urlpath = urlparse(url).path[1:]
 
-        url_to_download = os.path.join("s3://commoncrawl/", urlpath) if self.use_aws_to_download else url
+        if self.use_aws_to_download:
+            # Use fsspec-compatible path construction for S3
+            s3_fs = fsspec.filesystem("s3")
+            url_to_download = fs_join(s3_fs, "s3://commoncrawl", urlpath)
+        else:
+            url_to_download = url
 
         if self._verbose:
             logger.info(f"Downloading {url_to_download} to {path}")
