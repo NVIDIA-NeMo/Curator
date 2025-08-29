@@ -1,2 +1,0 @@
-inet <ip_address>10.41.21.72</ip_address>
-Can you ping me on my ip <ip_address>192.168.0.12</ip_address>?

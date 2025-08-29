@@ -1,7 +1,0 @@
-arxiv==2.1.0
-arxiv-downloader
-nltk==3.8.1
-pdfminer.six==20221105
-poppler-utils
-unstructured[all-docs]==0.9.0
-unstructured[pdf]

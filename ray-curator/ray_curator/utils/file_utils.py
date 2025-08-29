@@ -23,7 +23,6 @@ import fsspec
 from fsspec.core import get_filesystem_class, split_protocol
 from fsspec.utils import infer_storage_options
 from loguru import logger
-
 from ray_curator.utils.client_utils import is_remote_url
 
 if TYPE_CHECKING:

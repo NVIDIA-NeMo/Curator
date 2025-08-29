@@ -21,7 +21,7 @@ Executors run NeMo Curator `Pipeline` workflows across your compute resources. T
 Build your pipeline by adding stages, then run it with an executor:
 
 ```python
-from ray_curator.pipeline import Pipeline
+from nemo_curator.pipeline import Pipeline
 
 pipeline = Pipeline(name="example_pipeline", description="Curator pipeline")
 pipeline.add_stage(...)
@@ -35,7 +35,7 @@ results = pipeline.run(executor)
 ### `XennaExecutor` (recommended)
 
 ```python
-from ray_curator.backends.xenna import XennaExecutor
+from nemo_curator.backends.xenna import XennaExecutor
 
 executor = XennaExecutor(
     config={
@@ -61,7 +61,7 @@ results = pipeline.run(executor)
 ### `RayDataExecutor` (experimental)
 
 ```python
-from ray_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
 executor = RayDataExecutor()
 results = pipeline.run(executor)
@@ -79,8 +79,8 @@ Both options can deliver strong performance; choose based on API fit and maturit
 ## Minimal End-to-End example
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
 
 # Build your pipeline
 pipeline = Pipeline(name="curator_pipeline")

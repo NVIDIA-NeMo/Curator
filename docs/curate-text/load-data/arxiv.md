@@ -46,10 +46,10 @@ The examples on this page use `s5cmd`, which supports Requester Pays automatical
 Create and run an ArXiv processing pipeline and write outputs to JSONL:
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna.executor import XennaExecutor
-from ray_curator.stages.text.download import ArxivDownloadExtractStage
-from ray_curator.stages.io.writer import JsonlWriter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna.executor import XennaExecutor
+from nemo_curator.stages.text.download import ArxivDownloadExtractStage
+from nemo_curator.stages.io.writer import JsonlWriter
 
 def main():
     pipeline = Pipeline(

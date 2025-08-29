@@ -14,7 +14,7 @@
 
 
 MAJOR = 0
-MINOR = 10
+MINOR = 1
 PATCH = 0
 PRE_RELEASE = "rc0"
 DEV = "dev0"
@@ -31,12 +31,12 @@ if VERSION[3] != "":
 if VERSION[4] != "":
     __version__ = __version__ + "." + ".".join(VERSION[4:])
 
-__package_name__ = "nemo_curator"
+__package_name__ = "ray_curator"
 __contact_names__ = "NVIDIA"
 __contact_emails__ = "nemo-toolkit@nvidia.com"
 __homepage__ = "https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/index.html"
-__repository_url__ = "https://github.com/NVIDIA/NeMo-Curator"
-__download_url__ = "https://github.com/NVIDIA/NeMo-Curator/releases"
+__repository_url__ = "https://github.com/NVIDIA-NeMo/Curator"
+__download_url__ = "https://github.com/NVIDIA-NeMo/Curator/releases"
 __description__ = "NeMo Curator - Scalable Data Preprocessing Tool for Training Large Language Models"
 __license__ = "Apache2"
 __keywords__ = "deep learning, machine learning, gpu, NLP, NeMo, nvidia, pytorch, torch, language, preprocessing, LLM, large language model"

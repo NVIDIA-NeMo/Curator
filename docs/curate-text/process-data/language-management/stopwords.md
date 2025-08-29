@@ -99,7 +99,7 @@ The JusText algorithm uses stop word density to classify text blocks as main con
 2. **Parameter Customization**: You can customize the stop word density thresholds via `stopwords_low` and `stopwords_high` parameters
 
 ```python
-from ray_curator.stages.text.download.html_extractors.justext import JusTextExtractor
+from nemo_curator.stages.text.download.html_extractors.justext import JusTextExtractor
 
 # Customize stop word thresholds
 extractor = JusTextExtractor(
@@ -113,8 +113,8 @@ extractor = JusTextExtractor(
 The `ResiliparseExtractor` and `TrafilaturaExtractor` also use stop word density to filter extracted content:
 
 ```python
-from ray_curator.stages.text.download.html_extractors.resiliparse import ResiliparseExtractor
-from ray_curator.stages.text.download.html_extractors.trafilatura import TrafilaturaExtractor
+from nemo_curator.stages.text.download.html_extractors.resiliparse import ResiliparseExtractor
+from nemo_curator.stages.text.download.html_extractors.trafilatura import TrafilaturaExtractor
 
 # Resiliparse with custom stop word density
 resiliparse = ResiliparseExtractor(
@@ -145,9 +145,9 @@ For these languages, the extractor applies special handling:
 You can create and use your own stop word lists when processing text with Curator:
 
 ```python
-from ray_curator.stages.text.download import CommonCrawlDownloadExtractStage
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
 
 # Define custom stop words for multiple languages
 custom_stop_lists = {
