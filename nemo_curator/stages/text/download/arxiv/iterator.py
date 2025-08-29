@@ -23,70 +23,11 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.stages.text.download import DocumentIterator
-from nemo_curator.utils.file_utils import get_all_file_paths_under
+from nemo_curator.utils.file_utils import get_all_file_paths_under, tar_safe_extract
 
 # The iterator and extractor code are in large part taken
 # from the Red-Pajama repo
 # https://github.com/togethercomputer/RedPajama-Data/tree/main/data_prep/arxiv
-
-
-def _is_safe_path(path: str, base_path: str) -> bool:
-    """
-    Check if a path is safe for extraction (no path traversal).
-
-    Args:
-        path: The path to check
-        base_path: The base directory for extraction
-
-    Returns:
-        True if the path is safe, False otherwise
-    """
-    # Normalize paths to handle different path separators and resolve '..' components
-    full_path = os.path.normpath(os.path.join(base_path, path))
-    base_path = os.path.normpath(base_path)
-
-    # Check if the resolved path is within the base directory
-    return os.path.commonpath([full_path, base_path]) == base_path
-
-
-def _safe_extract(tar: tarfile.TarFile, path: str) -> None:
-    """
-    Safely extract a tar file, preventing path traversal attacks.
-
-    Args:
-        tar: The TarFile object to extract
-        path: The destination path for extraction
-
-    Raises:
-        ValueError: If any member has an unsafe path
-    """
-    for member in tar.getmembers():
-        # Check for absolute paths
-        if os.path.isabs(member.name):
-            msg = f"Absolute path not allowed: {member.name}"
-            raise ValueError(msg)
-
-        # Check for path traversal attempts
-        if not _is_safe_path(member.name, path):
-            msg = f"Path traversal attempt detected: {member.name}"
-            raise ValueError(msg)
-
-        # Check for dangerous file types
-        if member.isdev():
-            msg = f"Device files not allowed: {member.name}"
-            raise ValueError(msg)
-
-        # For symlinks, check that the target is also safe
-        if member.issym() or member.islnk():
-            if os.path.isabs(member.linkname):
-                msg = f"Absolute symlink target not allowed: {member.name} -> {member.linkname}"
-                raise ValueError(msg)
-            if not _is_safe_path(member.linkname, path):
-                msg = f"Symlink target outside extraction directory: {member.name} -> {member.linkname}"
-                raise ValueError(msg)
-
-        # Extract the member
-        tar.extract(member, path)
 
 
 class ArxivIterator(DocumentIterator):
@@ -185,7 +126,7 @@ class ArxivIterator(DocumentIterator):
 
         with tempfile.TemporaryDirectory(dir=download_dir) as tmpdir, tarfile.open(file_path) as tf:
             # Use safe extraction instead of extractall to prevent path traversal attacks
-            _safe_extract(tf, tmpdir)
+            tar_safe_extract(tf, tmpdir)
             for _i, item in enumerate(get_all_file_paths_under(tmpdir, recurse_subdirectories=True)):
                 if self._counter > 0 and self._counter % self._log_frequency == 0:
                     logger.info(f"Extracted {self._counter} papers from {file_path}")

@@ -89,7 +89,7 @@ class RayClient:
                 msg = (
                     "No monitoring services are running. "
                     "Please run the `start_prometheus_grafana.py` "
-                    "script from ray_curator/metrics folder to setup monitoring services separately."
+                    "script from nemo_curator/metrics folder to setup monitoring services separately."
                 )
                 logger.warning(msg)
 

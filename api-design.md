@@ -200,4 +200,4 @@ class RayDataExecutor(BaseExecutor):
 
 ## Examples
 
-Please refer to the [quickstart](./ray_curator/examples/quickstart.py) for a basic example.
+Please refer to the [quickstart](./nemo_curator/examples/quickstart.py) for a basic example.

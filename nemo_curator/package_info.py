@@ -31,7 +31,7 @@ if VERSION[3] != "":
 if VERSION[4] != "":
     __version__ = __version__ + "." + ".".join(VERSION[4:])
 
-__package_name__ = "ray_curator"
+__package_name__ = "nemo_curator"
 __contact_names__ = "NVIDIA"
 __contact_emails__ = "nemo-toolkit@nvidia.com"
 __homepage__ = "https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/index.html"
