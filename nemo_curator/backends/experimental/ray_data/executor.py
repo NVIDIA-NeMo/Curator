@@ -108,7 +108,7 @@ class RayDataExecutor(BaseExecutor):
             Ray Data dataset containing Task objects directly
         """
         # Create Ray Data dataset directly from Task objects
-        return ray.data.from_items(tasks)
+        return ray.data.from_items(tasks, override_num_blocks=len(tasks))
 
     def _dataset_to_tasks(self, dataset: Dataset) -> list[Task]:
         """Convert Ray Data dataset back to list of tasks.
