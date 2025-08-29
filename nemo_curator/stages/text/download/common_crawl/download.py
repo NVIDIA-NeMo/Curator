@@ -21,7 +21,7 @@ import fsspec
 from loguru import logger
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloader
-from nemo_curator.utils.client_utils import fs_join
+from nemo_curator.utils.file_utils import fs_join
 
 
 class CommonCrawlWARCDownloader(DocumentDownloader):
@@ -65,7 +65,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         if self.use_aws_to_download:
             # Use fsspec-compatible path construction for S3
             s3_fs = fsspec.filesystem("s3")
-            url_to_download = fs_join(s3_fs, "s3://commoncrawl", urlpath)
+            url_to_download = fs_join("s3://commoncrawl", urlpath, fs=s3_fs)
         else:
             url_to_download = url
 

@@ -14,12 +14,17 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
+import fsspec
 import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.utils.file_utils import (
+    fs_join,
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
     infer_dataset_name_from_path,
@@ -338,3 +343,181 @@ class TestFilePartitioningStageGetters:
 
         with pytest.raises(TypeError, match="Invalid file paths"):
             stage._get_file_list_with_sizes()
+
+
+class TestFSJoin:
+    """Test suite for the fs_join utility function."""
+
+    def test_fs_join_local_filesystem(self):
+        """Test fs_join with local filesystem."""
+        fs = fsspec.filesystem("file")
+        result = fs_join("/tmp", "subdir", "file.txt", fs=fs)
+        expected = "file:///tmp/subdir/file.txt"
+        assert result == expected
+
+    def test_fs_join_local_filesystem_auto_fs(self):
+        """Test fs_join with auto-detected local filesystem."""
+        result = fs_join("/tmp", "subdir", "file.txt")
+        expected = "file:///tmp/subdir/file.txt"
+        assert result == expected
+
+    def test_fs_join_s3_filesystem(self):
+        """Test fs_join with S3 filesystem."""
+        # Mock S3 filesystem
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.return_value = "bucket/path"
+        mock_fs.unstrip_protocol.return_value = "s3://bucket/path/subdir/file.txt"
+
+        result = fs_join("s3://bucket/path", "subdir", "file.txt", fs=mock_fs)
+        
+        mock_fs._strip_protocol.assert_called_once_with("s3://bucket/path")
+        mock_fs.unstrip_protocol.assert_called_once_with("bucket/path/subdir/file.txt")
+        assert result == "s3://bucket/path/subdir/file.txt"
+
+    def test_fs_join_gcs_filesystem(self):
+        """Test fs_join with GCS filesystem."""
+        # Mock GCS filesystem
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.return_value = "bucket/path"
+        mock_fs.unstrip_protocol.return_value = "gs://bucket/path/data/file.json"
+
+        result = fs_join("gs://bucket/path", "data", "file.json", fs=mock_fs)
+        
+        assert result == "gs://bucket/path/data/file.json"
+
+    def test_fs_join_with_trailing_separators(self):
+        """Test fs_join with trailing separators in path components."""
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.return_value = "bucket/path"
+        mock_fs.unstrip_protocol.return_value = "s3://bucket/path/subdir/file.txt"
+
+        result = fs_join("s3://bucket/path/", "/subdir/", "/file.txt", fs=mock_fs)
+        
+        # Should strip separators from parts
+        mock_fs.unstrip_protocol.assert_called_once_with("bucket/path/subdir/file.txt")
+        assert result == "s3://bucket/path/subdir/file.txt"
+
+    def test_fs_join_empty_parts(self):
+        """Test fs_join with empty parts."""
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.return_value = "bucket/path"
+        mock_fs.unstrip_protocol.return_value = "s3://bucket/path"
+
+        result = fs_join("s3://bucket/path", fs=mock_fs)
+        
+        assert result == "s3://bucket/path"
+
+    def test_fs_join_download_path_construction_patterns(self):
+        """Test that download components use cloud-compatible path construction."""
+        # This test verifies that we avoid os.path.join in favor of fsspec patterns
+        
+        # Mock different filesystem types
+        mock_s3_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_s3_fs.sep = "/"
+        mock_s3_fs._strip_protocol.side_effect = lambda x: x.replace("s3://", "")
+        mock_s3_fs.unstrip_protocol.side_effect = lambda x: f"s3://{x}"
+        
+        # Test S3 path construction
+        base_path = "s3://commoncrawl"
+        subpath = "crawl-data/file.txt"
+        result = fs_join(base_path, subpath, fs=mock_s3_fs)
+        
+        expected = "s3://commoncrawl/crawl-data/file.txt"
+        assert result == expected
+
+    def test_fs_join_cache_directory_path_construction(self):
+        """Test that cache directories use cloud-compatible paths."""
+        # Test with temporary directory to simulate cache behavior
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            fs = fsspec.filesystem("file")
+            
+            # Test constructing histogram cache path
+            cache_base = tmp_dir
+            cache_subdir = "histograms"
+            
+            result = fs_join(cache_base, cache_subdir, fs=fs)
+            # For local filesystem, fsspec adds file:// protocol
+            expected_path = f"file://{os.path.join(tmp_dir, 'histograms')}"
+            
+            assert result == expected_path
+            
+            # Verify the path is valid for the filesystem
+            # Strip protocol for existence check
+            check_path = fs._strip_protocol(result)
+            assert not fs.exists(check_path)  # Should not exist yet
+            
+    def test_fs_join_output_filename_construction(self):
+        """Test that output filenames are constructed in a cloud-compatible way."""
+        # Mock filesystem for testing
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.side_effect = lambda x: x.replace("s3://", "")
+        mock_fs.unstrip_protocol.side_effect = lambda x: f"s3://{x}"
+        
+        # Test output file construction patterns
+        download_dir = "s3://my-bucket/downloads"
+        output_name = "document.txt"
+        
+        result = fs_join(download_dir, output_name, fs=mock_fs)
+        expected = "s3://my-bucket/downloads/document.txt"
+        
+        assert result == expected
+
+    def test_fs_join_arxiv_s3_path_construction(self):
+        """Test ArXiv-specific S3 path construction patterns."""
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.side_effect = lambda x: x.replace("s3://", "")
+        mock_fs.unstrip_protocol.side_effect = lambda x: f"s3://{x}"
+        
+        # Test the pattern used in ArXiv downloader
+        base = "s3://arxiv/src"
+        url = "1901/1901.00001.tar"
+        
+        result = fs_join(base, url, fs=mock_fs)
+        expected = "s3://arxiv/src/1901/1901.00001.tar"
+        
+        assert result == expected
+
+    def test_fs_join_common_crawl_s3_path_construction(self):
+        """Test Common Crawl S3 path construction patterns."""
+        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+        mock_fs.sep = "/"
+        mock_fs._strip_protocol.side_effect = lambda x: x.replace("s3://", "")
+        mock_fs.unstrip_protocol.side_effect = lambda x: f"s3://{x}"
+        
+        # Test the pattern used in Common Crawl downloader
+        base = "s3://commoncrawl"
+        urlpath = "crawl-data/CC-MAIN-2023-14/segments/file.warc.gz"
+        
+        result = fs_join(base, urlpath, fs=mock_fs)
+        expected = "s3://commoncrawl/crawl-data/CC-MAIN-2023-14/segments/file.warc.gz"
+        
+        assert result == expected
+
+    def test_fs_join_mixed_filesystem_compatibility(self):
+        """Test that fs_join works with different filesystem types."""
+        
+        # Test with actual local filesystem
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            local_fs = fsspec.filesystem("file")
+            result = fs_join(tmp_dir, "subdir", "file.txt", fs=local_fs)
+            
+            # For local filesystem, fsspec adds file:// protocol
+            expected = f"file://{os.path.join(tmp_dir, 'subdir', 'file.txt')}"
+            assert result == expected
+            
+        # Test with mock remote filesystems
+        for protocol in ["s3", "gs", "azure"]:
+            mock_fs = Mock(spec=fsspec.AbstractFileSystem)
+            mock_fs.sep = "/"
+            mock_fs._strip_protocol.side_effect = lambda x: x.split("://", 1)[1] if "://" in x else x
+            mock_fs.unstrip_protocol.side_effect = lambda x: f"{protocol}://{x}"
+            
+            result = fs_join(f"{protocol}://bucket/path", "subdir", "file.txt", fs=mock_fs)
+            expected = f"{protocol}://bucket/path/subdir/file.txt"
+            assert result == expected

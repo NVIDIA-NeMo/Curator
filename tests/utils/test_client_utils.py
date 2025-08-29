@@ -18,7 +18,7 @@ from unittest.mock import Mock
 import fsspec
 import pytest
 
-from nemo_curator.utils.client_utils import FSPath, fs_join, is_remote_url
+from nemo_curator.utils.client_utils import FSPath, is_remote_url
 
 
 class TestFSPath:
@@ -393,65 +393,3 @@ class TestFSPath:
         assert not is_remote_url("unknown://path")
 
 
-class TestFSJoin:
-    """Test suite for fs_join utility function."""
-
-    def test_fs_join_with_local_filesystem(self) -> None:
-        """Test fs_join with local filesystem."""
-        fs = fsspec.filesystem("file")
-        result = fs_join(fs, "/tmp", "subdir", "file.txt")
-        expected = "file:///tmp/subdir/file.txt"
-        assert result == expected
-
-    def test_fs_join_with_mock_s3_filesystem(self) -> None:
-        """Test fs_join with mock S3 filesystem."""
-        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
-        mock_fs.sep = "/"
-        mock_fs._strip_protocol.return_value = "bucket/path"
-        mock_fs.unstrip_protocol.return_value = "s3://bucket/path/subdir/file.txt"
-
-        result = fs_join(mock_fs, "s3://bucket/path", "subdir", "file.txt")
-
-        mock_fs._strip_protocol.assert_called_once_with("s3://bucket/path")
-        mock_fs.unstrip_protocol.assert_called_once_with("bucket/path/subdir/file.txt")
-        assert result == "s3://bucket/path/subdir/file.txt"
-
-    def test_fs_join_with_trailing_separators(self) -> None:
-        """Test fs_join handles trailing separators correctly."""
-        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
-        mock_fs.sep = "/"
-        mock_fs._strip_protocol.return_value = "bucket/path"
-        mock_fs.unstrip_protocol.return_value = "s3://bucket/path/subdir/file.txt"
-
-        result = fs_join(mock_fs, "s3://bucket/path/", "/subdir/", "/file.txt")
-
-        # Should strip separators from parts
-        mock_fs.unstrip_protocol.assert_called_once_with("bucket/path/subdir/file.txt")
-        assert result == "s3://bucket/path/subdir/file.txt"
-
-    def test_fs_join_with_no_additional_parts(self) -> None:
-        """Test fs_join with only base path."""
-        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
-        mock_fs.sep = "/"
-        mock_fs._strip_protocol.return_value = "bucket/path"
-        mock_fs.unstrip_protocol.return_value = "s3://bucket/path"
-
-        result = fs_join(mock_fs, "s3://bucket/path")
-
-        mock_fs._strip_protocol.assert_called_once_with("s3://bucket/path")
-        mock_fs.unstrip_protocol.assert_called_once_with("bucket/path")
-        assert result == "s3://bucket/path"
-
-    def test_fs_join_with_different_separators(self) -> None:
-        """Test fs_join with filesystem using different separator."""
-        mock_fs = Mock(spec=fsspec.AbstractFileSystem)
-        mock_fs.sep = "\\"  # Windows-style separator
-        mock_fs._strip_protocol.return_value = "path"
-        mock_fs.unstrip_protocol.return_value = "windows://path/subdir/file.txt"
-
-        # Parts should be stripped of the filesystem separator
-        result = fs_join(mock_fs, "windows://path", "\\subdir\\", "\\file.txt")
-
-        # posixpath.join should normalize to forward slashes
-        mock_fs.unstrip_protocol.assert_called_once_with("path/subdir/file.txt")
-        assert result == "windows://path/subdir/file.txt"

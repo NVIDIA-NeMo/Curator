@@ -20,7 +20,7 @@ import fsspec
 from loguru import logger
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloader
-from nemo_curator.utils.client_utils import fs_join
+from nemo_curator.utils.file_utils import fs_join
 
 
 class ArxivDownloader(DocumentDownloader):
@@ -39,7 +39,7 @@ class ArxivDownloader(DocumentDownloader):
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
         # Use fsspec-compatible path construction
         s3_fs = fsspec.filesystem("s3")
-        s3path = fs_join(s3_fs, "s3://arxiv/src", url)
+        s3path = fs_join("s3://arxiv/src", url, fs=s3_fs)
 
         if self._verbose:
             logger.info(f"Downloading {s3path} and writing to {path}")

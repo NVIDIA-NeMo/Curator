@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import posixpath
-
 import fsspec
 from fsspec.core import url_to_fs
 
@@ -73,31 +71,6 @@ class FSPath:
             out[s : s + len(b)] = b
         return bytes(out)
 
-
-def fs_join(fs: fsspec.AbstractFileSystem, base: str, *parts: str) -> str:
-    """
-    Join one or more path fragments on an fsspec filesystem.
-
-    Parameters
-    ----------
-    fs : fsspec.AbstractFileSystem
-        The filesystem on which the path lives.
-    base : str
-        A base directory or URL (e.g. "s3://mybucket/prefix").
-    *parts : str
-        Additional path components to append.
-
-    Returns
-    -------
-    str
-        A fully‑qualified path with the original protocol reattached.
-    """
-    # remove the scheme (e.g. "s3://") and trailing slash
-    base_no_proto = fs._strip_protocol(base).rstrip(fs.sep)
-    # join the pieces using POSIX conventions
-    joined = posixpath.join(base_no_proto, *[p.strip(fs.sep) for p in parts])
-    # reattach the protocol (e.g. "s3://")
-    return fs.unstrip_protocol(joined)
 
 
 def is_remote_url(url: str) -> bool:

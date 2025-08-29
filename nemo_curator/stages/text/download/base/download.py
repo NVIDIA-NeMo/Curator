@@ -26,7 +26,7 @@ from loguru import logger
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask
-from nemo_curator.utils.client_utils import fs_join
+from nemo_curator.utils.file_utils import fs_join
 
 
 class DocumentDownloader(ABC):
@@ -96,7 +96,7 @@ class DocumentDownloader(ABC):
         """
         # Generate output filename
         output_name = self._get_output_filename(url)
-        output_file = fs_join(self._fs, self._download_dir, output_name)
+        output_file = fs_join(self._download_dir, output_name, fs=self._fs)
         temp_file = output_file + ".tmp"
 
         # If final file exists and is non-empty, assume it's complete
