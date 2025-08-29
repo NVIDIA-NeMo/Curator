@@ -413,7 +413,7 @@ class TestFSJoin:
 
     def test_fs_join_download_path_construction_patterns(self):
         """Test that download components use cloud-compatible path construction."""
-        # This test verifies that we avoid os.path.join in favor of fsspec patterns
+        # This test verifies that fs_join correctly handles cloud filesystem paths
         
         # Mock different filesystem types
         mock_s3_fs = Mock(spec=fsspec.AbstractFileSystem)

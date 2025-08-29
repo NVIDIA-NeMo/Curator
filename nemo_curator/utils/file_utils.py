@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import posixpath
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -141,8 +140,10 @@ def _gather_extention(path: str) -> str:
     Returns:
         The extension of the path.
     """
-    name = posixpath.basename(path.rstrip("/"))
-    return posixpath.splitext(name)[1][1:].casefold()
+    name = path.rstrip("/").split("/")[-1]
+    if "." in name:
+        return name.split(".")[-1].casefold()
+    return ""
 
 
 def _gather_file_records(  # noqa: PLR0913
@@ -390,9 +391,10 @@ def fs_join(base: str, *parts: str, fs: fsspec.AbstractFileSystem | None = None)
         fs = get_fs(base)
     
     # remove the scheme (e.g. "s3://") and trailing slash
-    base_no_proto = fs._strip_protocol(base).rstrip(fs.sep)
-    # join the pieces using POSIX conventions
-    joined = posixpath.join(base_no_proto, *[p.strip(fs.sep) for p in parts])
+    base_no_proto = fs._strip_protocol(base).rstrip("/")
+    # join the pieces using forward slashes
+    all_parts = [base_no_proto] + [p.strip("/") for p in parts]
+    joined = "/".join(part for part in all_parts if part)
     # reattach the protocol (e.g. "s3://")
     return fs.unstrip_protocol(joined)
 
