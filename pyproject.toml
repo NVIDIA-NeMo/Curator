@@ -52,7 +52,7 @@ dependencies = [
     "pyarrow",
     "ray[default,data]>=2.49",
     "torch",
-    "transformers>=4.48.0",
+    "transformers==4.53.1",
 ]
 
 [project.optional-dependencies]
@@ -133,7 +133,7 @@ internvideo2 = [
     "torchaudio>=2.4.1",
     "torchvision>=0.19.1",
     "tqdm>=4.66.5",
-    "transformers>=4.45.1",
+    "transformers==4.53.1",
     "wandb>=0.18.3",
 ]
 
