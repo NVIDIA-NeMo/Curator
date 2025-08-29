@@ -361,11 +361,13 @@ class SemanticDeduplicationWorkflow:
             logger.success(f"Total execution time: {total_time:.2f} seconds ({total_time / 60:.2f} minutes)")
             logger.info(f"K-means time: {kmeans_time:.2f} seconds")
             logger.info(f"Pairwise time: {pairwise_time:.2f} seconds")
-            logger.info(f"Total K-means results: {len(kmeans_results)}")
-            logger.info(f"Total pairwise results: {len(pairwise_results)}")
             if total_duplicates > 0:
                 logger.success(f"Total documents identified as duplicates: {total_duplicates}")
                 logger.info(f"Similarity threshold used: {1.0 - self.eps:.3f} (eps={self.eps})")
+            else:
+                logger.info(
+                    f"No duplicates identified with similarity threshold of {1.0 - self.eps:.3f} (eps={self.eps})"
+                )
             logger.success("=" * 60)
 
         except Exception as e:
