@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+from fsspec.core import url_to_fs
 from loguru import logger
 
 from nemo_curator.stages.base import ProcessingStage
@@ -37,12 +38,17 @@ class DocumentDownloader(ABC):
         """
         self._download_dir = download_dir
         self._verbose = verbose
-        os.makedirs(download_dir, exist_ok=True)
+
+        # Initialize filesystem for download directory
+        self._fs, self._download_dir_clean = url_to_fs(download_dir)
+
+        # Create directory using fsspec
+        self._fs.makedirs(self._download_dir_clean, exist_ok=True)
 
     def _check_s5cmd_installed(self) -> bool:
         """Check if s5cmd is installed."""
         try:
-            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
+            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S607
         except FileNotFoundError:
             return False
         else:
@@ -91,7 +97,10 @@ class DocumentDownloader(ABC):
         temp_file = output_file + ".tmp"
 
         # If final file exists and is non-empty, assume it's complete
-        if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+        if (
+            self._fs.exists(self._fs._strip_protocol(output_file))
+            and self._fs.size(self._fs._strip_protocol(output_file)) > 0
+        ):
             if self._verbose:
                 logger.info(f"File: {output_file} exists. Not downloading")
             return output_file
@@ -101,9 +110,15 @@ class DocumentDownloader(ABC):
 
         if success:
             # Download successful, atomically move temp file to final location
-            os.rename(temp_file, output_file)
+            # For local files, use os.rename. For remote, need to use filesystem operations
+            if self._fs.protocol in ("file", ["file"]):
+                os.rename(temp_file, output_file)
+            else:
+                # For remote filesystems, use move operation
+                self._fs.move(self._fs._strip_protocol(temp_file), self._fs._strip_protocol(output_file))
+
             if self._verbose:
-                file_size = os.path.getsize(output_file)
+                file_size = self._fs.size(self._fs._strip_protocol(output_file))
                 logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
             return output_file
         else:

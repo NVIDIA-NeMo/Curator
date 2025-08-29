@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import posixpath
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -141,8 +140,10 @@ def _gather_extention(path: str) -> str:
     Returns:
         The extension of the path.
     """
-    name = posixpath.basename(path.rstrip("/"))
-    return posixpath.splitext(name)[1][1:].casefold()
+    name = path.rstrip("/").split("/")[-1]
+    if "." in name:
+        return name.split(".")[-1].casefold()
+    return ""
 
 
 def _gather_file_records(  # noqa: PLR0913

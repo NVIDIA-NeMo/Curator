@@ -17,7 +17,7 @@ import subprocess
 
 from loguru import logger
 
-from nemo_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download.base.download import DocumentDownloader
 
 
 class ArxivDownloader(DocumentDownloader):
@@ -34,6 +34,7 @@ class ArxivDownloader(DocumentDownloader):
         return url
 
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
+        # Use standard path joining - works perfectly for cloud URLs on Unix
         s3path = os.path.join("s3://arxiv/src", url)
 
         if self._verbose:

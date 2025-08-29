@@ -72,6 +72,7 @@ class FSPath:
         return bytes(out)
 
 
+
 def is_remote_url(url: str) -> bool:
     fs, _ = url_to_fs(url)
     proto = fs.protocol[0] if isinstance(fs.protocol, (list, tuple)) else fs.protocol
