@@ -101,3 +101,6 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             _metadata={**task._metadata, "num_removed": len(removal_ids)},
             _stage_perf=task._stage_perf,
         )
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.id_field]
