@@ -316,7 +316,6 @@ class TestFSPath:
 
     def test_is_remote_url_local_file(self) -> None:
         """Test is_remote_url with local file path."""
-        from nemo_curator.utils.client_utils import is_remote_url
 
         # Test with absolute local path
         assert not is_remote_url("/home/user/file.txt")
@@ -329,7 +328,6 @@ class TestFSPath:
 
     def test_is_remote_url_with_mock_fsspec(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with mocked fsspec to test protocol handling."""
-        from nemo_curator.utils.client_utils import is_remote_url
 
         # Mock the url_to_fs function
         def mock_url_to_fs(url: str) -> tuple:
@@ -360,7 +358,6 @@ class TestFSPath:
 
     def test_is_remote_url_multiple_protocols(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with filesystem that has multiple protocols."""
-        from nemo_curator.utils.client_utils import is_remote_url
 
         def mock_url_to_fs(_url: str) -> tuple:
             class MockFS:
@@ -377,7 +374,6 @@ class TestFSPath:
 
     def test_is_remote_url_no_protocol(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test is_remote_url with filesystem that has no protocol."""
-        from nemo_curator.utils.client_utils import is_remote_url
 
         def mock_url_to_fs(_url: str) -> tuple:
             class MockFS:

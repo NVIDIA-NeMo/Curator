@@ -14,12 +14,8 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from typing import TYPE_CHECKING
-from unittest.mock import Mock
 
-import fsspec
 import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage

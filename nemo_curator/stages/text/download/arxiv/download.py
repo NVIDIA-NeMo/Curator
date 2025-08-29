@@ -15,7 +15,6 @@
 import os
 import subprocess
 
-import fsspec
 from loguru import logger
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloader

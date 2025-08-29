@@ -16,7 +16,6 @@ import os
 import subprocess
 from urllib.parse import urlparse
 
-import fsspec
 from loguru import logger
 
 from nemo_curator.stages.text.download.base.download import DocumentDownloader
@@ -60,11 +59,8 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         """
         urlpath = urlparse(url).path[1:]
 
-        if self.use_aws_to_download:
-            # Use standard path joining - works perfectly for cloud URLs on Unix
-            url_to_download = os.path.join("s3://commoncrawl", urlpath)
-        else:
-            url_to_download = url
+        # Use standard path joining - works perfectly for cloud URLs on Unix
+        url_to_download = os.path.join("s3://commoncrawl", urlpath) if self.use_aws_to_download else url
 
         if self._verbose:
             logger.info(f"Downloading {url_to_download} to {path}")
