@@ -2547,6 +2547,221 @@ wheels = [
 ]
 
 [[package]]
+name = "nemo-curator"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "absl-py" },
+    { name = "comment-parser" },
+    { name = "cosmos-xenna" },
+    { name = "fsspec" },
+    { name = "jieba" },
+    { name = "loguru" },
+    { name = "mecab-python3" },
+    { name = "pandas" },
+    { name = "pyarrow", version = "19.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
+    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'" },
+    { name = "ray", extra = ["data", "default"] },
+    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "transformers" },
+]
+
+[package.optional-dependencies]
+all = [
+    { name = "av" },
+    { name = "beautifulsoup4" },
+    { name = "cudf-cu12" },
+    { name = "cugraph-cu12" },
+    { name = "cuml-cu12" },
+    { name = "cvcuda-cu12" },
+    { name = "easydict" },
+    { name = "einops" },
+    { name = "fasttext" },
+    { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "ftfy" },
+    { name = "justext" },
+    { name = "lxml" },
+    { name = "mwparserfromhell" },
+    { name = "nvidia-dali-cuda120" },
+    { name = "nx-cugraph-cu12" },
+    { name = "opencv-python" },
+    { name = "peft" },
+    { name = "pycld2" },
+    { name = "pycuda" },
+    { name = "pylibraft-cu12" },
+    { name = "raft-dask-cu12" },
+    { name = "rapidsmpf-cu12" },
+    { name = "resiliparse" },
+    { name = "sentencepiece" },
+    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "torchaudio", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchaudio", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "torchvision", version = "0.22.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "trafilatura" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "warcio" },
+]
+dali = [
+    { name = "nvidia-dali-cuda120" },
+]
+deduplication-cuda12x = [
+    { name = "cudf-cu12" },
+    { name = "cugraph-cu12" },
+    { name = "cuml-cu12" },
+    { name = "nx-cugraph-cu12" },
+    { name = "pylibraft-cu12" },
+    { name = "raft-dask-cu12" },
+    { name = "rapidsmpf-cu12" },
+]
+text = [
+    { name = "beautifulsoup4" },
+    { name = "fasttext" },
+    { name = "ftfy" },
+    { name = "justext" },
+    { name = "lxml" },
+    { name = "mwparserfromhell" },
+    { name = "peft" },
+    { name = "pycld2" },
+    { name = "resiliparse" },
+    { name = "sentencepiece" },
+    { name = "trafilatura" },
+    { name = "warcio" },
+]
+video = [
+    { name = "av" },
+    { name = "easydict" },
+    { name = "einops" },
+    { name = "opencv-python" },
+    { name = "torchvision", version = "0.22.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+]
+video-cuda = [
+    { name = "cvcuda-cu12" },
+    { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "pycuda" },
+    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "torchaudio", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torchaudio", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+video-nvenc = [
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+
+[package.dev-dependencies]
+build = [
+    { name = "setuptools", version = "79.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and platform_machine == 'x86_64'" },
+    { name = "setuptools", version = "80.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or platform_machine != 'x86_64'" },
+    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+]
+dev = [
+    { name = "internvideo2-multi-modality", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+linting = [
+    { name = "pre-commit" },
+    { name = "ruff" },
+]
+test = [
+    { name = "debugpy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-coverage" },
+    { name = "pytest-loguru" },
+    { name = "scikit-learn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
+    { name = "av", marker = "extra == 'video'", specifier = "==13.1.0" },
+    { name = "beautifulsoup4", marker = "extra == 'text'" },
+    { name = "comment-parser" },
+    { name = "cosmos-xenna", specifier = "==0.1.2" },
+    { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "cugraph-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "cvcuda-cu12", marker = "extra == 'video-cuda'" },
+    { name = "easydict", marker = "extra == 'video'" },
+    { name = "einops", marker = "extra == 'video'" },
+    { name = "fasttext", marker = "extra == 'text'", specifier = "==0.9.3" },
+    { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "<=2.8.3" },
+    { name = "fsspec" },
+    { name = "ftfy", marker = "extra == 'text'", specifier = "==6.1.1" },
+    { name = "jieba", specifier = "==0.42.1" },
+    { name = "justext", marker = "extra == 'text'" },
+    { name = "loguru" },
+    { name = "lxml", marker = "extra == 'text'" },
+    { name = "mecab-python3" },
+    { name = "mwparserfromhell", marker = "extra == 'text'", specifier = "==0.6.5" },
+    { name = "nemo-curator", extras = ["dali"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["deduplication-cuda12x"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["text"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["video"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["video-cuda"], marker = "extra == 'all'" },
+    { name = "nvidia-dali-cuda120", marker = "extra == 'dali'" },
+    { name = "nx-cugraph-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "opencv-python", marker = "extra == 'video'" },
+    { name = "pandas", specifier = ">=2.1.0" },
+    { name = "peft", marker = "extra == 'text'" },
+    { name = "pyarrow" },
+    { name = "pycld2", marker = "extra == 'text'" },
+    { name = "pycuda", marker = "extra == 'video-cuda'" },
+    { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-nvenc'", specifier = "==2.0.2" },
+    { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
+    { name = "ray", extras = ["default", "data"], specifier = ">=2.49" },
+    { name = "resiliparse", marker = "extra == 'text'" },
+    { name = "sentencepiece", marker = "extra == 'text'" },
+    { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
+    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "<=2.8.0", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda') or (sys_platform == 'darwin' and extra == 'video-cuda')", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
+    { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda') or (sys_platform == 'darwin' and extra == 'video-cuda')", index = "https://pypi.org/simple" },
+    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video') or (sys_platform == 'darwin' and extra == 'video')", index = "https://pypi.org/simple" },
+    { name = "trafilatura", marker = "extra == 'text'", specifier = "==2.0.0" },
+    { name = "transformers", specifier = ">=4.48.0" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "==0.9.2" },
+    { name = "warcio", marker = "extra == 'text'" },
+]
+provides-extras = ["text", "deduplication-cuda12x", "video", "video-cuda", "video-nvenc", "dali", "all"]
+
+[package.metadata.requires-dev]
+build = [
+    { name = "setuptools" },
+    { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
+    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = "<=2.8.0", index = "https://download.pytorch.org/whl/cu128" },
+]
+dev = [{ name = "internvideo2-multi-modality", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", git = "https://github.com/suiyoubi/InternVideo.git?subdirectory=InternVideo2%2Fmulti_modality&rev=curator" }]
+linting = [
+    { name = "pre-commit" },
+    { name = "ruff", specifier = "==0.11.4" },
+]
+test = [
+    { name = "debugpy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-coverage" },
+    { name = "pytest-loguru" },
+    { name = "scikit-learn" },
+]
+
+[[package]]
 name = "nest-asyncio"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4802,221 +5017,6 @@ default = [
     { name = "requests" },
     { name = "smart-open" },
     { name = "virtualenv" },
-]
-
-[[package]]
-name = "ray-curator"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "absl-py" },
-    { name = "comment-parser" },
-    { name = "cosmos-xenna" },
-    { name = "fsspec" },
-    { name = "jieba" },
-    { name = "loguru" },
-    { name = "mecab-python3" },
-    { name = "pandas" },
-    { name = "pyarrow", version = "19.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
-    { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'" },
-    { name = "ray", extra = ["data", "default"] },
-    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "transformers" },
-]
-
-[package.optional-dependencies]
-all = [
-    { name = "av" },
-    { name = "beautifulsoup4" },
-    { name = "cudf-cu12" },
-    { name = "cugraph-cu12" },
-    { name = "cuml-cu12" },
-    { name = "cvcuda-cu12" },
-    { name = "easydict" },
-    { name = "einops" },
-    { name = "fasttext" },
-    { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "ftfy" },
-    { name = "justext" },
-    { name = "lxml" },
-    { name = "mwparserfromhell" },
-    { name = "nvidia-dali-cuda120" },
-    { name = "nx-cugraph-cu12" },
-    { name = "opencv-python" },
-    { name = "peft" },
-    { name = "pycld2" },
-    { name = "pycuda" },
-    { name = "pylibraft-cu12" },
-    { name = "raft-dask-cu12" },
-    { name = "rapidsmpf-cu12" },
-    { name = "resiliparse" },
-    { name = "sentencepiece" },
-    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchaudio", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchaudio", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchvision", version = "0.22.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "trafilatura" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "warcio" },
-]
-dali = [
-    { name = "nvidia-dali-cuda120" },
-]
-deduplication-cuda12x = [
-    { name = "cudf-cu12" },
-    { name = "cugraph-cu12" },
-    { name = "cuml-cu12" },
-    { name = "nx-cugraph-cu12" },
-    { name = "pylibraft-cu12" },
-    { name = "raft-dask-cu12" },
-    { name = "rapidsmpf-cu12" },
-]
-text = [
-    { name = "beautifulsoup4" },
-    { name = "fasttext" },
-    { name = "ftfy" },
-    { name = "justext" },
-    { name = "lxml" },
-    { name = "mwparserfromhell" },
-    { name = "peft" },
-    { name = "pycld2" },
-    { name = "resiliparse" },
-    { name = "sentencepiece" },
-    { name = "trafilatura" },
-    { name = "warcio" },
-]
-video = [
-    { name = "av" },
-    { name = "easydict" },
-    { name = "einops" },
-    { name = "opencv-python" },
-    { name = "torchvision", version = "0.22.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-]
-video-cuda = [
-    { name = "cvcuda-cu12" },
-    { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pycuda" },
-    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchaudio", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchaudio", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-]
-video-nvenc = [
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-]
-
-[package.dev-dependencies]
-build = [
-    { name = "setuptools", version = "79.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12' and platform_machine == 'x86_64'" },
-    { name = "setuptools", version = "80.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12' or platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-]
-dev = [
-    { name = "internvideo2-multi-modality", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-]
-linting = [
-    { name = "pre-commit" },
-    { name = "ruff" },
-]
-test = [
-    { name = "debugpy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-coverage" },
-    { name = "pytest-loguru" },
-    { name = "scikit-learn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
-    { name = "av", marker = "extra == 'video'", specifier = "==13.1.0" },
-    { name = "beautifulsoup4", marker = "extra == 'text'" },
-    { name = "comment-parser" },
-    { name = "cosmos-xenna", specifier = "==0.1.2" },
-    { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "cugraph-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "cvcuda-cu12", marker = "extra == 'video-cuda'" },
-    { name = "easydict", marker = "extra == 'video'" },
-    { name = "einops", marker = "extra == 'video'" },
-    { name = "fasttext", marker = "extra == 'text'", specifier = "==0.9.3" },
-    { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "<=2.8.3" },
-    { name = "fsspec" },
-    { name = "ftfy", marker = "extra == 'text'", specifier = "==6.1.1" },
-    { name = "jieba", specifier = "==0.42.1" },
-    { name = "justext", marker = "extra == 'text'" },
-    { name = "loguru" },
-    { name = "lxml", marker = "extra == 'text'" },
-    { name = "mecab-python3" },
-    { name = "mwparserfromhell", marker = "extra == 'text'", specifier = "==0.6.5" },
-    { name = "nvidia-dali-cuda120", marker = "extra == 'dali'" },
-    { name = "nx-cugraph-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "opencv-python", marker = "extra == 'video'" },
-    { name = "pandas", specifier = ">=2.1.0" },
-    { name = "peft", marker = "extra == 'text'" },
-    { name = "pyarrow" },
-    { name = "pycld2", marker = "extra == 'text'" },
-    { name = "pycuda", marker = "extra == 'video-cuda'" },
-    { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-nvenc'", specifier = "==2.0.2" },
-    { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "ray", extras = ["default", "data"], specifier = ">=2.49" },
-    { name = "ray-curator", extras = ["dali"], marker = "extra == 'all'" },
-    { name = "ray-curator", extras = ["deduplication-cuda12x"], marker = "extra == 'all'" },
-    { name = "ray-curator", extras = ["text"], marker = "extra == 'all'" },
-    { name = "ray-curator", extras = ["video"], marker = "extra == 'all'" },
-    { name = "ray-curator", extras = ["video-cuda"], marker = "extra == 'all'" },
-    { name = "resiliparse", marker = "extra == 'text'" },
-    { name = "sentencepiece", marker = "extra == 'text'" },
-    { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "<=2.8.0", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda') or (sys_platform == 'darwin' and extra == 'video-cuda')", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
-    { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda') or (sys_platform == 'darwin' and extra == 'video-cuda')", index = "https://pypi.org/simple" },
-    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video') or (sys_platform == 'darwin' and extra == 'video')", index = "https://pypi.org/simple" },
-    { name = "trafilatura", marker = "extra == 'text'", specifier = "==2.0.0" },
-    { name = "transformers", specifier = ">=4.48.0" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda'", specifier = "==0.9.2" },
-    { name = "warcio", marker = "extra == 'text'" },
-]
-provides-extras = ["text", "deduplication-cuda12x", "video", "video-cuda", "video-nvenc", "dali", "all"]
-
-[package.metadata.requires-dev]
-build = [
-    { name = "setuptools" },
-    { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = "<=2.8.0", index = "https://download.pytorch.org/whl/cu128" },
-]
-dev = [{ name = "internvideo2-multi-modality", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", git = "https://github.com/suiyoubi/InternVideo.git?subdirectory=InternVideo2%2Fmulti_modality&rev=curator" }]
-linting = [
-    { name = "pre-commit" },
-    { name = "ruff", specifier = "==0.11.4" },
-]
-test = [
-    { name = "debugpy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-coverage" },
-    { name = "pytest-loguru" },
-    { name = "scikit-learn" },
 ]
 
 [[package]]
