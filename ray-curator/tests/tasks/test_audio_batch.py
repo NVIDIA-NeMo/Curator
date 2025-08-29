@@ -1,13 +1,13 @@
-import os
 from pathlib import Path
 
 from ray_curator.tasks import AudioBatch
 
 
-def test_audio_batch_accepts_dict_and_list(tmp_path: Path) -> None:
+def test_audio_batch_accepts_dict_and_list() -> None:
     # Single dict wraps into list
     b1 = AudioBatch(data={"audio_filepath": "/x.wav"})
-    assert isinstance(b1.data, list) and len(b1.data) == 1
+    assert isinstance(b1.data, list)
+    assert len(b1.data) == 1
 
     # List passes through
     b2 = AudioBatch(data=[{"audio_filepath": "/a.wav"}, {"audio_filepath": "/b.wav"}])

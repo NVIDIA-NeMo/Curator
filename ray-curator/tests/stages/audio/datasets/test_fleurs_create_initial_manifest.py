@@ -2,12 +2,13 @@ import os
 import sys
 import types
 from pathlib import Path
+from typing import Any
 
 
-def _import_stage_module():
+def _import_stage_module() -> tuple[Any, Any]:
     # Inject a stub for optional dependency 'wget' to avoid import errors
     if "wget" not in sys.modules:
-        sys.modules["wget"] = types.SimpleNamespace(download=lambda *a, **k: None)
+        sys.modules["wget"] = types.SimpleNamespace(download=lambda *_args, **_kwargs: None)
     from ray_curator.stages.audio.datasets.fleurs.create_initial_manifest import (
         CreateInitialManifestFleursStage,
         get_fleurs_url_list,
@@ -24,7 +25,7 @@ def test_get_fleurs_url_list_builds_urls() -> None:
 
 
 def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
-    CreateInitialManifestFleursStage, _ = _import_stage_module()
+    stage_cls, _ = _import_stage_module()
     # Arrange: create fake dev.tsv and expected wav layout
     lang = "hy_am"
     split = "dev"
@@ -45,7 +46,7 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     (audio_dir / "file1.wav").write_bytes(b"")
     (audio_dir / "file2.wav").write_bytes(b"")
 
-    stage = CreateInitialManifestFleursStage(lang=lang, split=split, raw_data_dir=raw_dir.as_posix())
+    stage = stage_cls(lang=lang, split=split, raw_data_dir=raw_dir.as_posix())
 
     # Act
     batches = stage.process_transcript(tsv_path.as_posix())
@@ -53,7 +54,8 @@ def test_process_transcript_parses_tsv(tmp_path: Path) -> None:
     # Assert batching behavior and content (default batch_size is 1, so expect 2 batches)
     assert len(batches) == 2
     b0, b1 = batches
-    assert len(b0.data) == 1 and len(b1.data) == 1
+    assert len(b0.data) == 1
+    assert len(b1.data) == 1
     assert b0.data[0][stage.filepath_key].endswith(os.path.join(split, "file1.wav"))
     assert b0.data[0][stage.text_key] == "hello world"
     assert b1.data[0][stage.filepath_key].endswith(os.path.join(split, "file2.wav"))

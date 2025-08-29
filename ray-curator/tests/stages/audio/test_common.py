@@ -1,4 +1,5 @@
 from unittest import mock
+from pathlib import Path
 
 from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.tasks import AudioBatch
@@ -17,7 +18,8 @@ def test_preserve_by_value_comparators() -> None:
     # lt
     stage = PreserveByValueStage(input_value_key="v", target_value=5, operator="lt")
     out = stage.process(AudioBatch(data=[{"v": 2}, {"v": 7}]))
-    assert len(out) == 1 and out[0].data[0]["v"] == 2
+    assert len(out) == 1
+    assert out[0].data[0]["v"] == 2
 
     # ge
     stage = PreserveByValueStage(input_value_key="v", target_value=10, operator="ge")
@@ -26,7 +28,7 @@ def test_preserve_by_value_comparators() -> None:
     assert kept == [10, 11]
 
 
-def test_get_audio_duration_success() -> None:
+def test_get_audio_duration_success(tmp_path: Path) -> None:
     # Mock soundfile.read to return object with shape[0] like numpy array
     class FakeArray:
         def __init__(self, length: int):
@@ -36,13 +38,13 @@ def test_get_audio_duration_success() -> None:
     fake_samples = FakeArray(fake_sr * 2)
     with mock.patch("soundfile.read", return_value=(fake_samples, fake_sr)):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
-        entry = {"audio_filepath": "/tmp/fake.wav"}
+        entry = {"audio_filepath": (tmp_path / "fake.wav").as_posix()}
         out = stage.process(AudioBatch(data=[entry]))
         assert len(out) == 1
         assert out[0].data[0]["duration"] == 2.0
 
 
-def test_get_audio_duration_error_sets_minus_one() -> None:
+def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
     class FakeError(Exception):
         pass
 
@@ -50,6 +52,6 @@ def test_get_audio_duration_error_sets_minus_one() -> None:
         "ray_curator.stages.audio.common.soundfile.SoundFileError", FakeError
     ):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
-        entry = {"audio_filepath": "/tmp/missing.wav"}
+        entry = {"audio_filepath": (tmp_path / "missing.wav").as_posix()}
         out = stage.process(AudioBatch(data=[entry]))
         assert out[0].data[0]["duration"] == -1.0

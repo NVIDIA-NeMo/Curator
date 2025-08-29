@@ -17,7 +17,8 @@ def test_audio_to_document_stage_converts_batch() -> None:
     stage = AudioToDocumentStage()
     out = stage.process(audio)
 
-    assert isinstance(out, list) and len(out) == 1
+    assert isinstance(out, list)
+    assert len(out) == 1
     doc = out[0]
     assert isinstance(doc.data, pd.DataFrame)
     assert list(doc.data.columns) == ["audio_filepath", "text"]
