@@ -135,12 +135,3 @@ class RayClient:
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
-
-
-if __name__ == "__main__":
-    client = RayClient()
-    client.start()
-    import time
-
-    time.sleep(10)  # Wait for ray to start
-    client.stop()
