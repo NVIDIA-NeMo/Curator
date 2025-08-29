@@ -1,5 +1,5 @@
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 from ray_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from ray_curator.tasks import AudioBatch
