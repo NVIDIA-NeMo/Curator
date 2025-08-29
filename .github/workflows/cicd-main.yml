@@ -153,6 +153,7 @@ jobs:
         run: |
           pip install -U pip
           pip install --no-cache-dir ".[text]"
+          pip install --no-cache-dir ".[audio]"
           pip install --no-cache-dir ".[video]"
           pip install --no-cache-dir ".[internvideo2]"
           pip install --no-cache-dir --group test
