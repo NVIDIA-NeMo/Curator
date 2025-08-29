@@ -64,7 +64,7 @@ def test_get_audio_duration_error_sets_minus_one(tmp_path: Path) -> None:
 
     with (
         mock.patch("soundfile.read", side_effect=FakeError()),
-        mock.patch("ray_curator.stages.audio.common.soundfile.SoundFileError", FakeError),
+        mock.patch("nemo_curator.stages.audio.common.soundfile.SoundFileError", FakeError),
     ):
         stage = GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration")
         entry = {"audio_filepath": (tmp_path / "missing.wav").as_posix()}

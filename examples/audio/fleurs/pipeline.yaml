@@ -34,35 +34,35 @@ output_dir: ${raw_data_dir}/result
 
 processors:
   # Getting data for Armenian dev set
-  - _target_: ray_curator.stages.audio.datasets.fleurs.create_initial_manifest.CreateInitialManifestFleursStage
+  - _target_: nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest.CreateInitialManifestFleursStage
     lang: "hy_am"
     split: ${data_split}
     raw_data_dir: ${raw_data_dir}
     _batch_size: 4
 
-  - _target_: ray_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
+  - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
     model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
     _resources:
-      _target_: ray_curator.stages.resources.Resources
+      _target_: nemo_curator.stages.resources.Resources
       gpus: 1.0
 
-  - _target_: ray_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage
+  - _target_: nemo_curator.stages.audio.metrics.get_wer.GetPairwiseWerStage
     text_key: "text"
     pred_text_key: "pred_text"
     wer_key: "wer"
 
-  - _target_: ray_curator.stages.audio.common.GetAudioDurationStage
+  - _target_: nemo_curator.stages.audio.common.GetAudioDurationStage
     audio_filepath_key: audio_filepath
     duration_key: duration
 
-  - _target_: ray_curator.stages.audio.common.PreserveByValueStage
+  - _target_: nemo_curator.stages.audio.common.PreserveByValueStage
     input_value_key: "wer"
     target_value: 75.
     operator: "le"
 
-  - _target_: ray_curator.stages.audio.io.convert.AudioToDocumentStage
+  - _target_: nemo_curator.stages.audio.io.convert.AudioToDocumentStage
 
-  - _target_: ray_curator.stages.text.io.writer.JsonlWriter
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
     path: ${output_dir}
     write_kwargs:
       "force_ascii": False
