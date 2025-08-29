@@ -271,7 +271,7 @@ if __name__ == "__main__":
     # General arguments
     parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
     parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
-    parser.add_argument("--video-limit", type=int, default=-1, help="Limit the number of videos to read")
+    parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
 
