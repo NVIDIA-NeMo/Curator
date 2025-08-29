@@ -44,16 +44,27 @@ from nemo_curator.utils.file_utils import create_or_overwrite_dir
 class SemanticDeduplicationWorkflow:
     """
     End-to-End Semantic Deduplication Workflow.
-
-    K-means stage always runs on RayActorPoolExecutor.
-    Pairwise + duplicate identification runs on configurable executor.
+    It consists of the following stages:
+    - KMeansStage
+        Takes the input path (embeddings) and clusters the embeddings into n_clusters.
+        Writes data partitioned by centroid to cache_path.
+    - PairwiseStage
+        Computes pairwise similarity between all embeddings in each cluster.
+        Takes the output of KMeansStage and computes pairwise similarity between all embeddings in each cluster.
+        This is written to cache_path.
+    - IdentifyDuplicatesStage (optional)
+        Identifies duplicates based on the pairwise similarity scores.
+        Runs only if eps is provided.
+        This is written to output_path.
     """
 
     def __init__(  # noqa: PLR0913
         self,
+        # required args
         input_path: str | list[str],
         output_path: str,
         n_clusters: int,
+        cache_path: str | None = None,
         # Core data configuration
         id_field: str = "id",
         embedding_field: str = "embeddings",
@@ -79,6 +90,7 @@ class SemanticDeduplicationWorkflow:
         _duplicates_num_row_groups_hint: int | None = None,
         # I/O and storage parameters
         read_kwargs: dict[str, Any] | None = None,
+        cache_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
         # Execution parameters
         verbose: bool = True,
@@ -88,8 +100,10 @@ class SemanticDeduplicationWorkflow:
 
         Args:
             input_path: Directory or list of directories containing input files with embeddings
-            output_path: Directory to write output files
+            output_path: Directory to write output files (i.e. ids to remove)
             n_clusters: Number of clusters for K-means
+            cache_path: Directory to write cache files (i.e. kmeans and pairwise results)
+                If None, will be set to output_path
 
             # Core data configuration
             id_field: Name of the ID field in the data
@@ -127,12 +141,12 @@ class SemanticDeduplicationWorkflow:
         """
         # Core paths and configuration
         self.input_path = input_path
-
         self.output_path = output_path
+        self.cache_path = cache_path or output_path
 
-        self.kmeans_output_path = os.path.join(output_path, "kmeans_results")
-        self.pairwise_output_path = os.path.join(output_path, "pairwise_results")
-        self.duplicates_output_path = os.path.join(output_path, "duplicates")
+        self.kmeans_output_path = os.path.join(self.cache_path, "kmeans_results")
+        self.pairwise_output_path = os.path.join(self.cache_path, "pairwise_results")
+        self.duplicates_output_path = os.path.join(self.output_path, "duplicates")
 
         self.n_clusters = n_clusters
 
@@ -166,6 +180,7 @@ class SemanticDeduplicationWorkflow:
         # I/O parameters
         self.read_kwargs = read_kwargs.copy() if read_kwargs else {}
         self.write_kwargs = write_kwargs.copy() if write_kwargs else {}
+        self.cache_kwargs = cache_kwargs.copy() if cache_kwargs else self.write_kwargs.copy()
 
         # Execution parameters
         self.verbose = verbose
@@ -190,6 +205,12 @@ class SemanticDeduplicationWorkflow:
         elif self.distance_metric or self.which_to_keep:
             msg = "distance_metric and which_to_keep are not used when ranking_strategy is provided"
             logger.warning(msg)
+        else:
+            cols_needed_for_ranking = self.ranking_strategy.metadata_cols
+            missing_cols = set(cols_needed_for_ranking) - set(self.metadata_fields)
+            if missing_cols:
+                msg = f"Metadata fields {missing_cols} are required for ranking"
+                raise ValueError(msg)
 
     def _setup_directories(self) -> None:
         """Setup output directories with fsspec compliance."""
@@ -232,7 +253,7 @@ class SemanticDeduplicationWorkflow:
             oversampling_factor=self.oversampling_factor,
             max_samples_per_batch=self.max_samples_per_batch,
             read_kwargs=self.read_kwargs,
-            write_kwargs=self.write_kwargs,
+            write_kwargs=self.cache_kwargs,
         )
         pipeline.add_stage(kmeans_stage)
 
@@ -262,11 +283,8 @@ class SemanticDeduplicationWorkflow:
             which_to_keep=self.which_to_keep,
             sim_metric=self.distance_metric,
             random_seed=self.random_state,
-            # Since we use the output of KMeans we don't need to pass any read_kwargs which were
-            # passed to the KMeans stage.
-            # We do need to pass the storage_options to the Pairwise stage.
-            read_kwargs={"storage_options": self.write_kwargs.get("storage_options")},
-            write_kwargs={"storage_options": self.write_kwargs.get("storage_options")},
+            read_kwargs=self.cache_kwargs,
+            write_kwargs=self.cache_kwargs,
         )
         pipeline.add_stage(pairwise_stage)
 
@@ -277,7 +295,7 @@ class SemanticDeduplicationWorkflow:
                 eps=self.eps,
                 _num_row_groups_hint=self._duplicates_num_row_groups_hint,
                 verbose=self.verbose,
-                read_kwargs=self.write_kwargs,
+                read_kwargs=self.cache_kwargs,
                 write_kwargs=self.write_kwargs,
             )
             pipeline.add_stage(identify_duplicates_stage)
@@ -358,7 +376,7 @@ class SemanticDeduplicationWorkflow:
             logger.success("=" * 60)
             logger.success("SEMANTIC DEDUPLICATION COMPLETED")
             logger.success("=" * 60)
-            logger.success(f"Total execution time: {total_time:.2f} seconds ({total_time / 60:.2f} minutes)")
+            logger.success(f"Total execution time: {total_time:.2f} seconds")
             logger.info(f"K-means time: {kmeans_time:.2f} seconds")
             logger.info(f"Pairwise time: {pairwise_time:.2f} seconds")
             if total_duplicates > 0:

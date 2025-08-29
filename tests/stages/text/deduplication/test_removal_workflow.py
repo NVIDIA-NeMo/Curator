@@ -351,7 +351,7 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
         else:
             assert stages[3].file_extension == "jsonl"
 
-        assert stages[3].write_kwargs is None
+        assert stages[3].write_kwargs == {}
         assert stages[3].fields is None
         assert stages[3].mode == "ignore"
 
