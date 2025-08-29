@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def resolve_filename_column(add_filename_column: bool | str) -> str | None:
     """Resolve the filename column name based on the input parameter.
 

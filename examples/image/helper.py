@@ -160,12 +160,7 @@ def download_webdataset(
         func = partial(process_parquet_chunk, output_dir=output_dir)
 
         # Use tqdm to track progress of chunk processing
-        list(tqdm(
-            pool.imap(func, chunks),
-            total=len(chunks),
-            desc="Processing chunks",
-            unit="chunk"
-        ))
+        list(tqdm(pool.imap(func, chunks), total=len(chunks), desc="Processing chunks", unit="chunk"))
 
     tmp_dir = os.path.join(output_dir, "tmp")
     if os.path.exists(tmp_dir):
@@ -272,7 +267,7 @@ def save_imagebatch_to_webdataset(
     # Process images in shards
     shard_id = 0
     for i in range(0, len(all_image_objects), samples_per_shard):
-        shard_images = all_image_objects[i:i + samples_per_shard]
+        shard_images = all_image_objects[i : i + samples_per_shard]
 
         # Create output file paths
         parquet_filename = _name_partition(shard_id, max_shards=max_shards)
@@ -288,10 +283,7 @@ def save_imagebatch_to_webdataset(
             for sample_idx, image_obj in enumerate(shard_images):
                 # Generate new ID combining shard and sample indices
                 new_id = _combine_id(
-                    shard_id,
-                    sample_idx,
-                    max_shards=max_shards,
-                    max_samples_per_shard=max_samples_per_shard
+                    shard_id, sample_idx, max_shards=max_shards, max_samples_per_shard=max_samples_per_shard
                 )
 
                 # Prepare metadata record for parquet

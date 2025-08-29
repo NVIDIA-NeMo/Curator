@@ -124,10 +124,16 @@ class ClassifierModelStage(ModelStage):
         return ["data"], [self.pred_column] + ([self.prob_column] if self.keep_prob_column else [])
 
     def _setup(self, local_files_only: bool = True) -> None:
-        self.model = Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only).cuda().eval()
+        self.model = (
+            Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
+            .cuda()
+            .eval()
+        )
         self.model.set_autocast(self.autocast)
 
-        config = AutoConfig.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
+        config = AutoConfig.from_pretrained(
+            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only
+        )
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
 

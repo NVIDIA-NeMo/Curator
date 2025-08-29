@@ -37,7 +37,7 @@ class MockTask(Task[dict]):
 class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
     """Concrete implementation of ProcessingStage for testing."""
 
-    _name = "ConcreteProcessingStage"
+    _name = "concrete_processing_stage"
     _resources = Resources(cpus=2.0)
     _batch_size = 2
 
@@ -66,7 +66,7 @@ class TestProcessingStageWith:
         # Test with name override
         stage_with_name = stage.with_(name="CustomStage")
         assert stage_with_name.name == "CustomStage"
-        assert stage.name == "ConcreteProcessingStage"  # Original unchanged
+        assert stage.name == "concrete_processing_stage"  # Original unchanged
 
     def test_batch_size_override(self):
         """Test overriding batch_size parameter."""
@@ -88,7 +88,7 @@ class TestProcessingStageWith:
         assert stage_new.batch_size == 10
 
         # Original should be unchanged
-        assert stage.name == "ConcreteProcessingStage"
+        assert stage.name == "concrete_processing_stage"
         assert stage.resources == Resources(cpus=2.0)
         assert stage.batch_size == 2
 
@@ -126,7 +126,7 @@ class TestProcessingStageWith:
         assert result.resources == Resources(cpus=6.0)
 
         # Original should be unchanged
-        assert stage.name == "ConcreteProcessingStage"
+        assert stage.name == "concrete_processing_stage"
         assert stage.batch_size == 2
         assert stage.resources == Resources(cpus=2.0)
 
@@ -218,7 +218,7 @@ class TestProcessingStageWith:
 
         # Create a stage that uses class-level defaults (no instance variables set)
         class MinimalStage(ProcessingStage[MockTask, MockTask]):
-            _name = "MinimalStage"
+            _name = "minimal_stage"
             # Note: _resources is not set, so it falls back to ProcessingStage._resources
             _batch_size = 1
 
@@ -269,7 +269,7 @@ class TestProcessingStageWith:
 class MockStageA(ProcessingStage[MockTask, MockTask]):
     """Mock stage A for testing composite stages."""
 
-    _name = "MockStageA"
+    _name = "mock_stage_a"
     _resources = Resources(cpus=1.0)
     _batch_size = 1
 
@@ -286,7 +286,7 @@ class MockStageA(ProcessingStage[MockTask, MockTask]):
 class MockStageB(ProcessingStage[MockTask, MockTask]):
     """Mock stage B for testing composite stages."""
 
-    _name = "MockStageB"
+    _name = "mock_stage_b"
     _resources = Resources(cpus=2.0)
     _batch_size = 2
 
@@ -303,7 +303,7 @@ class MockStageB(ProcessingStage[MockTask, MockTask]):
 class MockStageC(ProcessingStage[MockTask, MockTask]):
     """Mock stage C for testing composite stages."""
 
-    _name = "MockStageC"
+    _name = "mock_stage_c"
     _resources = Resources(cpus=3.0)
     _batch_size = 3
 
@@ -320,7 +320,7 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
     """Concrete implementation of CompositeStage for testing."""
 
-    _name = "ConcreteCompositeStage"
+    _name = "concrete_composite_stage"
 
     def decompose(self) -> list[ProcessingStage]:
         """Return a list of mock stages for testing."""
@@ -339,7 +339,7 @@ class TestCompositeStageWith:
         assert len(composite._with_operations) == 0
 
         # Add a with operation
-        stage_config = {"MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=5.0)}}
+        stage_config = {"mock_stage_a": {"name": "CustomStageA", "resources": Resources(cpus=5.0)}}
         result = composite.with_(stage_config)
 
         # Should return the same instance (mutating pattern)
@@ -356,7 +356,7 @@ class TestCompositeStageWith:
         assert modified_stages[0].resources == Resources(cpus=5.0)
 
         # The other stages should not have been modified
-        assert modified_stages[1].name == "MockStageB"
+        assert modified_stages[1].name == "mock_stage_b"
         assert modified_stages[1].resources == Resources(cpus=2.0)
         assert modified_stages[2].name == "MockStageC"
         assert modified_stages[2].resources == Resources(cpus=3.0)
@@ -365,14 +365,14 @@ class TestCompositeStageWith:
         "configs",
         [
             {
-                "MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)},
-                "MockStageB": {"resources": Resources(cpus=10.0), "batch_size": 8},
-                "MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10},
+                "mock_stage_a": {"name": "CustomStageA", "resources": Resources(cpus=6.0)},
+                "mock_stage_b": {"resources": Resources(cpus=10.0), "batch_size": 8},
+                "mock_stage_c": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10},
             },
             [
-                {"MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)}},
-                {"MockStageB": {"resources": Resources(cpus=10.0), "batch_size": 8}},
-                {"MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10}},
+                {"mock_stage_a": {"name": "CustomStageA", "resources": Resources(cpus=6.0)}},
+                {"mock_stage_b": {"resources": Resources(cpus=10.0), "batch_size": 8}},
+                {"mock_stage_c": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10}},
             ],
         ],
     )
@@ -402,7 +402,7 @@ class TestCompositeStageWith:
         assert stage_a.resources == Resources(cpus=6.0)
         assert stage_a.batch_size == 1  # Not modified
 
-        assert stage_b.name == "MockStageB"  # Not modified
+        assert stage_b.name == "mock_stage_b"  # Not modified
         assert stage_b.resources == Resources(cpus=10.0)
         assert stage_b.batch_size == 8
 
@@ -415,14 +415,14 @@ class TestCompositeStageWith:
         [
             (
                 {
-                    "MockStageA": {"name": "CustomStageA"},
+                    "mock_stage_a": {"name": "CustomStageA"},
                     "CustomStageA": {"name": "CustomStageA_2", "resources": Resources(cpus=7.0)},
                 },
                 True,
             ),
             (
                 [
-                    {"MockStageA": {"name": "CustomStageA"}},
+                    {"mock_stage_a": {"name": "CustomStageA"}},
                     {"CustomStageA": {"name": "CustomStageA_2", "resources": Resources(cpus=7.0)}},
                 ],
                 False,
@@ -442,7 +442,7 @@ class TestCompositeStageWith:
 
         if should_fail:
             # The first config should fail because it tries to reference "CustomStageA"
-            # in the same operation where "MockStageA" is being renamed to "CustomStageA"
+            # in the same operation where "mock_stage_a" is being renamed to "CustomStageA"
             with pytest.raises(ValueError, match="Stage CustomStageA not found in composite stage"):
                 composite._apply_with_(stages)
         else:
@@ -456,7 +456,7 @@ class TestCompositeStageWith:
             assert modified_stages[0].batch_size == 1  # Should not be modified
 
             # MockStageB / MockStageC should not be modified
-            assert modified_stages[1].name == "MockStageB"
+            assert modified_stages[1].name == "mock_stage_b"
             assert modified_stages[1].resources == Resources(cpus=2.0)
             assert modified_stages[1].batch_size == 2
 
@@ -471,7 +471,7 @@ class TestCompositeStageWith:
         # Create stages with duplicate names
         duplicate_stages = [MockStageA(), MockStageA(), MockStageB()]
 
-        config = {"MockStageA": {"name": "CustomStageA"}}
+        config = {"mock_stage_a": {"name": "CustomStageA"}}
         composite.with_(config)
 
         # Should raise ValueError due to non-unique names

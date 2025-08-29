@@ -32,10 +32,13 @@ class ImageNSFWFilterStage(BaseFilterStage):
     NSFW probability scores for each image. Images with scores above the threshold
     will be filtered out as NSFW content.
     """
+
     weights_path: str = None
     _name: str = "image_nsfw_filter"
 
-    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+    def setup_on_node(
+        self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None
+    ) -> None:
         """Download NSFW model weights from LAION repository."""
         NSFWScorer.download_weights_on_node(self.model_dir)
 
@@ -73,8 +76,7 @@ class ImageNSFWFilterStage(BaseFilterStage):
 
             if self.verbose:
                 logger.info(
-                    f"Generated NSFW scores for {len(batch)} images "
-                    f"in batch {i}-{i + self.model_inference_batch_size}"
+                    f"Generated NSFW scores for {len(batch)} images in batch {i}-{i + self.model_inference_batch_size}"
                 )
 
         # Filter images based on NSFW score threshold
@@ -94,8 +96,7 @@ class ImageNSFWFilterStage(BaseFilterStage):
 
         if self.verbose:
             logger.info(
-                f"NSFW filtering: {len(filtered_images)}/{len(task.data)} images passed, "
-                f"{filtered_count} filtered out"
+                f"NSFW filtering: {len(filtered_images)}/{len(task.data)} images passed, {filtered_count} filtered out"
             )
 
         # Return new ImageBatch with filtered images

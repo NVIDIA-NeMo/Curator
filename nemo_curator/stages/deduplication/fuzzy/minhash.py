@@ -240,7 +240,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         pool: bool = True,
     ):
         # Set ProcessingStage attributes
-        self._name = self.__class__.__name__
+        self._name = "min_hash_stage"
         self._resources = Resources(gpus=1.0)  # Requires 1 GPU
 
         self.text_field = text_field

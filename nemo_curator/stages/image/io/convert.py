@@ -28,6 +28,7 @@ class ConvertImageBatchToDocumentBatchStage(ProcessingStage[ImageBatch, Document
     Args:
         fields: list of fields of ImageObject to convert to DocumentBatch
     """
+
     fields: list[str] = field(default_factory=list)
     _name: str = "convert_image_batch_to_document_batch"
 
