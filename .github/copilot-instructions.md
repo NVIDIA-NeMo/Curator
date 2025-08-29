@@ -1,12 +1,12 @@
 # NVIDIA NeMo Curator
 Always reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.
 
-NVIDIA NeMo Curator is a Python library for fast and scalable data processing and curation for generative AI use cases such as foundation language model pretraining, text-to-image model training, domain-adaptive pretraining, supervised fine-tuning, and parameter-efficient fine-tuning. It leverages GPUs with Dask and RAPIDS for significant performance improvements.
+NVIDIA NeMo Curator is a Python library for fast and scalable data processing and curation for generative AI use cases such as foundation language model pretraining, text-to-image model training, domain-adaptive pretraining, supervised fine-tuning, and parameter-efficient fine-tuning. It leverages GPUs with Ray and RAPIDS for significant performance improvements.
 
 ## Working Effectively
 
 ### Prerequisites and Environment Setup
-- **Python Version**: 3.10, 3.12 ONLY. Python 3.11 is NOT supported due to RAPIDS compatibility issues.
+- **Python Version**: 3.12 ONLY. Python 3.11 is NOT supported due to RAPIDS compatibility issues.
 - **Package Manager**: Prefers `uv` but `pip` works as fallback.
 - **System**: Ubuntu 22.04/20.04 recommended for production.
 - **GPUs**: Optional but recommended for performance. CUDA 12.x support available.
@@ -112,7 +112,7 @@ NVIDIA NeMo Curator is a Python library for fast and scalable data processing an
    ```
    Should pass 13 tests in ~7 seconds.
 
-4. **Run quickstart example** (expects graceful GPU failure):
+4. **Run quickstart example** (TODO: GPU functionality not available yet, focus on CPU examples):
    ```bash
    python examples/quickstart.py
    ```
@@ -173,8 +173,8 @@ tutorials/             # Educational content
 ```
 
 ### Troubleshooting Common Issues
-- **Python 3.11 error**: Use Python 3.10 or 3.12 only
-- **RAPIDS installation fails**: Install without GPU extras first: `pip install -e .`
+- **Python 3.11 error**: Use Python 3.12 only
+- **RAPIDS installation fails**: Install with all features: `pip install -e ".[all]"`
 - **GPU not found**: Most functionality works CPU-only, examples gracefully degrade
 - **Network timeouts during install**: Use `--timeout 600` with pip
 - **Documentation build fails**: Ensure .venv-docs is properly set up
