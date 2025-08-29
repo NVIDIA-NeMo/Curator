@@ -23,6 +23,8 @@ from loguru import logger
 from nemo_curator.core.constants import (
     DEFAULT_RAY_AUTOSCALER_METRIC_PORT,
     DEFAULT_RAY_DASHBOARD_METRIC_PORT,
+    DEFAULT_RAY_MAX_WORKER_PORT,
+    DEFAULT_RAY_MIN_WORKER_PORT,
 )
 
 if TYPE_CHECKING:
@@ -35,6 +37,8 @@ def get_free_port(start_port: int, get_next_free_port: bool = True) -> int:
     Else, it will raise an error if the free port is not equal to start_port.
     """
     for port in range(start_port, 65535):
+        if port >= DEFAULT_RAY_MIN_WORKER_PORT and port <= DEFAULT_RAY_MAX_WORKER_PORT:
+            continue
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             # SO_REUSEADDR to avoid TIME_WAIT issues on some OSes
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

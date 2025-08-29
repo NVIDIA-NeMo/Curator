@@ -221,7 +221,8 @@ class FuzzyDeduplicationWorkflow:
                     num_bands=self.num_bands,
                     minhashes_per_band=self.minhashes_per_band,
                     output_path=self.cache_path,
-                    read_kwargs=self.read_kwargs,
+                    # Reading minhashes from cache_path
+                    read_kwargs=self.cache_kwargs,
                     write_kwargs=self.cache_kwargs,
                     bands_per_iteration=self.bands_per_iteration,
                     rmm_pool_size="auto",
@@ -236,17 +237,17 @@ class FuzzyDeduplicationWorkflow:
             stages=[
                 BucketsToEdgesStage(
                     output_path=self.cache_path,
-                    read_kwargs=self.read_kwargs,
+                    read_kwargs=self.cache_kwargs,
                     write_kwargs=self.cache_kwargs,
                 ),
                 ConnectedComponentsStage(
                     output_path=self.cache_path,
-                    read_kwargs=self.read_kwargs,
+                    read_kwargs=self.cache_kwargs,
                     write_kwargs=self.cache_kwargs,
                 ),
                 IdentifyDuplicatesStage(
                     output_path=self.output_path,
-                    read_kwargs=self.read_kwargs,
+                    read_kwargs=self.cache_kwargs,
                     write_kwargs=self.write_kwargs,
                     rmm_pool_size="auto",
                     spill_memory_limit="auto",
