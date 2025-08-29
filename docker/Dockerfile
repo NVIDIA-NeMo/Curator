@@ -54,14 +54,17 @@ ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
 RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
-FROM build AS nemo_curator
+FROM build AS nemo_curator_dep
 
 # Install ffmpeg
 COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh
 
-RUN cd /opt && \
+FROM nemo_curator_dep AS nemo_curator
+
+COPY . /opt/Curator
+RUN cd /opt/Curator && \
   uv sync --locked --only-group build && \
   if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
       uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
