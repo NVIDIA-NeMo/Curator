@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
-from nemo_curator.stages.shuffler.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
-from nemo_curator.stages.shuffler.stage import ShuffleStage
+from nemo_curator.stages.deduplication.shuffle_utils.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
+from nemo_curator.stages.deduplication.shuffle_utils.stage import ShuffleStage
 from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.file_utils import get_fs
 

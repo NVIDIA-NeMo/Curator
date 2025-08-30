@@ -22,7 +22,7 @@ cudf = pytest.importorskip("cudf", reason="ShuffleStage tests require cudf")
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.shuffler.stage import ShuffleStage
+from nemo_curator.stages.deduplication.shuffle_utils.stage import ShuffleStage
 from nemo_curator.tasks import FileGroupTask
 
 
