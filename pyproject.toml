@@ -29,7 +29,7 @@ version = { attr = "nemo_curator.package_info.__version__" }
 
 [project]
 name = "nemo-curator"
-version = "0.1.0"
+dynamic = ["version"]
 authors = [
     { name = "Ayush Dattagupta", email = "adattagupta@nvidia.com" },
     { name = "Abhinav Garg", email = "abhgarg@nvidia.com" },
