@@ -3591,7 +3591,6 @@ wheels = [
 
 [[package]]
 name = "nemo-curator"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "absl-py" },
@@ -3843,7 +3842,7 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'internvideo2'", specifier = ">=6.0.2" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12x'", specifier = "==25.6.*" },
-    { name = "ray", extras = ["default", "data"], specifier = ">=2.49" },
+    { name = "ray", extras = ["data", "default"], specifier = ">=2.49" },
     { name = "resiliparse", marker = "extra == 'text'" },
     { name = "scipy", marker = "extra == 'internvideo2'", specifier = ">=1.14.1" },
     { name = "sentencepiece", marker = "extra == 'text'" },
