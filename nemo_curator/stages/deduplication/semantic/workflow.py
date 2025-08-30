@@ -92,6 +92,7 @@ class SemanticDeduplicationWorkflow:
         read_kwargs: dict[str, Any] | None = None,
         cache_kwargs: dict[str, Any] | None = None,
         write_kwargs: dict[str, Any] | None = None,
+        clear_output: bool = True,
         # Execution parameters
         verbose: bool = True,
     ):
@@ -135,9 +136,9 @@ class SemanticDeduplicationWorkflow:
             # I/O and storage parameters
             read_kwargs: Keyword arguments for reading files (including storage_options)
             write_kwargs: Keyword arguments for writing files (including storage_options)
+            clear_output: Clear output directory before running
             # Execution parameters
             verbose: Enable verbose output
-            clear_output: Clear output directory before running
         """
         # Core paths and configuration
         self.input_path = input_path
@@ -181,6 +182,7 @@ class SemanticDeduplicationWorkflow:
         self.read_kwargs = read_kwargs.copy() if read_kwargs else {}
         self.write_kwargs = write_kwargs.copy() if write_kwargs else {}
         self.cache_kwargs = cache_kwargs.copy() if cache_kwargs else self.write_kwargs.copy()
+        self.clear_output = clear_output
 
         # Execution parameters
         self.verbose = verbose
@@ -214,17 +216,13 @@ class SemanticDeduplicationWorkflow:
 
     def _setup_directories(self) -> None:
         """Setup output directories with fsspec compliance."""
-        # For simplicity, we assume local filesystem for output paths in this implementation
-        # In a full fsspec implementation, we'd use fsspec operations here
-
-        storage_options = self.write_kwargs.get("storage_options")
-
-        create_or_overwrite_dir(self.output_path, storage_options=storage_options)
-
-        create_or_overwrite_dir(self.kmeans_output_path, storage_options=storage_options)
-        create_or_overwrite_dir(self.pairwise_output_path, storage_options=storage_options)
-        if self.eps is not None:
-            create_or_overwrite_dir(self.duplicates_output_path, storage_options=storage_options)
+        if self.clear_output:
+            storage_options = self.write_kwargs.get("storage_options")
+            create_or_overwrite_dir(self.output_path, storage_options=storage_options)
+            create_or_overwrite_dir(self.kmeans_output_path, storage_options=storage_options)
+            create_or_overwrite_dir(self.pairwise_output_path, storage_options=storage_options)
+            if self.eps is not None:
+                create_or_overwrite_dir(self.duplicates_output_path, storage_options=storage_options)
 
     def _run_kmeans_stage(self) -> list[Any]:
         """Run K-means clustering stage (always uses RayActorPoolExecutor)."""
