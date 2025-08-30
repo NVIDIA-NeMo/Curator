@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator, _safe_extract
+from nemo_curator.stages.text.download.arxiv.iterator import ArxivIterator
+from nemo_curator.utils.file_utils import tar_safe_extract
 
 
 class TestArxivIterator:
@@ -64,10 +65,10 @@ class TestArxivIterator:
 
 
 class TestSafeExtract:
-    """Test suite for _safe_extract function."""
+    """Test suite for tar_safe_extract function."""
 
-    def test_safe_extract_path_traversal_prevention(self, tmp_path: Path) -> None:
-        """Test that _safe_extract prevents path traversal attacks."""
+    def test_tar_safe_extract_path_traversal_prevention(self, tmp_path: Path) -> None:
+        """Test that tar_safe_extract prevents path traversal attacks."""
         # Create a malicious tar file that tries to write outside the extraction directory
         malicious_tar_path = tmp_path / "malicious.tar"
 
@@ -89,12 +90,12 @@ class TestSafeExtract:
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
 
-        # Test that _safe_extract raises ValueError for path traversal
+        # Test that tar_safe_extract raises ValueError for path traversal
         with (
             tarfile.open(malicious_tar_path, "r") as tar,
             pytest.raises(ValueError, match="Path traversal attempt detected"),
         ):
-            _safe_extract(tar, str(extraction_dir))
+            tar_safe_extract(tar, str(extraction_dir))
 
         # Verify that the malicious file was not created outside the extraction directory
         evil_file_path = tmp_path / "evil.txt"
@@ -108,8 +109,8 @@ class TestSafeExtract:
                 f"File {file_path} was extracted outside safe directory"
             )
 
-    def test_safe_extract_absolute_path_prevention(self, tmp_path: Path) -> None:
-        """Test that _safe_extract prevents absolute path attacks."""
+    def test_tar_safe_extract_absolute_path_prevention(self, tmp_path: Path) -> None:
+        """Test that tar_safe_extract prevents absolute path attacks."""
         # Create a malicious tar file with absolute path
         malicious_tar_path = tmp_path / "absolute_path.tar"
 
@@ -125,15 +126,15 @@ class TestSafeExtract:
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
 
-        # Test that _safe_extract raises ValueError for absolute path
+        # Test that tar_safe_extract raises ValueError for absolute path
         with (
             tarfile.open(malicious_tar_path, "r") as tar,
             pytest.raises(ValueError, match="Absolute path not allowed"),
         ):
-            _safe_extract(tar, str(extraction_dir))
+            tar_safe_extract(tar, str(extraction_dir))
 
-    def test_safe_extract_normal_files(self, tmp_path: Path) -> None:
-        """Test that _safe_extract works correctly with normal files."""
+    def test_tar_safe_extract_normal_files(self, tmp_path: Path) -> None:
+        """Test that tar_safe_extract works correctly with normal files."""
         # Create a normal tar file
         normal_tar_path = tmp_path / "normal.tar"
 
@@ -155,9 +156,9 @@ class TestSafeExtract:
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
 
-        # Test that _safe_extract works correctly with normal files
+        # Test that tar_safe_extract works correctly with normal files
         with tarfile.open(normal_tar_path, "r") as tar:
-            _safe_extract(tar, str(extraction_dir))
+            tar_safe_extract(tar, str(extraction_dir))
 
         # Verify all files were extracted correctly
         assert (extraction_dir / "file_0.txt").exists()
@@ -171,8 +172,8 @@ class TestSafeExtract:
         with open(extraction_dir / "subdir" / "subfile.txt") as f:
             assert f.read() == "subdirectory content\n"
 
-    def test_safe_extract_device_file_prevention(self, tmp_path: Path) -> None:
-        """Test that _safe_extract prevents extraction of device files."""
+    def test_tar_safe_extract_device_file_prevention(self, tmp_path: Path) -> None:
+        """Test that tar_safe_extract prevents extraction of device files."""
         # Create a malicious tar file with a device file
         malicious_tar_path = tmp_path / "device_file.tar"
 
@@ -188,15 +189,15 @@ class TestSafeExtract:
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
 
-        # Test that _safe_extract raises ValueError for device files
+        # Test that tar_safe_extract raises ValueError for device files
         with (
             tarfile.open(malicious_tar_path, "r") as tar,
             pytest.raises(ValueError, match="Device files not allowed"),
         ):
-            _safe_extract(tar, str(extraction_dir))
+            tar_safe_extract(tar, str(extraction_dir))
 
-    def test_safe_extract_symlink_prevention(self, tmp_path: Path) -> None:
-        """Test that _safe_extract prevents unsafe symlinks."""
+    def test_tar_safe_extract_symlink_prevention(self, tmp_path: Path) -> None:
+        """Test that tar_safe_extract prevents unsafe symlinks."""
         # Create a malicious tar file with unsafe symlinks
         malicious_tar_path = tmp_path / "symlink_attack.tar"
 
@@ -217,15 +218,15 @@ class TestSafeExtract:
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
 
-        # Test that _safe_extract raises ValueError for unsafe symlinks
+        # Test that tar_safe_extract raises ValueError for unsafe symlinks
         with (
             tarfile.open(malicious_tar_path, "r") as tar,
             pytest.raises(ValueError, match="Symlink target outside extraction directory"),
         ):
-            _safe_extract(tar, str(extraction_dir))
+            tar_safe_extract(tar, str(extraction_dir))
 
-    def test_safe_extract_absolute_symlink_prevention(self, tmp_path: Path) -> None:
-        """Test that _safe_extract prevents symlinks with absolute targets."""
+    def test_tar_safe_extract_absolute_symlink_prevention(self, tmp_path: Path) -> None:
+        """Test that tar_safe_extract prevents symlinks with absolute targets."""
         # Create a malicious tar file with absolute symlink target
         malicious_tar_path = tmp_path / "absolute_symlink.tar"
 
@@ -240,9 +241,9 @@ class TestSafeExtract:
         extraction_dir = tmp_path / "extraction"
         extraction_dir.mkdir()
 
-        # Test that _safe_extract raises ValueError for absolute symlink targets
+        # Test that tar_safe_extract raises ValueError for absolute symlink targets
         with (
             tarfile.open(malicious_tar_path, "r") as tar,
             pytest.raises(ValueError, match="Absolute symlink target not allowed"),
         ):
-            _safe_extract(tar, str(extraction_dir))
+            tar_safe_extract(tar, str(extraction_dir))

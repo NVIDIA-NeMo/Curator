@@ -116,6 +116,10 @@ def init_cluster(  # noqa: PLR0913
     os.environ["DASHBOARD_METRIC_PORT"] = str(get_free_port(DEFAULT_RAY_DASHBOARD_METRIC_PORT))
     os.environ["AUTOSCALER_METRIC_PORT"] = str(get_free_port(DEFAULT_RAY_AUTOSCALER_METRIC_PORT))
 
+    # We set some env vars for Xenna here. This is only used for Xenna clusters.
+    os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
+    os.environ["XENNA_RESPECT_CUDA_VISIBLE_DEVICES"] = "1"
+
     proc = subprocess.Popen(ray_command, shell=False)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
     os.environ["RAY_ADDRESS"] = f"{ip_address}:{ray_port}"
