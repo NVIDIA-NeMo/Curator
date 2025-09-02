@@ -233,6 +233,7 @@ fixable = ["ALL"]
 
 
 [tool.ruff.lint.extend-per-file-ignores]
+"nemo_curator/__init__.py" = ["F401"]
 "examples/**" = [
     "INP001", # No __init__.py is required
 ]
