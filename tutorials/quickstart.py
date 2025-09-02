@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-Quickstart example for Ray Curator
+Quickstart example for NeMo Curator
 
 This example shows 3 stages:
 1. TaskCreationStage: None -> List[Task] : This creates tasks with sample sentences

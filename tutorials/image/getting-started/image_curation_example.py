@@ -16,8 +16,9 @@ import argparse
 import os
 import time
 
+from helper import download_webdataset
+
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.examples.image.helper import download_webdataset
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
