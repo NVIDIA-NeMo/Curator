@@ -27,7 +27,6 @@ dependencies = [
     "cosmos-xenna==0.1.2",
     "fsspec",
     "jieba==0.42.1",
-    "jupyter",
     "loguru",
     "mecab-python3",
     "pandas>=2.1.0",
@@ -47,7 +46,6 @@ text = [
     "trafilatura==2.0.0",
     "pycld2",
     "warcio",
-    "s5cmd",
     # Filters
     "fasttext==0.9.3",
     "sentencepiece",
