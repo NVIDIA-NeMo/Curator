@@ -185,7 +185,6 @@ url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.uv.sources]
-internvideo2-multi-modality = { git = "git+https://github.com/suiyoubi/InternVideo.git", subdirectory="InternVideo2/multi_modality", rev = "curator" }
 torch = [
     { index = "pytorch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { index = "pypi", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
