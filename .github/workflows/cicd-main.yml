@@ -152,8 +152,8 @@ jobs:
       - name: Install NeMo-Curator and pytest
         run: |
           pip install -U pip
-          pip install --no-cache-dir ".[text_cpu]"
           pip install --no-cache-dir ".[audio]"
+          pip install --no-cache-dir ".[text_cpu]"
           pip install --no-cache-dir ".[video_cpu]"
           pip install --no-cache-dir --group test
 
