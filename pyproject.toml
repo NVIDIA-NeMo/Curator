@@ -162,7 +162,7 @@ dali = [
 # All dependencies
 all = [
     "nemo_curator[dali]",
-    "nemo_curator[deduplication_cuda12x]",
+    "nemo_curator[deduplication]",
     "nemo_curator[text]",
     "nemo_curator[audio]",
     "nemo_curator[video]",
