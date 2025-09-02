@@ -1,2 +1,4 @@
 # Tutorials
 The following is a set of tutorials that demonstrate various functionalities and features of NeMo Curator. These tutorials are meant to provide the coding foundation for building applications that consume the data that NeMo Curator curates.
+
+Tutorials are split by modality: audio, image, text, or video. Please refer to each subdirectory for more information.

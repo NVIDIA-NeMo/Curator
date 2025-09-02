@@ -24,7 +24,7 @@ from nemo_curator.pipeline import Pipeline
 """
 How to run :
 
-SCRIPT_DIR=/path/to/Curator/examples/audio
+SCRIPT_DIR=/path/to/Curator/tutorials/audio/fleurs-tutorial
 
 python ${SCRIPT_DIR}/run.py \
 --config-path ${SCRIPT_DIR}/fleurs \
