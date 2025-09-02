@@ -1,3 +1,0 @@
-<credit_card_number>4929-3813-3266-4295</credit_card_number>
-<credit_card_number>345389698201044</credit_card_number>
-I have changed my credit card. My new credit card number is <credit_card_number>5299-1561-5689-1938</credit_card_number>.

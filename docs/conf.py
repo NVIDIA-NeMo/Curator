@@ -141,22 +141,19 @@ suppress_warnings = [
 
 # -- Options for Autodoc2 ---------------------------------------------------
 sys.path.insert(0, os.path.abspath(".."))
-# Ensure the ray-curator package is importable (package lives under ray-curator/ray_curator)
-sys.path.insert(0, os.path.abspath(os.path.join("..", "ray-curator")))
 
-# Document `ray_curator` subpackages instead of the legacy `nemo_curator`
-# This should generate shorter filenames without the ray_curator. prefix
+# This should generate shorter filenames without the nemo_curator. prefix
 autodoc2_packages_list = [
     # Execution backends and adapters
-    "../ray-curator/ray_curator/backends",
+    "../nemo_curator/backends",
     # Pipeline orchestration
-    "../ray-curator/ray_curator/pipeline",
+    "../nemo_curator/pipeline",
     # All processing stages (download/extract, modules, text, io, etc.)
-    "../ray-curator/ray_curator/stages",
+    "../nemo_curator/stages",
     # Core task data structures
-    "../ray-curator/ray_curator/tasks",
+    "../nemo_curator/tasks",
     # Shared utilities
-    "../ray-curator/ray_curator/utils",
+    "../nemo_curator/utils",
 ]
 
 # Check if any of the packages actually exist before enabling autodoc2

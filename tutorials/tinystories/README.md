@@ -4,11 +4,6 @@ This tutorial demonstrates the usage of NeMo Curator's Python API to curate the 
 
 For simplicity, this tutorial uses the validation split of this dataset, which contains around 22,000 samples.
 
-## Walkthrough
-For a detailed walkthrough of this tutorial, please see the following blog post:
-* [Curating Custom Datasets for LLM Training with NVIDIA NeMo Curator](https://developer.nvidia.com/blog/curating-custom-datasets-for-llm-training-with-nvidia-nemo-curator/).
-
-
 ## Usage
 After installing the NeMo Curator package, you can simply run the following command:
 ```

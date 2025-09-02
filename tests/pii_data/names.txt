@@ -1,4 +1,0 @@
-Surprisingly, <name>John</name>, <name>Shaun</name>, and <name>Ron</name> finished their exam tests all at the same time.
-<name>Anton Perera</name>
-<name>Sameer Rawat</name>
-<name>Ilya Sutskever</name>

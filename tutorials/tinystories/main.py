@@ -1,4 +1,4 @@
-# Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,211 +14,78 @@
 
 import argparse
 import os
-import shutil
+import time
 
-from docbuilder import TinyStoriesDownloader
-from filters import IncompleteStoryFilter
-from helpers import write_jsonl
-from modifiers import QuotationUnifier
+from loguru import logger
+from stages import (
+    IncompleteStoryFilter,
+    QuotationUnifier,
+    TinyStoriesDownloadExtractStage,
+)
 
-from nemo_curator import ScoreFilter, Sequential
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import RepeatingTopNGramsFilter, WordCountFilter
-from nemo_curator.modifiers.pii_modifier import PiiModifier
-from nemo_curator.modifiers.unicode_reformatter import UnicodeReformatter
-from nemo_curator.modules import ExactDuplicates
-from nemo_curator.modules.modify import Modify
-from nemo_curator.utils.distributed_utils import get_client
-from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.utils.script_utils import ArgumentHelper
-
-SCRIPT_DIR_PATH = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(SCRIPT_DIR_PATH, "data")
-JSONL_ROOT_DIR = os.path.join(DATA_DIR, "jsonl")
-# The TinyStories dataset is split into two files, one for training and one for validation.
-# For the purposes of this tutorial, we will use the smaller validation file to demonstrate the curation pipeline.
-TINY_STORIES_URL = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStories-valid.txt"
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import Modify, ScoreFilter
 
 
-def download_and_convert_to_jsonl() -> str:
-    """
-    Downloads the TinyStories dataset and converts it to JSONL format.
+def main(args: argparse.Namespace) -> None:
+    raw_dir = os.path.join(args.data_root, "raw")
+    curated_dir = os.path.join(args.data_root, "curated")
+    # Initialize the directories
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(curated_dir, exist_ok=True)
 
-    Returns:
-        str: The directory path where the JSONL files are saved.
-    """
+    logger.info("Running the TinyStories curation pipeline")
+    logger.info(f"    The dataset will be downloaded to '{raw_dir}'")
+    logger.info(f"    The curated dataset will be written to '{curated_dir}'")
 
-    # Download the TinyStories dataset.
-    downloader = TinyStoriesDownloader(DATA_DIR)
-    tinystories_val_fp = downloader.download(TINY_STORIES_URL)
-
-    # Convert to JSONL files.
-    jsonl_dir = os.path.join(JSONL_ROOT_DIR, "val")
-    write_jsonl(tinystories_val_fp, jsonl_dir)
-
-    return jsonl_dir
-
-
-def clean_and_unify(dataset: DocumentDataset) -> DocumentDataset:
-    """
-    Cleans and unifies the given dataset using a set of predefined cleaners.
-
-    Args:
-        dataset (DocumentDataset): The dataset to be cleaned and unified.
-
-    Returns:
-        DocumentDataset: The cleaned and unified dataset.
-    """
-    cleaners = Sequential(
-        [
-            # Unify all the quotation marks
-            Modify(QuotationUnifier()),
-            # Unify all unicode
-            Modify(UnicodeReformatter()),
-        ],
-    )
-    return cleaners(dataset)
-
-
-def filter_dataset(dataset: DocumentDataset) -> DocumentDataset:
-    """
-    Filters the given dataset based on various criteria.
-
-    Args:
-        dataset (DocumentDataset): The dataset to be filtered.
-
-    Returns:
-        DocumentDataset: The filtered dataset.
-    """
-    filters = Sequential(
-        [
-            ScoreFilter(
-                WordCountFilter(min_words=80),
-                text_field="text",
-                score_field="word_count",
-                score_type=int,
-            ),
-            ScoreFilter(IncompleteStoryFilter(), text_field="text", score_type=bool),
-            ScoreFilter(
-                RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2),
-                text_field="text",
-                score_type=float,
-            ),
-            ScoreFilter(
-                RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
-                text_field="text",
-                score_type=float,
-            ),
-            ScoreFilter(
-                RepeatingTopNGramsFilter(n=4, max_repeating_ngram_ratio=0.16),
-                text_field="text",
-                score_type=float,
-            ),
-        ],
-    )
-    return filters(dataset)
-
-
-def redact_pii(dataset: DocumentDataset) -> DocumentDataset:
-    """
-    Redacts personally identifiable information (PII) from a given dataset.
-
-    Args:
-        dataset (DocumentDataset): The dataset containing documents with PII.
-
-    Returns:
-        DocumentDataset: The redacted dataset with PII replaced by a generic value.
-    """
-    redactor = Modify(
-        PiiModifier(
-            supported_entities=["PERSON"],
-            anonymize_action="replace",
-            device="cpu",
+    # Define the processing stages
+    stages = [
+        # Download and conversion to a DataFrame
+        TinyStoriesDownloadExtractStage(raw_dir, split=args.split),
+        # Basic filtering
+        ScoreFilter(
+            filter_obj=IncompleteStoryFilter(),
         ),
+        # Unify quotations
+        Modify(
+            modifier_fn=QuotationUnifier(),
+        ),
+        # Write the results
+        JsonlWriter(curated_dir),
+    ]
+
+    # Create a pipeline with the stages.
+    pipeline = Pipeline(
+        name="tinystories",
+        description="Download and curation pipeline for the TinyStories dataset.",
+        stages=stages,
     )
-    return redactor(dataset)
 
-
-def dedupe(dataset: DocumentDataset) -> DocumentDataset:
-    """
-    Remove exact duplicates from the given DocumentDataset.
-
-    Args:
-        dataset (DocumentDataset): The dataset containing documents.
-
-    Returns:
-        DocumentDataset: The deduplicated dataset.
-    """
-    deduplicator = ExactDuplicates(id_field="id", text_field="text", hash_method="md5")
-    # Find the duplicates
-    duplicates = deduplicator(dataset)
-    return deduplicator.remove(dataset, duplicates)
-
-
-def run_curation_pipeline(args: argparse.Namespace, jsonl_dir: str) -> None:
-    """
-    Run the curation pipeline on the TinyStories dataset.
-
-    Args:
-        args (argparse.Namespace): Command-line arguments.
-        jsonl_dir (str): Directory path where the JSONL files are stored.
-    """
-    # Initialize the Dask cluster.
-    client = get_client(**ArgumentHelper.parse_client_args(args))
-    print(f"Running curation pipeline on '{jsonl_dir}'...")
-    files = get_all_files_paths_under(
-        jsonl_dir,
-        recurse_subdirectories=False,
-        keep_extensions="jsonl",
-    )
-    print("Reading the data...")
-    # We don't read with add_filename because it already exists in the jsonl files.
-    orig_dataset = DocumentDataset.read_json(files)
-    dataset = orig_dataset
-
-    curation_steps = Sequential(
-        [
-            clean_and_unify,
-            filter_dataset,
-            dedupe,
-            redact_pii,
-        ],
-    )
-    dataset = curation_steps(dataset)
-    print("Executing the pipeline...")
-    dataset = dataset.persist()
-
-    print(f"Original dataset length: {len(orig_dataset.df)}")
-    print(f"After dataprep: {len(dataset.df)}")
-    print("Writing the results to disk...")
-
-    # Overwrite existing files in the curated directory.
-    out_path = os.path.join(jsonl_dir, "curated")
-
-    if os.path.isdir(out_path):
-        shutil.rmtree(out_path)
-
-    os.makedirs(out_path)
-    dataset.to_json(out_path, write_to_filename=True)
-    client.close()
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    args = ArgumentHelper(parser).add_distributed_args().parse_args()
-    # Limit the total number of workers to ensure we don't run out of memory.
-    args.n_workers = min(args.n_workers, 4)
-
-    # Prepare the download and JSONL directories.
-    if not os.path.isdir(DATA_DIR):
-        os.makedirs(DATA_DIR)
-    if not os.path.isdir(JSONL_ROOT_DIR):
-        os.makedirs(JSONL_ROOT_DIR)
-
-    jsonl_val_dir = download_and_convert_to_jsonl()
-
-    run_curation_pipeline(args, jsonl_val_dir)
+    logger.info("Starting the curation pipeline")
+    start_time = time.time()
+    results = pipeline.run()
+    end_time = time.time()
+    execution_time = end_time - start_time
+    # Count the total number of records.
+    logger.info(f"\n\nCuration pipeline finished (took {execution_time} seconds)")
+    logger.info(f"The results were written to '{[result.data for result in results]}'")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="TinyStories dataset curation example.")
+    parser.add_argument(
+        "--data_root",
+        type=str,
+        default=os.path.dirname(os.path.abspath(__file__)) + "/data",
+        help="The path to the data directory, which will store the downloaded data, as well as the final results.",
+    )
+    parser.add_argument(
+        "--split",
+        type=str,
+        choices=["train", "valid"],
+        default="valid",
+        help="The dataset split to process (either 'train' or 'valid')",
+    )
+    args = parser.parse_args()
+    main(args)

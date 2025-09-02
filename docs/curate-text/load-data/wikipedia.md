@@ -42,10 +42,10 @@ Curator uses `wget` to download Wikipedia dumps. You must have `wget` installed 
 Here's how to download and extract Wikipedia data using Curator:
 
 ```python
-from ray_curator.pipeline import Pipeline
-from ray_curator.backends.xenna.executor import XennaExecutor
-from ray_curator.stages.text.download import WikipediaDownloadExtractStage
-from ray_curator.stages.io.writer import JsonlWriter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna.executor import XennaExecutor
+from nemo_curator.stages.text.download import WikipediaDownloadExtractStage
+from nemo_curator.stages.io.writer import JsonlWriter
 
 # Create the Wikipedia processing stage
 wikipedia_stage = WikipediaDownloadExtractStage(

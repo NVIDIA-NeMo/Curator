@@ -55,11 +55,11 @@ The following example demonstrates how to create a language identification pipel
 ```python
 """Language identification using Curator."""
 
-from ray_curator.backends.xenna import XennaExecutor
-from ray_curator.pipeline import Pipeline
-from ray_curator.stages.text.filters import FastTextLangId
-from ray_curator.stages.text.io.reader import JsonlReader
-from ray_curator.stages.text.modules import ScoreFilter
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.filters import FastTextLangId
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.modules import ScoreFilter
 
 def create_language_identification_pipeline(data_dir: str) -> Pipeline:
     """Create a pipeline for language identification."""
@@ -171,8 +171,8 @@ for batch in results:
 
 ```python
 import ast
-from ray_curator.stages.function_decorators import processing_stage
-from ray_curator.tasks import DocumentBatch
+from nemo_curator.stages.function_decorators import processing_stage
+from nemo_curator.tasks import DocumentBatch
 
 def create_extract_language_fields_stage(min_confidence: float | None = None):
     @processing_stage(name="extract_language_fields")

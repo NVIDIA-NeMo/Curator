@@ -1,1 +1,0 @@
-I was born on <birth_date>December 5, 1983</birth_date>.
