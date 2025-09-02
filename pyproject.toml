@@ -163,7 +163,6 @@ test = [
     "pytest-loguru",
     "scikit-learn",
 ]
-dev = ["internvideo2-multi-modality; (platform_machine == 'x86_64' and sys_platform != 'darwin')"]
 
 [tool.uv]
 package = true
