@@ -23,7 +23,6 @@ Before running any of these notebooks, please see this [Installation Guide](http
 | `InstructionDataGuardClassifier` | [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard) |
 | `MultilingualDomainClassifier` | [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier) |
 | `PromptTaskComplexityClassifier` | [nvidia/prompt-task-and-complexity-classifier](https://huggingface.co/nvidia/prompt-task-and-complexity-classifier) |
-| `PyTorchClassifier` | Requires local .pth file(s) for any DeBERTa-based text classifier(s) |
 | `QualityClassifier` | [quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta) |
 
 </div>

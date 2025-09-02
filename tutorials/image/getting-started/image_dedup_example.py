@@ -16,7 +16,8 @@ import argparse
 import os
 import time
 
-from nemo_curator.examples.image.helper import download_webdataset
+from helper import download_webdataset
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from nemo_curator.stages.file_partitioning import FilePartitioningStage

@@ -21,18 +21,6 @@ from omegaconf import DictConfig, OmegaConf
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 
-"""
-How to run :
-
-SCRIPT_DIR=/path/to/Curator/examples/audio
-
-python ${SCRIPT_DIR}/run.py \
---config-path ${SCRIPT_DIR}/fleurs \
---config-name  pipeline.yaml \
-...
-
-"""
-
 
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     pipeline = Pipeline(name="yaml_pipeline", description="Pipeline created using yaml config file")
