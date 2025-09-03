@@ -24,7 +24,6 @@ import torch
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
@@ -166,7 +165,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[],
             )
 
-        has_curator_id = CURATOR_DEDUP_ID_STR in dfs[0].columns
         num_rows = sum(len(df) for df in dfs)
 
         # Handle single item clusters
@@ -225,7 +223,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         # Create result dataframe
         points_to_remove_df = cudf.DataFrame(
             {
-                **({CURATOR_DEDUP_ID_STR: ids} if has_curator_id else {}),
                 "id": ids,
                 "max_id": max_indices_id,
                 "cosine_sim_score": max_similarity,
