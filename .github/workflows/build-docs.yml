@@ -21,6 +21,6 @@ on:
 
 jobs:
   build-docs:
-    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@e889a83de61886f4bb556e445f82e5c6b5c6439f
+    uses: NVIDIA-NeMo/FW-CI-templates/.github/workflows/_build_docs.yml@50b71743b3225040e4e565a8d11d38c3caf32502
     with:
       requirements-file: requirements-docs.txt
