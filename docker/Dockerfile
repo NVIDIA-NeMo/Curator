@@ -80,3 +80,9 @@ export PATH="/root/.local/bin:$PATH"
 EOF
 
 RUN chmod +x /opt/venv/env.sh
+
+ARG NVIDIA_BUILD_ID
+ENV NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID:-<unknown>}
+LABEL com.nvidia.build.id="${NVIDIA_BUILD_ID}"
+ARG NVIDIA_BUILD_REF
+LABEL com.nvidia.build.ref="${NVIDIA_BUILD_REF}"
