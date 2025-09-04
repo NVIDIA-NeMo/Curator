@@ -98,6 +98,42 @@ Set up your environment and install NeMo Curator's image modules.
 
 ---
 
+## Video Data Curation
+
+NeMo Curator provides distributed video curation pipelines, supporting scalable data flow, pipeline stages, and efficient processing for large video corpora. The architecture is designed for high-throughput, cloud-native, and on-prem deployments.
+
+::::{grid} 1 1 2 2
+:gutter: 2
+
+:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Architecture
+:link: about-concepts-video-architecture
+:link-type: ref
+
+Distributed processing, Ray-based foundation, and autoscaling for video curation.
+:::
+
+:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Key Abstractions
+:link: about-concepts-video-abstractions
+:link-type: ref
+
+Stages, pipelines, and execution modes in video curation workflows.
+:::
+
+:::{grid-item-card} {octicon}`sync;1.5em;sd-mr-1` Data Flow
+:link: about-concepts-video-data-flow
+:link-type: ref
+
+How data moves through the system, from ingestion to output, for efficient large-scale video curation.
+:::
+
+:::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Video Curation Quickstart
+:link: gs-video
+:link-type: ref
+Set up your environment and run your first video curation pipeline with NeMo Curator.
+:::
+
+::::
+
 ## Deployment and Integration
 
 NeMo Curator is designed for distributed, cloud-native, and on-premises deployments. It supports Kubernetes, Slurm, and Spark, and integrates easily with your existing MLOps pipelines. Modular APIs and CLI tools enable flexible orchestration and automation.
