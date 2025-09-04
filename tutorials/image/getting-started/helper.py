@@ -24,7 +24,6 @@ from functools import partial
 from multiprocessing import Pool
 from typing import TYPE_CHECKING
 
-import aiofiles
 import aiohttp
 import pandas as pd
 from loguru import logger
@@ -39,37 +38,32 @@ if TYPE_CHECKING:
 HTTP_OK = 200
 
 
-async def download_image(session: aiohttp.ClientSession, url: str, filename: str, retries: int = 3) -> bool:
+async def fetch_image_bytes(session: aiohttp.ClientSession, url: str, retries: int = 3) -> bytes | None:
     for attempt in range(1, retries + 1):
         try:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
                 if response.status == HTTP_OK:
-                    async with aiofiles.open(filename, mode="wb") as f:
-                        await f.write(await response.read())
-                    return True
-                elif attempt > 1:  # only log on retry attempts, not first try
+                    return await response.read()
+                elif attempt > 1:
                     logger.debug(f"[Attempt {attempt}] Failed to download {url}: HTTP status {response.status}")
-        except (aiohttp.ClientError, asyncio.TimeoutError, Exception) as e:
-            if attempt > 1:  # only log on retry attempts, not first try
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            if attempt > 1:
                 logger.debug(f"[Attempt {attempt}] Failed to download {url}: {e}")
 
         if attempt < retries:
-            await asyncio.sleep(1)  # small delay before retry
+            await asyncio.sleep(1)
 
-    # After all retries failed, log once
     logger.debug(f"All {retries} attempts failed for {url}")
-    return False
+    return None
 
 
 async def process_batch(batch: pd.DataFrame, output_dir: str, batch_num: int) -> None:
     tar_filename = os.path.join(output_dir, f"{batch_num:05d}.tar")
-    tmp_dir = os.path.join(output_dir, "tmp")
-    os.makedirs(tmp_dir, exist_ok=True)
 
     metadatas = []
     # Set timeout and connection limits for the session
-    timeout = aiohttp.ClientTimeout(total=30, connect=10)
-    connector = aiohttp.TCPConnector(limit=100, limit_per_host=10)
+    timeout = aiohttp.ClientTimeout(total=15)
+    connector = aiohttp.TCPConnector(limit=256, limit_per_host=16)
 
     async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
         tasks = []
@@ -78,52 +72,36 @@ async def process_batch(batch: pd.DataFrame, output_dir: str, batch_num: int) ->
             url = row["URL"]
 
             key = f"{batch_num:05d}{i:04d}"
-            jpg_filename = os.path.join(tmp_dir, f"{key}.jpg")
-            txt_filename = os.path.join(tmp_dir, f"{key}.txt")
-            json_filename = os.path.join(tmp_dir, f"{key}.json")
 
             meta = {"url": url, "caption": caption, "key": key}
             metadatas.append(meta)
 
-            tasks.append(download_image(session, url, jpg_filename, retries=3))
-
-            async with aiofiles.open(txt_filename, mode="w") as f:
-                await f.write(caption)
-
-            async with aiofiles.open(json_filename, mode="w") as f:
-                await f.write(json.dumps(meta))
+            tasks.append(fetch_image_bytes(session, url, retries=3))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
     with tarfile.open(tar_filename, "w") as tar:
         for i, result in enumerate(results):
-            # Check if result is a boolean (successful download) rather than an exception
-            if isinstance(result, bool) and result:
+            # Only proceed for successful downloads (bytes)
+            if isinstance(result, bytes) and result:
                 key = f"{batch_num:05d}{i:04d}"
-                jpg_base = f"{key}.jpg"
-                txt_base = f"{key}.txt"
-                json_base = f"{key}.json"
-                jpg_tmp = os.path.join(tmp_dir, jpg_base)
-                txt_tmp = os.path.join(tmp_dir, txt_base)
-                json_tmp = os.path.join(tmp_dir, json_base)
 
-                # Only add files that exist (successful downloads)
-                if os.path.exists(jpg_tmp):
-                    tar.add(jpg_tmp, arcname=jpg_base)
-                    tar.add(txt_tmp, arcname=txt_base)
-                    tar.add(json_tmp, arcname=json_base)
+                # Add image bytes
+                jpg_info = tarfile.TarInfo(name=f"{key}.jpg")
+                jpg_info.size = len(result)
+                tar.addfile(jpg_info, fileobj=io.BytesIO(result))
 
-    # Clean up temporary files
-    for i in range(len(batch)):
-        key = f"{batch_num:05d}{i:04d}"
-        jpg_tmp = os.path.join(tmp_dir, f"{key}.jpg")
-        txt_tmp = os.path.join(tmp_dir, f"{key}.txt")
-        json_tmp = os.path.join(tmp_dir, f"{key}.json")
+                # Add caption text
+                caption_bytes = str(metadatas[i]["caption"]).encode("utf-8")
+                txt_info = tarfile.TarInfo(name=f"{key}.txt")
+                txt_info.size = len(caption_bytes)
+                tar.addfile(txt_info, fileobj=io.BytesIO(caption_bytes))
 
-        # Only remove files that exist
-        for tmp_file in [jpg_tmp, txt_tmp, json_tmp]:
-            if os.path.exists(tmp_file):
-                os.remove(tmp_file)
+                # Add JSON metadata
+                json_bytes = json.dumps(metadatas[i]).encode("utf-8")
+                json_info = tarfile.TarInfo(name=f"{key}.json")
+                json_info.size = len(json_bytes)
+                tar.addfile(json_info, fileobj=io.BytesIO(json_bytes))
 
     # Write parquet
     meta_df = pd.DataFrame(metadatas)
@@ -167,9 +145,13 @@ def download_webdataset(
             unit="chunk"
         ))
 
+    # Best-effort cleanup of legacy tmp dir from previous versions
     tmp_dir = os.path.join(output_dir, "tmp")
-    if os.path.exists(tmp_dir):
-        os.rmdir(tmp_dir)
+    try:
+        if os.path.isdir(tmp_dir) and not os.listdir(tmp_dir):
+            os.rmdir(tmp_dir)
+    except OSError as e:
+        logger.debug(f"Failed to remove tmp dir {tmp_dir}: {e}")
 
 
 def _prepare_metadata_record(
