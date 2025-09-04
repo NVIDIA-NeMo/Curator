@@ -10,7 +10,7 @@ Note: Run these examples on GPUs for best performance.
 
 ### Download and preprocess data
 
-Use the following commands to download a sample Parquet of image URLs from MSCOCO dataset and prepare a deduplicated (removing duplicating urls), truncated subset for quick experiments.
+Use the following commands to download a sample Parquet of image URLs from MSCOCO dataset and prepare a deduplicated (removing duplicating URLs), truncated subset for quick experiments.
 
 ```bash
 mkdir -p ./example_data/ && wget https://huggingface.co/datasets/ChristophSchuhmann/MS_COCO_2017_URL_TEXT/resolve/main/mscoco.parquet -O ./example_data/mscoco.parquet
