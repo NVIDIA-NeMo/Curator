@@ -34,8 +34,7 @@ pip install --upgrade huggingface_hub
 mkdir -p ./model_weights/laion/clip-autokeras-binary-nsfw && \
 wget -qO ./model_weights/laion/clip-autokeras-binary-nsfw/clip_autokeras_binary_nsfw.zip \
   https://github.com/LAION-AI/CLIP-based-NSFW-Detector/files/10250461/clip_autokeras_binary_nsfw.zip && \
-unzip -o ./model_weights/laion/clip-autokeras-binary-nsfw/clip_autokeras_binary_nsfw.zip -d ./model_weights/laion/clip-autokeras-binary-nsfw && \
-ls -lh ./model_weights/laion/clip-autokeras-binary-nsfw/*.pth
+unzip -o ./model_weights/laion/clip-autokeras-binary-nsfw/clip_autokeras_binary_nsfw.zip -d ./model_weights/laion/clip-autokeras-binary-nsfw
 
 # OpenAI CLIP ViT-L/14 weights
 mkdir -p ./model_weights/openai && \
@@ -48,7 +47,7 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download('ttj
 
 ### Run the scripts
 
-Run the image curation pipeline (extract embeddings, nsfw and aesthetics scores, filtering based on thresholds):
+Run the image curation pipeline (extracting embeddings, nsfw and aesthetics scores, filtering based on thresholds):
 
 ```bash
 python tutorials/image/getting-started/image_curation_example.py \
@@ -64,19 +63,18 @@ python tutorials/image/getting-started/image_curation_example.py \
     --aesthetic-threshold 0.9 \
     --nsfw-threshold 0.9 \
     --images-per-tar 1000 \
-    --skip-download \
     --verbose
 ```
 
-Run the image deduplication pipeline:
+Run the image deduplication pipeline (extracting embeddings, running semantic deduplication, removing duplicated samples):
 
 ```bash
-python ray_curator/examples/image/image_dedup_example.py \
-    --input-wds-dataset-dir /lustre/fsw/coreai_dlalgo_genai/huvu/data/nemo_curator_image/mscoco/wds/truncated_5K_mscoco \
-    --output-dataset-dir /lustre/fsw/coreai_dlalgo_genai/huvu/data/nemo_curator_image/mscoco/no_wds/dedup/results_truncated_5K_mscoco \
-    --embeddings-dir /lustre/fsw/coreai_dlalgo_genai/huvu/data/nemo_curator_image/mscoco/dedup/embeddings/truncated_5K_mscoco \
-    --removal-parquets-dir /lustre/fsw/coreai_dlalgo_genai/huvu/data/nemo_curator_image/mscoco/dedup/removal_ids/truncated_5K_mscoco \
-    --model-dir /lustre/fsw/coreai_dlalgo_genai/huvu/data/nemo_curator_image/model_weights \
+python tutorials/image/getting-started/image_dedup_example.py \
+    --input-wds-dataset-dir ./example_data/truncated_100k_mscoco \
+    --output-dataset-dir ./example_data/results_truncated_100k_mscoco \
+    --embeddings-dir ./example_data/dedup/embeddings/truncated_100k_mscoco \
+    --removal-parquets-dir ./example_data/dedup/removal_ids/truncated_100k_mscoco \
+    --model-dir ./model_weights \
     --task-batch-size 1000 \
     --embedding-batch-size 500 \
     --tar-files-per-partition 10 \
