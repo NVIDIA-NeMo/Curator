@@ -6,10 +6,10 @@ personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "concept"
 modality: "video-only"
-only: not ga
 ---
 
 (about-concepts-video)=
+
 # Video Curation Concepts
 
 This document covers the essential concepts for video data curation in NVIDIA NeMo Curator. These concepts assume basic familiarity with data science and machine learning principles.
@@ -25,7 +25,7 @@ Video curation in NVIDIA NeMo Curator focuses on these key areas:
 :link: about-concepts-video-architecture
 :link-type: ref
 
-Core concepts for distributed processing, Ray foundation, and autoscaling
+Core concepts for distributed processing, Ray foundation, and auto-scaling
 :::
 
 :::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Key Abstractions
@@ -44,9 +44,13 @@ How data moves through the system, from ingestion to output
 
 ::::
 
+## Notes on Modalities and Backends
+
+Video pipelines in Curator run on Ray with the `XennaExecutor` integration for streaming and batch execution. Other modalities, such as text and image, also use RAPIDS and Curator’s distributed backends in parts of their workflows. Refer to the modality-specific guides for details.
+
 ## Infrastructure Components
 
-The video curation concepts build on NVIDIA NeMo Curator's core infrastructure components, which are shared across all modalities (text, image, video). These components include:
+The video curation concepts build on NVIDIA NeMo Curator's core infrastructure components. All modalities (text, image, video, and audio) use these components. These components include:
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
@@ -54,7 +58,7 @@ The video curation concepts build on NVIDIA NeMo Curator's core infrastructure c
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Distributed Computing
 :link: reference-infra-dist-computing
 :link-type: ref
-Configure and manage distributed processing across multiple machines
+Configure and manage distributed processing across clusters of machines
 +++
 {bdg-secondary}`dask`
 {bdg-secondary}`clusters`
@@ -74,7 +78,7 @@ Optimize memory usage when processing large datasets
 :::{grid-item-card} {octicon}`zap;1.5em;sd-mr-1` GPU Acceleration
 :link: reference-infra-gpu-processing
 :link-type: ref
-Leverage NVIDIA GPUs for faster data processing
+Leverage NVIDIA GPU acceleration for faster data processing
 +++
 {bdg-secondary}`cuda`
 {bdg-secondary}`rmm`

@@ -62,6 +62,15 @@ Curate image-text datasets with embedding, classification, and deduplication.
 {bdg-secondary}`embedding` {bdg-secondary}`classification` {bdg-secondary}`semantic-deduplication`
 :::
 
+:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Curate Videos
+:link: video-overview
+:link-type: ref
+
+Curate and process videos with GPU-accelerated pipelines and sharding.
++++
+{bdg-secondary}`video-splitting` {bdg-secondary}`video-sharding` {bdg-secondary}`gpu-accelerated`
+:::
+
 ::::
 
 ## Quickstart Guides
@@ -74,17 +83,21 @@ Install and run NeMo Curator for specific modalities.
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Text Curation Quickstart
 :link: gs-text
 :link-type: ref
-Quickly set up and run text curation workflows.
-+++
-{bdg-secondary}`setup` {bdg-secondary}`installation` {bdg-secondary}`quickstart`
+Set up and run text curation workflows.
 :::
 
 :::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Quickstart
 :link: gs-image
 :link-type: ref
-Quickly set up and run image curation workflows.
-+++
-{bdg-secondary}`setup` {bdg-secondary}`installation` {bdg-secondary}`quickstart`
+Set up and run image curation workflows.
+
+:::
+
+:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Video Curation Quickstart
+:link: gs-video
+:link-type: ref
+Set up and run video curation workflows.
+
 :::
 
 ::::
@@ -116,6 +129,16 @@ Learn the basics of image data processing with NeMo Curator.
 {bdg-secondary}`data-curation`
 :::
 
+:::{grid-item-card} {octicon}`mortar-board;1.5em;sd-mr-1` Video Beginner Tutorial
+:link: video-tutorials-beginner
+:link-type: ref
+Learn the basics of video pipeline construction and execution.
++++
+{bdg-secondary}`video-splitting`
+{bdg-secondary}`video-sharding`
+{bdg-secondary}`custom-pipelines`
+:::
+
 ::::
 
 ---
@@ -143,6 +166,7 @@ about/release-notes/index.md
 get-started/index.md
 Text Curation Quickstart <get-started/text.md>
 Image Curation Quickstart <get-started/image.md>
+Video Curation Quickstart <get-started/video.md>
 ::::
 
 ::::{toctree}
@@ -165,6 +189,18 @@ Tutorials <curate-images/tutorials/index.md>
 Load Data <curate-images/load-data/index.md>
 Process Data <curate-images/process-data/index.md>
 Save and Export <curate-images/save-export.md>
+::::
+
+::::{toctree}
+:hidden:
+:caption: Curate Video
+:maxdepth: 2
+
+curate-video/index.md
+Tutorials <curate-video/tutorials/index.md>
+Load Data <curate-video/load-data/index.md>
+Process Data <curate-video/process-data/index.md>
+Save & Export <curate-video/save-export.md>
 ::::
 
 ::::{toctree}
