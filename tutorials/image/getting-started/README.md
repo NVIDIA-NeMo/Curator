@@ -28,8 +28,6 @@ truncated_urls.to_parquet("./example_data/truncated_100k_mscoco.parquet")
 
 
 ```bash
-pip install --upgrade huggingface_hub
-
 # LAION NSFW detector weights
 mkdir -p ./model_weights/laion/clip-autokeras-binary-nsfw && \
 wget -qO ./model_weights/laion/clip-autokeras-binary-nsfw/clip_autokeras_binary_nsfw.zip \
