@@ -24,7 +24,6 @@ from functools import partial
 from multiprocessing import Pool
 from typing import TYPE_CHECKING
 
-import aiofiles
 import aiohttp
 import pandas as pd
 from loguru import logger
@@ -47,7 +46,7 @@ async def fetch_image_bytes(session: aiohttp.ClientSession, url: str, retries: i
                     return await response.read()
                 elif attempt > 1:
                     logger.debug(f"[Attempt {attempt}] Failed to download {url}: HTTP status {response.status}")
-        except (aiohttp.ClientError, asyncio.TimeoutError, Exception) as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             if attempt > 1:
                 logger.debug(f"[Attempt {attempt}] Failed to download {url}: {e}")
 
@@ -151,8 +150,8 @@ def download_webdataset(
     try:
         if os.path.isdir(tmp_dir) and not os.listdir(tmp_dir):
             os.rmdir(tmp_dir)
-    except Exception:
-        pass
+    except OSError as e:
+        logger.debug(f"Failed to remove tmp dir {tmp_dir}: {e}")
 
 
 def _prepare_metadata_record(
