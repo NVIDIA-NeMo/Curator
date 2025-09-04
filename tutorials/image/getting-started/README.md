@@ -6,7 +6,7 @@ The Python scripts in this directory contain examples for how to run typical ima
 - `image_dedup_example.py` implements a pipeline to read images, generate their [CLIP](https://huggingface.co/docs/transformers/en/model_doc/clip) embeddings, filter semantic duplicates (i.e., images which look similar in content to other images within the dataset), and save the results
 - `helper.py` contains functions for downloading and saving image data used by the above scripts
 
-Run these examples on GPUs for best performance.
+Note: Run these examples on GPUs for best performance.
 
 ### Download and preprocess data
 
