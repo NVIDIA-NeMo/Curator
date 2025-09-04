@@ -320,16 +320,13 @@ def check_output_mode(
         msg = f"Invalid mode: {mode!r}. Allowed: {sorted(allowed)}"
         raise ValueError(msg)
 
-    if normalized == "ignore":
-        if not fs.exists(path):
-            fs.makedirs(path)
-        return
+    if normalized == "append" and append_mode_implemented is False:
+        msg = "append mode is not implemented yet"
+        raise NotImplementedError(msg)
 
-    if normalized == "append":
-        if not append_mode_implemented:
-            msg = "append mode is not implemented yet"
-            raise NotImplementedError(msg)
-        return
+    if normalized == "error" and fs.exists(path):
+        msg = f"Output directory {path} already exists"
+        raise FileExistsError(msg)
 
     if normalized == "overwrite":
         if fs.exists(path):
@@ -339,12 +336,10 @@ def check_output_mode(
         else:
             msg = f"Overwrite mode: output directory {path} does not exist; nothing to remove"
             logger.info(msg)
-        return
 
-    if normalized == "error" and fs.exists(path):
-        msg = f"Output directory {path} already exists"
-        raise FileExistsError(msg)
-    return
+    # For ignore/append/overwrite mode (we delete the directory earlier in overwrite mode)
+    # So we need to create the directory
+    fs.makedirs(path, exist_ok=True)
 
 
 def infer_dataset_name_from_path(path: str) -> str:
