@@ -111,7 +111,8 @@ def main(args: argparse.Namespace) -> None:
         download_webdataset(
             parquet_path=args.input_parquet,
             output_dir=args.input_wds_dataset_dir,
-            num_processes=args.download_processes
+            num_processes=args.download_processes,
+            entries_per_tar=1000,
         )
 
         download_time = time.time() - download_start
