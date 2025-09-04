@@ -315,3 +315,10 @@ html_extra_path = ["project.json", "versions1.json"]
 
 # Note: JSON output configuration has been moved to the consolidated
 # json_output_settings dictionary above for better organization and new features!
+
+# Github and K8s links are now getting rate limited from the Github Actions
+linkcheck_ignore = [
+    ".*github\\.com.*",
+    ".*githubusercontent\\.com.*",
+    ".*kubernetes\\.io*",
+]
