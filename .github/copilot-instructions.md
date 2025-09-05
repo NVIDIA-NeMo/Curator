@@ -2,7 +2,12 @@
 
 ## Overview
 
-NVIDIA NeMo Curator is a scalable data preprocessing tool for training large language models. This repository focuses on data curation pipelines for text, audio, video, and image modalities with support for both CPU and GPU processing.
+NVIDIA NeMo Curator is a generic, pluggable framework for building distributed data processing pipelines using Ray. It provides a unified API for running the same pipeline logic across different Ray orchestration backends.
+
+### 🎯 Core Concept
+Enable users to define a data processing pipeline once and execute it using different Ray backends in a multi-node setting (Xenna, Ray Actors, Ray Data) without changing the pipeline logic
+
+This scalable data preprocessing tool focuses on data curation pipelines for text, audio, video, and image modalities with support for both CPU and GPU processing.
 
 ## Development Environment
 
@@ -202,9 +207,72 @@ class MyProcessingStage(ProcessingStage):
 
 ## API Design Architecture
 
-### Design Principles
+### 📦 Key Components
 
-#### Task-Centric Architecture
+#### 1. **Tasks** (`nemo_curator/tasks/`)
+- **Purpose**: Represent batches of data to be processed
+- **Base Class**: `Task[T]` - Generic task container with metadata
+- **Specializations**: `DocumentBatch`, `ImageBatch`, `FileGroupTask`
+
+#### 2. **Stages** (`nemo_curator/stages/`)
+- **Purpose**: Define processing operations that transform tasks
+- **Base Class**: `ProcessingStage[X, Y]` - Generic stage that transforms input type X to output type Y
+- **Key Features**:
+  - Resource requirements specification (CPU, memory)
+  - Input/output validation
+
+#### 3. **Backends/Executors** (`nemo_curator/backends/`)
+- **Purpose**: Provide adapters to run stages on different Ray orchestration systems
+- **Available Backends**:
+  - **Xenna**: NVIDIA's Cosmos orchestration system
+  - **Ray Actor Pool**: Classic Ray actor-based execution
+  - **Ray Data**: Ray's dataset processing framework
+- **Key Features**:
+  - Unified executor interface (`BaseExecutor`)
+  - Stage adaptation layer (`BaseStageAdapter`)
+  - Backend-specific optimizations
+  - Worker/node metadata handling
+
+#### 4. **Pipeline** (`nemo_curator/pipeline/`)
+- **Purpose**: Define sequence of stages and orchestrate execution
+- **Features**:
+  - Stage composition and validation
+  - Execution across different backends
+  - Result aggregation
+
+### 🔄 Execution Flow
+
+1. **Pipeline Definition**: User defines stages in sequence
+2. **Backend Selection**: Choose executor (Xenna/Ray Actors/Ray Data)
+3. **Stage Adaptation**: Executor adapts stages to backend format
+4. **Task Distribution**: Initial tasks distributed across workers
+5. **Stage Execution**: Each stage processes tasks in parallel
+6. **Result Collection**: Final results aggregated and returned
+
+### 🎯 Design Principles
+
+- **Backend Agnostic**: Same pipeline logic runs on any supported backend
+- **Type Safety**: Generic types ensure input/output compatibility
+- **Scalability**: Designed for large-scale distributed processing
+- **Extensibility**: Easy to add new task types, stages, and backends
+- **Performance**: Built-in metrics and optimization hooks
+- **Composability**: Stages can be combined and reused
+
+### 💡 Usage Pattern
+
+```python
+# Define pipeline
+pipeline = Pipeline(name="data_processing")
+pipeline.add_stage(ReaderStage(...))
+pipeline.add_stage(ProcessingStage(...))
+
+# Execute on different backends
+results_xenna = pipeline.run(XennaExecutor())
+results_ray_data = pipeline.run(RayDataExecutor())
+results_ray_actors = pipeline.run(RayActorExecutor())
+```
+
+### Task-Centric Architecture Design Details
 The design of NeMo Curator is based on Ray and operates on individual **Tasks** - batches of data that flow through the pipeline. This enables:
 - Finer-grained control and monitoring
 - Better resource utilization
@@ -360,6 +428,16 @@ class RayDataExecutor(BaseExecutor):
         # Execute pipeline
 ```
 
+### 🔧 Development Guidelines
+
+- **Task Types**: Create new task types for different data modalities
+- **Stage Implementation**: Inherit from `ProcessingStage` and implement required methods
+- **Backend Development**: Extend `BaseExecutor` for new orchestration systems
+- **Testing**: Use the example pipelines to validate new components
+- **Performance**: Leverage batch processing and resource specifications
+
+This framework enables data scientists and engineers to focus on pipeline logic while abstracting away the complexities of different Ray execution environments.
+
 ### API Status
 **Status:** Pre Release - This API design is currently under development and may change.
 
@@ -369,6 +447,9 @@ For practical examples of the API in action, refer to the quickstart examples in
 ## File Structure Conventions
 
 - **Processing Stages**: `nemo_curator/stages/{modality}/` (text, image, audio, video)
+- **Tasks**: `nemo_curator/tasks/` (task definitions and implementations)
+- **Backends/Executors**: `nemo_curator/backends/` (execution adapters)
+- **Pipeline**: `nemo_curator/pipeline/` (pipeline orchestration)
 - **Utilities**: `nemo_curator/utils/` (shared functionality)
 - **Tests**: `tests/` (mirrors source structure with 162+ test files)
 - **Documentation**: `docs/` (Sphinx-based documentation with MyST)
@@ -383,6 +464,9 @@ nemo_curator/
 │   ├── image/         # Image processing and filtering
 │   ├── audio/         # Audio processing capabilities
 │   └── video/         # Video processing and analysis
+├── tasks/             # Task definitions and implementations
+├── backends/          # Execution adapters for different Ray backends
+├── pipeline/          # Pipeline orchestration components
 ├── utils/             # Shared utilities and helpers
 ├── datasets/          # Dataset loading and manipulation
 └── modules/           # Core processing algorithms
