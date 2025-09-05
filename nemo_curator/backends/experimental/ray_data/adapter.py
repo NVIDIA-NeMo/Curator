@@ -45,8 +45,9 @@ class RayDataStageAdapter(BaseStageAdapter):
             self._batch_size = 1
 
         # Go through all the keys in the ray_stage_spec and raise error if they are not in RayStageSpecKeys
+        valid_enum_values = {item.value for item in RayStageSpecKeys}
         for key in self.stage.ray_stage_spec():
-            if key not in RayStageSpecKeys:
+            if key not in valid_enum_values:
                 msg = f"Invalid key {key} in ray_stage_spec for stage {self.stage}"
                 raise ValueError(msg)
 
