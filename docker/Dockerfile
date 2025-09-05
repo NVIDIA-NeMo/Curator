@@ -72,6 +72,11 @@ RUN cd /opt/Curator && \
       uv sync --link-mode copy --locked --extra all --all-groups; \
   fi;
 
+# Fix for NeMo ASR Collection module
+# This can be removed after NeMo removes apex as a dependency
+RUN uv pip uninstall apex
+RUN uv pip install nemo_toolkit[asr]==2.4.0
+
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
 export PATH="/opt/venv/bin:$PATH"

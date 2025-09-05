@@ -14,8 +14,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.tasks import AudioBatch
 
@@ -43,7 +41,6 @@ class TestAsrNeMoStage:
         )
         assert stage.batch_size == 16
 
-    @pytest.mark.skip("Import NeMo without apex")
     def test_process_success(self) -> None:
         """Test process method with successful file discovery."""
 
