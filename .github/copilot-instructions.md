@@ -205,7 +205,7 @@ class MyProcessingStage(ProcessingStage):
 ### Design Principles
 
 #### Task-Centric Architecture
-Unlike the previous dataset-level operations, the new design operates on individual **Tasks** - batches of data that flow through the pipeline. This enables:
+The design of NeMo Curator is based on Ray and operates on individual **Tasks** - batches of data that flow through the pipeline. This enables:
 - Finer-grained control and monitoring
 - Better resource utilization
 
