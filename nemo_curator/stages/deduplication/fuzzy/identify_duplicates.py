@@ -58,7 +58,7 @@ class IdentifyDuplicatesStage(ShuffleStage):
         Whether the underlying rapidsmpf shuffler should collect shuffle statistics.
     """
 
-    _name = "IdentifyDuplicates"
+    _name = "identify_duplicates"
 
     def __init__(  # noqa: PLR0913
         self,

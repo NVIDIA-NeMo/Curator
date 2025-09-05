@@ -26,7 +26,7 @@ class DocumentFilter(ABC):
 
     def __init__(self):
         super().__init__()
-        self._name = self.__class__.__name__
+        self._name = "document_filter"
         self._sentences = None
         self._paragraphs = None
         self._ngrams = None

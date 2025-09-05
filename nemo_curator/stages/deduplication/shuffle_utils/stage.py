@@ -51,7 +51,7 @@ class ShuffleStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         Whether the underlying rapidsmpf shuffler should collect shuffle statistics.
     """
 
-    _name = "ShuffleStage"
+    _name = "shuffle_stage"
     _resources = Resources(gpus=1.0)
 
     # Use BulkRapidsMPFShuffler directly
