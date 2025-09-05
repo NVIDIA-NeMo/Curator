@@ -34,6 +34,12 @@ Explore key concepts for image data curation, including scalable loading, proces
 Learn about text data curation, covering data loading, processing (filtering, deduplication, classification), and synthetic data generation.
 :::
 
+:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Video Curation Concepts
+:link: about-concepts-video
+:link-type: ref
+
+Discover video data curation concepts, such as distributed processing, pipeline stages, execution modes, and efficient data flow.
+:::
 ::::
 
 ```{toctree}
@@ -42,4 +48,5 @@ Learn about text data curation, covering data loading, processing (filtering, de
 
 Image Concepts <image/index.md>
 Text Concepts <text/index.md>
+Video Concepts <video/index.md>
 ```
