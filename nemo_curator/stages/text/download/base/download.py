@@ -99,16 +99,12 @@ class DocumentDownloader(ABC):
 
         # If final file exists and is non-empty, assume it's complete
         if fs.exists(output_file):
-            try:
-                file_info = fs.info(output_file)
-                file_size = file_info.get("size", 0)
-                if file_size > 0:
-                    if self._verbose:
-                        logger.info(f"File: {output_file} exists. Not downloading")
-                    return output_file
-            except (OSError, KeyError, ValueError):
-                # If we can't get file info, proceed with download
-                pass
+            file_info = fs.info(output_file)
+            file_size = file_info.get("size", 0)
+            if file_size > 0:
+                if self._verbose:
+                    logger.info(f"File: {output_file} exists. Not downloading")
+                return output_file
 
         # Download to temporary file
         success, error_message = self._download_to_path(url, temp_file)
@@ -117,13 +113,16 @@ class DocumentDownloader(ABC):
             # Download successful, atomically move temp file to final location
             os.rename(temp_file, output_file)
             if self._verbose:
+                # Try to get file size for logging, but don't fail if we can't
                 try:
                     fs, _ = fsspec.core.url_to_fs(output_file)
                     file_info = fs.info(output_file)
                     file_size = file_info.get("size", 0)
                     logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
                 except (OSError, KeyError, ValueError):
+                    # If we can't get file size, just log without size
                     logger.info(f"Successfully downloaded to {output_file}")
+                    logger.debug(f"Could not retrieve file size for {output_file}")
             return output_file
         else:
             # Download failed
