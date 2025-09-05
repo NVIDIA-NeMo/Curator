@@ -526,11 +526,11 @@ class TestStageNamingValidation:
     def test_validate_stage_name_function(self):
         """Test the _validate_stage_name function with valid and invalid names."""
         from nemo_curator.stages.base import _validate_stage_name
-        
+
         # Valid snake_case names should pass
         valid_names = [
             "video_reader",
-            "pairwise_file_partitioning", 
+            "pairwise_file_partitioning",
             "boilerplate_string_ratio",
             "duplicates_removal_stage",
             "lsh_stage",
@@ -539,10 +539,10 @@ class TestStageNamingValidation:
             "test_123",
             "another_test_name_with_numbers_456"
         ]
-        
+
         for name in valid_names:
             _validate_stage_name(name)  # Should not raise
-            
+
         # Invalid names should fail
         invalid_names = [
             "DuplicatesRemovalStage",  # CamelCase
@@ -557,7 +557,7 @@ class TestStageNamingValidation:
             "Invalid_Name",  # has uppercase
             "invalidName",  # camelCase
         ]
-        
+
         for name in invalid_names:
             with pytest.raises(ValueError, match="Stage name must be snake_case"):
                 _validate_stage_name(name)
@@ -565,11 +565,11 @@ class TestStageNamingValidation:
     def test_with_method_validates_stage_name(self):
         """Test that the with_ method validates stage names."""
         stage = ConcreteProcessingStage()
-        
+
         # Valid snake_case name should work
         valid_stage = stage.with_(name="valid_snake_case_name")
         assert valid_stage.name == "valid_snake_case_name"
-        
+
         # Invalid names should raise ValueError
         invalid_names = [
             "InvalidCamelCase",
@@ -579,7 +579,7 @@ class TestStageNamingValidation:
             "",
             "Invalid_Mixed_Case"
         ]
-        
+
         for invalid_name in invalid_names:
             with pytest.raises(ValueError, match="Stage name must be snake_case"):
                 stage.with_(name=invalid_name)
@@ -587,24 +587,24 @@ class TestStageNamingValidation:
     def test_existing_stage_names_are_snake_case(self):
         """Test that all stage instances follow snake_case convention."""
         import re
-        
+
         # Test the mock stages we defined in this file
         mock_stages = [
             ConcreteProcessingStage(),
             MockStageA(),
-            MockStageB(), 
+            MockStageB(),
             MockStageC()
         ]
-        
+
         snake_case_pattern = re.compile(r"[a-z][a-z0-9_]*")
-        
+
         for stage in mock_stages:
             assert snake_case_pattern.fullmatch(stage.name), f"Stage {stage.__class__.__name__} has invalid name: {stage.name}"
 
     def test_stage_name_pattern_comprehensive(self):
         """Test comprehensive patterns for stage naming."""
         from nemo_curator.stages.base import _validate_stage_name
-        
+
         # Test edge cases
         valid_edge_cases = [
             "a",  # single letter
@@ -613,19 +613,10 @@ class TestStageNamingValidation:
             "a_1",  # letter, underscore, number
             "test_name_with_many_underscores_123"  # complex valid name
         ]
-        
+
         for name in valid_edge_cases:
             _validate_stage_name(name)  # Should not raise
-            
-        # Test invalid edge cases
-        invalid_edge_cases = [
-            "_invalid",  # starts with underscore
-            "1invalid",  # starts with number
-            "A",  # single uppercase letter
-            "test_Name",  # contains uppercase
-            "test__double",  # double underscore (technically valid by regex but not recommended)
-        ]
-        
+
         # Note: double underscore is actually valid by our regex, so let's test what actually fails
         definitely_invalid = [
             "_invalid",  # starts with underscore
@@ -633,7 +624,7 @@ class TestStageNamingValidation:
             "A",  # single uppercase letter
             "test_Name",  # contains uppercase
         ]
-        
+
         for name in definitely_invalid:
             with pytest.raises(ValueError, match="Stage name must be snake_case"):
                 _validate_stage_name(name)

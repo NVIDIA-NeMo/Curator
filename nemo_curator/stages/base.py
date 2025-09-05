@@ -34,15 +34,16 @@ _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
 
 def _validate_stage_name(name: str) -> None:
     """Validate that stage name follows snake_case convention.
-    
+
     Args:
         name: The stage name to validate
-        
+
     Raises:
         ValueError: If stage name is not in snake_case format
     """
     if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
-        raise ValueError(f"Stage name must be snake_case, got '{name}'")
+        msg = f"Stage name must be snake_case, got '{name}'"
+        raise ValueError(msg)
 
 
 class StageMeta(ABCMeta):
