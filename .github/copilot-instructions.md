@@ -202,24 +202,6 @@ class MyProcessingStage(ProcessingStage):
 
 ## API Design Architecture
 
-### Background
-
-#### Current State
-- **Existing NeMo-Curator OSS:** Built on Dask for Text, Image, Synthetic Data Generation and Hard negative mining
-- **Cosmos Curate:** Built on Ray core with [Cosmos Xenna](https://github.com/nvidia-cosmos/cosmos-xenna) for streaming map-style pipeline
-- **API Pattern:** Stages/modules accept distributed Dask dataframes as input
-
-#### Why Ray?
-- **Unified backend** for all modalities (text, image, video)
-- **Better heterogeneous computing** support allowing interleaving of CPU and GPU stages
-- **Fractional GPU support** (multiple models per GPU) and multi-GPU support for larger models
-- **Enhanced autoscaling** for dynamic workloads
-
-#### Why not Ray?
-- Limited support for distributed dataframes/arrays, especially distributed operations like groupby
-- Eager computation model (addressed through lazy evaluation at curator level)
-- Requires Curator to build a physical plan, and implement optimizations like task fusion
-
 ### Design Principles
 
 #### Task-Centric Architecture
