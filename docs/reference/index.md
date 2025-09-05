@@ -13,7 +13,7 @@ modality: "universal"
 
 NeMo Curator's reference documentation provides comprehensive technical details, API references, and integration information to help you maximize your NeMo Curator implementation. Use these resources to understand the technical foundation of NeMo Curator and integrate it with other tools and systems.
 
-## API Qucklinks
+## API Quicklinks
 
 Quickly access core NeMo Curator API references. Use these links to jump directly to the technical API documentation for each major module.
 
