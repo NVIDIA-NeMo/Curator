@@ -30,7 +30,7 @@ This scalable data preprocessing tool focuses on data curation pipelines for tex
 - **Ray**: Distributed computing framework for data processing
 - **Pandas/CuDF**: Data manipulation (CPU/GPU respectively)
 - **Transformers**: Hugging Face transformers library
-- **LoguRu**: Structured logging
+- **Loguru**: Structured logging
 
 ### Modality-Specific Libraries
 - **Text Processing**: PyTorch, BeautifulSoup, fasttext, sentencepiece, trafilatura
