@@ -111,7 +111,8 @@ def main(args: argparse.Namespace) -> None:
         download_webdataset(
             parquet_path=args.input_parquet,
             output_dir=args.input_wds_dataset_dir,
-            num_processes=args.download_processes
+            num_processes=args.download_processes,
+            entries_per_tar=args.entries_per_tar,
         )
 
         download_time = time.time() - download_start
@@ -179,8 +180,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "--download-processes",
         type=int,
-        default=2,
+        default=8,
         help="Number of parallel processes for downloading images"
+    )
+    parser.add_argument(
+        "--entries-per-tar",
+        type=int,
+        default=1000,
+        help="Number of entries per tar shard during download"
     )
     parser.add_argument(
         "--skip-download",
