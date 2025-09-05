@@ -1207,6 +1207,7 @@ class FakeQualityFilter(DocumentFilter):
 
     def __init__(self, alpha: float = 3, seed: int = 42):
         super().__init__()
+        self._name = "fake_quality_filter"
         self._alpha = alpha
         self._seed = np.random.seed(seed)  # noqa: NPY002
 
@@ -1234,6 +1235,7 @@ class FakeLangId(DocumentFilter):
 
     def __init__(self, min_langid_score: float = 0.3):
         super().__init__()
+        self._name = "fake_lang_id"
         self._cutoff = min_langid_score
 
     def score_document(self, text: str) -> str:

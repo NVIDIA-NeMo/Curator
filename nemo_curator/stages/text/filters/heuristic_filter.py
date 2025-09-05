@@ -625,6 +625,7 @@ class PornographicUrlsFilter(DocumentFilter):
 
     def __init__(self):
         super().__init__()
+        self._name = "pornographic_urls_filter"
 
     def score_document(self, text: str) -> int:
         all_urls = regex_url.findall(text)
@@ -716,6 +717,7 @@ class SubstringFilter(DocumentFilter):
             position (Literal["prefix", "suffix", "any"]): The position of the substring.
         """
         super().__init__()
+        self._name = "substring_filter"
         self._substring = substring
         if position not in ["prefix", "suffix", "any"]:
             msg = f"Invalid position: {position}. Must be one of: prefix, suffix, any."

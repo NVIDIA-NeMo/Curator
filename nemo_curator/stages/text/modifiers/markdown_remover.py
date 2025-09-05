@@ -29,6 +29,7 @@ class MarkdownRemover(DocumentModifier):
 
     def __init__(self):
         super().__init__()
+        self._name = "markdown_remover"
 
     def modify_document(self, text: str) -> str:
         lines = text.split("\n")
