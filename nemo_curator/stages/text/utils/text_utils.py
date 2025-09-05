@@ -14,6 +14,7 @@
 
 import ast
 import os
+import posixpath
 import string
 import tokenize
 import warnings
@@ -167,7 +168,7 @@ def get_docstrings(source: str, module: str = "<string>") -> list[str]:
     """Parse Python source code from file or string and print docstrings."""
     if hasattr(source, "read"):
         filename = getattr(source, "name", module)
-        module = os.path.splitext(os.path.basename(filename))[0]
+        module = posixpath.splitext(posixpath.basename(filename))[0]
         source = source.read()
 
     docstrings = sorted(parse_docstrings(source), key=lambda x: (NODE_TYPES.get(type(x[0])), x[1]))

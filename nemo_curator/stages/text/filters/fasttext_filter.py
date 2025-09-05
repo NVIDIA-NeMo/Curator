@@ -15,6 +15,7 @@
 import os
 
 import fasttext
+import fsspec
 import numpy as np
 
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
@@ -32,7 +33,8 @@ class FastTextQualityFilter(DocumentFilter):
         self._name = "fasttext_quality_filter"
 
     def model_check_or_download(self) -> None:
-        if not os.path.exists(self._model_path):
+        fs, _ = fsspec.core.url_to_fs(self._model_path)
+        if not fs.exists(self._model_path):
             msg = f"Model file {self._model_path} not found"
             raise FileNotFoundError(msg)
 
@@ -66,7 +68,8 @@ class FastTextLangId(DocumentFilter):
         self._name = "lang_id"
 
     def model_check_or_download(self) -> None:
-        if not os.path.exists(self._model_path):
+        fs, _ = fsspec.core.url_to_fs(self._model_path)
+        if not fs.exists(self._model_path):
             msg = f"Model file {self._model_path} not found"
             raise FileNotFoundError(msg)
 
