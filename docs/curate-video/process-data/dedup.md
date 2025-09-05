@@ -30,7 +30,7 @@ Duplicate removal operates on clip-level embeddings produced during processing:
 ## Before You Start
 
 - Verify local paths or configure S3-compatible credentials. Provide `storage_options` in read/write keyword arguments when reading or writing cloud paths.
-- Create output directories for `KMeansStage`, `PairwiseStage`, and `IdentifyDuplicatesStage`.
+- Create output directories for the stages you'll use (`KMeansStage`, `PairwiseStage`, and `IdentifyDuplicatesStage`).
 
 ---
 
