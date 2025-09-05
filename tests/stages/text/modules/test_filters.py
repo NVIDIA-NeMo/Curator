@@ -794,7 +794,7 @@ class TestHeuristicFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["no url", "fine url https://www.nvidia.com/en-us/"]}),
-            task_id="batch_1_PornographicUrlsFilter",
+            task_id="batch_1_pornographic_urls_filter",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -970,7 +970,7 @@ class TestSubstringFilter:
         # Expect only those records where the text starts with "Hello".
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["Hello world", "Hello everyone"]}),
-            task_id="batch_1_SubstringFilter",
+            task_id="batch_1_substring_filter",
             dataset_name="test_1",
         )
 
@@ -993,7 +993,7 @@ class TestSubstringFilter:
         # Expect only those records that end with "end".
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["This is the end", "Not matching end", "The end"]}),
-            task_id="batch_1_SubstringFilter",
+            task_id="batch_1_substring_filter",
             dataset_name="test_1",
         )
 
@@ -1010,7 +1010,7 @@ class TestSubstringFilter:
         # Expect documents that contain "test" anywhere.
         expected_dataset = DocumentBatch(
             data=pd.DataFrame({"text": ["test case", "This is a testcase", "another test"]}),
-            task_id="batch_1_SubstringFilter",
+            task_id="batch_1_substring_filter",
             dataset_name="test_1",
         )
 
@@ -1263,7 +1263,7 @@ class TestClassifierFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["b", "c", "d"]}),
-            task_id="batch_1_FakeQualityFilter",
+            task_id="batch_1_fake_quality_filter",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -1276,7 +1276,7 @@ class TestClassifierFilters:
 
         expected_data = DocumentBatch(
             data=pd.DataFrame({"text": ["a", "b", "d"]}),
-            task_id="batch_1_FakeLangId",
+            task_id="batch_1_fake_lang_id",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"

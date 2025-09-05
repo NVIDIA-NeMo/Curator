@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 from abc import ABC, abstractmethod
+
+
+def _camel_to_snake(name: str) -> str:
+    """Convert CamelCase to snake_case."""
+    # Insert an underscore before any uppercase letter that follows a lowercase letter or digit
+    s1 = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name)
+    return s1.lower()
 
 
 class DocumentFilter(ABC):
@@ -26,7 +34,7 @@ class DocumentFilter(ABC):
 
     def __init__(self):
         super().__init__()
-        self._name = "document_filter"
+        self._name = _camel_to_snake(self.__class__.__name__)
         self._sentences = None
         self._paragraphs = None
         self._ngrams = None

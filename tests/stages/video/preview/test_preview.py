@@ -354,10 +354,10 @@ class TestPreviewStage:
         stage = PreviewStage()
 
         # Test modifying parameters that are supported by the base class
-        new_stage = stage.with_(name="CustomPreviewStage", resources=Resources(cpus=8.0), batch_size=5)
+        new_stage = stage.with_(name="custom_preview_stage", resources=Resources(cpus=8.0), batch_size=5)
 
         # Verify new instance has modified values
-        assert new_stage.name == "CustomPreviewStage"
+        assert new_stage.name == "custom_preview_stage"
         assert new_stage.resources == Resources(cpus=8.0)
         assert new_stage.batch_size == 5
 
