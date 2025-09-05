@@ -37,7 +37,7 @@ class MockTask(Task[dict]):
 class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
     """Concrete implementation of ProcessingStage for testing."""
 
-    _name = "ConcreteProcessingStage"
+    _name = "concrete_processing_stage"
     _resources = Resources(cpus=2.0)
     _batch_size = 2
 
@@ -64,9 +64,9 @@ class TestProcessingStageWith:
         assert stage.resources == Resources(cpus=2.0)  # Original unchanged
 
         # Test with name override
-        stage_with_name = stage.with_(name="CustomStage")
-        assert stage_with_name.name == "CustomStage"
-        assert stage.name == "ConcreteProcessingStage"  # Original unchanged
+        stage_with_name = stage.with_(name="custom_stage")
+        assert stage_with_name.name == "custom_stage"
+        assert stage.name == "concrete_processing_stage"  # Original unchanged
 
     def test_batch_size_override(self):
         """Test overriding batch_size parameter."""
@@ -81,14 +81,14 @@ class TestProcessingStageWith:
         """Test overriding multiple parameters at once."""
         stage = ConcreteProcessingStage()
         new_resources = Resources(cpus=3.0)
-        stage_new = stage.with_(name="MultiParamStage", resources=new_resources, batch_size=10)
+        stage_new = stage.with_(name="multi_param_stage", resources=new_resources, batch_size=10)
 
-        assert stage_new.name == "MultiParamStage"
+        assert stage_new.name == "multi_param_stage"
         assert stage_new.resources == Resources(cpus=3.0)
         assert stage_new.batch_size == 10
 
         # Original should be unchanged
-        assert stage.name == "ConcreteProcessingStage"
+        assert stage.name == "concrete_processing_stage"
         assert stage.resources == Resources(cpus=2.0)
         assert stage.batch_size == 2
 
@@ -117,16 +117,16 @@ class TestProcessingStageWith:
         stage = ConcreteProcessingStage()
 
         # Chain multiple with_ calls
-        result = stage.with_(name="ChainedStage").with_(batch_size=8).with_(resources=Resources(cpus=6.0))
+        result = stage.with_(name="chained_stage").with_(batch_size=8).with_(resources=Resources(cpus=6.0))
 
         # Should return a new instance, not the original
         assert result is not stage
-        assert result.name == "ChainedStage"
+        assert result.name == "chained_stage"
         assert result.batch_size == 8
         assert result.resources == Resources(cpus=6.0)
 
         # Original should be unchanged
-        assert stage.name == "ConcreteProcessingStage"
+        assert stage.name == "concrete_processing_stage"
         assert stage.batch_size == 2
         assert stage.resources == Resources(cpus=2.0)
 
@@ -150,7 +150,7 @@ class TestProcessingStageWith:
 
             # Call with_ to create a modified stage
             modified_stage = stage.with_(
-                name=f"Worker{worker_id}Stage",
+                name=f"worker_{worker_id}_stage",
                 resources=Resources(cpus=float(worker_id + 1)),
                 batch_size=worker_id + 10,
             )
@@ -205,7 +205,7 @@ class TestProcessingStageWith:
 
         # Verify specific values for each worker
         for i in range(num_threads):
-            expected_name = f"Worker{i}Stage"
+            expected_name = f"worker_{i}_stage"
             expected_resources = Resources(cpus=float(i + 1))
             expected_batch_size = i + 10
 
@@ -218,7 +218,7 @@ class TestProcessingStageWith:
 
         # Create a stage that uses class-level defaults (no instance variables set)
         class MinimalStage(ProcessingStage[MockTask, MockTask]):
-            _name = "MinimalStage"
+            _name = "minimal_stage"
             # Note: _resources is not set, so it falls back to ProcessingStage._resources
             _batch_size = 1
 
@@ -269,7 +269,7 @@ class TestProcessingStageWith:
 class MockStageA(ProcessingStage[MockTask, MockTask]):
     """Mock stage A for testing composite stages."""
 
-    _name = "MockStageA"
+    _name = "mock_stage_a"
     _resources = Resources(cpus=1.0)
     _batch_size = 1
 
@@ -286,7 +286,7 @@ class MockStageA(ProcessingStage[MockTask, MockTask]):
 class MockStageB(ProcessingStage[MockTask, MockTask]):
     """Mock stage B for testing composite stages."""
 
-    _name = "MockStageB"
+    _name = "mock_stage_b"
     _resources = Resources(cpus=2.0)
     _batch_size = 2
 
@@ -303,7 +303,7 @@ class MockStageB(ProcessingStage[MockTask, MockTask]):
 class MockStageC(ProcessingStage[MockTask, MockTask]):
     """Mock stage C for testing composite stages."""
 
-    _name = "MockStageC"
+    _name = "mock_stage_c"
     _resources = Resources(cpus=3.0)
     _batch_size = 3
 
@@ -320,7 +320,7 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
     """Concrete implementation of CompositeStage for testing."""
 
-    _name = "ConcreteCompositeStage"
+    _name = "concrete_composite_stage"
 
     def decompose(self) -> list[ProcessingStage]:
         """Return a list of mock stages for testing."""
@@ -339,7 +339,7 @@ class TestCompositeStageWith:
         assert len(composite._with_operations) == 0
 
         # Add a with operation
-        stage_config = {"MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=5.0)}}
+        stage_config = {"mock_stage_a": {"name": "custom_stage_a", "resources": Resources(cpus=5.0)}}
         result = composite.with_(stage_config)
 
         # Should return the same instance (mutating pattern)
@@ -352,27 +352,27 @@ class TestCompositeStageWith:
         assert len(modified_stages) == 3
 
         # The first stage should have the applied configuration
-        assert modified_stages[0].name == "CustomStageA"
+        assert modified_stages[0].name == "custom_stage_a"
         assert modified_stages[0].resources == Resources(cpus=5.0)
 
         # The other stages should not have been modified
-        assert modified_stages[1].name == "MockStageB"
+        assert modified_stages[1].name == "mock_stage_b"
         assert modified_stages[1].resources == Resources(cpus=2.0)
-        assert modified_stages[2].name == "MockStageC"
+        assert modified_stages[2].name == "mock_stage_c"
         assert modified_stages[2].resources == Resources(cpus=3.0)
 
     @pytest.mark.parametrize(
         "configs",
         [
             {
-                "MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)},
-                "MockStageB": {"resources": Resources(cpus=10.0), "batch_size": 8},
-                "MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10},
+                "mock_stage_a": {"name": "custom_stage_a", "resources": Resources(cpus=6.0)},
+                "mock_stage_b": {"resources": Resources(cpus=10.0), "batch_size": 8},
+                "mock_stage_c": {"name": "custom_stage_c", "resources": Resources(cpus=9.0), "batch_size": 10},
             },
             [
-                {"MockStageA": {"name": "CustomStageA", "resources": Resources(cpus=6.0)}},
-                {"MockStageB": {"resources": Resources(cpus=10.0), "batch_size": 8}},
-                {"MockStageC": {"name": "CustomStageC", "resources": Resources(cpus=9.0), "batch_size": 10}},
+                {"mock_stage_a": {"name": "custom_stage_a", "resources": Resources(cpus=6.0)}},
+                {"mock_stage_b": {"resources": Resources(cpus=10.0), "batch_size": 8}},
+                {"mock_stage_c": {"name": "custom_stage_c", "resources": Resources(cpus=9.0), "batch_size": 10}},
             ],
         ],
     )
@@ -398,15 +398,15 @@ class TestCompositeStageWith:
         stage_b = modified_stages[1]
         stage_c = modified_stages[2]
 
-        assert stage_a.name == "CustomStageA"
+        assert stage_a.name == "custom_stage_a"
         assert stage_a.resources == Resources(cpus=6.0)
         assert stage_a.batch_size == 1  # Not modified
 
-        assert stage_b.name == "MockStageB"  # Not modified
+        assert stage_b.name == "mock_stage_b"  # Not modified
         assert stage_b.resources == Resources(cpus=10.0)
         assert stage_b.batch_size == 8
 
-        assert stage_c.name == "CustomStageC"
+        assert stage_c.name == "custom_stage_c"
         assert stage_c.resources == Resources(cpus=9.0)
         assert stage_c.batch_size == 10
 
@@ -415,15 +415,15 @@ class TestCompositeStageWith:
         [
             (
                 {
-                    "MockStageA": {"name": "CustomStageA"},
-                    "CustomStageA": {"name": "CustomStageA_2", "resources": Resources(cpus=7.0)},
+                    "mock_stage_a": {"name": "custom_stage_a"},
+                    "custom_stage_a": {"name": "custom_stage_a_2", "resources": Resources(cpus=7.0)},
                 },
                 True,
             ),
             (
                 [
-                    {"MockStageA": {"name": "CustomStageA"}},
-                    {"CustomStageA": {"name": "CustomStageA_2", "resources": Resources(cpus=7.0)}},
+                    {"mock_stage_a": {"name": "custom_stage_a"}},
+                    {"custom_stage_a": {"name": "custom_stage_a_2", "resources": Resources(cpus=7.0)}},
                 ],
                 False,
             ),
@@ -441,9 +441,9 @@ class TestCompositeStageWith:
                 composite.with_(config)
 
         if should_fail:
-            # The first config should fail because it tries to reference "CustomStageA"
-            # in the same operation where "MockStageA" is being renamed to "CustomStageA"
-            with pytest.raises(ValueError, match="Stage CustomStageA not found in composite stage"):
+            # The first config should fail because it tries to reference "custom_stage_a"
+            # in the same operation where "mock_stage_a" is being renamed to "custom_stage_a"
+            with pytest.raises(ValueError, match="Stage custom_stage_a not found in composite stage"):
                 composite._apply_with_(stages)
         else:
             # The second config should work because it applies operations sequentially
@@ -451,16 +451,16 @@ class TestCompositeStageWith:
 
             assert len(modified_stages) == 3
 
-            assert modified_stages[0].name == "CustomStageA_2"  # Should reflect the latest name
+            assert modified_stages[0].name == "custom_stage_a_2"  # Should reflect the latest name
             assert modified_stages[0].resources == Resources(cpus=7.0)  # Should reflect the latest resources
             assert modified_stages[0].batch_size == 1  # Should not be modified
 
-            # MockStageB / MockStageC should not be modified
-            assert modified_stages[1].name == "MockStageB"
+            # mock_stage_b / mock_stage_c should not be modified
+            assert modified_stages[1].name == "mock_stage_b"
             assert modified_stages[1].resources == Resources(cpus=2.0)
             assert modified_stages[1].batch_size == 2
 
-            assert modified_stages[2].name == "MockStageC"
+            assert modified_stages[2].name == "mock_stage_c"
             assert modified_stages[2].resources == Resources(cpus=3.0)
             assert modified_stages[2].batch_size == 3
 
@@ -471,7 +471,7 @@ class TestCompositeStageWith:
         # Create stages with duplicate names
         duplicate_stages = [MockStageA(), MockStageA(), MockStageB()]
 
-        config = {"MockStageA": {"name": "CustomStageA"}}
+        config = {"mock_stage_a": {"name": "custom_stage_a"}}
         composite.with_(config)
 
         # Should raise ValueError due to non-unique names
@@ -486,13 +486,13 @@ class TestCompositeStageWith:
         stages = composite.decompose()
 
         # Configure an unknown stage
-        config = {"UnknownStage": {"name": "CustomStage"}}
+        config = {"unknown_stage": {"name": "custom_stage"}}
         composite.with_(config)
 
         # Should raise ValueError due to unknown stage name
         import pytest
 
-        with pytest.raises(ValueError, match="Stage UnknownStage not found in composite stage"):
+        with pytest.raises(ValueError, match="Stage unknown_stage not found in composite stage"):
             composite._apply_with_(stages)
 
     def test_apply_with_empty_operations(self):
@@ -518,3 +518,122 @@ class TestCompositeStageWith:
 
         # outputs() should return the last stage's outputs
         assert composite.outputs() == composite.decompose()[-1].outputs()
+
+
+class TestStageNamingValidation:
+    """Test stage naming validation according to snake_case convention."""
+
+    def test_validate_stage_name_function(self):
+        """Test the _validate_stage_name function with valid and invalid names."""
+        from nemo_curator.stages.base import _validate_stage_name
+        
+        # Valid snake_case names should pass
+        valid_names = [
+            "video_reader",
+            "pairwise_file_partitioning", 
+            "boilerplate_string_ratio",
+            "duplicates_removal_stage",
+            "lsh_stage",
+            "identify_duplicates",
+            "a",
+            "test_123",
+            "another_test_name_with_numbers_456"
+        ]
+        
+        for name in valid_names:
+            _validate_stage_name(name)  # Should not raise
+            
+        # Invalid names should fail
+        invalid_names = [
+            "DuplicatesRemovalStage",  # CamelCase
+            "LSHStage",  # CamelCase
+            "IdentifyDuplicates",  # CamelCase
+            "PairwiseCosineSimilarityStage",  # CamelCase
+            "KMeansStage",  # CamelCase
+            "123invalid",  # starts with number
+            "invalid-name",  # has hyphen
+            "invalid name",  # has space
+            "",  # empty
+            "Invalid_Name",  # has uppercase
+            "invalidName",  # camelCase
+        ]
+        
+        for name in invalid_names:
+            with pytest.raises(ValueError, match="Stage name must be snake_case"):
+                _validate_stage_name(name)
+
+    def test_with_method_validates_stage_name(self):
+        """Test that the with_ method validates stage names."""
+        stage = ConcreteProcessingStage()
+        
+        # Valid snake_case name should work
+        valid_stage = stage.with_(name="valid_snake_case_name")
+        assert valid_stage.name == "valid_snake_case_name"
+        
+        # Invalid names should raise ValueError
+        invalid_names = [
+            "InvalidCamelCase",
+            "invalid-hyphen",
+            "invalid space",
+            "123starts_with_number",
+            "",
+            "Invalid_Mixed_Case"
+        ]
+        
+        for invalid_name in invalid_names:
+            with pytest.raises(ValueError, match="Stage name must be snake_case"):
+                stage.with_(name=invalid_name)
+
+    def test_existing_stage_names_are_snake_case(self):
+        """Test that all stage instances follow snake_case convention."""
+        import re
+        
+        # Test the mock stages we defined in this file
+        mock_stages = [
+            ConcreteProcessingStage(),
+            MockStageA(),
+            MockStageB(), 
+            MockStageC()
+        ]
+        
+        snake_case_pattern = re.compile(r"[a-z][a-z0-9_]*")
+        
+        for stage in mock_stages:
+            assert snake_case_pattern.fullmatch(stage.name), f"Stage {stage.__class__.__name__} has invalid name: {stage.name}"
+
+    def test_stage_name_pattern_comprehensive(self):
+        """Test comprehensive patterns for stage naming."""
+        from nemo_curator.stages.base import _validate_stage_name
+        
+        # Test edge cases
+        valid_edge_cases = [
+            "a",  # single letter
+            "a1",  # letter followed by number
+            "a_",  # letter followed by underscore
+            "a_1",  # letter, underscore, number
+            "test_name_with_many_underscores_123"  # complex valid name
+        ]
+        
+        for name in valid_edge_cases:
+            _validate_stage_name(name)  # Should not raise
+            
+        # Test invalid edge cases
+        invalid_edge_cases = [
+            "_invalid",  # starts with underscore
+            "1invalid",  # starts with number
+            "A",  # single uppercase letter
+            "test_Name",  # contains uppercase
+            "test__double",  # double underscore (technically valid by regex but not recommended)
+        ]
+        
+        # Note: double underscore is actually valid by our regex, so let's test what actually fails
+        definitely_invalid = [
+            "_invalid",  # starts with underscore
+            "1invalid",  # starts with number
+            "A",  # single uppercase letter
+            "test_Name",  # contains uppercase
+        ]
+        
+        for name in definitely_invalid:
+            with pytest.raises(ValueError, match="Stage name must be snake_case"):
+                _validate_stage_name(name)
