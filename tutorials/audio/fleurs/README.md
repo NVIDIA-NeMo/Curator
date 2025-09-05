@@ -14,3 +14,10 @@ Alternatively, the user may configure the pipeline using a YAML file. First, the
 SCRIPT_DIR=/path/to/Curator/tutorials/audio/fleurs
 python ${SCRIPT_DIR}/run.py --config-path ${SCRIPT_DIR} --config-name pipeline.yaml
 ```
+
+Depending on the installation setup, the user may encounter an `ImportError` for the NeMo ASR Collection module. To resolve this, please run:
+
+```
+uv pip uninstall apex
+uv pip install nemo_toolkit[asr]==2.4.0
+```

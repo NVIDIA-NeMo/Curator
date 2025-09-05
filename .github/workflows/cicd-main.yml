@@ -156,6 +156,8 @@ jobs:
           pip install --no-cache-dir ".[audio]"
           pip install --no-cache-dir ".[video]"
           pip install --no-cache-dir ".[internvideo2]"
+          pip uninstall apex
+          pip install nemo_toolkit[asr]==2.4.0
           pip install --no-cache-dir --group test
 
       - name: Run tests (CPU)

@@ -43,7 +43,6 @@ class TestAsrNeMoStage:
         )
         assert stage.batch_size == 16
 
-    @pytest.mark.skip("Import NeMo without apex")
     def test_process_success(self) -> None:
         """Test process method with successful file discovery."""
 
