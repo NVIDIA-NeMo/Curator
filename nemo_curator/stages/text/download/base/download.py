@@ -46,7 +46,7 @@ class DocumentDownloader(ABC):
     def _check_s5cmd_installed(self) -> bool:
         """Check if s5cmd is installed."""
         try:
-            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
+            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S607
         except FileNotFoundError:
             return False
         else:
@@ -96,7 +96,7 @@ class DocumentDownloader(ABC):
 
         # Use fsspec for cloud-compatible file operations
         fs, _ = fsspec.core.url_to_fs(output_file)
-        
+
         # If final file exists and is non-empty, assume it's complete
         if fs.exists(output_file):
             try:
@@ -106,7 +106,7 @@ class DocumentDownloader(ABC):
                     if self._verbose:
                         logger.info(f"File: {output_file} exists. Not downloading")
                     return output_file
-            except Exception:
+            except (OSError, KeyError, ValueError):
                 # If we can't get file info, proceed with download
                 pass
 
@@ -122,7 +122,7 @@ class DocumentDownloader(ABC):
                     file_info = fs.info(output_file)
                     file_size = file_info.get("size", 0)
                     logger.info(f"Successfully downloaded to {output_file} ({file_size} bytes)")
-                except Exception:
+                except (OSError, KeyError, ValueError):
                     logger.info(f"Successfully downloaded to {output_file}")
             return output_file
         else:

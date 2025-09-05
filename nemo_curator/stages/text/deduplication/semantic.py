@@ -21,7 +21,6 @@ This module contains a complete end-to-end workflow for text semantic deduplicat
 3. Optional duplicate removal based on identified duplicates
 """
 
-import os
 import posixpath
 import time
 from dataclasses import dataclass, field

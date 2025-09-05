@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import ast
-import os
 import posixpath
 import string
 import tokenize
