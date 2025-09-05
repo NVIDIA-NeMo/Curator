@@ -23,12 +23,16 @@ from stages import (
     TinyStoriesDownloadExtractStage,
 )
 
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modules import Modify, ScoreFilter
 
 
 def main(args: argparse.Namespace) -> None:
+    ray_client = RayClient()
+    ray_client.start()
+
     raw_dir = os.path.join(args.data_root, "raw")
     curated_dir = os.path.join(args.data_root, "curated")
     # Initialize the directories
@@ -70,6 +74,8 @@ def main(args: argparse.Namespace) -> None:
     # Count the total number of records.
     logger.info(f"\n\nCuration pipeline finished (took {execution_time} seconds)")
     logger.info(f"The results were written to '{[result.data for result in results]}'")
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":

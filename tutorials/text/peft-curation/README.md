@@ -14,5 +14,5 @@ also how to count the number of tokens for each record.
 ## Usage
 After installing the NeMo Curator package, you can simply run the following command:
 ```
-python tutorials/peft-curation/main.py
+python tutorials/text/peft-curation/main.py
 ```
