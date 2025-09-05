@@ -200,18 +200,38 @@ class MyProcessingStage(ProcessingStage):
         return Resources(cpus=1.0, gpu_memory_gb=4.0)
 ```
 
-## API Design Principles
+## API Design Architecture
 
-### Task-Centric Architecture
-The new Ray-based design operates on individual **Tasks** - batches of data that flow through the pipeline. This enables:
+### Background
+
+#### Current State
+- **Existing NeMo-Curator OSS:** Built on Dask for Text, Image, Synthetic Data Generation and Hard negative mining
+- **Cosmos Curate:** Built on Ray core with [Cosmos Xenna](https://github.com/nvidia-cosmos/cosmos-xenna) for streaming map-style pipeline
+- **API Pattern:** Stages/modules accept distributed Dask dataframes as input
+
+#### Why Ray?
+- **Unified backend** for all modalities (text, image, video)
+- **Better heterogeneous computing** support allowing interleaving of CPU and GPU stages
+- **Fractional GPU support** (multiple models per GPU) and multi-GPU support for larger models
+- **Enhanced autoscaling** for dynamic workloads
+
+#### Why not Ray?
+- Limited support for distributed dataframes/arrays, especially distributed operations like groupby
+- Eager computation model (addressed through lazy evaluation at curator level)
+- Requires Curator to build a physical plan, and implement optimizations like task fusion
+
+### Design Principles
+
+#### Task-Centric Architecture
+Unlike the previous dataset-level operations, the new design operates on individual **Tasks** - batches of data that flow through the pipeline. This enables:
 - Finer-grained control and monitoring
 - Better resource utilization
 
-### Map-style (Data-Parallel) Execution
+#### Map-style (Data-Parallel) Execution
 All stages are designed to be map-style on tasks, meaning they take task as input and produce task as output. This allows for easy parallelization and scaling.
 - We do not enforce 1-1 mapping between input and output tasks, but rather allow for multiple output tasks from a single input task and multiple input tasks from a single output task. More specifically, a stage applies a transformation from `X` to `Y`, where both `X` and `Y` can be `Task | list[Task] | None`.
 
-### Fault Tolerance Requirements
+#### Fault Tolerance Requirements
 **All stages MUST be fault-tolerant and retry-safe.** This is a critical requirement because:
 
 - **Task Preemption:** Xenna can preempt/kill running tasks before completion and potentially reschedule them later, especially during autoscaling events
@@ -357,6 +377,12 @@ class RayDataExecutor(BaseExecutor):
         # Convert to Ray Data operations
         # Execute pipeline
 ```
+
+### API Status
+**Status:** Pre Release - This API design is currently under development and may change.
+
+### Examples and Usage
+For practical examples of the API in action, refer to the quickstart examples in `nemo_curator/examples/quickstart.py` and the tutorial notebooks that demonstrate complete pipeline workflows following these design patterns.
 
 ## File Structure Conventions
 
