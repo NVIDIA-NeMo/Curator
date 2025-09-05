@@ -15,7 +15,6 @@ This scalable data preprocessing tool focuses on data curation pipelines for tex
 - **Python Version**: 3.12 (recommended and tested), supports 3.10-3.12
 - **Package Manager**: [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management  
 - **Virtual Environment**: Use uv's built-in virtual environment management
-- **Note**: Python 3.11 is not supported due to RAPIDS compatibility requirements
 
 ### CUDA Environment (Optional)
 - **CUDA Version**: 12.x (12.0+) for GPU acceleration
