@@ -7,14 +7,16 @@ NVIDIA NeMo Curator is a scalable data preprocessing tool for training large lan
 ## Development Environment
 
 ### Python Environment
-- **Python Version**: 3.12 (recommended), supports 3.10-3.12
-- **Package Manager**: [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management
+- **Python Version**: 3.12 (recommended and tested), supports 3.10-3.12
+- **Package Manager**: [uv](https://docs.astral.sh/uv/) for fast, reliable dependency management  
 - **Virtual Environment**: Use uv's built-in virtual environment management
+- **Note**: Python 3.11 is not supported due to RAPIDS compatibility requirements
 
 ### CUDA Environment (Optional)
-- **CUDA Version**: 12.x (12.0+)
+- **CUDA Version**: 12.x (12.0+) for GPU acceleration
 - **GPU Requirements**: NVIDIA GPU with Volta™ architecture or higher (compute capability 7.0+)
-- **GPU Libraries**: RAPIDS (cuDF, cuML), PyTorch with CUDA support, CuPy
+- **GPU Libraries**: RAPIDS (cuDF, cuML), PyTorch with CUDA 12 support, CuPy
+- **Note**: GPU features are optional and CPU fallbacks are provided
 
 ## Key Technologies and Frameworks
 
