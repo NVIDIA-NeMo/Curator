@@ -14,8 +14,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.tasks import AudioBatch
 
