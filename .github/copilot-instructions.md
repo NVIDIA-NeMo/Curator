@@ -5,7 +5,7 @@
 NVIDIA NeMo Curator is a generic, pluggable framework for building distributed data processing pipelines using Ray. It provides a unified API for running the same pipeline logic across different Ray orchestration backends.
 
 ### 🎯 Core Concept
-Enable users to define a data processing pipeline once and execute it using different Ray backends in a multi-node setting (Xenna, Ray Actors, Ray Data) without changing the pipeline logic
+Enable users to define a data processing pipeline once and execute it using different Ray backends in a multi-node setting (Xenna, Ray Actors, Ray Data) without changing the pipeline logic.
 
 This scalable data preprocessing tool focuses on data curation pipelines for text, audio, video, and image modalities with support for both CPU and GPU processing.
 
