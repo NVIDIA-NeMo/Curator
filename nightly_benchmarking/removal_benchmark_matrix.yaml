@@ -1,0 +1,37 @@
+# Matrix configuration for removal benchmark
+# Usage: python nightly_benchmarking/bench_driver.py --matrix nightly_benchmarking/removal_benchmark_matrix.yaml --datasets nightly_benchmarking/dataset_paths.json
+
+default_timeout_s: 3600  # 1 hour timeout
+results_dir: /raid/benchmarks/ray-curator/removal-results
+artifacts_dir: /raid/benchmarks/ray-curator/removal-artifacts
+
+# MLflow configuration
+mlflow:
+  tracking_uri: ${MLFLOW_TRACKING_URI}
+  experiment: ray-curator-removal
+
+# Slack notifications (optional)
+slack:
+  webhook_env: SLACK_WEBHOOK_URL
+
+entries:
+  # Ray Data executor with curator dedup IDs
+  - name: removal_curator_dedup_id_ray_data_1fpp_use_file_partitioning_raydata_blocksize_1
+    script: removal_benchmark.py
+    args: >-
+      --input-path {dataset:cleaned_cc,parquet}
+      --ids-to-remove-path /raid/praateekm/test_ray_fuzzy/output/FuzzyDuplicateIds/
+      --id-generator-path /raid/praateekm/test_ray_fuzzy/output/fuzzy_id_generator.json
+      --output-path {session}/scratch
+      --executor ray_data
+      --input-filetype parquet
+      --output-filetype parquet
+      --id-field _curator_dedup_id
+      --duplicate-id-field _curator_dedup_id
+      --files-per-partition 1
+      --use-ray-data-settings
+    timeout_s: 7200
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false

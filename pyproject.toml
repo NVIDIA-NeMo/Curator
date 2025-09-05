@@ -246,6 +246,9 @@ fixable = ["ALL"]
     "INP001", # No __init__.py is required
     "PLE2515", # Ignore \u200b complaint
 ]
+"nightly_benchmarking/scripts/**" = [
+    "INP001", # No __init__.py is required
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
