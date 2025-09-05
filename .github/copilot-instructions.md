@@ -28,7 +28,7 @@ NVIDIA NeMo Curator is a scalable data preprocessing tool for training large lan
 - **LoguRu**: Structured logging
 
 ### Modality-Specific Libraries
-- **Text Processing**: BeautifulSoup, fasttext, sentencepiece, trafilatura
+- **Text Processing**: PyTorch, BeautifulSoup, fasttext, sentencepiece, trafilatura
 - **Audio Processing**: NeMo Toolkit ASR components
 - **Video Processing**: OpenCV, PyAV, CvCuda, PyNvVideoCodec
 - **Image Processing**: NVIDIA DALI for optimized data loading
@@ -83,31 +83,12 @@ uv sync --extra all
 
 ### Error Handling Patterns
 ```python
-# Graceful degradation for optional GPU dependencies
+# Standard error handling for missing dependencies
 try:
-    import cudf
-    import cvcuda
-    import PyNvVideoCodec as Nvc
-    HAS_GPU_SUPPORT = True
-except ImportError:
-    HAS_GPU_SUPPORT = False
-    # Provide helpful error messages for missing dependencies
-    logger.warning("GPU dependencies not available, falling back to CPU processing")
-
-# Example from nvcodec_utils.py
-try:
-    import cvcuda
-    import nvcv
-    import pycuda.driver as cuda
-    import PyNvVideoCodec as Nvc
-    pixel_format_to_cvcuda_code = {
-        Nvc.Pixel_Format.YUV444: cvcuda.ColorConversion.YUV2RGB,
-        Nvc.Pixel_Format.NV12: cvcuda.ColorConversion.YUV2RGB_NV12,
-    }
-except (ImportError, RuntimeError):
-    logger.warning("PyNvVideoCodec is not installed, some features will be disabled.")
-    Nvc = None
-    pixel_format_to_cvcuda_code = {}
+    import required_library
+except ImportError as e:
+    logger.error(f"Required dependency not found: {e}")
+    raise ImportError("Please install the required dependencies")
 ```
 
 ### Configuration Patterns
@@ -182,36 +163,41 @@ uv lock --upgrade
 
 #### Processing Pipeline Structure
 ```python
-# Standard pipeline component structure
-class ProcessingStage:
-    def __init__(self, config: Dict[str, Any]):
-        self.config = config
-    
-    def __call__(self, dataset: DocumentDataset) -> DocumentDataset:
-        # Process and return modified dataset
-        pass
+# Task-centric pipeline following API design patterns
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.classifiers import FineWebMixtralEduClassifier
+from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
+from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+
+# Example workflow following API design
+ray_client = RayClient()
+ray_client.start()
+
+# Define pipeline stages
+read_stage = JsonlReader(input_file_path, files_per_partition=1)
+classifier_stage = FineWebMixtralEduClassifier()
+write_stage = JsonlWriter(output_file_path)
+
+# Build and run pipeline
+pipeline = Pipeline(name="classifier_pipeline")
+pipeline.add_stage(read_stage)
+pipeline.add_stage(classifier_stage)
+pipeline.add_stage(write_stage)
+
+result = pipeline.run()
+ray_client.stop()
 ```
 
 #### GPU vs CPU Handling
 ```python
-# Check for GPU availability and fallback gracefully
-if HAS_GPU_SUPPORT and use_gpu:
-    # Use GPU-accelerated processing
-    df = cudf.DataFrame(data)
-else:
-    # Fallback to CPU processing
-    df = pd.DataFrame(data)
-```
+# Resource specification for stages
+from nemo_curator.stages.resources import Resources
 
-#### Configuration Loading
-```python
-# Use hierarchical configuration loading
-from nemo_curator.utils.config_utils import load_config
-
-config = load_config(
-    config_path="config/processing.yaml",
-    overrides={"batch_size": 1024}
-)
+class MyProcessingStage(ProcessingStage):
+    @property
+    def resources(self) -> Resources:
+        return Resources(cpus=1.0, gpu_memory_gb=4.0)
 ```
 
 ## File Structure Conventions
