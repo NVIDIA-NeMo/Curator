@@ -1299,18 +1299,6 @@ wheels = [
 ]
 
 [[package]]
-name = "decord"
-version = "0.6.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/79/936af42edf90a7bd4e41a6cac89c913d4b47fa48a26b042d5129a9242ee3/decord-0.6.0-py3-none-manylinux2010_x86_64.whl", hash = "sha256:51997f20be8958e23b7c4061ba45d0efcd86bffd5fe81c695d0befee0d442976", size = 13602299, upload-time = "2021-06-14T21:30:55.486Z" },
-    { url = "https://files.pythonhosted.org/packages/6c/be/e15b5b866da452e62635a7b27513f31cb581fa2ea9cc9b768b535d62a955/decord-0.6.0-py3-none-win_amd64.whl", hash = "sha256:02665d7c4f1193a330205a791bc128f7e108eb6ae5b67144437a02f700943bad", size = 24733380, upload-time = "2021-06-14T21:30:57.766Z" },
-]
-
-[[package]]
 name = "deepspeed"
 version = "0.17.5"
 source = { registry = "https://pypi.org/simple" }
@@ -2285,40 +2273,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/dc/9d/8b6dde58a028a3962ce17e84d5fe73758df61378e00ef8ac3d85da34b0ff/interegular-0.3.3.tar.gz", hash = "sha256:d9b697b21b34884711399ba0f0376914b81899ce670032486d0d048344a76600", size = 24705, upload-time = "2024-01-06T23:01:22.372Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c4/01/72d6472f80651673716d1deda2a5bbb633e563ecf94f4479da5519d69d25/interegular-0.3.3-py37-none-any.whl", hash = "sha256:b0c07007d48c89d6d19f7204972d369b2a77222722e126b6aa63aa721dc3b19c", size = 23635, upload-time = "2024-01-06T23:01:20.829Z" },
-]
-
-[[package]]
-name = "internvideo2-multi-modality"
-version = "0.1.0"
-source = { git = "https://github.com/suiyoubi/InternVideo.git?subdirectory=InternVideo2%2Fmulti_modality&rev=curator#d0fcf8d5d60a878e2ad779cce04e488e6c4c267d" }
-dependencies = [
-    { name = "apex", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "av", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "decord", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "deepspeed", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "einops", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "fvcore", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "imageio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "librosa", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "open-clip-torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "opencv-python", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pandas", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "peft", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pillow", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "psutil", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyyaml", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11' and platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "scipy", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' and platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "soundfile", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "termcolor", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "timm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torch", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchaudio", version = "2.7.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.22.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "transformers", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "wandb", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 
 [[package]]
@@ -3768,9 +3722,6 @@ build = [
     { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
 ]
-dev = [
-    { name = "internvideo2-multi-modality", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-]
 linting = [
     { name = "pre-commit" },
     { name = "ruff" },
@@ -3879,7 +3830,6 @@ build = [
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", specifier = "<=2.8.0", index = "https://download.pytorch.org/whl/cu128" },
 ]
-dev = [{ name = "internvideo2-multi-modality", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", git = "https://github.com/suiyoubi/InternVideo.git?subdirectory=InternVideo2%2Fmulti_modality&rev=curator" }]
 linting = [
     { name = "pre-commit" },
     { name = "ruff", specifier = "==0.11.4" },
