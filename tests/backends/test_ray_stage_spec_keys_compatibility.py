@@ -15,16 +15,8 @@
 """Test the compatibility fix for RayStageSpecKeys enum membership check."""
 
 import sys
-from enum import Enum
 
-
-class RayStageSpecKeys(str, Enum):
-    """String enum of different flags that define keys inside ray_stage_spec."""
-    IS_ACTOR_STAGE = "is_actor_stage"
-    IS_FANOUT_STAGE = "is_fanout_stage"
-    IS_RAFT_ACTOR = "is_raft_actor"
-    IS_LSH_STAGE = "is_lsh_stage"
-    IS_SHUFFLE_STAGE = "is_shuffle_stage"
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 
 
 def test_enum_membership_compatibility():
