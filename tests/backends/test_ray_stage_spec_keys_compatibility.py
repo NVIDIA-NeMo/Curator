@@ -44,7 +44,3 @@ def test_enum_membership_compatibility():
         assert result is True, f"Invalid key '{key}' should not be found in enum values"
 
     print("\n✅ All tests passed! The fix works correctly.")
-
-
-if __name__ == "__main__":
-    test_enum_membership_compatibility()
