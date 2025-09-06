@@ -14,6 +14,8 @@
 
 from abc import ABC, abstractmethod
 
+from nemo_curator.stages.base import _camel_to_snake
+
 
 class DocumentFilter(ABC):
     """
@@ -26,7 +28,7 @@ class DocumentFilter(ABC):
 
     def __init__(self):
         super().__init__()
-        self._name = "document_filter"
+        self._name = _camel_to_snake(self.__class__.__name__)
         self._sentences = None
         self._paragraphs = None
         self._ngrams = None

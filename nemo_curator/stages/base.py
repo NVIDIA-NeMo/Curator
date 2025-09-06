@@ -46,6 +46,20 @@ def _validate_stage_name(name: str) -> None:
         raise ValueError(msg)
 
 
+def _camel_to_snake(name: str) -> str:
+    """Convert CamelCase to snake_case.
+    
+    Args:
+        name: The CamelCase string to convert
+        
+    Returns:
+        The snake_case version of the input string
+    """
+    # Insert an underscore before any uppercase letter that follows a lowercase letter or digit
+    s1 = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name)
+    return s1.lower()
+
+
 class StageMeta(ABCMeta):
     """Metaclass that automatically registers concrete Stage subclasses.
     A class is considered *concrete* if it directly inherits from
