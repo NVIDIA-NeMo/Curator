@@ -9,101 +9,50 @@ modality: "universal"
 ---
 
 (reference-infra-dist-computing)=
+
 # Distributed Computing Reference
 
-This reference documents NeMo Curator's distributed computing functionality, which uses Dask to process large datasets across multiple machines.
+This reference documents NeMo Curator's distributed computing functionality. NeMo Curator uses a Ray-based execution engine to process large datasets on one or more machines.
 
 ## API Reference
 
-### `get_client()`
+### Start a local Ray cluster
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.core.client import RayClient
 
-client = get_client(
-    cluster_type="cpu",
-    scheduler_address=None,
-    scheduler_file=None,
-    n_workers=os.cpu_count(),
-    threads_per_worker=1,
-    nvlink_only=False,
-    protocol="tcp",
-    rmm_pool_size="1024M",
-    enable_spilling=True,
-    set_torch_to_use_rmm=False,
-    rmm_async=True,
-    rmm_maximum_pool_size=None,
-    rmm_managed_memory=False,
-    rmm_release_threshold=None,
-    **cluster_kwargs
+# Start a local Ray cluster with optional resource hints
+ray_client = RayClient(
+    num_gpus=1,           # or None to auto-detect
+    num_cpus=None,        # defaults to system CPU count
+    include_dashboard=True,
 )
+
+ray_client.start()
+
+# ... run NeMo Curator pipelines ...
+
+# When finished
+ray_client.stop()
 ```
 
-Initializes or connects to a Dask cluster.
+Initializes or connects to a local Ray cluster and optionally configures metrics integration.
 
-**Parameters:**
+**Key parameters:**
 
-- `cluster_type`: Either "cpu" or "gpu". Sets up local cluster type if `scheduler_address` and `scheduler_file` are None.
-- `scheduler_address`: Address of existing Dask cluster to connect to (e.g., '127.0.0.1:8786').
-- `scheduler_file`: Path to a file with scheduler information.
-- `n_workers`: (CPU clusters only) Number of workers to start. Defaults to `os.cpu_count()`.
-- `threads_per_worker`: (CPU clusters only) Number of threads per worker. Defaults to 1.
-- `nvlink_only`: (GPU clusters only) Whether to use NVLink for communication.
-- `protocol`: (GPU clusters only) Protocol for communication, "tcp" or "ucx".
-- `rmm_pool_size`: (GPU clusters only) RAPIDS Memory Manager pool size per worker.
-- `enable_spilling`: (GPU clusters only) Whether to enable automatic memory spilling.
-- `set_torch_to_use_rmm`: (GPU clusters only) Whether to use RMM for PyTorch allocations.
-- `rmm_async`: (GPU clusters only) Whether to use RMM's asynchronous allocator.
-- `rmm_maximum_pool_size`: (GPU clusters only) Maximum pool size for RMM.
-- `rmm_managed_memory`: (GPU clusters only) Whether to use CUDA managed memory.
-- `rmm_release_threshold`: (GPU clusters only) Threshold for releasing memory from the pool.
-- `cluster_kwargs`: Additional keyword arguments for LocalCluster or LocalCUDACluster.
+- `num_gpus`: Number of GPU devices. If `None`, Ray detects available GPU devices.
+- `num_cpus`: Number of CPU cores. If `None`, Ray detects available CPU cores.
+- `include_dashboard`: Integrate with Prometheus/Grafana if available.
 
-**Returns:**
+---
 
-A Dask client object connected to the specified cluster.
+## Running pipelines on Ray
 
-## Client Setup Examples
-
-### Local CPU Cluster
-
-```python
-# 8 CPU workers
-client = get_client(
-    cluster_type="cpu",
-    n_workers=8,
-    threads_per_worker=1
-)
-```
-
-### Local GPU Cluster
-
-```python
-# One worker per GPU
-client = get_client(
-    cluster_type="gpu",
-    rmm_pool_size="4GB",
-    enable_spilling=True
-)
-```
-
-### Connect to Existing Cluster
-
-```python
-# Connect to scheduler
-client = get_client(
-    scheduler_address="tcp://scheduler-address:8786"
-)
-
-# Using scheduler file
-client = get_client(
-    scheduler_file="/path/to/scheduler.json"
-)
-```
+NeMo Curator stages and pipelines run on Ray once `RayClient.start()` has initialized a cluster. Configure stage resources using `Resources(cpus=..., gpus=...)` where supported.
 
 ## Partition Control
 
-Control how data is partitioned across workers:
+Control how workers partition the data:
 
 ```python
 from nemo_curator.datasets import DocumentDataset
@@ -118,7 +67,7 @@ dataset = DocumentDataset.read_json(
 
 ## Resource Management
 
-Monitor and manage cluster resources:
+Manage cluster resources:
 
 ```python
 # Access dashboard

@@ -71,6 +71,14 @@ Curate and process videos with GPU-accelerated pipelines and sharding.
 {bdg-secondary}`video-splitting` {bdg-secondary}`video-sharding` {bdg-secondary}`gpu-accelerated`
 :::
 
+:::{grid-item-card} {octicon}`unmute;1.5em;sd-mr-1` Curate Audio
+:link: audio-overview
+:link-type: ref
+Transcribe, filter, and curate speech and audio datasets with ASR models.
++++
+{bdg-secondary}`asr` {bdg-secondary}`transcription` {bdg-secondary}`quality-filtering`
+:::
+
 ::::
 
 ## Quickstart Guides
@@ -98,6 +106,12 @@ Set up and run image curation workflows.
 :link-type: ref
 Set up and run video curation workflows.
 
+:::
+
+:::{grid-item-card} {octicon}`unmute;1.5em;sd-mr-1` Audio Curation Quickstart
+:link: gs-audio
+:link-type: ref
+Set up and run audio curation workflows.
 :::
 
 ::::
@@ -139,6 +153,16 @@ Learn the basics of video pipeline construction and execution.
 {bdg-secondary}`custom-pipelines`
 :::
 
+:::{grid-item-card} {octicon}`mortar-board;1.5em;sd-mr-1` Audio Beginner Tutorial
+:link: gs-audio
+:link-type: ref
+Learn the basics of speech data processing with NeMo Curator.
++++
+{bdg-primary}`beginner`
+{bdg-secondary}`asr-inference`
+{bdg-secondary}`quality-assessment`
+:::
+
 ::::
 
 ---
@@ -167,6 +191,7 @@ get-started/index.md
 Text Curation Quickstart <get-started/text.md>
 Image Curation Quickstart <get-started/image.md>
 Video Curation Quickstart <get-started/video.md>
+Audio Curation Quickstart <get-started/audio.md>
 ::::
 
 ::::{toctree}
@@ -201,6 +226,18 @@ Tutorials <curate-video/tutorials/index.md>
 Load Data <curate-video/load-data/index.md>
 Process Data <curate-video/process-data/index.md>
 Save & Export <curate-video/save-export.md>
+::::
+
+::::{toctree}
+:hidden:
+:caption: Curate Audio
+:maxdepth: 2
+
+curate-audio/index.md
+Tutorials <curate-audio/tutorials/index.md>
+Load Data <curate-audio/load-data/index.md>
+Process Data <curate-audio/process-data/index.md>
+Save & Export <curate-audio/save-export.md>
 ::::
 
 ::::{toctree}
