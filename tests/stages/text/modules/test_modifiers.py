@@ -492,7 +492,7 @@ class TestModify:
         assert len(m.modifier_fn) == 1
         assert m.modifier_fn[0] is mod
         assert m._input_fields == [["text"]]
-        assert m.name == "MarkdownRemover"
+        assert m.name == "markdown_remover"
 
     def test_mixed_modifiers_with_text_fields_preserved(self) -> None:
         def fn(s: str) -> str:
@@ -503,7 +503,7 @@ class TestModify:
         assert m._input_fields == [["a"], ["b"]]
         assert m.modifier_fn[0] is fn
         assert m.modifier_fn[1] is mod
-        expected_name = f"modifier_chain_of_{fn.__name__}_MarkdownRemover"
+        expected_name = f"modifier_chain_of_{fn.__name__}_markdown_remover"
         assert m.name == expected_name
 
     def test_raises_when_single_modifier_with_multiple_text_fields(self) -> None:
