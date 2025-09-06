@@ -48,10 +48,10 @@ def _validate_stage_name(name: str) -> None:
 
 def _camel_to_snake(name: str) -> str:
     """Convert CamelCase to snake_case.
-    
+
     Args:
         name: The CamelCase string to convert
-        
+
     Returns:
         The snake_case version of the input string
     """
