@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from loguru import logger
 
-from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.base import ProcessingStage, _camel_to_snake
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.video import Video, VideoTask, _Window
 from nemo_curator.utils.operation_utils import make_pipeline_temporary_dir
@@ -46,6 +46,7 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def __post_init__(self) -> None:
+        self._name = _camel_to_snake(self.__class__.__name__)
         self._resources = Resources(cpus=self.num_cpus_per_worker)
 
     def process(self, task: VideoTask) -> VideoTask:

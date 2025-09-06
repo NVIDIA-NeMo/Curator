@@ -362,7 +362,7 @@ class TestPreviewStage:
         assert new_stage.batch_size == 5
 
         # Verify original instance is unchanged
-        assert stage.name == "ProcessingStage"  # Default name from base class
+        assert stage.name == "preview_stage"  # Default name from class name
         assert stage.resources == Resources(cpus=4.0)
         assert stage.batch_size == 1
 
