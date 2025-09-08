@@ -20,7 +20,7 @@ import ray
 from pytest import LogCaptureFixture
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
-from nemo_curator.backends.experimental.utils import execute_setup_on_node
+from nemo_curator.backends.experimental.utils import RayStageSpecKeys, execute_setup_on_node
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 
@@ -93,3 +93,26 @@ class TestExecuteSetupOnNode:
         assert len(matching_logs) == len(ray.nodes()), (
             f"Expected {len(ray.nodes())} logs for setup on node for 2 stages, got {len(matching_logs)}: {matching_logs}"
         )
+
+
+class TestRayStageSpecKeys:
+    """Test class for RayStageSpecKeys enum compatibility."""
+
+    def test_enum_membership_compatibility(self):
+        """Test that the fixed pattern works across Python versions."""
+        # Test data
+        valid_keys = ["is_actor_stage", "is_fanout_stage", "is_lsh_stage"]
+        invalid_keys = ["invalid_key", "another_bad_key"]
+
+        # Test the fixed pattern - this is what's now used in the adapter
+        enum_values = {e.value for e in RayStageSpecKeys}
+
+        # Testing valid keys
+        for key in valid_keys:
+            result = key not in enum_values
+            assert result is False, f"Valid key '{key}' should be found in enum values"
+
+        # Testing invalid keys
+        for key in invalid_keys:
+            result = key not in enum_values
+            assert result is True, f"Invalid key '{key}' should not be found in enum values"
