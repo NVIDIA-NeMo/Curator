@@ -145,29 +145,21 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Set up uv with Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install NeMo-Curator and pytest
-        run: |
-          pip install -U pip
-          pip install --no-cache-dir ".[text]"
-          pip install --no-cache-dir ".[audio]"
-          pip install --no-cache-dir ".[video]"
-          pip install --no-cache-dir ".[internvideo2]"
-          pip install --no-cache-dir --group test
-
       - name: Run tests (CPU)
         run: |
-          python -m coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
+          uv sync --link-mode copy --locked --extra text --extra audio --extra video --extra internvideo2 --group test
+          uv run coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
         shell: bash
         run: |
-          python -m coverage xml
-          python -m coverage report
+          uv run coverage xml
+          uv run coverage report
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
