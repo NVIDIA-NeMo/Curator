@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import ray
 from loguru import logger
-from ray.data import Dataset
+from ray.data import DataContext, Dataset
 
 from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.experimental.utils import execute_setup_on_node
@@ -57,6 +57,8 @@ class RayDataExecutor(BaseExecutor):
             return []
 
         register_loguru_serializer()
+        # This prevents verbose logging from Ray Data about serialization of the dataclass
+        DataContext.get_current().enable_fallback_to_arrow_object_ext_type = True
         # Initialize with initial tasks if provided, otherwise start with EmptyTask
         tasks: list[Task] = initial_tasks if initial_tasks else [EmptyTask]
         output_tasks: list[Task] = []
@@ -94,7 +96,7 @@ class RayDataExecutor(BaseExecutor):
             output_tasks = self._dataset_to_tasks(current_dataset)
             logger.info(f"Pipeline completed. Final results: {len(output_tasks)} tasks")
         finally:
-            # This ensures we unset all the env vars set above during initalize and kill the pending actors.
+            # This ensures we unset all the env vars set above during initialize and kill the pending actors.
             ray.shutdown()
         return output_tasks
 

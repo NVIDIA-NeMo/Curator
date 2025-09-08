@@ -20,7 +20,7 @@ NeMo Curator's language identification system works through a three-step process
 
 1. **Text Preprocessing**: For FastText classification, normalize input text by stripping whitespace and converting newlines to spaces.
 
-2. **FastText Language Detection**: The pre-trained FastText language identification model ([`lid.176.bin`]((https://fasttext.cc/docs/en/language-identification.html))) analyzes the preprocessed text and returns:
+2. **FastText Language Detection**: The pre-trained FastText language identification model ([`lid.176.bin`](https://fasttext.cc/docs/en/language-identification.html)) analyzes the preprocessed text and returns:
    - A confidence score (0.0 to 1.0) indicating certainty of the prediction
    - A language code (for example, "EN", "ES", "FR") in FastText's two-letter uppercase format
 
