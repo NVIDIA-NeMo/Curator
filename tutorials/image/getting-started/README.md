@@ -56,15 +56,17 @@ python tutorials/image/getting-started/image_curation_example.py \
     --output-dataset-dir ./example_data/results_truncated_100k_mscoco \
     --model-dir ./model_weights \
     --tar-files-per-partition 10 \
-    --task-batch-size 500 \
-    --embedding-batch-size 500 \
-    --aesthetic-batch-size 500 \
-    --nsfw-batch-size 500 \
+    --task-batch-size 32 \
+    --embedding-batch-size 32 \
+    --aesthetic-batch-size 32 \
+    --nsfw-batch-size 32 \
     --aesthetic-threshold 0.9 \
     --nsfw-threshold 0.9 \
     --images-per-tar 1000 \
     --verbose
 ```
+
+**Note:** The batch sizes above are optimized for typical GPUs with 24-48 GB of VRAM. If you have a high-memory GPU (80 GB+), you can increase the batch sizes for better performance (e.g., `--task-batch-size 500 --embedding-batch-size 500 --aesthetic-batch-size 500 --nsfw-batch-size 500`).
 
 Run the image deduplication pipeline on GPUs (extracting embeddings, running semantic deduplication, removing duplicated samples):
 
@@ -75,8 +77,8 @@ python tutorials/image/getting-started/image_dedup_example.py \
     --embeddings-dir ./example_data/dedup/embeddings/truncated_100k_mscoco \
     --removal-parquets-dir ./example_data/dedup/removal_ids/truncated_100k_mscoco \
     --model-dir ./model_weights \
-    --task-batch-size 1000 \
-    --embedding-batch-size 500 \
+    --task-batch-size 32 \
+    --embedding-batch-size 32 \
     --tar-files-per-partition 10 \
     --skip-download \
     --verbose
