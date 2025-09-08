@@ -15,13 +15,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from loguru import logger
-
-try:
-    import nemo.collections.asr as nemo_asr
-except ImportError:
-    logger.warning("Cannot import NeMo speech")
-
+import nemo.collections.asr as nemo_asr
 import torch
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
