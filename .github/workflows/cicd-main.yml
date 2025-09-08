@@ -152,14 +152,14 @@ jobs:
       - name: Run tests (CPU)
         run: |
           uv sync --link-mode copy --locked --extra text --extra audio --extra video --extra internvideo2 --group test
-          uv -m coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
+          uv coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report
         id: check
         shell: bash
         run: |
-          python -m coverage xml
-          python -m coverage report
+          uv coverage xml
+          uv coverage report
           coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
