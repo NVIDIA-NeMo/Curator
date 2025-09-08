@@ -16,6 +16,7 @@ import os.path
 import tarfile
 from typing import Literal
 
+import fsspec
 import huggingface_hub
 import requests
 from platformdirs import user_cache_dir
@@ -789,7 +790,8 @@ class HistogramFilter(DocumentFilter):
             raise requests.exceptions.RequestException(msg)
 
         # Open a file to write the content
-        os.makedirs(self._cache_dir, exist_ok=True)
+        fs, _ = fsspec.core.url_to_fs(self._cache_dir)
+        fs.makedirs(self._cache_dir, exist_ok=True)
         download_dest_path = os.path.join(self._cache_dir, "histograms.tar.gz")
         with open(download_dest_path, "wb") as file:
             file.write(response.content)
