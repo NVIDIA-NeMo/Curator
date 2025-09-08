@@ -47,7 +47,7 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download('ttj
 
 ### Run the scripts
 
-**Note on Batch Sizes:** The batch sizes used in both workflows below are optimized for typical GPUs with 24-48 GB of VRAM (e.g., RTX 4090, A6000, RTX A5000). You can tune these based on your available GPU memory:
+**Note on Batch Sizes:** The batch sizes used in both workflows below are conservative limits set for typical GPUs with 24-48 GB of VRAM (e.g., RTX 4090, A6000, RTX A5000). You can tune these based on your available GPU memory:
 - **High-memory GPUs (80 GB+)** like H100, B200, or A100 80GB: Increase batch sizes for better performance (e.g., `--task-batch-size 500 --embedding-batch-size 500 --aesthetic-batch-size 500 --nsfw-batch-size 500`)
 - **Lower-memory GPUs (16 GB or less)**: Reduce batch sizes further (e.g., `--task-batch-size 16 --embedding-batch-size 16`)
 
