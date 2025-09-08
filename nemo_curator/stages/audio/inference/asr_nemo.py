@@ -15,8 +15,6 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from loguru import logger
-
 import nemo.collections.asr as nemo_asr
 import torch
 
