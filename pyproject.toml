@@ -155,6 +155,7 @@ all = [
 build = ["setuptools", "torch<=2.8.0"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
+    "coverage",
     "debugpy",
     "pytest",
     "pytest-asyncio",

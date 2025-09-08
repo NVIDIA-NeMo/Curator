@@ -3777,6 +3777,7 @@ linting = [
     { name = "ruff" },
 ]
 test = [
+    { name = "coverage" },
     { name = "debugpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -3885,6 +3886,7 @@ linting = [
     { name = "ruff", specifier = "==0.11.4" },
 ]
 test = [
+    { name = "coverage" },
     { name = "debugpy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
