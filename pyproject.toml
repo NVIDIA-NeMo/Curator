@@ -69,8 +69,12 @@ deduplication_cuda12 = [
     "rapidsmpf-cu12==25.6.*",
 ]
 
-audio = [
+audio_cpu = [
     "nemo_toolkit[asr]",
+]
+audio_cuda12 = [
+    "nemo_curator[audio_cpu]",
+    "nemo_curator[cuda12]",
 ]
 
 image_cpu = []
@@ -104,8 +108,8 @@ text_cpu = [
 
 text_cuda12 = [
     "nemo_curator[cuda12]",
-    "nemo_curator[text_cpu]",
     "nemo_curator[deduplication_cuda12]",
+    "nemo_curator[text_cpu]",
 ]
 
 # Video Curation Dependencies
@@ -136,8 +140,6 @@ internvideo2 = [
     "wandb>=0.18.3",
 ]
 
-video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
-
 video_cpu = [
     "nemo_curator[internvideo2]",
     "av==13.1.0",
@@ -151,16 +153,17 @@ video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
     "cvcuda_cu12",
-    "pycuda",
-    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "pycuda",
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"
     "torch<=2.8.0",
     "torchaudio",
+    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
 all = [
-    "nemo_curator[audio]",
+    "nemo_curator[audio_cuda12]",
     "nemo_curator[image_cuda12]",
     "nemo_curator[text_cuda12]",
     "nemo_curator[video_cuda12]",
