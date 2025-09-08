@@ -3694,6 +3694,7 @@ all = [
     { name = "pycuda" },
     { name = "pylibraft-cu12" },
     { name = "pynvml" },
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pyyaml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
@@ -3720,9 +3721,15 @@ all = [
     { name = "wandb" },
     { name = "warcio" },
 ]
-audio = [
+audio-cpu = [
     { name = "nemo-toolkit", version = "2.1.0", source = { registry = "https://pypi.org/simple" }, extra = ["asr"], marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "nemo-toolkit", version = "2.3.0", source = { registry = "https://pypi.org/simple" }, extra = ["asr"], marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+]
+audio-cuda12 = [
+    { name = "gpustat" },
+    { name = "nemo-toolkit", version = "2.1.0", source = { registry = "https://pypi.org/simple" }, extra = ["asr"], marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "nemo-toolkit", version = "2.3.0", source = { registry = "https://pypi.org/simple" }, extra = ["asr"], marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
+    { name = "pynvml" },
 ]
 cuda12 = [
     { name = "gpustat" },
@@ -3820,7 +3827,6 @@ text-cuda12 = [
     { name = "warcio" },
 ]
 video-cpu = [
-    { name = "apex" },
     { name = "av" },
     { name = "deepspeed" },
     { name = "easydict" },
@@ -3855,7 +3861,6 @@ video-cpu = [
     { name = "wandb" },
 ]
 video-cuda12 = [
-    { name = "apex" },
     { name = "av" },
     { name = "cvcuda-cu12" },
     { name = "deepspeed" },
@@ -3875,6 +3880,7 @@ video-cuda12 = [
     { name = "psutil" },
     { name = "pycuda" },
     { name = "pynvml" },
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "pyyaml" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
@@ -3894,9 +3900,6 @@ video-cuda12 = [
     { name = "transformers" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "wandb" },
-]
-video-nvenc = [
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 
 [package.dev-dependencies]
@@ -3954,7 +3957,9 @@ requires-dist = [
     { name = "lxml", marker = "extra == 'text-cpu'" },
     { name = "mecab-python3" },
     { name = "mwparserfromhell", marker = "extra == 'text-cpu'", specifier = "==0.6.5" },
-    { name = "nemo-curator", extras = ["audio"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["audio-cpu"], marker = "extra == 'audio-cuda12'" },
+    { name = "nemo-curator", extras = ["audio-cuda12"], marker = "extra == 'all'" },
+    { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'audio-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'video-cuda12'" },
@@ -3966,7 +3971,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["video-cuda12"], marker = "extra == 'all'" },
-    { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio'" },
+    { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-cpu'" },
     { name = "numpy", marker = "extra == 'internvideo2'", specifier = ">=1.26.4,<2.0.0" },
     { name = "nvidia-dali-cuda120", marker = "extra == 'image-cuda12'" },
     { name = "nx-cugraph-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
@@ -3984,7 +3989,7 @@ requires-dist = [
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
     { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "pynvml", marker = "extra == 'cuda12'" },
-    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-nvenc'", specifier = "==2.0.2" },
+    { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==2.0.2" },
     { name = "pyyaml", marker = "extra == 'internvideo2'", specifier = ">=6.0.2" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
@@ -4017,7 +4022,7 @@ requires-dist = [
     { name = "wandb", marker = "extra == 'internvideo2'", specifier = ">=0.18.3" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "deduplication-cuda12", "audio", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "internvideo2", "video-nvenc", "video-cpu", "video-cuda12", "all"]
+provides-extras = ["cuda12", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "internvideo2", "video-cpu", "video-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [

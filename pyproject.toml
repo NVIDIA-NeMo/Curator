@@ -155,7 +155,7 @@ video_cuda12 = [
     "cvcuda_cu12",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
-    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
     "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
