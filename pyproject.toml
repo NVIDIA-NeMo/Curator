@@ -110,7 +110,6 @@ video_cuda = [
 video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 internvideo2 = [
-    "apex>=0.9.10dev",
     "av>=13.0.0",
     "deepspeed>=0.15.1",
     "einops>=0.8.0",
@@ -156,6 +155,7 @@ all = [
 build = ["setuptools", "torch<=2.8.0"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
+    "coverage",
     "debugpy",
     "pytest",
     "pytest-asyncio",
@@ -169,6 +169,10 @@ dev = ["internvideo2-multi-modality; (platform_machine == 'x86_64' and sys_platf
 package = true
 default-groups = ["test"]
 no-build-isolation-package = ["flash-attn"]
+override-dependencies = [
+    "apex; sys_platform == 'never'"
+]
+
 
 [[tool.uv.index]]
 name = "nvidia"
