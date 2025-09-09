@@ -56,7 +56,38 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-text = [
+cuda12 = ["gpustat", "pynvml"]
+
+# Installs CPU + GPU text curation modules
+deduplication_cuda12 = [
+    "cudf-cu12==25.6.*",
+    "cugraph-cu12==25.6.*",
+    "cuml-cu12==25.6.*",
+    "nx-cugraph-cu12==25.6.*",
+    "pylibraft-cu12==25.6.*",
+    "raft-dask-cu12==25.6.*",
+    "rapidsmpf-cu12==25.6.*",
+]
+
+audio_cpu = [
+    "nemo_toolkit[asr]",
+]
+audio_cuda12 = [
+    "nemo_curator[audio_cpu]",
+    "nemo_curator[cuda12]",
+]
+
+image_cpu = []
+
+# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
+image_cuda12 = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "nvidia-dali-cuda120",
+]
+
+# Text Curation Dependencies
+text_cpu = [
     # Download / Extract
     "beautifulsoup4",
     "justext",
@@ -75,40 +106,13 @@ text = [
     "ftfy==6.1.1",
 ]
 
-# Installs CPU + GPU text curation modules
-deduplication_cuda12x = [
-    "cudf-cu12==25.6.*",
-    "cugraph-cu12==25.6.*",
-    "cuml-cu12==25.6.*",
-    "nx-cugraph-cu12==25.6.*",
-    "pylibraft-cu12==25.6.*",
-    "raft-dask-cu12==25.6.*",
-    "rapidsmpf-cu12==25.6.*",
+text_cuda12 = [
+    "nemo_curator[cuda12]",
+    "nemo_curator[deduplication_cuda12]",
+    "nemo_curator[text_cpu]",
 ]
 
-audio = [
-    "nemo_toolkit[asr]",
-]
-
-video = [
-    "av==13.1.0",
-    "opencv-python",
-    "torchvision",
-    "einops",
-    "easydict",
-]
-
-video_cuda = [
-    "cvcuda_cu12",
-    "pycuda",
-    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.8.0",
-    "torchaudio",
-]
-
-video_nvenc = ["PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
-
+# Video Curation Dependencies
 internvideo2 = [
     "av>=13.0.0",
     "deepspeed>=0.15.1",
@@ -136,19 +140,33 @@ internvideo2 = [
     "wandb>=0.18.3",
 ]
 
-# NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
-dali = [
-    "nvidia-dali-cuda120",
+video_cpu = [
+    "nemo_curator[internvideo2]",
+    "av==13.1.0",
+    "opencv-python",
+    "torchvision",
+    "einops",
+    "easydict",
 ]
 
+video_cuda12 = [
+    "nemo_curator[video_cpu]",
+    "nemo_curator[cuda12]",
+    "cvcuda_cu12",
+    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "pycuda",
+    "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "torch<=2.8.0",
+    "torchaudio",
+    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+]
+
+# All dependencies
 all = [
-    "nemo_curator[dali]",
-    "nemo_curator[deduplication_cuda12x]",
-    "nemo_curator[text]",
-    "nemo_curator[audio]",
-    "nemo_curator[internvideo2]",
-    "nemo_curator[video]",
-    "nemo_curator[video_cuda]",
+    "nemo_curator[audio_cuda12]",
+    "nemo_curator[image_cuda12]",
+    "nemo_curator[text_cuda12]",
+    "nemo_curator[video_cuda12]",
 ]
 
 [dependency-groups]
