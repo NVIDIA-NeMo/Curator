@@ -1,6 +1,6 @@
-# Math Quality Classifier 
+# Math Quality Classifier
 
-This example demonstrates running a model-based math classifier (FineMath) 
+This example demonstrates running a model-based math classifier (FineMath)
 
 ## Install
 Use uv to create the project environment and install Curator with the text extra:
@@ -19,6 +19,21 @@ pip install pynvml
 ## Prerequisites
 - GPU(s) with CUDA for the HF model
 - Python environment with `nemo-curator` installed (uv sync above)
+- Lynx system dependency for HTML rendering to text:
+  - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`
+  - RHEL/Fedora: `sudo dnf install -y lynx` (or `sudo yum install -y lynx`)
+  - Conda: `conda install -c conda-forge lynx`
+
+## Text preprocessing (decode → type-detect → extract)
+
+```bash
+python examples/math/run_text_preprocess.py \
+  --input "examples/math/data/*.parquet" \
+  --output /tmp/math_mock/preprocessed_parquet
+```
+
+- Parquet files include columns: `binary_content` (bytes), `url`, `mime_type`.
+- Output JSONL will include `text`, `url`, and `type`.
 
 ## Run the classifier pipeline
 Run the pipeline that reads JSONL, classifies with the FineMath model, and writes JSONL outputs:

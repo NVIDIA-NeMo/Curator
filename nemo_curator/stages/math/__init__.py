@@ -13,7 +13,9 @@
 # limitations under the License.
 
 from .classifiers.finemath import FineMathClassifier
+from .download.extract import MathContentExtractor
 
 __all__ = [
     "FineMathClassifier",
-] 
+    "MathContentExtractor",
+]

@@ -32,7 +32,6 @@ from nemo_curator.stages.text.models.utils import (
 )
 from nemo_curator.tasks import DocumentBatch
 
-
 FINEMATH_MODEL_ID = "HuggingFaceTB/finemath-classifier"
 MAX_SEQ_LENGTH = 512
 
@@ -75,9 +74,7 @@ class FineMathModelStage(ModelStage):
         )
 
     @staticmethod
-    def _configure_forward(
-        model: torch.nn.Module, autocast: bool = True
-    ) -> torch.nn.Module:
+    def _configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
         original_forward = model.forward
 
         @torch.no_grad()
@@ -111,16 +108,10 @@ class FineMathModelStage(ModelStage):
             self.int_score_column: int_scores,
         }
 
-    def create_output_dataframe(
-        self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]
-    ) -> pd.DataFrame:
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
-        df_cpu[self.float_score_column] = collected_output[
-            self.float_score_column
-        ]
-        df_cpu[self.int_score_column] = collected_output[
-            self.int_score_column
-        ]
+        df_cpu[self.float_score_column] = collected_output[self.float_score_column]
+        df_cpu[self.int_score_column] = collected_output[self.int_score_column]
         return df_cpu
 
 
@@ -171,4 +162,4 @@ class FineMathClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         return self.stages[1].outputs()
 
     def decompose(self) -> list[ProcessingStage]:
-        return self.stages 
+        return self.stages

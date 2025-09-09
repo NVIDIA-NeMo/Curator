@@ -19,55 +19,40 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.math import FineMathClassifier
+from nemo_curator.stages.math import MathContentExtractor
 from nemo_curator.stages.resources import Resources
-from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
+from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
 def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
-    p = Pipeline(name="math_quality_classifier", description="...")
+    p = Pipeline(name="math_text_preprocess", description="Decode (binary) → type → html via lynx → text")
 
-    # Reader (composite): tune both file partitioning and jsonl_reader stages
     p.add_stage(
-        JsonlReader(file_paths=input_glob).with_(
+        ParquetReader(file_paths=input_glob).with_(
             {
                 "file_partitioning": {"resources": Resources(cpus=0.5)},
-                "jsonl_reader": {"resources": Resources(cpus=0.5)},
+                "parquet_reader": {"resources": Resources(cpus=0.5)},
             }
         )
     )
 
-    # Classifier (composite): tune tokenizer and model sub-stages
     p.add_stage(
-        FineMathClassifier().with_(
-            {
-                "finemath_classifier_tokenizer": {"resources": Resources(cpus=0.5)},
-                "finemath_classifier_model": {"resources": Resources(cpus=1, gpus=1)},
-            }
+        DocumentExtractStage(extractor=MathContentExtractor(), add_filename_column=False).with_(
+            resources=Resources(cpus=1)
         )
     )
 
-    # Writer (single stage)
     p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=0.5)))
 
     return p
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Run Math (FineMath) classifier on JSONL files",
-    )
-    parser.add_argument(
-        "--input",
-        required=True,
-        help="Glob or directory for JSONL input files",
-    )
-    parser.add_argument(
-        "--output",
-        required=True,
-        help="Output directory for JSONL results",
-    )
+    parser = argparse.ArgumentParser(description="Run math text preprocessing on Parquet files")
+    parser.add_argument("--input", required=True, help="Glob or directory for Parquet input files")
+    parser.add_argument("--output", required=True, help="Output directory for JSONL results")
     args = parser.parse_args()
 
     ray_client = RayClient()
