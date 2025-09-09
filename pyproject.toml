@@ -101,7 +101,7 @@ video = [
 video_cuda = [
     "cvcuda_cu12",
     "pycuda",
-    "vllm==0.9.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.10.1.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
@@ -141,6 +141,11 @@ dali = [
     "nvidia-dali-cuda120",
 ]
 
+security = [
+    "protobuf>=4.25.8",
+    "xgrammar>=0.1.21",
+]
+
 all = [
     "nemo_curator[dali]",
     "nemo_curator[deduplication_cuda12x]",
@@ -149,6 +154,7 @@ all = [
     "nemo_curator[internvideo2]",
     "nemo_curator[video]",
     "nemo_curator[video_cuda]",
+    "nemo_curator[security]",
 ]
 
 [dependency-groups]
