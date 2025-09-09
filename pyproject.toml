@@ -177,7 +177,7 @@ test = [
     "debugpy",
     "pytest",
     "pytest-asyncio",
-    "pytest-coverage",
+    "pytest-cov",
     "pytest-loguru",
     "scikit-learn",
 ]
