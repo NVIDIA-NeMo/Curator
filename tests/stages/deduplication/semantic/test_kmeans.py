@@ -107,46 +107,6 @@ def create_clustered_dataset(  # noqa: PLR0913
     return input_dir, y_true
 
 
-def create_kmeans_pipeline(
-    input_dir: Path,
-    output_dir: Path,
-    n_clusters: int = N_CLUSTERS,
-    embedding_dim: int = EMBEDDING_DIM,
-    file_format: str = "parquet",
-) -> Pipeline:
-    """Create a KMeans pipeline for testing.
-
-    Args:
-        input_dir: Input directory containing test data
-        output_dir: Output directory for results
-        n_clusters: Number of clusters
-        embedding_dim: Embedding dimensionality
-        file_format: Input file format
-
-    Returns:
-        Configured pipeline
-    """
-    pipeline = Pipeline(name="kmeans_integration_test")
-
-    kmeans_stage = KMeansStage(
-        id_field="id",
-        embedding_field="embeddings",
-        n_clusters=n_clusters,
-        input_path=str(input_dir),
-        output_path=str(output_dir),
-        metadata_fields=["random_col", "true_cluster"],
-        embedding_dim=embedding_dim,
-        input_filetype=file_format,
-        verbose=True,
-        random_state=RANDOM_STATE,
-        max_iter=300,
-        tol=1e-4,
-    )
-
-    pipeline.add_stage(kmeans_stage)
-    return pipeline
-
-
 def run_single_gpu_baseline(
     input_dir: Path,
     n_clusters: int = N_CLUSTERS,
