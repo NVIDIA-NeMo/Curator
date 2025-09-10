@@ -39,8 +39,7 @@ This tutorial demonstrates how a user can process a subset the Llama Nemotron da
 
 Setup requirements:
 
-- Hardware:
-  - This tutorial can be run entire on a CPU with 4 workers 64GB RAM.
+- Hardware: This tutorial can be run entirely on CPU workers.
 - Recommended environment: This tutorial was developed and tested with a Conda environment
 
 Please refer to NeMo Curator's [documentation](https://docs.nvidia.com/nemo/curator/latest/) for instructions on how to download NeMo Curator via PyPI, source, or Docker.
@@ -82,7 +81,7 @@ wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz -P ./
 This tutorial can be run with:
 
 ```bash
-python main.py \
+LOGURU_LEVEL="ERROR" python main.py \
     --input-dir "/path/to/Llama-Nemotron-Post-Training-Dataset/SFT" \
     --filename-filter "chat" "math_v1.1" \
     --remove-columns "category" "generator" "license" "reasoning" "system_prompt" "used_in_training" "version" \
@@ -90,8 +89,11 @@ python main.py \
     --lang-id-model-path "/path/to/lid.176.ftz" \
     --max-token-count 16384 \
     --max-completion-token-count 8192 \
-    --output-dir "/path/to/curated-data"
+    --output-dir "/path/to/curated-data" \
+    --num-cpus 16
 ```
+
+Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging.
 
 Since the entire input dataset is very large, we recommend curating a focused subset of the data that aligns closely with your domain-specific tasks. To help with this, we provide a way to filter files before reading. There are many ways to subset the Llama Nemotron dataset, but we recommend starting with the math and chat subsets because they contain strong examples of domain-agnostic reasoning. To filter files by name, the user may pass `--filename-filter` followed by any number of strings, such as "chat" and "math_v1.1". When reading the input data directory, the list of files will be filtered to only include files with names containing at least 1 of the strings provided by `--filename-filter`. If `--filename-filter` is not specified, then all files within the directory (over 30 million rows) will be used.
 
