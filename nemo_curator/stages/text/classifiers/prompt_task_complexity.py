@@ -210,14 +210,7 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
         input_ids = batch[INPUT_ID_COLUMN]
         attention_mask = batch[ATTENTION_MASK_COLUMN]
 
-        if self.autocast:
-            with torch.autocast(device_type="cuda"):
-                return self._forward(input_ids, attention_mask)
-        else:
-            return self._forward(input_ids, attention_mask)
-
-    def set_autocast(self, autocast: bool) -> None:
-        self.autocast = autocast
+        return self._forward(input_ids, attention_mask)
 
 
 class PromptTaskComplexityModelStage(ModelStage):
@@ -256,12 +249,15 @@ class PromptTaskComplexityModelStage(ModelStage):
         return ["data"], OUTPUT_COLUMNS
 
     def _setup(self, local_files_only: bool = True) -> None:
-        self.model = CustomDeberta.from_pretrained(
-            self.model_identifier,
-            cache_dir=self.cache_dir,
-            local_files_only=local_files_only,
-        ).cuda().eval()
-        self.model.set_autocast(self.autocast)
+        self.model = (
+            CustomDeberta.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                local_files_only=local_files_only,
+            )
+            .cuda()
+            .eval()
+        )
 
     def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> torch.Tensor:
         return outputs
