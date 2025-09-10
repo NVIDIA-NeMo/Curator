@@ -300,7 +300,7 @@ class TestBucketsToEdgesStage:
         """Test that existing output directory is cleaned up."""
         output_dir = tmp_path / "output"
 
-        existing_dir = output_dir / "BucketsToEdgesStage"
+        existing_dir = output_dir / "buckets_to_edges_stage"
         existing_dir.mkdir(parents=True)
         existing_file = existing_dir / "existing.txt"
         existing_file.write_text("This should be deleted")

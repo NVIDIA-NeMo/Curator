@@ -112,7 +112,7 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         check_disallowed_kwargs(self.write_kwargs, ["index"])
         self.input_storage_options = self.read_kwargs.pop("storage_options", None) if self.read_kwargs else None
         self.output_storage_options = self.write_kwargs.pop("storage_options", None) if self.write_kwargs else None
-        self._name = "PairwiseCosineSimilarityStage"
+        self._name = "pairwise_cosine_similarity_stage"
         self._resources = Resources(cpus=1.0, gpus=1.0)
 
     def process(self, task: FileGroupTask) -> FileGroupTask:

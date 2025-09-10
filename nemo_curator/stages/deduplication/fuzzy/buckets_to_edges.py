@@ -41,7 +41,7 @@ class BucketsToEdgesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             Only the storage_options key is supported for now.
     """
 
-    _name = "BucketsToEdgesStage"
+    _name = "buckets_to_edges_stage"
     _resources = Resources(cpus=1.0)
 
     def __init__(
