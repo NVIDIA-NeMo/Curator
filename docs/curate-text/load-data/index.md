@@ -112,12 +112,13 @@ Read and process your own text datasets in standard formats
 {bdg-secondary}`file-partitioning`
 :::
 
-:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data (JSONL)
+:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data
 :link: text-load-data-read-existing
 :link-type: ref
-Read existing JSONL datasets using Curator's reader stage
+Read existing JSONL and Parquet datasets using Curator's reader stages
 +++
 {bdg-secondary}`jsonl`
+{bdg-secondary}`parquet`
 :::
 
 ::::
@@ -131,5 +132,5 @@ arxiv
 common-crawl
 wikipedia
 Custom Data <custom.md>
-Read Existing Data (JSONL) <read-existing>
+Read Existing Data <read-existing>
 ```

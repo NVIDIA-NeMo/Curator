@@ -1,7 +1,7 @@
 ---
-description: "Deploy NeMo Curator for all modalities on Slurm clusters with job scripts, Dask cluster setup, and Python-based job submission"
+description: "Deploy NeMo Curator for all modalities on Slurm clusters with job scripts, Ray cluster setup, and Python-based job submission"
 categories: ["how-to-guides"]
-tags: ["slurm", "deployment", "dask-cluster", "job-scripts", "container", "shared-filesystem", "multi-modal"]
+tags: ["slurm", "deployment", "ray-cluster", "job-scripts", "container", "shared-filesystem", "multi-modal"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -14,7 +14,7 @@ modality: "universal"
 ## Prerequisites
 
 * Access to a Slurm cluster with a shared filesystem (for example, NFS, Lustre) mounted on all nodes
-* [Dask](https://docs.dask.org/en/stable/) and [dask-cuda](https://docs.rapids.ai/api/dask-cuda/stable/) (for GPU jobs) installed in your environment or container
+* [Ray](https://docs.ray.io/en/latest/) installed in your environment or container
 * Python 3.8+ environment (virtualenv, conda, or container)
 * (Optional) [Singularity/Apptainer](https://apptainer.org/) or Docker for containerized execution
 * Sufficient permissions to submit jobs with `sbatch`/`srun`
@@ -52,8 +52,8 @@ For details on available container environments and configurations, see [Contain
 
 The repository provides example scripts in `examples/slurm/`:
 
-- `start-slurm.sh`: Slurm job script for launching a Dask cluster and running a NeMo Curator module
-- `container-entrypoint.sh`: Entrypoint script that starts the Dask scheduler/workers and runs your command
+- `start-slurm.sh`: Slurm job script for launching a Ray cluster and running a NeMo Curator module
+- `container-entrypoint.sh`: Entrypoint script that starts the Ray cluster and runs your command
 
 Below is a simplified example based on `start-slurm.sh`:
 

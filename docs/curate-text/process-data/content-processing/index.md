@@ -32,6 +32,17 @@ You can combine processing tools in sequence or use them alongside other curatio
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
+:::{grid-item-card} {octicon}`number;1.5em;sd-mr-1` Document IDs
+:link: add-id
+:link-type: doc
+Add unique identifiers to documents for tracking and deduplication
++++
+{bdg-secondary}`identifiers`
+{bdg-secondary}`tracking`
+{bdg-secondary}`preprocessing`
+{bdg-secondary}`deduplication`
+:::
+
 :::{grid-item-card} {octicon}`shield-lock;1.5em;sd-mr-1` PII Removal
 :link: pii
 :link-type: doc
@@ -61,35 +72,33 @@ Fix Unicode issues, standardize spacing, and remove URLs
 Here's an example of a typical content processing pipeline:
 
 ```python
-from nemo_curator import Sequential, Modify
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
-from nemo_curator.modifiers.pii_modifier import PiiModifier
-
+from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modules import Modify
 # Load your dataset
 dataset = DocumentDataset.read_json("input_data/*.jsonl")
 
 # Create a comprehensive cleaning pipeline
-processing_pipeline = Sequential([
-    # Fix Unicode encoding issues
-    Modify(UnicodeReformatter()),
-    
-    # Standardize newlines
-    Modify(NewlineNormalizer()),
-    
-    # Remove URLs
-    Modify(UrlRemover()),
-    
-    # Remove PII (optional)
-    Modify(PiiModifier(
-        language="en",
-        supported_entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"],
-        anonymize_action="redact"
-    ))
-])
+processing_pipeline = Pipeline(
+    name="content_processing_pipeline",
+    description="Comprehensive text cleaning and processing",
+    stages=[
+        # Fix Unicode encoding issues
+        Modify(UnicodeReformatter()),
+        
+        # Standardize newlines
+        Modify(NewlineNormalizer()),
+        
+        # Remove URLs
+        Modify(UrlRemover()),
 
-# Apply the processing pipeline
-cleaned_dataset = processing_pipeline(dataset)
+    ]
+)
+
+# Execute pipeline with appropriate executor
+from nemo_curator.backends.xenna import XennaExecutor
+executor = XennaExecutor()
 
 # Save the processed dataset
 cleaned_dataset.to_json("processed_output/", write_to_filename=True)
@@ -117,6 +126,7 @@ cleaned_dataset.to_json("processed_output/", write_to_filename=True)
 :titlesonly:
 :hidden:
 
+Document IDs <add-id>
 PII Removal <pii>
 Text Cleaning <text-cleaning>
-``` 
+```

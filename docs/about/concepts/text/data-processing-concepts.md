@@ -22,6 +22,7 @@ The majority of NeMo Curator users follow these core workflows, typically in thi
 Most users start with basic quality filtering using heuristic filters to remove low-quality content:
 
 **Essential Quality Filters:**
+
 - `WordCountFilter` - Remove too short/long documents
 - `NonAlphaNumericFilter` - Remove symbol-heavy content  
 - `RepeatedLinesFilter` - Remove repetitive content
@@ -33,8 +34,9 @@ Most users start with basic quality filtering using heuristic filters to remove 
 For production datasets, fuzzy deduplication is essential to remove near-duplicate content across sources:
 
 **Key Components:**
-- `FuzzyDuplicates` - Main deduplication engine
-- `FuzzyDuplicatesConfig` - Configuration for LSH parameters
+
+- `FuzzyDeduplicationWorkflow` - End-to-end fuzzy deduplication pipeline
+- Ray distributed computing framework for scalability
 - Connected components clustering for duplicate identification
 
 ### 3. Content Cleaning 
@@ -42,6 +44,7 @@ For production datasets, fuzzy deduplication is essential to remove near-duplica
 Basic text normalization and cleaning operations:
 
 **Common Cleaning Steps:**
+
 - `UnicodeReformatter` - Normalize Unicode characters
 - `PiiModifier` - Remove or redact personal information
 - `NewlineNormalizer` - Standardize line breaks
@@ -146,8 +149,8 @@ filtered_dataset.to_json("filtered_data/")
 Basic text normalization:
 
 ```python
-from nemo_curator.modifiers import UnicodeReformatter
-from nemo_curator.modifiers.pii_modifier import PiiModifier
+from nemo_curator.stages.text.modifiers import UnicodeReformatter
+from nemo_curator.stages.text.modules import Modify
 from nemo_curator.utils.distributed_utils import get_client
 
 # Initialize distributed processing
@@ -169,50 +172,62 @@ cleaned_dataset = cleaning_pipeline(dataset)
 
 ### Large-Scale Fuzzy Deduplication
 
-Critical for production datasets (requires GPU):
+Critical for production datasets (requires Ray + GPU):
 
 ```python
-from nemo_curator import FuzzyDuplicates, FuzzyDuplicatesConfig
-from nemo_curator.utils.distributed_utils import get_client
+import ray
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
 
-# Initialize GPU processing (required for fuzzy deduplication)
-client = get_client(cluster_type="gpu")
+# Initialize Ray cluster with GPU support (required for fuzzy deduplication)
+ray.init(num_gpus=4)
 
-# Configure fuzzy deduplication (production settings)
-fuzzy_config = FuzzyDuplicatesConfig(
-    cache_dir="./cache",
-    hashes_per_bucket=13,  # LSH parameter
-    num_bands=8,           # LSH bands for ~85% similarity threshold
-    minhash_length=128     # Signature length
+# Configure fuzzy deduplication workflow (production settings)
+fuzzy_workflow = FuzzyDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    cache_path="./cache",
+    output_path="./output",
+    text_field="text",
+    perform_removal=False,  # Currently only identification supported
+    # LSH parameters for ~80% similarity threshold
+    num_bands=20,           # Number of LSH bands
+    minhashes_per_band=13,  # Hashes per band
+    char_ngrams=24,         # Character n-gram size
+    seed=42
 )
 
-# Apply fuzzy deduplication
-dedup_pipeline = FuzzyDuplicates(fuzzy_config)
-deduplicated_dataset = dedup_pipeline(dataset)
+# Run fuzzy deduplication workflow
+fuzzy_workflow.run()
+
+# Cleanup Ray when done
+ray.shutdown()
 ```
 
 ### Exact Deduplication (All dataset sizes)
 
-Quick deduplication for any dataset size:
+Quick deduplication for any dataset size (requires Ray + GPU):
 
 ```python
-from nemo_curator.modules import ExactDuplicates
-from nemo_curator.utils.distributed_utils import get_client
+import ray
+from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
 
-# Initialize distributed processing (works on CPU or GPU)
-client = get_client()  # Use cluster_type="gpu" for faster hashing when available
+# Initialize Ray cluster with GPU support (required for exact deduplication)
+ray.init(num_gpus=4)
 
-# Remove exact duplicates using MD5 hashing
-exact_dedup = ExactDuplicates(
-    id_field="id", 
-    text_field="text", 
-    hash_method="md5"
+# Configure exact deduplication workflow
+exact_workflow = ExactDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    output_path="/path/to/output",
+    text_field="text",
+    perform_removal=False,  # Currently only identification supported
+    assign_id=True,         # Automatically assign unique IDs
+    input_filetype="parquet"
 )
 
-# Find duplicates
-duplicates = exact_dedup(dataset)
-# Remove them
-deduped_dataset = exact_dedup.remove(dataset, duplicates)
+# Run exact deduplication workflow
+exact_workflow.run()
+
+# Cleanup Ray when done
+ray.shutdown()
 ```
 
 ### Complete End-to-End Pipeline
@@ -246,13 +261,26 @@ complete_pipeline = build_production_pipeline()
 processed_dataset = complete_pipeline(dataset)
 
 # Then apply deduplication separately for large datasets
-if len(dataset) > 1_000_000:  # Large dataset
-    fuzzy_dedup = FuzzyDuplicates(FuzzyDuplicatesConfig(cache_dir="./cache"))
-    final_dataset = fuzzy_dedup(processed_dataset)
-else:  # Smaller dataset
-    exact_dedup = ExactDuplicates(id_field="id", text_field="text", hash_method="md5")
-    duplicates = exact_dedup(processed_dataset)
-    final_dataset = exact_dedup.remove(processed_dataset, duplicates)
+if len(dataset) > 1_000_000:  # Large dataset - use fuzzy deduplication
+    import ray
+    ray.init(num_gpus=4)
+    fuzzy_workflow = FuzzyDeduplicationWorkflow(
+        input_path="/path/to/processed/data",
+        cache_path="./cache",
+        output_path="./output",
+        text_field="text"
+    )
+    fuzzy_workflow.run()
+    ray.shutdown()
+else:  # Smaller dataset - use exact deduplication
+    exact_workflow = ExactDeduplicationWorkflow(
+        input_path="/path/to/processed/data",
+        output_path="./output",
+        text_field="text",
+        assign_id=True
+    )
+    exact_workflow.run()
+    ray.shutdown()
 ```
 
 ## Advanced Usage Patterns
@@ -289,27 +317,42 @@ processed_dataset = complete_pipeline(dataset)
 For production-scale data processing across multiple machines:
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
+from nemo_curator.backends.xenna import XennaExecutor
 
-# Connect to existing multi-node cluster
-client = get_client(
-    scheduler_address="tcp://scheduler-node:8786"
-)
-
-# Process large dataset across multiple nodes
-large_dataset = DocumentDataset.read_json("large_data/*.jsonl", backend="cudf")
+# Initialize Ray cluster for distributed processing
+ray.init(address="ray://scheduler-node:10001")
 
 # Apply fuzzy deduplication at scale (most common large-scale operation)
-fuzzy_config = FuzzyDuplicatesConfig(
-    cache_dir="./cache",
-    hashes_per_bucket=13,
-    num_bands=8
+fuzzy_workflow = FuzzyDeduplicationWorkflow(
+    input_path="/path/to/large_data",
+    cache_path="./cache",
+    output_path="./output",
+    text_field="text",
+    # Tuned for high-precision deduplication
+    num_bands=25,
+    minhashes_per_band=10,
+    char_ngrams=24
 )
-fuzzy_dedup = FuzzyDuplicates(fuzzy_config)
-deduplicated_large = fuzzy_dedup(large_dataset)
+fuzzy_workflow.run()
 
-# Save results with partitioning for efficient storage
-deduplicated_large.to_json("output/", write_to_filename=True)
+# For semantic deduplication with text embedding generation
+text_sem_workflow = TextSemanticDeduplicationWorkflow(
+    input_path="/path/to/text_data",
+    output_path="./sem_output",
+    cache_path="./sem_cache", 
+    text_field="text",
+    model_identifier="sentence-transformers/all-MiniLM-L6-v2",
+    n_clusters=1000,  # More clusters for large datasets
+    perform_removal=False
+)
+text_sem_workflow.run(XennaExecutor())
+
+# Results are written to output directories
+# Process removal IDs separately if needed
+ray.shutdown()
 ```
 
 ### Domain-Specific Processing

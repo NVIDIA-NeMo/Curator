@@ -14,62 +14,72 @@ modality: "text-only"
 This guide covers the core concepts for loading and managing text data from local files in NVIDIA NeMo Curator.
 
 (documentdataset)=
-## DocumentDataset
 
-`DocumentDataset` is the foundation for handling large-scale text data processing in NeMo Curator. It is built on top of `Dask` DataFrames (`dd.DataFrame`) to enable distributed processing of local files.
+## Pipeline-Based Data Loading
+
+NeMo Curator uses a **pipeline-based architecture** for handling large-scale text data processing. Data flows through processing stages that transform tasks, enabling distributed processing of local files.
 
 ```{list-table}
 :header-rows: 1
 
-* - Feature
+* - Component
   - Description
-* - Lazy Loading & Memory Management
-  - - On-demand data loading through `Dask`
-    - Automatic memory optimization via `Dask's` distributed computing
-    - Support for both CPU and GPU memory
-    - Partition-based processing for scalability
-* - GPU Acceleration
-  - - Seamless CPU/GPU memory movement
-    - GPU-accelerated operations via cuDF backend (optional)
-    - Integration with RAPIDS ecosystem
-    - Configurable through backend parameter
-* - Robust Processing
-  - - State tracking for interrupted operations
-    - Recovery mechanisms through `Dask` persistence
-    - Distributed processing support
-    - Automatic partition management
+* - Reader Stages
+  - - `JsonlReader` and `ParquetReader` for file input
+    - File partitioning and distributed loading
+    - Column selection and performance optimization
+    - Support for cloud storage via storage options
+* - Processing Stages
+  - - Modular stages for filtering, transformation, and analysis
+    - `DocumentBatch` tasks flow between stages
+    - GPU acceleration support via PyArrow and cuDF
+    - Distributed execution via Ray or other backends
+* - Pipeline Orchestration
+  - - Compose stages into end-to-end workflows
+    - Automatic task scheduling and resource management
+    - State tracking and error recovery
+    - Flexible execution backends (Xenna, Ray, etc.)
 ```
 
 :::{dropdown} Usage Examples
 :icon: code-square
 
 ```python
-# Creating DocumentDataset from different sources
-from nemo_curator.datasets import DocumentDataset
+# Pipeline-based data loading with reader stages
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna.executor import XennaExecutor
+from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
+
+# Create pipeline with JSONL reader
+pipeline = Pipeline(name="data_processing")
 
 # Read JSONL files
-dataset = DocumentDataset.read_json("data.jsonl")
+jsonl_reader = JsonlReader(
+    file_paths="data.jsonl",
+    files_per_partition=4,
+    fields=["text", "id"]  # Column selection
+)
+pipeline.add_stage(jsonl_reader)
 
-# Read Parquet files with GPU acceleration
-gpu_dataset = DocumentDataset.read_parquet(
-    "data.parquet",
-    backend="cudf"  # Enable GPU acceleration
+# Read Parquet files with PyArrow optimization
+parquet_reader = ParquetReader(
+    file_paths="data.parquet",
+    files_per_partition=4,
+    fields=["text", "metadata"],
+    read_kwargs={
+        "engine": "pyarrow",
+        "dtype_backend": "pyarrow"
+    }
 )
 
-# Read multiple files
-dataset = DocumentDataset.read_json([
-    "data1.jsonl",
-    "data2.jsonl"
-])
+# Execute pipeline
+executor = XennaExecutor()
+results = pipeline.run(executor)
 
-# Basic operations
-print(f"Dataset size: {len(dataset)}")
-sample_data = dataset.head(10)  # Get first 10 rows
-persisted = dataset.persist()   # Persist in memory
-repartitioned = dataset.repartition(npartitions=4)  # Repartition
-
-# Convert to pandas for local processing
-pandas_df = dataset.to_pandas()
+# Access results as DocumentBatch tasks
+for task in results:
+    df = task.to_pandas()  # Convert to pandas
+    print(f"Processed {task.num_items} documents")
 ```
 
 :::
@@ -149,22 +159,24 @@ DocumentDataset supports multiple file formats for loading text data from local 
 **JSON Lines format** - Most commonly used format for text datasets in NeMo Curator.
 
 ```python
+from nemo_curator.stages.text.io.reader import JsonlReader
+
 # Single file
-dataset = DocumentDataset.read_json("data.jsonl")
+reader = JsonlReader(file_paths="data.jsonl")
 
 # Multiple files
-dataset = DocumentDataset.read_json([
+reader = JsonlReader(file_paths=[
     "file1.jsonl", 
     "file2.jsonl"
 ])
 
 # Directory of files
-dataset = DocumentDataset.read_json("data_directory/")
+reader = JsonlReader(file_paths="data_directory/")
 
 # Performance optimization with column selection
-dataset = DocumentDataset.read_json(
-    "data.jsonl", 
-    columns=["text", "id"]
+reader = JsonlReader(
+    file_paths="data.jsonl", 
+    fields=["text", "id"]
 )
 ```
 
@@ -175,22 +187,27 @@ dataset = DocumentDataset.read_json(
 :::{tab-item} Parquet
 :sync: parquet
 
-**Columnar format** - Better performance for large datasets and GPU acceleration.
+**Columnar format** - Better performance for large datasets and PyArrow optimization.
 
 ```python
-# Basic Parquet reading
-dataset = DocumentDataset.read_parquet("data.parquet")
+from nemo_curator.stages.text.io.reader import ParquetReader
 
-# GPU acceleration (recommended for production)
-dataset = DocumentDataset.read_parquet(
-    "data.parquet",
-    backend="cudf"
+# Basic Parquet reading
+reader = ParquetReader(file_paths="data.parquet")
+
+# PyArrow optimization (default, recommended for production)
+reader = ParquetReader(
+    file_paths="data.parquet",
+    read_kwargs={
+        "engine": "pyarrow",
+        "dtype_backend": "pyarrow"
+    }
 )
 
 # Column selection for better performance
-dataset = DocumentDataset.read_parquet(
-    "data.parquet",
-    columns=["text", "metadata"]
+reader = ParquetReader(
+    file_paths="data.parquet",
+    fields=["text", "metadata"]
 )
 ```
 
@@ -204,14 +221,12 @@ dataset = DocumentDataset.read_parquet(
 **Python serialization** - For preserving complex data structures.
 
 ```python
-# Read pickle files
-dataset = DocumentDataset.read_pickle("data.pkl")
+# Note: Pickle reading requires custom implementation
+# Use JsonlReader or ParquetReader for standard workflows
+from nemo_curator.stages.text.io.reader import JsonlReader
 
-# Multiple pickle files
-dataset = DocumentDataset.read_pickle([
-    "data1.pkl",
-    "data2.pkl"
-])
+# Convert pickle to JSONL first, then use JsonlReader
+reader = JsonlReader(file_paths="converted_data.jsonl")
 ```
 
 {bdg-secondary}`python-native` {bdg-secondary}`object-preservation`
@@ -224,12 +239,13 @@ dataset = DocumentDataset.read_pickle([
 **Custom formats** - Extensible framework for specialized file readers.
 
 ```python
-# Custom file format
-dataset = DocumentDataset.read_custom(
-    input_files="custom_data.ext",
-    file_type="ext",
-    read_func_single_partition=my_custom_reader,
-    backend="pandas"
+# Custom file format via custom download/iteration stages
+# See custom data loading guide for full implementation
+from your_custom_module import CustomDataStage
+
+custom_stage = CustomDataStage(
+    file_paths="custom_data.ext",
+    custom_params="configuration"
 )
 ```
 
@@ -251,21 +267,16 @@ NeMo Curator provides flexible export options for processed datasets:
 **JSON Lines export** - Human-readable format for text datasets.
 
 ```python
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
 # Basic export
-dataset.to_json("output_directory/")
+writer = JsonlWriter(path="output_directory/")
 
-# Export with filename preservation
-dataset.to_json(
-    "output_directory/",
-    write_to_filename=True,
-    keep_filename_column=True
-)
+# Add writer to pipeline after processing stages
+pipeline.add_stage(writer)
 
-# Partitioned export
-dataset.to_json(
-    "output_directory/",
-    partition_on="language"
-)
+# Execute pipeline to write results
+results = pipeline.run(executor)
 ```
 
 {bdg-secondary}`human-readable` {bdg-secondary}`debugging-friendly`
@@ -278,20 +289,16 @@ dataset.to_json(
 **Parquet export** - Optimized columnar format for production workflows.
 
 ```python
+from nemo_curator.stages.text.io.writer import ParquetWriter
+
 # Basic export
-dataset.to_parquet("output_directory/")
+writer = ParquetWriter(path="output_directory/")
 
-# Export with partitioning
-dataset.to_parquet(
-    "output_directory/",
-    partition_on="category"
-)
+# Add writer to pipeline after processing stages
+pipeline.add_stage(writer)
 
-# GPU-accelerated export
-dataset.to_parquet(
-    "output_directory/",
-    backend="cudf"
-)
+# Execute pipeline to write results
+results = pipeline.run(executor)
 ```
 
 {bdg-secondary}`high-performance` {bdg-secondary}`production-ready`
@@ -310,21 +317,25 @@ dataset.to_parquet(
 **Loading from multiple sources** - Combine data from different locations and formats.
 
 ```python
-# Combine multiple directories
-dataset = DocumentDataset.read_json([
+from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
+
+# Combine multiple directories in a single reader
+reader = JsonlReader(file_paths=[
     "dataset_v1/",
     "dataset_v2/",
     "additional_data/"
 ])
 
-# Mix file types (not recommended, convert to consistent format first)
-jsonl_data = DocumentDataset.read_json("text_data.jsonl")
-parquet_data = DocumentDataset.read_parquet("structured_data.parquet")
+# For mixed file types, use separate pipelines
+# Pipeline 1: JSONL data
+jsonl_pipeline = Pipeline(name="jsonl_processing")
+jsonl_pipeline.add_stage(JsonlReader(file_paths="text_data.jsonl"))
 
-# Combine datasets after loading
-combined = DocumentDataset.from_pandas(
-    pd.concat([jsonl_data.to_pandas(), parquet_data.to_pandas()])
-)
+# Pipeline 2: Parquet data  
+parquet_pipeline = Pipeline(name="parquet_processing")
+parquet_pipeline.add_stage(ParquetReader(file_paths="structured_data.parquet"))
+
+# Execute pipelines separately, then combine results if needed
 ```
 
 {bdg-secondary}`data-aggregation` {bdg-secondary}`multi-source`
@@ -334,28 +345,31 @@ combined = DocumentDataset.from_pandas(
 :::{tab-item} Performance Optimization
 :sync: performance
 
-**Performance optimization** - Maximize throughput and minimize memory usage.
+**Performance optimization** - Maximize throughput and reduce memory usage.
 
 ```python
-# Optimize for GPU processing
-dataset = DocumentDataset.read_parquet(
-    "large_dataset.parquet",
-    backend="cudf",
-    columns=["text", "id"],  # Only load needed columns
-    files_per_partition=4    # Optimize partition size
+# Optimize Parquet reading with PyArrow
+reader = ParquetReader(
+    file_paths="large_dataset.parquet",
+    fields=["text", "id"],  # Column selection for efficiency
+    files_per_partition=4,   # Optimize partition size
+    read_kwargs={
+        "engine": "pyarrow",
+        "dtype_backend": "pyarrow"
+    }
 )
 
-# Optimize memory usage
-dataset = DocumentDataset.read_json(
-    "data.jsonl",
+# Optimize memory usage with blocksize
+reader = JsonlReader(
+    file_paths="data.jsonl",
     blocksize="512MB",  # Adjust based on available memory
-    backend="pandas"
+    files_per_partition=8
 )
 
-# Parallel loading with custom partition size
-dataset = DocumentDataset.read_parquet(
-    "data/",
-    npartitions=16  # Match CPU/GPU count
+# Parallel loading with optimal partitioning
+reader = ParquetReader(
+    file_paths="data/",
+    files_per_partition=16  # Match CPU/GPU count
 )
 ```
 
@@ -370,23 +384,24 @@ dataset = DocumentDataset.read_parquet(
 
 ```python
 # Efficient processing for large datasets
-dataset = DocumentDataset.read_parquet("massive_dataset/")
-
-# Persist in memory for repeated operations
-dataset = dataset.persist()
-
-# Repartition for optimal processing
-dataset = dataset.repartition(npartitions=8)
-
-# Process in chunks
-for partition in dataset.to_delayed():
-    # Process each partition separately
-    result = partition.compute()
-
-# Lazy evaluation for memory efficiency
-dataset = dataset.map_partitions(
-    lambda df: df.head(1000)  # Process only first 1000 rows per partition
+reader = ParquetReader(
+    file_paths="massive_dataset/",
+    files_per_partition=8,  # Optimize for cluster size
+    blocksize="1GB"        # Large blocks for efficiency
 )
+
+# Add to pipeline with processing stages
+pipeline = Pipeline(name="large_dataset_processing")
+pipeline.add_stage(reader)
+
+# Add memory-efficient processing stages
+from nemo_curator.stages.text.modules import ScoreFilter
+pipeline.add_stage(ScoreFilter(...))
+
+# Execute with appropriate executor for scale
+from nemo_curator.backends.ray.executor import RayExecutor
+executor = RayExecutor()
+results = pipeline.run(executor)
 ```
 
 {bdg-secondary}`scalable` {bdg-secondary}`memory-conscious`
@@ -404,4 +419,4 @@ For users who need to download and process data from remote sources, NeMo Curato
 - **Integration patterns** with DocumentDataset
 - **Configuration and scaling** strategies
 
-The data acquisition process produces standard `DocumentDataset` objects that integrate seamlessly with the local file loading concepts covered on this page.
+The data acquisition process produces `DocumentBatch` tasks that integrate seamlessly with the pipeline-based processing concepts covered on this page.

@@ -77,6 +77,28 @@ Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, 
 
 ::::
 
+---
+
+## Monitoring & Operations
+
+::::{grid} 1 1 1 2
+:gutter: 1 1 1 2
+
+:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Monitoring & Observability
+:link: admin-monitoring
+:link-type: ref
+Set up comprehensive monitoring with Prometheus and Grafana for production deployments. Monitor pipeline performance, resource utilization, and system health.
++++
+{bdg-secondary}`prometheus`
+{bdg-secondary}`grafana`
+{bdg-secondary}`metrics`
+{bdg-secondary}`dashboards`
+:::
+
+::::
+
+---
+
 ## Integration Options
 
 ::::{grid} 1 1 1 2

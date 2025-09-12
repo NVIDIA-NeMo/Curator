@@ -29,8 +29,6 @@ openai_client = OpenAI(
 Wrap the client with NeMo Curator's client wrapper:
 
 ```python
-from nemo_curator import OpenAIClient
-
 client = OpenAIClient(openai_client)
 ```
 

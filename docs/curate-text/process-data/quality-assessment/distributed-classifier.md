@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (text-process-data-filter-dist-classifier)=
+
 # Distributed Data Classification
 
 NVIDIA NeMo Curator provides a module for performing distributed classification on large text datasets using GPU acceleration. This enables the categorization and filtering of text documents based on multiple dimensions such as domain, quality, safety, educational value, content type, and more. These classifications can enhance the quality of training data for large language models by identifying high-value content and removing problematic material.
@@ -197,6 +198,45 @@ classifier = PromptTaskComplexityClassifier()
 result_dataset = classifier(dataset=input_dataset)
 ```
 
+## Using Ray Executors
+
+All NVIDIA NeMo Curator classifiers are compatible with Ray-based executors for enhanced scalability and performance. You can use either the experimental Ray Data executor or the Ray Actor Pool executor:
+
+### Ray Data Executor (Experimental)
+
+```python
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.classifiers import QualityClassifier
+
+# Create pipeline with classifier
+pipeline = Pipeline(name="ray_classifier_pipeline")
+pipeline.add_stage(read_stage)
+pipeline.add_stage(QualityClassifier())
+pipeline.add_stage(write_stage)
+
+# Run with Ray Data executor
+executor = RayDataExecutor()
+results = pipeline.run(executor)
+```
+
+### Ray Actor Pool Executor
+
+```python
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+
+# Run with Ray Actor Pool executor (used in production workflows)
+executor = RayActorPoolExecutor(
+    config={
+        "reserved_cpus": 0.0,    # Reserved CPU resources
+        "reserved_gpus": 0.0,    # Reserved GPU resources
+    }
+)
+results = pipeline.run(executor)
+```
+
+**Note**: Ray executors are particularly beneficial for large-scale classification tasks and are actively used in NVIDIA NeMo Curator's deduplication workflows.
+
 ## CrossFit Integration
 
 CrossFit is an open-source library by RAPIDS AI for fast offline inference scaled to multi-node multi-GPU environments. It accelerates NVIDIA NeMo Curator's classifiers with:
@@ -214,4 +254,4 @@ The key feature of CrossFit used in NVIDIA NeMo Curator is the sorted sequence d
 - Grouping similar-length sequences into batches
 - Efficiently allocating batches to GPU memory based on estimated memory footprints
 
-See the [rapidsai/crossfit](https://github.com/rapidsai/crossfit) repository for more information. 
+See the [rapidsai/crossfit](https://github.com/rapidsai/crossfit) repository for more information.

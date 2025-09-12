@@ -119,16 +119,19 @@ For details on image container environments and Slurm environment variables, see
      --container-image "${CONTAINER_IMAGE}" \
      --container-mounts "${CONTAINER_MOUNTS}" \
        --  python3 -c "
-   import timm
-   from nemo_curator.image.embedders import TimmImageEmbedder
-   from nemo_curator.image.classifiers import AestheticClassifier, NsfwClassifier
+   from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+   from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+   from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+   import os
    
-   # Download and cache CLIP model
-   embedder = TimmImageEmbedder('vit_large_patch14_clip_quickgelu_224.openai', pretrained=True)
+   # Create model directory
+   model_dir = '/config/models'
+   os.makedirs(model_dir, exist_ok=True)
    
-   # Download aesthetic and NSFW classifiers
-   aesthetic = AestheticClassifier()
-   nsfw = NsfwClassifier()
+   # Download and cache models by initializing stages
+   embedding_stage = ImageEmbeddingStage(model_dir=model_dir, num_gpus_per_worker=0.25)
+   aesthetic_stage = ImageAestheticFilterStage(model_dir=model_dir, score_threshold=0.5, num_gpus_per_worker=0.25)
+   nsfw_stage = ImageNSFWFilterStage(model_dir=model_dir, score_threshold=0.5, num_gpus_per_worker=0.25)
    
    print('Image models downloaded successfully')
    "
@@ -143,11 +146,11 @@ For details on image container environments and Slurm environment variables, see
 
 ## Image Processing Pipeline
 
-The workflow consists of three main Slurm scripts, to be run in order:
+The workflow consists of three main Slurm scripts. The first script performs the complete curation pipeline, while the others are optional for specific use cases:
 
-1. `curator_image_embed.sh`: Generates embeddings and applies classifications to images.
-2. `curator_image_filter.sh`: Filters images based on quality, aesthetic, and NSFW scores.
-3. `curator_image_dedup.sh`: Performs semantic deduplication using image embeddings.
+1. `curator_image_embed.sh`: Complete pipeline - partitions files, reads images, generates embeddings, applies filtering, and saves results.
+2. `curator_image_reshard.sh`: (Optional) Reshards processed images with different shard sizes.
+3. `curator_image_dedup.sh`: (Optional) Prepares data for semantic deduplication (full deduplication features coming in future releases).
 
 :::: {tab-set}
 
@@ -190,51 +193,83 @@ srun \
   --container-image "${CONTAINER_IMAGE}" \
   --container-mounts "${CONTAINER_MOUNTS}" \
     -- python3 -c "
-from nemo_curator.datasets import ImageTextPairDataset
-from nemo_curator.image.embedders import TimmImageEmbedder
-from nemo_curator.image.classifiers import AestheticClassifier, NsfwClassifier
-from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-# Initialize Dask client
-client = get_client(cluster_type='gpu')
+# Create image curation pipeline
+pipeline = Pipeline(name='slurm_image_embed', description='Image embedding and classification on Slurm')
 
-# Load dataset
-dataset = ImageTextPairDataset.from_webdataset('${INPUT_WEBDATASET_PATH}', id_col='key')
+# Stage 1: Partition WebDataset files
+pipeline.add_stage(FilePartitioningStage(
+    file_paths='${INPUT_WEBDATASET_PATH}',
+    files_per_partition=1,
+    file_extensions=['.tar'],
+))
 
-# Generate embeddings
-embedder = TimmImageEmbedder(
-    'vit_large_patch14_clip_quickgelu_224.openai',
-    pretrained=True,
-    batch_size=1024,
-    num_threads_per_worker=16,
-    normalize_embeddings=True,
-    autocast=False
-)
-dataset = embedder(dataset)
+# Stage 2: Read images with DALI
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    num_threads=16,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
 
-# Apply aesthetic classification
-aesthetic_classifier = AestheticClassifier()
-dataset = aesthetic_classifier(dataset)
+# Stage 3: Generate CLIP embeddings
+pipeline.add_stage(ImageEmbeddingStage(
+    model_dir='/config/models',
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    remove_image_data=False,
+    verbose=True,
+))
 
-# Apply NSFW classification
-nsfw_classifier = NsfwClassifier()
-dataset = nsfw_classifier(dataset)
+# Stage 4: Apply aesthetic classification
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir='/config/models',
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
 
-# Save results
-dataset.to_webdataset('${OUTPUT_DATA_PATH}')
-client.close()
+# Stage 5: Apply NSFW classification
+pipeline.add_stage(ImageNSFWFilterStage(
+    model_dir='/config/models',
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
+
+# Stage 6: Save results
+pipeline.add_stage(ImageWriterStage(
+    output_dir='${OUTPUT_DATA_PATH}',
+    images_per_tar=1000,
+    remove_image_data=True,
+    verbose=True,
+))
+
+# Execute pipeline
+executor = XennaExecutor()
+pipeline.run(executor)
 "
 ```
 
 :::
 
-::: {tab-item} 2. Filtering
-`curator_image_filter.sh` - Filters images based on quality, aesthetic, and NSFW scores.
+::: {tab-item} 2. Resharding (Optional)
+`curator_image_reshard.sh` - Reshards the processed images with different shard sizes if needed.
 
 ```bash
 #!/bin/bash
 
-#SBATCH --job-name=image-filter
+#SBATCH --job-name=image-reshard
 #SBATCH -p defq
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
@@ -248,7 +283,7 @@ client.close()
 USER_DIR="/home/${USER}"
 CONTAINER_IMAGE="${USER_DIR}/path-to/curator.sqsh"
 INPUT_DATA_PATH="s3://your-bucket/embedded-images/"
-OUTPUT_DATA_PATH="s3://your-bucket/filtered-images/"
+OUTPUT_DATA_PATH="s3://your-bucket/resharded-images/"
 #
 
 LOCAL_WORKSPACE="${USER_DIR}/nemo_curator_local_workspace"
@@ -267,44 +302,41 @@ srun \
   --container-image "${CONTAINER_IMAGE}" \
   --container-mounts "${CONTAINER_MOUNTS}" \
     -- python3 -c "
-from nemo_curator.datasets import ImageTextPairDataset
-from nemo_curator.utils.distributed_utils import get_client
-import yaml
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-# Initialize Dask client
-client = get_client(cluster_type='gpu')
+# Create resharding pipeline
+pipeline = Pipeline(name='slurm_image_reshard', description='Reshard processed images')
 
-# Load configuration
-with open('/config/image_config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
+# Stage 1: Partition processed WebDataset files
+pipeline.add_stage(FilePartitioningStage(
+    file_paths='${INPUT_DATA_PATH}',
+    files_per_partition=1,
+    file_extensions=['.tar'],
+))
 
-# Load dataset
-dataset = ImageTextPairDataset.from_webdataset('${INPUT_DATA_PATH}', id_col='key')
+# Stage 2: Read processed images
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    num_threads=16,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
 
-# Apply filters based on configuration
-filter_params = config['filtering']
-filters = []
+# Stage 3: Write with new shard size
+pipeline.add_stage(ImageWriterStage(
+    output_dir='${OUTPUT_DATA_PATH}',
+    images_per_tar=5000,  # Larger shard size
+    remove_image_data=True,
+    verbose=True,
+))
 
-# Aesthetic score filter
-if 'min_aesthetic_score' in filter_params:
-    filters.append(f\"aesthetic_score >= {filter_params['min_aesthetic_score']}\")
-
-# NSFW score filter  
-if 'max_nsfw_score' in filter_params:
-    filters.append(f\"nsfw_score <= {filter_params['max_nsfw_score']}\")
-
-# Apply combined filter
-if filters:
-    filter_expression = ' and '.join(filters)
-    dataset.metadata['passes_filter'] = dataset.metadata.eval(filter_expression)
-    
-    # Save filtered dataset
-    dataset.to_webdataset('${OUTPUT_DATA_PATH}', filter_column='passes_filter')
-else:
-    dataset.to_webdataset('${OUTPUT_DATA_PATH}')
-
-print(f'Filtering completed. Applied filters: {filter_expression if filters else \"None\"}')
-client.close()
+# Execute pipeline
+executor = XennaExecutor()
+pipeline.run(executor)
 "
 ```
 
@@ -350,72 +382,50 @@ srun \
   --container-image "${CONTAINER_IMAGE}" \
   --container-mounts "${CONTAINER_MOUNTS}" \
     -- python3 -c "
-from nemo_curator.datasets import ImageTextPairDataset, DocumentDataset
-from nemo_curator import ClusteringModel, SemanticClusterLevelDedup
-from nemo_curator.utils.distributed_utils import get_client
+# Note: Semantic deduplication requires the old API for now
+# This is a complex operation that hasn't been fully migrated to the pipeline approach
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 import yaml
 import os
 
-# Initialize Dask client
-client = get_client(cluster_type='gpu')
+print('Note: Advanced semantic deduplication is currently being migrated to the pipeline architecture.')
+print('For now, this script performs basic resharding. Full deduplication will be available in future releases.')
 
-# Load configuration
-with open('/config/image_config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
+# Create basic pipeline for now
+pipeline = Pipeline(name='slurm_image_basic_dedup', description='Basic image processing for deduplication prep')
 
-# Load dataset
-dataset = ImageTextPairDataset.from_webdataset('${INPUT_DATA_PATH}', id_col='key')
-embeddings_dataset = DocumentDataset(dataset.metadata)
+# Stage 1: Partition processed WebDataset files
+pipeline.add_stage(FilePartitioningStage(
+    file_paths='${INPUT_DATA_PATH}',
+    files_per_partition=1,
+    file_extensions=['.tar'],
+))
 
-# Semantic deduplication parameters
-dedup_config = config['semantic_deduplication']
-clustering_output = '${CACHE_DIR}/cluster_output'
-os.makedirs(clustering_output, exist_ok=True)
+# Stage 2: Read processed images
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    num_threads=16,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
 
-# Run clustering
-clustering_model = ClusteringModel(
-    id_column='key',
-    embedding_column='image_embedding',
-    max_iter=dedup_config['max_iter'],
-    n_clusters=dedup_config['n_clusters'],
-    random_state=dedup_config['random_state'],
-    clustering_output_dir=clustering_output,
-)
-clustered_dataset = clustering_model(embeddings_dataset)
+# Stage 3: Save for deduplication processing
+pipeline.add_stage(ImageWriterStage(
+    output_dir='${OUTPUT_DATA_PATH}',
+    images_per_tar=1000,
+    remove_image_data=True,
+    verbose=True,
+))
 
-if clustered_dataset:
-    print('Clustering completed successfully')
-    
-    # Run cluster-level deduplication
-    emb_by_cluster_output = os.path.join(clustering_output, 'embs_by_nearest_center')
-    duplicate_output = '${CACHE_DIR}/duplicates'
-    
-    semantic_dedup = SemanticClusterLevelDedup(
-        n_clusters=dedup_config['n_clusters'],
-        emb_by_clust_dir=emb_by_cluster_output,
-        id_column='key',
-        which_to_keep=dedup_config['which_to_keep'],
-        embedding_column='image_embedding',
-        batched_cosine_similarity=1024,
-        output_dir=duplicate_output,
-    )
-    
-    semantic_dedup.compute_semantic_match_dfs()
-    deduplicated_dataset_ids = semantic_dedup.extract_dedup_data(
-        eps_to_extract=dedup_config['eps_to_extract']
-    )
-    
-    # Mark unique images and save
-    dataset.metadata['is_unique'] = dataset.metadata['key'].isin(
-        deduplicated_dataset_ids.df['key'].compute()
-    )
-    dataset.to_webdataset('${OUTPUT_DATA_PATH}', filter_column='is_unique')
-    
-    print(f'Deduplication completed. Unique images saved to ${OUTPUT_DATA_PATH}')
-else:
-    print('Clustering failed')
+# Execute pipeline
+executor = XennaExecutor()
+pipeline.run(executor)
 
-client.close()
+print('Basic processing completed. Advanced semantic deduplication will be available in future pipeline releases.')
 "
 ```
 
@@ -424,11 +434,20 @@ client.close()
 ::::
 
 1. **Update** all `# Update Me!` sections in the scripts for your environment (paths, usernames, S3 buckets, etc).
-2. Submit each job with `sbatch`:
+2. Submit the main processing job:
 
   ```sh
+  # Main pipeline (required) - performs complete image curation
   sbatch curator_image_embed.sh
-  sbatch curator_image_filter.sh
+  ```
+
+3. Optionally submit additional jobs if needed:
+
+  ```sh
+  # Optional: Reshard processed images with different shard sizes
+  sbatch curator_image_reshard.sh
+  
+  # Optional: Prepare for deduplication (basic processing for now)
   sbatch curator_image_dedup.sh
   ```
 

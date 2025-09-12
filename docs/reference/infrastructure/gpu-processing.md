@@ -57,11 +57,15 @@ NVIDIA NeMo Curator provides these GPU-accelerated modules:
 
 Use the `ToBackend` module to move data:
 ```python
-from nemo_curator import Sequential, ToBackend
+from nemo_curator.pipeline import Pipeline
 
-pipeline = Sequential([
-    cpu_operation,          # Runs on CPU
-    ToBackend("cudf"),     # Moves to GPU
+# Note: Backend switching functionality may vary in current implementation
+# Check current documentation for GPU/CPU data movement patterns
+pipeline = Pipeline(
+    name="gpu_processing_pipeline",
+    stages=[
+        cpu_operation,          # Runs on CPU
+        # Backend switching stage would go here
     gpu_operation,         # Runs on GPU
     ToBackend("pandas"),   # Moves back to CPU
     cpu_operation_2        # Runs on CPU

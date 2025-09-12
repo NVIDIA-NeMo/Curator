@@ -19,16 +19,6 @@ This section provides technical reference documentation for NeMo Curator's infra
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Distributed Computing
-:link: reference-infra-dist-computing
-:link-type: ref
-Configure and manage distributed processing across multiple machines
-+++
-{bdg-secondary}`dask`
-{bdg-secondary}`clusters`
-{bdg-secondary}`scaling`
-:::
-
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management
 :link: reference-infra-memory-management
 :link-type: ref
@@ -70,16 +60,27 @@ Available environments and configurations in NeMo Curator containers. Includes S
 {bdg-secondary}`environments`
 :::
 
+:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Monitoring Infrastructure
+:link: reference-infra-monitoring
+:link-type: ref
+Technical reference for monitoring and observability infrastructure including Prometheus, Grafana, and metrics collection.
++++
+{bdg-secondary}`prometheus`
+{bdg-secondary}`grafana`
+{bdg-secondary}`metrics`
+{bdg-secondary}`observability`
+:::
+
 ::::
 
 ```{toctree}
 :maxdepth: 2
 :hidden:
 
-distributed-computing
 memory-management
 gpu-processing
 resumable-processing
 container-environments
+monitoring
 execution-backends
 ```

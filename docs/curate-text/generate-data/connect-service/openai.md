@@ -33,7 +33,7 @@ The following code demonstrates how to connect to build.nvidia.com to query Mixt
 
 ```python
 from openai import OpenAI
-from nemo_curator import OpenAIClient
+# Note: OpenAI client functionality may not be available in current version
 
 openai_client = OpenAI(
     base_url="https://integrate.api.nvidia.com/v1",

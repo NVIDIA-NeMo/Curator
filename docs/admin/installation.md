@@ -187,7 +187,6 @@ If you installed GPU support, verify GPU access:
 # Check GPU availability
 try:
     import cudf
-    import dask_cudf
     print("✓ GPU modules available")
     
     # Test GPU memory
@@ -205,31 +204,33 @@ Test that command-line tools are properly installed:
 ```bash
 # Check if CLI tools are available
 text_cleaning --help
-add_id --help
 gpu_exact_dups --help
 
 # Test specific functionality
 echo '{"id": "doc1", "text": "Hello world"}' | text_cleaning --input-format jsonl
 ```
 
-### 4. Dask Cluster Test
+### 4. Ray Cluster Test
 
 Verify distributed computing capabilities:
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
 
-# Test local cluster creation
-client = get_client(cluster_type="local", n_workers=2)
-print(f"✓ Dask cluster created: {client}")
+# Test Ray initialization
+ray.init()
+print("✓ Ray cluster initialized")
 
 # Test basic distributed operation
-import dask.dataframe as dd
-df = dd.from_pandas(pd.DataFrame({"x": [1, 2, 3, 4]}), npartitions=2)
-result = df.x.sum().compute()
-print(f"✓ Distributed computation successful: {result}")
+@ray.remote
+def square(x):
+    return x * x
 
-client.close()
+futures = [square.remote(i) for i in range(4)]
+results = ray.get(futures)
+print(f"✓ Distributed computation successful: {results}")
+
+ray.shutdown()
 ```
 
 ---

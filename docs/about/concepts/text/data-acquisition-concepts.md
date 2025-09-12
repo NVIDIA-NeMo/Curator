@@ -313,9 +313,13 @@ acquired_dataset = download_and_extract(...)
 # Save in standard format for loading
 acquired_dataset.to_parquet("acquired_data/")
 
-# Later: Load using standard data loading
-from nemo_curator.datasets import DocumentDataset
-dataset = DocumentDataset.read_parquet("acquired_data/")
+# Later: Load using pipeline-based data loading
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import ParquetReader
+
+pipeline = Pipeline(name="load_acquired_data")
+reader = ParquetReader(file_paths="acquired_data/")
+pipeline.add_stage(reader)
 ```
 
 This enables you to:

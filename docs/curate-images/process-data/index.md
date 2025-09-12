@@ -15,15 +15,15 @@ Process image data you've loaded into a WebDataset using NeMo Curator's suite of
 
 ## How it Works
 
-Image processing in NeMo Curator typically follows these steps:
+Image processing in NeMo Curator follows a pipeline-based approach with these stages:
 
-1. **Load your dataset** using `ImageTextPairDataset`
-2. **Generate image embeddings** using a built-in or custom embedder
-3. **Apply classifiers** (such as aesthetic or NSFW) to score or filter images
-4. **Filter images** based on classifier scores or metadata
-5. **Save or export** your curated dataset for downstream use
+1. **Partition files** using `FilePartitioningStage` to distribute WebDataset tar files
+2. **Read images** using `ImageReaderStage` with DALI acceleration
+3. **Generate embeddings** using `ImageEmbeddingStage` with CLIP models
+4. **Apply classifiers** using `ImageAestheticFilterStage` and `ImageNSFWFilterStage`
+5. **Save results** using `ImageWriterStage` to export curated datasets
 
-You can use NeMo Curator's built-in tools or implement your own for advanced use cases.
+Each stage processes `ImageBatch` objects containing images, metadata, and processing results. You can use built-in stages or implement custom stages for advanced use cases.
 
 ---
 
@@ -32,22 +32,22 @@ You can use NeMo Curator's built-in tools or implement your own for advanced use
 :::: {grid} 1 2 2 2
 :gutter: 1 1 1 2
 
-::: {grid-item-card} Aesthetic Classifier
+::: {grid-item-card} Aesthetic Filter Stage
 :link: image-process-data-classifiers-aesthetic
 :link-type: ref
 
-Assess the subjective quality of images using a model trained on human aesthetic preferences. Useful for filtering or ranking images by visual appeal.
+Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images based on aesthetic score thresholds.
 +++
-{bdg-secondary}`Linear (MLP)` {bdg-secondary}`aesthetic_score`
+{bdg-secondary}`ImageAestheticFilterStage` {bdg-secondary}`aesthetic_score`
 :::
 
-::: {grid-item-card} NSFW Classifier
+::: {grid-item-card} NSFW Filter Stage
 :link: image-process-data-classifiers-nsfw
 :link-type: ref
 
-Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Helps remove or flag explicit material from your datasets.
+Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Filters explicit material from your datasets.
 +++
-{bdg-secondary}`MLP (CLIP-based)` {bdg-secondary}`nsfw_score`
+{bdg-secondary}`ImageNSFWFilterStage` {bdg-secondary}`nsfw_score`
 :::
 
 ::::
@@ -57,44 +57,57 @@ Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier.
 :::: {grid} 1 2 2 2
 :gutter: 1 1 1 2
 
-::: {grid-item-card} TimmImageEmbedder
-:link: image-process-data-embeddings-timm
+::: {grid-item-card} CLIP Embedding Stage
+:link: image-process-data-embeddings-clip
 :link-type: ref
 
-Use state-of-the-art models from the PyTorch Image Models (timm) library for embedding generation. Highly recommended for most users.
+Generate image embeddings using CLIP models with GPU acceleration. Supports various CLIP architectures and automatic model downloading.
 +++
-{bdg-secondary}`timm` {bdg-secondary}`vision transformer` {bdg-secondary}`CLIP`
+{bdg-secondary}`ImageEmbeddingStage` {bdg-secondary}`CLIP` {bdg-secondary}`GPU-accelerated`
 :::
 
-::: {grid-item-card} Custom ImageEmbedder
+::: {grid-item-card} Custom Embedding Stage
 :link: image-process-data-embeddings-custom
 :link-type: ref
 
-Implement your own image embedding logic by subclassing the base class. Useful for research models or custom pipelines.
+Implement your own image embedding logic by subclassing `ProcessingStage`. Useful for research models or custom pipelines.
 +++
-{bdg-secondary}`custom` {bdg-secondary}`advanced`
+{bdg-secondary}`ProcessingStage` {bdg-secondary}`custom` {bdg-secondary}`advanced`
 :::
 
 ::::
 
 ## Filtering Images
 
-Filter images in your dataset by applying thresholds to classifier scores (such as aesthetic or NSFW) or by using metadata fields. Unlike text curation, NeMo Curator does not currently provide built-in heuristic or content-based filters for images. Filtering is typically performed as a post-processing step after classification and embedding.
+Filtering is built into the classification stages (`ImageAestheticFilterStage`, `ImageNSFWFilterStage`). Images that don't meet the specified thresholds are automatically filtered out during processing.
 
-**Common filtering strategies:**
-- Remove images with low aesthetic scores
-- Remove or flag images with high NSFW scores
-- Filter by metadata (e.g., resolution, aspect ratio)
+**Built-in filtering capabilities:**
+* **Aesthetic filtering**: Remove images with low aesthetic scores using `ImageAestheticFilterStage`
+* **NSFW filtering**: Remove inappropriate content using `ImageNSFWFilterStage`
+* **Automatic processing**: Filtering happens during the pipeline execution
 
-**Example: Filtering by classifier score in Python**
+**Example: Pipeline with filtering**
 
 ```python
-import dask_cudf
-# Assume df is a Dask-cuDF DataFrame with 'aesthetic_score' and 'nsfw_score' columns
-filtered = df[(df['aesthetic_score'] > 0.5) & (df['nsfw_score'] < 0.2)]
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+
+# Filter by aesthetic quality (keep images with score >= 0.5)
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir="/models",
+    score_threshold=0.5,  # Minimum aesthetic score
+    num_gpus_per_worker=0.25,
+))
+
+# Filter NSFW content (remove images with score >= 0.5)
+pipeline.add_stage(ImageNSFWFilterStage(
+    model_dir="/models", 
+    score_threshold=0.5,  # Maximum NSFW score
+    num_gpus_per_worker=0.25,
+))
 ```
 
-You can also implement custom filtering logic based on your project needs.
+For custom filtering logic, you can implement your own `ProcessingStage` subclass.
 
 ```{toctree}
 :maxdepth: 2

@@ -87,11 +87,14 @@ Remove downstream task data from training datasets
 
 :::{tab-item} Code Processing
 ```python
-from nemo_curator import Sequential, ScoreFilter
-from nemo_curator.filters import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
 
 # Filter Python code based on quality metrics
-code_pipeline = Sequential([
+code_pipeline = Pipeline(
+    name="code_processing_pipeline",
+    stages=[
     ScoreFilter(
         PythonCommentToCodeFilter(
             min_comment_to_code_ratio=0.01,
@@ -158,21 +161,6 @@ authentic_qa = synthetic_pipeline(qa_dataset)
 ```
 :::
 
-:::{tab-item} Task Decontamination
-```python
-from nemo_curator import TaskDecontamination
-from nemo_curator.tasks import Squad, TriviaQA, Winogrande
-
-# Remove benchmark contamination
-decontaminate = TaskDecontamination([
-    Squad(),
-    TriviaQA(), 
-    Winogrande()
-])
-
-clean_dataset = decontaminate(training_dataset)
-```
-:::
 
 ::::
 

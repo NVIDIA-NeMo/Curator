@@ -13,7 +13,6 @@ modality: "text-only"
 
 Remove duplicate and near-duplicate documents from your text datasets using NeMo Curator's hash-based deduplication modules with optional GPU acceleration.
 
-
 ## How It Works
 
 These modules use hash-based algorithms to efficiently process large datasets and support two primary methods: **Exact** and **Fuzzy Duplicate** removal. Fuzzy deduplication leverages [RAPIDS](https://rapids.ai) for GPU acceleration.
@@ -53,32 +52,36 @@ Removing duplicates improves language model training by preventing overrepresent
 
 ## Understanding Operational Modes
 
-Both `ExactDuplicates` and `FuzzyDuplicates` support two operational modes controlled by the `perform_removal` parameter:
+The deduplication workflows support different operational modes:
 
 ```{list-table} Operational Modes
 :header-rows: 1
 :widths: 30 35 35
 
-* - Mode
-  - `perform_removal=False` (Default)
-  - `perform_removal=True`
-* - Return Value
-  - Dataset with duplicate IDs/groups
-  - Deduplicated dataset
+* - Workflow Type
+  - `ExactDeduplicationWorkflow`
+  - `FuzzyDeduplicationWorkflow`
+* - Current Support
+  - Identification only (`perform_removal=False`)
+  - Identification only (`perform_removal=False`)
+* - Output
+  - Duplicate IDs written to output directory
+  - Duplicate IDs written to output directory
 * - Workflow
-  - 1. Call `module(dataset)` or `module.identify_duplicates(dataset)`
-    2. Call `module.remove(dataset, duplicates)` 
-  - 1. Call `module(dataset)` 
-    2. Returns final deduplicated dataset
+  - 1. Call `workflow.run()`
+    2. Process output files separately for removal
+  - 1. Call `workflow.run()`
+    2. Process output files separately for removal
 * - Use Case
-  - When you want to inspect duplicates first
-  - When you want direct deduplication
+  - Large-scale distributed exact duplicate identification
+  - Large-scale distributed fuzzy duplicate identification
 ```
 
 **Important Notes:**
-- Exact deduplication: Returns documents with `_hashes` field when `perform_removal=False`
-- Fuzzy deduplication: Returns documents with `group` field when `perform_removal=False`  
-- Always check if the result is `None` (no duplicates found) before calling `.remove()`
+- **Both workflows**: Currently support identification only. Removal functionality is planned for future releases
+- **Output locations**: Both workflows write results to specified output directory, not as return values
+- **Ray requirement**: Both workflows require Ray distributed computing framework with GPU support
+- **ID assignment**: ExactDeduplicationWorkflow can automatically assign IDs or use existing ones
 
 ---
 
@@ -92,47 +95,113 @@ Both `ExactDuplicates` and `FuzzyDuplicates` support two operational modes contr
 :sync: pyth-sync
 
 ```python
-from nemo_curator import ExactDuplicates, AddId
-from nemo_curator.datasets import DocumentDataset
+import ray
+# Note: Import directly from workflow module (not available in __init__.py)
+from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
 
-# Add unique IDs if needed
-add_id = AddId(id_field="my_id", id_prefix="doc_prefix")
-dataset = DocumentDataset.read_json("input_file_path")
-id_dataset = add_id(dataset)
+# Initialize Ray cluster (required for exact deduplication)
+ray.init(num_gpus=4)
 
-# Set up duplicate removal
-exact_duplicates = ExactDuplicates(
-  id_field="my_id",
-  text_field="text",
-  hash_method="md5",  # Currently only "md5" is supported
-  perform_removal=True,  # If True, returns deduplicated dataset; if False, returns duplicate IDs
-  cache_dir="/path/to/dedup_outputs",
+# Basic exact deduplication workflow
+exact_workflow = ExactDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    output_path="/path/to/output",
+    text_field="text",
+    perform_removal=False,  # Currently only identification supported
+    assign_id=True,         # Automatically assign unique IDs
+    input_filetype="parquet",  # "parquet" or "jsonl"
+    input_blocksize="2GiB"     # Block size for reading
 )
 
-# Process the dataset
-dataset = DocumentDataset.read_parquet(
-    input_files="/path/to/parquet/data",
-    backend="cudf",  # or "pandas" for CPU
-)
-deduplicated_dataset = exact_duplicates(dataset)
+# Run the workflow
+exact_workflow.run()
 
-# Alternative workflow when perform_removal=False:
-# exact_duplicates = ExactDuplicates(
-#     id_field="my_id",
-#     text_field="text", 
-#     hash_method="md5",
-#     perform_removal=False,  # Returns duplicate IDs only
-#     cache_dir="/path/to/dedup_outputs",
-# )
-# duplicates = exact_duplicates(dataset)  # Get duplicate IDs
-# if duplicates is not None:
-#     deduplicated_dataset = exact_duplicates.remove(dataset, duplicates)  # Remove duplicates
-# else:
-#     print("No duplicates found")
-#     deduplicated_dataset = dataset
+# Advanced configuration with existing IDs and storage options
+exact_workflow_advanced = ExactDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    output_path="/path/to/output",
+    # Input configuration
+    input_filetype="jsonl",
+    input_blocksize="1GiB",
+    input_file_extensions=[".jsonl"],
+    # Storage options for remote filesystems
+    read_kwargs={
+        "storage_options": {
+            "key": "your_access_key",
+            "secret": "your_secret_key"
+        }
+    },
+    write_kwargs={
+        "storage_options": {
+            "key": "your_access_key",
+            "secret": "your_secret_key"
+        }
+    },
+    # Processing configuration
+    text_field="content",
+    assign_id=False,        # Use existing ID field
+    id_field="document_id", # Existing ID field name
+    perform_removal=False,
+    # Ray environment variables
+    env_vars={
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3"
+    }
+)
+
+# Run with custom initial tasks (for integration with other pipelines)
+from nemo_curator.tasks import FileGroupTask
+
+initial_tasks = [
+    FileGroupTask(
+        task_id="batch_0",
+        dataset_name="my_dataset",
+        data=["/path/to/file1.parquet", "/path/to/file2.parquet"],
+        _metadata={"source_files": ["/path/to/file1.parquet", "/path/to/file2.parquet"]}
+    )
+]
+exact_workflow.run(initial_tasks=initial_tasks)
+
+# Cleanup Ray when done
+ray.shutdown()
 ```
 
-For a complete example, see [examples/exact_deduplication.py](https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/exact_deduplication.py).
+**Performance Recommendations:**
+- Uses MD5 hashing for exact duplicate detection
+- Requires Ray cluster with GPU support
+- Automatically partitions output to 1/3 the number of input tasks for efficiency
+- Clear output directory between runs to avoid conflicts
+
+**Output Structure:**
+- **Output directory**: Contains duplicate IDs to remove and ID generator mapping
+  - `ExactDuplicateIds/`: Parquet files with document IDs to remove
+  - `exact_id_generator.json`: ID generator mapping (when `assign_id=True`)
+
+**Workflow Stages:**
+1. **File Partitioning**: Groups input files for parallel processing (if needed)
+2. **Exact Duplicate Identification**: Computes MD5 hashes and identifies duplicates
+
+**Ray Cluster Setup:**
+
+The ExactDeduplicationWorkflow requires a Ray cluster with GPU support. Set up Ray before running:
+
+```python
+import ray
+
+# Initialize Ray cluster (local with GPUs)
+ray.init(num_gpus=4)
+
+# Or connect to existing Ray cluster
+# ray.init(address="ray://head-node-ip:10001")
+
+# Run exact deduplication workflow
+exact_workflow = ExactDeduplicationWorkflow(...)
+exact_workflow.run()
+
+# Shutdown Ray when done
+ray.shutdown()
+```
+
+For distributed clusters, refer to the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html) for cluster setup.
 :::
 
 :::{tab-item} CLI
@@ -155,6 +224,8 @@ gpu_exact_dups \
 ```
 
 The CLI utilities only work with JSONL datasets and GPU-based backends. For other formats, use the Python API.
+
+**Note**: CLI commands require proper installation of NeMo Curator with console script entry points. If CLI commands are not available, ensure you have installed the package correctly or use the Python API instead.
 :::
 
 ::::
@@ -167,53 +238,133 @@ The CLI utilities only work with JSONL datasets and GPU-based backends. For othe
 :sync: pyth-sync
 
 ```python
-from nemo_curator import FuzzyDuplicates, FuzzyDuplicatesConfig
-from nemo_curator.datasets import DocumentDataset
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
 
-# Configure the duplicate removal
-config = FuzzyDuplicatesConfig(
-    cache_dir="/path/to/dedup_outputs",
-    id_field="my_id",
+# Basic fuzzy deduplication workflow
+fuzzy_workflow = FuzzyDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    cache_path="/path/to/cache",
+    output_path="/path/to/output",
     text_field="text",
-    perform_removal=True,  # If True, returns deduplicated dataset; if False, returns duplicate IDs
+    perform_removal=False,  # Currently only duplicate identification is supported
+    # MinHash parameters
     seed=42,
-    char_ngrams=24,
-    num_buckets=20,
-    hashes_per_bucket=13,
-    use_64_bit_hash=False,  # Set to True for 64-bit hashes
-    false_positive_check=False,  # Set to True for higher accuracy but slower processing
+    char_ngrams=24,  # Character n-gram size for MinHash
+    # LSH parameters  
+    num_bands=20,           # Number of LSH bands
+    minhashes_per_band=13,  # Hashes per band (affects similarity threshold)
+    use_64_bit_hash=False,  # Use 32-bit or 64-bit hashes
+    # Performance tuning
+    bands_per_iteration=5,  # Bands processed concurrently
 )
 
-# Initialize and run
-fuzzy_duplicates = FuzzyDuplicates(
-    config=config,
-    logger="./",  # Optional: path to log directory or existing logger
-)
-dataset = DocumentDataset.read_json(
-    input_files="/path/to/jsonl/data",
-    backend="cudf",  # Fuzzy deduplication requires cuDF backend
-)
-deduplicated_dataset = fuzzy_duplicates(dataset)
+# Run the workflow (requires Ray cluster)
+fuzzy_workflow.run()
 
-# Alternative workflow when perform_removal=False:
-# config.perform_removal = False
-# fuzzy_duplicates = FuzzyDuplicates(config=config)
-# duplicates = fuzzy_duplicates.identify_duplicates(dataset)  # Get duplicate groups
-# if duplicates is not None:
-#     deduplicated_dataset = fuzzy_duplicates.remove(dataset, duplicates)  # Remove duplicates
-# else:
-#     print("No duplicates found")
-#     deduplicated_dataset = dataset
+# Advanced configuration with file format options
+fuzzy_workflow_advanced = FuzzyDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    cache_path="/path/to/cache", 
+    output_path="/path/to/output",
+    # Input configuration
+    input_filetype="parquet",  # "parquet" or "jsonl"
+    input_blocksize="1GiB",    # Block size for reading
+    input_file_extensions=[".parquet"],  # Optional: override default extensions
+    # Storage options for remote filesystems
+    read_kwargs={
+        "storage_options": {
+            "key": "your_access_key",
+            "secret": "your_secret_key"
+        }
+    },
+    cache_kwargs={
+        "storage_options": {
+            "key": "your_access_key", 
+            "secret": "your_secret_key"
+        }
+    },
+    write_kwargs={
+        "storage_options": {
+            "key": "your_access_key",
+            "secret": "your_secret_key"
+        }
+    },
+    # Processing configuration
+    text_field="content",
+    perform_removal=False,
+    # MinHash + LSH tuning
+    seed=123,
+    char_ngrams=20,         # Smaller values may increase false positives
+    num_bands=25,           # More bands = higher precision, lower recall
+    minhashes_per_band=10,  # Fewer hashes per band = lower precision, higher recall
+    use_64_bit_hash=True,   # Better for very large datasets
+    bands_per_iteration=3,  # Reduce for memory-constrained environments
+    # Ray environment variables
+    env_vars={
+        "CUDA_VISIBLE_DEVICES": "0,1,2,3"
+    }
+)
+
+# Run with custom initial tasks (for integration with other pipelines)
+from nemo_curator.tasks import FileGroupTask
+
+initial_tasks = [
+    FileGroupTask(
+        task_id="batch_0",
+        dataset_name="my_dataset", 
+        data=["/path/to/file1.parquet", "/path/to/file2.parquet"],
+        _metadata={"source_files": ["/path/to/file1.parquet", "/path/to/file2.parquet"]}
+    )
+]
+fuzzy_workflow.run(initial_tasks=initial_tasks)
 ```
 
-For best performance:
-- Set `false_positive_check=False` for faster processing (may have ~5% false positives)
-- The default parameters target approximately 0.8 Jaccard similarity
-- Use `buckets_per_shuffle=1` for memory-constrained environments
-- Clear the cache directory between runs to avoid conflicts
-- Use GPU backend (`backend="cudf"`) for optimal performance
+**Performance Recommendations:**
 
-For a complete example, see [examples/fuzzy_deduplication.py](https://github.com/NVIDIA/NeMo-Curator/blob/main/examples/fuzzy_deduplication.py).
+- Use `char_ngrams >= 20` to minimize false positives (~5% with smaller values)
+- Default parameters target approximately 0.8 Jaccard similarity
+- Adjust `bands_per_iteration` based on available GPU memory
+- Clear cache directory between runs to avoid conflicts
+- Requires Ray cluster with GPU support
+
+**Output Structure:**
+
+- **Cache directory**: Contains intermediate files (MinHash signatures, LSH buckets, edges, connected components)
+- **Output directory**: Contains duplicate IDs to remove and ID generator mapping
+  - `FuzzyDuplicateIds/`: Parquet files with document IDs to remove
+  - `fuzzy_id_generator.json`: ID generator mapping for future removal operations
+
+**Workflow Stages:**
+
+1. **File Partitioning**: Groups input files for parallel processing
+2. **MinHash**: Computes MinHash signatures for each document
+3. **LSH**: Performs Locality Sensitive Hashing to find candidate pairs
+4. **Buckets to Edges**: Converts LSH buckets to graph edges
+5. **Connected Components**: Finds connected components in the similarity graph
+6. **Identify Duplicates**: Selects documents to remove from each duplicate group
+
+**Ray Cluster Setup:**
+
+The FuzzyDeduplicationWorkflow requires a Ray cluster with GPU support. Set up Ray before running:
+
+```python
+import ray
+
+# Initialize Ray cluster (local with GPUs)
+ray.init(num_gpus=4)
+
+# Or connect to existing Ray cluster
+# ray.init(address="ray://head-node-ip:10001")
+
+# Run fuzzy deduplication workflow
+fuzzy_workflow = FuzzyDeduplicationWorkflow(...)
+fuzzy_workflow.run()
+
+# Shutdown Ray when done
+ray.shutdown()
+```
+
+For distributed clusters, refer to the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html) for cluster setup.
 :::
 
 :::{tab-item} CLI
@@ -283,15 +434,15 @@ Then proceed with the remaining steps as usual on the combined MinHash directori
 
 ### GPU Acceleration Overview
 
-- **Exact Deduplication**: 
-  - **Backend Support**: Both CPU (`pandas`) and GPU (`cudf`) 
-  - **GPU Benefits**: Significant speedup for large datasets through optimized hashing
-  - **Recommendation**: Use GPU for datasets with >1M documents
+- **Exact Deduplication**:
+  - **Backend Support**: Ray cluster with GPU support required
+- **GPU Benefits**: Essential for MD5 hashing operations at scale
+  - **Memory**: Distributed across Ray cluster nodes for large datasets
 
 - **Fuzzy Deduplication**:
-  - **Backend Support**: GPU only (`cudf` required)
-  - **GPU Benefits**: Essential for MinHash and LSH operations
-  - **Memory**: Requires sufficient GPU memory for dataset processing
+  - **Backend Support**: Ray cluster with GPU support required
+  - **GPU Benefits**: Essential for MinHash and LSH operations at scale
+  - **Memory**: Distributed across Ray cluster nodes for large datasets
 
 ### Performance Characteristics
 
@@ -303,52 +454,83 @@ Then proceed with the remaining steps as usual on the combined MinHash directori
   - Small Datasets (<100K docs)
   - Medium Datasets (100K-1M docs)
   - Large Datasets (>1M docs)
-* - Exact (CPU)
-  - Fast
-  - Moderate
-  - Slow
-* - Exact (GPU)
+* - Exact (Ray + GPU)
   - Fast
   - Fast
+  - Very Fast
+* - Fuzzy (Ray + GPU)
   - Fast
-* - Fuzzy (GPU)
   - Fast
-  - Fast
-  - Fast
+  - Very Fast
 ```
 
 ### Hardware Recommendations
 
-- **CPU-only environments**: Use exact deduplication with `backend="pandas"`
-- **GPU environments**: Use both exact and fuzzy deduplication with `backend="cudf"`
-- **Memory considerations**: GPU memory should be >2x the dataset size in memory
-- **Distributed processing**: Use Dask for datasets that exceed single GPU memory
+- **CPU-only environments**: No deduplication workflows available (all require Ray + GPU)
+- **Ray + GPU environments**: Both exact and fuzzy deduplication workflows require distributed Ray cluster with GPU support
+- **Memory considerations**: GPU memory distributed across Ray cluster nodes for large datasets
+- **Distributed processing**: Ray clusters required for all deduplication workflows
 
 ### Error Handling and Validation
 
-When working with deduplication modules, consider these common scenarios:
+When working with deduplication workflows, consider these common scenarios:
 
 ```python
-# Check for empty results
-duplicates = exact_duplicates.identify_duplicates(dataset)
-if duplicates is None or len(duplicates) == 0:
-    print("No duplicates found")
-    return dataset
-
-# Validate backend compatibility
-try:
-    # Fuzzy deduplication requires cuDF backend
-    fuzzy_duplicates = FuzzyDuplicates(config=config)
-    result = fuzzy_duplicates(dataset)
-except ValueError as e:
-    print(f"Backend error: {e}")
-    # Convert to cuDF backend if needed
-    dataset = dataset.to_backend("cudf")
-    result = fuzzy_duplicates(dataset)
-
-# Handle cache directory issues
+import ray
 import os
-if os.path.exists(config.cache_dir):
-    print(f"Warning: Cache directory {config.cache_dir} exists and will be reused")
-    # Clear if needed: shutil.rmtree(config.cache_dir)
-``` 
+from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+
+# Ensure Ray is initialized before deduplication
+if not ray.is_initialized():
+    ray.init(num_gpus=4)
+
+# Handle output directory issues
+output_path = "/path/to/output"
+if os.path.exists(output_path):
+    print(f"Warning: Output directory {output_path} exists and will be reused")
+    # Clear if needed: shutil.rmtree(output_path)
+
+# Handle ID generator conflicts for exact deduplication
+try:
+    exact_workflow = ExactDeduplicationWorkflow(
+        input_path="/path/to/data",
+        output_path=output_path,
+        assign_id=True  # This requires ID generator
+    )
+    exact_workflow.run()
+except RuntimeError as e:
+    if "existing id generator actor" in str(e):
+        print("ID generator actor already exists. Clean up previous run.")
+        # Follow error message instructions to clean up
+    else:
+        raise
+
+# Handle fuzzy deduplication with cache directory
+try:
+    cache_path = "/path/to/cache"
+    fuzzy_workflow = FuzzyDeduplicationWorkflow(
+        input_path="/path/to/data",
+        cache_path=cache_path,
+        output_path=output_path
+    )
+    fuzzy_workflow.run()
+except RuntimeError as e:
+    if "existing id generator actor" in str(e):
+        print("ID generator actor already exists. Clean up previous run.")
+    else:
+        raise
+
+# Check for no duplicates found
+exact_output_path = f"{output_path}/ExactDuplicateIds"
+fuzzy_output_path = f"{output_path}/FuzzyDuplicateIds"
+
+if os.path.exists(exact_output_path) and len(os.listdir(exact_output_path)) == 0:
+    print("No exact duplicates found in the dataset")
+
+if os.path.exists(fuzzy_output_path) and len(os.listdir(fuzzy_output_path)) == 0:
+    print("No fuzzy duplicates found in the dataset")
+
+# Cleanup Ray when done
+ray.shutdown()
+```

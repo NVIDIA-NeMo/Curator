@@ -151,16 +151,6 @@ Explore the foundational infrastructure that powers NeMo Curator. Learn how to s
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Distributed Computing
-:link: reference-infra-dist-computing
-:link-type: ref
-Configure and manage distributed processing across multiple machines
-+++
-{bdg-secondary}`dask`
-{bdg-secondary}`clusters`
-{bdg-secondary}`scaling`
-:::
-
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management
 :link: reference-infra-memory-management
 :link-type: ref

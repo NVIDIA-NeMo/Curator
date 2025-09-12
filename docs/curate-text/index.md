@@ -16,7 +16,6 @@ NeMo Curator provides comprehensive text curation capabilities to prepare high-q
 ## Use Cases
 
 - Clean and prepare web-scraped data from sources like Common Crawl, Wikipedia, and arXiv
-- Generate high-quality synthetic data using NVIDIA's advanced LLMs
 - Create custom text curation pipelines for specific domain needs
 - Scale text processing across CPU and GPU clusters efficiently
 
@@ -169,44 +168,6 @@ Domain-specific processing for code, bitext, and synthetic data
 
 ::::
 
-### Generate Data
-
-Create high-quality synthetic text data using advanced language models and customizable pipelines.
-
-::::{grid} 1 1 1 2
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`link-external;1.5em;sd-mr-1` Connect to LLM Service
-:link: text-generate-data-connect-service
-:link-type: ref
-Learn how to connect to OpenAI-compatible APIs and self-hosted models
-+++
-{bdg-secondary}`openai`
-{bdg-secondary}`api-integration`
-{bdg-secondary}`self-hosted`
-:::
-
-:::{grid-item-card} {octicon}`sparkle-fill;1.5em;sd-mr-1` Pipelines
-:link: text-generate-data-pipelines
-:link-type: ref
-Generate synthetic prompts, dialogues, and entity classifications using the Nemotron-4 340B approach
-+++
-{bdg-secondary}`prompts`
-{bdg-secondary}`dialogues`
-{bdg-secondary}`classification`
-:::
-
-:::{grid-item-card} {octicon}`git-merge;1.5em;sd-mr-1` Integration
-:link: text-generate-data-integration
-:link-type: ref
-Combine synthetic data generation with other NeMo Curator modules for filtering and processing
-+++
-{bdg-secondary}`filtering`
-{bdg-secondary}`processing`
-{bdg-secondary}`pipelines`
-:::
-
-::::
 
 <!-- ## Tutorials
 

@@ -17,55 +17,59 @@ This page covers the core concepts for processing image data in NeMo Curator.
 
 Image embeddings are vector representations of images, used for downstream tasks like classification, filtering, and deduplication.
 
-- **TimmImageEmbedder:** Uses models from the [timm](https://github.com/huggingface/pytorch-image-models) library (e.g., CLIP, ViT, ResNet) for embedding generation. Supports GPU acceleration, batching, and normalization.
-- **Custom Embedders:** You can subclass `ImageEmbedder` to use your own model or data loading logic.
-- **Normalization:** Embeddings are typically normalized for compatibility with classifiers and similarity search.
-- **Distributed Execution:** Embedding generation can be distributed across multiple GPUs or nodes for scalability.
+- **ImageEmbeddingStage:** Uses CLIP ViT-L/14 model for high-quality embedding generation. Supports GPU acceleration, batching, and automatic CPU fallback.
+- **Custom Embedding Stages:** You can subclass `ProcessingStage` to use your own model or preprocessing logic.
+- **CLIP Integration:** Built-in CLIP model provides robust embeddings for aesthetic and NSFW classification.
+- **Pipeline Integration:** Embedding generation integrates seamlessly into NeMo Curator's pipeline architecture.
 
 **Example:**
 ```python
-from nemo_curator.image.embedders import TimmImageEmbedder
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
 
-embedding_model = TimmImageEmbedder(
-    "vit_large_patch14_clip_quickgelu_224.openai",
-    pretrained=True,
-    batch_size=1024,
-    num_threads_per_worker=16,
-    normalize_embeddings=True,
-)
-dataset_with_embeddings = embedding_model(dataset)
+# Add to pipeline
+pipeline.add_stage(ImageEmbeddingStage(
+    model_dir="/path/to/models",
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    remove_image_data=False,
+))
 ```
 
 ## Classification
 
-Classifiers score or filter images based on their embeddings.
-- **Aesthetic Classifier:** Predicts a score (0–10) for subjective image quality.
-- **NSFW Classifier:** Predicts a probability (0–1) that an image contains explicit content.
-- **Usage:** Classifiers are lightweight and can be run on the GPU immediately after embedding generation.
+Classification stages score and filter images based on their embeddings.
+
+- **ImageAestheticFilterStage:** Predicts aesthetic scores (0–1) and filters images below a threshold.
+- **ImageNSFWFilterStage:** Predicts NSFW probability (0–1) and filters images above a threshold.
+- **Pipeline Integration:** Classification stages run efficiently after embedding generation in the same pipeline.
 
 **Example:**
 ```python
-from nemo_curator.image.classifiers import AestheticClassifier, NsfwClassifier
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 
-aesthetic_classifier = AestheticClassifier()
-nsfw_classifier = NsfwClassifier()
+# Add to pipeline
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir="/path/to/models",
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+))
 
-dataset_with_aesthetic = aesthetic_classifier(dataset_with_embeddings)
-dataset_with_nsfw = nsfw_classifier(dataset_with_embeddings)
+pipeline.add_stage(ImageNSFWFilterStage(
+    model_dir="/path/to/models", 
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+))
 ```
 
 ## Filtering
 
-After classification, you can filter images based on classifier scores or metadata fields.
-- Remove images with low aesthetic scores
-- Remove or flag images with high NSFW scores
-- Filter by metadata (e.g., resolution, aspect ratio)
+Filtering is built into the classification stages, which automatically remove images that don't meet the configured thresholds.
+- **Aesthetic Filtering:** Images below `score_threshold` are automatically filtered out
+- **NSFW Filtering:** Images above `score_threshold` are automatically filtered out  
+- **Pipeline Flow:** Filtering happens seamlessly as part of the stage processing
 
-**Example:**
-```python
-import dask_cudf
-filtered = dataset.metadata[(dataset.metadata['aesthetic_score'] > 0.5) & (dataset.metadata['nsfw_score'] < 0.2)]
-```
+The filtering is handled automatically by the stages - images that don't meet criteria are removed from the `ImageBatch` before passing to the next stage.
 
 ## Deduplication
 
@@ -76,12 +80,12 @@ Semantic deduplication removes near-duplicate images using embedding similarity 
 
 ## Pipeline Flow
 
-A typical image curation pipeline:
-1. **Load** the dataset (`ImageTextPairDataset.from_webdataset`)
-2. **Generate embeddings** (`TimmImageEmbedder` or custom)
-3. **Classify** images (Aesthetic, NSFW)
-4. **Filter** images by score or metadata
-5. **Deduplicate** (optional)
-6. **Export** the curated dataset
+A typical image curation pipeline using NeMo Curator's stage-based architecture:
+1. **Partition** tar files (`FilePartitioningStage`)
+2. **Load** images from WebDataset (`ImageReaderStage`)
+3. **Generate embeddings** (`ImageEmbeddingStage`)
+4. **Filter by aesthetics** (`ImageAestheticFilterStage`)
+5. **Filter NSFW content** (`ImageNSFWFilterStage`)
+6. **Export** results (`ImageWriterStage`)
 
-This modular approach allows you to customize each step for your workflow. 
+This modular pipeline approach allows you to customize, reorder, or skip stages based on your workflow needs. 
