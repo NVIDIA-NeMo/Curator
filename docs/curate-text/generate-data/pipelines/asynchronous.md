@@ -33,7 +33,7 @@ openai_client = AsyncOpenAI(
 Wrap the OpenAI client with NeMo Curator's async client:
 
 ```python
-from nemo_curator import AsyncOpenAIClient
+# Note: AsyncOpenAI client functionality may not be available in current version
 
 client = AsyncOpenAIClient(openai_client)
 ```

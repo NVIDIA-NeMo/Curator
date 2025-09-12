@@ -60,6 +60,17 @@ Available environments and configurations in NeMo Curator containers. Includes S
 {bdg-secondary}`environments`
 :::
 
+:::{grid-item-card} {octicon}`graph;1.5em;sd-mr-1` Monitoring Infrastructure
+:link: reference-infra-monitoring
+:link-type: ref
+Technical reference for monitoring and observability infrastructure including Prometheus, Grafana, and metrics collection.
++++
+{bdg-secondary}`prometheus`
+{bdg-secondary}`grafana`
+{bdg-secondary}`metrics`
+{bdg-secondary}`observability`
+:::
+
 ::::
 
 ```{toctree}
@@ -70,5 +81,6 @@ memory-management
 gpu-processing
 resumable-processing
 container-environments
+monitoring
 execution-backends
 ```

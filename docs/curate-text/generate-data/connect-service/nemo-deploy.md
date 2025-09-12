@@ -40,7 +40,7 @@ After deploying a model following the [NeMo Deploy Guide](https://docs.nvidia.co
 
 ```python
 from nemo.deploy.nlp import NemoQueryLLM
-from nemo_curator import NemoDeployClient
+# Note: NemoDeployClient functionality may not be available in current version
 from nemo_curator.synthetic import Mixtral8x7BFormatter
 
 model = "mistralai/mixtral-8x7b-instruct-v0.1"

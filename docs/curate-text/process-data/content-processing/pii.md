@@ -70,8 +70,7 @@ Here's how to read, de-identify, and write a dataset:
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import read_data, write_to_disk, get_client
 from nemo_curator.utils.file_utils import get_batched_files
-from nemo_curator.modules.modify import Modify
-from nemo_curator.modifiers.pii_modifier import PiiModifier
+from nemo_curator.stages.text.modules import Modify
 
 # Create a PII modifier
 modifier = PiiModifier(

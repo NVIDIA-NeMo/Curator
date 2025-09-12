@@ -248,6 +248,7 @@ admin/index.md
 Install Curator <admin/installation.md>
 Configure Curator <admin/config/index.md>
 Deploy Curator <admin/deployment/index.md>
+Monitor <admin/monitoring>
 Integrations <admin/integrations/index.md>
 ::::
 

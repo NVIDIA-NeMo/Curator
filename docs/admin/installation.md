@@ -205,7 +205,6 @@ Test that command-line tools are properly installed:
 ```bash
 # Check if CLI tools are available
 text_cleaning --help
-add_id --help
 gpu_exact_dups --help
 
 # Test specific functionality
