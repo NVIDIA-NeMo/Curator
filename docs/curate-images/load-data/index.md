@@ -15,19 +15,21 @@ Load image data for curation using NeMo Curator. The primary supported format is
 
 ## How it Works
 
-NeMo Curator's image data loading is optimized for large-scale, distributed curation workflows:
+NeMo Curator's image data loading uses a pipeline-based approach optimized for large-scale, distributed curation workflows:
 
-1. **Sharded WebDataset Format**: Image, caption, and metadata files are grouped into sharded `.tar` archives, with corresponding `.parquet` files for fast metadata access.
+1. **File Partitioning**: `FilePartitioningStage` distributes WebDataset `.tar` files across workers for parallel processing.
 
-2. **Unified Metadata**: Each record is uniquely identified and linked across image, caption, and metadata files, enabling efficient distributed processing.
+2. **High-Performance Reading**: `ImageReaderStage` uses NVIDIA DALI to accelerate image loading, decoding, and batching on GPU with CPU fallback.
 
-3. **High-Performance Loading**: Optional `.idx` index files enable NVIDIA DALI to accelerate data loading, shuffling, and batching on GPU.
+3. **WebDataset Format**: Processes sharded `.tar` archives containing image, caption, and metadata files with unified record identification.
 
-4. **Cloud and Local Storage**: Datasets can be loaded from local disk or cloud storage (S3, GCS, Azure) using the same API.
+4. **Automatic Index Usage**: Optional `.idx` index files are automatically detected and used for optimized data access.
 
-5. **Standardized Loader**: The `ImageTextPairDataset.from_webdataset` method loads the entire dataset structure in one step—no need for separate downloaders, iterators, or extractors.
+5. **Cloud and Local Storage**: Supports loading from local disk or cloud storage (S3, GCS, Azure) using the same pipeline stages.
 
-The result is a standardized `ImageTextPairDataset` ready for embedding, classification, and filtering in downstream curation pipelines.
+6. **Batch Processing**: Images are processed in `ImageBatch` objects containing decoded images, metadata, and processing results.
+
+The result is a stream of `ImageBatch` objects ready for embedding, classification, and filtering in downstream pipeline stages.
 
 ---
 
@@ -36,14 +38,14 @@ The result is a standardized `ImageTextPairDataset` ready for embedding, classif
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`package;1.5em;sd-mr-1` WebDataset
+:::{grid-item-card} {octicon}`package;1.5em;sd-mr-1` WebDataset Pipeline
 :link: image-load-data-webdataset
 :link-type: ref
-Load and process sharded image-text datasets in the WebDataset format for scalable distributed curation.
+Load and process sharded image-text datasets using `FilePartitioningStage` and `ImageReaderStage` for scalable distributed curation.
 +++
-{bdg-secondary}`webdataset`
-{bdg-secondary}`sharded`
-{bdg-secondary}`distributed`
+{bdg-secondary}`FilePartitioningStage`
+{bdg-secondary}`ImageReaderStage`
+{bdg-secondary}`DALI-accelerated`
 :::
 
 ::::

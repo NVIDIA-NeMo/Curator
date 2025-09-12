@@ -8,7 +8,7 @@ content_type: "how-to"
 modality: "audio-only"
 ---
 
-(audio-load-data-fleurs)=
+(audio-load-data-fleurs-dataset)=
 
 # Load FLEURS Dataset
 

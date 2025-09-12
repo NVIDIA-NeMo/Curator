@@ -8,6 +8,8 @@ content_type: "tutorial"
 modality: "audio-only"
 ---
 
+(audio-tutorials-beginner)=
+
 # Beginner Audio Processing Tutorial
 
 Learn the basics of audio processing with NeMo Curator using the FLEURS multilingual speech dataset. This tutorial walks you through a complete audio processing pipeline from data loading to quality assessment and filtering.

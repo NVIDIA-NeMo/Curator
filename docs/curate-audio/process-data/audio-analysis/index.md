@@ -8,6 +8,7 @@ content_type: "workflow"
 modality: "audio-only"
 ---
 
+(audio-process-data-audio-analysis)=
 # Audio Analysis
 
 Extract and analyze audio file characteristics for quality control, metadata generation, and dataset validation. Audio analysis provides essential information about audio files before and during processing.

@@ -35,7 +35,7 @@ Audio-text integration in NeMo Curator operates on several levels:
 
 **Sequential Processing**: Audio to Text to Multi-Modal
 
-```mermaid
+```{mermaid}
 flowchart LR
     A[Audio Files] --> B[InferenceAsrNemoStage] 
     B --> C[AudioToDocumentStage]
@@ -49,7 +49,7 @@ flowchart LR
 
 **Parallel Processing**: Simultaneous audio and text analysis
 
-```mermaid
+```{mermaid}
 flowchart LR
     A[Audio Files] --> B[InferenceAsrNemoStage]
     C[Text Data] --> D[ScoreFilter<br/>Text Processing]

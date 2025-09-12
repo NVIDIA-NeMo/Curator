@@ -148,7 +148,7 @@ pipeline.add_stage(
         text_key="text",
         pred_text_key="pred_text", 
         wer_key="wer"
-    )
+    ).with_(batch_size=4)
 )
 
 # 4. Calculate audio duration
@@ -156,7 +156,7 @@ pipeline.add_stage(
     GetAudioDurationStage(
         audio_filepath_key="audio_filepath",
         duration_key="duration"
-    )
+    ).with_(batch_size=4)
 )
 
 # 5. Filter by WER threshold (keep samples with WER <= 75%)
@@ -165,7 +165,7 @@ pipeline.add_stage(
         input_value_key="wer",
         target_value=75.0,
         operator="le"  # less than or equal
-    )
+    ).with_(batch_size=4)
 )
 
 # Execute the pipeline
@@ -178,8 +178,12 @@ pipeline.run(executor)
 You can also run the pipeline using the downloaded configuration:
 
 ```bash
+# Download the tutorial script
+wget -O ~/nemo_curator/run_fleurs.py https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/tutorials/audio/fleurs/run.py
+
+# Run with configuration
 cd ~/nemo_curator
-python -m nemo_curator.examples.audio.fleurs.run \
+python run_fleurs.py \
     --config-path ~/nemo_curator/configs \
     --config-name fleurs_pipeline.yaml \
     raw_data_dir=~/nemo_curator/audio_data
@@ -219,5 +223,4 @@ Key areas to explore next:
 
 * **[Custom Audio Manifests](../curate-audio/load-data/custom-manifests.md)** - Load your own audio datasets
 * **[Quality Assessment](../curate-audio/process-data/quality-assessment/index.md)** - Advanced filtering and quality metrics
-* **[Text Integration](../curate-audio/process-data/text-integration/index.md)** - Combine with text processing workflows  
-* **[Advanced Quality Tutorial](../curate-audio/tutorials/advanced-quality.md)** - Customize models and filters for your use case
+* **[Text Integration](../curate-audio/process-data/text-integration/index.md)** - Combine with text processing workflows

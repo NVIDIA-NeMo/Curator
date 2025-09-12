@@ -8,6 +8,7 @@ content_type: "how-to"
 modality: "audio-text"
 ---
 
+(audio-process-data-text-integration)=
 # Text Integration for Audio Data
 
 Convert processed audio data from `AudioBatch` to `DocumentBatch` format using the built-in `AudioToDocumentStage`. This enables you to export audio processing results or integrate with custom text processing workflows.

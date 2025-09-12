@@ -8,7 +8,7 @@ content_type: "how-to"
 modality: "audio-only"
 ---
 
-(audio-load-data-local)=
+(audio-load-data-local-files)=
 
 # Load Local Audio Files
 

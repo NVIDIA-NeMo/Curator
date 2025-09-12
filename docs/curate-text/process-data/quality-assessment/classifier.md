@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (text-process-data-filter-classifier)=
+
 # Classifier-Based Filtering
 
 Classifier-based filtering uses machine learning models to differentiate between high-quality and low-quality documents. NVIDIA NeMo Curator implements an approach similar to the one described in [Brown et al., 2020](https://arxiv.org/abs/2005.14165), which trains a binary skip-gram classifier to distinguish between curated high-quality data and lower-quality data.
@@ -26,11 +27,11 @@ NeMo Curator supports a variety of classifier models for different filtering and
   - HuggingFace Model/Link
 * - FastTextQualityFilter
   - fastText (binary classifier)
-  - Quality filtering, high/low quality document classification
+  - Quality filtering, high/low quality document classification (available as filter, not distributed classifier)
   - https://fasttext.cc/
 * - FastTextLangId
   - fastText (language identification)
-  - Language identification
+  - Language identification (available as filter, not distributed classifier)
   - https://fasttext.cc/docs/en/language-identification.html
 * - QualityClassifier
   - DeBERTa (transformers, HF)
@@ -136,22 +137,25 @@ The training script will output validation metrics including accuracy, precision
 
 ### 3. Apply the Classifier for Filtering
 
-Finally, use the trained model to filter your dataset:
+Finally, use the trained model to filter your dataset. Note that FastText classifiers work as filters in pipelines, not as distributed classifiers:
 
 ::::{tab-set}
 
 :::{tab-item} Python
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import FastTextQualityFilter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import FastTextQualityFilter
 
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+# Create pipeline with FastText filter
+pipeline = Pipeline(name="fasttext_quality_pipeline")
 
-# Create a quality filter using the trained model
-filter_step = nc.ScoreFilter(
+# Add stages
+read_stage = JsonlReader("input_data/")
+filter_stage = ScoreFilter(
     FastTextQualityFilter(
         model_path="./quality_classifier.bin",
         label="__label__hq",  # High quality label
@@ -161,12 +165,22 @@ filter_step = nc.ScoreFilter(
     text_field="text",
     score_field="quality_score"
 )
+write_stage = JsonlWriter("high_quality_output/")
 
-# Apply the filter
-high_quality_data = filter_step(dataset)
+pipeline.add_stage(read_stage)
+pipeline.add_stage(filter_stage)
+pipeline.add_stage(write_stage)
 
-# Save the results
-high_quality_data.to_json("high_quality_output/", write_to_filename=True)
+# Run the pipeline (uses XennaExecutor by default)
+results = pipeline.run()
+
+# Or explicitly specify an executor:
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+
+executor = XennaExecutor()  # Default, recommended for most workloads
+# executor = RayDataExecutor()  # Experimental Ray-based option
+results = pipeline.run(executor)
 ```
 
 :::
@@ -243,4 +257,4 @@ For effective classifier-based filtering:
 2. **Validation**: Manually review a sample of filtered results to confirm effectiveness
 3. **Threshold tuning**: Adjust the threshold based on your quality requirements
 4. **Combination with heuristics**: Consider using heuristic filters as a pre-filter
-5. **Domain adaptation**: Train domain-specific classifiers for specialized corpora 
+5. **Domain adaptation**: Train domain-specific classifiers for specialized corpora

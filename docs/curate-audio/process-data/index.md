@@ -44,15 +44,6 @@ Use pretrained NeMo ASR models for accurate speech recognition
 {bdg-secondary}`gpu-accelerated`
 :::
 
-:::{grid-item-card} {octicon}`package;1.5em;sd-mr-1` Batch Processing
-:link: asr-inference/batch-processing
-:link-type: doc
-Efficiently process large audio datasets with configurable batch sizes
-+++
-{bdg-secondary}`batch-inference`
-{bdg-secondary}`memory-optimization`
-{bdg-secondary}`scalable`
-:::
 
 ::::
 

@@ -7,6 +7,8 @@ difficulty: "intermediate"
 content_type: "how-to"
 modality: "audio-only"
 ---
+
+(audio-process-data-asr-inference)=
 # ASR Inference
 
 Perform automatic speech recognition (ASR) on audio files using NeMo Framework models. The ASR inference stage transcribes audio into text, enabling downstream quality assessment and text processing workflows.
@@ -218,7 +220,6 @@ pipeline.add_stage(AudioToDocumentStage())
 ## Related Topics
 
 - **[NeMo ASR Models](nemo-models.md)** - Available models and selection guide
-- **[Batch Processing](batch-processing.md)** - Optimization strategies for large datasets
 - **[Quality Assessment](../quality-assessment/index.md)** - Assess transcription accuracy
 - **[Text Integration](../text-integration/index.md)** - Convert to text processing workflows
 
@@ -228,5 +229,4 @@ pipeline.add_stage(AudioToDocumentStage())
 :hidden:
 
 NeMo ASR Models <nemo-models.md>
-Batch Processing <batch-processing.md>
 ```

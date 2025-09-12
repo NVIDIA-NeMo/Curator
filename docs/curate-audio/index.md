@@ -181,14 +181,5 @@ Learn the basics of audio loading, ASR inference, and quality filtering
 {bdg-secondary}`basic-workflow`
 :::
 
-:::{grid-item-card} {octicon}`mortar-board;1.5em;sd-mr-1` Advanced Quality Assessment
-:link: audio-tutorials-advanced-quality
-:link-type: ref
-Build sophisticated quality metrics and custom filtering strategies
-+++
-{bdg-secondary}`custom-metrics`
-{bdg-secondary}`advanced-filtering`
-{bdg-secondary}`optimization`
-:::
 
 ::::
