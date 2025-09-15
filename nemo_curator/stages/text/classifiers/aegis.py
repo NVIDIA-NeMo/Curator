@@ -85,7 +85,6 @@ class AegisModel(nn.Module):
         local_files_only: bool = True,
         hf_token: str | bool | None = None,
         add_instruction_data_guard: bool = False,
-        autocast: bool = False,
     ):
         super().__init__()
 
@@ -107,7 +106,6 @@ class AegisModel(nn.Module):
             cache_dir=cache_dir,
             local_files_only=local_files_only,
         )
-        self.autocast = autocast
         self.add_instruction_data_guard = add_instruction_data_guard
         if self.add_instruction_data_guard:
             self.instruction_data_guard_net = InstructionDataGuardNet(4096)
@@ -117,7 +115,7 @@ class AegisModel(nn.Module):
         return next(self.parameters()).device
 
     @torch.no_grad()
-    def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         batch = {k: v.to(TORCH_DTYPE) if v.dtype.is_floating_point else v for k, v in batch.items()}
 
         if self.add_instruction_data_guard:
@@ -145,14 +143,6 @@ class AegisModel(nn.Module):
 
             return response
 
-    @torch.no_grad()
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        if self.autocast:
-            with torch.autocast(device_type="cuda"):
-                return self._forward(batch)
-        else:
-            return self._forward(batch)
-
 
 class AegisModelStage(ModelStage):
     """
@@ -179,12 +169,12 @@ class AegisModelStage(ModelStage):
             has_seq_order=has_seq_order,
             padding_side=TOKENIZER_PADDING_SIDE,
             unpack_inference_batch=False,
+            autocast=autocast,
         )
 
         self.add_instruction_data_guard = add_instruction_data_guard
         self.pred_column = pred_column
         self.prob_column = prob_column
-        self.autocast = autocast
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column] + ([self.prob_column] if self.add_instruction_data_guard else [])
@@ -199,7 +189,6 @@ class AegisModelStage(ModelStage):
             local_files_only=local_files_only,
             hf_token=self.hf_token,
             add_instruction_data_guard=self.add_instruction_data_guard,
-            autocast=self.autocast,
         )
         if self.add_instruction_data_guard:
             self.model.instruction_data_guard_net = self.model.instruction_data_guard_net.from_pretrained(
