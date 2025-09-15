@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -109,3 +110,8 @@ class DocumentExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             },
             _stage_perf=task._stage_perf,
         )
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {
+            "is_actor_stage": os.environ.get("CAST_AS_ACTOR", "false").lower() == "true",
+        }
