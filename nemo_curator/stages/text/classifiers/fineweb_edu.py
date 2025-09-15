@@ -84,19 +84,13 @@ class FineWebModelStage(ModelStage):
         return ["data"], [self.pred_column, self.float_score_column, self.int_score_column]
 
     @staticmethod
-    def configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
+    def configure_forward(model: torch.nn.Module) -> torch.nn.Module:
         original_forward = model.forward
 
         @torch.no_grad()
         def custom_forward(*args, **kwargs) -> torch.Tensor:
-            if autocast:
-                with torch.autocast(device_type="cuda"):
-                    output = original_forward(*args, **kwargs)
-            else:
-                output = original_forward(*args, **kwargs)
-
+            output = original_forward(*args, **kwargs)
             del args, kwargs
-
             return output.logits.squeeze(-1).float()
 
         model.forward = custom_forward
@@ -108,9 +102,11 @@ class FineWebModelStage(ModelStage):
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
         ).cuda()
-        self.model = self.configure_forward(model, self.autocast)
+        self.model = self.configure_forward(model)
 
-    def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray]:
         logits = outputs.cpu().numpy()
 
         float_scores = logits.tolist()

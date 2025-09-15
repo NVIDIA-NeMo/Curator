@@ -53,7 +53,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
         return next(self.parameters()).device
 
     @torch.no_grad()
-    def _forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
         features = self.model(batch[INPUT_ID_COLUMN], batch[ATTENTION_MASK_COLUMN]).last_hidden_state
         dropped = self.dropout(features)
         outputs = self.fc(dropped)
@@ -61,17 +61,6 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
         del batch, features, dropped
 
         return torch.softmax(outputs[:, 0, :], dim=1)
-
-    @torch.no_grad()
-    def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        if self.autocast:
-            with torch.autocast(device_type="cuda"):
-                return self._forward(batch)
-        else:
-            return self._forward(batch)
-
-    def set_autocast(self, autocast: bool) -> None:
-        self.autocast = autocast
 
 
 class ClassifierModelStage(ModelStage):
@@ -109,6 +98,7 @@ class ClassifierModelStage(ModelStage):
             model_inference_batch_size=model_inference_batch_size,
             padding_side=padding_side,
             unpack_inference_batch=False,
+            autocast=autocast,
         )
 
         self.pred_column = pred_column
@@ -118,16 +108,20 @@ class ClassifierModelStage(ModelStage):
         else:
             self.prob_column = "probs"
             self.keep_prob_column = False
-        self.autocast = autocast
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.pred_column] + ([self.prob_column] if self.keep_prob_column else [])
 
     def _setup(self, local_files_only: bool = True) -> None:
-        self.model = Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only).cuda().eval()
-        self.model.set_autocast(self.autocast)
+        self.model = (
+            Deberta.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
+            .cuda()
+            .eval()
+        )
 
-        config = AutoConfig.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only)
+        config = AutoConfig.from_pretrained(
+            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only
+        )
         self.labels = list(config.label2id.keys())
         self.labels.sort(key=lambda x: config.label2id[x])
 

@@ -15,8 +15,6 @@
 from dataclasses import dataclass
 from typing import Literal
 
-import cudf
-import cupy as cp
 import pandas as pd
 import torch
 import torch.nn.functional as F  # noqa: N812
@@ -29,8 +27,6 @@ from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN
 from nemo_curator.tasks import DocumentBatch
 
-from .utils import create_list_series_from_1d_or_2d_ar
-
 
 class EmbeddingModelStage(ModelStage):
     """HuggingFace model stage that produces embeddings with pooling."""
@@ -41,9 +37,10 @@ class EmbeddingModelStage(ModelStage):
         embedding_field: str = "embeddings",
         pooling: Literal["mean_pooling", "last_token"] = "mean_pooling",
         hf_token: str | None = None,
-        model_inference_batch_size: int = 256,
+        model_inference_batch_size: int = 1024,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
+        autocast: bool = True,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -52,6 +49,7 @@ class EmbeddingModelStage(ModelStage):
             has_seq_order=has_seq_order,
             padding_side=padding_side,
             unpack_inference_batch=True,
+            autocast=autocast,
         )
         self.embedding_field = embedding_field
         self.pooling = pooling
@@ -62,33 +60,23 @@ class EmbeddingModelStage(ModelStage):
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load the model for inference."""
         self.model = AutoModel.from_pretrained(self.model_identifier, local_files_only=True)
-        self.model.eval()
-        self.model.to("cuda")
+        self.model.eval().to("cuda")
 
     def process_model_output(
         self, outputs: torch.Tensor, model_input_batch: dict[str, torch.Tensor] | None = None
     ) -> torch.Tensor:
         """Process model outputs to create embeddings."""
         if self.pooling == "mean_pooling":
-            return self._mean_pooling(outputs, model_input_batch[ATTENTION_MASK_COLUMN])
+            return self._mean_pooling(outputs, model_input_batch[ATTENTION_MASK_COLUMN]).cpu()
         else:
-            return self._get_last_token(outputs, model_input_batch[ATTENTION_MASK_COLUMN])
+            return self._get_last_token(outputs, model_input_batch[ATTENTION_MASK_COLUMN]).cpu()
 
-    def collect_outputs(self, processed_outputs: list[torch.Tensor]) -> cp.ndarray:
-        """Collect embeddings into a cupy array."""
-        # TODO : benchmarking this and maybe stay in cpu land
-        cupy_array_embeddings = [cp.asarray(emb_chunk) for emb_chunk in processed_outputs]
-        return cp.concatenate(cupy_array_embeddings, axis=0)
+    def collect_outputs(self, processed_outputs: list[torch.Tensor]) -> list[list[float]]:
+        return torch.cat(processed_outputs, dim=0).numpy().tolist()
 
-    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: cp.ndarray) -> pd.DataFrame:
+    def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: list[list[float]]) -> pd.DataFrame:
         """Create output dataframe with embeddings."""
-        # TODO: Consider if it even makes sense to goto cudf or just concat in numpy
-        df_gpu = cudf.DataFrame(index=df_cpu.index)
-        df_gpu[self.embedding_field] = create_list_series_from_1d_or_2d_ar(collected_output, index=df_gpu.index)
-        # Add embedding_field back to cpu dataframe
-        df_cpu[self.embedding_field] = df_gpu[self.embedding_field].to_pandas()
-        del df_gpu
-        return df_cpu
+        return df_cpu.assign(**{self.embedding_field: collected_output})
 
     def _mean_pooling(self, model_output: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         token_embeddings = model_output[0]
@@ -119,7 +107,8 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     max_seq_length: int | None = None
     padding_side: Literal["left", "right"] = "right"
     embedding_pooling: Literal["mean_pooling", "last_token"] = "mean_pooling"
-    model_inference_batch_size: int = 256
+    model_inference_batch_size: int = 1024
+    autocast: bool = True
     sort_by_length: bool = True
     hf_token: str | None = None
 
@@ -144,6 +133,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
+                autocast=self.autocast,
             ),
         ]
 
