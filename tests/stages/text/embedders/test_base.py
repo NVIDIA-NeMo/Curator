@@ -292,15 +292,17 @@ class TestEmbeddingCreatorStage:
         assert embedding_stage.pooling == stage.embedding_pooling
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
+    @pytest.mark.parametrize("autocast", [True, False])
     @pytest.mark.gpu
     def test_embedding_creator_stage_with_reference_embeddings(
-        self, pooling_strategy: str, sample_data: DocumentBatch
+        self, pooling_strategy: str, sample_data: DocumentBatch, autocast: bool
     ) -> None:
         """Test embeddings match reference implementation (requires GPU and model download)."""
         stage = EmbeddingCreatorStage(
             model_identifier="sentence-transformers/all-MiniLM-L6-v2",
             embedding_pooling=pooling_strategy,
             model_inference_batch_size=32,
+            autocast=autocast,
         )
 
         # Decompose and setup stages
@@ -362,7 +364,7 @@ class TestEmbeddingCreatorStage:
             )
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
-            with torch.no_grad(), torch.autocast(device_type="cuda"):
+            with torch.no_grad():
                 outputs = model(**inputs)
 
             if pooling_strategy == "last_token":
