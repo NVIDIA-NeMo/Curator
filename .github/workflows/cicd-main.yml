@@ -151,7 +151,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Run tests (CPU)
         run: |
-          uv sync --link-mode copy --locked --extra text --extra audio --extra video --extra internvideo2 --group test
+          uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
           uv run coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
 
       - name: Generate report

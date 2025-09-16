@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import uuid
+from copy import deepcopy
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -35,6 +36,17 @@ if TYPE_CHECKING:
     from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
 
 _LARGE_INT = 2**31 - 1
+
+
+def _parse_runtime_env(runtime_env: dict) -> dict:
+    user_runtime_env = deepcopy(runtime_env)
+    env_vars = user_runtime_env.setdefault("env_vars", {})
+    if "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES" in env_vars:
+        logger.warning(
+            "RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES is already set in the runtime env for RayActorPool. Overriding it to be empty."
+        )
+    env_vars["RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES"] = ""
+    return user_runtime_env
 
 
 class RayActorPoolExecutor(BaseExecutor):
@@ -68,7 +80,7 @@ class RayActorPoolExecutor(BaseExecutor):
         try:
             # Initialize Ray and register loguru serializer
             register_loguru_serializer()
-            ray.init(ignore_reinit_error=True, runtime_env=self.config.get("runtime_env", None))
+            ray.init(ignore_reinit_error=True, runtime_env=_parse_runtime_env(self.config.get("runtime_env", {})))
 
             # Execute setup on node for all stages BEFORE processing begins
             execute_setup_on_node(stages)

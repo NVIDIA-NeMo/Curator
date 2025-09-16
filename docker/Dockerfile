@@ -67,11 +67,7 @@ FROM nemo_curator_dep AS nemo_curator
 COPY . /opt/Curator
 RUN cd /opt/Curator && \
   uv sync --locked --only-group build && \
-  if [ $CURATOR_ENVIRONMENT = "dev" ]; then \
-      uv sync --link-mode copy --locked --extra all --extra video_nvenc --all-groups; \
-  else \
-      uv sync --link-mode copy --locked --extra all --all-groups; \
-  fi;
+  uv sync --link-mode copy --locked --extra all --all-groups
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
