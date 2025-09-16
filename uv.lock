@@ -3604,6 +3604,7 @@ dependencies = [
     { name = "loguru" },
     { name = "mecab-python3" },
     { name = "pandas" },
+    { name = "protobuf" },
     { name = "pyarrow", version = "19.0.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'aarch64' or platform_machine == 'x86_64'" },
     { name = "pyarrow", version = "21.0.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'aarch64' and platform_machine != 'x86_64'" },
     { name = "ray", extra = ["data", "default"] },
@@ -3643,7 +3644,6 @@ all = [
     { name = "pandas" },
     { name = "peft" },
     { name = "pillow" },
-    { name = "protobuf" },
     { name = "psutil" },
     { name = "pycld2" },
     { name = "pycuda" },
@@ -3743,11 +3743,6 @@ internvideo2 = [
     { name = "tqdm" },
     { name = "transformers" },
     { name = "wandb" },
-]
-security = [
-    { name = "protobuf" },
-    { name = "xgrammar", version = "0.1.21", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "xgrammar", version = "0.1.24", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
 text-cpu = [
     { name = "beautifulsoup4" },
@@ -3860,6 +3855,8 @@ video-cuda12 = [
     { name = "transformers" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "wandb" },
+    { name = "xgrammar", version = "0.1.21", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "xgrammar", version = "0.1.24", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
 ]
 
 [package.dev-dependencies]
@@ -3941,7 +3938,7 @@ requires-dist = [
     { name = "peft", marker = "extra == 'internvideo2'", specifier = ">=0.13.0" },
     { name = "peft", marker = "extra == 'text-cpu'" },
     { name = "pillow", marker = "extra == 'internvideo2'", specifier = ">=10.4.0" },
-    { name = "protobuf", marker = "extra == 'security'", specifier = ">=4.25.8" },
+    { name = "protobuf", specifier = ">=4.25.8" },
     { name = "psutil", marker = "extra == 'internvideo2'", specifier = ">=6.0.0" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
@@ -3980,9 +3977,9 @@ requires-dist = [
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==0.10.1.1" },
     { name = "wandb", marker = "extra == 'internvideo2'", specifier = ">=0.18.3" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
-    { name = "xgrammar", marker = "extra == 'security'", specifier = ">=0.1.21" },
+    { name = "xgrammar", marker = "extra == 'video-cuda12'", specifier = ">=0.1.21" },
 ]
-provides-extras = ["cuda12", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "internvideo2", "video-cpu", "video-cuda12", "security", "all"]
+provides-extras = ["cuda12", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "internvideo2", "video-cpu", "video-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [

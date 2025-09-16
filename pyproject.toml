@@ -49,6 +49,7 @@ dependencies = [
     "loguru",
     "mecab-python3",
     "pandas>=2.1.0",
+    "protobuf>=4.25.8",
     "pyarrow",
     "ray[default,data]>=2.49",
     "torch",
@@ -159,12 +160,6 @@ video_cuda12 = [
     "torch<=2.8.0",
     "torchaudio",
     "vllm==0.10.1.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-]
-
-
-# CVE fixes
-security = [
-    "protobuf>=4.25.8",
     "xgrammar>=0.1.21",
 ]
 
