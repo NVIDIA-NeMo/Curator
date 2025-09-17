@@ -49,7 +49,6 @@ dependencies = [
     "loguru",
     "mecab-python3",
     "pandas>=2.1.0",
-    "protobuf>=4.25.8",
     "pyarrow",
     "ray[default,data]>=2.49",
     "torch",
@@ -160,7 +159,6 @@ video_cuda12 = [
     "torch<=2.8.0",
     "torchaudio",
     "vllm==0.10.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "xgrammar>=0.1.21",
 ]
 
 # All dependencies
@@ -189,6 +187,10 @@ package = true
 default-groups = ["test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
+constraint-dependencies = [
+    "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
+    "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+]
 override-dependencies = [
     "apex; sys_platform == 'never'"
 ]
