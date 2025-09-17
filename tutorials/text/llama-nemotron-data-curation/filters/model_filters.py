@@ -27,7 +27,7 @@ from nemo_curator.tasks import DocumentBatch
 
 # Tokenize and filter out non-English text
 class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         tokenizer_identifier: str,
         hf_token: str | None = None,
@@ -113,7 +113,7 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
 # Tokenize system_prompt, input, and output and filter out samples with too many tokens
 class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         tokenizer_identifier: str,
         hf_token: str | None = None,
