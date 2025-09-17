@@ -53,7 +53,7 @@ dependencies = [
     "pyarrow",
     "ray[default,data]>=2.49",
     "torch",
-    "transformers==4.55.0",
+    "transformers==4.56.1",
 ]
 
 [project.optional-dependencies]
@@ -137,7 +137,7 @@ internvideo2 = [
     "torchaudio>=2.4.1",
     "torchvision>=0.19.1",
     "tqdm>=4.66.5",
-    "transformers==4.55.0",
+    "transformers==4.56.1",
     "wandb>=0.18.3",
 ]
 
@@ -159,7 +159,7 @@ video_cuda12 = [
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
-    "vllm==0.10.1.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.10.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "xgrammar>=0.1.21",
 ]
 
