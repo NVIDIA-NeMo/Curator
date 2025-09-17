@@ -39,7 +39,7 @@ This tutorial demonstrates how a user can process a subset the Llama Nemotron da
 
 Setup requirements:
 
-- Hardware: This tutorial can be run entirely on CPU workers.
+- Hardware: This tutorial can be run entirely on CPU workers
 - Recommended environment: This tutorial was developed and tested with a Conda environment
 
 Please refer to NeMo Curator's [documentation](https://docs.nvidia.com/nemo/curator/latest/) for instructions on how to download NeMo Curator via PyPI, source, or Docker.
@@ -94,6 +94,8 @@ LOGURU_LEVEL="ERROR" python main.py \
 ```
 
 Setting `LOGURU_LEVEL="ERROR"` helps minimize long logs. Removing it can be helpful for debugging.
+
+The user may set `--hf-token` as needed for the tokenizer.
 
 Since the entire input dataset is very large, we recommend curating a focused subset of the data that aligns closely with your domain-specific tasks. To help with this, we provide a way to filter files before reading. There are many ways to subset the Llama Nemotron dataset, but we recommend starting with the math and chat subsets because they contain strong examples of domain-agnostic reasoning. To filter files by name, the user may pass `--filename-filter` followed by any number of strings, such as "chat" and "math_v1.1". When reading the input data directory, the list of files will be filtered to only include files with names containing at least 1 of the strings provided by `--filename-filter`. If `--filename-filter` is not specified, then all files within the directory (over 30 million rows) will be used.
 

@@ -13,10 +13,9 @@
 # limitations under the License.
 
 import argparse
+import os
 import time
-from dataclasses import dataclass
 
-import pandas as pd
 from filters.heuristic_filters import (
     ContainsThinkOpenTagFilter,
     EmptyThinkTagsFilter,
@@ -26,103 +25,17 @@ from filters.heuristic_filters import (
     ThinkingOnFilter,
     malformed_filter,
 )
-from transformers import AutoTokenizer
+from filters.model_filters import ApplyChatTemplate, CompletionTokenCountFilter, NonEnglishFilter, TokenCountFilter
 
-from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.function_decorators import processing_stage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
+from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.tasks import DocumentBatch
 from nemo_curator.utils.file_utils import get_all_file_paths_under
-
-
-# Modifier for input and output chat templates
-def format_input_output(system_prompt: str, inpt: list[dict], outpt: str, tokenizer: AutoTokenizer) -> tuple[str, str]:
-    prompt_and_completion = tokenizer.apply_chat_template(
-        [
-            {"role": "system", "content": system_prompt},
-            *inpt,
-            {"role": "assistant", "content": outpt},
-        ],
-        tokenize=False,
-        add_generation_prompt=False,
-    )
-
-    prompt = tokenizer.apply_chat_template(
-        [
-            {"role": "system", "content": system_prompt},
-            *inpt,
-        ],
-        tokenize=False,
-        # We expect the model to start predicting tokens after it sees the start of the assistant response turn
-        add_generation_prompt=True,
-    )
-
-    # Remove the prompt from prompt_and_completion via string manipulation to extract the completion part
-    completion = prompt_and_completion[len(prompt) :]
-
-    # input, output
-    return prompt, completion
-
-
-# Apply format_input_output to each row in the batch and overwrite the input and output columns
-def format_batch(
-    df: pd.DataFrame,
-    tokenizer: AutoTokenizer,
-    input_field: str = "input",
-    output_field: str = "output",
-    system_prompt_field: str = "system_prompt",
-) -> pd.DataFrame:
-    new_inputs = []
-    new_outputs = []
-
-    for _, row in df.iterrows():
-        prompt, completion = format_input_output(
-            row[system_prompt_field], row[input_field], row[output_field], tokenizer
-        )
-        new_inputs.append(prompt)
-        new_outputs.append(completion)
-
-    df[input_field] = new_inputs
-    df[output_field] = new_outputs
-
-    return df
-
-
-@dataclass
-class FormatBatch(ProcessingStage[DocumentBatch, DocumentBatch]):
-    tokenizer: str
-    input_field: str = "input"
-    output_field: str = "output"
-    system_prompt_field: str = "system_prompt"
-    _name: str = "format_batch"
-
-    def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.input_field, self.output_field, self.system_prompt_field]
-
-    def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.input_field, self.output_field]
-
-    def setup_on_node(
-        self,
-        _node_info: NodeInfo | None = None,
-        _worker_metadata: WorkerMetadata | None = None,
-    ) -> None:
-        # Easy hack to only download the tokenizer once if it is not already downloaded
-        _ = AutoTokenizer.from_pretrained(self.tokenizer, local_files_only=False)
-
-    def setup(self, _: WorkerMetadata | None = None) -> None:
-        self._tokenizer = AutoTokenizer.from_pretrained(self.tokenizer, use_fast=True, local_files_only=True)
-
-    def process(self, batch: DocumentBatch) -> DocumentBatch | None:
-        batch.data = format_batch(
-            batch.data, self._tokenizer, self.input_field, self.output_field, self.system_prompt_field
-        )
-        return batch
 
 
 def main(args: argparse.Namespace) -> None:
@@ -201,31 +114,41 @@ def main(args: argparse.Namespace) -> None:
         )
     )
 
-    # TODO: Filter out samples based on token count
-    """
+    # Filter out samples based on token count
     tokenizer_steps = [
-        ScoreFilter(
-            NonEnglishFilter(args.tokenizer, args.lang_id_model_path),
-            text_field=["system_prompt", "input", "output"],
+        NonEnglishFilter(
+            tokenizer_identifier=args.tokenizer,
+            hf_token=args.hf_token,
+            lang_id_model_path=args.lang_id_model_path,
+            input_field="input",
+            output_field="output",
+            system_prompt_field="system_prompt",
         ),
-        ScoreFilter(
-            TokenCountFilter(args.tokenizer, args.max_token_count),
-            text_field=["system_prompt", "input", "output"],
-            score_field="token_count",
+        TokenCountFilter(
+            tokenizer_identifier=args.tokenizer,
+            hf_token=args.hf_token,
+            max_token_count=args.max_token_count,
+            input_field="input",
+            output_field="output",
+            system_prompt_field="system_prompt",
         ),
-        ScoreFilter(
-            CompletionTokenCountFilter(args.tokenizer, args.max_completion_token_count),
-            text_field=["output"],
-            score_field="completion_token_count",
+        CompletionTokenCountFilter(
+            tokenizer_identifier=args.tokenizer,
+            hf_token=args.hf_token,
+            max_completion_token_count=args.max_completion_token_count,
+            output_field="output",
+        ),
+        ApplyChatTemplate(
+            tokenizer_identifier=args.tokenizer,
+            hf_token=args.hf_token,
+            input_field="input",
+            output_field="output",
+            system_prompt_field="system_prompt",
         ),
     ]
     for tokenizer_step in tokenizer_steps:
         pipeline_thinking_on.add_stage(tokenizer_step)
         pipeline_thinking_off.add_stage(tokenizer_step)
-    """
-
-    pipeline_thinking_on.add_stage(FormatBatch(args.tokenizer))
-    pipeline_thinking_off.add_stage(FormatBatch(args.tokenizer))
 
     # No specific columns are accessed after this point, so we can drop any that the user specifies
     if args.remove_columns:
@@ -237,6 +160,10 @@ def main(args: argparse.Namespace) -> None:
 
         pipeline_thinking_on.add_stage(remove_columns)
         pipeline_thinking_off.add_stage(remove_columns)
+
+    # Save intermediate datasets
+    pipeline_thinking_on.add_stage(JsonlWriter(os.path.join(args.output_dir, "thinking_on")))
+    pipeline_thinking_off.add_stage(JsonlWriter(os.path.join(args.output_dir, "thinking_off")))
 
     # Run pipelines
     _thinking_on_output = pipeline_thinking_on.run()
@@ -289,6 +216,11 @@ def attach_args() -> argparse.ArgumentParser:
         type=str,
         default="meta-llama/Llama-3.1-8B-Instruct",
         help="Hugging Face tokenizer",
+    )
+    parser.add_argument(
+        "--hf-token",
+        type=str,
+        help="Hugging Face token",
     )
     parser.add_argument(
         "--lang-id-model-path",

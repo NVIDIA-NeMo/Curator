@@ -12,26 +12,73 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pandas as pd
+import os
+from typing import Any
 
-from nemo_curator.stages.text.filters import DocumentFilter
+import fasttext
+import pandas as pd
+from huggingface_hub import snapshot_download
+from transformers import AutoTokenizer
+
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import DocumentBatch
 
 
 # Tokenize and filter out non-English text
-class NonEnglishFilter(DocumentFilter):
+class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(
         self,
-        pretrained_model_name_or_path: str,
-        lang_id_model_path: str,
-        text_fields: list[str] | None = None,
+        tokenizer_identifier: str,
+        hf_token: str | None = None,
+        lang_id_model_path: str = "./lid.176.ftz",
+        input_field: str = "input",
+        output_field: str = "output",
+        system_prompt_field: str = "system_prompt",
     ):
         self._name = "non_english_filter"
-        self.pretrained_model_name_or_path = pretrained_model_name_or_path
+        self.tokenizer_identifier = tokenizer_identifier
+        self.hf_token = hf_token
         self.lang_id_model_path = lang_id_model_path
-        if text_fields is None:
-            self.text_fields = ["system_prompt", "input", "output"]
-        else:
-            self.text_fields = text_fields
+        self.input_field = input_field
+        self.output_field = output_field
+        self.system_prompt_field = system_prompt_field
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.input_field, self.output_field, self.system_prompt_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(
+                repo_id=self.tokenizer_identifier,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+            self._setup(local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.tokenizer_identifier}"
+            raise RuntimeError(msg) from e
+
+        if not (os.path.exists(self.lang_id_model_path) and os.path.isfile(self.lang_id_model_path)):
+            msg = f"FastText model path {self.lang_id_model_path} does not exist"
+            raise RuntimeError(msg)
+
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer_identifier,
+            local_files_only=local_files_only,
+        )
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
+        self.model = fasttext.load_model(path=self.lang_id_model_path)
 
     def is_english(self, system: str, inpt: list[dict], outpt: str) -> bool:
         text = self.tokenizer.apply_chat_template(
@@ -46,36 +93,73 @@ class NonEnglishFilter(DocumentFilter):
         text = str(text).replace("\n", " ").strip()
         return self.model.predict(text)[0][0] == "__label__en"
 
-    def score_document(self, df: pd.DataFrame) -> pd.Series:
-        return df.apply(
-            lambda row: self.is_english(
-                row[self.text_fields[0]],
-                row[self.text_fields[1]],
-                row[self.text_fields[2]],
-            ),
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+
+        mask = df.apply(
+            lambda row: self.is_english(row[self.system_prompt_field], row[self.input_field], row[self.output_field]),
             axis=1,
         )
+        df_filtered = df[mask]
 
-    def keep_document(self, scores: pd.Series) -> pd.Series:
-        return scores
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_filtered,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 
 # Tokenize system_prompt, input, and output and filter out samples with too many tokens
-class TokenCountFilter(DocumentFilter):
+class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(
         self,
-        pretrained_model_name_or_path: str,
+        tokenizer_identifier: str,
+        hf_token: str | None = None,
         max_token_count: int = 16384,
-        text_fields: list[str] | None = None,
+        input_field: str = "input",
+        output_field: str = "output",
+        system_prompt_field: str = "system_prompt",
     ):
-        super().__init__()
         self._name = "token_count_filter"
-        self.pretrained_model_name_or_path = pretrained_model_name_or_path
+        self.tokenizer_identifier = tokenizer_identifier
+        self.hf_token = hf_token
         self.max_token_count = max_token_count
-        if text_fields is None:
-            self.text_fields = ["system_prompt", "input", "output"]
-        else:
-            self.text_fields = text_fields
+        self.input_field = input_field
+        self.output_field = output_field
+        self.system_prompt_field = system_prompt_field
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.input_field, self.output_field, self.system_prompt_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(
+                repo_id=self.tokenizer_identifier,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+            self._setup(local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.tokenizer_identifier}"
+            raise RuntimeError(msg) from e
+
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer_identifier,
+            local_files_only=local_files_only,
+        )
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
 
     def apply_chat_template(self, system: str, inpt: list[dict], outpt: str) -> str:
         return self.tokenizer.apply_chat_template(
@@ -88,43 +172,82 @@ class TokenCountFilter(DocumentFilter):
             add_generation_prompt=False,
         )
 
-    def score_document(self, df: pd.DataFrame) -> pd.Series:
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+
         templates_list = df.apply(
             lambda row: self.apply_chat_template(
-                row[self.text_fields[0]],
-                row[self.text_fields[1]],
-                row[self.text_fields[2]],
+                row[self.system_prompt_field],
+                row[self.input_field],
+                row[self.output_field],
             ),
             axis=1,
         ).tolist()
         tokenized = self.tokenizer(templates_list)
-        return pd.Series([len(tokens) for tokens in tokenized["input_ids"]], index=df.index)
+        scores = pd.Series([len(tokens) for tokens in tokenized["input_ids"]], index=df.index)
+        mask = (scores > 0) & (scores <= self.max_token_count)
+        df_filtered = df[mask]
 
-    def keep_document(self, scores: pd.Series) -> pd.Series:
-        return (scores > 0) & (scores <= self.max_token_count)
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_filtered,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 
 # Tokenize text and filter out samples with too many tokens
-class CompletionTokenCountFilter(DocumentFilter):
+class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(
         self,
-        pretrained_model_name_or_path: str,
+        tokenizer_identifier: str,
+        hf_token: str | None = None,
         max_completion_token_count: int = 8192,
-        text_fields: list[str] | None = None,
+        output_field: str = "output",
     ):
-        super().__init__()
         self._name = "completion_token_count_filter"
-        self.pretrained_model_name_or_path = pretrained_model_name_or_path
+        self.tokenizer_identifier = tokenizer_identifier
+        self.hf_token = hf_token
         self.max_completion_token_count = max_completion_token_count
-        if text_fields is None:
-            self.text_fields = ["output"]
-        else:
-            self.text_fields = text_fields
+        self.output_field = output_field
 
-    def score_document(self, df: pd.DataFrame) -> pd.Series:
-        outpt = df[self.text_fields[0]]
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.output_field]
 
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(
+                repo_id=self.tokenizer_identifier,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+            self._setup(local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.tokenizer_identifier}"
+            raise RuntimeError(msg) from e
+
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer_identifier,
+            local_files_only=local_files_only,
+        )
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+        outpt = df[self.output_field]
         outpt_copy = outpt.copy()
+
         templates_list = outpt_copy.apply(
             lambda text: self.tokenizer.apply_chat_template(
                 [{"role": "assistant", "content": text}],
@@ -134,7 +257,113 @@ class CompletionTokenCountFilter(DocumentFilter):
             )
         ).tolist()
         tokenized = self.tokenizer(templates_list)
-        return pd.Series([len(tokens) for tokens in tokenized["input_ids"]], index=outpt_copy.index)
+        scores = pd.Series([len(tokens) for tokens in tokenized["input_ids"]], index=outpt_copy.index)
+        df["completion_token_count"] = (scores > 0) & (scores <= self.max_completion_token_count)
+        df_filtered = df[df["completion_token_count"]]
 
-    def keep_document(self, scores: pd.Series) -> pd.Series:
-        return (scores > 0) & (scores <= self.max_completion_token_count)
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df_filtered,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+
+class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
+    def __init__(
+        self,
+        tokenizer_identifier: str,
+        hf_token: str | None = None,
+        input_field: str = "input",
+        output_field: str = "output",
+        system_prompt_field: str = "system_prompt",
+    ):
+        self._name = "apply_chat_template"
+
+        self.tokenizer_identifier = tokenizer_identifier
+        self.hf_token = hf_token
+        self.input_field = input_field
+        self.output_field = output_field
+        self.system_prompt_field = system_prompt_field
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.input_field, self.output_field, self.system_prompt_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.input_field, self.output_field]
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        return {"is_actor_stage": True}
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
+        try:
+            snapshot_download(
+                repo_id=self.tokenizer_identifier,
+                token=self.hf_token,
+                local_files_only=False,
+            )
+            self._setup(local_files_only=False)
+        except Exception as e:
+            msg = f"Failed to download {self.tokenizer_identifier}"
+            raise RuntimeError(msg) from e
+
+    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
+    def _setup(self, local_files_only: bool = True) -> None:
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.tokenizer_identifier,
+            use_fast=True,
+            local_files_only=local_files_only,
+        )
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        self._setup(local_files_only=True)
+
+    # Modifier for input and output chat templates
+    def format_input_output(self, system_prompt: str, inpt: list[dict], outpt: str) -> tuple[str, str]:
+        prompt_and_completion = self.tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": system_prompt},
+                *inpt,
+                {"role": "assistant", "content": outpt},
+            ],
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+
+        prompt = self.tokenizer.apply_chat_template(
+            [
+                {"role": "system", "content": system_prompt},
+                *inpt,
+            ],
+            tokenize=False,
+            # We expect the model to start predicting tokens after it sees the start of the assistant response turn
+            add_generation_prompt=True,
+        )
+
+        # Remove the prompt from prompt_and_completion via string manipulation to extract the completion part
+        completion = prompt_and_completion[len(prompt) :]
+
+        # input, output
+        return prompt, completion
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+
+        df[self.input_field], df[self.output_field] = zip(
+            *df.apply(
+                lambda row: self.format_input_output(
+                    row[self.system_prompt_field], row[self.input_field], row[self.output_field]
+                ),
+                axis=1,
+            ),
+            strict=True,
+        )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
