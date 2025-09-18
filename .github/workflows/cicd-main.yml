@@ -140,7 +140,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: actions/checkout@4
+      - uses: actions/checkout@v4
         with:
           repository: OpenGVLab/InternVideo
           path: InternVideo
