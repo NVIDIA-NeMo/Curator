@@ -58,16 +58,16 @@ RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 FROM build AS nemo_curator_dep
 
 # Install ffmpeg
-COPY docker/common/install_ffmpeg.sh .
-RUN bash install_ffmpeg.sh && \
-    rm install_ffmpeg.sh
+# COPY docker/common/install_ffmpeg.sh .
+# RUN bash install_ffmpeg.sh && \
+#     rm install_ffmpeg.sh
 
 FROM nemo_curator_dep AS nemo_curator
 
 COPY . /opt/Curator
 RUN cd /opt/Curator && \
   uv sync --locked --only-group build && \
-  uv sync --link-mode copy --locked --extra all --all-groups
+  uv sync --link-mode copy --locked --extra audio_cuda12 --extra image_cuda12 --extra text_cuda12 --all-groups
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
