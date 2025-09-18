@@ -356,7 +356,7 @@ index 67cd1b7..aa4efa8 100644
          else:
              norm_layer_for_blocks = partial(RMSNorm, eps=1e-6)
 diff --git a/InternVideo2/multi_modality/pyproject.toml b/InternVideo2/multi_modality/pyproject.toml
-index 3281a0e..7c5a27c 100644
+index 3281a0e..8b71ba4 100644
 --- a/InternVideo2/multi_modality/pyproject.toml
 +++ b/InternVideo2/multi_modality/pyproject.toml
 @@ -16,12 +16,9 @@ classifiers = [
@@ -387,3 +387,11 @@ index 3281a0e..7c5a27c 100644
  
  # Map the current directory to the package name `internvideo2_multi_modality`
  [tool.setuptools]
+@@ -68,3 +65,7 @@ packages = [
+     "internvideo2_multi_modality.utils",
+ ]
+ package-dir = { "internvideo2_multi_modality" = "." }
++include-package-data = true
++
++[tool.setuptools.package-data]
++internvideo2_multi_modality = ["configs/*.json"]
