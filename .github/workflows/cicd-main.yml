@@ -153,6 +153,7 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         run: |
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
+          uv add git+https://github.com/suiyoubi/InternVideo.git#subdirectory=InternVideo2/multi_modality --branch curator
           uv run coverage run --branch --source=nemo_curator -m pytest -v tests/${{ matrix.folder }} -m "not gpu"
 
       - name: Generate report
