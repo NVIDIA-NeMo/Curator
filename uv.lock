@@ -36,7 +36,10 @@ constraints = [
     { name = "protobuf", specifier = ">=4.25.8" },
     { name = "xgrammar", specifier = ">=0.1.21" },
 ]
-overrides = [{ name = "apex", marker = "sys_platform == 'never'" }]
+overrides = [
+    { name = "apex", marker = "sys_platform == 'never'" },
+    { name = "kaldiio", marker = "sys_platform == 'never'" },
+]
 
 [[package]]
 name = "absl-py"
@@ -2530,7 +2533,7 @@ name = "kaldiio"
 version = "2.18.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy" },
+    { name = "numpy", marker = "sys_platform != 'darwin' and sys_platform != 'linux'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8d/85/92435e8e62eb3d43eded9f24643fc2a6dbce031cebceed11528147c7873f/kaldiio-2.18.1.tar.gz", hash = "sha256:0283d197fac6ac683f7a9e6af8d18aad9dbd2c4a997f22e45294f2ac1ee3c432", size = 35570, upload-time = "2025-03-06T15:57:52.375Z" }
 wheels = [
@@ -4008,7 +4011,7 @@ asr = [
     { name = "inflect" },
     { name = "jiwer" },
     { name = "kaldi-python-io" },
-    { name = "kaldiio" },
+    { name = "kaldiio", marker = "sys_platform == 'never'" },
     { name = "lhotse" },
     { name = "librosa" },
     { name = "lightning" },
