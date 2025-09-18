@@ -124,9 +124,10 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
+        folder: ["backends", "core", "models", "pipelines", "stages", "tasks", "utils"]
     needs: [pre-flight, cicd-wait-in-queue]
     runs-on: ${{ matrix.os }}
-    name: L0_Unit_Test_CPU_python-${{ matrix.python-version }}
+    name: Unit_Test_${{ matrix.folder}}_CPU_python-${{ matrix.python-version }}
     environment: nemo-ci
     if: |
       (
@@ -149,10 +150,10 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Run tests (CPU)
+      - name: Run tests ${{ matrix.folder }} (CPU)
         run: |
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
-          uv run coverage run --branch --source=nemo_curator -m pytest -v tests -m "not gpu"
+          uv run coverage run --branch --source=nemo_curator -m pytest -v tests/${{ matrix.folder }} -m "not gpu"
 
       - name: Generate report
         id: check
@@ -160,7 +161,7 @@ jobs:
         run: |
           uv run coverage xml
           uv run coverage report
-          coverage_report=coverage-unit-test-${{ github.run_id }}-$(uuidgen)
+          coverage_report=coverage-unit-test-${{ matrix.folder }}-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
       - name: Upload artifacts
