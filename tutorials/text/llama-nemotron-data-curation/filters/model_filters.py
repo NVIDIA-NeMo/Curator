@@ -17,7 +17,6 @@ from typing import Any
 
 import fasttext
 import pandas as pd
-from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -55,11 +54,6 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(
-                repo_id=self.tokenizer_identifier,
-                token=self.hf_token,
-                local_files_only=False,
-            )
             self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.tokenizer_identifier}"
@@ -74,6 +68,7 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_identifier,
             local_files_only=local_files_only,
+            token=self.hf_token,
         )
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -95,6 +90,9 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
+
+        if df.empty:
+            return batch
 
         mask = df.apply(
             lambda row: self.is_english(row[self.system_prompt_field], row[self.input_field], row[self.output_field]),
@@ -141,11 +139,6 @@ class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(
-                repo_id=self.tokenizer_identifier,
-                token=self.hf_token,
-                local_files_only=False,
-            )
             self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.tokenizer_identifier}"
@@ -156,6 +149,7 @@ class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_identifier,
             local_files_only=local_files_only,
+            token=self.hf_token,
         )
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -174,6 +168,9 @@ class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
+
+        if df.empty:
+            return batch
 
         templates_list = df.apply(
             lambda row: self.apply_chat_template(
@@ -223,11 +220,6 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(
-                repo_id=self.tokenizer_identifier,
-                token=self.hf_token,
-                local_files_only=False,
-            )
             self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.tokenizer_identifier}"
@@ -238,6 +230,7 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_identifier,
             local_files_only=local_files_only,
+            token=self.hf_token,
         )
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -245,12 +238,21 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
+
+        if df.empty:
+            batch.data["completion_token_count"] = []
+            return batch
+
         outpt = df[self.output_field]
         outpt_copy = outpt.copy()
 
         templates_list = outpt_copy.apply(
             lambda text: self.tokenizer.apply_chat_template(
                 [{"role": "assistant", "content": text}],
+                # For maximum accuracy it should be tokenize=True here,
+                # but for speedups we just use the length of the base string instead of tokenizing it
+                # (we consider this to be acceptable since 1 token is approx 4 characters for English
+                # and we are only using the CompletionTokenCountFilter as a proxy for text complexity)
                 tokenize=False,
                 add_generation_prompt=False,
                 truncation=False,
@@ -258,8 +260,9 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         ).tolist()
         tokenized = self.tokenizer(templates_list)
         scores = pd.Series([len(tokens) for tokens in tokenized["input_ids"]], index=outpt_copy.index)
-        df["completion_token_count"] = (scores > 0) & (scores <= self.max_completion_token_count)
-        df_filtered = df[df["completion_token_count"]]
+        df["completion_token_count"] = scores
+        mask = (scores > 0) & (scores <= self.max_completion_token_count)
+        df_filtered = df[mask]
 
         return DocumentBatch(
             task_id=batch.task_id,
@@ -298,11 +301,6 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
-            snapshot_download(
-                repo_id=self.tokenizer_identifier,
-                token=self.hf_token,
-                local_files_only=False,
-            )
             self._setup(local_files_only=False)
         except Exception as e:
             msg = f"Failed to download {self.tokenizer_identifier}"
@@ -312,8 +310,9 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _setup(self, local_files_only: bool = True) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_identifier,
-            use_fast=True,
+            use_fast=True,  # TODO: Test without this
             local_files_only=local_files_only,
+            token=self.hf_token,
         )
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -349,6 +348,9 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
+
+        if df.empty:
+            return batch
 
         df[self.input_field], df[self.output_field] = zip(
             *df.apply(

@@ -16,6 +16,7 @@ import argparse
 import os
 import time
 
+import ray
 from filters.heuristic_filters import (
     ContainsThinkOpenTagFilter,
     EmptyThinkTagsFilter,
@@ -26,6 +27,7 @@ from filters.heuristic_filters import (
     malformed_filter,
 )
 from filters.model_filters import ApplyChatTemplate, CompletionTokenCountFilter, NonEnglishFilter, TokenCountFilter
+from utils.jsonl_utils import interleave_datasets, split_jsonl_by_size
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
@@ -38,7 +40,13 @@ from nemo_curator.tasks import DocumentBatch
 from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 
-def main(args: argparse.Namespace) -> None:
+def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
+    try:
+        os.makedirs(args.output_dir, exist_ok=False)
+    except FileExistsError as e:
+        msg = f"Output directory already exists: {args.output_dir}. Please delete or rename it and try again."
+        raise FileExistsError(msg) from e
+
     # Initialize and start Ray client with the number of CPUs specified by the user
     ray_client = RayClient(num_cpus=args.num_cpus)
     ray_client.start()
@@ -60,22 +68,24 @@ def main(args: argparse.Namespace) -> None:
         # Filter out files that don't contain any of the provided substrings
         input_files = [filename for filename in input_files if any(s in filename for s in args.filename_filter)]
 
-    # If neither is set, set the default blocksize to 100MB
-    if args.json_blocksize is None and args.json_files_per_partition is None:
-        args.json_blocksize = "100mb"
+    # Grab integer from blocksize string, e.g., "100mb" -> 100
+    json_blocksize = int("".join(c for c in args.json_blocksize if c.isdigit()))
+    input_dir = os.path.join(args.input_dir, "split")
+    try:
+        os.makedirs(input_dir, exist_ok=False)
+    except FileExistsError as e:
+        msg = f"Split directory already exists: {input_dir}. Please delete it and try again."
+        raise FileExistsError(msg) from e
 
-    pipeline_thinking_on.add_stage(
-        JsonlReader(
-            file_paths=input_files, blocksize=args.json_blocksize, files_per_partition=args.json_files_per_partition
-        )
-    )
-    pipeline_thinking_off.add_stage(
-        JsonlReader(
-            file_paths=input_files, blocksize=args.json_blocksize, files_per_partition=args.json_files_per_partition
-        )
-    )
+    # Split into smaller files for parallel processing
+    split_files = [split_jsonl_by_size.remote(f, json_blocksize, input_dir, "split") for f in input_files]
+    ray.get(split_files)
 
-    # Split into thinking ON and OFF
+    # Read files for each pipeline
+    pipeline_thinking_on.add_stage(JsonlReader(file_paths=input_dir))
+    pipeline_thinking_off.add_stage(JsonlReader(file_paths=input_dir))
+
+    # Split pipelines into thinking ON and OFF
     pipeline_thinking_on.add_stage(ScoreFilter(ThinkingOnFilter(), text_field="reasoning"))
     pipeline_thinking_off.add_stage(ScoreFilter(ThinkingOnFilter(), text_field="reasoning", invert=True))
 
@@ -106,8 +116,8 @@ def main(args: argparse.Namespace) -> None:
             text_field="output",
         )
     )
-    # Filter out samples in thinking OFF that do not contain think tags
-    pipeline_thinking_off.add_stage(
+    # Filter out samples in thinking ON that do not contain think tags
+    pipeline_thinking_on.add_stage(
         ScoreFilter(
             MissingThinkOpenTagFilter(),
             text_field="output",
@@ -162,17 +172,32 @@ def main(args: argparse.Namespace) -> None:
         pipeline_thinking_off.add_stage(remove_columns)
 
     # Save intermediate datasets
-    pipeline_thinking_on.add_stage(JsonlWriter(os.path.join(args.output_dir, "thinking_on")))
-    pipeline_thinking_off.add_stage(JsonlWriter(os.path.join(args.output_dir, "thinking_off")))
+    thinking_on_unsorted_path = os.path.join(args.output_dir, "thinking_on_unsorted")
+    thinking_off_unsorted_path = os.path.join(args.output_dir, "thinking_off_unsorted")
+    pipeline_thinking_on.add_stage(JsonlWriter(thinking_on_unsorted_path))
+    pipeline_thinking_off.add_stage(JsonlWriter(thinking_off_unsorted_path))
 
     # Run pipelines
     _thinking_on_output = pipeline_thinking_on.run()
     _thinking_off_output = pipeline_thinking_off.run()
 
-    # TODO: Sort datasets
-    # TODO: Interleave datasets
-    # TODO: Combine datasets into single file
-    # TODO: Save datasets
+    # Sort datasets
+    thinking_on_ds = ray.data.read_json(thinking_on_unsorted_path, lines=True)
+    thinking_on_ds = thinking_on_ds.sort("completion_token_count")
+    thinking_on_sorted_path = os.path.join(args.output_dir, "thinking_on_sorted")
+    thinking_on_ds.write_json(thinking_on_sorted_path, orient="records", lines=True)
+
+    thinking_off_ds = ray.data.read_json(thinking_off_unsorted_path, lines=True)
+    thinking_off_ds = thinking_off_ds.sort("completion_token_count")
+    thinking_off_sorted_path = os.path.join(args.output_dir, "thinking_off_sorted")
+    thinking_off_ds.write_json(thinking_off_sorted_path, orient="records", lines=True)
+
+    # Interleave datasets and combine into a single output file
+    interleave_datasets(
+        thinking_on_sorted_path,
+        thinking_off_sorted_path,
+        os.path.join(args.output_dir, "training.jsonl"),
+    )
 
     end_time = time.time()
     print(f"Total time taken: {end_time - start_time} seconds")
@@ -206,11 +231,12 @@ def attach_args() -> argparse.ArgumentParser:
         help="If specified, only files with names containing one or more of the provided substrings will be processed.",
     )
     parser.add_argument(
-        "--remove-columns",
-        nargs="+",
+        "--json-blocksize",
         type=str,
-        help="Columns to remove from the dataset.",
+        default="100mb",
+        help="Blocksize to use for reading the JSONL files.",
     )
+
     parser.add_argument(
         "--tokenizer",
         type=str,
@@ -240,24 +266,19 @@ def attach_args() -> argparse.ArgumentParser:
         default=8192,
         help="Optional maximum completion token count. Rows exceeding this count will be filtered out.",
     )
+
+    parser.add_argument(
+        "--remove-columns",
+        nargs="+",
+        type=str,
+        help="Columns to remove from the dataset.",
+    )
+
     parser.add_argument(
         "--output-dir",
         type=str,
         help="Path to the output directory.",
         required=True,
-    )
-
-    parser.add_argument(
-        "--json-blocksize",
-        type=str,
-        help="Blocksize to use for reading the JSONL files.",
-        required=False,
-    )
-    parser.add_argument(
-        "--json-files-per-partition",
-        type=int,
-        help="The number of JSONL files to read for each DocumentBatch.",
-        required=False,
     )
 
     return parser
