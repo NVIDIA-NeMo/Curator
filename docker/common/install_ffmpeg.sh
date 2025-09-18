@@ -50,7 +50,6 @@ apt-get install -y \
     libvpx-dev \
     libwebp-dev \
     pkg-config \
-    texinfo \
     vainfo \
     wget \
     yasm \
