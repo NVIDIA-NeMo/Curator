@@ -144,7 +144,7 @@ jobs:
         with:
           repository: OpenGVLab/InternVideo
           path: InternVideo
-          ref: 09d872e
+          ref: 09d872e5093296c6f36b8b3a91fc511b76433bf7
       - name: Optionally free up space on Ubuntu
         run: |
           sudo rm -rf /usr/share/dotnet
