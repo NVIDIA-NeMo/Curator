@@ -140,6 +140,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+      - uses: actions/checkout@4
+        with:
+          repository: OpenGVLab/InternVideo
+          path: InternVideo
+          ref: 09d872e
       - name: Optionally free up space on Ubuntu
         run: |
           sudo rm -rf /usr/share/dotnet
@@ -152,8 +157,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Run tests ${{ matrix.folder }} (CPU)
         run: |
+          cd InternVideo && patch -p1 < ../external/intern_video2_multimodal.patch && cd ..
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
-          uv add git+https://github.com/suiyoubi/InternVideo.git#subdirectory=InternVideo2/multi_modality --branch curator
+          uv add InternVideo/InternVideo2/multi_modality
           uv run coverage run --branch --source=nemo_curator -m pytest -v tests/${{ matrix.folder }} -m "not gpu"
 
       - name: Generate report
