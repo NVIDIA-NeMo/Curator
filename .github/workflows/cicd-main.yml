@@ -64,7 +64,7 @@ jobs:
             nemo_curator/**
             .github/**
             pyproject.toml
-            Dockerfile
+            docker/**
             tests/**
           base_sha: ${{ steps.base-ref.outputs.base }}
 
