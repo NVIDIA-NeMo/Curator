@@ -246,7 +246,7 @@ def attach_args() -> argparse.ArgumentParser:
     parser.add_argument(
         "--hf-token",
         type=str,
-        help="Hugging Face token",
+        help="Hugging Face token (if needed)",
     )
     parser.add_argument(
         "--lang-id-model-path",
