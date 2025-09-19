@@ -380,7 +380,7 @@ class SemanticDeduplicationWorkflow:
             if total_duplicates > 0:
                 logger.success(f"Total documents identified as duplicates: {total_duplicates}")
                 logger.info(f"Similarity threshold used: {1.0 - self.eps:.3f} (eps={self.eps})")
-            else:
+            elif self.eps is not None:
                 logger.info(
                     f"No duplicates identified with similarity threshold of {1.0 - self.eps:.3f} (eps={self.eps})"
                 )
@@ -396,5 +396,5 @@ class SemanticDeduplicationWorkflow:
                 "pairwise_execution_time": pairwise_time,
                 "kmeans_results": kmeans_results,
                 "pairwise_results": pairwise_results,
-                "total_duplicates_identified": total_duplicates,
+                **({"total_duplicates_identified": total_duplicates} if self.eps is not None else {}),
             }
