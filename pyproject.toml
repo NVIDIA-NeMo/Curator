@@ -20,8 +20,6 @@ build-backend = "setuptools.build_meta"
 include = [
     "nemo_curator",
     "nemo_curator.*",
-    "nemo_curator.internvideo2_multi_modality",
-    "nemo_curator.internvideo2_multi_modality.*",
 ]
 
 [tool.setuptools.dynamic]
@@ -113,35 +111,7 @@ text_cuda12 = [
 ]
 
 # Video Curation Dependencies
-internvideo2 = [
-    "av>=13.0.0",
-    "deepspeed>=0.15.1",
-    "einops>=0.8.0",
-    "fvcore>=0.1.5.post20221221",
-    "imageio>=2.35.1",
-    "librosa>=0.10.2.post1",
-    "numpy>=1.26.4, <2.0.0",
-    "open-clip-torch>=2.26.1",
-    "opencv_python>=4.10.0.84",
-    "pandas>=2.2.3",
-    "peft>=0.13.0",
-    "Pillow>=10.4.0",
-    "psutil>=6.0.0",
-    "PyYAML>=6.0.2",
-    "scipy>=1.14.1",
-    "soundfile>=0.12.1",
-    "termcolor>=2.4.0",
-    "timm>=1.0.9",
-    "torch>=2.4.1",
-    "torchaudio>=2.4.1",
-    "torchvision>=0.19.1",
-    "tqdm>=4.66.5",
-    "transformers==4.55.2",
-    "wandb>=0.18.3",
-]
-
 video_cpu = [
-    "nemo_curator[internvideo2]",
     "av==13.1.0",
     "opencv-python",
     "torchvision",
