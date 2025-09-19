@@ -162,7 +162,10 @@ constraint-dependencies = [
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
 ]
 override-dependencies = [
-    "apex; sys_platform == 'never'"
+    "apex; sys_platform == 'never'",
+    "distance; sys_platform == 'never'",
+    "kaldiio;  sys_platform == 'never'",
+    "levenshtein;  sys_platform == 'never'",
 ]
 
 
