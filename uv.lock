@@ -1305,27 +1305,6 @@ wheels = [
 ]
 
 [[package]]
-name = "deepspeed"
-version = "0.17.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "einops" },
-    { name = "hjson" },
-    { name = "msgpack" },
-    { name = "ninja" },
-    { name = "numpy" },
-    { name = "packaging" },
-    { name = "psutil" },
-    { name = "py-cpuinfo" },
-    { name = "pydantic" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/46/e7/bc1e5868d85cb8e21c43915023e462b9a147f739f26d8584e3c46771ec67/deepspeed-0.17.5.tar.gz", hash = "sha256:277c9e267b9e917c98ed84aa94e695c6a0e506c859ae583d0cc6a3d2e2fd9feb", size = 1578843, upload-time = "2025-08-20T21:18:57.694Z" }
-
-[[package]]
 name = "depyf"
 version = "0.19.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1867,22 +1846,6 @@ wheels = [
 ]
 
 [[package]]
-name = "fvcore"
-version = "0.1.5.post20221221"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "iopath" },
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "pyyaml" },
-    { name = "tabulate" },
-    { name = "termcolor" },
-    { name = "tqdm" },
-    { name = "yacs" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/93/d056a9c4efc6c79ba7b5159cc66bb436db93d2cc46dca18ed65c59cc8e4e/fvcore-0.1.5.post20221221.tar.gz", hash = "sha256:f2fb0bb90572ae651c11c78e20493ed19b2240550a7e4bbb2d6de87bdd037860", size = 50217, upload-time = "2022-12-21T08:10:53.563Z" }
-
-[[package]]
 name = "g2p-en"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2104,15 +2067,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hjson"
-version = "3.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/82/e5/0b56d723a76ca67abadbf7fb71609fb0ea7e6926e94fcca6c65a85b36a0e/hjson-3.1.0.tar.gz", hash = "sha256:55af475a27cf83a7969c808399d7bccdec8fb836a07ddbd574587593b9cdcf75", size = 40541, upload-time = "2022-08-13T02:53:01.919Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1f/7f/13cd798d180af4bf4c0ceddeefba2b864a63c71645abc0308b768d67bb81/hjson-3.1.0-py3-none-any.whl", hash = "sha256:65713cdcf13214fb554eb8b4ef803419733f4f5e551047c9b711098ab7186b89", size = 54018, upload-time = "2022-08-13T02:52:59.899Z" },
-]
-
-[[package]]
 name = "htmldate"
 version = "1.9.3"
 source = { registry = "https://pypi.org/simple" }
@@ -2225,19 +2179,6 @@ wheels = [
 ]
 
 [[package]]
-name = "imageio"
-version = "2.37.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pillow" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/0c/47/57e897fb7094afb2d26e8b2e4af9a45c7cf1a405acdeeca001fdf2c98501/imageio-2.37.0.tar.gz", hash = "sha256:71b57b3669666272c818497aebba2b4c5f20d5b37c81720e5e1a56d59c492996", size = 389963, upload-time = "2025-01-20T02:42:37.089Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/bd/b394387b598ed84d8d0fa90611a90bee0adc2021820ad5729f7ced74a8e2/imageio-2.37.0-py3-none-any.whl", hash = "sha256:11efa15b87bc7871b61590326b2d635439acc321cf7f8ce996f812543ce10eed", size = 315796, upload-time = "2025-01-20T02:42:34.931Z" },
-]
-
-[[package]]
 name = "importlib-metadata"
 version = "8.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2288,17 +2229,6 @@ dependencies = [
     { name = "sortedcontainers" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/fb/396d568039d21344639db96d940d40eb62befe704ef849b27949ded5c3bb/intervaltree-3.1.0.tar.gz", hash = "sha256:902b1b88936918f9b2a19e0e5eb7ccb430ae45cde4f39ea4b36932920d33952d", size = 32861, upload-time = "2020-08-03T08:01:11.392Z" }
-
-[[package]]
-name = "iopath"
-version = "0.1.10"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "portalocker" },
-    { name = "tqdm" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/72/73/b3d451dfc523756cf177d3ebb0af76dc7751b341c60e2a21871be400ae29/iopath-0.1.10.tar.gz", hash = "sha256:3311c16a4d9137223e20f141655759933e1eda24f8bff166af834af3c645ef01", size = 42226, upload-time = "2022-07-09T19:00:50.866Z" }
 
 [[package]]
 name = "ipython"
@@ -3593,44 +3523,29 @@ all = [
     { name = "cugraph-cu12" },
     { name = "cuml-cu12" },
     { name = "cvcuda-cu12" },
-    { name = "deepspeed" },
     { name = "easydict" },
     { name = "einops" },
     { name = "fasttext" },
     { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "ftfy" },
-    { name = "fvcore" },
     { name = "gpustat" },
-    { name = "imageio" },
     { name = "justext" },
-    { name = "librosa" },
     { name = "lxml" },
     { name = "mwparserfromhell" },
     { name = "nemo-toolkit", extra = ["asr"] },
-    { name = "numpy" },
     { name = "nvidia-dali-cuda120" },
     { name = "nx-cugraph-cu12" },
-    { name = "open-clip-torch" },
     { name = "opencv-python" },
-    { name = "pandas" },
     { name = "peft" },
-    { name = "pillow" },
-    { name = "psutil" },
     { name = "pycld2" },
     { name = "pycuda" },
     { name = "pylibraft-cu12" },
     { name = "pynvml" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyyaml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
     { name = "resiliparse" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "sentencepiece" },
-    { name = "soundfile" },
-    { name = "termcolor" },
-    { name = "timm" },
     { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
     { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -3640,11 +3555,8 @@ all = [
     { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
     { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm" },
     { name = "trafilatura" },
-    { name = "transformers" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "wandb" },
     { name = "warcio" },
 ]
 audio-cpu = [
@@ -3679,39 +3591,6 @@ image-cuda12 = [
     { name = "pynvml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
-]
-internvideo2 = [
-    { name = "av" },
-    { name = "deepspeed" },
-    { name = "einops" },
-    { name = "fvcore" },
-    { name = "imageio" },
-    { name = "librosa" },
-    { name = "numpy" },
-    { name = "open-clip-torch" },
-    { name = "opencv-python" },
-    { name = "pandas" },
-    { name = "peft" },
-    { name = "pillow" },
-    { name = "psutil" },
-    { name = "pyyaml" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "soundfile" },
-    { name = "termcolor" },
-    { name = "timm" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchaudio", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm" },
-    { name = "transformers" },
-    { name = "wandb" },
 ]
 text-cpu = [
     { name = "beautifulsoup4" },
@@ -3752,65 +3631,24 @@ text-cuda12 = [
 ]
 video-cpu = [
     { name = "av" },
-    { name = "deepspeed" },
     { name = "easydict" },
     { name = "einops" },
-    { name = "fvcore" },
-    { name = "imageio" },
-    { name = "librosa" },
-    { name = "numpy" },
-    { name = "open-clip-torch" },
     { name = "opencv-python" },
-    { name = "pandas" },
-    { name = "peft" },
-    { name = "pillow" },
-    { name = "psutil" },
-    { name = "pyyaml" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "soundfile" },
-    { name = "termcolor" },
-    { name = "timm" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchaudio", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
     { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm" },
-    { name = "transformers" },
-    { name = "wandb" },
 ]
 video-cuda12 = [
     { name = "av" },
     { name = "cvcuda-cu12" },
-    { name = "deepspeed" },
     { name = "easydict" },
     { name = "einops" },
     { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "fvcore" },
     { name = "gpustat" },
-    { name = "imageio" },
-    { name = "librosa" },
-    { name = "numpy" },
-    { name = "open-clip-torch" },
     { name = "opencv-python" },
-    { name = "pandas" },
-    { name = "peft" },
-    { name = "pillow" },
-    { name = "psutil" },
     { name = "pycuda" },
     { name = "pynvml" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "pyyaml" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.16.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "soundfile" },
-    { name = "termcolor" },
-    { name = "timm" },
     { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
     { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -3820,10 +3658,7 @@ video-cuda12 = [
     { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
     { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm" },
-    { name = "transformers" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "wandb" },
 ]
 
 [package.dev-dependencies]
@@ -3851,7 +3686,6 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "absl-py", specifier = ">=2.0.0,<3.0.0" },
-    { name = "av", marker = "extra == 'internvideo2'", specifier = ">=13.0.0" },
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
     { name = "comment-parser" },
@@ -3860,20 +3694,15 @@ requires-dist = [
     { name = "cugraph-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'" },
-    { name = "deepspeed", marker = "extra == 'internvideo2'", specifier = ">=0.15.1" },
     { name = "easydict", marker = "extra == 'video-cpu'" },
-    { name = "einops", marker = "extra == 'internvideo2'", specifier = ">=0.8.0" },
     { name = "einops", marker = "extra == 'video-cpu'" },
     { name = "fasttext", marker = "extra == 'text-cpu'", specifier = "==0.9.3" },
     { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "<=2.8.3" },
     { name = "fsspec" },
     { name = "ftfy", marker = "extra == 'text-cpu'", specifier = "==6.1.1" },
-    { name = "fvcore", marker = "extra == 'internvideo2'", specifier = ">=0.1.5.post20221221" },
     { name = "gpustat", marker = "extra == 'cuda12'" },
-    { name = "imageio", marker = "extra == 'internvideo2'", specifier = ">=2.35.1" },
     { name = "jieba", specifier = "==0.42.1" },
     { name = "justext", marker = "extra == 'text-cpu'" },
-    { name = "librosa", marker = "extra == 'internvideo2'", specifier = ">=0.10.2.post1" },
     { name = "loguru" },
     { name = "lxml", marker = "extra == 'text-cpu'" },
     { name = "mecab-python3" },
@@ -3887,63 +3716,41 @@ requires-dist = [
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["image-cuda12"], marker = "extra == 'all'" },
-    { name = "nemo-curator", extras = ["internvideo2"], marker = "extra == 'video-cpu'" },
     { name = "nemo-curator", extras = ["text-cpu"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["video-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-cpu'" },
-    { name = "numpy", marker = "extra == 'internvideo2'", specifier = ">=1.26.4,<2.0.0" },
     { name = "nvidia-dali-cuda120", marker = "extra == 'image-cuda12'" },
     { name = "nx-cugraph-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
-    { name = "open-clip-torch", marker = "extra == 'internvideo2'", specifier = ">=2.26.1" },
-    { name = "opencv-python", marker = "extra == 'internvideo2'", specifier = ">=4.10.0.84" },
     { name = "opencv-python", marker = "extra == 'video-cpu'" },
     { name = "pandas", specifier = ">=2.1.0" },
-    { name = "pandas", marker = "extra == 'internvideo2'", specifier = ">=2.2.3" },
-    { name = "peft", marker = "extra == 'internvideo2'", specifier = ">=0.13.0" },
     { name = "peft", marker = "extra == 'text-cpu'" },
-    { name = "pillow", marker = "extra == 'internvideo2'", specifier = ">=10.4.0" },
-    { name = "psutil", marker = "extra == 'internvideo2'", specifier = ">=6.0.0" },
     { name = "pyarrow" },
     { name = "pycld2", marker = "extra == 'text-cpu'" },
     { name = "pycuda", marker = "extra == 'video-cuda12'" },
     { name = "pylibraft-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "pynvml", marker = "extra == 'cuda12'" },
     { name = "pynvvideocodec", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==2.0.2" },
-    { name = "pyyaml", marker = "extra == 'internvideo2'", specifier = ">=6.0.2" },
     { name = "raft-dask-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "rapidsmpf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "ray", extras = ["data", "default"], specifier = ">=2.49" },
     { name = "resiliparse", marker = "extra == 'text-cpu'" },
-    { name = "scipy", marker = "extra == 'internvideo2'", specifier = ">=1.14.1" },
     { name = "sentencepiece", marker = "extra == 'text-cpu'" },
-    { name = "soundfile", marker = "extra == 'internvideo2'", specifier = ">=0.12.1" },
-    { name = "termcolor", marker = "extra == 'internvideo2'", specifier = ">=2.4.0" },
-    { name = "timm", marker = "extra == 'internvideo2'", specifier = ">=1.0.9" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'internvideo2'", specifier = ">=2.4.1", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "<=2.8.0", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'internvideo2') or (sys_platform == 'darwin' and extra == 'internvideo2')", specifier = ">=2.4.1", index = "https://pypi.org/simple" },
     { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
-    { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'internvideo2'", specifier = ">=2.4.1", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'internvideo2') or (sys_platform == 'darwin' and extra == 'internvideo2')", specifier = ">=2.4.1", index = "https://pypi.org/simple" },
     { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", index = "https://pypi.org/simple" },
-    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'internvideo2'", specifier = ">=0.19.1", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cpu'", index = "https://download.pytorch.org/whl/cu128" },
-    { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'internvideo2') or (sys_platform == 'darwin' and extra == 'internvideo2')", specifier = ">=0.19.1", index = "https://pypi.org/simple" },
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video-cpu') or (sys_platform == 'darwin' and extra == 'video-cpu')", index = "https://pypi.org/simple" },
-    { name = "tqdm", marker = "extra == 'internvideo2'", specifier = ">=4.66.5" },
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
     { name = "transformers", specifier = "==4.55.2" },
-    { name = "transformers", marker = "extra == 'internvideo2'", specifier = "==4.55.2" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==0.10.2" },
-    { name = "wandb", marker = "extra == 'internvideo2'", specifier = ">=0.18.3" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
-provides-extras = ["cuda12", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "internvideo2", "video-cpu", "video-cuda12", "all"]
+provides-extras = ["cuda12", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -4092,24 +3899,17 @@ version = "1.13.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/43/73/79a0b22fc731989c708068427579e840a6cf4e937fe7ae5c5d0b7356ac22/ninja-1.13.0.tar.gz", hash = "sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978", size = 242558, upload-time = "2025-08-11T15:10:19.421Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3c/74/d02409ed2aa865e051b7edda22ad416a39d81a84980f544f8de717cab133/ninja-1.13.0-py3-none-macosx_10_9_universal2.whl", hash = "sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1", size = 310125, upload-time = "2025-08-11T15:09:50.971Z" },
-    { url = "https://files.pythonhosted.org/packages/8e/de/6e1cd6b84b412ac1ef327b76f0641aeb5dcc01e9d3f9eee0286d0c34fd93/ninja-1.13.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:3d00c692fb717fd511abeb44b8c5d00340c36938c12d6538ba989fe764e79630", size = 177467, upload-time = "2025-08-11T15:09:52.767Z" },
-    { url = "https://files.pythonhosted.org/packages/c8/83/49320fb6e58ae3c079381e333575fdbcf1cca3506ee160a2dcce775046fa/ninja-1.13.0-py3-none-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:be7f478ff9f96a128b599a964fc60a6a87b9fa332ee1bd44fa243ac88d50291c", size = 187834, upload-time = "2025-08-11T15:09:54.115Z" },
     { url = "https://files.pythonhosted.org/packages/56/c7/ba22748fb59f7f896b609cd3e568d28a0a367a6d953c24c461fe04fc4433/ninja-1.13.0-py3-none-manylinux2014_ppc64le.manylinux_2_17_ppc64le.whl", hash = "sha256:60056592cf495e9a6a4bea3cd178903056ecb0943e4de45a2ea825edb6dc8d3e", size = 202736, upload-time = "2025-08-11T15:09:55.745Z" },
     { url = "https://files.pythonhosted.org/packages/79/22/d1de07632b78ac8e6b785f41fa9aad7a978ec8c0a1bf15772def36d77aac/ninja-1.13.0-py3-none-manylinux2014_s390x.manylinux_2_17_s390x.whl", hash = "sha256:1c97223cdda0417f414bf864cfb73b72d8777e57ebb279c5f6de368de0062988", size = 179034, upload-time = "2025-08-11T15:09:57.394Z" },
     { url = "https://files.pythonhosted.org/packages/ed/de/0e6edf44d6a04dabd0318a519125ed0415ce437ad5a1ec9b9be03d9048cf/ninja-1.13.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa", size = 180716, upload-time = "2025-08-11T15:09:58.696Z" },
     { url = "https://files.pythonhosted.org/packages/54/28/938b562f9057aaa4d6bfbeaa05e81899a47aebb3ba6751e36c027a7f5ff7/ninja-1.13.0-py3-none-manylinux_2_28_armv7l.manylinux_2_31_armv7l.whl", hash = "sha256:4be9c1b082d244b1ad7ef41eb8ab088aae8c109a9f3f0b3e56a252d3e00f42c1", size = 146843, upload-time = "2025-08-11T15:10:00.046Z" },
     { url = "https://files.pythonhosted.org/packages/2a/fb/d06a3838de4f8ab866e44ee52a797b5491df823901c54943b2adb0389fbb/ninja-1.13.0-py3-none-manylinux_2_31_riscv64.whl", hash = "sha256:6739d3352073341ad284246f81339a384eec091d9851a886dfa5b00a6d48b3e2", size = 154402, upload-time = "2025-08-11T15:10:01.657Z" },
-    { url = "https://files.pythonhosted.org/packages/31/bf/0d7808af695ceddc763cf251b84a9892cd7f51622dc8b4c89d5012779f06/ninja-1.13.0-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:11be2d22027bde06f14c343f01d31446747dbb51e72d00decca2eb99be911e2f", size = 552388, upload-time = "2025-08-11T15:10:03.349Z" },
     { url = "https://files.pythonhosted.org/packages/9d/70/c99d0c2c809f992752453cce312848abb3b1607e56d4cd1b6cded317351a/ninja-1.13.0-py3-none-musllinux_1_2_armv7l.whl", hash = "sha256:aa45b4037b313c2f698bc13306239b8b93b4680eb47e287773156ac9e9304714", size = 472501, upload-time = "2025-08-11T15:10:04.735Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/43/c217b1153f0e499652f5e0766da8523ce3480f0a951039c7af115e224d55/ninja-1.13.0-py3-none-musllinux_1_2_i686.whl", hash = "sha256:5f8e1e8a1a30835eeb51db05cf5a67151ad37542f5a4af2a438e9490915e5b72", size = 638280, upload-time = "2025-08-11T15:10:06.512Z" },
     { url = "https://files.pythonhosted.org/packages/8c/45/9151bba2c8d0ae2b6260f71696330590de5850e5574b7b5694dce6023e20/ninja-1.13.0-py3-none-musllinux_1_2_ppc64le.whl", hash = "sha256:3d7d7779d12cb20c6d054c61b702139fd23a7a964ec8f2c823f1ab1b084150db", size = 642420, upload-time = "2025-08-11T15:10:08.35Z" },
     { url = "https://files.pythonhosted.org/packages/3c/fb/95752eb635bb8ad27d101d71bef15bc63049de23f299e312878fc21cb2da/ninja-1.13.0-py3-none-musllinux_1_2_riscv64.whl", hash = "sha256:d741a5e6754e0bda767e3274a0f0deeef4807f1fec6c0d7921a0244018926ae5", size = 585106, upload-time = "2025-08-11T15:10:09.818Z" },
     { url = "https://files.pythonhosted.org/packages/c1/31/aa56a1a286703800c0cbe39fb4e82811c277772dc8cd084f442dd8e2938a/ninja-1.13.0-py3-none-musllinux_1_2_s390x.whl", hash = "sha256:e8bad11f8a00b64137e9b315b137d8bb6cbf3086fbdc43bf1f90fd33324d2e96", size = 707138, upload-time = "2025-08-11T15:10:11.366Z" },
     { url = "https://files.pythonhosted.org/packages/34/6f/5f5a54a1041af945130abdb2b8529cbef0cdcbbf9bcf3f4195378319d29a/ninja-1.13.0-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:b4f2a072db3c0f944c32793e91532d8948d20d9ab83da9c0c7c15b5768072200", size = 581758, upload-time = "2025-08-11T15:10:13.295Z" },
-    { url = "https://files.pythonhosted.org/packages/95/97/51359c77527d45943fe7a94d00a3843b81162e6c4244b3579fe8fc54cb9c/ninja-1.13.0-py3-none-win32.whl", hash = "sha256:8cfbb80b4a53456ae8a39f90ae3d7a2129f45ea164f43fadfa15dc38c4aef1c9", size = 267201, upload-time = "2025-08-11T15:10:15.158Z" },
     { url = "https://files.pythonhosted.org/packages/29/45/c0adfbfb0b5895aa18cec400c535b4f7ff3e52536e0403602fc1a23f7de9/ninja-1.13.0-py3-none-win_amd64.whl", hash = "sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e", size = 309975, upload-time = "2025-08-11T15:10:16.697Z" },
-    { url = "https://files.pythonhosted.org/packages/df/93/a7b983643d1253bb223234b5b226e69de6cda02b76cdca7770f684b795f5/ninja-1.13.0-py3-none-win_arm64.whl", hash = "sha256:3c0b40b1f0bba764644385319028650087b4c1b18cdfa6f45cb39a3669b81aa9", size = 290806, upload-time = "2025-08-11T15:10:18.018Z" },
 ]
 
 [[package]]
@@ -4997,29 +4797,6 @@ wheels = [
 ]
 
 [[package]]
-name = "open-clip-torch"
-version = "3.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "ftfy" },
-    { name = "huggingface-hub" },
-    { name = "regex" },
-    { name = "safetensors" },
-    { name = "timm" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/69/0e/e7136a8c9eca3716598678dae28daf3f34b5995daaf3431e13c531da89ba/open_clip_torch-3.1.0.tar.gz", hash = "sha256:08b94ee31cb7dc3aadd8334a72458d171353b1bd5b0e71b14e3072ade3f37805", size = 1502455, upload-time = "2025-08-06T14:48:40.547Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/39/6e28710af2088a1822991c3541badd24fc51eb3f2fc1238f41e160ef9d64/open_clip_torch-3.1.0-py3-none-any.whl", hash = "sha256:c8bf8936fb26b65f6bda55b21925a0688e879bb4f7b82f8f6b87d45fe43afac9", size = 1544117, upload-time = "2025-08-06T14:48:38.776Z" },
-]
-
-[[package]]
 name = "openai"
 version = "1.107.3"
 source = { registry = "https://pypi.org/simple" }
@@ -5410,18 +5187,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c6/77/b3d3e00c696c16cf99af81ef7b1f5fe73bd2a307abca41bd7605429fe6e5/pooch-1.8.2.tar.gz", hash = "sha256:76561f0de68a01da4df6af38e9955c4c9d1a5c90da73f7e40276a5728ec83d10", size = 59353, upload-time = "2024-06-06T16:53:46.224Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/87/77cc11c7a9ea9fd05503def69e3d18605852cd0d4b0d3b8f15bbeb3ef1d1/pooch-1.8.2-py3-none-any.whl", hash = "sha256:3529a57096f7198778a5ceefd5ac3ef0e4d06a6ddaf9fc2d609b806f25302c47", size = 64574, upload-time = "2024-06-06T16:53:44.343Z" },
-]
-
-[[package]]
-name = "portalocker"
-version = "3.2.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/77/65b857a69ed876e1951e88aaba60f5ce6120c33703f7cb61a3c894b8c1b6/portalocker-3.2.0.tar.gz", hash = "sha256:1f3002956a54a8c3730586c5c77bf18fae4149e07eaf1c29fc3faf4d5a3f89ac", size = 95644, upload-time = "2025-06-14T13:20:40.03Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4b/a6/38c8e2f318bf67d338f4d629e93b0b4b9af331f455f0390ea8ce4a099b26/portalocker-3.2.0-py3-none-any.whl", hash = "sha256:3cdc5f565312224bc570c49337bd21428bba0ef363bbcf58b9ef4a9f11779968", size = 22424, upload-time = "2025-06-14T13:20:38.083Z" },
 ]
 
 [[package]]
@@ -7544,26 +7309,6 @@ wheels = [
 ]
 
 [[package]]
-name = "timm"
-version = "1.0.19"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "huggingface-hub" },
-    { name = "pyyaml" },
-    { name = "safetensors" },
-    { name = "torch", version = "2.7.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
-    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1c/78/0789838cf20ba1cc09907914a008c1823d087132b48aa1ccde5e7934175a/timm-1.0.19.tar.gz", hash = "sha256:6e71e1f67ac80c229d3a78ca58347090514c508aeba8f2e2eb5289eda86e9f43", size = 2353261, upload-time = "2025-07-24T03:04:05.281Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/dc/74/661c63260cccf19ed5932e8b3f22f95ecd8bb34b9d9e6af9e1e7b961f254/timm-1.0.19-py3-none-any.whl", hash = "sha256:c07b56c32f3d3226c656f75c1b5479c08eb34eefed927c82fd8751a852f47931", size = 2497950, upload-time = "2025-07-24T03:04:03.097Z" },
-]
-
-[[package]]
 name = "tld"
 version = "0.13.1"
 source = { registry = "https://pypi.org/simple" }
@@ -8561,18 +8306,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/0f/f8/f6c61fd794229cc3848d144f73754a0c107854372d7261419dcbbd286299/xxhash-3.5.0-pp310-pypy310_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4e2febf914ace002132aa09169cc572e0d8959d0f305f93d5828c4836f9bc5a6", size = 32020, upload-time = "2024-08-17T09:20:13.537Z" },
     { url = "https://files.pythonhosted.org/packages/79/d3/c029c99801526f859e6b38d34ab87c08993bf3dcea34b11275775001638a/xxhash-3.5.0-pp310-pypy310_pp73-manylinux_2_5_i686.manylinux1_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:5d3a10609c51da2a1c0ea0293fc3968ca0a18bd73838455b5bca3069d7f8e32b", size = 40515, upload-time = "2024-08-17T09:20:14.669Z" },
     { url = "https://files.pythonhosted.org/packages/62/e3/bef7b82c1997579c94de9ac5ea7626d01ae5858aa22bf4fcb38bf220cb3e/xxhash-3.5.0-pp310-pypy310_pp73-win_amd64.whl", hash = "sha256:5a74f23335b9689b66eb6dbe2a931a88fcd7a4c2cc4b1cb0edba8ce381c7a1da", size = 30064, upload-time = "2024-08-17T09:20:15.925Z" },
-]
-
-[[package]]
-name = "yacs"
-version = "0.1.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/44/3e/4a45cb0738da6565f134c01d82ba291c746551b5bc82e781ec876eb20909/yacs-0.1.8.tar.gz", hash = "sha256:efc4c732942b3103bea904ee89af98bcd27d01f0ac12d8d4d369f1e7a2914384", size = 11100, upload-time = "2020-08-10T16:37:47.755Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/4f/fe9a4d472aa867878ce3bb7efb16654c5d63672b86dc0e6e953a67018433/yacs-0.1.8-py3-none-any.whl", hash = "sha256:99f893e30497a4b66842821bac316386f7bd5c4f47ad35c9073ef089aa33af32", size = 14747, upload-time = "2020-08-10T16:37:46.4Z" },
 ]
 
 [[package]]

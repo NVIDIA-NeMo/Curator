@@ -64,10 +64,21 @@ RUN bash install_ffmpeg.sh && \
 
 FROM nemo_curator_dep AS nemo_curator
 
+ARG INTERN_VIDEO_COMMIT=09d872e5093296c6f36b8b3a91fc511b76433bf7
+COPY external/intern_video2_multimodal.patch .
+# Clone InternVideo (Video curation dependency)
+RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
+    cd InternVideo && \
+    git checkout ${INTERN_VIDEO_COMMIT} && \
+    patch -p1 < /opt/intern_video2_multimodal.patch && \
+    rm /opt/intern_video2_multimodal.patch
+
+# Install Curator
 COPY . /opt/Curator
 RUN cd /opt/Curator && \
   uv sync --locked --only-group build && \
-  uv sync --link-mode copy --locked --extra all --all-groups
+  uv sync --link-mode copy --locked --extra all --all-groups && \
+  uv add /opt/InternVideo/InternVideo2/multi_modality
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
