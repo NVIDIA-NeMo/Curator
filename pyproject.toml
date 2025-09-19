@@ -193,7 +193,9 @@ constraint-dependencies = [
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
+    "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
+    "levenshtein;  sys_platform == 'never'",
 ]
 
 
