@@ -95,12 +95,11 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
         file_extension = self.get_file_extension()
         file_path = self.fs.sep.join([self._fs_path, f"{filename}.{file_extension}"])
 
-        # Skip if file already exists (idempotent writes)
         if self.fs.exists(file_path):
-            logger.debug(f"File {file_path} already exists, skipping")
-        else:
-            self.write_data(task, file_path)
-            logger.debug(f"Written {task.num_items} records to {file_path}")
+            logger.debug(f"File {file_path} already exists, overwriting it")
+
+        self.write_data(task, file_path)
+        logger.debug(f"Written {task.num_items} records to {file_path}")
 
         # Create FileGroupTask with written files
         return FileGroupTask(
