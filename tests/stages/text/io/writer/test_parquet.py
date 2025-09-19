@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import time
 import uuid
 from unittest import mock
 
@@ -210,3 +211,43 @@ class TestParquetWriter:
         assert len(result._stage_perf) >= len(pandas_document_batch._stage_perf)
         for original_perf in pandas_document_batch._stage_perf:
             assert original_perf in result._stage_perf, "Original stage performance should be preserved"
+
+    @pytest.mark.parametrize("consistent_filename", [True, False])
+    def test_jsonl_writer_overwrites_existing_file(
+        self,
+        pandas_document_batch: DocumentBatch,
+        consistent_filename: bool,
+        tmpdir: str,
+    ):
+        """Test that ParquetWriter overwrites existing files when writing to the same path."""
+        # Create writer with specific output directory for this test
+        output_dir = os.path.join(tmpdir, f"jsonl_{pandas_document_batch.task_id}")
+        writer = ParquetWriter(path=output_dir)
+
+        # Setup
+        writer.setup()
+
+        # Process
+        if consistent_filename:
+            source_files = [f"file_{i}.jsonl" for i in range(len(pandas_document_batch.data))]
+            pandas_document_batch._metadata["source_files"] = source_files
+        # We write once
+        result1 = writer.process(pandas_document_batch)
+        filesize_1, file_modification_time_1 = os.path.getsize(result1.data[0]), os.path.getmtime(result1.data[0])
+        time.sleep(0.01)
+        # Then we overwrite it
+        result2 = writer.process(pandas_document_batch)
+        filesize_2, file_modification_time_2 = os.path.getsize(result2.data[0]), os.path.getmtime(result2.data[0])
+
+        if consistent_filename:
+            assert result1.data[0] == result2.data[0], "File path should be the same, since it'll be a hash"
+        else:
+            assert result1.data[0] != result2.data[0], "File path should be different, since it'll be a uuid"
+            # When using UUIDs, files are different, so no overwrite occurs
+
+        assert filesize_1 == filesize_2, "File size should be the same when written twice"
+        assert file_modification_time_1 < file_modification_time_2, (
+            "File modification time should be newer than the first write"
+        )
+
+        pd.testing.assert_frame_equal(pd.read_parquet(result1.data[0]), pd.read_parquet(result2.data[0]))
