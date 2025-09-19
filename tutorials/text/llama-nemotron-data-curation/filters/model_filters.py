@@ -310,7 +310,6 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _setup(self, local_files_only: bool = True) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_identifier,
-            use_fast=True,  # TODO: Test without this
             local_files_only=local_files_only,
             token=self.hf_token,
         )
