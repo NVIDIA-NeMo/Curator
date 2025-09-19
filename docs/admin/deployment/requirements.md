@@ -39,8 +39,7 @@ This page details the comprehensive system, hardware, and software requirements 
 ## Software Dependencies
 
 ### Core Dependencies
-- [Dask](https://docs.dask.org/en/stable/) for distributed computing
-- [dask-cuda](https://docs.rapids.ai/api/dask-cuda/stable/) for GPU-enabled clusters
+- [Ray](https://docs.ray.io/en/latest/) for distributed computing
 - RAPIDS libraries (cuDF, cuML, cuGraph) for GPU acceleration
 
 ### Container Support (Recommended)
@@ -51,7 +50,7 @@ This page details the comprehensive system, hardware, and software requirements 
 ### Cluster Management
 - **Kubernetes**: For Kubernetes deployment
   - [GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
-  - [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
+  - [Ray on Kubernetes](https://docs.ray.io/en/latest/cluster/kubernetes/index.html)
   - [kubectl](https://kubernetes.io/docs/tasks/tools) configured with cluster access
   - ReadWriteMany StorageClass for shared storage
 - **Slurm**: For Slurm deployment

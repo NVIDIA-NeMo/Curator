@@ -33,7 +33,7 @@ openai_client = OpenAI(
 Wrap the client with NeMo Curator's client wrapper:
 
 ```python
-from nemo_curator import OpenAIClient
+# Note: OpenAI client functionality may not be available in current version
 
 client = OpenAIClient(openai_client)
 ```
@@ -271,7 +271,7 @@ All customization techniques work with asynchronous generation for better perfor
 
 ```python
 from openai import AsyncOpenAI
-from nemo_curator import AsyncOpenAIClient
+# Note: AsyncOpenAI client functionality may not be available in current version
 from nemo_curator.synthetic import AsyncNemotronGenerator
 
 # Setup async client

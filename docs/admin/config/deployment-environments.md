@@ -13,8 +13,6 @@ modality: "universal"
 
 Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes. This guide focuses on deployment-specific settings and operational concerns.
 
-For technical API documentation and implementation details, see the [Infrastructure Reference](reference-infra-dist-computing).
-
 ```{tip}
 **Applying These Configurations**: This guide shows you how to configure NeMo Curator for different environments. To learn how to actually deploy and run NeMo Curator in these environments, see:
 - {doc}`Kubernetes Deployment <../deployment/kubernetes>`: Running on Kubernetes clusters
@@ -37,10 +35,8 @@ Basic configuration for single-machine development and testing.
 
 ```bash
 # Environment variables for local CPU development
-export DASK_CLUSTER_TYPE="cpu"
-export DASK_N_WORKERS="4"
-export DASK_THREADS_PER_WORKER="2"
-export DASK_MEMORY_LIMIT="4GB"
+export RAY_NUM_CPUS="4"
+export RAY_OBJECT_STORE_MEMORY="2000000000"  # 2GB
 export NEMO_CURATOR_LOG_LEVEL="INFO"
 export NEMO_CURATOR_CACHE_DIR="./cache"
 ```
@@ -51,8 +47,7 @@ export NEMO_CURATOR_CACHE_DIR="./cache"
 
 ```bash
 # Environment variables for local GPU development
-export DASK_CLUSTER_TYPE="gpu"
-export DASK_PROTOCOL="tcp"
+export RAY_NUM_GPUS="1"
 export RMM_WORKER_POOL_SIZE="4GB"
 export CUDF_SPILL="1"
 export NEMO_CURATOR_LOG_LEVEL="DEBUG"
@@ -121,8 +116,7 @@ kind: ConfigMap
 metadata:
   name: nemo-curator-config
 data:
-  DASK_CLUSTER_TYPE: "kubernetes"
-  PROTOCOL: "tcp"
+  RAY_ADDRESS: "ray://ray-head:10001"
   RMM_WORKER_POOL_SIZE: "16GB"
   CUDF_SPILL: "1"
   NEMO_CURATOR_LOG_LEVEL: "INFO"
@@ -154,7 +148,7 @@ data:
 
 ---
 
-## Dask Cluster Configuration
+## Ray Cluster Configuration
 
 ### Cluster Connection Methods
 
@@ -164,13 +158,15 @@ data:
 :sync: cluster-existing
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
 
-# Connect to existing scheduler
-client = get_client(scheduler_address="tcp://scheduler:8786")
+# Connect to existing Ray cluster
+ray.init(address="ray://head-node:10001")
 
-# Using scheduler file (common in Slurm)
-client = get_client(scheduler_file="/shared/scheduler.json")
+# Using environment variable
+import os
+os.environ["RAY_ADDRESS"] = "ray://head-node:10001"
+ray.init()
 ```
 :::
 
@@ -178,20 +174,13 @@ client = get_client(scheduler_file="/shared/scheduler.json")
 :sync: cluster-local
 
 ```python
+import ray
+
 # Create local CPU cluster
-client = get_client(
-    cluster_type="cpu",
-    n_workers=4,
-    threads_per_worker=2,
-    memory_limit="4GB"
-)
+ray.init(num_cpus=4, object_store_memory=4*1024*1024*1024)  # 4GB
 
 # Create local GPU cluster
-client = get_client(
-    cluster_type="gpu",
-    rmm_pool_size="8GB",
-    enable_spilling=True
-)
+ray.init(num_gpus=1, num_cpus=8)
 ```
 :::
 
@@ -199,29 +188,29 @@ client = get_client(
 
 ### Cluster Sizing Guidelines
 
-```{list-table} Recommended Cluster Configurations
+```{list-table} Recommended Ray Cluster Configurations
 :header-rows: 1
 :widths: 25 25 25 25
 
 * - Use Case
-  - Workers
-  - Memory per Worker
+  - CPUs/GPUs
+  - Object Store Memory
   - GPU Memory Pool
 * - Development
-  - 1-2
-  - 4-8 GB
+  - 2-4 CPUs or 1 GPU
+  - 2-4 GB
   - 2-4 GB
 * - Small Production
-  - 4-8
-  - 16-32 GB
+  - 8-16 CPUs or 2-4 GPUs
+  - 8-16 GB
   - 16-32 GB
 * - Large Production
-  - 16-64
-  - 32-128 GB
+  - 32-128 CPUs or 8-16 GPUs
+  - 32-64 GB
   - 64-90 GB
 * - Massive Scale
-  - 64+
-  - 128+ GB
+  - 128+ CPUs or 16+ GPUs
+  - 64+ GB
   - 80-90 GB
 ```
 
@@ -393,8 +382,8 @@ export LOGDIR="${SLURM_SUBMIT_DIR}/logs"
 export SCHEDULER_FILE="${LOGDIR}/scheduler.json"
 
 # Slurm-aware resource allocation
-export DASK_N_WORKERS="${SLURM_NTASKS}"
-export DASK_MEMORY_LIMIT="${SLURM_MEM_PER_NODE}MB"
+export RAY_NUM_CPUS="${SLURM_CPUS_PER_TASK}"
+export RAY_OBJECT_STORE_MEMORY="${SLURM_MEM_PER_NODE}MB"
 ```
 :::
 
@@ -405,10 +394,10 @@ export DASK_MEMORY_LIMIT="${SLURM_MEM_PER_NODE}MB"
 # Kubernetes pod integration
 export K8S_NAMESPACE="${MY_POD_NAMESPACE}"
 export K8S_POD_NAME="${MY_POD_NAME}"
-export DASK_SCHEDULER_ADDRESS="tcp://dask-scheduler:8786"
+export RAY_ADDRESS="ray://ray-head:10001"
 
 # Kubernetes resource limits
-export DASK_MEMORY_LIMIT="${MEMORY_LIMIT}"
+export RAY_OBJECT_STORE_MEMORY="${MEMORY_LIMIT}"
 export RMM_WORKER_POOL_SIZE="${GPU_MEMORY_LIMIT}"
 ```
 :::
@@ -425,13 +414,13 @@ export RMM_WORKER_POOL_SIZE="${GPU_MEMORY_LIMIT}"
 :sync: test-cluster
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
 
 # Test cluster connection
-client = get_client()
-print(f"✓ Connected to cluster: {client}")
-print(f"✓ Workers: {len(client.scheduler_info()['workers'])}")
-print(f"✓ Dashboard: {client.dashboard_link}")
+ray.init()
+print("✓ Connected to Ray cluster")
+print(f"✓ Cluster resources: {ray.cluster_resources()}")
+print(f"✓ Dashboard: {ray.get_dashboard_url()}")
 ```
 :::
 

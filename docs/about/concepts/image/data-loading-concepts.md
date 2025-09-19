@@ -51,20 +51,34 @@ NeMo Curator supports loading datasets from both local disk and cloud storage (S
 
 **Example:**
 ```python
-from nemo_curator.datasets import ImageTextPairDataset
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
 
-dataset = ImageTextPairDataset.from_webdataset(
-    path="/path/to/webdataset",  # or "s3://bucket/webdataset"
-    id_col="key"
-)
+# Create pipeline for loading
+pipeline = Pipeline(name="image_loading")
+
+# Partition tar files
+pipeline.add_stage(FilePartitioningStage(
+    file_paths="/path/to/webdataset",  # or "s3://bucket/webdataset"
+    files_per_partition=1,
+    file_extensions=[".tar"],
+))
+
+# Load images with DALI
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    num_gpus_per_worker=0.25,
+))
 ```
 
 ## DALI Integration for High-Performance Loading
 
-[NVIDIA DALI](https://docs.nvidia.com/deeplearning/dali/user-guide/docs/) is used for efficient, GPU-accelerated loading and preprocessing of images from WebDataset tar files. DALI enables:
-- Fast image decoding and augmentation on GPU
-- Efficient shuffling and batching
-- Support for large-scale, distributed workflows
+The `ImageReaderStage` uses [NVIDIA DALI](https://docs.nvidia.com/deeplearning/dali/user-guide/docs/) for efficient, GPU-accelerated loading and preprocessing of images from WebDataset tar files. DALI enables:
+- **GPU Acceleration:** Fast image decoding on GPU with automatic CPU fallback
+- **Batch Processing:** Efficient batching and streaming of image data
+- **WebDataset Native:** Built-in support for WebDataset tar format
+- **Memory Efficiency:** Streams images without loading entire datasets into memory
 
 ## Index Files
 
@@ -72,7 +86,7 @@ For large datasets, DALI can use `.idx` index files for each `.tar` to enable ev
 
 - **How to generate:** See [DALI documentation](https://docs.nvidia.com/deeplearning/dali/user-guide/docs/examples/general/data_loading/dataloading_webdataset.html#Creating-an-index)
 - **Naming:** Each index file must match its `.tar` file (e.g., `00000.tar` → `00000.idx`)
-- **Usage:** Set `use_index_files=True` in your embedder or loader.
+- **Usage:** The `ImageReaderStage` automatically uses index files when available alongside tar files.
 
 ## Best Practices and Troubleshooting
 - Use sharding to enable distributed and parallel processing.

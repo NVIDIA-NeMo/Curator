@@ -17,12 +17,12 @@ NeMo Curator provides classifiers for image curation, including aesthetic and NS
 
 Image classification in NeMo Curator typically follows these steps:
 
-1. Generate image embeddings for your dataset (for example, using `TimmImageEmbedder`)
-2. Select and configure an image classifier (for example, Aesthetic or NSFW)
-3. Apply the classifier to score or filter images based on the embeddings
-4. Save or further process the classified dataset
+1. Load images using `FilePartitioningStage` and `ImageReaderStage`
+2. Generate image embeddings using `ImageEmbeddingStage`
+3. Apply classification stages (for example, `ImageAestheticFilterStage` or `ImageNSFWFilterStage`)
+4. Continue with further processing stages or save results
 
-You can use built-in classifiers or implement your own for advanced use cases.
+Classification stages integrate seamlessly into NeMo Curator's pipeline architecture.
 
 ---
 
@@ -31,22 +31,22 @@ You can use built-in classifiers or implement your own for advanced use cases.
 ::::{grid} 1 2 2 2
 :gutter: 1 1 1 2
 
-::: {grid-item-card} Aesthetic Classifier
+::: {grid-item-card} Aesthetic Filter Stage
 :link: image-process-data-classifiers-aesthetic
 :link-type: ref
 
-Assess the subjective quality of images using a model trained on human aesthetic preferences. Useful for filtering or ranking images by visual appeal.
+Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images below a configurable aesthetic score threshold.
 +++
-{bdg-secondary}`Linear (MLP)` {bdg-secondary}`aesthetic_score`
+{bdg-secondary}`ImageAestheticFilterStage` {bdg-secondary}`aesthetic_score`
 :::
 
-::: {grid-item-card} NSFW Classifier
+::: {grid-item-card} NSFW Filter Stage
 :link: image-process-data-classifiers-nsfw
 :link-type: ref
 
-Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Helps remove or flag explicit material from your datasets.
+Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Filters images above a configurable NSFW probability threshold.
 +++
-{bdg-secondary}`MLP (CLIP-based)` {bdg-secondary}`nsfw_score`
+{bdg-secondary}`ImageNSFWFilterStage` {bdg-secondary}`nsfw_score`
 :::
 
 ::::

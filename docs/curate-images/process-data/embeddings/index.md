@@ -17,12 +17,12 @@ Generate image embeddings for large-scale datasets using NeMo Curator's built-in
 
 Image embedding in NeMo Curator typically follows these steps:
 
-1. Load your dataset using `ImageTextPairDataset`
-2. Select and configure an embedder (for example, `TimmImageEmbedder`)
-3. Apply the embedder to generate embeddings for each image
-4. Save the resulting dataset with embeddings for downstream use
+1. Load your dataset using `FilePartitioningStage` and `ImageReaderStage`
+2. Configure the `ImageEmbeddingStage` with CLIP model settings
+3. Apply the embedding stage to generate CLIP embeddings for each image
+4. Continue with downstream processing stages (filtering, classification, etc.)
 
-You can use built-in embedders or implement your own for advanced use cases.
+The embedding stage integrates seamlessly into NeMo Curator's pipeline architecture.
 
 ---
 
@@ -31,16 +31,16 @@ You can use built-in embedders or implement your own for advanced use cases.
 ::::{grid} 1 1 1 2
 :gutter: 2
 
-:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` TimmImageEmbedder
-:link: timm
+:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` ImageEmbeddingStage
+:link: clip-embedder
 :link-type: doc
-Use state-of-the-art models from the PyTorch Image Models (timm) library for embedding generation
+Generate CLIP embeddings using OpenAI's ViT-L/14 model for high-quality image representations
 :::
 
-:::{grid-item-card} {octicon}`terminal;1.5em;sd-mr-1` Custom ImageEmbedder
+:::{grid-item-card} {octicon}`terminal;1.5em;sd-mr-1` Custom Embedding Stage
 :link: custom
 :link-type: doc
-Implement your own image embedding logic by subclassing the base class
+Implement your own image embedding logic by subclassing the base ProcessingStage
 :::
 
 ::::
@@ -52,6 +52,6 @@ Implement your own image embedding logic by subclassing the base class
 :titlesonly:
 :hidden:
 
-TimmImageEmbedder <timm.md>
-Custom ImageEmbedder <custom.md>
+CLIP ImageEmbeddingStage <clip-embedder.md>
+Custom Embedding Stage <custom.md>
 ```

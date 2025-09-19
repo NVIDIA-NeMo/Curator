@@ -1,7 +1,7 @@
 ---
-description: "Deploy NeMo Curator on Kubernetes clusters using Dask Operator, GPU Operator, and PVC storage with complete setup and management guide"
+description: "Deploy NeMo Curator on Kubernetes clusters using Ray, GPU Operator, and PVC storage with complete setup and management guide"
 categories: ["how-to-guides"]
-tags: ["kubernetes", "dask-operator", "gpu-operator", "pvc-storage", "cluster-management", "deployment", "container"]
+tags: ["kubernetes", "ray", "gpu-operator", "pvc-storage", "cluster-management", "deployment", "container"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -15,7 +15,7 @@ modality: "universal"
 
 * Kubernetes cluster
     * [GPU operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
-    * [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
+    * [Ray on Kubernetes](https://docs.ray.io/en/latest/cluster/kubernetes/index.html)
 * [kubectl](https://kubernetes.io/docs/tasks/tools): the Kubernetes Cluster CLI
     * Please reach out to your Kubernetes cluster admin for how to set up your `kubectl` KUBECONFIG
 * [ReadWriteMany](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) [StorageClass](https://kubernetes.io/docs/concepts/storage/storage-classes/) (set up by Kubernetes cluster admin)
@@ -104,7 +104,7 @@ The environment to run the provided scripts in this example doesn't need the ful
 python3 -m venv venv
 source venv/bin/activate
 
-pip install 'dask_kubernetes>=2024.4.1'
+pip install 'ray[default]>=2.49'
 ```
 
 ```{seealso}
@@ -121,7 +121,7 @@ For details on NeMo Curator container environments and configurations, see [Cont
 
 * Kubernetes cluster
     * [GPU operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
-    * [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
+    * [Ray on Kubernetes](https://docs.ray.io/en/latest/cluster/kubernetes/index.html)
 * [kubectl](https://kubernetes.io/docs/tasks/tools): the Kubernetes Cluster CLI
     * Please reach out to your Kubernetes cluster admin for how to set up your `kubectl` KUBECONFIG
 * [ReadWriteMany](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) [StorageClass](https://kubernetes.io/docs/concepts/storage/storage-classes/) (set up by Kubernetes cluster admin)
@@ -210,7 +210,7 @@ The environment to run the provided scripts in this example doesn't need the ful
 python3 -m venv venv
 source venv/bin/activate
 
-pip install 'dask_kubernetes>=2024.4.1'
+pip install 'ray[default]>=2.49'
 ```
 
 ```{seealso}

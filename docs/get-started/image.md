@@ -9,6 +9,7 @@ modality: "image-only"
 ---
 
 (gs-image)=
+
 # Get Started with Image Curation
 
 This guide helps you set up and get started with NeMo Curator's image curation capabilities. Follow these steps to prepare your environment and run your first image curation pipeline.
@@ -43,6 +44,7 @@ Install the image modules from PyPI:
 ```bash
 pip install nemo-curator[image]
 ```
+
 :::
 
 :::{tab-item} Source Installation
@@ -54,6 +56,7 @@ git clone https://github.com/NVIDIA/NeMo-Curator.git
 cd NeMo-Curator
 pip install "./NeMo-Curator[image]"
 ```
+
 :::
 
 :::{tab-item} NeMo Curator Container
@@ -78,55 +81,136 @@ For details on container environments and configurations, see [Container Environ
 :::
 ::::
 
-## Download Default Configuration
+## Download Sample Configuration
 
-NeMo Curator provides example pipelines in the [Image Curation Tutorial Notebook](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image-curation/image-curation.ipynb). You can adapt the code there for your own datasets.
+NeMo Curator provides a working image curation example in the [Image Curation Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py). You can adapt this pipeline for your own datasets.
 
 ## Set Up Data Directory
 
-Create a directory to store your image datasets:
+Create directories to store your image datasets and models:
 
 ```bash
-mkdir -p ~/nemo_curator/data
+mkdir -p ~/nemo_curator/data/webdataset
+mkdir -p ~/nemo_curator/data/curated
+mkdir -p ~/nemo_curator/models
 ```
+
+For this example, you'll need:
+
+* **WebDataset**: Image-text pairs in WebDataset format (`.tar` files containing `.jpg`, `.txt`, and `.json` files)
+* **Model Directory**: CLIP and classifier model weights (downloaded automatically on first run)
 
 ## Basic Image Curation Example
 
 Here's a simple example to get started with NeMo Curator's image curation pipeline:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import ImageTextPairDataset
-from nemo_curator.image.embedders import TimmImageEmbedder
-from nemo_curator.image.classifiers import AestheticClassifier
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-# Path to your dataset (WebDataset format)
-dataset_path = "~/nemo_curator/data/mscoco/{00000..00001}.tar"  # Example pattern
-id_col = "key"
+# Create image curation pipeline
+pipeline = Pipeline(name="image_curation", description="Basic image curation with quality filtering")
 
-# Load the dataset
-image_dataset = ImageTextPairDataset.from_webdataset(dataset_path, id_col)
+# Stage 1: Partition WebDataset tar files for parallel processing
+pipeline.add_stage(FilePartitioningStage(
+    file_paths="~/nemo_curator/data/webdataset",  # Path to your WebDataset directory
+    files_per_partition=1,
+    file_extensions=[".tar"],
+))
 
-# Create image embeddings using a CLIP model
-embedding_model = TimmImageEmbedder(
-    "vit_large_patch14_clip_quickgelu_224.openai",
-    pretrained=True,
-    batch_size=1024,
-    num_threads_per_worker=16,
-    normalize_embeddings=True,
-    autocast=False,
-)
-image_dataset = embedding_model(image_dataset)
+# Stage 2: Read images from WebDataset tar files using DALI
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    verbose=True,
+    num_threads=16,
+    num_gpus_per_worker=0.25,
+))
 
-# Annotate with aesthetic scores
-aesthetic_classifier = AestheticClassifier()
-image_dataset = aesthetic_classifier(image_dataset)
+# Stage 3: Generate CLIP embeddings for images
+pipeline.add_stage(ImageEmbeddingStage(
+    model_dir="~/nemo_curator/models",  # Directory containing model weights
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    remove_image_data=False,
+    verbose=True,
+))
 
-# Filter images with aesthetic score > 6
-image_dataset.metadata["passes_aesthetic_check"] = image_dataset.metadata["aesthetic_score"] > 6
-image_dataset.to_webdataset("~/nemo_curator/data/curated", filter_column="passes_aesthetic_check")
+# Stage 4: Filter by aesthetic quality (keep images with score >= 0.5)
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir="~/nemo_curator/models",
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
+
+# Stage 5: Filter NSFW content (remove images with score >= 0.5)
+pipeline.add_stage(ImageNSFWFilterStage(
+    model_dir="~/nemo_curator/models",
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+    verbose=True,
+))
+
+# Stage 6: Save curated images to new WebDataset
+pipeline.add_stage(ImageWriterStage(
+    output_dir="~/nemo_curator/data/curated",
+    images_per_tar=1000,
+    remove_image_data=True,
+    verbose=True,
+))
+
+# Execute the pipeline
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+## Expected Output
+
+After running the pipeline, you'll have:
+
+```text
+~/nemo_curator/data/curated/
+├── 00000.tar              # Curated images (first shard)
+├── 00001.tar              # Curated images (second shard)
+├── ...                    # Additional shards as needed
+```
+
+Each output tar file contains:
+
+* **Images**: High-quality `.jpg` files that passed both aesthetic and NSFW filtering
+* **Metadata**: Corresponding `.txt` (captions) and `.json` (metadata with scores) files
+* **Scores**: Each image has `aesthetic_score` and `nsfw_score` in its metadata
+
+## Alternative: Using the Complete Tutorial
+
+For a more comprehensive example with data download and more configuration options, see:
+
+```bash
+# Download the complete tutorial
+wget -O ~/nemo_curator/image_curation_example.py https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/tutorials/image/getting-started/image_curation_example.py
+
+# Run with your data
+python ~/nemo_curator/image_curation_example.py \
+    --input-wds-dataset-dir ~/nemo_curator/data/webdataset \
+    --output-dataset-dir ~/nemo_curator/data/curated \
+    --model-dir ~/nemo_curator/models \
+    --aesthetic-threshold 0.5 \
+    --nsfw-threshold 0.5
 ```
 
 ## Next Steps
 
-Explore the [Image Curation documentation](image-overview).
+Explore the [Image Curation documentation](image-overview) for more advanced processing techniques:
+
+* **[WebDataset Loading](../curate-images/load-data/webdataset.md)** - Learn about data format and loading options
+* **[CLIP Embeddings](../curate-images/process-data/embeddings/clip-embedder.md)** - Understand embedding generation
+* **[Quality Filtering](../curate-images/process-data/classifiers/index.md)** - Advanced aesthetic and NSFW classification
+* **[Complete Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)** - Full working example with data download

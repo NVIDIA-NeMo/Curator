@@ -9,13 +9,14 @@ modality: "universal"
 ---
 
 (reference-infra-resumable-processing)=
+
 # Resumable Processing
 
-This guide explains how to implement resumable processing for large-scale data operations that may be interrupted.
+This guide explains strategies to make large-scale data operations resumable.
 
 ## Why Resumable Processing Matters
 
-When processing large datasets, operations can be interrupted due to:
+Large datasets can trigger interruptions due to:
 - System timeouts
 - Hardware failures
 - Network issues
@@ -24,55 +25,59 @@ When processing large datasets, operations can be interrupted due to:
 
 NeMo Curator provides built-in functionality for resuming operations from where they left off.
 
-## Key Utilities for Resumable Processing
+## Practical Patterns for Resumable Processing
 
-### 1. `get_remaining_files`
+### 1. Identify remaining files by comparing directories
 
-This function identifies files that haven't been processed yet:
+Use file listing utilities and deterministic output naming to skip already processed inputs:
 
 ```python
-from nemo_curator.utils.file_utils import get_remaining_files
+from nemo_curator.utils.file_utils import get_file_paths
 
-# Get only files that haven't been processed yet
-files = get_remaining_files("input_directory/", "output_directory/", "jsonl")
-dataset = DocumentDataset.read_json(files, add_filename=True)
+input_files = set(get_file_paths("input_directory/", recursive=True, extensions=[".jsonl"]))
+output_files = set(get_file_paths("output_directory/", recursive=True, extensions=[".jsonl"]))
 
-# Continue processing with unprocessed files only
-processed_dataset = my_processor(dataset)
-processed_dataset.to_json("output_directory/", write_to_filename=True)
+# Example: outputs mirror input filenames in the output directory
+def corresponding_output_path(input_path: str) -> str:
+    # Implement your mapping from input path to output path
+    ...
+
+remaining_inputs = [f for f in input_files if corresponding_output_path(f) not in output_files]
+
+# Process remaining inputs
+for chunk in chunk_list(remaining_inputs, chunk_size=64):
+    dataset = DocumentDataset.read_json(chunk, add_filename=True)
+    processed = my_processor(dataset)
+    processed.to_json("output_directory/", write_to_filename=True)
 ```
 
-### 2. `get_batched_files`
+### 2. Batch processing of remaining files
 
-This function returns an iterator that yields batches of unprocessed files:
+Chunk remaining files to control memory and checkpoint progress frequently:
 
 ```python
-from nemo_curator.utils.file_utils import get_batched_files
+def chunk_list(items: list[str], chunk_size: int) -> list[list[str]]:
+    return [items[i:i+chunk_size] for i in range(0, len(items), chunk_size)]
 
-# Process files in batches of 64
-for file_batch in get_batched_files("input_directory/", "output_directory/", "jsonl", batch_size=64):
+for file_batch in chunk_list(remaining_inputs, chunk_size=64):
     dataset = DocumentDataset.read_json(file_batch, add_filename=True)
-    
-    # Process batch
-    processed_batch = my_processor(dataset)
-    
-    # Write results for this batch
-    processed_batch.to_json("output_directory/", write_to_filename=True)
+    out = my_processor(dataset)
+    out.to_json("output_directory/", write_to_filename=True)
 ```
 
 ## How Resumable Processing Works
 
-The resumption system works by:
+The resumption approach works by:
 
 1. Examining filenames in the input directory
 2. Comparing them with filenames in the output directory
 3. Identifying files that exist in the input but not in the output directory
 4. Processing only those unprocessed files
 
-This approach requires:
-- Using `add_filename=True` when reading files
-- Using `write_to_filename=True` when writing files
-- Maintaining consistent filename patterns between input and output
+This approach works best when you:
+- Use `add_filename=True` when reading files
+- Use `write_to_filename=True` when writing files
+- Keep consistent filename patterns between input and output
 
 ## Best Practices for Resumable Processing
 
@@ -80,10 +85,10 @@ This approach requires:
 
 2. **Batch appropriately**: Choose batch sizes that balance memory usage and processing efficiency.
 
-3. **Use checkpointing**: For complex pipelines, consider writing intermediate results to disk.
+3. **Write checkpoints**: For complex pipelines, write intermediate results to disk.
 
-4. **Test resumability**: Verify that your process can resume correctly after simulated interruptions.
+4. **Test resume behavior**: Verify that your process resumes after simulated interruptions.
 
-5. **Monitor disk space**: Ensure sufficient storage for both input and output files.
+5. **Track disk space**: Ensure enough storage for input and output files.
 
 6. **Log progress**: Maintain logs of processed files to help diagnose issues.

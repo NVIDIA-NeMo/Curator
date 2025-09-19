@@ -19,58 +19,71 @@ This page covers the core concepts for saving and exporting curated image datase
 - Resharding WebDatasets
 - Preparing data for downstream training or analysis
 
-## Saving Metadata
+## Saving Results
 
-After processing, you can save the dataset's metadata (including embeddings, classifier scores, and other fields) to Parquet files for easy analysis or further processing.
-
-**Example:**
-```python
-# Save all metadata columns to the original path
-dataset.save_metadata()
-
-# Save only selected columns to a custom path
-dataset.save_metadata(path="/output/metadata", columns=["id", "aesthetic_score", "nsfw_score"])
-```
-- Parquet format is efficient and compatible with many analytics tools.
-- You can choose to save all or only specific columns.
-
-## Exporting Filtered Datasets
-
-To export a filtered version of your dataset (e.g., after removing low-quality or NSFW images), use the `to_webdataset` method. This writes new `.tar` and `.parquet` files containing only the filtered samples.
+After processing through the pipeline, you can save the curated images and metadata using the `ImageWriterStage`.
 
 **Example:**
 ```python
-# Filter your metadata (e.g., keep only high-quality images)
-filtered_col = (dataset.metadata["aesthetic_score"] > 0.5) & (dataset.metadata["nsfw_score"] < 0.2)
-dataset.metadata["keep"] = filtered_col
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-dataset.to_webdataset(
-    path="/output/filtered_webdataset",  # Output directory
-    filter_column="keep",                # Boolean column indicating which samples to keep
-    samples_per_shard=10000,              # Number of samples per tar shard
-    max_shards=5                         # Number of digits for shard IDs
-)
+# Add writer stage to pipeline
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/curated_dataset",
+    images_per_tar=1000,
+    remove_image_data=True,
+    verbose=True,
+))
 ```
-- The output directory will contain new `.tar` files (with images, captions, and metadata) and matching `.parquet` files for each shard.
-- Adjust `samples_per_shard` and `max_shards` to control sharding granularity and naming.
+- The writer stage creates new WebDataset tar files with curated images
+- Metadata (including scores) is preserved in the output structure
+- Configurable images per tar file for optimal sharding
+
+## Pipeline-Based Filtering
+
+Filtering happens automatically within the pipeline stages. Each filter stage (aesthetic, NSFW) removes images that don't meet the configured thresholds, so only curated images reach the final `ImageWriterStage`.
+
+**Example Pipeline Flow:**
+```python
+# Complete pipeline with filtering
+pipeline = Pipeline(name="image_curation")
+
+# Load images
+pipeline.add_stage(FilePartitioningStage(...))
+pipeline.add_stage(ImageReaderStage(...))
+
+# Generate embeddings
+pipeline.add_stage(ImageEmbeddingStage(...))
+
+# Filter by quality (removes low aesthetic scores)
+pipeline.add_stage(ImageAestheticFilterStage(score_threshold=0.5))
+
+# Filter NSFW content (removes high NSFW scores)  
+pipeline.add_stage(ImageNSFWFilterStage(score_threshold=0.5))
+
+# Save curated results
+pipeline.add_stage(ImageWriterStage(output_dir="/output/curated"))
+```
+- Filtering is built into the stages - no separate filtering step needed
+- Only images passing all filters reach the output
+- Thresholds are configurable per stage
 
 ## Resharding WebDatasets
 
-Resharding changes the number of samples per shard, which can optimize data loading or prepare data for specific workflows.
+Resharding is controlled by the `ImageWriterStage` parameters, which determine how many images are packed into each output tar file.
 
 **Example:**
 ```python
-# Reshard the dataset without filtering (keep all samples)
-dataset.metadata["keep"] = True
-
-dataset.to_webdataset(
-    path="/output/resharded_webdataset",
-    filter_column="keep",
-    samples_per_shard=20000,  # New shard size
-    max_shards=6
-)
+# Configure output sharding
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/resharded_dataset",
+    images_per_tar=5000,  # New shard size
+    remove_image_data=True,
+))
 ```
-- Use resharding to balance I/O, parallelism, and storage efficiency.
+- Adjust `images_per_tar` to balance I/O, parallelism, and storage efficiency
+- Smaller values create more files but enable better parallelism
+- Larger values reduce file count but may impact loading performance
 
 ## Preparing for Downstream Use
 - Ensure your exported dataset matches the requirements of your training or analysis pipeline.

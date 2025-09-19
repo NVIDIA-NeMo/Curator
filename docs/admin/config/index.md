@@ -13,8 +13,6 @@ modality: "universal"
 
 Configure NeMo Curator for your deployment environment including infrastructure settings, storage access, credentials, and environment variables. This section focuses on operational configuration for deployment and management.
 
-For technical API documentation and development guidance, see the [Infrastructure Reference](reference-infra-dist-computing).
-
 ---
 
 ## Configuration Areas

@@ -17,7 +17,7 @@ modality: "image-only"
 
 ## Introduction
 
-Master the fundamentals of NeMo Curator and set up your text processing environment.
+Master the fundamentals of NeMo Curator's image curation pipeline and set up your processing environment.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
@@ -25,7 +25,7 @@ Master the fundamentals of NeMo Curator and set up your text processing environm
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Concepts
 :link: about-concepts-image
 :link-type: ref
-Learn about DocumentDataset and other core data structures for efficient text curation
+Learn about ImageBatch, ImageObject, and pipeline stages for efficient image curation
 +++
 {bdg-secondary}`data-structures`
 {bdg-secondary}`distributed`
@@ -87,6 +87,35 @@ Apply built-in classifiers such as Aesthetic and NSFW to score, filter, and cura
 Generate image embeddings for your dataset using state-of-the-art models from the timm library or custom embedders. Embeddings enable downstream tasks such as classification, filtering, duplicate removal, and similarity search.
 +++
 {bdg-secondary}`timm` {bdg-secondary}`custom` {bdg-secondary}`embeddings`
+
+:::
+
+::::
+
+### Pipeline Management
+
+Optimize and manage your image curation pipelines with advanced execution backends and resource management.
+
+::::{grid} 1 1 1 2
+:gutter: 1 1 1 2
+
+:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Execution Backends
+:link: reference-execution-backends
+:link-type: ref
+
+Choose the optimal execution backend for your image curation workload. Ray-based executors provide automatic resource cleanup, actor pool management, and distributed processing for large-scale image datasets.
++++
+{bdg-secondary}`ray` {bdg-secondary}`distributed` {bdg-secondary}`resource-management`
+
+:::
+
+:::{grid-item-card} {octicon}`zap;1.5em;sd-mr-1` Performance Optimization
+:link: image-load-data-webdataset
+:link-type: ref
+
+Maximize throughput with DALI GPU acceleration, optimal batch sizing, and efficient resource allocation. Learn how to configure pipelines for different hardware setups and dataset sizes.
++++
+{bdg-secondary}`dali` {bdg-secondary}`gpu-acceleration` {bdg-secondary}`performance`
 
 :::
 

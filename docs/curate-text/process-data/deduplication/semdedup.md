@@ -37,16 +37,25 @@ The SemDeDup algorithm consists of the following main steps:
 
 ## Before You Start
 
-Before running semantic deduplication, ensure that each document in your dataset has a unique identifier. You can use the `AddId` module from NeMo Curator if needed:
+Before running semantic deduplication, ensure that each document in your dataset has a unique identifier. You can use the `AddId` stage from NeMo Curator if needed:
 
 ```python
-from nemo_curator import AddId
-from nemo_curator.datasets import DocumentDataset
+from nemo_curator.stages.text.modules import AddId
+from nemo_curator.pipeline import Pipeline
 
-# Add unique IDs to documents
-add_id = AddId(id_field="doc_id", id_field_type="int")
-dataset_with_ids = add_id(dataset)
+# Create pipeline with ID generation
+pipeline = Pipeline(name="add_ids_for_dedup")
+
+# Add ID generation stage
+pipeline.add_stage(
+    AddId(
+        id_field="doc_id",
+        id_prefix="corpus"  # Optional prefix for meaningful IDs
+    )
+)
 ```
+
+For more details on using `AddId`, refer to the {ref}`text-process-data-add-id` documentation.
 
 ## SemDedup Interface
 
@@ -80,7 +89,7 @@ deduplicated_dataset = sem_dedup(dataset)
 ## Quick Start
 
 ```python
-from nemo_curator import SemDedup, SemDedupConfig
+from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 from nemo_curator.datasets import DocumentDataset
 
 # Load your dataset (requires cudf backend for GPU acceleration)
@@ -213,7 +222,7 @@ We recommend experimenting with different threshold values to find the optimal b
 You can use the SemDedup class to perform all steps:
 
 ```python
-from nemo_curator import SemDedup, SemDedupConfig
+from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 import yaml
 
 # Load configuration from YAML file
@@ -259,7 +268,7 @@ This interface matches the behavior of other deduplication modules in NeMo Curat
 Embedding Creation:
 
 ```python
-from nemo_curator import EmbeddingCreator
+from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
 
 # Generate embeddings for each document
 embedding_creator = EmbeddingCreator(
@@ -275,7 +284,7 @@ embeddings_dataset = embedding_creator(dataset)
 Clustering:
 
 ```python
-from nemo_curator import ClusteringModel
+# Note: ClusteringModel functionality may be integrated into workflow classes
 
 # Cluster the embeddings
 clustering_model = ClusteringModel(
@@ -291,7 +300,7 @@ clustered_dataset = clustering_model(embeddings_dataset)
 Semantic Deduplication:
 
 ```python
-from nemo_curator import SemanticClusterLevelDedup
+from nemo_curator.stages.deduplication.semantic.workflow import SemanticDeduplicationWorkflow
 
 # Perform semantic deduplication
 semantic_dedup = SemanticClusterLevelDedup(
