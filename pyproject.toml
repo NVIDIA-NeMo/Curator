@@ -154,6 +154,7 @@ test = [
 
 [tool.uv]
 package = true
+managed = true
 default-groups = ["test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
