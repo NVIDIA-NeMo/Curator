@@ -18,12 +18,21 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
+import pytest
 import torch
 
-from nemo_curator.stages.video.embedding.internvideo2 import (
-    InternVideo2EmbeddingStage,
-    InternVideo2FrameCreationStage,
-)
+try:
+    from nemo_curator.stages.video.embedding.internvideo2 import (
+        InternVideo2EmbeddingStage,
+        InternVideo2FrameCreationStage,
+    )
+    INTERNVIDEO2_AVAILABLE = True
+except ImportError:
+    INTERNVIDEO2_AVAILABLE = False
+    # Create dummy classes for type hints
+    InternVideo2EmbeddingStage = None
+    InternVideo2FrameCreationStage = None
+
 from nemo_curator.tasks.video import Clip, Video, VideoTask
 
 # Create a random generator for consistent testing
@@ -33,6 +42,7 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
+@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestInternVideo2FrameCreationStage:
     """Test cases for InternVideo2FrameCreationStage class."""
 
@@ -236,6 +246,7 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
 
+@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestInternVideo2EmbeddingStage:
     """Test cases for InternVideo2EmbeddingStage class."""
 

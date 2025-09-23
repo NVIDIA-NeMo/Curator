@@ -21,14 +21,25 @@ import pytest
 import torch
 from easydict import EasyDict
 
-from nemo_curator.models.internvideo2_mm import (
-    BERT_MODEL_ID,
-    INTERNVIDEO2_MODEL_FILE,
-    INTERNVIDEO2_MODEL_ID,
-    InternVideo2MultiModality,
-    _InternVideo2Stage2Wrapper,
-    _setup_internvideo2,
-)
+try:
+    from nemo_curator.models.internvideo2_mm import (
+        BERT_MODEL_ID,
+        INTERNVIDEO2_MODEL_FILE,
+        INTERNVIDEO2_MODEL_ID,
+        InternVideo2MultiModality,
+        _InternVideo2Stage2Wrapper,
+        _setup_internvideo2,
+    )
+    INTERNVIDEO2_AVAILABLE = True
+except ImportError:
+    INTERNVIDEO2_AVAILABLE = False
+    # Create dummy values for type hints
+    BERT_MODEL_ID = None
+    INTERNVIDEO2_MODEL_FILE = None
+    INTERNVIDEO2_MODEL_ID = None
+    InternVideo2MultiModality = None
+    _InternVideo2Stage2Wrapper = None
+    _setup_internvideo2 = None
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)
@@ -37,6 +48,7 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
+@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestInternVideo2MultiModality:
     """Test cases for InternVideo2MultiModality model class."""
 
@@ -276,6 +288,7 @@ class TestInternVideo2MultiModality:
         mock_model_instance.predict_label.assert_called_once()
 
 
+@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestInternVideo2Stage2Wrapper:
     """Test cases for _InternVideo2Stage2Wrapper class."""
 
@@ -425,6 +438,7 @@ class TestInternVideo2Stage2Wrapper:
         assert result[1].shape == (1, 2)  # indices
 
 
+@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestHelperFunctions:
     """Test cases for helper functions."""
 
