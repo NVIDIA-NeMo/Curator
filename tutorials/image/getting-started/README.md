@@ -51,7 +51,7 @@ python -c "from huggingface_hub import snapshot_download; snapshot_download('ttj
 - **High-memory GPUs (80 GB+)** like H100, B200, or A100 80GB: Increase batch sizes for better performance (e.g., `--task-batch-size 500 --embedding-batch-size 500 --aesthetic-batch-size 500 --nsfw-batch-size 500`)
 - **Lower-memory GPUs (16 GB or less)**: Reduce batch sizes further (e.g., `--task-batch-size 16 --embedding-batch-size 16`)
 
-Run the image curation pipeline on GPUs (extracting embeddings, NSFW and aesthetics scores, filtering based on thresholds):
+Run the image curation pipeline on GPUs (extracting embeddings, NSFW and aesthetics scores, filtering based on thresholds) using the following commands. Users can set `--verbose` for progress information report during running the pipeline.
 
 ```bash
 python tutorials/image/getting-started/image_curation_example.py \
@@ -66,8 +66,7 @@ python tutorials/image/getting-started/image_curation_example.py \
     --nsfw-batch-size 32 \
     --aesthetic-threshold 0.9 \
     --nsfw-threshold 0.9 \
-    --images-per-tar 1000 \
-    --verbose
+    --images-per-tar 1000
 ```
 
 Run the image deduplication pipeline on GPUs (extracting embeddings, running semantic deduplication, removing duplicated samples):
@@ -82,6 +81,5 @@ python tutorials/image/getting-started/image_dedup_example.py \
     --task-batch-size 32 \
     --embedding-batch-size 32 \
     --tar-files-per-partition 10 \
-    --skip-download \
-    --verbose
+    --skip-download
 ```
