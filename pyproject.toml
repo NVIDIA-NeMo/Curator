@@ -68,7 +68,7 @@ deduplication_cuda12 = [
 ]
 
 audio_cpu = [
-    "nemo_toolkit[asr]",
+    "nemo_toolkit[asr]==2.4.0",
 ]
 audio_cuda12 = [
     "nemo_curator[audio_cpu]",
@@ -167,6 +167,7 @@ override-dependencies = [
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
+    "transformers==4.55.2",
 ]
 
 
