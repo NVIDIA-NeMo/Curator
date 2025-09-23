@@ -93,7 +93,7 @@ def main(args: argparse.Namespace) -> None:
 
     ray_client = RayClient()
     ray_client.start()
-    
+
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
     print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
