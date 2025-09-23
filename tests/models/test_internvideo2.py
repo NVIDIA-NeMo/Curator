@@ -26,12 +26,8 @@ try:
         InternVideo2EmbeddingStage,
         InternVideo2FrameCreationStage,
     )
-    INTERNVIDEO2_AVAILABLE = True
 except ImportError:
-    INTERNVIDEO2_AVAILABLE = False
-    # Create dummy classes for type hints
-    InternVideo2EmbeddingStage = None
-    InternVideo2FrameCreationStage = None
+    pytest.skip("InternVideo2 package not available", allow_module_level=True)
 
 from nemo_curator.tasks.video import Clip, Video, VideoTask
 
@@ -42,7 +38,6 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
-@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestInternVideo2FrameCreationStage:
     """Test cases for InternVideo2FrameCreationStage class."""
 
@@ -246,7 +241,6 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
 
-@pytest.mark.skipif(not INTERNVIDEO2_AVAILABLE, reason="InternVideo2 package not available")
 class TestInternVideo2EmbeddingStage:
     """Test cases for InternVideo2EmbeddingStage class."""
 
