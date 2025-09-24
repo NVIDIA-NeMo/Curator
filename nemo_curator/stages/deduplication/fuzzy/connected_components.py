@@ -59,7 +59,7 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         self.read_kwargs = read_kwargs if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
-        self._name = self.__class__.__name__
+        self._name = "connected_components_stage"
         self._resources = Resources(cpus=1.0, gpus=1.0)
         self._batch_size = None
 

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 from abc import ABC, ABCMeta, abstractmethod
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
@@ -29,6 +30,34 @@ X = TypeVar("X", bound=Task)  # Input task type
 Y = TypeVar("Y", bound=Task)  # Output task type
 
 _STAGE_REGISTRY: dict[str, type[ProcessingStage]] = {}
+
+
+def _validate_stage_name(name: str) -> None:
+    """Validate that stage name follows snake_case convention.
+
+    Args:
+        name: The stage name to validate
+
+    Raises:
+        ValueError: If stage name is not in snake_case format
+    """
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", name):
+        msg = f"Stage name must be snake_case, got '{name}'"
+        raise ValueError(msg)
+
+
+def _camel_to_snake(name: str) -> str:
+    """Convert CamelCase to snake_case.
+
+    Args:
+        name: The CamelCase string to convert
+
+    Returns:
+        The snake_case version of the input string
+    """
+    # Insert an underscore before any uppercase letter that follows a lowercase letter or digit
+    s1 = re.sub("([a-z0-9])([A-Z])", r"\1_\2", name)
+    return s1.lower()
 
 
 class StageMeta(ABCMeta):
@@ -80,7 +109,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     """
 
     _is_abstract_root = True  # prevent base from registering itself
-    _name = "ProcessingStage"
+    _name = "processing_stage"  # Changed to snake_case
     _resources = Resources(cpus=1.0)
     _batch_size = 1
 
@@ -251,6 +280,7 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         # Override the instance attributes directly
         if name is not None:
+            _validate_stage_name(name)  # Validate the new name
             new_instance._name = name
         if resources is not None:
             new_instance._resources = resources

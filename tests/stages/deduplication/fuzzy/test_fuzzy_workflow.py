@@ -245,11 +245,11 @@ class TestFuzzyDuplicates:
 
         workflow.run(initial_tasks=tasks)
 
-        assert not (cache_path / "ConnectedComponentsStage").exists()
-        assert not (cache_path / "BucketsToEdgesStage").exists()
+        assert not (cache_path / "connected_components_stage").exists()
+        assert not (cache_path / "buckets_to_edges_stage").exists()
         assert not (output_path / DUPLICATE_IDS_SUBDIR).exists()
 
-        lsh_df = cudf.read_parquet(cache_path / "LSHStage")
+        lsh_df = cudf.read_parquet(cache_path / "lsh_stage")
         assert len(lsh_df) == 0
 
     def test_bad_inputs(self, tmp_path: Path) -> None:
