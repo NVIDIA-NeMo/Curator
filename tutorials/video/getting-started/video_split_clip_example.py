@@ -283,7 +283,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
     parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
-    parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
+    parser.add_argument(
+        "--model-dir",
+        type=str,
+        default="./models",
+        help=(
+            "Path to model directory containing required model weights. "
+            "Models will be automatically downloaded on first use if not present. "
+            "Required models depend on selected algorithms:\n"
+            "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
+            "  - InternVideo2: For embeddings (--embedding-algorithm internvideo2)\n"
+            "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
+            "  - Qwen: For captioning (--generate-captions)\n"
+            "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
+            "Default: ./models\n"
+            "Example: --model-dir /path/to/models or --model-dir ./models"
+        )
+    )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
@@ -487,7 +503,7 @@ if __name__ == "__main__":
         "--clip-extraction-target-res",
         type=int,
         default=-1,
-        help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
+        help="Target resolution for clip extraction as a square (height=width). A value of -1 disables resize",
     )
     # Aesthetic arguments
     parser.add_argument(
