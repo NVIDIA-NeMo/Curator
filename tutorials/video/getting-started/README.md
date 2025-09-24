@@ -4,7 +4,6 @@ The Python scripts in this directory contain examples for how to run video curat
 
 ## Scripts Overview
 
-- **`video_read_example.py`**: Simple pipeline that reads video data and extracts metadata
 - **`video_split_clip_example.py`**: Complete pipeline that reads videos, splits into clips, transcodes, filters, generates embeddings/captions, and saves results
 
 ## Quick Start
@@ -55,6 +54,10 @@ python video_split_clip_example.py \
   --verbose
 ```
 This example demonstrates a more advanced workflow than the minimal example by using scene-aware splitting with the TransNetV2 algorithm (which detects scene boundaries instead of fixed intervals), applies the InternVideo2 embedding model to each clip, transcodes the output using the libopenh264 encoder, and enables verbose logging for more detailed output.
+
+**Note: Choosing Between InternVideo2 and Cosmos-Embed1 for Embeddings**
+
+Cosmos-Embed1 is generally better than InternVideo2 for most video embedding tasks, offering improved performance and quality. However, the optimal choice can vary depending on your specific use case and requirements. We recommend starting with Cosmos-Embed1 (`cosmos-embed1-224p`) for your initial experiments, as it typically provides superior results. If you find that Cosmos-Embed1 doesn't meet your specific needs or performance expectations, consider exploring InternVideo2 (`internvideo2`) as an alternative. This approach allows you to leverage the generally better-performing model first while keeping the option to experiment with InternVideo2 if needed.
 
 
 **Full pipeline with captions and filtering**:
