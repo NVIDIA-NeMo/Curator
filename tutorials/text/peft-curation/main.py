@@ -16,7 +16,6 @@ import argparse
 import os
 import time
 
-from loguru import logger
 from stages import (
     AddPeriod,
     AddTokenCount,
@@ -35,6 +34,7 @@ from nemo_curator.stages.text.modules import Modify, ScoreFilter
 
 
 def main(args: argparse.Namespace) -> None:
+    # Initialize and start the Ray client
     ray_client = RayClient()
     ray_client.start()
 
@@ -47,39 +47,47 @@ def main(args: argparse.Namespace) -> None:
     # Initialize the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
-    logger.info("Running the TinyStories curation pipeline")
-    logger.info(f"    The dataset will be downloaded to '{raw_dir}'")
-    logger.info(f"    The curated dataset will be written to '{curated_dir}'")
+    print("Running the TinyStories curation pipeline")
+    print(f"    The dataset will be downloaded to '{raw_dir}'")
+    print(f"    The curated dataset will be written to '{curated_dir}'")
 
     # Define the processing stages
     stages = [
+        # Download and conversion to a DocumentBatch
         EnronEmailsDownloadExtractStage(raw_dir),
+        # If the email is too long, discard
         ScoreFilter(
             filter_obj=FilterEmailsWithLongBody(),
             text_field="body",
         ),
+        # Detects empty emails (either empty body, or labeled as empty)
+        # We check the subject, body, and category
+        # If the email is empty, then discard
         ScoreFilter(
             filter_obj=[FilterEmptyEmails(), FilterEmptyEmails(), FilterEmptyEmails()],
             text_field=["subject", "body", "category"],
             invert=True,
         ),
+        # Uses the ftfy library to correct broken Unicode text
+        # We check the subject, body, and category
         Modify(
             modifier_fn=[UnicodeReformatter(), UnicodeReformatter(), UnicodeReformatter()],
             input_fields=["subject", "body", "category"],
             output_fields=["subject", "body", "category"],
         ),
+        # A simple modifier that adds a period to the end of each email category
         Modify(
             modifier_fn=AddPeriod(),
             input_fields=["category"],
             output_fields=["category"],
         ),
-        # Apply a chat template
+        # Apply a chat template to the subject, body, and category fields to create a "text" field
         Modify(
             modifier_fn=ApplyChatTemplate(tokenizer),
             input_fields=[["subject", "body", "category"]],
             output_fields=["text"],
         ),
-        # Add a column for the number of tokens in each record.
+        # Add a column for the number of tokens in each record
         Modify(
             modifier_fn=AddTokenCount(tokenizer),
             input_fields=["text"],
@@ -95,15 +103,17 @@ def main(args: argparse.Namespace) -> None:
         stages=stages,
     )
 
-    logger.info("Starting the curation pipeline")
+    print("Starting the curation pipeline")
     start_time = time.time()
+    # Run the pipeline
     results = pipeline.run()
     end_time = time.time()
     execution_time = end_time - start_time
-    # Count the total number of records.
-    logger.info(f"\n\nCuration pipeline finished (took {execution_time} seconds)")
-    logger.info(f"The results were written to '{[result.data for result in results]}'")
+    # Count the total number of records
+    print(f"\n\nCuration pipeline finished (took {execution_time} seconds)")
+    print(f"The results were written to '{[result.data for result in results]}'")
 
+    # Stop the Ray client
     ray_client.stop()
 
 
