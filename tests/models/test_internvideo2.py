@@ -18,17 +18,12 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
-import pytest
 import torch
 
-try:
-    from nemo_curator.stages.video.embedding.internvideo2 import (
-        InternVideo2EmbeddingStage,
-        InternVideo2FrameCreationStage,
-    )
-except ImportError:
-    pytest.skip("InternVideo2 package not available", allow_module_level=True)
-
+from nemo_curator.stages.video.embedding.internvideo2 import (
+    InternVideo2EmbeddingStage,
+    InternVideo2FrameCreationStage,
+)
 from nemo_curator.tasks.video import Clip, Video, VideoTask
 
 # Create a random generator for consistent testing
