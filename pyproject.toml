@@ -151,11 +151,12 @@ test = [
     "pytest-loguru",
     "scikit-learn",
 ]
+dev = ["jupyter"]
 
 [tool.uv]
 package = true
 managed = true
-default-groups = ["test"]
+default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
