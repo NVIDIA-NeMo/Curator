@@ -14,5 +14,7 @@ also how to count the number of tokens for each record.
 ## Usage
 After installing the NeMo Curator package, you can simply run the following command:
 ```
-python tutorials/text/peft-curation/main.py
+LOGURU_LEVEL="ERROR" python tutorials/text/peft-curation/main.py
 ```
+
+We use `LOGURU_LEVEL="ERROR"` to help minimize console output and produce cleaner logs for the user.

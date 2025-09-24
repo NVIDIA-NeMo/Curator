@@ -16,7 +16,6 @@ import argparse
 import os
 import time
 
-from loguru import logger
 from stages import (
     IncompleteStoryFilter,
     QuotationUnifier,
@@ -30,6 +29,7 @@ from nemo_curator.stages.text.modules import Modify, ScoreFilter
 
 
 def main(args: argparse.Namespace) -> None:
+    # Initialize and start the Ray client
     ray_client = RayClient()
     ray_client.start()
 
@@ -39,19 +39,19 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(curated_dir, exist_ok=True)
 
-    logger.info("Running the TinyStories curation pipeline")
-    logger.info(f"    The dataset will be downloaded to '{raw_dir}'")
-    logger.info(f"    The curated dataset will be written to '{curated_dir}'")
+    print("Running the TinyStories curation pipeline")
+    print(f"    The dataset will be downloaded to '{raw_dir}'")
+    print(f"    The curated dataset will be written to '{curated_dir}'")
 
     # Define the processing stages
     stages = [
-        # Download and conversion to a DataFrame
+        # Download and conversion to a DocumentBatch
         TinyStoriesDownloadExtractStage(raw_dir, split=args.split),
-        # Basic filtering
+        # If the document doesn't end with a terminating punctuation mark, then discard
         ScoreFilter(
             filter_obj=IncompleteStoryFilter(),
         ),
-        # Unify quotations
+        # A simple modifier that unifies the quotation marks in the documents
         Modify(
             modifier_fn=QuotationUnifier(),
         ),
@@ -59,22 +59,24 @@ def main(args: argparse.Namespace) -> None:
         JsonlWriter(curated_dir),
     ]
 
-    # Create a pipeline with the stages.
+    # Create a pipeline with the stages
     pipeline = Pipeline(
         name="tinystories",
         description="Download and curation pipeline for the TinyStories dataset.",
         stages=stages,
     )
 
-    logger.info("Starting the curation pipeline")
+    print("Starting the curation pipeline")
     start_time = time.time()
+    # Run the pipeline
     results = pipeline.run()
     end_time = time.time()
     execution_time = end_time - start_time
-    # Count the total number of records.
-    logger.info(f"\n\nCuration pipeline finished (took {execution_time} seconds)")
-    logger.info(f"The results were written to '{[result.data for result in results]}'")
+    # Count the total number of records
+    print(f"\n\nCuration pipeline finished (took {execution_time} seconds)")
+    print(f"The results were written to '{[result.data for result in results]}'")
 
+    # Stop the Ray client
     ray_client.stop()
 
 
