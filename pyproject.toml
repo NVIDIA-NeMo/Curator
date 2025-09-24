@@ -90,9 +90,10 @@ text_cpu = [
     "beautifulsoup4",
     "justext",
     "lxml",
-    "resiliparse",
-    "trafilatura==2.0.0",
     "pycld2",
+    "resiliparse",
+    "s5cmd",
+    "trafilatura==2.0.0",
     "warcio",
     # Filters
     "fasttext==0.9.3",
