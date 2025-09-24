@@ -152,3 +152,6 @@ data/
 
 # Text Editor / IDE Files
 .vscode
+
+# InternVideo2 dependency (cloned by installation script)
+InternVideo/

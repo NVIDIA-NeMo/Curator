@@ -1,4 +1,17 @@
 #!/bin/bash
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 # =============================================================================
 # InternVideo2 Installation Script
@@ -22,10 +35,3 @@ cd InternVideo; git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7;
 # Apply a custom patch to the InternVideo2 codebase
 # This patch contains modifications needed for integration with NeMo Curator
 patch -p1 < ../external/intern_video2_multimodal.patch; cd ../
-
-# Synchronize all project dependencies using uv
-uv sync --all-extras --all-groups
-
-# Add the InternVideo2 multi-modality module as a local dependency
-# This makes the patched InternVideo2 code available to the project
-uv add InternVideo/InternVideo2/multi_modality
