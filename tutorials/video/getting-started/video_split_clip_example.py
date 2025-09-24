@@ -27,17 +27,7 @@ from nemo_curator.stages.video.embedding.cosmos_embed1 import (
     CosmosEmbed1EmbeddingStage,
     CosmosEmbed1FrameCreationStage,
 )
-
-try:
-    from nemo_curator.stages.video.embedding.internvideo2 import (
-        InternVideo2EmbeddingStage,
-        InternVideo2FrameCreationStage,
-    )
-except ImportError:
-    print("InternVideo2 is not installed")
-    InternVideo2EmbeddingStage = None
-    InternVideo2FrameCreationStage = None
-
+from nemo_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
 from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -169,9 +159,6 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 )
             )
         elif args.embedding_algorithm.startswith("internvideo2"):
-            if InternVideo2FrameCreationStage is None:
-                msg = "InternVideo2 is not installed, please consider installing it or using cosmos-embed1 instead."
-                raise ValueError(msg)
             pipeline.add_stage(
                 InternVideo2FrameCreationStage(
                     model_dir=args.model_dir,
