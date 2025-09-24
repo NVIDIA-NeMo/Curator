@@ -90,9 +90,10 @@ text_cpu = [
     "beautifulsoup4",
     "justext",
     "lxml",
-    "resiliparse",
-    "trafilatura==2.0.0",
     "pycld2",
+    "resiliparse",
+    "s5cmd",
+    "trafilatura==2.0.0",
     "warcio",
     # Filters
     "fasttext==0.9.3",
@@ -141,6 +142,7 @@ all = [
 
 [dependency-groups]
 build = ["setuptools", "torch<=2.8.0"]
+dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
     "coverage",
@@ -155,7 +157,7 @@ test = [
 [tool.uv]
 package = true
 managed = true
-default-groups = ["test"]
+default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
