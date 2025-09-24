@@ -41,6 +41,7 @@ overrides = [
     { name = "distance", marker = "sys_platform == 'never'" },
     { name = "kaldiio", marker = "sys_platform == 'never'" },
     { name = "levenshtein", marker = "sys_platform == 'never'" },
+    { name = "transformers", specifier = "==4.55.2" },
 ]
 
 [[package]]
@@ -382,6 +383,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d8/e4/0c4c39e18fd76d6a628d4dd8da40543d136ce2d1752bd6eeeab0791f4d6b/beautifulsoup4-4.13.4.tar.gz", hash = "sha256:dbb3c4e1ceae6aefebdaf2423247260cd062430a410e38c66f2baa50a8437195", size = 621067, upload-time = "2025-04-15T17:05:13.836Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/50/cd/30110dc0ffcf3b131156077b90e9f60ed75711223f306da4db08eff8403b/beautifulsoup4-4.13.4-py3-none-any.whl", hash = "sha256:9bbbb14bfde9d79f38b8cd5f8c7c85f4b8f2523190ebed90e950a8dea4cb1c4b", size = 187285, upload-time = "2025-04-15T17:05:12.221Z" },
+]
+
+[[package]]
+name = "bitsandbytes"
+version = "0.45.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/b7/cb5ce4d1a382cf53c19ef06c5fc29e85f5e129b4da6527dd207d90a5b8ad/bitsandbytes-0.45.5-py3-none-manylinux_2_24_x86_64.whl", hash = "sha256:a5453f30cc6aab6ccaac364e6bf51a7808d3da5f71763dffeb6d9694c59136e4", size = 76059261, upload-time = "2025-04-07T13:32:52.573Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/4c/77b535e025ce780d2ada8271c1e481fb7337c1df2588a52fe1c9bd87d2e8/bitsandbytes-0.45.5-py3-none-win_amd64.whl", hash = "sha256:ed1c61b91d989d6a33fd05737d6edbf5086d8ebc89235ee632c7a19144085da2", size = 75430204, upload-time = "2025-04-07T13:32:57.553Z" },
 ]
 
 [[package]]
@@ -1341,12 +1355,6 @@ wheels = [
 ]
 
 [[package]]
-name = "distance"
-version = "0.1.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5c/1a/883e47df323437aefa0d0a92ccfb38895d9416bd0b56262c2e46a47767b8/Distance-0.1.3.tar.gz", hash = "sha256:60807584f5b6003f5c521aa73f39f51f631de3be5cccc5a1d67166fcbf0d4551", size = 180271, upload-time = "2013-11-21T00:14:34.152Z" }
-
-[[package]]
 name = "distlib"
 version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1851,21 +1859,6 @@ wheels = [
 ]
 
 [[package]]
-name = "g2p-en"
-version = "2.1.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "distance", marker = "sys_platform == 'never'" },
-    { name = "inflect" },
-    { name = "nltk" },
-    { name = "numpy" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5f/22/2c7acbe6164ed6cfd4301e9ad2dbde69c68d22268a0f9b5b0ee6052ed3ab/g2p_en-2.1.0.tar.gz", hash = "sha256:32ecb119827a3b10ea8c1197276f4ea4f44070ae56cbbd01f0f261875f556a58", size = 3116166, upload-time = "2019-12-31T01:16:12.753Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/d9/b77dc634a7a0c0c97716ba97dd0a28cbfa6267c96f359c4f27ed71cbd284/g2p_en-2.1.0-py3-none-any.whl", hash = "sha256:2a7aabf1fc7f270fcc3349881407988c9245173c2413debbe5432f4a4f31319f", size = 3117464, upload-time = "2019-12-31T01:16:03.286Z" },
-]
-
-[[package]]
 name = "gast"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2196,6 +2189,15 @@ wheels = [
 ]
 
 [[package]]
+name = "indic-numtowords"
+version = "1.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/46/683e92580d9c1752917d2f9ec2a44d2adc21cdfe4deeaa0fe87fc23dbea8/indic_numtowords-1.1.0.tar.gz", hash = "sha256:d1addc21444c332e05bfd8726af427960c096c2a16776d98bee4fbc36ade5d25", size = 44220, upload-time = "2025-08-18T12:24:13.075Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/16/b2b6491d95a15bda712163b4e27428f2cb1ac3a1b4fb59b140dbc76f6ce5/indic_numtowords-1.1.0-py3-none-any.whl", hash = "sha256:bf4b7b9e539323d9b00bc868caa2d9369170b8f3ac4d19619bf9c6cdc6f89572", size = 71635, upload-time = "2025-08-18T12:24:11.065Z" },
+]
+
+[[package]]
 name = "inflect"
 version = "7.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2459,18 +2461,6 @@ dependencies = [
     { name = "numpy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/80/45/e3e542ffa8970ebd782fcece35e2295de9c60e8c396c2c1a403410d1b24e/kaldi-python-io-1.2.2.tar.gz", hash = "sha256:4ebb4029c6c58296cc0abf96edff02832ba341d290ed37624a8d00105f0f7c00", size = 8814, upload-time = "2021-03-18T12:02:05.832Z" }
-
-[[package]]
-name = "kaldiio"
-version = "2.18.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", marker = "sys_platform != 'darwin' and sys_platform != 'linux'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/85/92435e8e62eb3d43eded9f24643fc2a6dbce031cebceed11528147c7873f/kaldiio-2.18.1.tar.gz", hash = "sha256:0283d197fac6ac683f7a9e6af8d18aad9dbd2c4a997f22e45294f2ac1ee3c432", size = 35570, upload-time = "2025-03-06T15:57:52.375Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ae/e3/6c3b42233225f398f7a72988b524f654ae818cca0d441db847a2761203e9/kaldiio-2.18.1-py3-none-any.whl", hash = "sha256:397a4cd18977acaae7acabfba6807ee0a6978c620064381a266eac15b3c1a0a0", size = 29330, upload-time = "2025-03-06T15:57:50.82Z" },
-]
 
 [[package]]
 name = "kiwisolver"
@@ -3666,7 +3656,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["video-cpu"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["video-cuda12"], marker = "extra == 'all'" },
-    { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-cpu'" },
+    { name = "nemo-toolkit", extras = ["asr"], marker = "extra == 'audio-cpu'", specifier = "==2.4.0" },
     { name = "nvidia-dali-cuda120", marker = "extra == 'image-cuda12'" },
     { name = "nx-cugraph-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.6.*" },
     { name = "opencv-python", marker = "extra == 'video-cpu'" },
@@ -3720,15 +3710,17 @@ test = [
 
 [[package]]
 name = "nemo-toolkit"
-version = "2.1.0"
+version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "fsspec" },
     { name = "huggingface-hub" },
     { name = "numba", version = "0.61.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "numba", version = "0.61.2", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "numpy" },
     { name = "onnx", version = "1.17.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "onnx", version = "1.19.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { name = "protobuf" },
     { name = "python-dateutil" },
     { name = "ruamel-yaml" },
     { name = "scikit-learn" },
@@ -3743,34 +3735,36 @@ dependencies = [
     { name = "wget" },
     { name = "wrapt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/60/78/dbaa7f8a22bce943b5f3bda226d3d6b2094068b4a182c9a901ec71fd3421/nemo_toolkit-2.1.0.tar.gz", hash = "sha256:3f14d060919ae76a1d86a2f1b757cd69757e322a91b36cf177fc7ea98b021370", size = 3755513, upload-time = "2025-01-03T09:43:35.275Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3f/57/4a91de89abbac976e44728efa4b7a2caad6e05a41873805ad76e4e372c2f/nemo_toolkit-2.4.0.tar.gz", hash = "sha256:459c7ae6800262a25531c32f020ee506f882cad9b17661ca4545425d8f290b90", size = 5086279, upload-time = "2025-07-25T18:12:25.551Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/06/50/6384fc179201e8c710d4a353f177063c31e2bf393a4c55008bf84013d127/nemo_toolkit-2.1.0-py3-none-any.whl", hash = "sha256:3f16ca1801e362d849b3e9f15f4478c43aa19607c3fbaddc69018d4a1f514c57", size = 5094598, upload-time = "2025-01-03T09:43:30.67Z" },
+    { url = "https://files.pythonhosted.org/packages/bf/d4/647351caf68b56c8c26d282d1ef07bd30320216cef676809ba939d2994bb/nemo_toolkit-2.4.0-py3-none-any.whl", hash = "sha256:5706c34dd96c6e53b711f435f8f933b70c3325ba6094e6ce5a89d899cee89882", size = 7206834, upload-time = "2025-07-25T18:12:22.005Z" },
 ]
 
 [package.optional-dependencies]
 asr = [
+    { name = "bitsandbytes", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
     { name = "braceexpand" },
     { name = "cloudpickle" },
     { name = "datasets" },
     { name = "editdistance" },
     { name = "einops" },
     { name = "fiddle" },
-    { name = "g2p-en" },
     { name = "hydra-core" },
     { name = "inflect" },
     { name = "jiwer" },
     { name = "kaldi-python-io" },
-    { name = "kaldiio", marker = "sys_platform == 'never'" },
     { name = "lhotse" },
     { name = "librosa" },
     { name = "lightning" },
     { name = "marshmallow" },
     { name = "mediapy" },
+    { name = "num2words" },
+    { name = "numpy" },
     { name = "omegaconf" },
     { name = "optuna" },
     { name = "packaging" },
     { name = "pandas" },
+    { name = "peft" },
     { name = "pyannote-core" },
     { name = "pyannote-metrics" },
     { name = "pydub" },
@@ -3788,6 +3782,7 @@ asr = [
     { name = "transformers" },
     { name = "wandb" },
     { name = "webdataset" },
+    { name = "whisper-normalizer" },
 ]
 
 [[package]]
@@ -3859,27 +3854,24 @@ wheels = [
 ]
 
 [[package]]
-name = "nltk"
-version = "3.9.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-    { name = "joblib" },
-    { name = "regex" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3c/87/db8be88ad32c2d042420b6fd9ffd4a149f9a0d7f0e86b3f543be2eeeedd2/nltk-3.9.1.tar.gz", hash = "sha256:87d127bd3de4bd89a4f81265e5fa59cb1b199b27440175370f7417d2bc7ae868", size = 2904691, upload-time = "2024-08-18T19:48:37.769Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/4d/66/7d9e26593edda06e8cb531874633f7c2372279c3b0f46235539fe546df8b/nltk-3.9.1-py3-none-any.whl", hash = "sha256:4fa26829c5b00715afe3061398a8989dc643b92ce7dd93fb4585a70930d168a1", size = 1505442, upload-time = "2024-08-18T19:48:21.909Z" },
-]
-
-[[package]]
 name = "nodeenv"
 version = "1.9.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/43/16/fc88b08840de0e0a72a2f9d8c6bae36be573e475a6326ae854bcc549fc45/nodeenv-1.9.1.tar.gz", hash = "sha256:6ec12890a2dab7946721edbfbcd91f3319c6ccc9aec47be7c7e6b7011ee6645f", size = 47437, upload-time = "2024-06-04T18:44:11.171Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/1d/1b658dbd2b9fa9c4c9f32accbfc0205d532c8c6194dc0f2a4c0428e7128a/nodeenv-1.9.1-py2.py3-none-any.whl", hash = "sha256:ba11c9782d29c27c70ffbdda2d7415098754709be8a7056d79a737cd901155c9", size = 22314, upload-time = "2024-06-04T18:44:08.352Z" },
+]
+
+[[package]]
+name = "num2words"
+version = "0.5.14"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "docopt" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f6/58/ad645bd38b4b648eb2fc2ba1b909398e54eb0cbb6a7dbd2b4953e38c9621/num2words-0.5.14.tar.gz", hash = "sha256:b066ec18e56b6616a3b38086b5747daafbaa8868b226a36127e0451c0cf379c6", size = 218213, upload-time = "2024-12-17T20:17:10.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/5b/545e9267a1cc080c8a1be2746113a063e34bcdd0f5173fd665a5c13cb234/num2words-0.5.14-py3-none-any.whl", hash = "sha256:1c8e5b00142fc2966fd8d685001e36c4a9911e070d1b120e1beb721fa1edb33d", size = 163525, upload-time = "2024-12-17T20:17:06.074Z" },
 ]
 
 [[package]]
@@ -8110,6 +8102,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/8a/98/2d9906746cdc6a6ef809ae6338005b3f21bb568bea3165cfc6a243fdc25c/wheel-0.45.1.tar.gz", hash = "sha256:661e1abd9198507b1409a20c02106d9670b2576e916d58f520316666abca6729", size = 107545, upload-time = "2024-11-23T00:18:23.513Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0b/2c/87f3254fd8ffd29e4c02732eee68a83a1d3c346ae39bc6822dcbcb697f2b/wheel-0.45.1-py3-none-any.whl", hash = "sha256:708e7481cc80179af0e556bbf0cc00b8444c7321e2700b8d8580231d13017248", size = 72494, upload-time = "2024-11-23T00:18:21.207Z" },
+]
+
+[[package]]
+name = "whisper-normalizer"
+version = "0.1.12"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "indic-numtowords" },
+    { name = "more-itertools" },
+    { name = "regex" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/81/d4a23d67e9356f1c2d6fe9aa7e99f42078b5e3845b181412a5582f168af4/whisper_normalizer-0.1.12.tar.gz", hash = "sha256:484dcedbfeba2ee94cf9412d57ab1e66b847e91f80c15ffc4c6ab82ad5484b8c", size = 39630, upload-time = "2025-06-06T19:03:50.75Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/d7/2bf42cb3f19da0aec48052a6e3bc3a592afc182fe98c011a0e0ae5fbe1f5/whisper_normalizer-0.1.12-py3-none-any.whl", hash = "sha256:2cd7276d2599c05147a50cf86d240e6cd27623f5ccfe8b20ccea6a518274989a", size = 36748, upload-time = "2025-06-06T19:03:49.182Z" },
 ]
 
 [[package]]
