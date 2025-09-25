@@ -77,7 +77,7 @@ class TestAsrNeMoStage:
                 self.text = text
 
         class DummyModel:
-            def transcribe(self, files: list[str]):  # noqa: ANN001
+            def transcribe(self, _files: list[str]) -> tuple[list[list[Hypo]], None]:
                 hyps = [[Hypo("alpha")], [Hypo("beta")]]
                 all_hyps = None
                 return (hyps, all_hyps)
@@ -90,7 +90,7 @@ class TestAsrNeMoStage:
         """Transcribe handles list[list[str]] by taking the first element from each inner list."""
 
         class DummyModel:
-            def transcribe(self, files: list[str]):  # noqa: ANN001
+            def transcribe(self, _files: list[str]) -> list[list[str]]:
                 return [["foo"], ["bar"]]
 
         stage = InferenceAsrNemoStage(model_name="dummy-model", asr_model=DummyModel())
@@ -105,7 +105,7 @@ class TestAsrNeMoStage:
                 self.text = text
 
         class DummyModel:
-            def transcribe(self, files: list[str]):  # noqa: ANN001
+            def transcribe(self, _files: list[str]) -> list[Hypo]:
                 return [Hypo("x"), Hypo("y")]
 
         stage = InferenceAsrNemoStage(model_name="dummy-model", asr_model=DummyModel())
