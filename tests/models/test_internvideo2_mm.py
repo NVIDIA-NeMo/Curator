@@ -21,14 +21,17 @@ import pytest
 import torch
 from easydict import EasyDict
 
-from nemo_curator.models.internvideo2_mm import (
-    BERT_MODEL_ID,
-    INTERNVIDEO2_MODEL_FILE,
-    INTERNVIDEO2_MODEL_ID,
-    InternVideo2MultiModality,
-    _InternVideo2Stage2Wrapper,
-    _setup_internvideo2,
-)
+try:
+    from nemo_curator.models.internvideo2_mm import (
+        BERT_MODEL_ID,
+        INTERNVIDEO2_MODEL_FILE,
+        INTERNVIDEO2_MODEL_ID,
+        InternVideo2MultiModality,
+        _InternVideo2Stage2Wrapper,
+        _setup_internvideo2,
+    )
+except ImportError:
+    pytest.skip("InternVideo2 package is not available")
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)
