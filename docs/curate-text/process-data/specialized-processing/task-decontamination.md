@@ -90,7 +90,7 @@ from nemo_curator.tasks import Squad, TriviaQA, MMLU, Winogrande, ANLI
 
 ## Task Decontamination Process
 
-If you'd like more fine-grained control over the task decontamination process, NVIDIA NeMo Curator provides several CLI tools you can manually apply. You can use the `prepare_task_data`, `find_matching_ngrams` and `remove_matching_ngrams` scripts to remove any task data that might be contained (that's "contaminate") within your training data. You'll need a list of your downstream tasks to modify the [task configuration file (lm_tasks.yaml)](../../../../config/lm_tasks.yaml). If your task doesn't already exist as a class, you'll need to construct a class that extends `nemo_curator.tasks.DownstreamTask`.
+If you'd like more fine-grained control over the task decontamination process, NVIDIA NeMo Curator provides several CLI tools you can manually apply. You can use the `prepare_task_data`, `find_matching_ngrams` and `remove_matching_ngrams` scripts to remove any task data that might be contained (that's "contaminate") within your training data. You'll need a list of your downstream tasks and may need to create a task configuration file. If your task doesn't already exist as a class, you'll need to construct a class that extends `nemo_curator.tasks.DownstreamTask`.
 
 ### 1. Prepare Task N-grams
 
@@ -98,11 +98,11 @@ First, construct the n-grams from task documents using the `prepare_task_data` m
 
 ```bash
 prepare_task_data \
-    --task-config-file=./config/lm_tasks.yaml \
+    --task-config-file=./config/tasks.yaml \
     --output-task-ngrams=./data/task_ngrams.pkl
 ```
 
-This module requires a configuration file that specifies how to form n-grams from the task data. An example configuration is provided in `config/lm_tasks.yaml`. This step only needs to be done once per set of tasks, and the resulting pickle file can be reused across datasets.
+This module requires a configuration file that specifies how to form n-grams from the task data. You can create a YAML configuration file with your task specifications. This step only needs to be done once per set of tasks, and the resulting pickle file can be reused across datasets.
 
 The n-gram generation process:
 1. Extracts text from each task's test examples
