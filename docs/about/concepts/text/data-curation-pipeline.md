@@ -1,5 +1,5 @@
 ---
-description: "Comprehensive overview of NeMo Curator's text curation pipeline architecture including data acquisition, processing, and synthetic data generation"
+description: "Comprehensive overview of NeMo Curator's text curation pipeline architecture including data acquisition and processing"
 categories: ["concepts-architecture"]
 tags: ["pipeline", "architecture", "text-curation", "distributed", "gpu-accelerated", "overview"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -35,27 +35,21 @@ Multiple input sources provide the foundation for text curation:
 Raw data is downloaded, extracted, and converted into standardized formats:
 - **Download & Extraction**: Retrieve and process remote data sources
 - **Cleaning & Pre-processing**: Convert formats and normalize text
-- **DocumentDataset Creation**: Standardize data into NeMo Curator's core data structure
+- **DocumentBatch Creation**: Standardize data into NeMo Curator's core data structure
 
 ### 3. Quality Assessment & Filtering
 Multiple filtering stages ensure data quality:
 - **Heuristic Quality Filtering**: Rule-based filters for basic quality checks
 - **Model-based Quality Filtering**: AI-powered content assessment
 - **PII Removal**: Privacy-preserving data cleaning
-- **Task Decontamination**: Remove potential test set contamination
 
 ### 4. Deduplication
 Remove duplicate and near-duplicate content:
-- **Exact Deduplication**: Remove identical documents
-- **Fuzzy Deduplication**: Remove near-duplicates using similarity
+- **Exact Deduplication**: Remove identical documents using MD5 hashing
+- **Fuzzy Deduplication**: Remove near-duplicates using MinHash and LSH similarity
 - **Semantic Deduplication**: Remove semantically similar content using embeddings
 
-### 5. Synthetic Data Generation
-Create high-quality synthetic content using LLMs:
-- **LLM-based Generation**: Use large language models to create new content
-- **Quality Control**: Ensure synthetic data meets quality standards
-
-### 6. Final Preparation
+### 5. Final Preparation
 Prepare the curated dataset for training:
 - **Blending/Shuffling**: Combine and randomize data sources
 - **Format Standardization**: Ensure consistent output format
@@ -95,13 +89,6 @@ Components for downloading and extracting data from remote sources
 Concepts for filtering, deduplication, and classification
 :::
 
-:::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Data Generation
-:link: about-concepts-text-data-gen
-:link-type: ref
-
-Concepts for generating high-quality synthetic text
-:::
-
 ::::
 
 ## Processing Modes
@@ -131,4 +118,4 @@ The architecture scales from single machines to large clusters:
 
 ---
 
-For hands-on experience, see the {ref}`Text Curation Getting Started Guide <gs-text>`. 
+For hands-on experience, see the {ref}`Text Curation Getting Started Guide <gs-text>`.

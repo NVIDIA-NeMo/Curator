@@ -38,24 +38,26 @@ You can use these modules individually or sequentially in a cleaning pipeline.
 Consider the following example, which loads a dataset (`books.jsonl`), steps through each module in a cleaning pipeline, and outputs the processed dataset as `cleaned_books.jsonl`:
 
 ```python
-from nemo_curator import Sequential, Modify, get_client
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modules import Modify
 
 def main():
-    client = get_client(cluster_type="cpu")
+    # Create processing pipeline
+    pipeline = Pipeline(
+        name="text_cleaning_pipeline",
+        description="Clean text data using Unicode reformatter, newline normalizer, and URL remover",
+        stages=[
+            Modify(UnicodeReformatter()),
+            Modify(NewlineNormalizer()),
+            Modify(UrlRemover()),
+        ]
+    )
 
-    dataset = DocumentDataset.read_json("books.jsonl")
-    cleaning_pipeline = Sequential([
-        Modify(UnicodeReformatter()),
-        Modify(NewlineNormalizer()),
-        Modify(UrlRemover()),
-    ])
-
-    cleaned_dataset = cleaning_pipeline(dataset)
-
-    cleaned_dataset.to_json("cleaned_books.jsonl")
-
+    # Execute pipeline
+    results = pipeline.run()
+    
 if __name__ == "__main__":
     main()
 ```
@@ -85,7 +87,7 @@ You can create your own custom text cleaner by extending the `DocumentModifier` 
 ```python
 import ftfy
 
-from nemo_curator.modifiers import DocumentModifier
+from nemo_curator.stages.text.modifiers import DocumentModifier
 
 
 class UnicodeReformatter(DocumentModifier):

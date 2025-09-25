@@ -46,7 +46,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /opt
 
 # Install uv
-ENV UV_VERSION="0.7.2"
+ENV UV_VERSION="0.8.22"
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -76,7 +76,6 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
 # Install Curator
 COPY . /opt/Curator
 RUN cd /opt/Curator && \
-  uv sync --locked --only-group build && \
   uv sync --link-mode copy --locked --extra all --all-groups && \
   uv add /opt/InternVideo/InternVideo2/multi_modality && \
   uv cache prune && \
