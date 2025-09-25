@@ -10,7 +10,7 @@ modality: "text-only"
 
 # Process Data for Text Curation
 
-Process text data you've loaded into a [DocumentDataset](documentdataset).
+Process text data you've loaded through NeMo Curator's {ref}`pipeline architecture <about-concepts-text-data-loading>`.
 
 NeMo Curator provides a comprehensive suite of tools for processing text data as part of the AI training pipeline. These tools help you analyze, transform, and filter your text datasets to ensure high-quality input for language model training.
 
@@ -22,7 +22,7 @@ NeMo Curator's text processing capabilities are organized into five main categor
 2. **Deduplication**: Remove duplicate and near-duplicate documents efficiently
 3. **Content Processing & Cleaning**: Clean, normalize, and transform text content
 4. **Language Management**: Handle multilingual content and language-specific processing
-5. **Specialized Processing**: Domain-specific processing for code, bitext, and synthetic data
+5. **Specialized Processing**: Domain-specific processing for code and advanced curation tasks
 
 Each category provides specific implementations optimized for different curation needs. The result is a cleaned and filtered dataset ready for model training.
 
@@ -84,10 +84,19 @@ Remove duplicate and near-duplicate documents efficiently from your text dataset
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`git-pull-request;1.5em;sd-mr-1` GPU Deduplication
-:link: deduplication/gpudedup
+:::{grid-item-card} {octicon}`git-pull-request;1.5em;sd-mr-1` Exact Duplicate Removal
+:link: deduplication/exact
 :link-type: doc
-Remove exact and fuzzy duplicates using GPU acceleration
+Identify character-for-character duplicates using hashing
++++
+{bdg-secondary}`hashing`
+{bdg-secondary}`fast`
+:::
+
+:::{grid-item-card} {octicon}`git-compare;1.5em;sd-mr-1` Fuzzy Duplicate Removal
+:link: deduplication/fuzzy
+:link-type: doc
+Identify near-duplicates using MinHash and LSH
 +++
 {bdg-secondary}`minhash`
 {bdg-secondary}`lsh`
@@ -100,8 +109,8 @@ Remove exact and fuzzy duplicates using GPU acceleration
 Remove semantically similar documents using embeddings
 +++
 {bdg-secondary}`embeddings`
-{bdg-secondary}`similarity`
 {bdg-secondary}`meaning-based`
+{bdg-secondary}`gpu-accelerated`
 :::
 
 ::::
@@ -166,7 +175,7 @@ Manage high-frequency words to enhance text extraction and content detection
 
 ## Specialized Processing
 
-Domain-specific processing for code, bitext, synthetic data, and advanced curation tasks.
+Domain-specific processing for code and advanced curation tasks.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
@@ -179,36 +188,6 @@ Specialized filters for programming content and source code
 {bdg-secondary}`programming`
 {bdg-secondary}`syntax`
 {bdg-secondary}`comments`
-:::
-
-:::{grid-item-card} {octicon}`repo-forked;1.5em;sd-mr-1` Parallel Text (Bitext)
-:link: specialized-processing/bitext
-:link-type: doc
-Filter parallel text for translation quality and alignment
-+++
-{bdg-secondary}`translation`
-{bdg-secondary}`bilingual`
-{bdg-secondary}`quality-estimation`
-:::
-
-:::{grid-item-card} {octicon}`sync;1.5em;sd-mr-1` Synthetic Data Detection
-:link: specialized-processing/synthetic
-:link-type: doc
-Identify AI-generated or synthetic content in datasets
-+++
-{bdg-secondary}`ai-detection`
-{bdg-secondary}`synthetic`
-{bdg-secondary}`embeddings`
-:::
-
-:::{grid-item-card} {octicon}`shield-check;1.5em;sd-mr-1` Task Decontamination
-:link: specialized-processing/task-decontamination
-:link-type: doc
-Remove downstream task data from training datasets
-+++
-{bdg-secondary}`benchmarks`
-{bdg-secondary}`contamination`
-{bdg-secondary}`evaluation`
 :::
 
 ::::

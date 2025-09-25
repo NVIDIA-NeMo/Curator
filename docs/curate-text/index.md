@@ -1,7 +1,7 @@
 ---
-description: "Comprehensive text curation capabilities for preparing high-quality data for large language model training with loading, filtering, and synthetic data generation"
+description: "Comprehensive text curation capabilities for preparing high-quality data for large language model training with loading, filtering, and quality assessment"
 categories: ["workflows"]
-tags: ["text-curation", "data-loading", "synthetic-data", "filtering", "deduplication", "gpu-accelerated"]
+tags: ["text-curation", "data-loading", "filtering", "deduplication", "gpu-accelerated"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "workflow"
@@ -11,12 +11,11 @@ modality: "text-only"
 (text-overview)=
 # About Text Curation
 
-NeMo Curator provides comprehensive text curation capabilities to prepare high-quality data for large language model (LLM) training. The toolkit includes a collection of processors for loading, filtering, formatting, and analyzing text data from various sources.
+NeMo Curator provides comprehensive text curation capabilities to prepare high-quality data for large language model (LLM) training. The toolkit includes a collection of processors for loading, filtering, formatting, and analyzing text data from various sources using a {ref}`pipeline-based architecture <about-concepts-text-data-curation-pipeline>`.
 
 ## Use Cases
 
 - Clean and prepare web-scraped data from sources like Common Crawl, Wikipedia, and arXiv
-- Generate high-quality synthetic data using NVIDIA's advanced LLMs
 - Create custom text curation pipelines for specific domain needs
 - Scale text processing across CPU and GPU clusters efficiently
 
@@ -40,7 +39,7 @@ Master the fundamentals of NeMo Curator and set up your text processing environm
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Concepts
 :link: about-concepts-text
 :link-type: ref
-Learn about DocumentDataset and other core data structures for efficient text curation
+Learn about pipeline architecture and core processing stages for efficient text curation
 +++
 {bdg-secondary}`data-structures`
 {bdg-secondary}`distributed`
@@ -160,53 +159,14 @@ Handle multilingual content and language-specific processing
 :::{grid-item-card} {octicon}`tools;1.5em;sd-mr-1` Specialized Processing
 :link: process-data/specialized-processing/index
 :link-type: doc
-Domain-specific processing for code, bitext, and synthetic data
+Domain-specific processing for code and synthetic data
 +++
 {bdg-secondary}`code-processing`
-{bdg-secondary}`bitext`
 {bdg-secondary}`synthetic-data`
 :::
 
 ::::
 
-### Generate Data
-
-Create high-quality synthetic text data using advanced language models and customizable pipelines.
-
-::::{grid} 1 1 1 2
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`link-external;1.5em;sd-mr-1` Connect to LLM Service
-:link: text-generate-data-connect-service
-:link-type: ref
-Learn how to connect to OpenAI-compatible APIs and self-hosted models
-+++
-{bdg-secondary}`openai`
-{bdg-secondary}`api-integration`
-{bdg-secondary}`self-hosted`
-:::
-
-:::{grid-item-card} {octicon}`sparkle-fill;1.5em;sd-mr-1` Pipelines
-:link: text-generate-data-pipelines
-:link-type: ref
-Generate synthetic prompts, dialogues, and entity classifications using the Nemotron-4 340B approach
-+++
-{bdg-secondary}`prompts`
-{bdg-secondary}`dialogues`
-{bdg-secondary}`classification`
-:::
-
-:::{grid-item-card} {octicon}`git-merge;1.5em;sd-mr-1` Integration
-:link: text-generate-data-integration
-:link-type: ref
-Combine synthetic data generation with other NeMo Curator modules for filtering and processing
-+++
-{bdg-secondary}`filtering`
-{bdg-secondary}`processing`
-{bdg-secondary}`pipelines`
-:::
-
-::::
 
 <!-- ## Tutorials
 

@@ -67,14 +67,54 @@ executor = RayDataExecutor()
 results = pipeline.run(executor)
 ```
 
-- Emits an experimental warning; the API and performance characteristics may change.
+### `RayActorPoolExecutor` (experimental)
+
+```python
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+
+executor = RayActorPoolExecutor()
+results = pipeline.run(executor)
+```
+
+## Ray Executors in Practice
+
+Ray-based executors provide enhanced scalability and performance for large-scale data processing tasks. They're beneficial for:
+
+- **Large-scale classification tasks**: Distributed inference across multi-GPU setups
+- **Deduplication workflows**: Parallel processing of document similarity computations  
+- **Resource-intensive stages**: Automatic scaling based on computational demands
+
+### When to Use Ray Executors
+
+Consider Ray executors when:
+
+- Processing datasets that exceed single-machine capacity
+- Running GPU-intensive stages (classifiers, embedding models, etc.)
+- Needing automatic fault tolerance and recovery
+- Scaling across multi-node clusters
+
+### Ray vs. Xenna Executors
+
+| Feature | XennaExecutor | Ray Executors |
+|---------|---------------|---------------|
+| **Maturity** | Production-ready | Experimental |
+| **Streaming** | Native support | Limited |
+| **Resource Management** | Optimized for video/multimodal | General-purpose |
+| **Fault Tolerance** | Built-in | Ray-native |
+| **Scaling** | Auto-scaling | Manual configuration |
+
+**Recommendation**: Use `XennaExecutor` for production workloads and Ray executors for experimental large-scale processing.
+
+:::{note}
+Ray executors emit an experimental warning as the API and performance characteristics may change.
+:::
 
 ## Choosing a Backend
 
 Both options can deliver strong performance; choose based on API fit and maturity:
 
-- **`XennaExecutor`**: default for most workloads due to maturity and extensive real‑world usage (including video pipelines); supports streaming and batch execution with auto‑scaling.
-- **`RayDataExecutor`(experimental)**: uses Ray Data API for scalable data processing; the interface is still experimental and may change.
+- **`XennaExecutor`**: Default for most workloads due to maturity and extensive real-world usage (including video pipelines); supports streaming and batch execution with auto-scaling.
+- **Ray Executors (experimental)**: Use Ray Data API for scalable data processing; the interface is still experimental and may change.
 
 ## Minimal End-to-End example
 

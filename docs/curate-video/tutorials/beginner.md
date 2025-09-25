@@ -60,7 +60,6 @@ Import required classes and define paths used throughout the example.
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 
 from nemo_curator.stages.video.io.video_reader import VideoReader
 from nemo_curator.stages.video.clipping.clip_extraction_stages import (
