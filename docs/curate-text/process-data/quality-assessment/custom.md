@@ -56,10 +56,13 @@ Once you've defined your custom filter, you can use it with NeMo Curator's filte
 
 ```python
 import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
 # Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+pipeline = Pipeline(name="custom_filtering")
+pipeline.add_stage(JsonlReader(file_paths="input_data/*.jsonl", fields=["text", "id"]))
 
 # Create and configure your custom filter
 my_filter = CustomWordFilter(
@@ -68,7 +71,9 @@ my_filter = CustomWordFilter(
 )
 
 # Apply the filter
-filter_step = nc.ScoreFilter(
+from nemo_curator.stages.text.modules import ScoreFilter
+
+filter_step = ScoreFilter(
     my_filter,
     text_field="text",
     score_field="target_word_count"

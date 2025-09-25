@@ -55,7 +55,6 @@ The following example demonstrates how to create a language identification pipel
 ```python
 """Language identification using Curator."""
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.filters import FastTextLangId
 from nemo_curator.stages.text.io.reader import JsonlReader
@@ -99,8 +98,7 @@ def main():
     print(pipeline.describe())
 
     # Create executor and run
-    executor = XennaExecutor()
-    results = pipeline.run(executor)
+    results = pipeline.run()
 
     # Process results
     print(f"Pipeline completed! Processed {len(results)} batches")
