@@ -54,7 +54,6 @@ Use an object storage prefix (for example, `s3://my-bucket/videos/`) to stream f
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.io.video_reader import VideoReader
 
 pipe = Pipeline(name="video_read", description="Read videos and extract metadata")

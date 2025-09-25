@@ -65,7 +65,6 @@ APIs for downloading and building datasets from external sources.
 Filtering and quality control APIs.
 +++
 {bdg-secondary}`classifier-filter`
-{bdg-secondary}`bitext-filter`
 {bdg-secondary}`heuristic-filter`
 :::
 
@@ -113,16 +112,6 @@ NeMo Run integration for distributed execution.
 {bdg-secondary}`slurm`
 {bdg-secondary}`distributed`
 :::
-
-:::{grid-item-card} {octicon}`zap;1.5em;sd-mr-1` Synthetic Data API
-:link: ../apidocs/synthetic/synthetic.html
-:link-type: url
-Synthetic data generation modules.
-+++
-{bdg-secondary}`generator`
-{bdg-secondary}`mixtral`
-:::
-
 
 :::{grid-item-card} {octicon}`checklist;1.5em;sd-mr-1` Tasks API
 :link: ../apidocs/tasks/tasks.html

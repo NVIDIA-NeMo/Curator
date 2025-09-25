@@ -15,7 +15,7 @@ Remove Personal Identifiable Information (PII) from your text data using NeMo Cu
 
 ## How it Works
 
-NeMo Curator utilizes Dask to parallelize PII detection and removal tasks, allowing it to scale to terabytes of data easily. While Dask can be deployed on various distributed compute environments (HPC clusters, Kubernetes, cloud platforms like AWS EKS and Google Cloud), the current implementation supports Dask on HPC clusters that use Slurm as the resource manager.
+NeMo Curator utilizes Ray to parallelize PII detection and removal tasks, allowing it to scale to terabytes of data easily. Ray can be deployed on various distributed compute environments (HPC clusters, Kubernetes, cloud platforms like AWS EKS and Google Cloud), with the current implementation supporting Ray on HPC clusters that use Slurm as the resource manager.
 
 ### Available PII Entity Types
 
@@ -70,8 +70,7 @@ Here's how to read, de-identify, and write a dataset:
 from nemo_curator.datasets import DocumentDataset
 from nemo_curator.utils.distributed_utils import read_data, write_to_disk, get_client
 from nemo_curator.utils.file_utils import get_batched_files
-from nemo_curator.modules.modify import Modify
-from nemo_curator.modifiers.pii_modifier import PiiModifier
+from nemo_curator.stages.text.modules import Modify
 
 # Create a PII modifier
 modifier = PiiModifier(
@@ -170,7 +169,7 @@ llm_pii_redaction \
 |-----------|-------------|
 | `PiiModifier` | The class responsible for PII de-identification with parameters: <br>- `language`: The language of the text (currently supports English)<br>- `supported_entities`: Types of PII to detect (see "Available PII Entity Types" section)<br>- `anonymize_action`: How to handle PII ("redact", "replace", "mask", "hash", or "custom"). Default is "redact"<br>- `batch_size`: Number of documents to process at once<br>- `device`: Processing device ("gpu" or "cpu") |
 | `get_batched_files` | Retrieves batches of documents with parameters:<br>- First argument: Input directory<br>- Second argument: Output directory<br>- Third argument: File extension<br>- Fourth argument: Batch size (number of files) |
-| `read_data` | Reads data from files using Dask with pandas data processing<br>- `add_filename=True`: Ensures output files have the same filename as input files |
+| `read_data` | Reads data from files using Ray with pandas data processing<br>- `add_filename=True`: Ensures output files have the same filename as input files |
 | `DocumentDataset` | Creates the standard format for text datasets in NeMo Curator |
 | `Modify` | Applies the PiiModifier to the dataset |
 | `write_to_disk` | Writes the de-identified documents to disk |
