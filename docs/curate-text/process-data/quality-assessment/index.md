@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (text-process-data-filter)=
+
 # Quality Assessment & Filtering
 
 Score and remove low-quality content using heuristics and ML classifiers to prepare your data for model training using NeMo Curator's tools and utilities.
@@ -17,7 +18,7 @@ Large datasets often contain many documents considered to be "low quality." In t
 
 ## How It Works
 
-NeMo Curator's filtering framework is built around several key components:
+NeMo Curator's filtering framework is built around several key components that work within the {ref}`data processing architecture <about-concepts-text-data-processing>`:
 
 ::::{tab-set}
 
@@ -26,27 +27,40 @@ NeMo Curator's filtering framework is built around several key components:
 The `ScoreFilter` is at the center of filtering in NeMo Curator. It applies a filter to a document and optionally saves the score as metadata:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.utils.file_utils import get_all_files_paths_under
-from nemo_curator.filters import WordCountFilter
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter
+
+# Create pipeline
+pipeline = Pipeline(name="quality_filtering")
 
 # Load dataset
-files = get_all_files_paths_under("books_dataset/", keep_extensions="jsonl")
-books = DocumentDataset.read_json(files, add_filename=True)
+reader = JsonlReader(
+    file_paths="books_dataset/*.jsonl",
+    fields=["text", "id"]
+)
+pipeline.add_stage(reader)
 
 # Create and apply filter
-filter_step = nc.ScoreFilter(
-    WordCountFilter(min_words=80),
+filter_stage = ScoreFilter(
+    score_fn=WordCountFilter(min_words=80),
     text_field="text",
     score_field="word_count",
 )
-
-# Get filtered dataset
-long_books = filter_step(books)
+pipeline.add_stage(filter_stage)
 
 # Save filtered dataset
-long_books.to_json("long_books/", write_to_filename=True)
+writer = JsonlWriter(path="long_books/")
+pipeline.add_stage(writer)
+
+# Execute pipeline (uses XennaExecutor by default)
+results = pipeline.run()
+```
+
+```{note}
+**Default Executor**: When you call `pipeline.run()` without specifying an executor, NeMo Curator automatically uses `XennaExecutor()` as the default. You can optionally specify a different executor by passing it as a parameter: `pipeline.run(executor=my_executor)`.
 ```
 
 The filter object implements two key methods:
@@ -67,12 +81,14 @@ For more specific use cases, NeMo Curator provides two specialized modules:
   
 ```python
 # Example: Score documents without filtering
-scoring_step = nc.Score(
+from nemo_curator.stages.text.modules import Score
+
+scoring_step = Score(
     WordCountFilter().score_document,  # Use just the scoring part
     text_field="text",
     score_field="word_count"
 )
-scored_dataset = scoring_step(dataset)
+scored_dataset = scoring_step.process(dataset)
 ```
 
 - `Filter`: A module that filters based on pre-computed metadata
@@ -82,45 +98,52 @@ scored_dataset = scoring_step(dataset)
   
 ```python
 # Example: Filter using pre-computed scores
-filter_step = nc.Filter(
+from nemo_curator.stages.text.modules import Filter
+
+filter_step = Filter(
     lambda score: score >= 100,  # Keep documents with score >= 100
     filter_field="word_count"
 )
-filtered_dataset = filter_step(scored_dataset)
+filtered_dataset = filter_step.process(scored_dataset)
 ```
 
 You can combine these modules in pipelines:
 
 ```python
-pipeline = nc.Sequential([
-    nc.Score(word_counter, score_field="word_count"),
-    nc.Score(symbol_counter, score_field="symbol_ratio"),
-    nc.Filter(lambda x: x >= 100, filter_field="word_count"),
-    nc.Filter(lambda x: x <= 0.3, filter_field="symbol_ratio")
-])
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.modules import Score, Filter
+
+pipeline = Pipeline(name="multi_stage_filtering")
+pipeline.add_stage(Score(word_counter, score_field="word_count"))
+pipeline.add_stage(Score(symbol_counter, score_field="symbol_ratio"))
+pipeline.add_stage(Filter(lambda x: x >= 100, filter_field="word_count"))
+pipeline.add_stage(Filter(lambda x: x <= 0.3, filter_field="symbol_ratio"))
 ```
 
 :::
 
-:::{tab-item} Batched Filtering
+:::{tab-item} Performance Optimization
 
-For improved performance, NeMo Curator supports batch processing using the `@batched` decorator:
+NeMo Curator's filtering framework is optimized for performance through:
 
 ```python
-from nemo_curator.utils.decorators import batched
-import pandas as pd
-
-class BatchedFilter(DocumentFilter):
-    @batched
-    def keep_document(self, scores: pd.Series):
-        # Process multiple documents in one operation
-        return scores > 10
+# Filters automatically use vectorized operations when possible
+class OptimizedFilter(DocumentFilter):
+    def score_document(self, text: str) -> float:
+        # Individual document scoring
+        return len(text.split())
+    
+    def keep_document(self, score: float) -> bool:
+        # Individual document filtering decision
+        return score >= 10
 ```
 
-The batched processing can significantly improve performance on large datasets by:
-- Reducing function call overhead
-- Enabling vectorized operations
-- Optimizing memory usage
+The framework provides built-in performance optimizations:
+
+- Vectorized pandas operations for batch processing
+- Efficient memory usage patterns
+- Optimized I/O operations
+- Distributed processing support
 
 :::
 
@@ -177,45 +200,40 @@ Implement and combine your own custom filters
 
 ## Usage
 
-NeMo Curator provides a CLI tool for document filtering that becomes available after installing the package:
+NeMo Curator provides programmatic interfaces for document filtering through the Pipeline framework:
 
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --output-removed-document-dir=/path/to/output/low_quality \
-  --output-document-score-dir=/path/to/output/scores \
-  --num-workers=4
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter
+
+# Create and configure pipeline
+pipeline = Pipeline(name="document_filtering")
+
+# Add data loading
+reader = JsonlReader(
+    file_paths="/path/to/input/data/*.jsonl",
+    fields=["text", "id"]
+)
+pipeline.add_stage(reader)
+
+# Add filtering stage
+filter_stage = ScoreFilter(
+    score_fn=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+)
+pipeline.add_stage(filter_stage)
+
+# Add output stage
+writer = JsonlWriter(path="/path/to/output/filtered/")
+pipeline.add_stage(writer)
+
+# Execute pipeline (uses XennaExecutor by default)
+results = pipeline.run()
 ```
-
-For distributed processing with multiple workers:
-
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --num-workers=8 \
-  --device=gpu \
-  --log-dir=./logs
-```
-
-### CLI Parameters
-
-| Parameter | Description | Required |
-|-----------|-------------|----------|
-| `--input-data-dir` | Directory containing input JSONL files | Yes |
-| `--filter-config-file` | YAML configuration for the filter pipeline | Yes |
-| `--output-retained-document-dir` | Directory for documents passing filters | Yes |
-| `--output-removed-document-dir` | Directory for rejected documents | No |
-| `--output-document-score-dir` | Directory for storing score metadata | No |
-| `--log-dir` | Directory for storing logs | No |
-| `--num-workers` | Number of Dask workers for distributed processing | No |
-| `--scheduler-address` | Address of Dask scheduler for distributed processing | No |
-| `--device` | Processing device: `cpu` or `gpu` (default: `cpu`) | No |
-| `--input-file-type` | Input file format: `jsonl`, `parquet`, etc. (default: `jsonl`) | No |
-| `--output-file-type` | Output file format: `jsonl`, `parquet`, etc. (default: `jsonl`) | No |
 
 ```{toctree}
 :maxdepth: 4
@@ -236,4 +254,4 @@ When filtering large datasets, consider these performance tips:
 2. **Batch size tuning**: Adjust batch sizes based on your hardware capabilities
 3. **Use vectorization**: Implement batched methods for compute-intensive filters
 4. **Disk I/O**: Consider compression and chunking strategies for large datasets
-5. **Distributed processing**: For TB-scale datasets, use distributed filtering with Dask workers (`--num-workers`) or connect to an existing Dask cluster (`--scheduler-address`) 
+5. **Distributed processing**: For TB-scale datasets, use distributed filtering with the XennaExecutor

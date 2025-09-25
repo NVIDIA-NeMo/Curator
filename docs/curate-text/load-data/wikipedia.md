@@ -43,9 +43,8 @@ Here's how to download and extract Wikipedia data using Curator:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna.executor import XennaExecutor
 from nemo_curator.stages.text.download import WikipediaDownloadExtractStage
-from nemo_curator.stages.io.writer import JsonlWriter
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
 # Create the Wikipedia processing stage
 wikipedia_stage = WikipediaDownloadExtractStage(
@@ -70,11 +69,8 @@ pipeline = Pipeline(
 pipeline.add_stage(wikipedia_stage)
 pipeline.add_stage(writer_stage)
 
-# Create executor and run pipeline
-executor = XennaExecutor()
-
 # Execute the pipeline
-results = pipeline.run(executor)
+results = pipeline.run()
 print(f"Pipeline completed with {len(results) if results else 0} output files")
 ```
 
@@ -104,7 +100,7 @@ for lang in languages:
     pipeline.add_stage(writer_stage)
 
     # Execute
-    results = pipeline.run(XennaExecutor())
+    results = pipeline.run()
 ```
 
 ### Parameters

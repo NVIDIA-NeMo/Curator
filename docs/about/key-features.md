@@ -47,11 +47,6 @@ Efficiently load and manage massive text datasets, with support for common forma
 Advanced filtering, deduplication, classification, and pipeline design for high-quality text curation.
 :::
 
-:::{grid-item-card} {octicon}`zap;1.5em;sd-mr-1` Synthetic Data & PII Removal
-:link: about-concepts-text-data-gen
-:link-type: ref
-LLM-driven synthetic data generation, prompt engineering, and privacy-preserving PII removal for text datasets.
-:::
 
 :::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Text Curation Quickstart
 :link: gs-text
