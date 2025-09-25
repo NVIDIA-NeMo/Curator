@@ -88,7 +88,7 @@ if __name__ == "__main__":
         "--model_name", type=str, default="nvidia/stt_hy_fastconformer_hybrid_large_pc", help="NeMo model name"
     )
     parser.add_argument("--lang", type=str, default="hy_am", help="Language name ")
-    parser.add_argument("--split", type=str, default="dev", help="Split name, usially {train, dev, test}")
+    parser.add_argument("--split", type=str, default="dev", help="Split name, usually {train, dev, test}")
     parser.add_argument("--wer_threshold", type=float, default=75.0, help="Limit the number of videos to read")
     args = parser.parse_args()
     main(args)
