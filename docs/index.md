@@ -202,7 +202,6 @@ curate-text/index.md
 Tutorials <curate-text/tutorials/index.md>
 Load Data <curate-text/load-data/index.md>
 Process Data <curate-text/process-data/index.md>
-Generate Data <curate-text/generate-data/index.md>
 ::::
 
 ::::{toctree}

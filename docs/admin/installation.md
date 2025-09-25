@@ -142,9 +142,6 @@ NeMo Curator provides several installation extras to install only the components
 * - **image**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image]`
   - CPU + GPU text and image curation
-* - **bitext**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[bitext]`
-  - Bilingual text curation modules
 * - **all**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]`
   - All stable modules (recommended)

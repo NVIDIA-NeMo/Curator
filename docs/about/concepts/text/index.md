@@ -56,14 +56,6 @@ Concepts for filtering, deduplication, and classification
 {bdg-secondary}`filtering` {bdg-secondary}`quality`
 :::
 
-:::{grid-item-card} {octicon}`beaker;1.5em;sd-mr-1` Data Generation
-:link: about-concepts-text-data-gen
-:link-type: ref
-
-Concepts for generating high-quality synthetic text
-+++
-{bdg-secondary}`synthetic` {bdg-secondary}`llm`
-:::
 
 ::::
 
@@ -115,5 +107,4 @@ Curation Pipeline <data-curation-pipeline>
 Data Loading <data-loading-concepts>
 Data Acquisition <data-acquisition-concepts>
 Data Processing <data-processing-concepts>
-Data Generation <data-generation-concepts>
 ```
