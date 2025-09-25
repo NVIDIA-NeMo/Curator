@@ -70,12 +70,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
 
     # Grab integer from blocksize string, e.g., "100mb" -> 100
     json_blocksize = int("".join(c for c in args.json_blocksize if c.isdigit()))
-    input_dir = os.path.join(args.input_dir, "split")
-    try:
-        os.makedirs(input_dir, exist_ok=False)
-    except FileExistsError as e:
-        msg = f"Split directory already exists: {input_dir}. Please delete it and try again."
-        raise FileExistsError(msg) from e
+    input_dir = os.path.join(args.output_dir, "input_data_shards")
+    os.makedirs(input_dir, exist_ok=False)
 
     # Split into smaller files for parallel processing
     split_files = [split_jsonl_by_size.remote(f, json_blocksize, input_dir, "split") for f in input_files]
