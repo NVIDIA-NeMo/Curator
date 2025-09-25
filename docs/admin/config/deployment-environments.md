@@ -13,8 +13,6 @@ modality: "universal"
 
 Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes. This guide focuses on deployment-specific settings and operational concerns.
 
-For technical API documentation and implementation details, see the [Infrastructure Reference](reference-infra-dist-computing).
-
 ```{tip}
 **Applying These Configurations**: This guide shows you how to configure NeMo Curator for different environments. To learn how to actually deploy and run NeMo Curator in these environments, see:
 - {doc}`Kubernetes Deployment <../deployment/kubernetes>`: Running on Kubernetes clusters

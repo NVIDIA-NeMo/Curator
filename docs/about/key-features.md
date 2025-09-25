@@ -98,6 +98,37 @@ Set up your environment and install NeMo Curator's image modules.
 
 ---
 
+## Audio Data Curation
+
+NeMo Curator provides speech and audio curation capabilities designed for preparing high-quality speech datasets for ASR model training and multimodal applications. Audio curation follows a **Load** → **Process** → **Save & Export** workflow: load audio files and manifests, perform ASR inference and quality assessment, then export curated datasets and transcriptions.
+
+### Load Data
+
+- **[Audio Manifest Loading](../curate-audio/load-data/index.md)** - Load speech datasets with audio file paths and transcriptions
+- **[FLEURS Dataset Integration](../curate-audio/load-data/fleurs-dataset.md)** - Built-in support for the multilingual FLEURS speech dataset
+
+### Process Data
+
+- **ASR Inference & Transcription**
+  - [NeMo ASR Model Integration](../curate-audio/process-data/asr-inference/nemo-models.md) - Leverage NeMo Framework's pretrained ASR models for transcription
+
+- **Quality Assessment & Filtering**
+  - [Word Error Rate (WER) Filtering](../curate-audio/process-data/quality-assessment/wer-filtering.md) - Filter based on transcription accuracy
+  - [Duration-based Filtering](../curate-audio/process-data/quality-assessment/duration-filtering.md) - Remove audio files outside duration thresholds
+
+- **Audio Analysis**
+  - [Duration Calculation](../curate-audio/process-data/audio-analysis/duration-calculation.md) - Extract precise audio duration using soundfile
+  - [Format Validation](../curate-audio/process-data/audio-analysis/format-validation.md) - Validate audio file integrity and format
+
+- **Text Integration**
+  - [Audio-to-Text Conversion](../curate-audio/process-data/text-integration/index.md) - Convert processed audio data to text processing pipeline
+
+### Save & Export
+
+- **[Save & Export](../curate-audio/save-export.md)** - Export curated audio datasets with transcriptions and quality metrics for downstream training
+
+---
+
 ## Video Data Curation
 
 NeMo Curator provides distributed video curation pipelines, supporting scalable data flow, pipeline stages, and efficient processing for large video corpora. The architecture is designed for high-throughput, cloud-native, and on-prem deployments.
