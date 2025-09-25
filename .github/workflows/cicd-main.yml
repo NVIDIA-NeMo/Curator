@@ -163,7 +163,7 @@ jobs:
           uv add InternVideo/InternVideo2/multi_modality
           uv add pytest-timeout
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/InternVideo"
-          uv run coverage run --branch --source=nemo_curator -m pytest --timeout=180 -v tests/${{ matrix.folder }} -m "not gpu"
+          uv run coverage run --branch --source=nemo_curator -m pytest --timeout=60 -v tests/${{ matrix.folder }} -m "not gpu"
 
       - name: Generate report
         id: check
