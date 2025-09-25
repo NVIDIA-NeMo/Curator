@@ -45,6 +45,8 @@ mkdir -p ./model_weights/ttj && \
 python -c "from huggingface_hub import snapshot_download; snapshot_download('ttj/sac-logos-ava1-l14-linearMSE', local_dir='./model_weights/ttj/sac-logos-ava1-l14-linearMSE', force_download=True)"
 ```
 
+Note: users can use `unzip` package (can be installed with `apt-get update && apt-get install unzip -y`) or any other compressing package
+
 ### Run the scripts
 
 **Note on Batch Sizes:** The batch sizes used in both workflows below are conservative limits set for typical GPUs with 24-48 GB of VRAM (e.g., RTX 4090, A6000, RTX A5000). You can tune these based on your available GPU memory:
