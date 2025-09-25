@@ -12,7 +12,7 @@ modality: "text-only"
 
 # Data Acquisition Concepts
 
-This guide covers the core concepts for acquiring and processing text data from remote sources in NeMo Curator. Data acquisition focuses on downloading, extracting, and converting remote data sources into {ref}`DocumentDataset <documentdataset>` format for further processing.
+This guide covers the core concepts for acquiring and processing text data from remote sources in NeMo Curator. Data acquisition focuses on downloading, extracting, and converting remote data sources into `DocumentDataset` format for further processing.
 
 ## Overview
 
