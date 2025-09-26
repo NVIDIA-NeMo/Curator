@@ -57,10 +57,6 @@
     - Easiness
     - Answerability
   - Q&A Retrieval Generation Pipeline
-- Parallel Dataset Curation for Machine Translation
-  - Load/Write Bitext Files
-  - Heuristic filtering (Histogram, Length Ratio)
-  - Classifier filtering (Comet, Cometoid)
 
 ## NVIDIA NeMo Curator 0.5.0
 

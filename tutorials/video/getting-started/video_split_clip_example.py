@@ -27,7 +27,18 @@ from nemo_curator.stages.video.embedding.cosmos_embed1 import (
     CosmosEmbed1EmbeddingStage,
     CosmosEmbed1FrameCreationStage,
 )
-from nemo_curator.stages.video.embedding.internvideo2 import InternVideo2EmbeddingStage, InternVideo2FrameCreationStage
+
+try:
+    from nemo_curator.stages.video.embedding.internvideo2 import (
+        InternVideo2EmbeddingStage,
+        InternVideo2FrameCreationStage,
+    )
+except ImportError:
+    print("InternVideo2 is not installed")
+    InternVideo2EmbeddingStage = None
+    InternVideo2FrameCreationStage = None
+
+
 from nemo_curator.stages.video.filtering.clip_aesthetic_filter import ClipAestheticFilterStage
 from nemo_curator.stages.video.filtering.motion_filter import MotionFilterStage, MotionVectorDecodeStage
 from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
@@ -159,6 +170,9 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 )
             )
         elif args.embedding_algorithm.startswith("internvideo2"):
+            if InternVideo2FrameCreationStage is None:
+                msg = "InternVideo2 is not installed, please consider installing it or using cosmos-embed1 instead."
+                raise ValueError(msg)
             pipeline.add_stage(
                 InternVideo2FrameCreationStage(
                     model_dir=args.model_dir,
@@ -270,7 +284,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # General arguments
     parser.add_argument("--video-dir", type=str, required=True, help="Path to input video directory")
-    parser.add_argument("--model-dir", type=str, required=True, help="Path to model directory")
+    parser.add_argument(
+        "--model-dir",
+        type=str,
+        default="./models",
+        help=(
+            "Path to model directory containing required model weights. "
+            "Models will be automatically downloaded on first use if not present. "
+            "Required models depend on selected algorithms:\n"
+            "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
+            "  - InternVideo2: For embeddings (--embedding-algorithm internvideo2)\n"
+            "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
+            "  - Qwen: For captioning (--generate-captions)\n"
+            "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
+            "Default: ./models\n"
+            "Example: --model-dir /path/to/models or --model-dir ./models"
+        )
+    )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
     parser.add_argument("--output-clip-path", type=str, help="Path to output clips", required=True)
@@ -474,7 +504,7 @@ if __name__ == "__main__":
         "--clip-extraction-target-res",
         type=int,
         default=-1,
-        help="Target resolution for clip extraction as (height, width). A value of -1 implies disables resize",
+        help="Target resolution for clip extraction as a square (height=width). A value of -1 disables resize",
     )
     # Aesthetic arguments
     parser.add_argument(

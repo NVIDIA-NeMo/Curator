@@ -65,7 +65,6 @@ APIs for downloading and building datasets from external sources.
 Filtering and quality control APIs.
 +++
 {bdg-secondary}`classifier-filter`
-{bdg-secondary}`bitext-filter`
 {bdg-secondary}`heuristic-filter`
 :::
 
@@ -114,16 +113,6 @@ NeMo Run integration for distributed execution.
 {bdg-secondary}`distributed`
 :::
 
-:::{grid-item-card} {octicon}`zap;1.5em;sd-mr-1` Synthetic Data API
-:link: ../apidocs/synthetic/synthetic.html
-:link-type: url
-Synthetic data generation modules.
-+++
-{bdg-secondary}`generator`
-{bdg-secondary}`mixtral`
-:::
-
-
 :::{grid-item-card} {octicon}`checklist;1.5em;sd-mr-1` Tasks API
 :link: ../apidocs/tasks/tasks.html
 :link-type: url
@@ -150,16 +139,6 @@ Explore the foundational infrastructure that powers NeMo Curator. Learn how to s
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Distributed Computing
-:link: reference-infra-dist-computing
-:link-type: ref
-Configure and manage distributed processing across multiple machines
-+++
-{bdg-secondary}`dask`
-{bdg-secondary}`clusters`
-{bdg-secondary}`scaling`
-:::
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management
 :link: reference-infra-memory-management

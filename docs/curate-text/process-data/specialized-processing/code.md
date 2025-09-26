@@ -1,4 +1,5 @@
 (text-process-data-filter-code)=
+
 # Code Filtering
 
 NVIDIA NeMo Curator provides specialized filters for assessing and filtering code snippets and programming files. These filters help ensure that code included in your training dataset meets quality standards and doesn't contain problematic patterns. Code filtering addresses specific challenges related to programming content, including code quality assessment, detection of non-code content mislabeled as code, identification of embedded data structures or boilerplate, language-specific filtering considerations, and token efficiency for code. These filters are particularly important when preparing datasets for code language models or programming assistants.
@@ -9,7 +10,7 @@ Code filtering evaluates programming content based on measurable attributes that
 
 1. **Structure Analysis**: Examines lines of code, indentation patterns, and overall file organization
 2. **Comment Analysis**: Measures the ratio of comments to executable code to identify well-documented code versus automatically generated or tutorial content
-3. **Content Verification**: Ensures files actually contain code rather than data, configuration, or misclassified content 
+3. **Content Verification**: Ensures files actually contain code rather than data, configuration, or misclassified content
 4. **Language-Specific Patterns**: Applies different criteria based on programming language conventions
 5. **Token Efficiency**: Evaluates how efficiently the code can be tokenized for model training
 
@@ -22,44 +23,52 @@ These filters can be applied individually or in combination to create comprehens
 Here's an example of applying code filters to a dataset:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import (
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import (
     PythonCommentToCodeFilter,
     NumberOfLinesOfCodeFilter,
     AlphaFilter
 )
 
+# Create pipeline
+pipeline = Pipeline(name="code_quality_filtering")
+
 # Load your code dataset
-dataset = DocumentDataset.read_json("code_data/*.jsonl")
+reader = JsonlReader(
+    file_paths="code_data/*.jsonl",
+    fields=["content", "id"]  # Specify fields to read
+)
+pipeline.add_stage(reader)
 
-# Create a filter chain for code quality
-filter_step = nc.Sequential([
-    nc.ScoreFilter(
-        PythonCommentToCodeFilter(
-            min_comment_to_code_ratio=0.01,
-            max_comment_to_code_ratio=0.8
-        ),
-        text_field="content",
-        score_field="comment_ratio"
+# Add filter stages for code quality
+pipeline.add_stage(ScoreFilter(
+    score_fn=PythonCommentToCodeFilter(
+        min_comment_to_code_ratio=0.01,
+        max_comment_to_code_ratio=0.8
     ),
-    nc.ScoreFilter(
-        NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
-        text_field="content",
-        score_field="line_count"
-    ),
-    nc.ScoreFilter(
-        AlphaFilter(min_alpha_ratio=0.3),
-        text_field="content",
-        score_field="alpha_ratio"
-    )
-])
+    text_field="content",
+    score_field="comment_ratio"
+))
+pipeline.add_stage(ScoreFilter(
+    score_fn=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
+    text_field="content",
+    score_field="line_count"
+))
+pipeline.add_stage(ScoreFilter(
+    score_fn=AlphaFilter(min_alpha_ratio=0.3),
+    text_field="content",
+    score_field="alpha_ratio"
+))
 
-# Apply the filters
-quality_code = filter_step(dataset)
+# Add output stage
+writer = JsonlWriter(path="filtered_code/")
+pipeline.add_stage(writer)
 
-# Save the results
-quality_code.to_json("filtered_code/", write_to_filename=True)
+# Execute pipeline
+results = pipeline.run()
 ```
 
 ## Available Code Filters
@@ -73,12 +82,12 @@ NeMo Curator offers several specialized filters for code content:
 | **PythonCommentToCodeFilter** | Filters Python files based on comment-to-code ratio | `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 | **GeneralCommentToCodeFilter** | Similar filter for other languages | `language`, `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 
-The comment-to-code ratio is an important metric for code quality. Too few comments may indicate poor documentation, while too many comments might suggest automatically generated code or tutorials:
+The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials:
 
 ```python
 # For Python files with docstrings
-python_filter = nc.ScoreFilter(
-    PythonCommentToCodeFilter(
+python_filter = ScoreFilter(
+    score_fn=PythonCommentToCodeFilter(
         min_comment_to_code_ratio=0.05,  # At least 5% comments
         max_comment_to_code_ratio=0.7    # At most 70% comments
     ),
@@ -86,8 +95,8 @@ python_filter = nc.ScoreFilter(
 )
 
 # For other languages
-cpp_filter = nc.ScoreFilter(
-    GeneralCommentToCodeFilter(
+cpp_filter = ScoreFilter(
+    score_fn=GeneralCommentToCodeFilter(
         language="text/x-c++",  # MIME type for C++
         min_comment_to_code_ratio=0.02,
         max_comment_to_code_ratio=0.6
@@ -97,6 +106,7 @@ cpp_filter = nc.ScoreFilter(
 ```
 
 The `GeneralCommentToCodeFilter` supports various language MIME types:
+
 - `text/x-c++` for C++
 - `text/x-java` for Java
 - `text/javascript` for JavaScript
@@ -115,8 +125,8 @@ Code structure filters help identify problematic patterns:
 
 ```python
 # Filter for reasonable line counts
-line_filter = nc.ScoreFilter(
-    NumberOfLinesOfCodeFilter(
+line_filter = ScoreFilter(
+    score_fn=NumberOfLinesOfCodeFilter(
         min_lines=5,     # Filter out tiny snippets
         max_lines=2000   # Filter out extremely long files
     ),
@@ -124,19 +134,19 @@ line_filter = nc.ScoreFilter(
 )
 
 # Filter for alphabetic content (avoid large data blobs)
-alpha_filter = nc.ScoreFilter(
-    AlphaFilter(min_alpha_ratio=0.3),  # At least 30% alphabetic chars
+alpha_filter = ScoreFilter(
+    score_fn=AlphaFilter(min_alpha_ratio=0.3),  # At least 30% alphabetic chars
     text_field="content"
 )
 ```
 
-The `TokenizerFertilityFilter` helps ensure code is efficiently tokenizable:
+The `TokenizerFertilityFilter` helps ensure code has efficient token encoding:
 
 ```python
 # Filter for token efficiency
 # Note: path_to_tokenizer is required
-tokenization_filter = nc.ScoreFilter(
-    TokenizerFertilityFilter(
+tokenization_filter = ScoreFilter(
+    score_fn=TokenizerFertilityFilter(
         path_to_tokenizer="/path/to/code_tokenizer.model",  # Required parameter
         min_char_to_token_ratio=2.5  # Each token encodes at least 2.5 chars on average
     ),
@@ -160,8 +170,8 @@ Different programming languages have different conventions and characteristics. 
 
 ```python
 # Apply language-specific filters
-python_specific = nc.ScoreFilter(
-    PerExtensionFilter(
+python_specific = ScoreFilter(
+    score_fn=PerExtensionFilter(
         lang="python",
         extension=".py",
         metadata_file="code_meta.csv"  # Contains language-specific thresholds
@@ -171,6 +181,7 @@ python_specific = nc.ScoreFilter(
 ```
 
 The metadata file can specify different thresholds for metrics like:
+
 - Average line length
 - Comment ratio
 - Empty line ratio
@@ -181,9 +192,13 @@ The metadata file can specify different thresholds for metrics like:
 A typical configuration for code filtering in YAML format:
 
 ```yaml
-filters:
+stages:
+  - name: JsonlReader
+    file_paths: "code_data/*.jsonl"
+    fields: ["content", "id"]
+  
   - name: ScoreFilter
-    filter:
+    score_fn:
       name: PythonCommentToCodeFilter
       min_comment_to_code_ratio: 0.01
       max_comment_to_code_ratio: 0.85
@@ -191,7 +206,7 @@ filters:
     score_field: comment_ratio
   
   - name: ScoreFilter
-    filter:
+    score_fn:
       name: NumberOfLinesOfCodeFilter
       min_lines: 10
       max_lines: 5000
@@ -199,17 +214,20 @@ filters:
     score_field: line_count
   
   - name: ScoreFilter
-    filter:
+    score_fn:
       name: AlphaFilter
       min_alpha_ratio: 0.25
     text_field: content
     score_field: alpha_ratio
   
   - name: ScoreFilter
-    filter:
+    score_fn:
       name: XMLHeaderFilter
     text_field: content
     score_field: xml_detected
+  
+  - name: JsonlWriter
+    path: "filtered_code/"
 ```
 
 ## Best Practices for Code Filtering
@@ -217,54 +235,81 @@ filters:
 When filtering code datasets, consider these best practices:
 
 1. **Language-specific configurations**: Adjust thresholds based on the programming language
+
    ```python
    # Python tends to have more comments than C
-   python_comment_filter = PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05)
-   c_comment_filter = GeneralCommentToCodeFilter(language="text/x-c", min_comment_to_code_ratio=0.02)
+   python_comment_filter = ScoreFilter(
+       score_fn=PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05),
+       text_field="content"
+   )
+   c_comment_filter = ScoreFilter(
+       score_fn=GeneralCommentToCodeFilter(language="text/x-c", min_comment_to_code_ratio=0.02),
+       text_field="content"
+   )
    ```
 
 2. **Preserve code structure**: Ensure filters don't inadvertently remove valid coding patterns
+
    ```python
    # Some languages naturally have low comment ratios
-   assembly_filter = GeneralCommentToCodeFilter(
-       language="text/x-asm",
-       min_comment_to_code_ratio=0.001  # Very low minimum for assembly
+   assembly_filter = ScoreFilter(
+       score_fn=GeneralCommentToCodeFilter(
+           language="text/x-asm",
+           min_comment_to_code_ratio=0.001  # Very low minimum for assembly
+       ),
+       text_field="content"
    )
    ```
 
 3. **Combine with language detection**: Verify file extensions match content
+
    ```python
    # First check if the content is actually Python using FastText language ID
-   from nemo_curator.filters import FastTextLangId
+   from nemo_curator.stages.text.filters import FastTextLangId
+   from nemo_curator.pipeline import Pipeline
    
-   python_detection = nc.ScoreFilter(
-       FastTextLangId(
+   # Create pipeline for Python code filtering with language detection
+   pipeline = Pipeline(name="python_code_filtering")
+   
+   # Add language detection stage
+   pipeline.add_stage(ScoreFilter(
+       score_fn=FastTextLangId(
            model_path="/path/to/lid.176.bin",  # Download from fasttext.cc
            min_langid_score=0.8
        ),
+       text_field="content",
        score_field="language"
-   )
-   # Then apply Python-specific filters
-   python_filters = nc.Sequential([
-       python_detection,
-       nc.ScoreFilter(PythonCommentToCodeFilter())
-   ])
-   ```
+   ))
    
+   # Then apply Python-specific filters
+   pipeline.add_stage(ScoreFilter(
+       score_fn=PythonCommentToCodeFilter(),
+       text_field="content"
+   ))
+   ```
+
    :::{note}
-   The `FastTextLangId` filter requires downloading the fastText language identification model from [fasttext.cc](https://fasttext.cc/docs/en/language-identification.html).
+   The `FastTextLangId` filter requires downloading the FastText language identification model from [fasttext.cc](https://fasttext.cc/docs/en/language-identification.html).
    :::
 
-4. **Avoid over-filtering**: Monitor rejection rates and adjust thresholds as needed
+4. **Avoid over-filtering**: Track rejection rates and adjust thresholds as needed
+
    ```python
-   # Track filter statistics
-   rejection_stats = {}
-   for filter_name, filter_obj in filters.items():
-       filter_step = nc.ScoreFilter(filter_obj, text_field="content")
-       before_count = len(dataset)
-       filtered = filter_step(dataset)
-       after_count = len(filtered)
-       rejection_stats[filter_name] = (before_count - after_count) / before_count
+   # Track filter statistics by running individual filters and measuring results
+   from nemo_curator.stages.text.io.reader import JsonlReader
+   
+   # Load dataset for testing
+   reader = JsonlReader(file_paths="test_data/*.jsonl")
+   
+   # Test individual filters to measure rejection rates
+   filters_to_test = {
+       "python_comment": PythonCommentToCodeFilter(),
+       "line_count": NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
+       "alpha_content": AlphaFilter(min_alpha_ratio=0.3)
+   }
+   
+   # Note: Actual statistics collection would require running the pipeline
+   # and analyzing the results to determine optimal thresholds
    ```
 
 ## Use Cases
@@ -272,36 +317,65 @@ When filtering code datasets, consider these best practices:
 ::::{tab-set}
 
 :::{tab-item} Cleaning Open Source Code Datasets
+
 ```python
-# Filter to remove non-functional code snippets
-repo_filter = nc.Sequential([
-    # Remove extremely short files
-    nc.ScoreFilter(NumberOfLinesOfCodeFilter(min_lines=3)),
-    
-    # Remove files with XML preamble (misidentified as code)
-    nc.ScoreFilter(XMLHeaderFilter()),
-    
-    # Ensure reasonable comment-to-code ratio
-    nc.ScoreFilter(GeneralCommentToCodeFilter(language="text/x-c++"))
-])
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.modules import ScoreFilter
+
+# Create pipeline to filter non-functional code snippets
+pipeline = Pipeline(name="code_cleaning")
+
+# Remove extremely short files
+pipeline.add_stage(ScoreFilter(
+    score_fn=NumberOfLinesOfCodeFilter(min_lines=3),
+    text_field="content"
+))
+
+# Remove files with XML preamble (misidentified as code)
+pipeline.add_stage(ScoreFilter(
+    score_fn=XMLHeaderFilter(),
+    text_field="content"
+))
+
+# Ensure reasonable comment-to-code ratio
+pipeline.add_stage(ScoreFilter(
+    score_fn=GeneralCommentToCodeFilter(language="text/x-c++"),
+    text_field="content"
+))
 ```
+
 :::
 
 :::{tab-item} Training Data Preparation
+
 ```python
-training_filter = nc.Sequential([
-    # Ensure enough alphabetic content (not just symbols or data)
-    nc.ScoreFilter(AlphaFilter(min_alpha_ratio=0.3)),
-    
-    # Check token efficiency
-    nc.ScoreFilter(TokenizerFertilityFilter(path_to_tokenizer="tokenizer.model")),
-    
-    # Remove HTML with mostly boilerplate
-    nc.ScoreFilter(HTMLBoilerplateFilter(min_lang_content_ratio=0.3))
-])
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.modules import ScoreFilter
+
+# Create pipeline for training data preparation
+pipeline = Pipeline(name="training_data_prep")
+
+# Ensure enough alphabetic content (not just symbols or data)
+pipeline.add_stage(ScoreFilter(
+    score_fn=AlphaFilter(min_alpha_ratio=0.3),
+    text_field="content"
+))
+
+# Check token efficiency
+pipeline.add_stage(ScoreFilter(
+    score_fn=TokenizerFertilityFilter(path_to_tokenizer="tokenizer.model"),
+    text_field="content"
+))
+
+# Remove HTML with mostly boilerplate
+pipeline.add_stage(ScoreFilter(
+    score_fn=HTMLBoilerplateFilter(min_lang_content_ratio=0.3),
+    text_field="content"
+))
 ```
+
 :::
 
 ::::
 
-By applying these specialized code filters, you can significantly improve the quality of code in your training datasets, leading to better model performance for code-related tasks. 
+By applying these specialized code filters, you can improve the quality of code in your training datasets, leading to better model performance for code-related tasks.

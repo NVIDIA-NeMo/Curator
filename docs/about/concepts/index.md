@@ -40,6 +40,13 @@ Learn about text data curation, covering data loading, processing (filtering, de
 
 Discover video data curation concepts, such as distributed processing, pipeline stages, execution modes, and efficient data flow.
 :::
+
+:::{grid-item-card} {octicon}`unmute;1.5em;sd-mr-1` Audio Curation Concepts
+:link: about-concepts-audio
+:link-type: ref
+
+Learn about speech data curation, ASR inference, quality assessment, and audio-text integration workflows.
+:::
 ::::
 
 ```{toctree}
@@ -49,4 +56,5 @@ Discover video data curation concepts, such as distributed processing, pipeline 
 Image Concepts <image/index.md>
 Text Concepts <text/index.md>
 Video Concepts <video/index.md>
+Audio Concepts <audio/index.md>
 ```

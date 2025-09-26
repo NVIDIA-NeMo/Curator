@@ -24,31 +24,7 @@ These filters assess quality using measurable document characteristics such as:
 - Language-specific patterns
 - Text completeness and coherence
 
-Each heuristic filter follows a consistent structure:
-
-```python
-class ExampleFilter(DocumentFilter):
-    def __init__(self, parameter1=default1, parameter2=default2):
-        super().__init__()
-        self._param1 = parameter1
-        self._param2 = parameter2
-        self._name = "example_filter"
-        
-    def score_document(self, text):
-        # Calculate and return a score between 0 and 1
-        # Higher scores typically indicate lower quality
-        score = compute_score(text)
-        return score
-        
-    def keep_document(self, score):
-        # Return True to keep the document, False to filter it out
-        return score <= self._param1
-```
-
-The filtering process typically involves:
-1. Calculating a quality score for each document
-2. Applying a threshold to determine whether to keep or discard the document
-3. Optionally storing the score as metadata for later analysis
+For details on filter structure and the filtering process, refer to {ref}`Data Processing Concepts <about-concepts-text-data-processing>`.
 
 --- 
 
@@ -58,47 +34,95 @@ The filtering process typically involves:
 
 :::{tab-item} Python
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import (
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import (
     WordCountFilter,
     RepeatingTopNGramsFilter,
     PunctuationFilter
 )
 
+# Create pipeline
+pipeline = Pipeline(name="heuristic_filtering")
+
 # Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+reader = JsonlReader(
+    file_paths="input_data/*.jsonl",
+    fields=["text", "id"]
+)
+pipeline.add_stage(reader)
 
-# Create a filter chain using Sequential
-filter_step = nc.Sequential([
-    nc.ScoreFilter(
-        WordCountFilter(min_words=80),
-        text_field="text",
-        score_field="word_count",
-    ),
-    nc.ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18)),
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=4, max_repeating_ngram_ratio=0.16)),
-])
+# Add filter stages
+pipeline.add_stage(ScoreFilter(
+    score_fn=WordCountFilter(min_words=80),
+    text_field="text",
+    score_field="word_count"
+))
+pipeline.add_stage(ScoreFilter(
+    score_fn=PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85),
+    text_field="text"
+))
+pipeline.add_stage(ScoreFilter(
+    score_fn=RepeatingTopNGramsFilter(n=2, max_repeating_ngram_ratio=0.2),
+    text_field="text"
+))
+pipeline.add_stage(ScoreFilter(
+    score_fn=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+    text_field="text"
+))
+pipeline.add_stage(ScoreFilter(
+    score_fn=RepeatingTopNGramsFilter(n=4, max_repeating_ngram_ratio=0.16),
+    text_field="text"
+))
 
-# Apply the filters to get the high-quality subset
-high_quality_data = filter_step(dataset)
+# Add output stage
+writer = JsonlWriter(path="high_quality_output/")
+pipeline.add_stage(writer)
 
-# Save the results
-high_quality_data.to_json("high_quality_output/", write_to_filename=True)
+# Execute pipeline
+results = pipeline.run()
 ```
 :::
 
-:::{tab-item} Command Line
-```bash
-filter_documents \
-  --input-data-dir=/path/to/input/data \
-  --filter-config-file=./config/heuristic_filter_en.yaml \
-  --output-retained-document-dir=/path/to/output/high_quality \
-  --output-removed-document-dir=/path/to/output/low_quality \
-  --output-document-score-dir=/path/to/output/scores \
-  --log-dir=/path/to/logs/heuristic_filter
+:::{tab-item} Configuration
+```python
+# Example configuration for common heuristic filters
+from nemo_curator.stages.text.filters import (
+    WordCountFilter,
+    PunctuationFilter,
+    RepeatingTopNGramsFilter,
+    SymbolsToWordsFilter,
+    CommonEnglishWordsFilter
+)
+
+# Define filter configurations
+filters_config = [
+    {
+        "filter": WordCountFilter(min_words=50, max_words=10000),
+        "description": "Filter by word count"
+    },
+    {
+        "filter": PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85),
+        "description": "Filter by punctuation patterns"
+    },
+    {
+        "filter": RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18),
+        "description": "Filter repetitive content"
+    },
+    {
+        "filter": SymbolsToWordsFilter(max_symbol_to_word_ratio=0.1),
+        "description": "Filter by symbol ratio"
+    }
+]
+
+# Apply filters in pipeline
+for config in filters_config:
+    pipeline.add_stage(ScoreFilter(
+        score_fn=config["filter"],
+        text_field="text"
+    ))
 ```
 :::
 
@@ -201,23 +225,38 @@ When building filter chains, follow these best practices:
 
 :::{tab-item} Order for Efficiency
 ```python
-# Efficient ordering
-filter_chain = nc.Sequential([
-    nc.ScoreFilter(WordCountFilter(min_words=50)),  # Fast
-    nc.ScoreFilter(UrlsFilter()),                   # Medium
-    nc.ScoreFilter(RepeatingTopNGramsFilter())      # Slow
-])
+# Efficient ordering - place fast filters first
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter, UrlsFilter, RepeatingTopNGramsFilter
+
+pipeline = Pipeline(name="efficient_filtering")
+# Fast filters first
+pipeline.add_stage(ScoreFilter(score_fn=WordCountFilter(min_words=50), text_field="text"))
+# Medium complexity filters
+pipeline.add_stage(ScoreFilter(score_fn=UrlsFilter(), text_field="text"))
+# Slow filters last
+pipeline.add_stage(ScoreFilter(score_fn=RepeatingTopNGramsFilter(), text_field="text"))
 ```
 :::
 
-:::{tab-item} Batched Processing
+:::{tab-item} Performance Tuning
 ```python
-from nemo_curator.utils.decorators import batched
+# Optimize filter performance with proper configuration
 
-class MyCustomFilter(DocumentFilter):
-    @batched
-    def keep_document(self, scores):
-        return scores <= self.threshold
+# Configure executor for better performance
+executor_config = {
+    "execution_mode": "streaming",
+    "cpu_allocation_percentage": 0.95,
+    "logging_interval": 30
+}
+
+# Use custom executor configuration when needed
+executor = XennaExecutor(config=executor_config)
+results = pipeline.run(executor)
+
+# Or use default configuration
+# results = pipeline.run()
 ```
 :::
 
@@ -234,26 +273,47 @@ strict_filter = WordCountFilter(min_words=100, max_words=10000)
 :::{tab-item} Language Considerations
 ```python
 # Chinese text filter
-cn_filter = nc.ScoreFilter(
-    SymbolsToWordsFilter(max_symbol_to_word_ratio=0.15, lang="zh")
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import SymbolsToWordsFilter
+
+cn_filter = ScoreFilter(
+    score_fn=SymbolsToWordsFilter(max_symbol_to_word_ratio=0.15, lang="zh"),
+    text_field="text"
 )
 ```
 :::
 
 :::{tab-item} Multiple Filters
 ```python
-# Comprehensive quality filter
-quality_chain = nc.Sequential([
-    # Basic text quality
-    nc.ScoreFilter(WordCountFilter(min_words=50)),
-    nc.ScoreFilter(PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85)),
-    
-    # Content quality
-    nc.ScoreFilter(CommonEnglishWordsFilter(min_num_common_words=2)),
-    
-    # Repetition detection
-    nc.ScoreFilter(RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18))
-])
+# Comprehensive quality filter pipeline
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import (
+    WordCountFilter, 
+    PunctuationFilter, 
+    CommonEnglishWordsFilter, 
+    RepeatingTopNGramsFilter
+)
+
+quality_pipeline = Pipeline(name="comprehensive_quality")
+
+# Basic text quality
+quality_pipeline.add_stage(ScoreFilter(
+    score_fn=WordCountFilter(min_words=50), text_field="text"
+))
+quality_pipeline.add_stage(ScoreFilter(
+    score_fn=PunctuationFilter(max_num_sentences_without_endmark_ratio=0.85), text_field="text"
+))
+
+# Content quality
+quality_pipeline.add_stage(ScoreFilter(
+    score_fn=CommonEnglishWordsFilter(min_num_common_words=2), text_field="text"
+))
+
+# Repetition detection
+quality_pipeline.add_stage(ScoreFilter(
+    score_fn=RepeatingTopNGramsFilter(n=3, max_repeating_ngram_ratio=0.18), text_field="text"
+))
 ```
 :::
 
@@ -294,29 +354,55 @@ For large datasets, consider these performance optimizations:
 
 :::{tab-item} Memory Efficient Processing
 ```python
-# Process in chunks to reduce memory usage
-for chunk in DocumentDataset.read_json_chunks("large_dataset/*.jsonl", chunk_size=10000):
-    filtered_chunk = filter_step(chunk)
-    filtered_chunk.to_json("output/", mode="append")
+# Process large datasets efficiently using pipeline streaming
+
+# Configure for streaming processing
+executor_config = {
+    "execution_mode": "streaming",
+    "cpu_allocation_percentage": 0.8,
+    "logging_interval": 60
+}
+
+# Use custom configuration for large datasets
+executor = XennaExecutor(config=executor_config)
+results = pipeline.run(executor)
+
+# Default configuration works for most cases
+# results = pipeline.run()
 ```
 :::
 
-:::{tab-item} Multi-process Filtering
-```bash
-# Use multiple processes with CLI
-filter_documents --input-data-dir=input/ --num-proc=8 --filter-config-file=config.yaml --output-retained-document-dir=output/
-```
-:::
-
-:::{tab-item} Custom Batch Sizes
+:::{tab-item} Distributed Processing
 ```python
-# Adjust batch size for specific filters
-from nemo_curator.utils.decorators import batched
+# Scale processing across multiple workers
 
-class CustomBatchFilter(DocumentFilter):
-    @batched(batch_size=5000)  # Set custom batch size
-    def keep_document(self, scores):
-        return scores <= self.threshold
+# Configure for distributed processing
+executor_config = {
+    "execution_mode": "streaming",
+    "cpu_allocation_percentage": 0.95,
+    "max_workers_per_stage": 8
+}
+
+# Use custom configuration for distributed processing
+executor = XennaExecutor(config=executor_config)
+results = pipeline.run(executor)
+
+# Default configuration uses single worker
+# results = pipeline.run()
+```
+:::
+
+:::{tab-item} Batch Size Optimization
+```python
+# Optimize pipeline stages for performance
+from nemo_curator.stages.text.io.reader import JsonlReader
+
+# Configure reader with optimal batch size
+reader = JsonlReader(
+    file_paths="large_dataset/*.jsonl",
+    files_per_partition=4,  # Adjust based on file sizes
+    fields=["text", "id"]
+)
 ```
 :::
 

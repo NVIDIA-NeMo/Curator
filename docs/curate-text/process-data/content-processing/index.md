@@ -32,6 +32,17 @@ You can combine processing tools in sequence or use them alongside other curatio
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
+:::{grid-item-card} {octicon}`number;1.5em;sd-mr-1` Document IDs
+:link: add-id
+:link-type: doc
+Add unique identifiers to documents for tracking and deduplication
++++
+{bdg-secondary}`identifiers`
+{bdg-secondary}`tracking`
+{bdg-secondary}`preprocessing`
+{bdg-secondary}`deduplication`
+:::
+
 :::{grid-item-card} {octicon}`shield-lock;1.5em;sd-mr-1` PII Removal
 :link: pii
 :link-type: doc
@@ -61,38 +72,43 @@ Fix Unicode issues, standardize spacing, and remove URLs
 Here's an example of a typical content processing pipeline:
 
 ```python
-from nemo_curator import Sequential, Modify
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
-from nemo_curator.modifiers.pii_modifier import PiiModifier
-
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modules import Modify
 
 # Create a comprehensive cleaning pipeline
-processing_pipeline = Sequential([
-    # Fix Unicode encoding issues
-    Modify(UnicodeReformatter()),
-    
-    # Standardize newlines
-    Modify(NewlineNormalizer()),
-    
-    # Remove URLs
-    Modify(UrlRemover()),
-    
-    # Remove PII (optional)
-    Modify(PiiModifier(
-        language="en",
-        supported_entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"],
-        anonymize_action="redact"
-    ))
-])
+processing_pipeline = Pipeline(
+    name="content_processing_pipeline",
+    description="Comprehensive text cleaning and processing"
+)
 
-# Apply the processing pipeline
-cleaned_dataset = processing_pipeline(dataset)
+# Load dataset
+reader = JsonlReader(file_paths="input_data/*.jsonl")
+processing_pipeline.add_stage(reader)
+
+# Fix Unicode encoding issues
+processing_pipeline.add_stage(
+    Modify(modifier=UnicodeReformatter(), text_field="text")
+)
+
+# Standardize newlines
+processing_pipeline.add_stage(
+    Modify(modifier=NewlineNormalizer(), text_field="text")
+)
+
+# Remove URLs
+processing_pipeline.add_stage(
+    Modify(modifier=UrlRemover(), text_field="text")
+)
 
 # Save the processed dataset
-cleaned_dataset.to_json("processed_output/", write_to_filename=True)
+writer = JsonlWriter(path="processed_output/")
+processing_pipeline.add_stage(writer)
+
+# Execute pipeline
+results = processing_pipeline.run()
 ```
 
 ## Common Processing Tasks
@@ -117,6 +133,7 @@ cleaned_dataset.to_json("processed_output/", write_to_filename=True)
 :titlesonly:
 :hidden:
 
+Document IDs <add-id>
 PII Removal <pii>
 Text Cleaning <text-cleaning>
-``` 
+```

@@ -18,6 +18,7 @@ import time
 
 from helper import download_webdataset
 
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
@@ -122,6 +123,9 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
 def main(args: argparse.Namespace) -> None:
     """Main execution function for image curation pipeline."""
 
+    ray_client = RayClient()
+    ray_client.start()
+
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
     print(f"Input webdataset directory: {args.input_wds_dataset_dir}")
@@ -191,6 +195,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Total execution time: {int(hours):02d}:{int(minutes):02d}:{seconds:.2f}")
     print(f"Total execution time: {execution_time:.2f} seconds")
     print(f"\nProcessed dataset available at: {args.output_dataset_dir}")
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":
