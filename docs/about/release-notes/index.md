@@ -9,82 +9,215 @@ modality: "universal"
 ---
 
 (about-release-notes)=
-# Release Notes 25.07
 
-## 🚀 Major Features and Enhancements
+# NeMo Curator Release Notes: {{ current_release }}
 
-### New How-to Data Recipes (Tutorials)
+This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](../../curate-video/index.md) and [audio](../../curate-audio/index.md) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
 
-- [**Multimodal DAPT Curation w/ PDF Extraction**](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/multimodal_dapt_curation): New tutorial showcasing PDF data extraction using NV-Ingest for multimodal data curation workflows
-- [**Llama Nemotron Data Curation**](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/llama-nemotron-data-curation): Step-by-step guide for curating data specifically for Llama Nemotron model training
-- [**LLM NIM - PII Redaction**](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/curator-llm-pii): Tutorial demonstrating PII (Personally Identifiable Information) redaction capabilities using LLM NIM
+## Installation Updates
 
-### Container and Deployment Improvements
+- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ current_release }}`)
+- **Docker file to build own image**: Simplified [Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) structure for custom container builds with FFmpeg support
+- **UV source installations**: Integrated UV package manager (v0.8.22) for faster dependency management
+- **PyPI improvements**: Enhanced PyPI installation with modular extras for targeted functionality:
 
-- **Docker Container Build**: New docker container for text/image curator with Dask support, matching the current OSS implementation
-- Streamlined deployment process for both text and image curation workflows
+  ```{list-table} Available Installation Extras
+  :header-rows: 1
+  :widths: 25 35 40
 
-### Performance and Code Optimizations
+  * - Extra
+    - Installation Command
+    - Description
+  * - **All Modalities**
+    - `nemo-curator[all]`
+    - Complete installation with all modalities and GPU support
+  * - **Text Curation**
+    - `nemo-curator[text_cuda12]`
+    - GPU-accelerated text processing with RAPIDS
+  * - **Image Curation**
+    - `nemo-curator[image_cuda12]`
+    - Image processing with NVIDIA DALI
+  * - **Audio Curation**
+    - `nemo-curator[audio_cuda12]`
+    - Speech recognition with NeMo ASR models
+  * - **Video Curation**
+    - `nemo-curator[video_cuda12]`
+    - Video processing with GPU acceleration
+  * - **Basic GPU**
+    - `nemo-curator[cuda12]`
+    - CUDA utilities without modality-specific dependencies
+  ```
 
-- **Simplified Clustering Logic**: Significantly improved semantic deduplication clustering performance
-  - Removed convoluted backend switching logic that caused performance issues
-  - Eliminated expensive length assertions that could cause timeouts on large datasets
-  - Improved GPU utilization during KMeans clustering operations
-  - Tested on 37M embedding dataset (80GB) across 7 GPUs with substantial performance gains
+  All GPU installations require the NVIDIA PyPI index:
+  ```bash
+  pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
+  ```
 
-## 🐛 Bug Fixes
+## New Modalities
 
-### FastText Download URL Fix
+### Video
 
-- **Fix**: Corrected the `fasttext` model download URL in nemotron-cc tutorial
-- Changed from `dl.fbaipublicfiles.com/fastText/` to `dl.fbaipublicfiles.com/fasttext/`
-- Ensures reliable model downloads for language identification
+NeMo Curator now supports comprehensive [video data curation](../../curate-video/index.md) with distributed processing capabilities:
 
-### NeMo Retriever Tutorial Bug Fix
+- **Video splitting**: [Fixed-stride](../../curate-video/process-data/clipping.md) and [scene-change detection (TransNetV2)](../../curate-video/process-data/clipping.md) for clip extraction
+- **Semantic deduplication**: [K-means clustering and pairwise similarity](../../curate-video/process-data/dedup.md) for near-duplicate clip removal
+- **Content filtering**: [Motion-based filtering](../../curate-video/process-data/filtering.md) and [aesthetic filtering](../../curate-video/process-data/filtering.md) for quality improvement
+- **Embedding generation**: InternVideo2 and Cosmos-Embed1 models for clip-level embeddings
+- **Ray-based distributed architecture**: Scalable video processing with [autoscaling support](../concepts/video/architecture.md)
 
-- **Fix**: Fixed lambda function bug in `RetrieverEvalSetGenerator`
-- Corrected score assignment: `df["score"] = df["question"].apply(lambda: 1)` → `df["score"] = 1`
-- Improved synthetic data generation reliability
+### Audio
 
-### API Usage Updates
+New [audio curation capabilities](../../curate-audio/index.md) for speech data processing:
 
-- **Fix**: Updated examples and tutorials to use correct DocumentDataset API
-- Key changes:
-  - Replaced deprecated `write_to_disk(result, output_dir, output_type="parquet")` with `result.to_parquet(output_dir)`
-  - Updated exact deduplication workflows: `deduplicator.remove()` now returns `DocumentDataset` directly
-  - Removed unnecessary `DocumentDataset` wrapper in deduplication examples
-  - Fixed `read_json` calls to remove deprecated `add_filename` parameter where appropriate
-- Files updated:
-  - `examples/exact_deduplication.py`
-  - `examples/fuzzy_deduplication.py`
-  - `tutorials/dapt-curation/code/utils.py`
-  - `tutorials/multimodal_dapt_curation/curator/utils.py`
-  - `tutorials/tinystories/main.py`
+- **ASR inference**: [Automatic speech recognition](../../curate-audio/process-data/asr-inference/index.md) using NeMo Framework pretrained models
+- **Quality assessment**: [Word Error Rate (WER) and Character Error Rate (CER)](../../curate-audio/process-data/quality-assessment/index.md) calculation
+- **Speech metrics**: [Duration analysis and speech rate metrics](../../curate-audio/process-data/audio-analysis/index.md) (words/characters per second)
+- **Text integration**: Seamless integration with [text curation workflows](../../curate-audio/process-data/text-integration/index.md) via `AudioToDocumentStage`
+- **Manifest support**: JSONL manifest format for audio file management
+
+## Modality Refactors
+
+### Text
+
+- **Ray backend migration**: Complete transition from Dask to Ray for distributed [text processing](../../curate-text/index.md)
+- **Improved model-based classifier throughput**: Better overlapping of compute between tokenization and inference through [length-based sequence sorting](../../curate-text/process-data/quality-assessment/distributed-classifier.md) for optimal GPU memory utilization
+- **Task-centric architecture**: New `Task`-based processing model for finer-grained control
+- **Pipeline redesign**: Updated `ProcessingStage` and `Pipeline` architecture with resource specification
+
+### Image
+
+- **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](../../curate-images/index.md) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
+- **DALI-based image loading**: New `ImageReaderStage` uses NVIDIA DALI for high-performance WebDataset tar shard processing with GPU/CPU fallback
+- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings.md), [aesthetic filtering](../../curate-images/process-data/aesthetic-filtering.md), and [NSFW filtering](../../curate-images/process-data/nsfw-filtering.md)
+- **Task-based data flow**: Images processed as `ImageBatch` tasks containing `ImageObject` instances with metadata, embeddings, and classification scores
+
+Learn more about [image curation](../../curate-images/index.md).
+
+## Deduplication Improvements
+
+Enhanced deduplication capabilities across all modalities with improved performance and flexibility:
+
+- **Exact and Fuzzy deduplication**: Updated [rapidsmpf-based shuffle backend](../../reference/infrastructure/gpu-processing.md) for more efficient GPU-to-GPU data transfer and better spilling capabilities
+- **Semantic deduplication**: Support for deduplicating [text](../../curate-text/process-data/deduplication/semdedup.md), [image](../../curate-images/process-data/deduplication.md), and [video](../../curate-video/process-data/dedup.md) datasets using unified embedding-based workflows
+- **New ranking strategies**: Added `RankingStrategy` which allows you to rank elements within cluster centers to decide which point to prioritize during duplicate removal, supporting [metadata-based ranking](../../curate-text/process-data/deduplication/semdedup.md) to prioritize specific datasets or inputs
+
+## Core Refactors
+
+The architecture refactor introduces a layered system with unified interfaces and multiple execution backends:
+
+```{mermaid}
+graph LR
+    subgraph "User Layer"
+        P[Pipeline]
+        S1[ProcessingStage X→Y]
+        S2[ProcessingStage Y→Z]
+        S3[ProcessingStage Z→W]
+        R[Resources<br/>CPU/GPU/NVDEC/NVENC]
+    end
+    
+    subgraph "Orchestration Layer"
+        BE[BaseExecutor Interface]
+    end
+    
+    subgraph "Backend Layer"
+        XE[XennaExecutor<br/>Production Ready]
+        RAP[RayActorPoolExecutor<br/>Experimental]
+        RDE[RayDataExecutor<br/>Experimental]
+    end
+    
+    subgraph "Adaptation Layer"
+        XA[Xenna Adapter]
+        RAPA[Ray Actor Adapter]
+        RDA[Ray Data Adapter]
+    end
+    
+    subgraph "Execution Layer"
+        X[Cosmos-Xenna<br/>Streaming/Batch]
+        RAY1[Ray Actor Pool<br/>Load Balancing]
+        RAY2[Ray Data API<br/>Dataset Processing]
+    end
+    
+    P --> S1
+    P --> S2
+    P --> S3
+    S1 -.-> R
+    S2 -.-> R
+    S3 -.-> R
+    
+    P --> BE
+    BE --> XE
+    BE --> RAP
+    BE --> RDE
+    
+    XE --> XA
+    RAP --> RAPA
+    RDE --> RDA
+    
+    XA --> X
+    RAPA --> RAY1
+    RDA --> RAY2
+    
+    style XE fill:#90EE90
+    style RAP fill:#FFE4B5
+    style RDE fill:#FFE4B5
+    style P fill:#E6F3FF
+    style BE fill:#F0F8FF
+```
+
+### Pipelines
+
+- **New Pipeline API**: Ray-based pipeline execution with `BaseExecutor` interface
+- **Multiple backends**: Support for [Xenna, Ray Actor Pool, and Ray Data execution backends](../../reference/infrastructure/execution-backends.md)
+- **Resource specification**: Configurable CPU and GPU memory requirements per stage
+- **Stage composition**: Improved stage validation and execution orchestration
+
+### Stages
+
+- **ProcessingStage redesign**: Generic `ProcessingStage[X, Y]` base class with type safety
+- **Resource requirements**: Built-in resource specification for CPU and GPU memory
+- **Backend adapters**: Stage adaptation layer for different Ray orchestration systems
+- **Input/output validation**: Enhanced type checking and data validation
+
+## Tutorials
+
+- **Text tutorials**: Updated all [text curation tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/text) to use new Ray-based API
+- **Image tutorials**: Migrated [image processing tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/image) to unified backend
+- **Audio tutorials**: New [audio curation tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio)
+- **Video tutorials**: New [video processing tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/video)
+
+For all tutorial content, refer to the [tutorials directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials) in the NeMo Curator GitHub repository.
+
+## Known Limitations
+
+> (Pending Refactor in Future Release)
+
+### Generation
+
+- **Synthetic data generation**: Synthetic text generation features are being refactored for Ray compatibility
+- **Hard negative mining**: Retrieval-based data generation workflows under development
+
+### PII
+
+- **PII processing**: Personal Identifiable Information removal tools are being updated for Ray backend
+- **Privacy workflows**: Enhanced privacy-preserving data curation capabilities in development
+
+### Blending & Shuffling
+
+- **Data blending**: Multi-source dataset blending functionality being refactored
+- **Dataset shuffling**: Large-scale data shuffling operations under development
+
+## Docs Refactor
+
+- **Local preview capability**: Improved documentation build system with local preview support
+- **Modality-specific guides**: Comprehensive documentation for each supported modality ([text](../../curate-text/index.md), [image](../../curate-images/index.md), [audio](../../curate-audio/index.md), [video](../../curate-video/index.md))
+- **API reference**: Complete [API documentation](../../apidocs/index.rst) with type annotations and examples
 
 ---
 
-## 🔄 Migration Guide
+## Migration Guide
 
-### For Users of Exact Deduplication Examples
+TBD
 
-```python
-# Old approach
-from nemo_curator.utils.distributed_utils import write_to_disk
-result = exact_dup.remove(input_dataset, duplicates)
-write_to_disk(result, output_dir, output_type="parquet")
+## What's Next
 
-# New approach  
-result = exact_dup.remove(input_dataset, duplicates)
-result.to_parquet(output_dir)
-```
-
-### For FastText Users
-
-- Update any manual `fasttext` model downloads to use the corrected URL:
-  ```bash
-  # Old URL
-  wget https://dl.fbaipublicfiles.com/fastText/supervised-models/lid.176.bin
-  
-  # New URL  
-  wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
-  ```
+The next release will focus on completing the refactor of Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.

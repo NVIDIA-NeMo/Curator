@@ -121,11 +121,25 @@ def _validate_content_limits(settings: dict[str, Any]) -> None:
 def _validate_boolean_settings(settings: dict[str, Any]) -> None:
     """Validate boolean configuration settings."""
     bool_settings = [
-        "enabled", "verbose", "parallel", "include_children", "include_child_content",
-        "extract_code_blocks", "extract_links", "extract_images", "extract_keywords",
-        "include_doc_type", "include_section_path", "minify_json", "separate_content",
-        "cache_aggressive", "lazy_extraction", "incremental_build", "fast_text_extraction",
-        "skip_complex_parsing", "filter_search_clutter",
+        "enabled",
+        "verbose",
+        "parallel",
+        "include_children",
+        "include_child_content",
+        "extract_code_blocks",
+        "extract_links",
+        "extract_images",
+        "extract_keywords",
+        "include_doc_type",
+        "include_section_path",
+        "minify_json",
+        "separate_content",
+        "cache_aggressive",
+        "lazy_extraction",
+        "incremental_build",
+        "fast_text_extraction",
+        "skip_complex_parsing",
+        "filter_search_clutter",
     ]
 
     defaults = get_default_settings()
@@ -159,6 +173,8 @@ def _validate_parallel_workers(settings: dict[str, Any]) -> None:
     if "parallel_workers" in settings:
         value = settings["parallel_workers"]
         if value != "auto" and (not isinstance(value, int) or value < 1 or value > MAX_PARALLEL_WORKERS):
-            logger.warning(f"Setting 'parallel_workers' must be 'auto' or integer between 1 and {MAX_PARALLEL_WORKERS}. Using default.")
+            logger.warning(
+                f"Setting 'parallel_workers' must be 'auto' or integer between 1 and {MAX_PARALLEL_WORKERS}. Using default."
+            )
             defaults = get_default_settings()
             settings["parallel_workers"] = defaults["parallel_workers"]

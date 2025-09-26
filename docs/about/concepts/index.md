@@ -1,5 +1,5 @@
 ---
-description: "Core concepts and terminology for NeMo Curator across text, image, and video data curation modalities"
+description: "Core concepts and terminology for NeMo Curator across text, image, video, and audio data curation modalities"
 categories: ["concepts-architecture"]
 tags: ["concepts", "fundamentals", "multimodal", "architecture"]
 personas: ["data-scientist-focused", "mle-focused"]

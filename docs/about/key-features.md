@@ -1,5 +1,5 @@
 ---
-description: "Comprehensive overview of NeMo Curator's key features for text, image, and video data curation with deployment options"
+description: "Comprehensive overview of NeMo Curator's key features for text, image, video, and audio data curation with deployment options"
 categories: ["concepts-architecture"]
 tags: ["features", "benchmarks", "deduplication", "classification", "gpu-accelerated", "distributed", "deployment-operations"]
 personas: ["data-scientist-focused", "mle-focused", "admin-focused", "devops-focused"]
@@ -9,9 +9,10 @@ modality: "universal"
 ---
 
 (about-key-features)=
+
 # Key Features
 
-NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data curation across text, image, and video. It empowers teams to prepare high-quality, compliant datasets for LLM and AI training, with robust support for distributed, cloud-native, and on-premises workflows. NeMo Curator is trusted by leading organizations for its modular pipelines, advanced filtering, and seamless integration with modern MLOps environments.
+NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data curation across text, image, video, and audio. It empowers teams to prepare high-quality, compliant datasets for LLM and AI training, with robust support for distributed, cloud-native, and on-premises workflows. Leading organizations trust NeMo Curator for its modular pipelines, advanced filtering, and seamless integration with modern MLOps environments.
 
 ## Why NeMo Curator?
 
@@ -30,7 +31,7 @@ NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data cu
 
 ## Text Data Curation
 
-NeMo Curator offers advanced tools for text data loading, cleaning, filtering, deduplication, classification, and synthetic data generation. Built-in modules support language identification, quality estimation, domain and safety classification, and both rule-based and LLM-based PII removal. Pipelines are fully modular and can be customized for diverse NLP and LLM training needs.
+NeMo Curator offers advanced tools for text data loading, cleaning, filtering, deduplication, and classification using pipeline-based architecture. Built-in modules support language identification, quality estimation, and domain and safety classification. Pipelines run on Ray for distributed execution and are fully modular and customizable for diverse NLP and LLM training needs.
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -47,7 +48,6 @@ Efficiently load and manage massive text datasets, with support for common forma
 Advanced filtering, deduplication, classification, and pipeline design for high-quality text curation.
 :::
 
-
 :::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Text Curation Quickstart
 :link: gs-text
 :link-type: ref
@@ -60,7 +60,7 @@ Set up your environment and run your first text curation pipeline with NeMo Cura
 
 ## Image Data Curation
 
-NeMo Curator supports scalable image dataset loading, embedding, classification (aesthetic, NSFW, etc.), filtering, deduplication, and export. It leverages state-of-the-art vision models (for example, CLIP, timm) and DALI for efficient GPU-accelerated processing. Modular pipelines enable rapid experimentation and integration with text and multimodal workflows.
+NeMo Curator supports scalable image dataset loading, embedding, classification (aesthetic, NSFW, etc.), filtering, deduplication, and export. It leverages state-of-the-art vision models (for example, CLIP, timm) with pipeline-based architecture for efficient GPU-accelerated processing. Modular pipelines enable rapid experimentation and integration with text and multimodal workflows.
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -95,38 +95,42 @@ Set up your environment and install NeMo Curator's image modules.
 
 ## Audio Data Curation
 
-NeMo Curator provides speech and audio curation capabilities designed for preparing high-quality speech datasets for ASR model training and multimodal applications. Audio curation follows a **Load** → **Process** → **Save & Export** workflow: load audio files and manifests, perform ASR inference and quality assessment, then export curated datasets and transcriptions.
+NeMo Curator provides speech and audio curation capabilities designed for preparing high-quality speech datasets for ASR model training and multimodal applications. It leverages pretrained `.nemo` model checkpoints via the NeMo Framework for transcription, quality assessment through Word Error Rate (WER) calculation, and seamless integration with text curation workflows.
 
-### Load Data
+::::{grid} 1 1 2 2
+:gutter: 2
 
-- **[Audio Manifest Loading](../curate-audio/load-data/index.md)** - Load speech datasets with audio file paths and transcriptions
-- **[FLEURS Dataset Integration](../curate-audio/load-data/fleurs-dataset.md)** - Built-in support for the multilingual FLEURS speech dataset
+:::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Data Loading
+:link: about-concepts-audio-manifests-ingest
+:link-type: ref
+Load and manage audio datasets with manifests, file paths, and transcriptions for curation workflows.
+:::
 
-### Process Data
+:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` ASR Processing
+:link: about-concepts-audio-asr-pipeline
+:link-type: ref
+Automatic speech recognition inference, quality assessment, and transcription using NeMo Framework models.
+:::
 
-- **ASR Inference & Transcription**
-  - [NeMo ASR Model Integration](../curate-audio/process-data/asr-inference/nemo-models.md) - Leverage NeMo Framework's pretrained ASR models for transcription
+:::{grid-item-card} {octicon}`shield-check;1.5em;sd-mr-1` Quality Assessment
+:link: about-concepts-audio-quality-metrics
+:link-type: ref
+Word Error Rate (WER) calculation, duration analysis, and quality-based filtering for speech data.
+:::
 
-- **Quality Assessment & Filtering**
-  - [Word Error Rate (WER) Filtering](../curate-audio/process-data/quality-assessment/wer-filtering.md) - Filter based on transcription accuracy
-  - [Duration-based Filtering](../curate-audio/process-data/quality-assessment/duration-filtering.md) - Remove audio files outside duration thresholds
+:::{grid-item-card} {octicon}`rocket;1.5em;sd-mr-1` Audio Curation Quickstart
+:link: gs-audio
+:link-type: ref
+Set up your environment and run your first audio curation pipeline with NeMo Curator.
+:::
 
-- **Audio Analysis**
-  - [Duration Calculation](../curate-audio/process-data/audio-analysis/duration-calculation.md) - Extract precise audio duration using soundfile
-  - [Format Validation](../curate-audio/process-data/audio-analysis/format-validation.md) - Validate audio file integrity and format
-
-- **Text Integration**
-  - [Audio-to-Text Conversion](../curate-audio/process-data/text-integration/index.md) - Convert processed audio data to text processing pipeline
-
-### Save & Export
-
-- **[Save & Export](../curate-audio/save-export.md)** - Export curated audio datasets with transcriptions and quality metrics for downstream training
+::::
 
 ---
 
 ## Video Data Curation
 
-NeMo Curator provides distributed video curation pipelines, supporting scalable data flow, pipeline stages, and efficient processing for large video corpora. The architecture is designed for high-throughput, cloud-native, and on-prem deployments.
+NeMo Curator provides distributed video curation pipelines, supporting scalable data flow, pipeline stages, and efficient processing for large video corpora. The architecture supports high-throughput, cloud-native, and on-prem deployments.
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -162,7 +166,7 @@ Set up your environment and run your first video curation pipeline with NeMo Cur
 
 ## Deployment and Integration
 
-NeMo Curator is designed for distributed, cloud-native, and on-premises deployments. It supports Kubernetes, Slurm, and Spark, and integrates easily with your existing MLOps pipelines. Modular APIs and CLI tools enable flexible orchestration and automation.
+NeMo Curator supports distributed, cloud-native, and on-premises deployments. It supports Kubernetes, Slurm, and Spark, and integrates seamlessly with your existing MLOps pipelines. Modular APIs and CLI tools enable flexible orchestration and automation.
 
 ::::{grid} 1 1 2 2
 :gutter: 2
