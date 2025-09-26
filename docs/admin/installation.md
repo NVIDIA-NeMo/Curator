@@ -139,28 +139,10 @@ NeMo Curator provides several installation extras to install only the components
 * - **audio_cuda12**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`
   - GPU-accelerated audio curation with NeMo Toolkit ASR
-* - **image**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image]`
   - CPU + GPU text and image curation
 * - **all**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]`
   - All stable modules (recommended)
-```
-
-### Nightly Dependencies
-
-For cutting-edge RAPIDS features, use nightly builds:
-
-```bash
-# Nightly RAPIDS with all modules
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all_nightly]
-
-# Nightly RAPIDS with image modules
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_nightly]
-```
-
-```{warning}
-Nightly builds may be unstable and are not recommended for production use.
 ```
 
 ---

@@ -9,21 +9,22 @@ modality: "image-only"
 ---
 
 (image-process-data-classifiers-aesthetic)=
+
 # Aesthetic Classifier
 
-The Aesthetic Classifier predicts the subjective visual quality of images using a model trained on human aesthetic preferences. It outputs a score from 0 (least aesthetic) to 10 (most aesthetic), making it useful for filtering or ranking images in generative pipelines and dataset curation.
+The Aesthetic Classifier predicts the subjective visual quality of images using a model trained on human aesthetic preferences. It outputs an aesthetic score (higher values show more aesthetic images), making it useful for filtering or ranking images in generative pipelines and dataset curation.
 
 ## Model Details
 
-- **Architecture:** Linear MLP trained on OpenAI CLIP ViT-L/14 image embeddings
+- **Architecture:** Multi-layer neural network (MLP) trained on OpenAI CLIP ViT-L/14 image embeddings
 - **Source:** [Improved Aesthetic Predictor](https://github.com/christophschuhmann/improved-aesthetic-predictor)
 - **Output Field:** `aesthetic_score`
-- **Score Range:** 0–10 (higher is more aesthetic)
-- **Embedding Requirement:** CLIP ViT-L/14 (see {ref}`image-process-data-embeddings`)
+- **Score Range:** Continuous values (higher is more aesthetic)
+- **Embedding Input:** CLIP ViT-L/14 embeddings (see {ref}`image-process-data-embeddings`)
 
 ## How It Works
 
-The classifier takes normalized image embeddings and predicts an aesthetic score. It is lightweight and can be run on the GPU alongside embedding computation for efficient batch processing.
+The classifier takes pre-computed CLIP ViT-L/14 image embeddings from a previous pipeline stage and predicts an aesthetic score. The lightweight model processes batches of embeddings efficiently on the GPU.
 
 ## Usage
 
@@ -32,53 +33,76 @@ The classifier takes normalized image embeddings and predicts an aesthetic score
 ::: {tab-item} Python
 
 ```python
-from nemo_curator import get_client
-from nemo_curator.datasets import ImageTextPairDataset
-from nemo_curator.image.embedders import TimmImageEmbedder
-from nemo_curator.image.classifiers import AestheticClassifier
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
 
-client = get_client(cluster_type="gpu")
-dataset = ImageTextPairDataset.from_webdataset(path="/path/to/dataset", id_col="key")
+# Create pipeline
+pipeline = Pipeline(name="aesthetic_filtering", description="Filter images by aesthetic quality")
 
-embedding_model = TimmImageEmbedder(
-    "vit_large_patch14_clip_quickgelu_224.openai",
-    pretrained=True,
-    batch_size=1024,
-    num_threads_per_worker=16,
-    normalize_embeddings=True,
-)
-aesthetic_classifier = AestheticClassifier()
+# Stage 1: Partition tar files
+pipeline.add_stage(FilePartitioningStage(
+    file_paths="/path/to/tar_dataset",
+    files_per_partition=1,
+    file_extensions=[".tar"],
+))
 
-dataset_with_embeddings = embedding_model(dataset)
-dataset_with_aesthetic_scores = aesthetic_classifier(dataset_with_embeddings)
+# Stage 2: Read images
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    num_gpus_per_worker=0.25,
+))
 
-dataset_with_aesthetic_scores.save_metadata()
+# Stage 3: Generate CLIP embeddings
+pipeline.add_stage(ImageEmbeddingStage(
+    model_dir="/path/to/models",
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+))
+
+# Stage 4: Apply aesthetic filtering
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir="/path/to/models",
+    score_threshold=0.5,
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+))
+
+# Run the pipeline (uses XennaExecutor by default)
+results = pipeline.run()
+
 ```
+
 :::
 
 ::::
 
 ## Key Parameters
 
-| Parameter         | Default         | Description                                                                 |
-|-------------------|-----------------|-----------------------------------------------------------------------------|
-| `embedding_column`| `image_embedding`| Name of the column with image embeddings                                    |
-| `pred_column`     | `aesthetic_score`| Name of the output column for scores                                        |
-| `batch_size`      | `-1`            | Batch size for inference; `-1` processes all at once                        |
-| `model_path`      | *auto*          | Path to model weights; downloads if not provided                            |
+| Parameter                    | Default | Description                                                                 |
+|------------------------------|---------|-----------------------------------------------------------------------------|
+| `model_dir`                  | None    | Path to directory containing model weights                                  |
+| `score_threshold`            | 0.5     | Aesthetic score threshold for filtering (filters out images below this threshold)|
+| `model_inference_batch_size` | 32      | Batch size for model inference                                              |
+| `num_gpus_per_worker`        | 0.25    | GPU allocation per worker (0.25 = 1/4 GPU)                                 |
+| `verbose`                    | False   | Enable verbose logging for debugging                                        |
 
 ## Performance Notes
 
-- The model is small and can be loaded onto the GPU with the embedding model for fast, in-place scoring.
-- Batch size can be increased for faster throughput if memory allows.
+- The model is small and processes pre-computed embeddings efficiently on the GPU.
+- Increase batch size for faster throughput if memory allows.
 
 ## Best Practices
 
-- Use normalized CLIP ViT-L/14 embeddings for best results.
-- Run the classifier immediately after embedding to avoid extra I/O.
+- Use CLIP ViT-L/14 embeddings generated by `ImageEmbeddingStage` for best results.
+- Run the aesthetic filter after embedding generation in the same pipeline to avoid extra I/O.
+- The classifier requires pre-computed embeddings and cannot extract embeddings from raw images.
 - Review a sample of scores to calibrate thresholds for your use case.
+- Adjust `model_inference_batch_size` based on available GPU memory.
 
-## Additional Resources
+## Resources
 
-- [Image Curation Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image-curation/image-curation.ipynb)
-- [API Reference](https://docs.nvidia.com/nemo-framework/user-guide/latest/datacuration/api/image/classifiers.html) 
+- [Image Curation Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)
+- [Complete Pipeline Example](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)

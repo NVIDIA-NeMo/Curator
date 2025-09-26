@@ -170,7 +170,7 @@ The workflow consists of three main Slurm scripts, to be run in order:
 #SBATCH --error=/home/<username>/logs/%x_%j.log
 USER_DIR="/home/${USER}"
 CONTAINER_IMAGE="${USER_DIR}/path-to/curator.sqsh"
-INPUT_WEBDATASET_PATH="s3://your-bucket/raw-images/{00000..00999}.tar"
+INPUT_TAR_PATH="s3://your-bucket/raw-images/{00000..00999}.tar"
 OUTPUT_DATA_PATH="s3://your-bucket/embedded-images/"
 #
 
@@ -199,7 +199,7 @@ from nemo_curator.utils.distributed_utils import get_client
 client = get_client(cluster_type='gpu')
 
 # Load dataset
-dataset = ImageTextPairDataset.from_webdataset('${INPUT_WEBDATASET_PATH}', id_col='key')
+dataset = ImageTextPairDataset.from_webdataset('${INPUT_TAR_PATH}', id_col='key')
 
 # Generate embeddings
 embedder = TimmImageEmbedder(
@@ -449,6 +449,6 @@ client.close()
 ## Performance Considerations
 
 - **GPU Memory**: Image processing requires significant GPU memory. Consider using nodes with high-memory GPUs (40GB+ VRAM) for large batch sizes.
-- **WebDataset Format**: Ensure your input data is in WebDataset format (`.tar` files containing images, captions, and metadata).
+- **Tar Archive Format**: Ensure your input data is in tar archive format (`.tar` files containing JPEG images).
 - **Network I/O**: Image data can be large. Consider local caching or high-bandwidth storage for better performance.
 - **Clustering Scale**: For datasets with millions of images, increase `n_clusters` to 50,000+ to improve deduplication performance. 

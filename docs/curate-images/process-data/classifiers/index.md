@@ -9,6 +9,7 @@ modality: "image-only"
 ---
 
 (image-process-data-classifiers)=
+
 # Image Classifiers
 
 NeMo Curator provides classifiers for image curation, including aesthetic and NSFW classifiers. These models help you filter, score, and curate large image datasets for downstream tasks such as generative model training and dataset quality control.
@@ -17,12 +18,27 @@ NeMo Curator provides classifiers for image curation, including aesthetic and NS
 
 Image classification in NeMo Curator typically follows these steps:
 
-1. Generate image embeddings for your dataset (for example, using `TimmImageEmbedder`)
-2. Select and configure an image classifier (for example, Aesthetic or NSFW)
-3. Apply the classifier to score or filter images based on the embeddings
-4. Save or further process the classified dataset
+1. Load images using `FilePartitioningStage` and `ImageReaderStage`
+2. Generate image embeddings using `ImageEmbeddingStage`
+3. Apply classification stages (for example, `ImageAestheticFilterStage` or `ImageNSFWFilterStage`)
+4. Continue with further processing stages or save results
 
-You can use built-in classifiers or implement your own for advanced use cases.
+Classification stages integrate seamlessly into NeMo Curator's pipeline architecture.
+
+## Prerequisites
+
+Before using classification stages, ensure that:
+
+- Load images using `ImageReaderStage`
+- Generate image embeddings using `ImageEmbeddingStage`
+- Populate the `ImageObject.embedding` field for each image
+
+## Imports
+
+```python
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+```
 
 ---
 
@@ -31,22 +47,22 @@ You can use built-in classifiers or implement your own for advanced use cases.
 ::::{grid} 1 2 2 2
 :gutter: 1 1 1 2
 
-::: {grid-item-card} Aesthetic Classifier
+::: {grid-item-card} Aesthetic Filter Stage
 :link: image-process-data-classifiers-aesthetic
 :link-type: ref
 
-Assess the subjective quality of images using a model trained on human aesthetic preferences. Useful for filtering or ranking images by visual appeal.
+Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images below a configurable aesthetic score threshold (0.0 to 1.0).
 +++
-{bdg-secondary}`Linear (MLP)` {bdg-secondary}`aesthetic_score`
+{bdg-secondary}`ImageAestheticFilterStage` {bdg-secondary}`aesthetic_score`
 :::
 
-::: {grid-item-card} NSFW Classifier
+::: {grid-item-card} NSFW Filter Stage
 :link: image-process-data-classifiers-nsfw
 :link-type: ref
 
-Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Helps remove or flag explicit material from your datasets.
+Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Removes images above a configurable NSFW probability threshold (0.0 to 1.0).
 +++
-{bdg-secondary}`MLP (CLIP-based)` {bdg-secondary}`nsfw_score`
+{bdg-secondary}`ImageNSFWFilterStage` {bdg-secondary}`nsfw_score`
 :::
 
 ::::
