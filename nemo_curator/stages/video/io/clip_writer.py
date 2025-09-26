@@ -334,33 +334,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             clip_stats.num_passed += 1
         return clip_stats
 
-    def _write_clip_embedding_to_buffer(self, clip: Clip) -> ClipStats:
-        clip_stats = ClipStats()
-        if clip.intern_video_2_embedding is not None:
-            self._iv2_embedding_buffer.append(
-                {
-                    "id": str(clip.uuid),
-                    "embedding": clip.intern_video_2_embedding.reshape(-1).tolist(),
-                },
-            )
-        elif self.generate_embeddings and self.embedding_algorithm == "internvideo2":
-            logger.error(
-                f"Clip {clip.uuid} from {clip.source_video} has no InternVideo2 embedding, skip adding to buffer"
-            )
-        if clip.cosmos_embed1_embedding is not None:
-            self._ce1_embedding_buffer.append(
-                {
-                    "id": str(clip.uuid),
-                    "embedding": clip.cosmos_embed1_embedding.reshape(-1).tolist(),
-                },
-            )
-        elif self.generate_embeddings and self.embedding_algorithm == "cosmos-embed1":
-            logger.error(
-                f"Clip {clip.uuid} from {clip.source_video} has no Cosmos-Embed1 embedding, skip adding to buffer"
-            )
-
-        return clip_stats
-
     def _write_clip_embedding(self, clip: Clip) -> ClipStats:
         clip_stats = ClipStats()
         if clip.intern_video_2_embedding is not None:
