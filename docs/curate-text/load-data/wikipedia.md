@@ -71,7 +71,6 @@ pipeline.add_stage(writer_stage)
 
 # Execute the pipeline
 results = pipeline.run()
-print(f"Pipeline completed with {len(results) if results else 0} output files")
 ```
 
 For executor options and configuration, refer to {ref}`reference-execution-backends`.

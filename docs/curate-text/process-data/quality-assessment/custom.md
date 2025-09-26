@@ -157,12 +157,12 @@ def voting_filter(dataset, filters, min_passing=2):
     Custom implementation of a voting filter system.
     
     Args:
-        dataset: DocumentDataset to filter
+        dataset: DocumentBatch to filter
         filters: List of filter modules
         min_passing: Minimum number of filters that must accept a document
         
     Returns:
-        Filtered DocumentDataset
+        Filtered DocumentBatch
     """
     results = []
     for f in filters:
@@ -176,7 +176,9 @@ def voting_filter(dataset, filters, min_passing=2):
         pass_counts[result.df.index] += 1
     
     passing_ids = pass_counts[pass_counts >= min_passing].index
-    return nc.DocumentDataset(dataset.df.loc[passing_ids])
+    # Return filtered DocumentBatch with passing documents
+    filtered_df = dataset.to_pandas().loc[passing_ids]
+    return DocumentBatch(data=filtered_df, task_id=dataset.task_id, dataset_name=dataset.dataset_name)
 ```
 
 ## Scoring Without Filtering

@@ -18,7 +18,7 @@ This guide helps you set up and get started with NeMo Curator's text curation ca
 
 To use NeMo Curator's text curation modules, ensure you meet the following requirements:
 
-* Python 3.10 or 3.12
+* Python >= 3.10
   * packaging >= 22.0
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (optional for most text modules, required for GPU-accelerated operations)
@@ -108,7 +108,7 @@ mkdir -p ~/nemo_curator/data/curated
 ```
 
 ```{note}
-For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or download sample datasets from the [NeMo Curator tutorials](../curate-text/tutorials/index.md).
+For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to {ref}`Read Existing Data <text-load-data-read-existing>` and {ref}`Data Loading <text-load-data>` for information on downloading data.
 ```
 
 ## Basic Text Curation Example
@@ -131,7 +131,7 @@ pipeline = Pipeline(
 # Add stages to the pipeline
 pipeline.add_stage(
     JsonlReader(
-        file_paths="~/nemo_curator/data/sample/*.jsonl",
+        file_paths="~/nemo_curator/data/sample/",
         files_per_partition=4,
         fields=["text", "id"]  # Only read required columns for efficiency
     )

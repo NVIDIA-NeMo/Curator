@@ -10,7 +10,7 @@ modality: "text-only"
 
 (text-load-data)=
 
-# Text Data Loading
+# Download Data
 
 Load text data from ArXiv, Common Crawl, Wikipedia, and custom sources using Curator.
 
@@ -69,6 +69,15 @@ Load data from public datasets and custom data sources using Curator stages.
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
+:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data
+:link: text-load-data-read-existing
+:link-type: ref
+Read existing JSONL and Parquet datasets using Curator's reader stages
++++
+{bdg-secondary}`jsonl`
+{bdg-secondary}`parquet`
+:::
+
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Common Crawl
 :link: text-load-data-common-crawl
 :link-type: ref
@@ -99,15 +108,6 @@ Read and process your own text datasets in standard formats
 {bdg-secondary}`file-partitioning`
 :::
 
-:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data
-:link: text-load-data-read-existing
-:link-type: ref
-Read existing JSONL and Parquet datasets using Curator's reader stages
-+++
-{bdg-secondary}`jsonl`
-{bdg-secondary}`parquet`
-:::
-
 ::::
 
 ```{toctree}
@@ -115,9 +115,9 @@ Read existing JSONL and Parquet datasets using Curator's reader stages
 :titlesonly:
 :hidden:
 
+Read Existing Data <read-existing>
 arxiv
 common-crawl
 wikipedia
 Custom Data <custom.md>
-Read Existing Data <read-existing>
 ```

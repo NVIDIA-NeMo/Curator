@@ -1,5 +1,5 @@
 ---
-description: "Core concepts for loading and managing text datasets including DocumentDataset, ParallelDataset, and supported file formats"
+description: "Core concepts for loading and managing text datasets using pipeline-based readers and DocumentBatch tasks"
 categories: ["concepts-architecture"]
 tags: ["data-loading", "document-dataset", "parallel-dataset", "distributed", "gpu-accelerated", "local-files"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -26,7 +26,7 @@ The system provides two primary readers for text data:
 Both readers support optimization through:
 
 - **Field selection** - Reading specified columns to reduce memory usage
-- **Partitioning control** - Using `block_size` or `files_per_partition` to optimize distributed processing
+- **Partitioning control** - Using `blocksize` or `files_per_partition` to optimize `DocumentBatch` sizes during distributed processing
 - **Recommended block size** - Use ~128MB for optimal object store performance with smaller data chunks
 
 ```python
@@ -48,11 +48,7 @@ pipeline.add_stage(jsonl_reader)
 parquet_reader = ParquetReader(
     file_paths="data.parquet",
     files_per_partition=4,  # Alternative to blocksize
-    fields=["text", "metadata"],
-    read_kwargs={
-        "engine": "pyarrow",
-        "dtype_backend": "pyarrow"
-    }
+    fields=["text", "metadata"]
 )
 
 # Execute pipeline
@@ -129,10 +125,16 @@ reader = ParquetReader(
 
 ### Performance Recommendations
 
-- **Block size**: Use ~128MB for optimal object store performance - smaller objects improve distributed data exchange
+- **Block size and files per partition**: Use ~128MB for optimal performance. Very large batches lead to memory overheads when passing data between stages through the object store, while very small batches induce overhead from processing many more tasks. We recommend ~128MB as a good balance. Try to avoid going below 32MB or above 1GiB partition sizes.
 - **Field selection**: Specify `fields` parameter to read required columns
-- **Engine choice**: ParquetReader defaults to PyArrow with `dtype_backend="pyarrow"` for GPU compatibility
-- **Partition sizing**: Match `files_per_partition` to your available CPU/GPU count
+- **Engine choice**: ParquetReader defaults to PyArrow with `dtype_backend="pyarrow"` for optimal performance and memory efficiency. If you encounter compatibility issues with certain data types or schemas, you can override these defaults through `read_kwargs`:
+  ```python
+  # Remove PyArrow dtype backend if compatibility issues arise
+  reader = ParquetReader(
+      file_paths="data.parquet",
+      read_kwargs={"dtype_backend": None}  # Falls back to pandas default behavior
+  )
+  ```
 
 ## Data Export Options
 
@@ -150,57 +152,33 @@ pipeline.add_stage(ParquetWriter(path="output_directory/"))
 results = pipeline.run()
 ```
 
-```{note}
-**Deterministic File Naming**
-
-Writers automatically generate deterministic filenames based on source files processed by readers, ensuring consistent and reproducible output across pipeline runs.
-```
-
 ## Common Loading Patterns
 
 ### Multi-Source Data
 
 ```python
-# Combine multiple directories
+# Combine multiple directories with same reader type
 reader = JsonlReader(file_paths=[
     "dataset_v1/",
     "dataset_v2/", 
     "additional_data/"
 ])
 
-# For different file types, use separate readers in the same pipeline
-pipeline = Pipeline(name="multi_format_processing")
-pipeline.add_stage(JsonlReader(file_paths="text_data.jsonl"))
-pipeline.add_stage(ParquetReader(file_paths="structured_data.parquet"))
 ```
 
-### Large-Scale Processing
+:::{note}
+You cannot combine different reader types (`JsonlReader` + `ParquetReader`)  in the same pipeline stage. For different file types, you would need to create a new `BaseReader` that can read based on different extensions provided.
+:::
 
-```python
-# Efficient processing for massive datasets
-reader = ParquetReader(
-    file_paths="massive_dataset/",
-    blocksize="128MB",  # Optimal chunk size for distributed processing
-    fields=["text", "id"]  # Memory efficiency through column selection
-)
+## Remote Data Sources
 
-pipeline = Pipeline(name="large_dataset_processing")
-pipeline.add_stage(reader)
+This page focuses on loading text data from **local files** using `JsonlReader` and `ParquetReader`. Both readers support remote storage locations (Amazon S3, Google Cloud Storage) when you provide remote file paths.
 
-# Add processing stages
-from nemo_curator.stages.text.modules import ScoreFilter
-pipeline.add_stage(ScoreFilter(...))
-
-results = pipeline.run()
-```
-
-## Remote Data Acquisition
-
-For users who need to download and process data from remote sources, NeMo Curator provides a comprehensive data acquisition framework. {ref}`Data Acquisition Concepts <about-concepts-text-data-acquisition>` covers this in detail, including:
+For downloading and processing data from **remote sources** like ArXiv, Common Crawl, and Wikipedia, refer to the {ref}`Data Acquisition Concepts <about-concepts-text-data-acquisition>` page which covers:
 
 - **DocumentDownloader, DocumentIterator, DocumentExtractor** components
 - **Built-in support** for Common Crawl, ArXiv, Wikipedia, and custom sources  
-- **Integration patterns** with DocumentDataset
+- **Integration patterns** with pipeline-based processing
 - **Configuration and scaling** strategies
 
-The data acquisition process produces `DocumentBatch` tasks that integrate seamlessly with the pipeline-based processing concepts on this page.
+The data acquisition process produces standardized output that integrates seamlessly with the pipeline-based loading concepts described on this page.

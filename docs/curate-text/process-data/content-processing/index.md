@@ -1,7 +1,7 @@
 ---
-description: "Clean, normalize, and transform text content to meet specific requirements including PII removal and text cleaning"
+description: "Clean, normalize, and transform text content to meet specific requirements including text cleaning and normalization"
 categories: ["workflows"]
-tags: ["content-processing", "text-cleaning", "pii-removal", "unicode", "normalization"]
+tags: ["content-processing", "text-cleaning", "unicode", "normalization"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
@@ -13,13 +13,13 @@ modality: "text-only"
 
 Clean, normalize, and transform text content to meet specific requirements for training language models using NeMo Curator's tools and utilities.
 
-Content processing involves transforming your text data while preserving essential information. This includes fixing encoding issues, removing sensitive information, and standardizing text format to ensure high-quality input for model training.
+Content processing involves transforming your text data while preserving essential information. This includes fixing encoding issues and standardizing text format to ensure high-quality input for model training.
 
 ## How it Works
 
 Content processing transformations typically modify documents in place or create new versions with specific changes. Most processing tools follow this pattern:
 
-1. Load your dataset using `DocumentDataset`
+1. Load your dataset using pipeline readers (JsonlReader, ParquetReader)
 2. Configure and apply the appropriate processor
 3. Save the transformed dataset for further processing
 
@@ -41,17 +41,6 @@ Add unique identifiers to documents for tracking and deduplication
 {bdg-secondary}`tracking`
 {bdg-secondary}`preprocessing`
 {bdg-secondary}`deduplication`
-:::
-
-:::{grid-item-card} {octicon}`shield-lock;1.5em;sd-mr-1` PII Removal
-:link: pii
-:link-type: doc
-Identify and remove personal identifiable information from text
-+++
-{bdg-secondary}`privacy`
-{bdg-secondary}`regex`
-{bdg-secondary}`masking`
-{bdg-secondary}`compliance`
 :::
 
 :::{grid-item-card} {octicon}`typography;1.5em;sd-mr-1` Text Cleaning
@@ -119,7 +108,6 @@ results = processing_pipeline.run()
 - Remove or normalize special characters
 
 ### Content Sanitization
-- Remove personally identifiable information (PII)
 - Strip unwanted URLs or links
 - Remove boilerplate text or headers
 
@@ -134,6 +122,5 @@ results = processing_pipeline.run()
 :hidden:
 
 Document IDs <add-id>
-PII Removal <pii>
 Text Cleaning <text-cleaning>
 ```

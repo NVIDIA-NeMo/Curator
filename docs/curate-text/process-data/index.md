@@ -122,16 +122,6 @@ Clean, normalize, and transform text content for high-quality training data.
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`shield-lock;1.5em;sd-mr-1` PII Removal
-:link: content-processing/pii
-:link-type: doc
-Identify and remove personal identifiable information
-+++
-{bdg-secondary}`privacy`
-{bdg-secondary}`masking`
-{bdg-secondary}`compliance`
-:::
-
 :::{grid-item-card} {octicon}`typography;1.5em;sd-mr-1` Text Cleaning
 :link: content-processing/text-cleaning
 :link-type: doc

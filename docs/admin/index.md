@@ -77,18 +77,3 @@ Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, 
 
 ::::
 
-## Integration Options
-
-::::{grid} 1 1 1 2
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Spark
-:link: admin-integrations-spark
-:link-type: ref
-Integrate NeMo Curator with Apache Spark for distributed processing
-+++
-{bdg-secondary}`batch-processing`
-{bdg-secondary}`performance`
-{bdg-secondary}`optimization`
-:::
-::::

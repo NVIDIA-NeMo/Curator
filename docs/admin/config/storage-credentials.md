@@ -9,6 +9,7 @@ modality: "universal"
 ---
 
 (admin-config-storage-credentials)=
+
 # Storage & Credentials Configuration
 
 Configure storage access, API keys, and security credentials for NeMo Curator deployments. This guide focuses on operational setup for different storage backends and credential management.
@@ -43,6 +44,7 @@ aws_secret_access_key = YOUR_SECRET_ACCESS_KEY
 aws_access_key_id = PROD_ACCESS_KEY_ID  
 aws_secret_access_key = PROD_SECRET_ACCESS_KEY
 ```
+
 :::
 
 :::{tab-item} Environment Variables
@@ -55,6 +57,7 @@ export AWS_SECRET_ACCESS_KEY="your-secret-access-key"
 export AWS_DEFAULT_REGION="us-west-2"
 export AWS_PROFILE="production"  # Optional: use specific profile
 ```
+
 :::
 
 :::{tab-item} IAM Roles (Recommended for Production)
@@ -65,6 +68,7 @@ export AWS_PROFILE="production"  # Optional: use specific profile
 export AWS_ROLE_ARN="arn:aws:iam::123456789012:role/NemoCuratorRole"
 export AWS_WEB_IDENTITY_TOKEN_FILE="/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
 ```
+
 :::
 
 ::::
@@ -78,11 +82,15 @@ export AWS_S3_USE_SSL="true"
 export AWS_S3_VERIFY_SSL="true"
 export AWS_S3_ADDRESSING_STYLE="virtual"  # or "path"
 
-# Performance tuning
+# Performance tuning (handled by boto3/s3fs libraries)
 export AWS_S3_MAX_CONCURRENT_REQUESTS="10"
 export AWS_S3_MAX_BANDWIDTH="100MB/s"
 export AWS_S3_MULTIPART_THRESHOLD="64MB"
 export AWS_S3_MULTIPART_CHUNKSIZE="16MB"
+```
+
+```{note}
+Performance tuning variables are handled by the underlying boto3 and s3fs libraries used by NeMo Curator's storage backends. Refer to [boto3 configuration](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html) for complete details.
 ```
 
 ### Azure Blob Storage Configuration
@@ -100,15 +108,17 @@ export AZURE_CLIENT_SECRET="your-client-secret"
 export AZURE_TENANT_ID="your-tenant-id"
 export AZURE_SUBSCRIPTION_ID="your-subscription-id"
 ```
+
 :::
 
-:::{tab-item} Managed Identity (Recommended for Azure VMs)
+:::{tab-item} Managed Identity (Recommended for Azure Virtual Machines)
 :sync: azure-creds-msi
 
 ```bash
 export AZURE_USE_MSI="true"
 export AZURE_CLIENT_ID="managed-identity-client-id"  # Optional
 ```
+
 :::
 
 :::{tab-item} Connection String
@@ -117,6 +127,7 @@ export AZURE_CLIENT_ID="managed-identity-client-id"  # Optional
 ```bash
 export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=https;AccountName=myaccount;AccountKey=mykey;EndpointSuffix=core.windows.net"
 ```
+
 :::
 
 ::::
@@ -129,9 +140,13 @@ export AZURE_STORAGE_ACCOUNT="your-storage-account"
 export AZURE_STORAGE_CONTAINER="nemo-curator-data"
 export AZURE_STORAGE_ENDPOINT="https://myaccount.blob.core.windows.net/"
 
-# Performance settings
+# Performance settings (handled by azure-storage-blob library)
 export AZURE_STORAGE_MAX_CONCURRENCY="10"
 export AZURE_STORAGE_BLOCK_SIZE="4MB"
+```
+
+```{note}
+Performance settings are handled by the underlying azure-storage-blob library. Refer to [Azure Storage SDK documentation](https://docs.microsoft.com/en-us/python/api/azure-storage-blob/) for complete configuration options.
 ```
 
 ### Google Cloud Storage Configuration
@@ -147,6 +162,7 @@ export AZURE_STORAGE_BLOCK_SIZE="4MB"
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 ```
+
 :::
 
 :::{tab-item} Workload Identity (Recommended for GKE)
@@ -156,6 +172,7 @@ export GOOGLE_CLOUD_PROJECT="your-project-id"
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 # Workload Identity automatically handles authentication
 ```
+
 :::
 
 ::::
@@ -168,9 +185,13 @@ export GCS_PROJECT_ID="your-project-id"
 export GCS_BUCKET="nemo-curator-bucket"
 export GCS_DEFAULT_LOCATION="US"
 
-# Performance tuning
+# Performance tuning (handled by google-cloud-storage library)
 export GCS_MAX_RETRY_DELAY="60"
 export GCS_TOTAL_TIMEOUT="300"
+```
+
+```{note}
+Performance tuning variables are handled by the underlying google-cloud-storage library. Refer to [Google Cloud Storage Python client documentation](https://cloud.google.com/storage/docs/reference/libraries#client-libraries-install-python) for complete configuration options.
 ```
 
 ---
@@ -191,20 +212,11 @@ export HF_HUB_OFFLINE="1"
 export TRANSFORMERS_OFFLINE="1"
 ```
 
-### OpenAI API Configuration
-
-```bash
-# OpenAI API credentials
-export OPENAI_API_KEY="sk-your-openai-api-key"
-export OPENAI_ORGANIZATION="org-your-organization-id"  # Optional
-export OPENAI_BASE_URL="https://api.openai.com/v1"  # Custom endpoint
-
-# Rate limiting and timeouts
-export OPENAI_MAX_RETRIES="3"
-export OPENAI_TIMEOUT="60"
-```
-
 ### NVIDIA API Configuration
+
+```{note}
+NVIDIA NGC and NIM API configurations are provided for accessing NVIDIA's model registry and inference services. These are not directly integrated into NeMo Curator core functionality but may be used for model downloads and custom inference workflows.
+```
 
 ```bash
 # NVIDIA NGC API
@@ -215,14 +227,6 @@ export NGC_TEAM="your-team"  # Optional
 # NVIDIA NIM (NVIDIA Inference Microservices)
 export NVIDIA_API_KEY="nvapi-your-api-key"
 export NIM_BASE_URL="https://integrate.api.nvidia.com/v1"
-```
-
-### Anthropic API Configuration
-
-```bash
-# Anthropic Claude API
-export ANTHROPIC_API_KEY="sk-ant-your-api-key"
-export ANTHROPIC_BASE_URL="https://api.anthropic.com"
 ```
 
 ---
@@ -351,11 +355,17 @@ export VAULT_OPENAI_PATH="secret/nemo-curator/openai"
 
 ## Credential Validation
 
+```{note}
+The following validation scripts are provided as examples for testing your credential configuration. These are not part of the NeMo Curator codebase but can be used independently to verify your setup.
+```
+
 ### Storage Access Validation
 
 ```python
 # Validate S3 access
+import os
 import boto3
+
 try:
     s3 = boto3.client('s3')
     buckets = s3.list_buckets()
@@ -388,7 +398,7 @@ except Exception as e:
 ### API Key Validation
 
 ```python
-# Validate Hugging Face access
+# Validate Hugging Face access (used by NeMo Curator)
 try:
     from huggingface_hub import whoami
     user_info = whoami()
@@ -396,7 +406,7 @@ try:
 except Exception as e:
     print(f"✗ Hugging Face authentication failed: {e}")
 
-# Validate OpenAI access
+# Validate OpenAI access (for custom workflows only)
 try:
     import openai
     client = openai.OpenAI()
@@ -415,12 +425,11 @@ except Exception as e:
 ```bash
 # Development storage configuration
 export AWS_PROFILE="development"
-export NEMO_CURATOR_CACHE_DIR="./cache"
-export NEMO_CURATOR_DATA_DIR="./data"
-export NEMO_CURATOR_OUTPUT_DIR="./output"
 
-# Use local storage for development
-export USE_LOCAL_STORAGE="true"
+# Local directory paths (configure in your application)
+# CACHE_DIR="./cache"
+# DATA_DIR="./data" 
+# OUTPUT_DIR="./output"
 ```
 
 ### Staging Environment
@@ -428,11 +437,13 @@ export USE_LOCAL_STORAGE="true"
 ```bash
 # Staging environment configuration
 export AWS_PROFILE="staging"
-export NEMO_CURATOR_CACHE_DIR="/shared/staging/cache"
-export NEMO_CURATOR_DATA_DIR="s3://staging-bucket/data"
-export NEMO_CURATOR_OUTPUT_DIR="s3://staging-bucket/output"
 
-# Reduced performance settings for cost optimization
+# Example storage paths (configure in your application)
+# CACHE_DIR="/shared/staging/cache"
+# DATA_DIR="s3://staging-bucket/data"
+# OUTPUT_DIR="s3://staging-bucket/output"
+
+# Reduced performance settings for cost optimization (handled by boto3)
 export AWS_S3_MAX_CONCURRENT_REQUESTS="5"
 ```
 
@@ -441,16 +452,14 @@ export AWS_S3_MAX_CONCURRENT_REQUESTS="5"
 ```bash
 # Production storage configuration
 export AWS_PROFILE="production"
-export NEMO_CURATOR_CACHE_DIR="/shared/prod/cache"
-export NEMO_CURATOR_DATA_DIR="s3://prod-data-bucket/input"
-export NEMO_CURATOR_OUTPUT_DIR="s3://prod-data-bucket/output"
 
-# Optimized performance settings
+# Example storage paths (configure in your application)
+# CACHE_DIR="/shared/prod/cache"
+# DATA_DIR="s3://prod-data-bucket/input"
+# OUTPUT_DIR="s3://prod-data-bucket/output"
+
+# Optimized performance settings (handled by boto3)
 export AWS_S3_MAX_CONCURRENT_REQUESTS="20"
 export AWS_S3_MULTIPART_THRESHOLD="128MB"
 export AWS_S3_MULTIPART_CHUNKSIZE="32MB"
-
-# Security settings
-export SSL_VERIFY="true"
-export ENABLE_AUDIT_LOGGING="true"
 ```

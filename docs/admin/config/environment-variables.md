@@ -1,7 +1,15 @@
 (admin-config-environment-variables)=
+
 # Environment Variables Reference
 
-This comprehensive reference covers all environment variables used by NeMo Curator for runtime configuration, performance optimization, and system integration. Environment variables provide the highest precedence in the configuration hierarchy.
+This comprehensive reference covers environment variables used by NeMo Curator for runtime configuration, performance optimization, and system integration. This includes both NeMo Curator-specific variables and external library variables that affect NeMo Curator behavior. Environment variables provide the highest precedence in the configuration hierarchy.
+
+```{note}
+**Variable Types**: This reference includes three types of environment variables:
+- **NeMo Curator Variables**: Directly used by NeMo Curator code
+- **External Library Variables**: Used by dependencies (Dask, RAPIDS, UCX, CUDA)
+- **Standard Service Variables**: Cloud storage and API authentication
+```
 
 ```{tip}
 **Applying Environment Variables**: These variables are used throughout NeMo Curator deployments:
@@ -12,7 +20,9 @@ This comprehensive reference covers all environment variables used by NeMo Curat
 
 ---
 
-## Core NeMo Curator Variables
+## NeMo Curator Variables
+
+These variables are directly used by NeMo Curator code and control core functionality.
 
 ### Device and Processing Configuration
 
@@ -82,7 +92,11 @@ export SCHEDULER_LOG="/shared/logs/scheduler.log"
 
 ---
 
-## RAPIDS and GPU Configuration
+## External Library Variables
+
+NeMo Curator's dependencies use these variables to affect system behavior.
+
+### RAPIDS and GPU Configuration
 
 ### Memory Management (RMM)
 
@@ -135,8 +149,8 @@ export RMM_WORKER_POOL_SIZE="0.9"  # 90% of available memory
   - Default
   - Description
 * - `RAPIDS_NO_INITIALIZE`
-  - "1"
-  - Delay CUDA context creation: "0" or "1"
+  - "1" (hardcoded)
+  - Delay CUDA context creation (hardcoded to "1" in NeMo Curator)
 * - `CUDF_SPILL`
   - "1"
   - Enable automatic GPU memory spilling: "0" or "1"
@@ -151,21 +165,26 @@ export RMM_WORKER_POOL_SIZE="0.9"  # 90% of available memory
 **Configuration Examples:**
 ```bash
 # High-performance setup (sufficient GPU memory)
-export RAPIDS_NO_INITIALIZE="0"  # Initialize immediately
+# Note: RAPIDS_NO_INITIALIZE is hardcoded to "1" in NeMo Curator
 export CUDF_SPILL="0"            # Disable spilling
 export LIBCUDF_CUFILE_POLICY="ON"  # Enable direct storage access
 
 # Memory-constrained setup
-export RAPIDS_NO_INITIALIZE="1"  # Delay initialization
 export CUDF_SPILL="1"            # Enable spilling
 export CUDF_SPILL_DEVICE_LIMIT="0.7"  # Spill at 70% capacity
 ```
 
+```{note}
+**RAPIDS_NO_INITIALIZE**: This variable is hardcoded to "1" in NeMo Curator source code and cannot be overridden via environment variables. See `nemo_curator/__init__.py` and classifier modules.
+```
+
 ---
 
-## Dask Configuration
+### Dask Configuration
 
-### Distributed Computing
+These variables configure Dask distributed computing behavior. Refer to the [Dask Configuration Documentation](https://docs.dask.org/en/stable/configuration.html) for complete details.
+
+#### Distributed Computing
 
 ```{list-table} Dask Distributed Variables
 :header-rows: 1
@@ -197,7 +216,7 @@ export CUDF_SPILL_DEVICE_LIMIT="0.7"  # Spill at 70% capacity
   - Terminate worker threshold
 ```
 
-### Performance Profiling
+#### Performance Profiling
 
 ```{list-table} Dask Profiling Variables
 :header-rows: 1
@@ -217,7 +236,7 @@ export CUDF_SPILL_DEVICE_LIMIT="0.7"  # Spill at 70% capacity
   - Profiling cycle duration
 ```
 
-### DataFrame Configuration
+#### DataFrame Configuration
 
 ```{list-table} Dask DataFrame Variables
 :header-rows: 1
@@ -254,9 +273,13 @@ export DASK_DATAFRAME__CONVERT_STRING="False"
 
 ---
 
-## Network and Communication
+### Network and Communication
 
-### UCX Configuration
+These variables configure network communication libraries used by NeMo Curator.
+
+#### UCX Configuration
+
+UCX (Unified Communication X) variables for high-performance networking. Refer to the [UCX Documentation](https://openucx.readthedocs.io/) for complete details.
 
 ```{list-table} UCX Communication Variables
 :header-rows: 1
@@ -291,7 +314,7 @@ export UCX_IB_GPU_DIRECT_RDMA="yes"
 export UCX_MEMTYPE_CACHE="y"
 ```
 
-### TCP Configuration
+#### TCP Configuration
 
 ```{list-table} TCP Network Variables
 :header-rows: 1
@@ -319,11 +342,15 @@ export UCX_MEMTYPE_CACHE="y"
 
 ---
 
-## Storage and I/O
+## Standard Service Variables
 
-### Cloud Storage Optimization
+These are standard environment variables for cloud storage and API services.
 
-#### AWS S3 Variables
+### Storage and I/O
+
+#### Cloud Storage Optimization
+
+##### AWS S3 Variables
 
 ```{list-table} AWS S3 Configuration Variables
 :header-rows: 1
@@ -358,7 +385,7 @@ export UCX_MEMTYPE_CACHE="y"
   - S3 addressing style: "auto", "virtual", "path"
 ```
 
-#### Azure Storage Variables
+##### Azure Storage Variables
 
 ```{list-table} Azure Storage Configuration Variables
 :header-rows: 1
@@ -381,7 +408,7 @@ export UCX_MEMTYPE_CACHE="y"
   - Azure SAS token
 ```
 
-### Local I/O Optimization
+#### Local I/O Optimization
 
 ```{list-table} Local I/O Variables
 :header-rows: 1
@@ -418,11 +445,9 @@ export NUMBA_NUM_THREADS="1"
 export TMPDIR="/fast/ssd/tmp"
 ```
 
----
+### API and Service Configuration
 
-## API and Service Configuration
-
-### Machine Learning Services
+#### Machine Learning Services
 
 ```{list-table} ML Service API Variables
 :header-rows: 1
@@ -451,7 +476,7 @@ export TMPDIR="/fast/ssd/tmp"
   - NVIDIA API base URL
 ```
 
-### Model Caching
+#### Model Caching
 
 ```{list-table} Model Cache Variables
 :header-rows: 1
@@ -476,7 +501,9 @@ export TMPDIR="/fast/ssd/tmp"
 
 ---
 
-## CUDA and GPU Runtime
+## CUDA and GPU Runtime Variables
+
+These variables configure CUDA and GPU runtime behavior. Refer to the [CUDA Environment Variables Documentation](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#env-vars) for complete details.
 
 ### CUDA Configuration
 
@@ -577,7 +604,7 @@ export AWS_RETRY_MODE="adaptive"
 export DEVICE="gpu"
 export PROTOCOL="ucx"
 export INTERFACE="ib0"
-export RAPIDS_NO_INITIALIZE="0"
+# RAPIDS_NO_INITIALIZE is hardcoded to "1" in NeMo Curator
 export CUDF_SPILL="0"
 export RMM_WORKER_POOL_SIZE="72GiB"
 export RMM_SCHEDULER_POOL_SIZE="1GB"
@@ -594,7 +621,7 @@ export PROFILESDIR="/shared/profiles"
 # Memory-constrained environment
 export DEVICE="gpu"
 export PROTOCOL="tcp"
-export RAPIDS_NO_INITIALIZE="1"
+# RAPIDS_NO_INITIALIZE is hardcoded to "1" in NeMo Curator
 export CUDF_SPILL="1"
 export CUDF_SPILL_DEVICE_LIMIT="0.7"
 export RMM_WORKER_POOL_SIZE="12GB"  # Smaller pool
@@ -621,7 +648,7 @@ set +a  # Stop auto-export
 export $(cat /path/to/nemo-curator.env | xargs)
 ```
 
-#### Systemd Service
+#### systemd Service
 
 ```ini
 # /etc/systemd/system/nemo-curator.service
@@ -659,6 +686,10 @@ RUN set -a && source /etc/environment && set +a
 ```
 
 ### Validation Script
+
+```{note}
+**Creating the Validation Script**: Save this script as `validate_env.py` in your project directory to validate your environment configuration.
+```
 
 ```python
 #!/usr/bin/env python3

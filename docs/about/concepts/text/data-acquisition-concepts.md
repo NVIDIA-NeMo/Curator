@@ -12,7 +12,7 @@ modality: "text-only"
 
 # Data Acquisition Concepts
 
-This guide covers the core concepts for acquiring and processing text data from remote sources in NeMo Curator. Data acquisition focuses on downloading, extracting, and converting remote data sources into {ref}`DocumentDataset <documentdataset>` format for further processing.
+This guide covers the core concepts for acquiring and processing text data from remote sources in NeMo Curator. Data acquisition focuses on downloading, extracting, and converting remote data sources into `DocumentBatch` format for further processing.
 
 ## Overview
 
@@ -23,7 +23,7 @@ Data acquisition in NeMo Curator follows a four-stage architecture:
 3. **Iterate**: Extract individual records from downloaded containers
 4. **Extract**: Convert raw content to clean, structured text
 
-This process transforms diverse remote data sources into a standardized `DocumentDataset` that can be used throughout the text curation pipeline.
+This process transforms diverse remote data sources into a standardized `DocumentBatch` that can be used throughout the text curation pipeline.
 
 ## Core Components
 
@@ -31,29 +31,7 @@ The data acquisition framework consists of four abstract base classes that defin
 
 ### URLGenerator
 
-Generates URLs for downloading from minimal input configuration.
-
-```{list-table}
-:header-rows: 1
-
-* - Feature
-  - Description
-* - URL Generation
-  - - Generates download URLs from configuration parameters
-    - Supports date ranges and filtering criteria
-    - Handles API calls to discover available resources
-    - Manages URL limits and pagination
-* - Configuration
-  - - Accepts minimal input parameters
-    - Supports various data source patterns
-    - Handles authentication requirements
-    - Provides URL validation and filtering
-* - Extensibility
-  - - Abstract base class for custom implementations
-    - Plugin architecture for new data sources
-    - Configurable generation parameters
-    - Integration with existing discovery systems
-```
+Generates URLs for downloading from minimal input configuration. You need to override `generate_urls` which generates a bunch of URLs that user wants to download.
 
 **Example Implementation**:
 
@@ -74,29 +52,7 @@ class CustomURLGenerator(URLGenerator):
 
 ### DocumentDownloader
 
-Connects to and downloads data from remote repositories.
-
-```{list-table}
-:header-rows: 1
-
-* - Feature
-  - Description
-* - Remote Connectivity
-  - - Handles authentication and connection management
-    - Manages download retries and resume capability
-    - Supports various protocols (HTTP, S3, FTP)
-    - Optimizes bandwidth usage and parallel downloads
-* - State Management
-  - - Tracks download progress and completion
-    - Handles connection timeouts and failures
-    - Manages temporary file storage
-    - Provides download resumption capabilities
-* - Extensibility
-  - - Abstract base class for custom implementations
-    - Plugin architecture for new data sources
-    - Configurable download parameters
-    - Integration with existing authentication systems
-```
+Connects to and downloads data from remote repositories. You must override `_get_output_filename` and `_download_to_path` which are called by function called `download` which tries to be idempotent.
 
 **Example Implementation**:
 
@@ -122,29 +78,7 @@ class CustomDownloader(DocumentDownloader):
 
 ### DocumentIterator
 
-Extracts individual records from downloaded containers.
-
-```{list-table}
-:header-rows: 1
-
-* - Feature
-  - Description
-* - Container Parsing
-  - - Handles various archive formats (tar, zip, WARC)
-    - Parses XML, JSON, and custom file structures
-    - Manages memory-efficient streaming
-    - Supports nested container structures
-* - Record Extraction
-  - - Identifies individual documents within containers
-    - Provides document metadata and identifiers
-    - Handles malformed or corrupted entries
-    - Maintains processing order and lineage
-* - Streaming Support
-  - - Processes large files without loading entirely into memory
-    - Enables real-time processing of incoming data
-    - Supports parallel iteration across multiple workers
-    - Optimizes I/O operations for performance
-```
+Extracts individual records from downloaded containers. You should only override `iterate` and `output_columns` where `iterate` must have logic to load the local file path and return bunch of documents. The list[dict] is finally considered to a pd.DataFrame which is passed to Extractor.
 
 **Example Implementation**:
 
@@ -155,8 +89,8 @@ class CustomIterator(DocumentIterator):
         self._log_frequency = log_frequency
     
     def iterate(self, file_path):
-        # Custom iteration logic
-        for record in parse_container(file_path):
+        # Custom iteration logic to load local file and return documents
+        for record in load_local_file(file_path):
             yield {"content": record_content, "metadata": record_metadata}
     
     def output_columns(self):
@@ -165,29 +99,7 @@ class CustomIterator(DocumentIterator):
 
 ### DocumentExtractor (Optional)
 
-Converts raw content formats to clean, structured text.
-
-```{list-table}
-:header-rows: 1
-
-* - Feature
-  - Description
-* - Format Conversion
-  - - Converts HTML, PDF, LaTeX to clean text
-    - Handles character encoding normalization
-    - Preserves important structural information
-    - Removes boilerplate and navigation content
-* - Content Processing
-  - - Performs language detection via pycld2
-    - Extracts metadata from document headers
-    - Handles multi-language documents
-    - Applies content-specific cleaning rules
-* - Quality Control
-  - - Filters malformed or empty documents
-    - Validates text encoding and structure
-    - Applies basic quality heuristics
-    - Preserves extraction lineage information
-```
+DocumentExtractor works on the pd.DataFrame and is optional.
 
 **Example Implementation**:
 
@@ -283,7 +195,7 @@ results = pipeline.run()
 
 ### Scaling and Parallel Processing
 
-The `DocumentDownloadExtractStage` automatically handles parallel processing through the distributed computing framework:
+The `DocumentDownloadExtractStage` handles parallel processing through the distributed computing framework:
 
 ```python
 # Simple pipeline - parallelism handled automatically
@@ -303,45 +215,6 @@ pipeline.add_stage(download_extract_stage)
 results = pipeline.run(executor)
 ```
 
-## Configuration and Customization
-
-### Configuration Files
-
-You can configure data acquisition components through YAML files:
-
-```yaml
-# downloader_config.yaml
-download_module: "my_package.CustomDownloader"
-download_params:
-  download_dir: "/data/downloads"
-  verbose: true
-
-iterator_module: "my_package.CustomIterator"
-iterator_params:
-  log_frequency: 1000
-
-extract_module: "my_package.CustomExtractor"  
-extract_params:
-  language_detection: true
-
-format:
-  text: str
-  language: str
-  url: str
-```
-
-### Dynamic Loading
-
-Load acquisition components dynamically:
-
-```python
-from nemo_curator.utils.config_utils import build_downloader
-
-downloader, iterator, extractor, format = build_downloader(
-    "downloader_config.yaml"
-)
-```
-
 ## Performance Optimization
 
 ### Parallel Processing
@@ -351,27 +224,6 @@ Data acquisition leverages distributed computing frameworks for scalable process
 - **Parallel Downloads**: Each URL in the generated list downloads through separate workers
 - **Concurrent Extraction**: Files process in parallel across workers
 - **Memory Management**: Streaming processing for large files
-- **Fault Tolerance**: Automatic retry and recovery mechanisms
-
-### Scaling Strategies
-
-**Single Node**:
-
-- Use worker processes for CPU-bound extraction
-- Optimize I/O operations for local storage
-- Balance download and processing throughput
-
-**Multi-Node**:
-
-- Distribute download tasks across cluster nodes
-- Use shared storage for intermediate files
-- Coordinate processing through distributed scheduler
-
-**Cloud Deployment**:
-
-- Leverage cloud storage for source data
-- Use auto-scaling for variable workloads  
-- Optimize network bandwidth and storage costs
 
 ## Integration with Data Loading
 

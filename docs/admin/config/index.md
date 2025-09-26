@@ -9,6 +9,7 @@ modality: "universal"
 ---
 
 (admin-config)=
+
 # Configuration Guide
 
 Configure NeMo Curator for your deployment environment including infrastructure settings, storage access, credentials, and environment variables. This section focuses on operational configuration for deployment and management.
@@ -92,33 +93,31 @@ Configuration for image classifiers, embedders, and filtering.
 
 ---
 
-## Configuration Hierarchy
+## Configuration Approach
 
-NeMo Curator follows a hierarchical configuration system where settings can be specified at multiple levels. This hierarchy ensures flexibility while maintaining clear precedence rules for resolving configuration conflicts across different deployment environments.
+NeMo Curator uses environment variables and YAML configuration files for deployment settings. The system supports loading configuration from YAML files using the `BaseConfig.from_yaml()` method, with environment variables providing runtime overrides.
 
-NeMo Curator uses the following configuration precedence (highest to lowest priority):
+Configuration methods (in order of common usage):
 
-1. **Command-line arguments** - Direct parameter overrides
-2. **Environment variables** - Runtime configuration
-3. **Configuration files** - YAML/JSON configuration files
-4. **Default values** - Built-in defaults
+1. **Environment variables** - Runtime configuration and deployment settings
+2. **YAML configuration files** - Module-specific and pipeline configurations
+3. **Command-line arguments** - Script-specific parameter overrides
+4. **Default values** - Built-in defaults in code
 
-### Configuration File Locations
+### Configuration File Usage
 
-```{list-table} Configuration File Search Order
+```{list-table} Common Configuration Patterns
 :header-rows: 1
 :widths: 30 70
 
 * - Location
   - Description
 * - `./config/`
-  - Current working directory config folder
-* - `~/.nemo_curator/`
-  - User-specific configuration directory
-* - `/etc/nemo_curator/`
-  - System-wide configuration directory
-* - Package defaults
-  - Built-in default configurations
+  - Project-specific configuration files
+* - `~/.config/nemo_curator/`
+  - User-specific configuration (used in deployment scripts)
+* - Module configs
+  - YAML files for specific processing modules
 ```
 
 ### Example Configuration Structure
@@ -139,7 +138,7 @@ config/
 
 ## Quick Start Examples
 
-These examples demonstrate common configuration patterns for different deployment scenarios. Each example includes the essential environment variables and settings needed to get NeMo Curator running in that specific environment.
+These examples show common configuration patterns for different deployment scenarios. Each example includes the essential environment variables and settings needed to get NeMo Curator running in that specific environment.
 
 ::::{tab-set}
 
@@ -148,22 +147,24 @@ These examples demonstrate common configuration patterns for different deploymen
 
 ```bash
 # Set basic environment variables
-export DASK_CLUSTER_TYPE="cpu"
-export NEMO_CURATOR_LOG_LEVEL="INFO"
-export NEMO_CURATOR_CACHE_DIR="./cache"
+export DEVICE="cpu"
+export PROTOCOL="tcp"
+export LOGDIR="./logs"
 ```
+
 :::
 
-:::{tab-item} Production Slurm
-:sync: config-slurm
+:::{tab-item} Production GPU
+:sync: config-gpu
 
 ```bash
-# Production Slurm environment
-export DASK_CLUSTER_TYPE="gpu"
-export DASK_PROTOCOL="ucx"
+# Production GPU environment
+export DEVICE="gpu"
+export PROTOCOL="ucx"
 export RMM_WORKER_POOL_SIZE="80GiB"
-export NEMO_CURATOR_LOG_LEVEL="WARNING"
+export CUDF_SPILL="0"
 ```
+
 :::
 
 :::{tab-item} Cloud Storage
@@ -175,6 +176,7 @@ export AWS_ACCESS_KEY_ID="your-access-key"
 export AWS_SECRET_ACCESS_KEY="your-secret-key"
 export AWS_DEFAULT_REGION="us-west-2"
 ```
+
 :::
 
 ::::
@@ -186,4 +188,4 @@ export AWS_DEFAULT_REGION="us-west-2"
 deployment-environments
 storage-credentials
 environment-variables
-``` 
+```

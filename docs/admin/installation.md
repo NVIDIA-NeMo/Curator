@@ -9,6 +9,7 @@ modality: "universal"
 ---
 
 (admin-installation)=
+
 # Installation Guide
 
 This guide covers installing NeMo Curator and verifying your installation is working correctly. For configuration after installation, see [Configuration](admin-config).
@@ -18,7 +19,7 @@ This guide covers installing NeMo Curator and verifying your installation is wor
 For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
 
 **Quick Start Requirements:**
-- **OS**: Ubuntu 22.04/20.04 (recommended) 
+- **OS**: Ubuntu 22.04/20.04 (recommended)
 - **Python**: 3.10 or 3.12 (Python 3.11 is not supported)
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
@@ -69,13 +70,17 @@ Install the latest development version directly from GitHub:
 git clone https://github.com/NVIDIA/NeMo-Curator.git
 cd NeMo-Curator
 
-# Install with desired extras
-pip install --extra-index-url https://pypi.nvidia.com ".[all]"
+# Install uv if not already available
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install with all extras using uv
+uv sync --extra all
 ```
 
 **Benefits:**
 - Access to latest features and bug fixes
 - Ability to modify source code for custom needs
+- Faster dependency resolution with uv
 - Easier contribution to the project
 
 :::
@@ -84,22 +89,21 @@ pip install --extra-index-url https://pypi.nvidia.com ".[all]"
 
 NeMo Curator is available as a standalone container:
 
-```{warning}
-**Container Availability**: The standalone NeMo Curator container is currently in development. Check the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers) for the latest availability and container path.
+```{note}
+**Container Build**: You can build the NeMo Curator container locally using the provided Dockerfile. A pre-built container will be available on NGC in the future.
 ```
 
 ```bash
-# Pull the container (path will be updated when available)
-docker pull nvcr.io/nvidia/nemo-curator:latest
+# Build the container locally
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator
+docker build -t nemo-curator:latest -f docker/Dockerfile .
 
 # Run the container with GPU support
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:latest
+docker run --gpus all -it --rm nemo-curator:latest
 
-# For custom installations inside container
-pip uninstall nemo-curator
-rm -r /opt/NeMo-Curator
-git clone https://github.com/NVIDIA/NeMo-Curator.git /opt/NeMo-Curator
-pip install --extra-index-url https://pypi.nvidia.com "/opt/NeMo-Curator[all]"
+# The container includes NeMo Curator with all dependencies pre-installed
+# Environment is activated automatically at /opt/venv
 ```
 
 **Benefits:**
@@ -147,22 +151,6 @@ NeMo Curator provides several installation extras to install only the components
   - All stable modules (recommended)
 ```
 
-### Nightly Dependencies
-
-For cutting-edge RAPIDS features, use nightly builds:
-
-```bash
-# Nightly RAPIDS with all modules
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all_nightly]
-
-# Nightly RAPIDS with image modules
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_nightly]
-```
-
-```{warning}
-Nightly builds may be unstable and are not recommended for production use.
-```
-
 ---
 
 ## Installation Verification
@@ -177,8 +165,8 @@ import nemo_curator
 print(f"NeMo Curator version: {nemo_curator.__version__}")
 
 # Test core modules
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modules import ExactDuplicates
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.tasks import DocumentBatch
 print("✓ Core modules imported successfully")
 ```
 
@@ -201,38 +189,48 @@ except ImportError as e:
     print(f"⚠ GPU modules not available: {e}")
 ```
 
-### 3. CLI Tools Verification
+### 3. Module Import Verification
 
-Test that command-line tools are properly installed:
+Test that core modules can be imported successfully:
 
-```bash
-# Check if CLI tools are available
-text_cleaning --help
-add_id --help
-gpu_exact_dups --help
+```python
+# Test core processing modules
+from nemo_curator.stages.text.modules.add_id import AddId
+from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
+from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
+print("✓ Core processing modules imported successfully")
 
-# Test specific functionality
-echo '{"id": "doc1", "text": "Hello world"}' | text_cleaning --input-format jsonl
+# Test pipeline components
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.backends.base import BaseExecutor
+print("✓ Pipeline components imported successfully")
 ```
 
-### 4. Dask Cluster Test
+### 4. Ray Cluster Test
 
 Verify distributed computing capabilities:
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
+from nemo_curator.core.client import RayClient
 
-# Test local cluster creation
-client = get_client(cluster_type="local", n_workers=2)
-print(f"✓ Dask cluster created: {client}")
+# Test Ray cluster creation
+ray_client = RayClient(num_cpus=2, num_gpus=0)
+ray_client.start()
+print("✓ Ray cluster created successfully")
 
 # Test basic distributed operation
-import dask.dataframe as dd
-df = dd.from_pandas(pd.DataFrame({"x": [1, 2, 3, 4]}), npartitions=2)
-result = df.x.sum().compute()
+import pandas as pd
+@ray.remote
+def sum_data(data):
+    return sum(data)
+
+# Simple distributed computation test
+future = sum_data.remote([1, 2, 3, 4])
+result = ray.get(future)
 print(f"✓ Distributed computation successful: {result}")
 
-client.close()
+ray_client.stop()
 ```
 
 ---
@@ -261,7 +259,7 @@ ERROR: Package 'nemo_curator' requires a different Python: 3.9.0 not in '>=3.10'
 
 **Solutions**:
 1. Upgrade to Python 3.10 or 3.12
-2. Use conda to manage Python versions: `conda create -n curator python=3.12`
+2. Use virtual environments to manage Python versions: `python3.12 -m venv curator-env`
 3. Avoid Python 3.11 (not supported due to RAPIDS compatibility)
 
 ### Network/Registry Issues
@@ -309,4 +307,4 @@ Choose your next step based on your goals:
 - [Configuration Guide](config/index.md) - Configure NeMo Curator for your environment
 - [Container Environments](../reference/infrastructure/container-environments.md) - Container-specific setup
 - [Deployment Requirements](deployment/requirements.md) - Production deployment prerequisites
-``` 
+```

@@ -79,7 +79,6 @@ def main():
     # Run pipeline
     results = pipeline.run()
 
-    print(f"Pipeline completed. Results: {len(results) if results else 0} output files")
 
 if __name__ == "__main__":
     main()

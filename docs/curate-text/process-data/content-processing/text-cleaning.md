@@ -39,7 +39,8 @@ Consider the following example, which loads a dataset (`books.jsonl`), steps thr
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.datasets import DocumentDataset
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
 from nemo_curator.stages.text.modules import Modify
 
@@ -47,13 +48,19 @@ def main():
     # Create processing pipeline
     pipeline = Pipeline(
         name="text_cleaning_pipeline",
-        description="Clean text data using Unicode reformatter, newline normalizer, and URL remover",
-        stages=[
-            Modify(UnicodeReformatter()),
-            Modify(NewlineNormalizer()),
-            Modify(UrlRemover()),
-        ]
+        description="Clean text data using Unicode reformatter, newline normalizer, and URL remover"
     )
+    
+    # Add reader stage
+    pipeline.add_stage(JsonlReader(file_paths="books.jsonl"))
+    
+    # Add processing stages
+    pipeline.add_stage(Modify(UnicodeReformatter()))
+    pipeline.add_stage(Modify(NewlineNormalizer()))
+    pipeline.add_stage(Modify(UrlRemover()))
+    
+    # Add writer stage
+    pipeline.add_stage(JsonlWriter(path="cleaned_books.jsonl"))
 
     # Execute pipeline
     results = pipeline.run()

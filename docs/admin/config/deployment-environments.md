@@ -1,7 +1,7 @@
 ---
 description: "Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes"
 categories: ["how-to-guides"]
-tags: ["deployment-environments", "slurm", "kubernetes", "dask-clusters", "gpu-settings", "networking", "performance"]
+tags: ["deployment-environments", "slurm", "kubernetes", "ray-clusters", "gpu-settings", "networking", "performance"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -9,9 +9,10 @@ modality: "universal"
 ---
 
 (admin-config-deployment-environments)=
+
 # Deployment Environment Configuration
 
-Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes. This guide focuses on deployment-specific settings and operational concerns.
+Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes. This guide focuses on deployment-specific settings and operational concerns for Ray-based deployments.
 
 ```{tip}
 **Applying These Configurations**: This guide shows you how to configure NeMo Curator for different environments. To learn how to actually deploy and run NeMo Curator in these environments, see:
@@ -35,10 +36,8 @@ Basic configuration for single-machine development and testing.
 
 ```bash
 # Environment variables for local CPU development
-export DASK_CLUSTER_TYPE="cpu"
-export DASK_N_WORKERS="4"
-export DASK_THREADS_PER_WORKER="2"
-export DASK_MEMORY_LIMIT="4GB"
+export RAY_NUM_CPUS="4"
+export RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE="1"
 export NEMO_CURATOR_LOG_LEVEL="INFO"
 export NEMO_CURATOR_CACHE_DIR="./cache"
 ```
@@ -49,8 +48,7 @@ export NEMO_CURATOR_CACHE_DIR="./cache"
 
 ```bash
 # Environment variables for local GPU development
-export DASK_CLUSTER_TYPE="gpu"
-export DASK_PROTOCOL="tcp"
+export RAY_NUM_GPUS="1"
 export RMM_WORKER_POOL_SIZE="4GB"
 export CUDF_SPILL="1"
 export NEMO_CURATOR_LOG_LEVEL="DEBUG"
@@ -98,14 +96,14 @@ export LIBCUDF_CUFILE_POLICY="ON"
 export NEMO_CURATOR_LOG_LEVEL="WARNING"  # Reduce logging overhead
 ```
 
-For maximum performance on large clusters.
+For optimal performance on large clusters.
 :::
 
 ::::
 
 ### Kubernetes Environment
 
-Configuration for Kubernetes deployments with Dask Operator.
+Configuration for Kubernetes deployments with Ray Operator.
 
 ::::{tab-set}
 
@@ -119,8 +117,7 @@ kind: ConfigMap
 metadata:
   name: nemo-curator-config
 data:
-  DASK_CLUSTER_TYPE: "kubernetes"
-  PROTOCOL: "tcp"
+  RAY_ADDRESS: "ray://ray-head:10001"
   RMM_WORKER_POOL_SIZE: "16GB"
   CUDF_SPILL: "1"
   NEMO_CURATOR_LOG_LEVEL: "INFO"
@@ -152,7 +149,7 @@ data:
 
 ---
 
-## Dask Cluster Configuration
+## Ray Cluster Configuration
 
 ### Cluster Connection Methods
 
@@ -162,13 +159,14 @@ data:
 :sync: cluster-existing
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
+from nemo_curator.core.client import RayClient
 
-# Connect to existing scheduler
-client = get_client(scheduler_address="tcp://scheduler:8786")
+# Connect to existing Ray cluster
+ray.init(address="ray://head-node:10001")
 
-# Using scheduler file (common in Slurm)
-client = get_client(scheduler_file="/shared/scheduler.json")
+# Connect using RAY_ADDRESS environment variable
+ray.init()  # Uses RAY_ADDRESS if set
 ```
 :::
 
@@ -176,20 +174,20 @@ client = get_client(scheduler_file="/shared/scheduler.json")
 :sync: cluster-local
 
 ```python
-# Create local CPU cluster
-client = get_client(
-    cluster_type="cpu",
-    n_workers=4,
-    threads_per_worker=2,
-    memory_limit="4GB"
+# Create local Ray cluster
+ray_client = RayClient(
+    num_cpus=4,
+    ray_temp_dir="./ray_temp"
 )
+ray_client.start()
 
 # Create local GPU cluster
-client = get_client(
-    cluster_type="gpu",
-    rmm_pool_size="8GB",
-    enable_spilling=True
+ray_client = RayClient(
+    num_gpus=1,
+    num_cpus=4,
+    enable_object_spilling=True
 )
+ray_client.start()
 ```
 :::
 
@@ -346,7 +344,7 @@ export INTERFACE=""  # Empty string for auto-detection
 ```bash
 export NEMO_CURATOR_LOG_LEVEL="DEBUG"
 export NEMO_CURATOR_LOG_DIR="./logs"
-export DASK_LOGGING__DISTRIBUTED="debug"
+export RAY_LOG_TO_STDERR="1"
 ```
 :::
 
@@ -356,7 +354,7 @@ export DASK_LOGGING__DISTRIBUTED="debug"
 ```bash
 export NEMO_CURATOR_LOG_LEVEL="WARNING"
 export NEMO_CURATOR_LOG_DIR="/shared/logs"
-export DASK_LOGGING__DISTRIBUTED="warning"
+export RAY_LOG_TO_STDERR="0"
 ```
 :::
 
@@ -367,12 +365,12 @@ export DASK_LOGGING__DISTRIBUTED="warning"
 ```bash
 # Typical production log structure
 /shared/logs/
-├── scheduler.log          # Dask scheduler logs
-├── worker-*.log          # Individual worker logs
+├── ray-head.log          # Ray head node logs
+├── ray-worker-*.log      # Individual worker logs
 ├── nemo-curator.log      # Application logs
 └── performance/          # Performance profiles
-    ├── scheduler.html
-    └── worker-*.html
+    ├── ray-timeline.json
+    └── ray-profile.html
 ```
 
 ---
@@ -391,8 +389,9 @@ export LOGDIR="${SLURM_SUBMIT_DIR}/logs"
 export SCHEDULER_FILE="${LOGDIR}/scheduler.json"
 
 # Slurm-aware resource allocation
-export DASK_N_WORKERS="${SLURM_NTASKS}"
-export DASK_MEMORY_LIMIT="${SLURM_MEM_PER_NODE}MB"
+export RAY_NUM_CPUS="${SLURM_CPUS_PER_TASK}"
+export RAY_NUM_GPUS="${SLURM_GPUS_PER_NODE}"
+export NEMO_CURATOR_RAY_SLURM_JOB="1"
 ```
 :::
 
@@ -403,10 +402,10 @@ export DASK_MEMORY_LIMIT="${SLURM_MEM_PER_NODE}MB"
 # Kubernetes pod integration
 export K8S_NAMESPACE="${MY_POD_NAMESPACE}"
 export K8S_POD_NAME="${MY_POD_NAME}"
-export DASK_SCHEDULER_ADDRESS="tcp://dask-scheduler:8786"
+export RAY_ADDRESS="ray://ray-head:10001"
 
 # Kubernetes resource limits
-export DASK_MEMORY_LIMIT="${MEMORY_LIMIT}"
+export RAY_ADDRESS="ray://ray-head:10001"
 export RMM_WORKER_POOL_SIZE="${GPU_MEMORY_LIMIT}"
 ```
 :::
@@ -423,13 +422,13 @@ export RMM_WORKER_POOL_SIZE="${GPU_MEMORY_LIMIT}"
 :sync: test-cluster
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+import ray
 
-# Test cluster connection
-client = get_client()
-print(f"✓ Connected to cluster: {client}")
-print(f"✓ Workers: {len(client.scheduler_info()['workers'])}")
-print(f"✓ Dashboard: {client.dashboard_link}")
+# Test Ray cluster connection
+ray.init()
+print(f"✓ Connected to Ray cluster")
+print(f"✓ Nodes: {len(ray.nodes())}")
+print(f"✓ Dashboard: http://localhost:8265")
 ```
 :::
 

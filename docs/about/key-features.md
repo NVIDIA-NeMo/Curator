@@ -17,7 +17,7 @@ NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data cu
 
 - Trusted by leading organizations for LLM and generative AI data curation
 - Open source, NVIDIA-supported, and actively maintained
-- Seamless integration with enterprise MLOps and data platforms (Kubernetes, Slurm, Spark, Dask)
+- Seamless integration with enterprise MLOps and data platforms (Kubernetes, Slurm, Dask)
 - Proven at scale: from laptops to multi-node GPU clusters
 
 ### Benchmarks & Results
@@ -30,7 +30,7 @@ NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data cu
 
 ## Text Data Curation
 
-NeMo Curator offers advanced tools for text data loading, cleaning, filtering, deduplication, classification, and synthetic data generation. Built-in modules support language identification, quality estimation, domain and safety classification, and both rule-based and LLM-based PII removal. Pipelines are fully modular and can be customized for diverse NLP and LLM training needs.
+NeMo Curator offers advanced tools for text data loading, cleaning, filtering, deduplication, classification, and synthetic data generation. Built-in modules support language identification, quality estimation, domain and safety classification. Pipelines are fully modular and can be customized for diverse NLP and LLM training needs.
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -162,7 +162,7 @@ Set up your environment and run your first video curation pipeline with NeMo Cur
 
 ## Deployment and Integration
 
-NeMo Curator is designed for distributed, cloud-native, and on-premises deployments. It supports Kubernetes, Slurm, and Spark, and integrates easily with your existing MLOps pipelines. Modular APIs and CLI tools enable flexible orchestration and automation.
+NeMo Curator is designed for distributed, cloud-native, and on-premises deployments. It supports Kubernetes and Slurm, and integrates easily with your existing MLOps pipelines. Modular APIs and CLI tools enable flexible orchestration and automation.
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -170,7 +170,7 @@ NeMo Curator is designed for distributed, cloud-native, and on-premises deployme
 :::{grid-item-card} {octicon}`cloud;1.5em;sd-mr-1` Deployment Options
 :link: admin-overview
 :link-type: ref
-Deploy on Kubernetes, Slurm, or Spark. See the Admin Guide for full deployment and integration options.
+Deploy on Kubernetes or Slurm. See the Admin Guide for full deployment options.
 :::
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management

@@ -101,7 +101,6 @@ def main():
     results = pipeline.run()
 
     # Process results
-    print(f"Pipeline completed! Processed {len(results)} batches")
 
     total_documents = sum(task.num_items for task in results) if results else 0
     print(f"Total documents processed: {total_documents}")
