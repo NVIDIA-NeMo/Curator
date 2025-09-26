@@ -4,10 +4,15 @@ We are glad you are contributing to NeMo Curator! Before you make a PR, be sure 
 This checklist ensures that NeMo Curator stays easy-to-use by both users and developers.
 Not all steps are necessary for some contributions, so read the linked sections for more information about each item.
 
-1. [Follow the general principles in your design](#general-principles)
-1. [Format using the style guide](#python-style)
-1. [Write unit tests](#unit-tests)
-1. [Make a pull request](#pull-requests-pr-guidelines)
+- [Checklist](#checklist)
+  - [General principles](#general-principles)
+  - [Python style](#python-style)
+  - [Setup and Dev](#setup-and-dev)
+    - [Prerequisites](#prerequisites)
+    - [Installation](#installation)
+  - [Unit tests](#unit-tests)
+  - [Coverage](#coverage)
+  - [Pull Requests (PR) Guidelines](#pull-requests-pr-guidelines)
 
 ## General principles
 1. **User-oriented**: make it easy for end users, even at the cost of writing more code in the background
@@ -60,7 +65,7 @@ uv sync --extra text
 # Sync multiple dependency groups
 uv sync --extra text --extra video
 
-# Sync all (includes dali, deduplication_cuda12x, text, video, video_cuda)
+# Sync all (includes audio_cuda12, deduplication_cuda12, image_cuda12, text_cuda12, video_cuda12)
 uv sync --extra all
 ```
 

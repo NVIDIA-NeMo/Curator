@@ -147,7 +147,6 @@ You can create and use your own stop word lists when processing text with Curato
 ```python
 from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 
 # Define custom stop words for multiple languages
 custom_stop_lists = {
@@ -168,8 +167,7 @@ pipeline = Pipeline(name="custom_stopwords_pipeline")
 pipeline.add_stage(cc_stage)
 
 # Execute pipeline
-executor = XennaExecutor()
-results = pipeline.run(executor)
+results = pipeline.run()
 ```
 
 ## Performance Considerations

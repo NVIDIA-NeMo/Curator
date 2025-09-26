@@ -15,6 +15,7 @@
 import argparse
 import os
 import shutil
+import sys
 
 from loguru import logger
 
@@ -42,14 +43,19 @@ def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
             raw_data_dir=args.raw_data_dir,
         ).with_(batch_size=4)
     )
-    pipeline.add_stage(InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=1.0)))
+    pipeline.add_stage(
+        InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus))
+    )
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))
     pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
     result_dir = os.path.join(args.raw_data_dir, "result")
-    if os.path.isdir(result_dir):
-        shutil.rmtree(result_dir)  # clean up resulting folder
+    if args.clean and os.path.isdir(result_dir):
+        shutil.rmtree(result_dir)
+    elif not args.clean and os.path.exists(result_dir):
+        msg = f"Result directory {result_dir} already exists. Use --clean to overwrite it."
+        raise ValueError(msg)
     pipeline.add_stage(
         JsonlWriter(
             path=result_dir,
@@ -63,6 +69,10 @@ def main(args: argparse.Namespace) -> None:
     """
     Prepare FLEURS dataset, run ASR inference and filer by WER threshold.
     """
+    # Configure logging verbosity
+    logger.remove()
+    logger.add(sys.stderr, level="DEBUG" if args.verbose else "INFO")
+
     pipeline = create_audio_pipeline(args)
 
     # Print pipeline description
@@ -89,6 +99,27 @@ if __name__ == "__main__":
     )
     parser.add_argument("--lang", type=str, default="hy_am", help="Language name ")
     parser.add_argument("--split", type=str, default="dev", help="Split name, usually {train, dev, test}")
-    parser.add_argument("--wer_threshold", type=float, default=75.0, help="Limit the number of videos to read")
+    parser.add_argument(
+        "--wer_threshold",
+        type=float,
+        default=75.0,
+        help="WER threshold (keep samples with WER <= this value)",
+    )
+    parser.add_argument(
+        "--gpus",
+        type=float,
+        default=1.0,
+        help="Number of GPUs to request for ASR stage (set 0 for CPU)",
+    )
+    parser.add_argument(
+        "--clean",
+        action="store_true",
+        help="Delete existing result directory before writing outputs",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose (DEBUG) logging",
+    )
     args = parser.parse_args()
     main(args)
