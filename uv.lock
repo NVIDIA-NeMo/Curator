@@ -3997,6 +3997,11 @@ deduplication-cuda12 = [
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
 ]
+image-cpu = [
+    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+]
 image-cuda12 = [
     { name = "cudf-cu12" },
     { name = "cugraph-cu12" },
@@ -4008,6 +4013,9 @@ image-cuda12 = [
     { name = "pynvml" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
+    { name = "torchvision", version = "0.22.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'darwin'" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64'" },
+    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 text-cpu = [
     { name = "beautifulsoup4" },
@@ -4137,6 +4145,7 @@ requires-dist = [
     { name = "nemo-curator", extras = ["cuda12"], marker = "extra == 'video-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["deduplication-cuda12"], marker = "extra == 'text-cuda12'" },
+    { name = "nemo-curator", extras = ["image-cpu"], marker = "extra == 'image-cuda12'" },
     { name = "nemo-curator", extras = ["image-cuda12"], marker = "extra == 'all'" },
     { name = "nemo-curator", extras = ["text-cpu"], marker = "extra == 'text-cuda12'" },
     { name = "nemo-curator", extras = ["text-cuda12"], marker = "extra == 'all'" },
@@ -4166,7 +4175,9 @@ requires-dist = [
     { name = "torch", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", specifier = "<=2.8.0", index = "https://pypi.org/simple" },
     { name = "torchaudio", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchaudio", marker = "(platform_machine != 'x86_64' and extra == 'video-cuda12') or (sys_platform == 'darwin' and extra == 'video-cuda12')", index = "https://pypi.org/simple" },
+    { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'image-cpu'", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cpu'", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'image-cpu') or (sys_platform == 'darwin' and extra == 'image-cpu')", index = "https://pypi.org/simple" },
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video-cpu') or (sys_platform == 'darwin' and extra == 'video-cpu')", index = "https://pypi.org/simple" },
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
     { name = "transformers", specifier = "==4.55.2" },
