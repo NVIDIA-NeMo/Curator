@@ -75,10 +75,13 @@ audio_cuda12 = [
     "nemo_curator[cuda12]",
 ]
 
-image_cpu = []
+image_cpu = [
+    "torchvision"
+]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
 image_cuda12 = [
+    "nemo_curator[image_cpu]",
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nvidia-dali-cuda120",
