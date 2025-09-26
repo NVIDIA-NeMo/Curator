@@ -30,7 +30,7 @@ pipeline.add_stage(
         generate_embeddings=True,
         generate_previews=False,
         generate_captions=False,
-        embedding_algorithm="internvideo2",  # or "cosmos-embed1"
+        embedding_algorithm="cosmos-embed1",  # or "internvideo2"
         caption_models=["qwen"],
         enhanced_caption_models=["qwen_lm"],
         verbose=True,
@@ -69,7 +69,7 @@ pipeline.add_stage(
   - The stage includes captions in metadata when upstream stages provide them.
 * - `embedding_algorithm`
   - `str`
-  - Accepted: `internvideo2` or `cosmos-embed1`.
+  - Accepted: `cosmos-embed1` or `internvideo2`. Default: `cosmos-embed1`.
 * - `caption_models`
   - `list[str] | None`
   - Ordered caption models to emit. Use `[]` when not using captions.
