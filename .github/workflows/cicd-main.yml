@@ -158,7 +158,7 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         timeout-minutes: 20
         run: |
-          cd InternVideo && patch -p1 < ../external/intern_video2_multimodal.patch && cd ..
+          cd InternVideo && patch -p1 < ../external/intern_video2_multimodal.patch && cd .. && sed -i "/InternVideo/d" .gitignore
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
           uv add InternVideo/InternVideo2/multi_modality
           uv run coverage run --branch --source=nemo_curator -m pytest -v tests/${{ matrix.folder }} -m "not gpu"
