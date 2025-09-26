@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import sys
 
 from .package_info import (
     __contact_emails__,
@@ -35,3 +36,13 @@ from cosmos_xenna.ray_utils.cluster import API_LIMIT
 # We set these incase a user ever starts a ray cluster with nemo_curator, we need these for Xenna to work
 os.environ["RAY_MAX_LIMIT_FROM_API_SERVER"] = str(API_LIMIT)
 os.environ["RAY_MAX_LIMIT_FROM_DATA_SOURCE"] = str(API_LIMIT)
+
+# Raise an informative error early to users on unsupported systems
+if sys.platform != "linux":
+    _msg = (
+        "NeMo-Curator currently only supports Linux systems, "
+        f"while the current machine has a {sys.platform} system. \n"
+        "For more information on installation and system requirements, see "
+        "https://docs.nvidia.com/nemo/curator/latest/admin/installation.html"
+    )
+    raise ValueError(_msg)
