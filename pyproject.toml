@@ -82,6 +82,7 @@ image_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nvidia-dali-cuda120",
+    "torchaudio",
 ]
 
 # Text Curation Dependencies
