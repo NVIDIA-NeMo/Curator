@@ -89,7 +89,19 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
         Returns:
             list of predicted texts.
         """
+
         outputs = self.asr_model.transcribe(files)
+
+        # Tuple (hyps, all_hyps) noqa: ERA001
+        if isinstance(outputs, tuple):
+            outputs = outputs[0]
+
+        # list[list[Hypothesis]] noqa: ERA001
+        if outputs and isinstance(outputs[0], list):
+            if outputs[0] and hasattr(outputs[0][0], "text"):
+                return [inner[0].text for inner in outputs]
+            return [inner[0] for inner in outputs]
+
         return [output.text for output in outputs]
 
     def process(self, task: FileGroupTask | DocumentBatch | AudioBatch) -> AudioBatch:
