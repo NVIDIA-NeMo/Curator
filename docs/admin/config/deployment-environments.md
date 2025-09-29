@@ -113,14 +113,22 @@ For optimal performance on large clusters.
 :sync: cluster-existing
 
 ```python
-import ray
+import os
 from nemo_curator.core.client import RayClient
 
-# Connect to existing Ray cluster
-ray.init(address="ray://head-node:10001")
+# Connect to existing Ray cluster using RAY_ADDRESS environment variable
+os.environ["RAY_ADDRESS"] = "ray://head-node:10001"
 
-# Connect using RAY_ADDRESS environment variable
-ray.init()  # Uses RAY_ADDRESS if set
+# Start RayClient - it will detect existing cluster and skip creation
+ray_client = RayClient()
+ray_client.start()  # Detects RAY_ADDRESS and connects to existing cluster
+```
+
+You can also set the environment variable before running your script:
+
+```bash
+export RAY_ADDRESS="ray://head-node:10001"
+python your_script.py
 ```
 
 :::
@@ -363,9 +371,12 @@ export NEMO_CURATOR_RAY_SLURM_JOB="1"
 
 ```python
 import ray
+from nemo_curator.core.client import RayClient
 
 # Test Ray cluster connection
-ray.init()
+ray_client = RayClient()
+ray_client.start()
+
 print(f"✓ Connected to Ray cluster")
 print(f"✓ Nodes: {len(ray.nodes())}")
 print(f"✓ Dashboard: http://localhost:8265")

@@ -59,7 +59,7 @@ Fuzzy deduplication uses statistical fingerprinting to identify content that is 
 
 Semantic deduplication leverages deep learning embeddings to identify content that conveys similar meaning despite using different words, visual elements, or presentation.
 
-**Modalities Supported**: Text, Video
+**Modalities Supported**: Text, Image, Video
 
 ## Multimodal Applications
 
