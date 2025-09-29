@@ -1,7 +1,7 @@
 ---
-description: "Deploy NeMo Curator in production environments with comprehensive guides for Kubernetes and Slurm cluster deployments"
+description: "Deploy NeMo Curator in production environments with comprehensive guides for Slurm cluster deployments"
 categories: ["workflows"]
-tags: ["deployment", "kubernetes", "slurm", "production", "cluster-management", "infrastructure"]
+tags: ["deployment", "slurm", "production", "cluster-management", "infrastructure"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
@@ -29,20 +29,6 @@ For detailed system, hardware, and software requirements, see [Production Deploy
 
 ## Deployment Options
 
-::::{grid} 1 1 1 2
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Kubernetes Deployment
-:link: admin-deployment-kubernetes
-:link-type: ref
-Deploy NeMo Curator on Kubernetes clusters using Docker containers, GPU Operator, and PVC storage. Includes setup, storage, cluster creation, module execution, and cleanup.
-+++
-{bdg-secondary}`Kubernetes`
-{bdg-secondary}`GPU`
-{bdg-secondary}`PVC Storage`
-{bdg-secondary}`Cluster Management`
-:::
-
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
 :link-type: ref
@@ -54,15 +40,12 @@ Run NeMo Curator on Slurm clusters with shared filesystems using Singularity/App
 {bdg-secondary}`Cluster Management`
 :::
 
-::::
-
 ```{toctree}
 :maxdepth: 4
 :titlesonly:
 :hidden:
 
 Requirements <requirements>
-Kubernetes <kubernetes>
 Slurm <slurm/index.md>
 
 ```

@@ -24,7 +24,7 @@ modality: "universal"
 NeMo Curator requires a shared filesystem accessible from all compute nodes. Place your input data and output directories on this shared storage.
 
 ```{admonition} Note
-Unlike Kubernetes, Slurm does not manage storage. Ensure your data is accessible to all nodes via a shared filesystem.
+Slurm does not manage storage. Ensure your data is accessible to all nodes via a shared filesystem.
 ```
 
 ## Set Up Python Environment
@@ -228,5 +228,4 @@ rm -rf $BASE_JOB_DIR
 ## References
 
 - See `examples/slurm/` in the repository for full job and entrypoint script templates
-- See the [Kubernetes deployment guide](admin-deployment-kubernetes) for a conceptual comparison
 - For more on Dask with Slurm: [Dask Jobqueue Slurm Docs](https://jobqueue.dask.org/en/latest/generated/dask_jobqueue.SlurmCluster.html) 

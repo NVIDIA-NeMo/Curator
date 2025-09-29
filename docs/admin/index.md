@@ -1,7 +1,7 @@
 ---
 description: "Comprehensive administration guide for NeMo Curator deployment, infrastructure management, monitoring, and scaling from development to production"
 categories: ["getting-started"]
-tags: ["admin", "deployment", "infrastructure", "installation", "configuration", "kubernetes", "slurm"]
+tags: ["admin", "deployment", "infrastructure", "installation", "configuration", "slurm"]
 personas: ["admin-focused", "devops-focused", "data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "overview"
@@ -48,21 +48,6 @@ Configure NeMo Curator for deployment environments, storage access, credentials,
 
 ## Deployment Options
 
-::::{grid} 1 1 1 2
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Kubernetes Deployment
-:link: admin-deployment-kubernetes
-:link-type: ref
-Deploy NeMo Curator on Kubernetes clusters using Dask Operator, GPU Operator, and PVC storage. Includes setup, storage, cluster creation, module execution, and cleanup.
-+++
-{bdg-secondary}`Kubernetes`
-{bdg-secondary}`Dask Operator`
-{bdg-secondary}`GPU`
-{bdg-secondary}`PVC Storage`
-{bdg-secondary}`Cluster Management`
-:::
-
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
 :link-type: ref
@@ -74,6 +59,4 @@ Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, 
 {bdg-secondary}`Job Scripts`
 {bdg-secondary}`Cluster Management`
 :::
-
-::::
 

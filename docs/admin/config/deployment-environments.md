@@ -1,7 +1,7 @@
 ---
-description: "Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes"
+description: "Configure NeMo Curator for different deployment environments including local development and Slurm clusters"
 categories: ["how-to-guides"]
-tags: ["deployment-environments", "slurm", "kubernetes", "ray-clusters", "gpu-settings", "networking", "performance"]
+tags: ["deployment-environments", "slurm", "ray-clusters", "gpu-settings", "networking", "performance"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -12,11 +12,11 @@ modality: "universal"
 
 # Deployment Environment Configuration
 
-Configure NeMo Curator for different deployment environments including local development, Slurm clusters, and Kubernetes. This guide focuses on deployment-specific settings and operational concerns for Ray-based deployments.
+Configure NeMo Curator for different deployment environments including local development and Slurm clusters. This guide focuses on deployment-specific settings and operational concerns for Ray-based deployments.
 
 ```{tip}
 **Applying These Configurations**: This guide shows you how to configure NeMo Curator for different environments. To learn how to actually deploy and run NeMo Curator in these environments, see:
-- {doc}`Kubernetes Deployment <../deployment/kubernetes>`: Running on Kubernetes clusters
+- **Container Deployments**: Running in containerized environments
 - {doc}`Slurm Deployment <../deployment/slurm/index>`: Running on Slurm-managed clusters  
 - {doc}`Deployment Options <../deployment/index>`: Overview of all deployment methods
 ```
@@ -97,52 +97,6 @@ export NEMO_CURATOR_LOG_LEVEL="WARNING"  # Reduce logging overhead
 ```
 
 For optimal performance on large clusters.
-:::
-
-::::
-
-### Kubernetes Environment
-
-Configuration for Kubernetes deployments with Ray Operator.
-
-::::{tab-set}
-
-:::{tab-item} Basic Setup
-:sync: k8s-basic
-
-```yaml
-# kubernetes-config.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: nemo-curator-config
-data:
-  RAY_ADDRESS: "ray://ray-head:10001"
-  RMM_WORKER_POOL_SIZE: "16GB"
-  CUDF_SPILL: "1"
-  NEMO_CURATOR_LOG_LEVEL: "INFO"
-  NEMO_CURATOR_CACHE_DIR: "/shared/cache"
-```
-:::
-
-:::{tab-item} GPU-Enabled
-:sync: k8s-gpu
-
-```yaml
-# gpu-kubernetes-config.yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: nemo-curator-gpu-config
-data:
-  DEVICE: "gpu"
-  PROTOCOL: "ucx"
-  RMM_WORKER_POOL_SIZE: "32GB"
-  CUDF_SPILL: "0"
-  RAPIDS_NO_INITIALIZE: "0"
-  LIBCUDF_CUFILE_POLICY: "OFF"  # Usually not available in K8s
-  NEMO_CURATOR_LOG_LEVEL: "WARNING"
-```
 :::
 
 ::::
