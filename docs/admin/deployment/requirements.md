@@ -16,7 +16,7 @@ This page details the comprehensive system, hardware, and software requirements 
 ## System Requirements
 
 - **Operating System**: Ubuntu 22.04/20.04 (recommended)
-- **Python**: Python 3.10 or 3.12 (Python 3.11 is not supported due to RAPIDS compatibility)
+- **Python**: Python 3.10, 3.11, or 3.12
   - packaging >= 22.0
 - **Shared Filesystem**: For Slurm deployments, a shared filesystem (NFS, Lustre, etc.) accessible from all compute nodes
 

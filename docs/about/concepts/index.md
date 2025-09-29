@@ -24,7 +24,7 @@ Learn about working with specific modalities using NeMo Curator.
 :link: about-concepts-text
 :link-type: ref
 
-Learn about text data curation, covering data loading, processing (filtering, classification), and synthetic data generation.
+Learn about text data curation, covering data loading and processing (filtering, classification, deduplication).
 :::
 
 :::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Image Curation Concepts

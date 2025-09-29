@@ -20,7 +20,7 @@ The [example pipeline](#run-the-splitting-pipeline-example) processes a list of 
 
 To use NeMo Curator’s video curation modules, ensure you meet the following requirements:
 
-- Python 3.10 or higher
+- Python 3.10, 3.11, or 3.12
 - NVIDIA GPU
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12 or above

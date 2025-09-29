@@ -18,7 +18,7 @@ This guide helps you set up and get started with NeMo Curator's audio curation c
 
 To use NeMo Curator's audio curation modules, ensure you meet the following requirements:
 
-* Python 3.10 or 3.12
+* Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (recommended for ASR inference)

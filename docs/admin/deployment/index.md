@@ -18,7 +18,7 @@ Use the following Admin guides to set up NeMo Curator in a production environmen
 
 Before deploying NeMo Curator in a production environment, review the comprehensive requirements:
 
-- **System**: Ubuntu 22.04/20.04, Python 3.10 or 3.12 (Python 3.11 not supported)
+- **System**: Ubuntu 22.04/20.04, Python 3.10, 3.11, or 3.12
 - **Hardware**: Multi-core CPU, 16GB+ RAM (optional: NVIDIA GPU with 16GB+ VRAM)
 - **Software**: Ray (distributed computing framework), container runtime, cluster management tools
 - **Infrastructure**: Shared storage, high-bandwidth networking

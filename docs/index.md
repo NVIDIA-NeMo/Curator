@@ -86,7 +86,7 @@ Explore how you can use NeMo Curator across different content modalities.
 :link-type: ref
 Curate and prepare high-quality text datasets for LLM training.
 +++
-{bdg-secondary}`filtering` {bdg-secondary}`formatting` {bdg-secondary}`synthetic-data`
+{bdg-secondary}`filtering` {bdg-secondary}`formatting` {bdg-secondary}`deduplication`
 :::
 
 :::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Curate Images

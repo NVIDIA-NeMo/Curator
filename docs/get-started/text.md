@@ -18,7 +18,7 @@ This guide helps you set up and get started with NeMo Curator's text curation ca
 
 To use NeMo Curator's text curation modules, ensure you meet the following requirements:
 
-* Python >= 3.10
+* Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (optional for most text modules, required for GPU-accelerated operations)

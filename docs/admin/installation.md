@@ -301,7 +301,6 @@ ERROR: Package 'nemo_curator' requires a different Python: 3.9.0 not in '>=3.10'
 **Solutions**:
 1. Upgrade to Python 3.10, 3.11, or 3.12
 2. Use virtual environments to manage Python versions: `python3.12 -m venv curator-env`
-3. Note: Some RAPIDS packages may have limited Python 3.11 support
 
 ### Network/Registry Issues
 
