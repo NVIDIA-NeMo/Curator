@@ -45,7 +45,6 @@ This page details the comprehensive system, hardware, and software requirements 
 
 ### Container Support (Recommended)
 - **Docker** or **Podman** for containerized deployment
-- **Singularity/Apptainer** for HPC environments
 - Access to NVIDIA NGC registry for official containers
 
 ### Cluster Management

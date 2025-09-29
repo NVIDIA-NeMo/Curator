@@ -32,7 +32,7 @@ For detailed system, hardware, and software requirements, see [Production Deploy
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
 :link-type: ref
-Run NeMo Curator on Slurm clusters with shared filesystems using Singularity/Apptainer containers. Covers job scripts, Dask cluster setup, module execution, monitoring, and advanced Python-based job submission.
+Run NeMo Curator on Slurm clusters. Covers job scripts, cluster setup, module execution, monitoring, and advanced Python-based job submission.
 +++
 {bdg-secondary}`Slurm`
 {bdg-secondary}`Shared Filesystem`

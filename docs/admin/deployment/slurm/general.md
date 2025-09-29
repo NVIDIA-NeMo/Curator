@@ -16,7 +16,7 @@ modality: "universal"
 * Access to a Slurm cluster with a shared filesystem (for example, NFS, Lustre) mounted on all nodes
 * [Dask](https://docs.dask.org/en/stable/) and [dask-cuda](https://docs.rapids.ai/api/dask-cuda/stable/) (for GPU jobs) installed in your environment or container
 * Python 3.8+ environment (virtualenv, conda, or container)
-* (Optional) [Singularity/Apptainer](https://apptainer.org/) or Docker for containerized execution
+* (Optional) Docker for containerized execution
 * Sufficient permissions to submit jobs with `sbatch`/`srun`
 
 ## Storage

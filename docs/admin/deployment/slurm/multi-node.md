@@ -291,7 +291,7 @@ For experienced users, here's a rapid deployment checklist:
 ### Software Requirements
 
 - Slurm workload manager with multi-node job support
-- Container runtime (Singularity/Apptainer) with multi-node networking
+- Container runtime with multi-node networking
 - Shared filesystem mounted consistently across all nodes
 - Network configuration allowing inter-node Dask communication
 
