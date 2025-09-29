@@ -184,7 +184,9 @@ class JSONFormatter:
         if get_setting(self.config, "extract_images", True) and "images" in content_data:
             data["images"] = content_data["images"]
 
-    def _add_document_metadata(self, data: dict[str, Any], content_data: dict[str, Any], docname: str, title: str) -> None:
+    def _add_document_metadata(
+        self, data: dict[str, Any], content_data: dict[str, Any], docname: str, title: str
+    ) -> None:
         """Add document type and section metadata."""
         if get_setting(self.config, "include_doc_type", True):
             discovery = DocumentDiscovery(self.app, self.json_builder)

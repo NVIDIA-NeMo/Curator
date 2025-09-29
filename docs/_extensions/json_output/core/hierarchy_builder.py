@@ -23,7 +23,7 @@ class HierarchyBuilder:
         app: Sphinx,
         json_builder: "JSONOutputBuilder",
         document_discovery: "DocumentDiscovery",
-        json_formatter: "JSONFormatter"
+        json_formatter: "JSONFormatter",
     ):
         self.app = app
         self.config = app.config
