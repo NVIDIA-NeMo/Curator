@@ -94,7 +94,7 @@ cd NeMo-Curator
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install with all extras using uv
-uv sync --extra all
+uv sync --all-extras --all-groups
 ```
 
 **Benefits:**
