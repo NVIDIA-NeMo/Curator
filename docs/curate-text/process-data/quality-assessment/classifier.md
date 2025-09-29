@@ -198,9 +198,8 @@ If you need to train custom fastText models for specific domains or requirements
 :::{note}
 **When to use each approach:**
 
-- **QualityClassifier (DeBERTa)**: Higher accuracy, multi-class output (Low/Medium/High), better for general quality assessment. Can filter during classification or add predictions as metadata.
+- **QualityClassifier (DeBERTa)**: Higher accuracy, multi-class output (Low/Medium/High), better for general quality assessment. Use the `filter_by` parameter to filter during classification or omit it to add predictions as metadata only.
 - **FastTextQualityFilter**: Faster inference, lower memory usage, includes Pareto sampling, better for high-throughput scenarios or when you have domain-specific training data.
-- **Two-Stage Approach**: Maximum flexibility - use classification for metadata and custom filtering logic for complex filtering criteria.
 :::
 
 ### 3. Use Quality Assessment
@@ -313,48 +312,6 @@ selective_fasttext_filter = FastTextQualityFilter(
     alpha=5,                     # Higher alpha for stricter filtering
     seed=42
 )
-```
-
-:::
-
-:::{tab-item} Two-Stage: Classification + Filtering
-
-You can combine classification with custom filtering:
-
-```python
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.classifiers import QualityClassifier
-from nemo_curator.stages.text.modules import Filter
-
-# Create pipeline with classification followed by custom filtering
-pipeline = Pipeline(name="classify_then_filter_pipeline")
-
-# Add stages
-read_stage = JsonlReader("input_data/")
-
-# Step 1: Classify documents (adds quality_pred column)
-classify_stage = QualityClassifier(
-    pred_column="quality_pred",
-    model_inference_batch_size=256
-)
-
-# Step 2: Filter based on classification results
-filter_stage = Filter(
-    lambda pred: pred in ["High", "Medium"],  # Keep High and Medium quality
-    filter_field="quality_pred"
-)
-
-write_stage = JsonlWriter("filtered_output/")
-
-pipeline.add_stage(read_stage)
-pipeline.add_stage(classify_stage)
-pipeline.add_stage(filter_stage)
-pipeline.add_stage(write_stage)
-
-# Execute pipeline
-results = pipeline.run()
 ```
 
 :::

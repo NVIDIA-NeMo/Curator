@@ -65,16 +65,6 @@ GPU-accelerated classification with pre-trained models
 {bdg-secondary}`scalable`
 :::
 
-:::{grid-item-card} {octicon}`terminal;1.5em;sd-mr-1` Custom Filters
-:link: quality-assessment/custom
-:link-type: doc
-Implement and combine your own custom filters
-+++
-{bdg-secondary}`custom`
-{bdg-secondary}`flexible`
-{bdg-secondary}`extensible`
-:::
-
 ::::
 
 ## Deduplication
