@@ -9,6 +9,7 @@ modality: "universal"
 ---
 
 (admin-deployment)=
+
 # Deploy NeMo Curator
 
 Use the following Admin guides to set up NeMo Curator in a production environment.
@@ -17,9 +18,9 @@ Use the following Admin guides to set up NeMo Curator in a production environmen
 
 Before deploying NeMo Curator in a production environment, review the comprehensive requirements:
 
-- **System**: Ubuntu 22.04/20.04, Python 3.10+
+- **System**: Ubuntu 22.04/20.04, Python 3.10 or 3.12 (Python 3.11 not supported)
 - **Hardware**: Multi-core CPU, 16GB+ RAM (optional: NVIDIA GPU with 16GB+ VRAM)
-- **Software**: Dask, container runtime (Docker/Singularity), cluster management tools
+- **Software**: Ray (distributed computing framework), container runtime, cluster management tools
 - **Infrastructure**: Shared storage, high-bandwidth networking
 
 For detailed system, hardware, and software requirements, see [Production Deployment Requirements](admin-deployment-requirements).
@@ -34,10 +35,9 @@ For detailed system, hardware, and software requirements, see [Production Deploy
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Kubernetes Deployment
 :link: admin-deployment-kubernetes
 :link-type: ref
-Deploy NeMo Curator on Kubernetes clusters using Dask Operator, GPU Operator, and PVC storage. Includes setup, storage, cluster creation, module execution, and cleanup.
+Deploy NeMo Curator on Kubernetes clusters using Docker containers, GPU Operator, and PVC storage. Includes setup, storage, cluster creation, module execution, and cleanup.
 +++
 {bdg-secondary}`Kubernetes`
-{bdg-secondary}`Dask Operator`
 {bdg-secondary}`GPU`
 {bdg-secondary}`PVC Storage`
 {bdg-secondary}`Cluster Management`
@@ -46,10 +46,9 @@ Deploy NeMo Curator on Kubernetes clusters using Dask Operator, GPU Operator, an
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
 :link-type: ref
-Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, Dask cluster setup, module execution, monitoring, and advanced Python-based job submission.
+Run NeMo Curator on Slurm clusters with shared filesystems using Singularity/Apptainer containers. Covers job scripts, Dask cluster setup, module execution, monitoring, and advanced Python-based job submission.
 +++
 {bdg-secondary}`Slurm`
-{bdg-secondary}`Dask`
 {bdg-secondary}`Shared Filesystem`
 {bdg-secondary}`Job Scripts`
 {bdg-secondary}`Cluster Management`
@@ -67,7 +66,6 @@ Kubernetes <kubernetes>
 Slurm <slurm/index.md>
 
 ```
-
 
 ## After Deployment
 

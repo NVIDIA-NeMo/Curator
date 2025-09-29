@@ -30,7 +30,6 @@ Configure NeMo Curator for different deployment scenarios including Slurm, Kuber
 +++
 {bdg-secondary}`Slurm`
 {bdg-secondary}`Kubernetes`
-{bdg-secondary}`Dask Clusters`
 {bdg-secondary}`GPU Settings`
 :::
 

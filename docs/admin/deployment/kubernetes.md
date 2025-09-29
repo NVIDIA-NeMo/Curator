@@ -9,121 +9,16 @@ modality: "universal"
 ---
 
 (admin-deployment-kubernetes)=
-# Running NeMo Curator on Kubernetes
-
-## Prerequisites
-
-* Kubernetes cluster
-    * [GPU operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
-    * [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
-* [kubectl](https://kubernetes.io/docs/tasks/tools): the Kubernetes Cluster CLI
-    * Please reach out to your Kubernetes cluster admin for how to set up your `kubectl` KUBECONFIG
-* [ReadWriteMany](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) [StorageClass](https://kubernetes.io/docs/concepts/storage/storage-classes/) (set up by Kubernetes cluster admin)
-
----
-
-## Storage
-
-To run NeMo Curator, we need to set up storage to upload and store the input files and processed outputs.
-
-Here's an example of how to create a dynamic PV from a StorageClass set up by your cluster admin. Replace `STORAGE_CLASS=<...>` with the name of your StorageClass.
-
-This example requests `150Gi` of space. Adjust that number for your workloads and be aware that not all storage provisioners support volume resizing.
-
-```bash
-STORAGE_CLASS=<...>
-PVC_NAME=nemo-workspace
-
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: ${PVC_NAME}
-spec:
-  accessModes:
-    - ReadWriteMany
-  storageClassName: ${STORAGE_CLASS}
-  resources:
-    requests:
-      # Requesting enough storage for a few experiments
-      storage: 150Gi
-EOF
-```
-
-```{admonition} Note
-The storage class must support `ReadWriteMany` because multiple Pods may need to access the PVC to concurrently read and write.
-```
-
-## Set Up PVC Busybox Helper Pod
-
-Inspecting the PVC and copying to and from it's facilitated with a Busybox container. Some examples below assume you have this Pod running to copy to and from the PVC.
-
-```bash
-PVC_NAME=nemo-workspace
-MOUNT_PATH=/nemo-workspace
-
-kubectl create -f - <<EOF
-apiVersion: v1
-kind: Pod
-metadata:
-  name: nemo-workspace-busybox
-spec:
-  containers:
-  - name: busybox
-    image: busybox
-    command: ["sleep", "infinity"]
-    volumeMounts:
-    - name: workspace
-      mountPath: ${MOUNT_PATH}
-  volumes:
-  - name: workspace
-    persistentVolumeClaim:
-      claimName: ${PVC_NAME}
-EOF
-```
-
-Feel free to delete this container if no longer needed, but it should use very little resources when idle.
-
-```bash
-kubectl delete pod nemo-workspace-busybox
-```
-
-## Set Up Docker Secrets
-
-A Kubernetes Secret needs to be created on the Kubernetes cluster to authenticate with the NGC private registry. If not done already, get an NGC key from ngc.nvidia.com. Create a secret key on the Kubernetes cluster with (replace `<NGC KEY HERE>` with your NGC secret key. Note that if you have any special characters in your key you might need to wrap the key in single quotes (`'`) so it can be parsed correctly by Kubernetes):
-
-```bash
-kubectl create secret docker-registry ngc-registry --docker-server=nvcr.io --docker-username=\$oauthtoken --docker-password=<NGC KEY HERE>
-```
-
-## Set Up Python Environment
-
-The environment to run the provided scripts in this example doesn't need the full `nemo_curator` package, so you can create a virtual environment with just the required packages as follows:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-
-pip install 'dask_kubernetes>=2024.4.1'
-```
-
-```{seealso}
-For details on NeMo Curator container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
-
-**Configuration**: After setting up your cluster, see {doc}`Deployment Environment Configuration <../config/deployment-environments>` for Kubernetes-specific environment variables and settings.
-```
-
-## Upload Data to PVC
 
 # Running NeMo Curator on Kubernetes
 
 ## Prerequisites
 
 * Kubernetes cluster
-    * [GPU operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
-    * [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
+  * [GPU operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
+  * [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
 * [kubectl](https://kubernetes.io/docs/tasks/tools): the Kubernetes Cluster CLI
-    * Please reach out to your Kubernetes cluster admin for how to set up your `kubectl` KUBECONFIG
+  * Please reach out to your Kubernetes cluster admin for how to set up your `kubectl` KUBECONFIG
 * [ReadWriteMany](https://kubernetes.io/docs/concepts/storage/persistent-volumes/#access-modes) [StorageClass](https://kubernetes.io/docs/concepts/storage/storage-classes/) (set up by Kubernetes cluster admin)
 
 ---
@@ -481,4 +376,4 @@ kubectl exec nemo-workspace-busybox -- tar cf - /nemo-workspace/foobar.txt | tar
 
 # Copy directory in PVC /nemo-workspace/fizzbuzz to local file-system at $LOCAL_WORKSPACE/fizzbuzz
 kubectl exec nemo-workspace-busybox -- tar cf - /nemo-workspace/fizzbuzz | tar xf - -C $LOCAL_WORKSPACE
-``` 
+```

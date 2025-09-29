@@ -19,8 +19,9 @@ This guide covers installing NeMo Curator and verifying your installation is wor
 For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
 
 **Quick Start Requirements:**
-- **OS**: Ubuntu 22.04/20.04 (recommended)
-- **Python**: 3.10 or 3.12 (Python 3.11 is not supported)
+
+- **OS**: Ubuntu 24.04/22.04/20.04 (recommended)
+- **Python**: 3.10, 3.11, or 3.12
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
 
@@ -45,16 +46,19 @@ Choose one of the following installation methods based on your needs:
 The simplest way to install NeMo Curator from the Python Package Index:
 
 **CPU-only installation:**
+
 ```bash
 pip install nemo-curator
 ```
 
 **GPU-accelerated installation:**
+
 ```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
+pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12]
 ```
 
 **Full installation with all modules:**
+
 ```bash
 pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
 ```
@@ -78,6 +82,7 @@ uv sync --extra all
 ```
 
 **Benefits:**
+
 - Access to latest features and bug fixes
 - Ability to modify source code for custom needs
 - Faster dependency resolution with uv
@@ -107,6 +112,7 @@ docker run --gpus all -it --rm nemo-curator:latest
 ```
 
 **Benefits:**
+
 - Pre-configured environment with all dependencies
 - Consistent runtime across different systems
 - Ideal for production deployments
@@ -130,25 +136,44 @@ NeMo Curator provides several installation extras to install only the components
   - Description
 * - **Base**
   - `pip install nemo-curator`
-  - CPU-only text curation modules
-* - **dev**
-  - `pip install nemo-curator[dev]`
-  - Development tools (pre-commit, ruff, pytest)
-* - **cuda12x**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]`
-  - CPU + GPU text curation with RAPIDS
+  - CPU-only basic modules
+* - **cuda12**
+  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12]`
+  - Basic GPU utilities (gpustat, pynvml)
+* - **deduplication_cuda12**
+  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[deduplication_cuda12]`
+  - RAPIDS libraries for GPU deduplication
+* - **text_cpu**
+  - `pip install nemo-curator[text_cpu]`
+  - CPU-only text processing and filtering
+* - **text_cuda12**
+  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]`
+  - GPU-accelerated text processing with RAPIDS
 * - **audio_cpu**
   - `pip install nemo-curator[audio_cpu]`
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`
-  - GPU-accelerated audio curation with NeMo Toolkit ASR
-* - **image**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image]`
-  - CPU + GPU text and image curation
+  - GPU-accelerated audio curation
+* - **image_cpu**
+  - `pip install nemo-curator[image_cpu]`
+  - CPU-only image processing
+* - **image_cuda12**
+  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_cuda12]`
+  - GPU-accelerated image processing with NVIDIA DALI
+* - **video_cpu**
+  - `pip install nemo-curator[video_cpu]`
+  - CPU-only video processing
+* - **video_cuda12**
+  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[video_cuda12]`
+  - GPU-accelerated video processing with CUDA libraries
 * - **all**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]`
-  - All stable modules (recommended)
+  - All GPU-accelerated modules (recommended for full functionality)
+```
+
+```{note}
+**Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 ```
 
 ---
@@ -245,7 +270,7 @@ ImportError: No module named 'cudf'
 ```
 
 **Solutions**:
-1. Ensure you installed with the correct extra: `nemo-curator[cuda12x]` or `nemo-curator[all]`
+1. Ensure you installed with the correct extra: `nemo-curator[cuda12]` or `nemo-curator[deduplication_cuda12]` for RAPIDS support
 2. Verify CUDA is properly installed: `nvidia-smi`
 3. Check CUDA version compatibility (CUDA 12.0+ required)
 4. Install RAPIDS manually: `pip install --extra-index-url https://pypi.nvidia.com cudf-cu12`
@@ -258,9 +283,9 @@ ERROR: Package 'nemo_curator' requires a different Python: 3.9.0 not in '>=3.10'
 ```
 
 **Solutions**:
-1. Upgrade to Python 3.10 or 3.12
+1. Upgrade to Python 3.10, 3.11, or 3.12
 2. Use virtual environments to manage Python versions: `python3.12 -m venv curator-env`
-3. Avoid Python 3.11 (not supported due to RAPIDS compatibility)
+3. Note: Some RAPIDS packages may have limited Python 3.11 support
 
 ### Network/Registry Issues
 
