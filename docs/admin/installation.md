@@ -43,25 +43,41 @@ Choose one of the following installation methods based on your needs:
 
 :::{tab-item} PyPI Installation (Recommended)
 
-The simplest way to install NeMo Curator from the Python Package Index:
+Install NeMo Curator from the Python Package Index using `uv` for proper dependency resolution.
 
-**CPU-only installation:**
+1. Install uv:
 
-```bash
-pip install nemo-curator
-```
+   ```bash
+   curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+   source $HOME/.local/bin/env
+   ```
 
-**GPU-accelerated installation:**
+2. Create and activate a virtual environment:
 
-```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12]
-```
+   ```bash
+   uv venv -p 3.12
+   source .venv/bin/activate
+   ```
 
-**Full installation with all modules:**
+3. Install NeMo Curator:
 
-```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
-```
+   ```bash
+   # Install FFmpeg first
+   # Ubuntu/Debian
+   sudo apt-get update && sudo apt-get install -y ffmpeg
+   # macOS
+   brew install ffmpeg
+
+   # Install build dependencies and NeMo Curator
+   uv pip install torch wheel_stub psutil setuptools setuptools_scm
+   echo "transformers==4.55.2" > override.txt
+   # Optional: Install InternVideo2 support (see note below)
+   uv pip install --extra-index-url https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
+   ```
+
+   ```{note}
+   **InternVideo2 Support (Optional)**: Video processing includes optional support for InternVideo2. To install InternVideo2, refer to the [Video Processing documentation](../curate-video/index.md) before running the final installation command.
+   ```
 
 :::
 
@@ -154,7 +170,7 @@ NeMo Curator provides several installation extras to install only the components
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`
-  - GPU-accelerated audio curation
+  - GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override.
 * - **image_cpu**
   - `pip install nemo-curator[image_cpu]`
   - CPU-only image processing
@@ -166,10 +182,10 @@ NeMo Curator provides several installation extras to install only the components
   - CPU-only video processing
 * - **video_cuda12**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[video_cuda12]`
-  - GPU-accelerated video processing with CUDA libraries
+  - GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`.
 * - **all**
   - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]`
-  - All GPU-accelerated modules (recommended for full functionality)
+  - All GPU-accelerated modules (recommended for full functionality). When using `uv`, requires transformers override and build dependencies.
 ```
 
 ```{note}

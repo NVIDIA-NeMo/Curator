@@ -122,6 +122,7 @@ ray.init(address="ray://head-node:10001")
 # Connect using RAY_ADDRESS environment variable
 ray.init()  # Uses RAY_ADDRESS if set
 ```
+
 :::
 
 :::{tab-item} Local Cluster Creation
