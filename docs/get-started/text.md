@@ -20,10 +20,21 @@ To use NeMo Curator's text curation modules, ensure you meet the following requi
 
 * Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
+* uv (for package management and installation)
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (optional for most text modules, required for GPU-accelerated operations)
   * Volta™ or higher (compute capability 7.0+)
   * CUDA 12 (or above)
+
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+:::
 
 ---
 
@@ -38,14 +49,7 @@ You can install NeMo Curator in three ways:
 The simplest way to install NeMo Curator:
 
 ```bash
-# CPU-only text curation modules
-pip install nemo-curator
-
-# CPU + GPU text curation modules (includes RAPIDS for GPU acceleration)
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]
-
-# All modules (text, image, video, audio with GPU support)
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
+uv pip install "nemo_curator.whl[text_cuda12]"
 ```
 
 ```{note}

@@ -281,11 +281,13 @@ ray_client.stop()
 ### CUDA/GPU Issues
 
 **Problem**: GPU modules not available after installation
+
 ```bash
 ImportError: No module named 'cudf'
 ```
 
 **Solutions**:
+
 1. Ensure you installed with the correct extra: `nemo-curator[cuda12]` or `nemo-curator[deduplication_cuda12]` for RAPIDS support
 2. Verify CUDA is properly installed: `nvidia-smi`
 3. Check CUDA version compatibility (CUDA 12.0+ required)
@@ -294,22 +296,26 @@ ImportError: No module named 'cudf'
 ### Python Version Issues
 
 **Problem**: Installation fails with Python version errors
+
 ```bash
 ERROR: Package 'nemo_curator' requires a different Python: 3.9.0 not in '>=3.10'
 ```
 
 **Solutions**:
+
 1. Upgrade to Python 3.10, 3.11, or 3.12
 2. Use virtual environments to manage Python versions: `python3.12 -m venv curator-env`
 
 ### Network/Registry Issues
 
 **Problem**: Cannot access NVIDIA PyPI registry
+
 ```bash
 ERROR: Could not find a version that satisfies the requirement cudf-cu12
 ```
 
 **Solutions**:
+
 1. Ensure you're using the NVIDIA registry: `--extra-index-url https://pypi.nvidia.com`
 2. Check network connectivity to PyPI and NVIDIA registry
 3. Try installing with `--trusted-host pypi.nvidia.com`
@@ -318,11 +324,13 @@ ERROR: Could not find a version that satisfies the requirement cudf-cu12
 ### Memory Issues
 
 **Problem**: Installation fails due to insufficient memory
+
 ```bash
 MemoryError: Unable to allocate array
 ```
 
 **Solutions**:
+
 1. Increase system memory or swap space
 2. Install packages individually rather than `[all]`
 3. Use `--no-cache-dir` flag: `pip install --no-cache-dir nemo-curator[all]`
@@ -335,10 +343,12 @@ MemoryError: Unable to allocate array
 Choose your next step based on your goals:
 
 ### For Local Development & Learning
+
 1. **Try a tutorial**: Start with [Get Started guides](../get-started/index.md)
 2. **Configure your environment**: See [Configuration Guide](config/index.md) for basic setup
 
 ### For Production Deployment
+
 1. **Review requirements**: See [Production Deployment Requirements](deployment/requirements.md)
 2. **Choose deployment method**: See [Deployment Options](deployment/index.md)
 3. **Configure for production**: See [Configuration Guide](config/index.md) for advanced settings

@@ -36,22 +36,38 @@ Create and activate a virtual environment, then choose an install option:
 
 ::::{tab-set}
 
-:::{tab-item} GPU (CUDA)
+:::{tab-item} With internvideo2
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install "nemo-curator[video,video_cuda]"
+# Install base dependencies
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo_curator.whl[video_cuda12]"
+
+# Clone and set up InternVideo2
+git clone https://github.com/OpenGVLab/InternVideo.git
+cd InternVideo
+git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
+
+# Download and apply NeMo Curator patch
+curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
+patch -p1 < intern_video2_multimodal.patch
+cd ..
+
+# Add InternVideo2 to the environment
+uv add InternVideo/InternVideo2/multi_modality
+```
+
+```{note}
+Cosmos-Embed1 is generally better than InternVideo2 for most video embedding tasks. Consider using Cosmos-Embed1 (`cosmos-embed1-224p`) unless you have specific requirements for InternVideo2.
 ```
 
 :::
 
-:::{tab-item} CPU
+:::{tab-item} Without internvideo2
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install "nemo-curator[video]"
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo_curator.whl[video_cuda12]"
 ```
 
 :::
