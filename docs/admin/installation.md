@@ -12,7 +12,7 @@ modality: "universal"
 
 # Installation Guide
 
-This guide covers installing NeMo Curator and verifying your installation is working correctly. For configuration after installation, see [Configuration](admin-config).
+This guide covers installing NeMo Curator and verifying your installation is working correctly.
 
 ## System Requirements
 

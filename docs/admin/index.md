@@ -17,9 +17,6 @@ The administration section provides comprehensive information for deployment, in
 
 ## Installation & Configuration
 
-::::{grid} 1 1 1 2
-:gutter: 1 1 1 2
-
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Installation Guide
 :link: admin-installation
 :link-type: ref
@@ -30,19 +27,6 @@ Install NeMo Curator with system requirements, package extras, and verification 
 {bdg-secondary}`Package Extras`
 {bdg-secondary}`Verification`
 :::
-
-:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Configuration Guide
-:link: admin-config
-:link-type: ref
-Configure NeMo Curator for deployment environments, storage access, credentials, and environment variables for operational management.
-+++
-{bdg-secondary}`Deployment Config`
-{bdg-secondary}`Storage & Credentials`
-{bdg-secondary}`Environment Variables`
-{bdg-secondary}`Operational Setup`
-:::
-
-::::
 
 ---
 

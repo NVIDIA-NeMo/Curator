@@ -245,7 +245,6 @@ Save & Export <curate-audio/save-export.md>
 :maxdepth: 2
 admin/index.md
 Install Curator <admin/installation.md>
-Configure Curator <admin/config/index.md>
 Deploy Curator <admin/deployment/index.md>
 ::::
 

@@ -44,8 +44,6 @@ Or use a container image (recommended for reproducibility):
 
 ```{seealso}
 For details on available container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
-
-**Configuration**: For Slurm-specific environment variables and performance tuning, see {doc}`Environment Variables Reference <../../config/environment-variables>`.
 ```
 
 ## Example Slurm Job Script
@@ -97,8 +95,6 @@ srun \
 
 ```{admonition} Note
 You must update `SCRIPT_PATH`, `CONTAINER_IMAGE`, and mount paths for your environment. See `examples/slurm/start-slurm.sh` for a full template.
-
-**Storage & Credentials**: If your job requires cloud storage access, see {doc}`Storage & Credentials Configuration <../../config/storage-credentials>` for setting up AWS, Azure, or GCS credentials in your Slurm environment.
 ```
 
 ```{seealso}

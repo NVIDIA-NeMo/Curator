@@ -10,7 +10,7 @@ modality: "universal"
 
 # Infrastructure References
 
-This section provides technical reference documentation for NeMo Curator's infrastructure components that are used across all modalities (text, image, video). For deployment and operational configuration, see the [Admin Configuration Guide](admin-config).
+This section provides technical reference documentation for NeMo Curator's infrastructure components that are used across all modalities (text, image, video).
 
 ---
 
