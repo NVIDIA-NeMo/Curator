@@ -195,7 +195,7 @@ from nemo_curator.image.embedders import TimmImageEmbedder
 from nemo_curator.image.classifiers import AestheticClassifier, NsfwClassifier
 from nemo_curator.utils.distributed_utils import get_client
 
-# Initialize Dask client
+# Initialize distributed client
 client = get_client(cluster_type='gpu')
 
 # Load dataset
@@ -271,7 +271,7 @@ from nemo_curator.datasets import ImageTextPairDataset
 from nemo_curator.utils.distributed_utils import get_client
 import yaml
 
-# Initialize Dask client
+# Initialize distributed client
 client = get_client(cluster_type='gpu')
 
 # Load configuration
@@ -356,7 +356,7 @@ from nemo_curator.utils.distributed_utils import get_client
 import yaml
 import os
 
-# Initialize Dask client
+# Initialize distributed client
 client = get_client(cluster_type='gpu')
 
 # Load configuration

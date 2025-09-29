@@ -22,12 +22,23 @@ To use NeMo Curator's video curation modules, ensure you meet the following requ
 
 - **OS**: Ubuntu 24.04/22.04/20.04 (required for GPU-accelerated processing)
 - **Python**: 3.10, 3.11, or 3.12
+- **uv** (for package management and installation)
 - **NVIDIA GPU** (required)
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12 or above
   - With defaults, the full splitting plus captioning example can use up to 38 GB of VRAM. Reduce VRAM to about 21 GB by lowering batch sizes and using FP8 where available.
 - **FFmpeg** 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
 - **Git** (required for some model dependencies)
+
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+:::
 
 ---
 

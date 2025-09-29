@@ -49,7 +49,7 @@ pipeline = Pipeline(name="heuristic_filtering")
 
 # Load your dataset
 reader = JsonlReader(
-    file_paths="input_data/*.jsonl",
+    file_paths="input_data/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)

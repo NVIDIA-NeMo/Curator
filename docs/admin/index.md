@@ -35,10 +35,9 @@ Install NeMo Curator with system requirements, package extras, and verification 
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
 :link-type: ref
-Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, Dask cluster setup, module execution, monitoring, and advanced Python-based job submission.
+Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, module execution, monitoring, and advanced Python-based job submission.
 +++
 {bdg-secondary}`Slurm`
-{bdg-secondary}`Dask`
 {bdg-secondary}`Shared Filesystem`
 {bdg-secondary}`Job Scripts`
 {bdg-secondary}`Cluster Management`

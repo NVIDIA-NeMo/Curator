@@ -440,10 +440,8 @@ export GPU_WORKERS_PER_NODE=8
 
 # GPU Memory Configuration
 export RAPIDS_NO_INITIALIZE=1
-export CUDF_SPILL=1
 export RMM_SCHEDULER_POOL_SIZE=2GB
 export RMM_WORKER_POOL_SIZE=64GiB
-export LIBCUDF_CUFILE_POLICY=KVIKIO
 
 # UCX Configuration for InfiniBand
 if [[ $PROTOCOL == "ucx" ]]; then
@@ -531,10 +529,8 @@ eval $(calculate_memory_pools)
 # GPU memory configuration for large-scale processing
 export GPU_MEMORY_CONFIG="
     RAPIDS_NO_INITIALIZE=1
-    CUDF_SPILL=1
     RMM_WORKER_POOL_SIZE=60GiB
     RMM_SCHEDULER_POOL_SIZE=4GiB
-    LIBCUDF_CUFILE_POLICY=KVIKIO
     CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 "
 ```
@@ -667,7 +663,6 @@ if [[ $DEVICE == "gpu" ]]; then
             --scheduler-file $SCHEDULER_FILE \
             --rmm-pool-size $RMM_WORKER_POOL_SIZE \
             --interface $INTERFACE \
-            --enable-cudf-spill \
             --rmm-async \
             --local-directory $JOB_DIR/worker-$SLURM_NODEID >> $WORKER_LOG 2>&1 &
     else
@@ -676,7 +671,6 @@ if [[ $DEVICE == "gpu" ]]; then
             --scheduler-file $SCHEDULER_FILE \
             --rmm-pool-size $RMM_WORKER_POOL_SIZE \
             --interface $INTERFACE \
-            --enable-cudf-spill \
             --rmm-async >> $WORKER_LOG 2>&1 &
     fi
 else

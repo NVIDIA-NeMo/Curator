@@ -39,9 +39,8 @@ This page details the comprehensive system, hardware, and software requirements 
 ## Software Dependencies
 
 ### Core Dependencies
-- [Dask](https://docs.dask.org/en/stable/) for distributed computing
-- [dask-cuda](https://docs.rapids.ai/api/dask-cuda/stable/) for GPU-enabled clusters
-- RAPIDS libraries (cuDF, cuML, cuGraph) for GPU acceleration
+- Python 3.10+ with required packages for distributed computing
+- RAPIDS libraries (cuDF) for GPU-accelerated deduplication operations
 
 ### Container Support (Recommended)
 - **Docker** or **Podman** for containerized deployment

@@ -1,7 +1,7 @@
 ---
-description: "Deploy NeMo Curator for all modalities on Slurm clusters with job scripts, Dask cluster setup, and Python-based job submission"
+description: "Deploy NeMo Curator for all modalities on Slurm clusters with job scripts and Python-based job submission"
 categories: ["how-to-guides"]
-tags: ["slurm", "deployment", "dask-cluster", "job-scripts", "container", "shared-filesystem", "multi-modal"]
+tags: ["slurm", "deployment", "job-scripts", "container", "shared-filesystem", "multi-modal"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -14,8 +14,7 @@ modality: "universal"
 ## Prerequisites
 
 * Access to a Slurm cluster with a shared filesystem (for example, NFS, Lustre) mounted on all nodes
-* [Dask](https://docs.dask.org/en/stable/) and [dask-cuda](https://docs.rapids.ai/api/dask-cuda/stable/) (for GPU jobs) installed in your environment or container
-* Python 3.8+ environment (virtualenv, conda, or container)
+* Python 3.10+ environment (virtualenv, conda, or container)
 * (Optional) Docker for containerized execution
 * Sufficient permissions to submit jobs with `sbatch`/`srun`
 
@@ -39,7 +38,7 @@ pip install -e .[all]  # Install NeMo Curator and dependencies
 
 Or use a container image (recommended for reproducibility):
 
-- Build or pull a container with NeMo Curator and Dask installed
+- Build or pull a container with NeMo Curator installed
 - Mount your shared storage into the container at runtime
 
 ```{seealso}
@@ -50,8 +49,8 @@ For details on available container environments and configurations, see [Contain
 
 The repository provides example scripts in `examples/slurm/`:
 
-- `start-slurm.sh`: Slurm job script for launching a Dask cluster and running a NeMo Curator module
-- `container-entrypoint.sh`: Entrypoint script that starts the Dask scheduler/workers and runs your command
+- `start-slurm.sh`: Slurm job script for launching and running a NeMo Curator module
+- `container-entrypoint.sh`: Entrypoint script that runs your command
 
 Below is a simplified example based on `start-slurm.sh`:
 
@@ -162,10 +161,10 @@ from nemo_curator.utils.script_utils import ArgumentHelper
 client = get_client(**ArgumentHelper.parse_client_args(args))
 ```
 
-## Adapting Your Scripts for Slurm/Dask
+## Adapting Your Scripts for Slurm
 
 - Add distributed arguments using `ArgumentHelper.add_distributed_args()` or `parse_gpu_dedup_args()`
-- Use `get_client(**ArgumentHelper.parse_client_args(args))` to connect to the Dask cluster
+- Use `get_client(**ArgumentHelper.parse_client_args(args))` to connect to the distributed cluster
 - Pass `--scheduler-file $SCHEDULER_FILE` and `--device $DEVICE` as command-line arguments
 
 ## Monitoring and Logs
@@ -223,5 +222,4 @@ rm -rf $BASE_JOB_DIR
 
 ## References
 
-- See `examples/slurm/` in the repository for full job and entrypoint script templates
-- For more on Dask with Slurm: [Dask Jobqueue Slurm Docs](https://jobqueue.dask.org/en/latest/generated/dask_jobqueue.SlurmCluster.html) 
+- See `examples/slurm/` in the repository for full job and entrypoint script templates 

@@ -65,7 +65,7 @@ pipeline = Pipeline(name="domain_classification")
 
 # Load dataset
 reader = JsonlReader(
-    file_paths="books_dataset/*.jsonl",
+    file_paths="books_dataset/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)
@@ -93,7 +93,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.classifiers import MultilingualDomainClassifier
 
 pipeline = Pipeline(name="multilingual_domain_classification")
-pipeline.add_stage(JsonlReader(file_paths="multilingual_dataset/*.jsonl", fields=["text", "id"]))
+pipeline.add_stage(JsonlReader(file_paths="multilingual_dataset/", fields=["text", "id"]))
 pipeline.add_stage(MultilingualDomainClassifier(filter_by=["Games", "Sports"]))
 pipeline.add_stage(JsonlWriter(path="classified_output/"))
 
@@ -111,7 +111,7 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.classifiers import QualityClassifier
 
 pipeline = Pipeline(name="quality_classification")
-pipeline.add_stage(JsonlReader(file_paths="web_documents/*.jsonl", fields=["text", "id"]))
+pipeline.add_stage(JsonlReader(file_paths="web_documents/", fields=["text", "id"]))
 pipeline.add_stage(QualityClassifier())
 pipeline.add_stage(JsonlWriter(path="quality_classified/"))
 
@@ -137,7 +137,7 @@ pipeline = Pipeline(name="aegis_classification")
 
 # Load dataset
 reader = JsonlReader(
-    file_paths="content/*.jsonl",
+    file_paths="content/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)
@@ -186,7 +186,7 @@ pipeline = Pipeline(name="instruction_data_guard")
 # Load dataset
 # For instruction-response data: "Instruction: {instruction}. Input: {input_}. Response: {response}."
 reader = JsonlReader(
-    file_paths="instruction_data/*.jsonl",
+    file_paths="instruction_data/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)
@@ -316,7 +316,7 @@ pipeline = Pipeline(name="content_type_classification")
 
 # Load dataset
 reader = JsonlReader(
-    file_paths="content/*.jsonl",
+    file_paths="content/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)
@@ -348,7 +348,7 @@ pipeline = Pipeline(name="prompt_task_complexity_classification")
 
 # Load dataset
 reader = JsonlReader(
-    file_paths="prompts/*.jsonl",
+    file_paths="prompts/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)
@@ -403,7 +403,6 @@ The classifiers optimize throughput through:
 
 NeMo Curator leverages components from the RAPIDS AI ecosystem for accelerated processing:
 
-- **cuDF integration**: Efficient data I/O and manipulation
 - **GPU-accelerated tokenization**: Fast text preprocessing on GPU when available
 - **Optimized memory management**: Smart allocation and deallocation of GPU resources
 
