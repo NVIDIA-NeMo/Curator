@@ -45,7 +45,7 @@ Raw data is downloaded, extracted, and converted into standardized formats:
 Multiple filtering stages ensure data quality:
 
 - **Heuristic Quality Filtering**: Rule-based filters for basic quality checks
-- **Model-based Quality Filtering**: AI models trained to identify high vs. low quality text
+- **Model-based Quality Filtering**: Classification models trained to identify high vs. low quality text
 
 ### 4. Deduplication
 
