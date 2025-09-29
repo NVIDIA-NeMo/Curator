@@ -228,49 +228,14 @@ except ImportError as e:
     print(f"⚠ Some GPU modules not available: {e}")
 ```
 
-### 3. Module Import Verification
+### 3. Run a Quickstart Tutorial
 
-Test that core modules can be imported successfully:
+Try a modality-specific quickstart to see NeMo Curator in action:
 
-```python
-# Test core processing modules
-from nemo_curator.stages.text.modules.add_id import AddId
-from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
-from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-print("✓ Core processing modules imported successfully")
-
-# Test pipeline components
-from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.backends.base import BaseExecutor
-print("✓ Pipeline components imported successfully")
-```
-
-### 4. Ray Cluster Test
-
-Verify distributed computing capabilities:
-
-```python
-import ray
-from nemo_curator.core.client import RayClient
-
-# Test Ray cluster creation
-ray_client = RayClient(num_cpus=2, num_gpus=0)
-ray_client.start()
-print("✓ Ray cluster created successfully")
-
-# Test basic distributed operation
-import pandas as pd
-@ray.remote
-def sum_data(data):
-    return sum(data)
-
-# Simple distributed computation test
-future = sum_data.remote([1, 2, 3, 4])
-result = ray.get(future)
-print(f"✓ Distributed computation successful: {result}")
-
-ray_client.stop()
-```
+- [Text Curation Quickstart](gs-text) - Set up and run your first text curation pipeline
+- [Audio Curation Quickstart](gs-audio) - Get started with audio dataset curation
+- [Image Curation Quickstart](gs-image) - Curate image-text datasets for generative models
+- [Video Curation Quickstart](gs-video) - Split, encode, and curate video clips at scale
 
 ---
 
