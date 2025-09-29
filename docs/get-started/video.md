@@ -18,15 +18,16 @@ The [example pipeline](#run-the-splitting-pipeline-example) processes a list of 
 
 ## Prerequisites
 
-To use NeMo Curator’s video curation modules, ensure you meet the following requirements:
+To use NeMo Curator's video curation modules, ensure you meet the following requirements:
 
-- Python 3.10, 3.11, or 3.12
-- NVIDIA GPU
+- **OS**: Ubuntu 24.04/22.04/20.04 (required for GPU-accelerated processing)
+- **Python**: 3.10, 3.11, or 3.12
+- **NVIDIA GPU** (required)
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12 or above
   - With defaults, the full splitting plus captioning example can use up to 38 GB of VRAM. Reduce VRAM to about 21 GB by lowering batch sizes and using FP8 where available.
-- `FFmpeg` 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
-- Git (required for some model dependencies)
+- **FFmpeg** 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
+- **Git** (required for some model dependencies)
 
 ---
 
