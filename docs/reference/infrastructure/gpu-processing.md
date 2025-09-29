@@ -34,7 +34,7 @@ import pandas as pd
 data = pd.DataFrame({
     "text": ["This is high quality text.", "Poor quality text here."]
 })
-batch = DocumentBatch(data=data)
+batch = DocumentBatch(data=data, task_id="test_task", dataset_name="test_dataset")
 
 # Set up GPU-accelerated classifier
 classifier = QualityClassifier(
@@ -43,8 +43,11 @@ classifier = QualityClassifier(
 )
 
 # Create and run pipeline
-pipeline = Pipeline([classifier])
-result = pipeline.run([batch])
+pipeline = Pipeline(name="test_pipeline")
+pipeline.add_stage(classifier)
+result = pipeline.run(initial_tasks=[batch])
+
+print(result)
 ```
 
 ### Example: GPU-Accelerated Fuzzy Deduplication

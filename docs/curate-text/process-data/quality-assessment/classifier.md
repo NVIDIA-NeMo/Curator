@@ -171,7 +171,7 @@ pipeline = Pipeline(name="quality_classification_pipeline")
 
 # Load dataset
 read_stage = JsonlReader(
-    file_paths="input_data/*.jsonl",
+    file_paths="input_data/",
     fields=["text", "id"]
 )
 pipeline.add_stage(read_stage)
