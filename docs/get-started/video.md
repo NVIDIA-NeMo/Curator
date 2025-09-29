@@ -39,9 +39,9 @@ Create and activate a virtual environment, then choose an install option:
 :::{tab-item} GPU (CUDA)
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+uv venv -p 3.12 && source .venv/bin/activate
 pip install --upgrade pip
-pip install "nemo-curator[video,video_cuda]"
+pip install "nemo-curator[video_cuda]"
 ```
 
 :::
@@ -49,7 +49,7 @@ pip install "nemo-curator[video,video_cuda]"
 :::{tab-item} CPU
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+uv venv -p 3.12 && source .venv/bin/activate
 pip install --upgrade pip
 pip install "nemo-curator[video]"
 ```
@@ -106,6 +106,20 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 :::::
 
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
+
+## Install InternVideo2 (Optional)
+
+To use the InternVideo2 embedding model, [InternVideo] dependency would need to be installed.
+Note we need to apply an [custom patch](https://github.com/NVIDIA-NeMo/Curator/blob/main/external/intern_video2_multimodal.patch) as the original repo does not properly handle packaging.
+
+```bash
+git clone https://github.com/OpenGVLab/InternVideo.git;
+cd InternVideo; git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7;
+
+patch -p1 < PATH/TO/PATCH/FILE; cd ../
+uv pip install InternVideo/InternVideo2/multi_modality/
+```
+
 
 ## Choose Embedding Model
 

@@ -114,7 +114,7 @@ text_cuda12 = [
 # Video Curation Dependencies
 video_cpu = [
     "av==13.1.0",
-    "opencv-python",
+    "opencv-python-headless",
     "torchvision",
     "einops",
     "easydict",
