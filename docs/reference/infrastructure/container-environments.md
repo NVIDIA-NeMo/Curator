@@ -1,7 +1,7 @@
 ---
 description: "Reference documentation for container environments, configurations, and deployment variables in NeMo Curator"
 categories: ["reference"]
-tags: ["docker", "slurm", "kubernetes", "configuration", "deployment", "gpu-accelerated", "environments"]
+tags: ["docker", "slurm", "configuration", "deployment", "gpu-accelerated", "environments"]
 personas: ["admin-focused", "devops-focused", "mle-focused"]
 difficulty: "reference"
 content_type: "reference"

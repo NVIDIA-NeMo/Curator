@@ -322,22 +322,6 @@ export HTTPS_PROXY="http://username:password@proxy.company.com:8080"
 
 ### Secrets Management
 
-#### Kubernetes Secrets
-
-```yaml
-# kubernetes-secrets.yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: nemo-curator-secrets
-type: Opaque
-stringData:
-  AWS_ACCESS_KEY_ID: "your-access-key"
-  AWS_SECRET_ACCESS_KEY: "your-secret-key"
-  HUGGINGFACE_HUB_TOKEN: "hf_your_token"
-  OPENAI_API_KEY: "sk-your-openai-key"
-```
-
 #### HashiCorp Vault Integration
 
 ```bash

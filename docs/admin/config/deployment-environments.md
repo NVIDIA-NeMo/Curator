@@ -349,21 +349,6 @@ export NEMO_CURATOR_RAY_SLURM_JOB="1"
 ```
 :::
 
-:::{tab-item} Kubernetes-Specific Settings
-:sync: env-k8s
-
-```bash
-# Kubernetes pod integration
-export K8S_NAMESPACE="${MY_POD_NAMESPACE}"
-export K8S_POD_NAME="${MY_POD_NAME}"
-export RAY_ADDRESS="ray://ray-head:10001"
-
-# Kubernetes resource limits
-export RAY_ADDRESS="ray://ray-head:10001"
-export RMM_WORKER_POOL_SIZE="${GPU_MEMORY_LIMIT}"
-```
-:::
-
 ::::
 
 ---

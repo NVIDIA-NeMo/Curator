@@ -26,10 +26,9 @@ This section covers the three main areas of operational configuration for NeMo C
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Deployment Environments
 :link: admin-config-deployment-environments
 :link-type: ref
-Configure NeMo Curator for different deployment scenarios including Slurm, Kubernetes, and local environments.
+Configure NeMo Curator for different deployment scenarios including Slurm and local environments.
 +++
 {bdg-secondary}`Slurm`
-{bdg-secondary}`Kubernetes`
 {bdg-secondary}`GPU Settings`
 :::
 
