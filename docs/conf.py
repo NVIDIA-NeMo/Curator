@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.abspath("_extensions"))
 project = "NeMo-Curator"
 project_copyright = "2025, NVIDIA Corporation"
 author = "NVIDIA Corporation"
-release = "0.25.7"
+release = "25.09"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -120,6 +120,7 @@ myst_substitutions = {
     "support_email": "nemo-curator-support@nvidia.com",
     "min_python_version": "3.8",
     "recommended_cuda": "12.0+",
+    "current_release": release,
 }
 
 # Enable figure numbering
