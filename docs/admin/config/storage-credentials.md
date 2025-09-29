@@ -18,7 +18,6 @@ Configure storage access, API keys, and security credentials for NeMo Curator de
 **Using These Credentials**: After configuring storage access, you can use these credentials in your deployments:
 - **Container Deployments**: Apply credentials via container secrets and environment variables
 - {doc}`Slurm Deployment <../deployment/slurm/index>`: Mount credential files in Slurm containers
-- {doc}`Deployment Environment Configuration <deployment-environments>`: Environment-specific credential patterns
 ```
 
 ---

@@ -45,7 +45,7 @@ Or use a container image (recommended for reproducibility):
 ```{seealso}
 For details on available container environments and configurations, see [Container Environments](reference-infrastructure-container-environments).
 
-**Configuration**: For Slurm-specific environment variables and performance tuning, see {doc}`Deployment Environment Configuration <../../config/deployment-environments>` and {doc}`Environment Variables Reference <../../config/environment-variables>`.
+**Configuration**: For Slurm-specific environment variables and performance tuning, see {doc}`Environment Variables Reference <../../config/environment-variables>`.
 ```
 
 ## Example Slurm Job Script

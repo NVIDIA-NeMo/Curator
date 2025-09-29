@@ -1,7 +1,7 @@
 ---
 description: "Configuration guide for NeMo Curator deployment environments, storage access, credentials, and operational settings"
 categories: ["workflows"]
-tags: ["configuration", "deployment-environments", "storage-credentials", "environment-variables", "operational-setup"]
+tags: ["configuration", "storage-credentials", "environment-variables", "operational-setup"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
@@ -22,15 +22,6 @@ This section covers the three main areas of operational configuration for NeMo C
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Deployment Environments
-:link: admin-config-deployment-environments
-:link-type: ref
-Configure NeMo Curator for different deployment scenarios including Slurm and local environments.
-+++
-{bdg-secondary}`Slurm`
-{bdg-secondary}`GPU Settings`
-:::
 
 :::{grid-item-card} {octicon}`key;1.5em;sd-mr-1` Storage & Credentials
 :link: admin-config-storage-credentials
@@ -183,7 +174,6 @@ export AWS_DEFAULT_REGION="us-west-2"
 :maxdepth: 2
 :hidden:
 
-deployment-environments
 storage-credentials
 environment-variables
 ```

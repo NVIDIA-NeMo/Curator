@@ -17,7 +17,6 @@ This reference covers environment variables that affect NeMo Curator behavior. M
 
 ```{tip}
 **Applying Environment Variables**: These variables are used throughout NeMo Curator deployments:
-- {doc}`Deployment Environment Configuration <deployment-environments>`: Environment-specific variable patterns for Ray clusters
 - **Container Deployments**: Setting variables in container environments
 - {doc}`Slurm Deployment <../deployment/slurm/index>`: Using variables in Slurm job scripts
 
