@@ -18,13 +18,25 @@ This guide helps you set up and get started with NeMo Curator's audio curation c
 
 To use NeMo Curator's audio curation modules, ensure you meet the following requirements:
 
-* Python 3.10 or 3.12
+* Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
+* uv (for package management and installation)
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (recommended for ASR inference)
   * Volta™ or higher (compute capability 7.0+)
   * CUDA 12 (or above)
 * Audio processing libraries (automatically installed with audio extras)
+
+
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+:::
 
 ---
 
@@ -39,14 +51,8 @@ You can install NeMo Curator with audio support in four ways:
 The fastest and most reliable way to install NeMo Curator with audio support:
 
 ```bash
-# Install uv first (if not already installed)
-pip install uv
-
-# Audio curation modules (CPU-only)
-uv pip install nemo-curator[audio_cpu]
-
-# Audio + GPU acceleration for other modalities  
-uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12,deduplication_cuda12]
+echo "transformers==4.55.2" > override.txt
+uv pip install "nemo-curator[audio_cuda12]" --override override.txt
 ```
 
 ```{note}
@@ -60,11 +66,8 @@ uv provides faster dependency resolution and more reliable installations. It's t
 The simplest way to install NeMo Curator with audio support:
 
 ```bash
-# Audio curation modules (CPU-only)
-pip install nemo-curator[audio_cpu]
-
-# Audio + GPU acceleration for other modalities
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12,deduplication_cuda12]
+echo "transformers==4.55.2" > override.txt
+uv pip install "nemo-curator[audio_cuda12]" --override override.txt
 ```
 
 ```{note}
