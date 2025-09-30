@@ -66,11 +66,8 @@ uv provides faster dependency resolution and more reliable installations. It's t
 The simplest way to install NeMo Curator with audio support:
 
 ```bash
-# Audio curation modules (CPU-only)
-pip install nemo-curator[audio_cpu]
-
-# Audio + GPU acceleration for other modalities
-pip install  https://pypi.nvidia.com nemo-curator[audio_cuda12,deduplication_cuda12]
+echo "transformers==4.55.2" > override.txt
+uv pip install "nemo_curator.whl[audio_cuda12]" --override override.txt
 ```
 
 ```{note}
