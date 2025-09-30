@@ -32,6 +32,10 @@ Understand how components work together so you can plan, scale, and troubleshoot
 :alt: High-level outline of NeMo Curator's video curation architecture
 ```
 
+```{note}
+Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders (`nvdecs`) and encoders (`nvencs`). You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Add a Custom Stage](video-tutorials-pipeline-cust-add-stage).
+```
+
 ---
 
 ## Introduction

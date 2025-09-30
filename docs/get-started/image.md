@@ -25,8 +25,14 @@ To use NeMo Curator's image curation modules, ensure you meet the following requ
   * Volta™ or higher (compute capability 7.0+)
   * CUDA 12 (or above)
 
-:::{note}
-All image curation modules require a GPU. Some text-based modules don't require a GPU, but image curation does.
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
 :::
 
 ---
@@ -42,7 +48,7 @@ You can install NeMo Curator in three ways:
 Install the image modules from PyPI:
 
 ```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_cuda12]
+uv pip install "nemo-curator[image_cuda12]"
 ```
 
 :::
@@ -64,14 +70,22 @@ source .venv/bin/activate
 python your_script.py
 ```
 
+:::
+
 :::{tab-item} Docker Container
 
-You can build and run NeMo Curator in a container environment using the provided Dockerfile:
+NeMo Curator is available as a standalone container:
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
-docker build -t nemo-curator -f docker/Dockerfile .
+# Pull the container
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
+
+# Run the container
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
+```
+
+```{seealso}
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
 ```
 
 :::
