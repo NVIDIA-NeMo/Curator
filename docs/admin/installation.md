@@ -163,7 +163,7 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 
 ### InternVideo2 Support (Optional for Video)
 
-Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator base on either you install via PyPI or from source:
+Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator based on whether you install via PyPI or from source:
 
 ::::{tab-set}
 
