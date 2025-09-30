@@ -16,7 +16,7 @@ This major release represents a fundamental architecture shift from [Dask](https
 
 ## Installation Updates
 
-- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ current_release }}`)
+- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ container_version }}`)
 - **Docker file to build own image**: Simplified [Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) structure for custom container builds with FFmpeg support
 - **UV source installations**: Integrated UV package manager (v0.8.22) for faster dependency management
 - **PyPI improvements**: Enhanced PyPI installation with modular extras for targeted functionality:
