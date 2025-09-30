@@ -17,6 +17,9 @@ The administration section provides comprehensive information for deployment, in
 
 ## Installation & Configuration
 
+::::{grid} 1 1 1 1
+:gutter: 1 1 1 2
+
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Installation Guide
 :link: admin-installation
 :link-type: ref
@@ -28,9 +31,14 @@ Install NeMo Curator with system requirements, package extras, and verification 
 {bdg-secondary}`Verification`
 :::
 
+::::
+
 ---
 
 ## Deployment Options
+
+::::{grid} 1 1 1 1
+:gutter: 1 1 1 2
 
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
@@ -42,4 +50,6 @@ Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, 
 {bdg-secondary}`Job Scripts`
 {bdg-secondary}`Cluster Management`
 :::
+
+::::
 

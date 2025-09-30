@@ -29,6 +29,9 @@ For detailed system, hardware, and software requirements, see [Production Deploy
 
 ## Deployment Options
 
+::::{grid} 1 1 1 1
+:gutter: 1 1 1 2
+
 :::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
 :link: admin-deployment-slurm
 :link-type: ref
@@ -40,6 +43,8 @@ Run NeMo Curator on Slurm clusters. Covers job scripts, cluster setup, module ex
 {bdg-secondary}`Cluster Management`
 :::
 
+::::
+
 ```{toctree}
 :maxdepth: 4
 :titlesonly:
@@ -49,7 +54,3 @@ Requirements <requirements>
 Slurm <slurm/index.md>
 
 ```
-
-## After Deployment
-
-Once your infrastructure is running, you'll need to configure NeMo Curator for your specific environment. See the {doc}`Configuration Guide <../config/index>` for deployment-specific settings, environment variables, and storage credentials.

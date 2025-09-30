@@ -239,6 +239,8 @@ pipeline.add_stage(write_stage)
 results = pipeline.run()
 ```
 
+:::
+
 :::{tab-item} FastText Quality Filter
 
 ```python
