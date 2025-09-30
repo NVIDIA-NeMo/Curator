@@ -1,5 +1,149 @@
 # Changelog
 
+## NVIDIA NeMo Curator 1.0.0
+
+This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html) and [audio](https://docs.nvidia.com/nemo/curator/latest/curate-audio/index.html) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
+
+### Installation Updates
+
+- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:25.09`)
+- **Docker file to build own image**: Simplified [Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) structure for custom container builds with FFmpeg support
+- **UV source installations**: Integrated UV package manager (v0.8.22) for faster dependency management
+- **PyPI improvements**: Enhanced PyPI installation with modular extras for targeted functionality:
+
+  | Extra | Installation Command | Description |
+  |-------|---------------------|-------------|
+  | **All Modalities** | `nemo-curator[all]` | Complete installation with all modalities and GPU support |
+  | **Text Curation** | `nemo-curator[text_cuda12]` | GPU-accelerated text processing with RAPIDS |
+  | **Image Curation** | `nemo-curator[image_cuda12]` | Image processing with NVIDIA DALI |
+  | **Audio Curation** | `nemo-curator[audio_cuda12]` | Speech recognition with NeMo ASR models |
+  | **Video Curation** | `nemo-curator[video_cuda12]` | Video processing with GPU acceleration |
+  | **Basic GPU** | `nemo-curator[cuda12]` | CUDA utilities without modality-specific dependencies |
+
+  All GPU installations require the NVIDIA PyPI index:
+
+  ```bash
+  uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
+  ```
+
+### New Modalities
+
+#### Video
+
+NeMo Curator now supports comprehensive [video data curation](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html) with distributed processing capabilities:
+
+- **Video splitting**: [Fixed-stride](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/clipping.html) and [scene-change detection (TransNetV2)](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/clipping.html) for clip extraction
+- **Semantic deduplication**: [K-means clustering and pairwise similarity](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/dedup.html) for near-duplicate clip removal
+- **Content filtering**: [Motion-based filtering](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/filtering.html) and [aesthetic filtering](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/filtering.html) for quality improvement
+- **Embedding generation**: InternVideo2 and Cosmos-Embed1 models for clip-level embeddings
+- **Ray-based distributed architecture**: Scalable video processing with autoscaling support
+
+#### Audio
+
+New [audio curation capabilities](https://docs.nvidia.com/nemo/curator/latest/curate-audio/index.html) for speech data processing:
+
+- **ASR inference**: [Automatic speech recognition](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/asr-inference/index.html) using NeMo Framework pretrained models
+- **Quality assessment**: [Word Error Rate (WER) and Character Error Rate (CER)](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/quality-assessment/index.html) calculation
+- **Speech metrics**: [Duration analysis and speech rate metrics](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/audio-analysis/index.html) (words/characters per second)
+- **Text integration**: Seamless integration with [text curation workflows](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/text-integration/index.html) via `AudioToDocumentStage`
+- **Manifest support**: JSONL manifest format for audio file management
+
+### Modality Refactors
+
+#### Text
+
+- **Ray backend migration**: Complete transition from Dask to Ray for distributed [text processing](https://docs.nvidia.com/nemo/curator/latest/curate-text/index.html)
+- **Improved model-based classifier throughput**: Better overlapping of compute between tokenization and inference through [length-based sequence sorting](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/quality-assessment/distributed-classifier.html) for optimal GPU memory utilization
+- **Task-centric architecture**: New `Task`-based processing model for finer-grained control
+- **Pipeline redesign**: Updated `ProcessingStage` and `Pipeline` architecture with resource specification
+
+#### Image
+
+- **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](https://docs.nvidia.com/nemo/curator/latest/curate-images/index.html) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
+- **DALI-based image loading**: New `ImageReaderStage` uses NVIDIA DALI for high-performance WebDataset tar shard processing with GPU/CPU fallback
+- **Modular processing stages**: Separate stages for [embedding generation](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/embeddings.html), [aesthetic filtering](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/aesthetic-filtering.html), and [NSFW filtering](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/nsfw-filtering.html)
+- **Task-based data flow**: Images processed as `ImageBatch` tasks containing `ImageObject` instances with metadata, embeddings, and classification scores
+
+Learn more about [image curation](https://docs.nvidia.com/nemo/curator/latest/curate-images/index.html).
+
+### Deduplication Improvements
+
+Enhanced deduplication capabilities across all modalities with improved performance and flexibility:
+
+- **Exact and Fuzzy deduplication**: Updated [rapidsmpf-based shuffle backend](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/gpu-processing.html) for more efficient GPU-to-GPU data transfer and better spilling capabilities
+- **Semantic deduplication**: Support for deduplicating [text](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/deduplication/semdedup.html), [image](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/deduplication.html), and [video](https://docs.nvidia.com/nemo/curator/latest/curate-video/process-data/dedup.html) datasets using unified embedding-based workflows
+- **New ranking strategies**: Added `RankingStrategy` which allows you to rank elements within cluster centers to decide which point to prioritize during duplicate removal, supporting [metadata-based ranking](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/deduplication/semdedup.html) to prioritize specific datasets or inputs
+
+### Core Refactors
+
+The architecture refactor introduces a layered system with unified interfaces and multiple execution backends:
+
+```
+User Layer: Pipeline → ProcessingStage X→Y → ProcessingStage Y→Z → ProcessingStage Z→W
+           ↓
+Orchestration Layer: BaseExecutor Interface
+           ↓
+Backend Layer: XennaExecutor (Production Ready) | RayActorPoolExecutor (Experimental) | RayDataExecutor (Experimental)
+           ↓
+Adaptation Layer: Xenna Adapter | Ray Actor Adapter | Ray Data Adapter
+           ↓
+Execution Layer: Cosmos-Xenna (Streaming/Batch) | Ray Actor Pool (Load Balancing) | Ray Data API (Dataset Processing)
+```
+
+#### Pipelines
+
+- **New Pipeline API**: Ray-based pipeline execution with `BaseExecutor` interface
+- **Multiple backends**: Support for [Xenna, Ray Actor Pool, and Ray Data execution backends](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/execution-backends.html)
+- **Resource specification**: Configurable CPU and GPU memory requirements per stage
+- **Stage composition**: Improved stage validation and execution orchestration
+
+#### Stages
+
+- **ProcessingStage redesign**: Generic `ProcessingStage[X, Y]` base class with type safety
+- **Resource requirements**: Built-in resource specification for CPU and GPU memory
+- **Backend adapters**: Stage adaptation layer for different Ray orchestration systems
+- **Input/output validation**: Enhanced type checking and data validation
+
+### Tutorials
+
+- **Text tutorials**: Updated all [text curation tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/text) to use new Ray-based API
+- **Image tutorials**: Migrated [image processing tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/image) to unified backend
+- **Audio tutorials**: New [audio curation tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/audio)
+- **Video tutorials**: New [video processing tutorials](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/video)
+
+For all tutorial content, refer to the [tutorials directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials) in the NeMo Curator GitHub repository.
+
+### Known Limitations
+
+> (Pending Refactor in Future Release)
+
+#### Generation
+
+- **Synthetic data generation**: Synthetic text generation features are being refactored for Ray compatibility
+- **Hard negative mining**: Retrieval-based data generation workflows under development
+
+#### PII
+
+- **PII processing**: Personal Identifiable Information removal tools are being updated for Ray backend
+- **Privacy workflows**: Enhanced privacy-preserving data curation capabilities in development
+
+#### Blending & Shuffling
+
+- **Data blending**: Multi-source dataset blending functionality being refactored
+- **Dataset shuffling**: Large-scale data shuffling operations under development
+
+### Docs Refactor
+
+- **Local preview capability**: Improved documentation build system with local preview support
+- **Modality-specific guides**: Comprehensive documentation for each supported modality ([text](https://docs.nvidia.com/nemo/curator/latest/curate-text/index.html), [image](https://docs.nvidia.com/nemo/curator/latest/curate-images/index.html), [audio](https://docs.nvidia.com/nemo/curator/latest/curate-audio/index.html), [video](https://docs.nvidia.com/nemo/curator/latest/curate-video/index.html))
+- **API reference**: Complete [API documentation](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) with type annotations and examples
+
+---
+
+### What's Next
+
+The next release will focus on completing the refactor of Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.
+
 ## NVIDIA NeMo Curator 0.9.0
 
 ### Major Features and Enhancements
