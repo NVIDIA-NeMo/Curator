@@ -26,38 +26,46 @@ The following diagram provides a high-level outline of NeMo Curator's text curat
 NeMo Curator's text curation pipeline consists of several key stages that work together to transform raw data sources into high-quality datasets ready for LLM training:
 
 ### 1. Data Sources
+
 Multiple input sources provide the foundation for text curation:
-- **Cloud storage** (S3, GCS, Azure)
-- **Internet sources** (Common Crawl, ArXiv, Wikipedia)
-- **Local workstation** files
+
+- **Cloud storage**: (S3, GCS, Azure)
+- **Local workstation**: files (JSONL, Parquet)
 
 ### 2. Data Acquisition & Processing
+
 Raw data is downloaded, extracted, and converted into standardized formats:
+
 - **Download & Extraction**: Retrieve and process remote data sources
 - **Cleaning & Pre-processing**: Convert formats and normalize text
 - **DocumentBatch Creation**: Standardize data into NeMo Curator's core data structure
 
 ### 3. Quality Assessment & Filtering
+
 Multiple filtering stages ensure data quality:
+
 - **Heuristic Quality Filtering**: Rule-based filters for basic quality checks
-- **Model-based Quality Filtering**: AI-powered content assessment
-- **PII Removal**: Privacy-preserving data cleaning
+- **Model-based Quality Filtering**: Classification models trained to identify high vs. low quality text
 
 ### 4. Deduplication
+
 Remove duplicate and near-duplicate content:
+
 - **Exact Deduplication**: Remove identical documents using MD5 hashing
 - **Fuzzy Deduplication**: Remove near-duplicates using MinHash and LSH similarity
 - **Semantic Deduplication**: Remove semantically similar content using embeddings
 
 ### 5. Final Preparation
+
 Prepare the curated dataset for training:
-- **Blending/Shuffling**: Combine and randomize data sources
+
 - **Format Standardization**: Ensure consistent output format
 
 ## Infrastructure Foundation
 
 The entire pipeline runs on a robust, scalable infrastructure:
-- **Dask**: Distributed computing framework for parallelization
+
+- **Ray**: Distributed computing framework for parallelization
 - **RAPIDS**: GPU-accelerated data processing (cuDF, cuGraph, cuML)
 - **Flexible Deployment**: CPU and GPU acceleration support
 
@@ -113,8 +121,8 @@ The architecture scales from single machines to large clusters:
 
 - **Single Node**: Process datasets on laptops or workstations
 - **Multi-Node**: Distribute processing across cluster resources
-- **Cloud Native**: Deploy on Kubernetes or cloud platforms
-- **HPC Integration**: Run on Slurm-managed supercomputing clusters
+- **Cloud Native**: Deploy on cloud platforms
+- **HPC Integration**: Run on HPC supercomputing clusters
 
 ---
 

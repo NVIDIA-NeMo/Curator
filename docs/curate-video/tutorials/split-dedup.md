@@ -47,9 +47,6 @@ Writer-related flags you can add:
 ```bash
   --no-upload-clips          # Do not write MP4 files
   --dry-run                   # Write nothing; validate only
-  --no-generate-embeddings   # Disable embedding outputs (enabled by default)
-  --generate-captions        # Include caption fields in JSON metadata
-  --generate-previews        # Write .webp previews for caption windows
 ```
 
 The pipeline writes embeddings under `$OUT_DIR/iv2_embd_parquet/` (or `ce1_embd_parquet/` if you use Cosmos-Embed1).
@@ -113,7 +110,6 @@ Use K-means clustering followed by pairwise similarity on the Parquet embeddings
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
 from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage
 
