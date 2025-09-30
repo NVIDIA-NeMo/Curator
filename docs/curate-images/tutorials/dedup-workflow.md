@@ -129,7 +129,7 @@ embedding: list<float32>  # length = 768 for CLIP ViT-L/14
 
 :::{tab-item} Sample row
 
-```json
+```
 {"image_id": "00001234", "embedding": [0.0123, -0.0456, 0.0031, 0.1279, ...]}
 ```
 

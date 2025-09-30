@@ -88,7 +88,7 @@ New [audio curation capabilities](../../curate-audio/index.md) for speech data p
 
 - **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](../../curate-images/index.md) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
 - **DALI-based image loading**: New `ImageReaderStage` uses NVIDIA DALI for high-performance WebDataset tar shard processing with GPU/CPU fallback
-- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings/index.md), [aesthetic filtering](../../curate-images/process-data/classifiers/aesthetic.md), and [NSFW filtering](../../curate-images/process-data/classifiers/nsfw.md)
+- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings/index.md), [aesthetic filtering](../../curate-images/process-data/filters/aesthetic.md), and [NSFW filtering](../../curate-images/process-data/filters/nsfw.md)
 - **Task-based data flow**: Images processed as `ImageBatch` tasks containing `ImageObject` instances with metadata, embeddings, and classification scores
 
 Learn more about [image curation](../../curate-images/index.md).
