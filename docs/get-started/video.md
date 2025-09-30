@@ -53,7 +53,7 @@ Create and activate a virtual environment, then choose an install option:
 ```bash
 # Install base dependencies
 uv pip install torch wheel_stub psutil setuptools setuptools_scm
-uv pip install --no-build-isolation "nemo_curator.whl[video_cuda12]"
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 
 # Clone and set up InternVideo2
 git clone https://github.com/OpenGVLab/InternVideo.git
