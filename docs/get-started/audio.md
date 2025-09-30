@@ -67,7 +67,7 @@ The simplest way to install NeMo Curator with audio support:
 
 ```bash
 echo "transformers==4.55.2" > override.txt
-uv pip install "nemo_curator.whl[audio_cuda12]" --override override.txt
+uv pip install "nemo-curator[audio_cuda12]" --override override.txt
 ```
 
 ```{note}
