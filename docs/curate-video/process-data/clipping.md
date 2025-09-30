@@ -18,7 +18,7 @@ Split long videos into shorter clips for downstream processing.
 
 NeMo Curator provides two clipping stages: **Fixed Stride** and **TransNetV2** scene-change detection.
 
-- Use Fixed Stride create uniform segments.
+- Use Fixed Stride to create uniform segments.
 - Use TransNetV2 to cut at visual shot boundaries.
 
 ## Before You Start
@@ -37,7 +37,6 @@ Use either the pipeline stages or the example script flags to create clips.
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.clipping.clip_extraction_stages import (
     FixedStrideExtractorStage,
 )
@@ -70,7 +69,7 @@ pipe.add_stage(
         max_length_s=10.0,
         max_length_mode="stride",
         crop_s=0.5,
-        gpu_memory_gb=10.0,
+        gpu_memory_gb=10,
         limit_clips=-1,
         verbose=True,
     )
@@ -102,7 +101,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --transnetv2-max-length-s 10.0 \
   --transnetv2-max-length-mode stride \
   --transnetv2-crop-s 0.5 \
-  --transnetv2-gpu-memory-gb 10.0 \
+  --transnetv2-gpu-memory-gb 10 \
   --limit-clips 0
 ```
 
@@ -161,7 +160,7 @@ Using extracted frames of size 27×48×3, the model predicts shot transitions, c
        max_length_s=10.0,
        max_length_mode="stride",  # or "truncate"
        crop_s=0.5,
-       gpu_memory_gb=10.0,
+       gpu_memory_gb=10,
        limit_clips=-1,
        verbose=True,
    )
