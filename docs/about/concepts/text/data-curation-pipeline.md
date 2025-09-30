@@ -122,7 +122,7 @@ The architecture scales from single machines to large clusters:
 - **Single Node**: Process datasets on laptops or workstations
 - **Multi-Node**: Distribute processing across cluster resources
 - **Cloud Native**: Deploy on cloud platforms
-- **HPC Integration**: Run on Slurm-managed supercomputing clusters
+- **HPC Integration**: Run on HPC supercomputing clusters
 
 ---
 

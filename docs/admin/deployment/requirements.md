@@ -1,7 +1,7 @@
 ---
 description: "Comprehensive system, hardware, and software requirements for deploying NeMo Curator in production environments"
 categories: ["reference"]
-tags: ["requirements", "system-requirements", "hardware", "software", "slurm", "gpu", "storage"]
+tags: ["requirements", "system-requirements", "hardware", "software", "gpu", "storage"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "reference"
 content_type: "reference"
@@ -18,7 +18,6 @@ This page details the comprehensive system, hardware, and software requirements 
 - **Operating System**: Ubuntu 22.04/20.04 (recommended)
 - **Python**: Python 3.10, 3.11, or 3.12
   - packaging >= 22.0
-- **Shared Filesystem**: For Slurm deployments, a shared filesystem (NFS, Lustre, etc.) accessible from all compute nodes
 
 ## Hardware Requirements
 
@@ -46,10 +45,6 @@ This page details the comprehensive system, hardware, and software requirements 
 - **Docker** or **Podman** for containerized deployment
 - Access to NVIDIA NGC registry for official containers
 
-### Cluster Management
-- **Slurm**: For Slurm deployment
-  - Slurm cluster with job submission permissions
-  - Shared filesystem mounted on all compute nodes
 
 ## Network Requirements
 - Reliable network connectivity between nodes
@@ -68,12 +63,6 @@ This page details the comprehensive system, hardware, and software requirements 
 ## Deployment-Specific Requirements
 
 - Resource quotas configured for GPU and memory allocation
-
-### Slurm Deployment
-- Slurm workload manager configured and running
-- Job submission permissions (`sbatch`, `srun`)
-- Module system for environment management (optional but recommended)
-- Batch job script templates and container runtime support
 
 ## Performance Considerations
 

@@ -1,7 +1,7 @@
 ---
 description: "Comprehensive administration guide for NeMo Curator deployment, infrastructure management, monitoring, and scaling from development to production"
 categories: ["getting-started"]
-tags: ["admin", "deployment", "infrastructure", "installation", "configuration", "slurm"]
+tags: ["admin", "deployment", "infrastructure", "installation", "configuration"]
 personas: ["admin-focused", "devops-focused", "data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "overview"
@@ -32,24 +32,3 @@ Install NeMo Curator with system requirements, package extras, and verification 
 :::
 
 ::::
-
----
-
-## Deployment Options
-
-::::{grid} 1 1 1 1
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
-:link: admin-deployment-slurm
-:link-type: ref
-Run NeMo Curator on Slurm clusters with shared filesystems. Covers job scripts, module execution, monitoring, and advanced Python-based job submission.
-+++
-{bdg-secondary}`Slurm`
-{bdg-secondary}`Shared Filesystem`
-{bdg-secondary}`Job Scripts`
-{bdg-secondary}`Cluster Management`
-:::
-
-::::
-

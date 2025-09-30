@@ -1,11 +1,12 @@
 ---
-description: "Deploy NeMo Curator in production environments with comprehensive guides for Slurm cluster deployments"
+description: "Deploy NeMo Curator in production environments"
 categories: ["workflows"]
-tags: ["deployment", "slurm", "production", "cluster-management", "infrastructure"]
+tags: ["deployment", "production", "infrastructure"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
 modality: "universal"
+orphan: true
 ---
 
 (admin-deployment)=
@@ -20,30 +21,10 @@ Before deploying NeMo Curator in a production environment, review the comprehens
 
 - **System**: Ubuntu 22.04/20.04, Python 3.10, 3.11, or 3.12
 - **Hardware**: Multi-core CPU, 16GB+ RAM (optional: NVIDIA GPU with 16GB+ VRAM)
-- **Software**: Ray (distributed computing framework), container runtime, cluster management tools
-- **Infrastructure**: Shared storage, high-bandwidth networking
+- **Software**: Ray (distributed computing framework), container runtime
+- **Infrastructure**: High-bandwidth networking, storage for datasets
 
 For detailed system, hardware, and software requirements, see [Production Deployment Requirements](admin-deployment-requirements).
-
----
-
-## Deployment Options
-
-::::{grid} 1 1 1 1
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Slurm Deployment
-:link: admin-deployment-slurm
-:link-type: ref
-Run NeMo Curator on Slurm clusters. Covers job scripts, cluster setup, module execution, monitoring, and advanced Python-based job submission.
-+++
-{bdg-secondary}`Slurm`
-{bdg-secondary}`Shared Filesystem`
-{bdg-secondary}`Job Scripts`
-{bdg-secondary}`Cluster Management`
-:::
-
-::::
 
 ```{toctree}
 :maxdepth: 4
@@ -51,6 +32,5 @@ Run NeMo Curator on Slurm clusters. Covers job scripts, cluster setup, module ex
 :hidden:
 
 Requirements <requirements>
-Slurm <slurm/index.md>
 
 ```

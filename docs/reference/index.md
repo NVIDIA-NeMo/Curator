@@ -100,7 +100,6 @@ Service clients and integrations.
 :link-type: url
 NeMo Run integration for distributed execution.
 +++
-{bdg-secondary}`slurm`
 {bdg-secondary}`distributed`
 :::
 
