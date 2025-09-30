@@ -55,7 +55,7 @@ executor = XennaExecutor(
 results = pipeline.run(executor)
 ```
 
-- Pass options via `config`; they map to the executor’s pipeline configuration.
+- Pass options via `config`; they map to the executor's pipeline configuration.
 - For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
 ### `RayDataExecutor` (experimental)

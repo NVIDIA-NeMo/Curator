@@ -19,7 +19,8 @@ NeMo Curator, part of the NVIDIA NeMo software suite for managing the AI agent l
 ## Target Users
 
 - **Data scientists and machine learning engineers**: Build and curate datasets for LLMs, generative models, and multimodal AI.
-- **Cluster administrators and DevOps professionals**: Deploy and scale curation pipelines on Kubernetes, Slurm, or Apache Spark clusters.
+
+- **Cluster administrators and DevOps professionals**: Deploy and scale curation pipelines.
 - **Researchers**: Experiment with new data curation techniques and ablation studies.
 - **Enterprises**: Ensure data privacy, compliance, and quality for production AI workflows.
 

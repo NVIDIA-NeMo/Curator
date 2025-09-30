@@ -18,7 +18,7 @@ Unlike exact or fuzzy deduplication, which focus on textual similarity, semantic
 Semantic deduplication is particularly effective for large, uncurated web-scale datasets, where it can remove up to 50% of the data with minimal performance impact. The technique uses embeddings to identify "semantic duplicates" - content pairs that convey similar meaning despite using different words.
 
 :::{note}
-**GPU Acceleration**: Semantic deduplication requires GPU acceleration for both embedding generation and clustering operations. This method uses the `cudf` backend and PyTorch models on GPU for optimal performance.
+**GPU Acceleration**: Semantic deduplication requires GPU acceleration for both embedding generation and clustering operations. This method uses cuDF for GPU-accelerated dataframe operations and PyTorch models on GPU for optimal performance.
 :::
 
 ## How It Works
@@ -110,7 +110,7 @@ from nemo_curator.backends import RayDataExecutor
 
 # Option 1: Two-step process (more control)
 workflow = TextSemanticDeduplicationWorkflow(
-    input_path="input_data/*.jsonl",
+    input_path="input_data/",
     output_path="./results",
     cache_path="./sem_cache",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
@@ -127,7 +127,7 @@ results = workflow.run(executor)
 
 # Option 2: One-step process (simpler)
 workflow_simple = TextSemanticDeduplicationWorkflow(
-    input_path="input_data/*.jsonl",
+    input_path="input_data/",
     output_path="./results", 
     cache_path="./sem_cache",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
@@ -693,10 +693,10 @@ Semantic deduplication is computationally intensive, especially for large datase
 **Hardware Prerequisites:**
 - NVIDIA GPU with CUDA support
 - Sufficient GPU memory (recommended: >8GB for medium datasets)
-- RAPIDS libraries (cuDF, cuML) for GPU-accelerated operations
+- RAPIDS libraries (cuDF) for GPU-accelerated dataframe operations
 
 **Backend Requirements:**
-- **Required**: `cudf` backend for GPU acceleration
+- **Required**: cuDF for GPU-accelerated dataframe operations
 - **Not supported**: CPU-only processing (use hash-based deduplication instead)
 
 **Performance Characteristics:**

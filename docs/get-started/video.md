@@ -18,15 +18,27 @@ The [example pipeline](#run-the-splitting-pipeline-example) processes a list of 
 
 ## Prerequisites
 
-To use NeMo Curator’s video curation modules, ensure you meet the following requirements:
+To use NeMo Curator's video curation modules, ensure you meet the following requirements:
 
-- Python 3.10 or higher
-- NVIDIA GPU
+- **OS**: Ubuntu 24.04/22.04/20.04 (required for GPU-accelerated processing)
+- **Python**: 3.10, 3.11, or 3.12
+- **uv** (for package management and installation)
+- **NVIDIA GPU** (required)
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12 or above
   - With defaults, the full splitting plus captioning example can use up to 38 GB of VRAM. Reduce VRAM to about 21 GB by lowering batch sizes and using FP8 where available.
-- `FFmpeg` 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
-- Git (required for some model dependencies)
+- **FFmpeg** 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
+- **Git** (required for some model dependencies)
+
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+:::
 
 ---
 
@@ -36,22 +48,38 @@ Create and activate a virtual environment, then choose an install option:
 
 ::::{tab-set}
 
-:::{tab-item} GPU (CUDA)
+:::{tab-item} With internvideo2
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install "nemo-curator[video,video_cuda]"
+# Install base dependencies
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+
+# Clone and set up InternVideo2
+git clone https://github.com/OpenGVLab/InternVideo.git
+cd InternVideo
+git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
+
+# Download and apply NeMo Curator patch
+curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
+patch -p1 < intern_video2_multimodal.patch
+cd ..
+
+# Add InternVideo2 to the environment
+uv pip install InternVideo/InternVideo2/multi_modality
+```
+
+```{note}
+Cosmos-Embed1 is generally better than InternVideo2 for most video embedding tasks. Consider using Cosmos-Embed1 (`cosmos-embed1-224p`) unless you have specific requirements for InternVideo2.
 ```
 
 :::
 
-:::{tab-item} CPU
+:::{tab-item} Without internvideo2
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install "nemo-curator[video]"
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 ```
 
 :::
