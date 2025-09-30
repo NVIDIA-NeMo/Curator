@@ -86,7 +86,7 @@ uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 
 ::::
 
-## Install `FFmpeg` and Encoders
+## Install FFmpeg and Encoders
 
 Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
 

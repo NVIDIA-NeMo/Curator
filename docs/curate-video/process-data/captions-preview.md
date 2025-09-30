@@ -47,7 +47,7 @@ pipe.add_stage(
         verbose=True,
     )
 )
-pipe.add_stage(PreviewStage(target_fps=1, target_height=240, verbose=True))
+pipe.add_stage(PreviewStage(target_fps=1.0, target_height=240, verbose=True))
 pipe.add_stage(
     CaptionGenerationStage(
         model_dir="/models",
@@ -80,7 +80,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --captioning-batch-size 8 \
   --captioning-max-output-tokens 512 \
   --generate-previews \
-  --preview-target-fps 1 \
+  --preview-target-fps 1.0 \
   --preview-target-height 240
 ```
 
@@ -113,7 +113,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
 
    ```python
    preview = PreviewStage(
-       target_fps=1,
+       target_fps=1.0,
        target_height=240,
        verbose=True,
    )

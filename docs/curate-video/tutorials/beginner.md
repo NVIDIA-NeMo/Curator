@@ -139,7 +139,7 @@ pipeline.add_stage(
         max_length_s=10.0,
         max_length_mode="stride",
         crop_s=0.5,
-        gpu_memory_gb=10.0,
+        gpu_memory_gb=10,
         limit_clips=0,
         verbose=True,
     )
