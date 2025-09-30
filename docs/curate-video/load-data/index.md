@@ -83,7 +83,6 @@ If any entry is outside the root, the stage raises an error.
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.client_partitioning import ClientPartitioningStage
 from nemo_curator.stages.video.io.video_reader import VideoReaderStage
 

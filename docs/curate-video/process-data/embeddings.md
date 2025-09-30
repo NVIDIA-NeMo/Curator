@@ -38,7 +38,6 @@ Use the pipeline stages or the example script flags to generate clip-level embed
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
 from nemo_curator.stages.video.embedding.internvideo2 import (

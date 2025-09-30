@@ -46,9 +46,33 @@ source $HOME/.local/bin/env
 
 Create and activate a virtual environment, then choose an install option:
 
+```{note}
+Cosmos-Embed1 (the default) is generally better than InternVideo2 for most video embedding tasks. Consider using Cosmos-Embed1 (`cosmos-embed1-224p`) unless you have specific requirements for InternVideo2.
+```
+
 ::::{tab-set}
 
-:::{tab-item} With internvideo2
+:::{tab-item} PyPi Without internvideo2
+
+```bash
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+```
+
+:::
+
+:::{tab-item} Source Without internvideo2
+
+```bash
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator
+uv sync --extra video_cuda12 --all-groups
+source .venv/bin/activate
+```
+
+:::
+
+:::{tab-item} PyPi With internvideo2
 
 ```bash
 # Install base dependencies
@@ -69,30 +93,48 @@ cd ..
 uv pip install InternVideo/InternVideo2/multi_modality
 ```
 
-```{note}
-Cosmos-Embed1 is generally better than InternVideo2 for most video embedding tasks. Consider using Cosmos-Embed1 (`cosmos-embed1-224p`) unless you have specific requirements for InternVideo2.
+:::
+
+:::{tab-item} Source With internvideo2
+
+```bash
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator
+uv sync --extra video_cuda12 --all-groups
+bash external/intern_video2_installation.sh
+uv add InternVideo/InternVideo2/multi_modality
+source .venv/bin/activate 
 ```
 
 :::
 
-:::{tab-item} Without internvideo2
+:::{tab-item} NeMo Curator Container
+
+NeMo Curator is available as a standalone container:
 
 ```bash
-uv pip install torch wheel_stub psutil setuptools setuptools_scm
-uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+# Pull the container
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
+
+# Run the container
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
+```
+
+```{seealso}
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
 ```
 
 :::
 
 ::::
 
-## Install `FFmpeg` and Encoders
+## Install FFmpeg and Encoders
 
 Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
 
-:::::{tab-set}
+::::{tab-set}
 
-::::{tab-item} Debian/Ubuntu (Script)
+:::{tab-item} Debian/Ubuntu (Script)
 
 Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
 
@@ -104,21 +146,9 @@ chmod +x install_ffmpeg.sh
 sudo bash install_ffmpeg.sh
 ```
 
-::::
+:::
 
-::::{tab-item} macOS (Homebrew)
-
-Install `FFmpeg` using Homebrew, then verify available encoders.
-
-```bash
-brew install ffmpeg openh264
-```
-
-Note: Homebrew `ffmpeg` does not support NVENC on macOS. If `libopenh264` is not available in your build, use `libx264` as the H.264 encoder instead of `libopenh264`.
-
-::::
-
-::::{tab-item} Verify Installation
+:::{tab-item} Verify Installation
 
 Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
 
@@ -129,9 +159,9 @@ ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
 
-::::
+:::
 
-:::::
+::::
 
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
 
