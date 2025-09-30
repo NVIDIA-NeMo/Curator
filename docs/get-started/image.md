@@ -48,7 +48,7 @@ You can install NeMo Curator in three ways:
 Install the image modules from PyPI:
 
 ```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_cuda12]
+uv pip install "nemo_curator[image_cuda12]"
 ```
 
 :::

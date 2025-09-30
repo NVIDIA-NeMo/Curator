@@ -45,17 +45,6 @@ You can install NeMo Curator with audio support in four ways:
 
 ::::{tab-set}
 
-:::{tab-item} uv Installation (Recommended)
-
-The fastest and most reliable way to install NeMo Curator with audio support:
-
-```bash
-echo "transformers==4.55.2" > override.txt
-uv pip install "nemo-curator[audio_cuda12]" --override override.txt
-```
-
-:::
-
 :::{tab-item} PyPI Installation
 
 The simplest way to install NeMo Curator with audio support:
