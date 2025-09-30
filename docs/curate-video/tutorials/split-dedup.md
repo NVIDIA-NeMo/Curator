@@ -47,9 +47,6 @@ Writer-related flags you can add:
 ```bash
   --no-upload-clips          # Do not write MP4 files
   --dry-run                   # Write nothing; validate only
-  --no-generate-embeddings   # Disable embedding outputs (enabled by default)
-  --generate-captions        # Include caption fields in JSON metadata
-  --generate-previews        # Write .webp previews for caption windows
 ```
 
 The pipeline writes embeddings under `$OUT_DIR/iv2_embd_parquet/` (or `ce1_embd_parquet/` if you use Cosmos-Embed1).
