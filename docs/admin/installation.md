@@ -14,7 +14,30 @@ modality: "universal"
 
 This guide covers installing NeMo Curator and verifying your installation is working correctly.
 
-## System Requirements
+## Before You Start
+
+### InternVideo2 Support (Optional)
+
+Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator:
+
+```bash
+# Clone and set up InternVideo2
+git clone https://github.com/OpenGVLab/InternVideo.git
+cd InternVideo
+git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
+
+# Download and apply NeMo Curator patch
+curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
+patch -p1 < intern_video2_multimodal.patch
+cd ..
+
+# Add InternVideo2 to the environment
+uv add InternVideo/InternVideo2/multi_modality
+```
+
+For more details, refer to the [Video Processing documentation](../curate-video/index.md).
+
+### System Requirements
 
 For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
 
@@ -71,12 +94,7 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
    # Install build dependencies and NeMo Curator
    uv pip install torch wheel_stub psutil setuptools setuptools_scm
    echo "transformers==4.55.2" > override.txt
-   # Optional: Install InternVideo2 support (see note below)
    uv pip install --extra-index-url https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
-   ```
-
-   ```{note}
-   **InternVideo2 Support (Optional)**: Video processing includes optional support for InternVideo2. To install InternVideo2, refer to the [Video Processing documentation](../curate-video/index.md) before running the final installation command.
    ```
 
 :::
@@ -185,6 +203,15 @@ NeMo Curator provides several installation extras to install only the components
 ```
 
 ```{note}
+**Why `--extra-index-url` is Required**: GPU-accelerated extras require `--extra-index-url https://pypi.nvidia.com` because they depend on NVIDIA-specific packages that are hosted on NVIDIA's PyPI index rather than the standard Python Package Index. These packages include:
+- **RAPIDS libraries** (cuDF, cuGraph, cuML, etc.) - Used for GPU-accelerated deduplication and text processing
+- **NVIDIA DALI** (`nvidia-dali-cuda120`) - Used for optimized image data loading
+- **CV-CUDA** (`cvcuda_cu12`) - Used for GPU-accelerated video processing
+
+CPU-only extras (text_cpu, audio_cpu, image_cpu, video_cpu) do not require the extra index because all their dependencies are available on standard PyPI.
+```
+
+```{note}
 **Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 ```
 
@@ -237,25 +264,3 @@ Try a modality-specific quickstart to see NeMo Curator in action:
 - [Image Curation Quickstart](gs-image) - Curate image-text datasets for generative models
 - [Video Curation Quickstart](gs-video) - Split, encode, and curate video clips at scale
 
----
-
-## Next Steps
-
-Choose your next step based on your goals:
-
-### For Local Development & Learning
-
-1. **Try a tutorial**: Start with [Get Started guides](../get-started/index.md)
-2. **Configure your environment**: See [Configuration Guide](config/index.md) for basic setup
-
-### For Production Deployment
-
-1. **Review requirements**: See [Production Deployment Requirements](deployment/requirements.md)
-2. **Choose deployment method**: See [Deployment Options](deployment/index.md)
-3. **Configure for production**: See [Configuration Guide](config/index.md) for advanced settings
-
-```{seealso}
-- [Configuration Guide](config/index.md) - Configure NeMo Curator for your environment
-- [Container Environments](../reference/infrastructure/container-environments.md) - Container-specific setup
-- [Deployment Requirements](deployment/requirements.md) - Production deployment prerequisites
-```
