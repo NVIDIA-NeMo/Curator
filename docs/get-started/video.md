@@ -66,7 +66,7 @@ patch -p1 < intern_video2_multimodal.patch
 cd ..
 
 # Add InternVideo2 to the environment
-uv add InternVideo/InternVideo2/multi_modality
+uv pip install InternVideo/InternVideo2/multi_modality
 ```
 
 ```{note}
