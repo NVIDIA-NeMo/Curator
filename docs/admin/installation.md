@@ -113,7 +113,7 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
 2. Create and activate a virtual environment:
 
    ```bash
-   uv venv -p 3.12
+   uv venv
    source .venv/bin/activate
    ```
 
