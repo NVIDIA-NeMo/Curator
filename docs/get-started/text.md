@@ -81,10 +81,10 @@ NeMo Curator is available as a standalone container:
 
 ```bash
 # Pull the container
-docker pull nvcr.io/nvidia/nemo-curator:latest
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
 
 # Run the container
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:latest
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
 ```
 
 ```{seealso}
