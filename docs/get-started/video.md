@@ -117,32 +117,28 @@ Embeddings convert each video clip into a numeric vector that captures visual an
 
 You can choose between two embedding models:
 
-- **Cosmos-Embed1 (default)**: Automatically downloaded to `MODEL_DIR` on first run; good general-purpose performance and lower VRAM usage.
-- **InternVideo2 (IV2)**: Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage.
+- **Cosmos-Embed1 (default)**: Available in three variants—**cosmos-embed1-224p**, **cosmos-embed1-336p**, and **cosmos-embed1-448p**—which differ in input resolution and accuracy/VRAM tradeoff. All variants are automatically downloaded to `MODEL_DIR` on first run.  
+  - [cosmos-embed1-224p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-224p)
+  - [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-336p)
+  - [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-448p)
+- **InternVideo2 (IV2)**: Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage. 
+  - [InternVideo Official Github Page](https://github.com/OpenGVLab/InternVideo)
 
-For this quickstart, we're going to set up support for **IV2**.
+For this quickstart, we're going to set up support for **Cosmos-Embed1-224p**.
 
-### Prepare IV2 Model Weights
+### Prepare Model Weights
 
-Complete the following steps when you set `--embedding-algorithm` to `internvideo2` or when you pre-stage models for offline use.
+For most use cases, you only need to create a model directory. The required model files will be downloaded automatically on first run.
 
-1. Create a model directory.
+1. Create a model directory:
+   ```bash
+   mkdir -p "$MODEL_DIR"
+   ```
    :::{tip}
    You can reuse the same `<MODEL_DIR>` across runs.
    :::
-2. Download the IV2 Checkpoint from the [OpenGVLab page](https://github.com/OpenGVLab) and accept the terms.
-3. Download the BERT model files for [`google-bert/bert-large-uncased`](https://huggingface.co/google-bert/bert-large-uncased).
 
-The directory should resemble the following:
-
-```text
-<MODEL_DIR>/
-  OpenGVLab/InternVideo2-Stage2_1B-224p-f4/InternVideo2-stage2_1b-224p-f4.pt
-  google-bert/bert-large-uncased/
-    config.json
-    tokenizer.json
-    ... (standard tokenizer files)
-```
+2. No additional setup is required. The model will be downloaded automatically when first used.
 
 ## Set Up Data Directories
 
@@ -169,7 +165,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --output-clip-path "$OUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
-  --embedding-algorithm internvideo2 \
+  --embedding-algorithm cosmos-embed1-224p \
   --transcode-encoder libopenh264 \
   --verbose
 ```
@@ -196,7 +192,7 @@ The example script supports the following options:
 ```
 
 :::{tip}
-To use the default Cosmos-Embed1 instead, omit `--embedding-algorithm` or set `--embedding-algorithm cosmos-embed1-224p`.
+To use InternVideo2 instead, set `--embedding-algorithm internvideo2`.
 :::
 
 ## Next Steps

@@ -33,13 +33,15 @@ A pipeline orchestrates stages into an end-to-end workflow. Key characteristics:
 
 ## Stages
 
-A stage represents a single step in your data curation workflow. For example, stages can:
+A stage represents a single step in your data curation workflow. Video stages are organized into several functional categories:
 
-- Download videos
-- Convert video formats
-- Split videos into clips
-- Generate embeddings
-- Calculate scores
+- **Input/Output**: Read video files and write processed outputs to storage ([Save & Export Documentation](video-save-export))
+- **Video Clipping**: Split videos into clips using fixed stride or scene-change detection ([Video Clipping Documentation](video-process-clipping))
+- **Frame Extraction**: Extract frames from videos or clips for analysis and embeddings ([Frame Extraction Documentation](video-process-frame-extraction))
+- **Embedding Generation**: Generate clip-level embeddings using InternVideo2 or Cosmos-Embed1 models ([Embeddings Documentation](video-process-embeddings))
+- **Filtering**: Filter clips based on motion analysis and aesthetic quality scores ([Filtering Documentation](video-process-filtering))
+- **Caption and Preview**: Generate captions and preview images from video clips ([Captions & Preview Documentation](video-process-captions-preview))
+- **Deduplication**: Remove near-duplicate clips using embedding-based clustering ([Duplicate Removal Documentation](video-process-dedup))
 
 ### Stage Architecture
 
