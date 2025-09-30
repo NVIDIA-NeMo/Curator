@@ -27,61 +27,7 @@ For comprehensive system requirements and production deployment specifications, 
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
 
-### Install FFmpeg and Encoders
-
-Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
-
-::::{tab-set}
-
-:::{tab-item} Debian/Ubuntu (Script)
-
-Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
-
-- Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
-chmod +x install_ffmpeg.sh
-sudo bash install_ffmpeg.sh
-```
-
-:::
-
-:::{tab-item} Verify Installation
-
-Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
-
-```bash
-ffmpeg -hide_banner -version | head -n 5
-ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
-```
-
-If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
-
-:::
-
 ::::
-
-### InternVideo2 Support (Optional)
-
-Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator:
-
-```bash
-# Clone and set up InternVideo2
-git clone https://github.com/OpenGVLab/InternVideo.git
-cd InternVideo
-git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
-
-# Download and apply NeMo Curator patch
-curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
-patch -p1 < intern_video2_multimodal.patch
-cd ..
-
-# Add InternVideo2 to the environment
-uv add InternVideo/InternVideo2/multi_modality
-```
-
-For more details, refer to the [Video Processing documentation](../curate-video/index.md).
 
 ### Development vs Production
 
@@ -143,11 +89,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --all-extras --all-groups
 ```
 
-**Benefits:**
+Optional InternVideo2 installation steps:
 
-- Access to latest features and bug fixes
-- Ability to modify source code for custom needs
-- Easier contribution to the project
+```bash
+bash external/intern_video2_installation.sh
+uv add InternVideo/InternVideo2/multi_modality
+```
 
 :::
 
@@ -181,6 +128,58 @@ docker run --gpus all -it --rm nemo-curator:latest
 :::
 
 ::::
+
+### Install FFmpeg and Encoders (Required for Video)
+
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
+
+::::{tab-set}
+
+:::{tab-item} Debian/Ubuntu (Script)
+
+Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
+
+- Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
+chmod +x install_ffmpeg.sh
+sudo bash install_ffmpeg.sh
+```
+
+:::
+
+:::{tab-item} Verify Installation
+
+Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
+
+```bash
+ffmpeg -hide_banner -version | head -n 5
+ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
+```
+
+If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
+
+:::
+
+### InternVideo2 Support (Optional)
+
+Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator:
+
+```bash
+# Clone and set up InternVideo2
+git clone https://github.com/OpenGVLab/InternVideo.git
+cd InternVideo
+git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
+
+# Download and apply NeMo Curator patch
+curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
+patch -p1 < intern_video2_multimodal.patch
+cd ..
+
+# Add InternVideo2 to the environment
+uv add InternVideo/InternVideo2/multi_modality
+```
 
 ---
 
