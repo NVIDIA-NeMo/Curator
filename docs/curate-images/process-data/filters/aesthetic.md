@@ -126,5 +126,5 @@ results = pipeline.run()
 
 ## Resources
 
-- [Image Curation Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)
-- [Complete Pipeline Example](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)
+- [Image Curation Tutorial](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)
+- [Complete Pipeline Example](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)
