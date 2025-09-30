@@ -49,7 +49,7 @@ You can install NeMo Curator in three ways:
 The simplest way to install NeMo Curator:
 
 ```bash
-uv pip install "nemo_curator.whl[text_cuda12]"
+uv pip install "nemo-curator[text_cuda12]"
 ```
 
 ```{note}
