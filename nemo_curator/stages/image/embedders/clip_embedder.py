@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import torch
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.clip import CLIPImageEmbeddings
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -51,6 +51,10 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the CLIP model on the node."""
+        CLIPImageEmbeddings.download_weights_on_node(self.model_dir)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the CLIP image embedding model."""
