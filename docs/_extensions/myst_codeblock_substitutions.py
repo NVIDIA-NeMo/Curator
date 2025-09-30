@@ -12,7 +12,7 @@ kubectl get pods -n {{ product_name_short }}-namespace
 ```
 
 Or in inline code:
-Use `nvcr.io/nvidia/nemo-curator:{{ current_release }}` for the Docker image.
+Use `nvcr.io/nvidia/nemo-curator:{{ container_version }}` for the Docker image.
 
 The substitutions will be replaced with their values from myst_substitutions in conf.py.
 """

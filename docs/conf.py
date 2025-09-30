@@ -121,6 +121,7 @@ myst_substitutions = {
     "min_python_version": "3.8",
     "recommended_cuda": "12.0+",
     "current_release": release,
+    "container_version": "25.09",
 }
 
 # Enable figure numbering

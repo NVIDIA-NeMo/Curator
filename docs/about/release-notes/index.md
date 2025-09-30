@@ -16,7 +16,7 @@ This major release represents a fundamental architecture shift from [Dask](https
 
 ## Installation Updates
 
-- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ current_release }}`)
+- **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ container_version }}`)
 - **Docker file to build own image**: Simplified [Dockerfile](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/Dockerfile) structure for custom container builds with FFmpeg support
 - **UV source installations**: Integrated UV package manager (v0.8.22) for faster dependency management
 - **PyPI improvements**: Enhanced PyPI installation with modular extras for targeted functionality:
@@ -50,7 +50,7 @@ This major release represents a fundamental architecture shift from [Dask](https
 
   All GPU installations require the NVIDIA PyPI index:
   ```bash
-  pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
+  uv pip install https://pypi.nvidia.com nemo-curator[EXTRA]
   ```
 
 ## New Modalities
@@ -88,7 +88,7 @@ New [audio curation capabilities](../../curate-audio/index.md) for speech data p
 
 - **Pipeline-based architecture**: Transitioned from legacy `ImageTextPairDataset` to modern [stage-based processing](../../curate-images/index.md) with `ImageReaderStage`, `ImageEmbeddingStage`, and filter stages
 - **DALI-based image loading**: New `ImageReaderStage` uses NVIDIA DALI for high-performance WebDataset tar shard processing with GPU/CPU fallback
-- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings.md), [aesthetic filtering](../../curate-images/process-data/aesthetic-filtering.md), and [NSFW filtering](../../curate-images/process-data/nsfw-filtering.md)
+- **Modular processing stages**: Separate stages for [embedding generation](../../curate-images/process-data/embeddings/index.md), [aesthetic filtering](../../curate-images/process-data/classifiers/aesthetic.md), and [NSFW filtering](../../curate-images/process-data/classifiers/nsfw.md)
 - **Task-based data flow**: Images processed as `ImageBatch` tasks containing `ImageObject` instances with metadata, embeddings, and classification scores
 
 Learn more about [image curation](../../curate-images/index.md).
@@ -98,7 +98,7 @@ Learn more about [image curation](../../curate-images/index.md).
 Enhanced deduplication capabilities across all modalities with improved performance and flexibility:
 
 - **Exact and Fuzzy deduplication**: Updated [rapidsmpf-based shuffle backend](../../reference/infrastructure/gpu-processing.md) for more efficient GPU-to-GPU data transfer and better spilling capabilities
-- **Semantic deduplication**: Support for deduplicating [text](../../curate-text/process-data/deduplication/semdedup.md), [image](../../curate-images/process-data/deduplication.md), and [video](../../curate-video/process-data/dedup.md) datasets using unified embedding-based workflows
+- **Semantic deduplication**: Support for deduplicating [text](../../curate-text/process-data/deduplication/semdedup.md) and [video](../../curate-video/process-data/dedup.md) datasets using unified embedding-based workflows
 - **New ranking strategies**: Added `RankingStrategy` which allows you to rank elements within cluster centers to decide which point to prioritize during duplicate removal, supporting [metadata-based ranking](../../curate-text/process-data/deduplication/semdedup.md) to prioritize specific datasets or inputs
 
 ## Core Refactors
@@ -213,10 +213,6 @@ For all tutorial content, refer to the [tutorials directory](https://github.com/
 - **API reference**: Complete [API documentation](../../apidocs/index.rst) with type annotations and examples
 
 ---
-
-## Migration Guide
-
-TBD
 
 ## What's Next
 

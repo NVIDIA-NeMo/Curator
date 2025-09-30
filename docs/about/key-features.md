@@ -18,7 +18,7 @@ NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data cu
 
 - Trusted by leading organizations for LLM and generative AI data curation
 - Open source, NVIDIA-supported, and actively maintained
-- Seamless integration with enterprise MLOps and data platforms (Kubernetes, Slurm, Spark, Dask)
+- Seamless integration with enterprise MLOps and data platforms
 - Proven at scale: from laptops to multi-node GPU clusters
 
 ### Benchmarks & Results
@@ -31,7 +31,8 @@ NeMo Curator is an enterprise-grade platform for scalable, privacy-aware data cu
 
 ## Text Data Curation
 
-NeMo Curator offers advanced tools for text data loading, cleaning, filtering, deduplication, and classification using pipeline-based architecture. Built-in modules support language identification, quality estimation, and domain and safety classification. Pipelines run on Ray for distributed execution and are fully modular and customizable for diverse NLP and LLM training needs.
+NeMo Curator offers advanced tools for text data loading, cleaning, filtering, deduplication, and classification. Built-in modules support language identification, quality estimation, domain and safety classification. Pipelines are fully modular and can be customized for diverse NLP and LLM training needs.
+
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -166,7 +167,8 @@ Set up your environment and run your first video curation pipeline with NeMo Cur
 
 ## Deployment and Integration
 
-NeMo Curator supports distributed, cloud-native, and on-premises deployments. It supports Kubernetes, Slurm, and Spark, and integrates seamlessly with your existing MLOps pipelines. Modular APIs and CLI tools enable flexible orchestration and automation.
+NeMo Curator is designed for distributed, cloud-native, and on-premises deployments. It integrates easily with your existing MLOps pipelines. Modular APIs enable flexible orchestration and automation.
+
 
 ::::{grid} 1 1 2 2
 :gutter: 2
@@ -174,7 +176,7 @@ NeMo Curator supports distributed, cloud-native, and on-premises deployments. It
 :::{grid-item-card} {octicon}`cloud;1.5em;sd-mr-1` Deployment Options
 :link: admin-overview
 :link-type: ref
-Deploy on Kubernetes, Slurm, or Spark. See the Admin Guide for full deployment and integration options.
+See the Admin Guide for deployment guidance and infrastructure recommendations.
 :::
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management
