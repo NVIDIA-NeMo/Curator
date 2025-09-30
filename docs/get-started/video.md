@@ -79,7 +79,7 @@ Cosmos-Embed1 is generally better than InternVideo2 for most video embedding tas
 
 ```bash
 uv pip install torch wheel_stub psutil setuptools setuptools_scm
-uv pip install --no-build-isolation "nemo_curator.whl[video_cuda12]"
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 ```
 
 :::
