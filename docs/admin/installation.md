@@ -27,8 +27,6 @@ For comprehensive system requirements and production deployment specifications, 
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
 
-::::
-
 ### Development vs Production
 
 | Use Case | Requirements | See |
@@ -161,6 +159,7 @@ ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
 
 :::
+::::
 
 ### InternVideo2 Support (Optional)
 
@@ -180,6 +179,7 @@ cd ..
 # Add InternVideo2 to the environment
 uv add InternVideo/InternVideo2/multi_modality
 ```
+
 
 ---
 
