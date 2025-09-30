@@ -1,7 +1,7 @@
 ---
 description: "Core concepts for saving and exporting curated image datasets including metadata, filtering, and resharding"
 categories: ["concepts-architecture"]
-tags: ["data-export", "webdataset", "parquet", "filtering", "resharding", "metadata"]
+tags: ["data-export", "tar-files", "parquet", "filtering", "resharding", "metadata"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "concept"
@@ -9,70 +9,125 @@ modality: "image-only"
 ---
 
 (about-concepts-image-data-export)=
+
 # Data Export Concepts (Image)
 
 This page covers the core concepts for saving and exporting curated image datasets in NeMo Curator.
 
 ## Key Topics
-- Saving metadata to Parquet
-- Exporting filtered datasets
-- Resharding WebDatasets
+
+- Saving metadata to Parquet files
+- Exporting filtered datasets as tar archives
+- Configuring output sharding
+- Understanding output format structure
 - Preparing data for downstream training or analysis
 
-## Saving Metadata
+## Saving Results
 
-After processing, you can save the dataset's metadata (including embeddings, classifier scores, and other fields) to Parquet files for easy analysis or further processing.
-
-**Example:**
-```python
-# Save all metadata columns to the original path
-dataset.save_metadata()
-
-# Save only selected columns to a custom path
-dataset.save_metadata(path="/output/metadata", columns=["id", "aesthetic_score", "nsfw_score"])
-```
-- Parquet format is efficient and compatible with many analytics tools.
-- You can choose to save all or only specific columns.
-
-## Exporting Filtered Datasets
-
-To export a filtered version of your dataset (e.g., after removing low-quality or NSFW images), use the `to_webdataset` method. This writes new `.tar` and `.parquet` files containing only the filtered samples.
+After processing through the pipeline, you can save the curated images and metadata using the `ImageWriterStage`.
 
 **Example:**
+
 ```python
-# Filter your metadata (e.g., keep only high-quality images)
-filtered_col = (dataset.metadata["aesthetic_score"] > 0.5) & (dataset.metadata["nsfw_score"] < 0.2)
-dataset.metadata["keep"] = filtered_col
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-dataset.to_webdataset(
-    path="/output/filtered_webdataset",  # Output directory
-    filter_column="keep",                # Boolean column indicating which samples to keep
-    samples_per_shard=10000,              # Number of samples per tar shard
-    max_shards=5                         # Number of digits for shard IDs
-)
+# Add writer stage to pipeline
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/curated_dataset",
+    images_per_tar=1000,
+    remove_image_data=True,
+    verbose=True,
+    deterministic_name=True,  # Use deterministic naming for reproducible output
+))
 ```
-- The output directory will contain new `.tar` files (with images, captions, and metadata) and matching `.parquet` files for each shard.
-- Adjust `samples_per_shard` and `max_shards` to control sharding granularity and naming.
 
-## Resharding WebDatasets
+- The writer stage creates tar files with curated images
+- Metadata (if updated during curation pipeline) is stored in separate Parquet files alongside tar archives
+- Configurable images per tar file for optimal sharding
+- `deterministic_name=True` ensures reproducible file naming based on input content
 
-Resharding changes the number of samples per shard, which can optimize data loading or prepare data for specific workflows.
+## Pipeline-Based Filtering
+
+Filtering happens automatically within the pipeline stages. Each filter stage (aesthetic, NSFW) removes images that don't meet the configured thresholds, so only curated images reach the final `ImageWriterStage`.
+
+**Example Pipeline Flow:**
+
+```python
+from nemo_curator.pipeline.pipeline import Pipeline
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
+
+# Complete pipeline with filtering
+pipeline = Pipeline(name="image_curation")
+
+# Load images
+pipeline.add_stage(FilePartitioningStage(...))
+pipeline.add_stage(ImageReaderStage(...))
+
+# Generate embeddings
+pipeline.add_stage(ImageEmbeddingStage(...))
+
+# Filter by quality (removes low aesthetic scores)
+pipeline.add_stage(ImageAestheticFilterStage(score_threshold=0.5))
+
+# Filter NSFW content (removes high NSFW scores)
+pipeline.add_stage(ImageNSFWFilterStage(score_threshold=0.5))
+
+# Save curated results
+pipeline.add_stage(ImageWriterStage(output_dir="/output/curated"))
+```
+
+- Filtering is built into the stages - no separate filtering step needed
+- Images passing all filters reach the output
+- Thresholds are configurable per stage
+
+## Output Format
+
+The `ImageWriterStage` creates tar archives containing curated images with accompanying metadata files:
+
+**Output Structure:**
+
+```bash
+output/
+├── images-{hash}-000000.tar    # Contains JPEG images
+├── images-{hash}-000000.parquet # Metadata for corresponding tar
+├── images-{hash}-000001.tar
+├── images-{hash}-000001.parquet
+```
+
+**Format Details:**
+
+- **Tar contents**: JPEG images with sequential or ID-based filenames
+- **Metadata storage**: Separate Parquet files containing image paths, IDs, and processing metadata
+- **Naming**: Deterministic or random naming based on configuration
+- **Sharding**: Configurable number of images per tar file for optimal performance
+
+## Configuring Output Sharding
+
+The `ImageWriterStage` parameters control how images get distributed across output tar files.
 
 **Example:**
-```python
-# Reshard the dataset without filtering (keep all samples)
-dataset.metadata["keep"] = True
 
-dataset.to_webdataset(
-    path="/output/resharded_webdataset",
-    filter_column="keep",
-    samples_per_shard=20000,  # New shard size
-    max_shards=6
-)
+```python
+# Configure output sharding
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/curated_dataset",
+    images_per_tar=5000,  # Images per tar file
+    remove_image_data=True,
+    deterministic_name=True,
+))
 ```
-- Use resharding to balance I/O, parallelism, and storage efficiency.
+
+- Adjust `images_per_tar` to balance I/O, parallelism, and storage efficiency
+- Smaller values create more files but enable better parallelism
+- Larger values reduce file count but may impact loading performance
 
 ## Preparing for Downstream Use
+
 - Ensure your exported dataset matches the requirements of your training or analysis pipeline.
 - Use consistent naming and metadata fields for compatibility.
 - Document any filtering or processing steps for reproducibility.
