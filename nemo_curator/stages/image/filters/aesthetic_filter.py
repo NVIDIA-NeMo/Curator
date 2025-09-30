@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.aesthetics import AestheticScorer
 from nemo_curator.stages.image.filters.base import BaseFilterStage
 from nemo_curator.tasks import ImageBatch
@@ -37,6 +37,10 @@ class ImageAestheticFilterStage(BaseFilterStage):
     score_threshold: float = 0.5
     verbose: bool = False
     _name: str = "image_aesthetic_filter"
+
+    def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
+        """Download aesthetic model weights from HF"""
+        AestheticScorer.download_weights_on_node(self.model_dir)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the aesthetic filtering model."""

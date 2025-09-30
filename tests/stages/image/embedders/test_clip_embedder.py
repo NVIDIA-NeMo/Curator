@@ -91,6 +91,15 @@ class TestImageEmbeddingStage:
         assert stage.inputs() == (["data"], [])
         assert stage.outputs() == (["data"], [])
 
+    @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings.download_weights_on_node")
+    def test_setup_on_node_downloads_weights(self, mock_download: Mock, stage: ImageEmbeddingStage) -> None:
+        """setup_on_node should trigger weight download on the node with model_dir."""
+        # Act
+        stage.setup_on_node(node_info=Mock(), worker_metadata=Mock())
+
+        # Assert
+        mock_download.assert_called_once_with(stage.model_dir)
+
     @patch("nemo_curator.stages.image.embedders.clip_embedder.CLIPImageEmbeddings")
     def test_setup(self, mock_clip_embeddings: Mock, stage: ImageEmbeddingStage) -> None:
         """Test stage setup."""
