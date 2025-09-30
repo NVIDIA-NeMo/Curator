@@ -1,7 +1,7 @@
 ---
 description: "Essential concepts for image data curation including loading, processing, and export with GPU acceleration"
 categories: ["concepts-architecture"]
-tags: ["concepts", "image-curation", "webdataset", "gpu-accelerated", "embedding", "classification"]
+tags: ["concepts", "image-curation", "tar-archives", "gpu-accelerated", "embedding", "classification"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "concept"
