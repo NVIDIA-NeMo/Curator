@@ -50,7 +50,7 @@ This major release represents a fundamental architecture shift from [Dask](https
 
   All GPU installations require the NVIDIA PyPI index:
   ```bash
-  pip install --extra-index-url https://pypi.nvidia.com nemo-curator[EXTRA]
+  uv pip install https://pypi.nvidia.com nemo-curator[EXTRA]
   ```
 
 ## New Modalities

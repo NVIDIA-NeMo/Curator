@@ -94,7 +94,7 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
    # Install build dependencies and NeMo Curator
    uv pip install torch wheel_stub psutil setuptools setuptools_scm
    echo "transformers==4.55.2" > override.txt
-   uv pip install --extra-index-url https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
+   uv pip install  https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
    ```
 
 :::
@@ -171,44 +171,35 @@ NeMo Curator provides several installation extras to install only the components
   - `uv pip install nemo-curator`
   - CPU-only basic modules
 * - **deduplication_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[deduplication_cuda12]`
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[deduplication_cuda12]`
   - RAPIDS libraries for GPU deduplication
 * - **text_cpu**
   - `uv pip install nemo-curator[text_cpu]`
   - CPU-only text processing and filtering
 * - **text_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]`
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[text_cuda12]`
   - GPU-accelerated text processing with RAPIDS
 * - **audio_cpu**
   - `uv pip install nemo-curator[audio_cpu]`
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[audio_cuda12]`
   - GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override.
 * - **image_cpu**
   - `uv pip install nemo-curator[image_cpu]`
   - CPU-only image processing
 * - **image_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_cuda12]`
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[image_cuda12]`
   - GPU-accelerated image processing with NVIDIA DALI
 * - **video_cpu**
   - `uv pip install nemo-curator[video_cpu]`
   - CPU-only video processing
 * - **video_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[video_cuda12]`
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[video_cuda12]`
   - GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`.
 * - **all**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]`
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[all]`
   - All GPU-accelerated modules (recommended for full functionality). When using `uv`, requires transformers override and build dependencies.
-```
-
-```{note}
-**Why `--extra-index-url` is Required**: GPU-accelerated extras require `--extra-index-url https://pypi.nvidia.com` because they depend on NVIDIA-specific packages that are hosted on NVIDIA's PyPI index rather than the standard Python Package Index. These packages include:
-- **RAPIDS libraries** (cuDF, cuGraph, cuML, etc.) - Used for GPU-accelerated deduplication and text processing
-- **NVIDIA DALI** (`nvidia-dali-cuda120`) - Used for optimized image data loading
-- **CV-CUDA** (`cvcuda_cu12`) - Used for GPU-accelerated video processing
-
-CPU-only extras (text_cpu, audio_cpu, image_cpu, video_cpu) do not require the extra index because all their dependencies are available on standard PyPI.
 ```
 
 ```{note}

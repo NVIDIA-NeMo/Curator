@@ -70,7 +70,7 @@ The simplest way to install NeMo Curator with audio support:
 pip install nemo-curator[audio_cpu]
 
 # Audio + GPU acceleration for other modalities
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12,deduplication_cuda12]
+pip install  https://pypi.nvidia.com nemo-curator[audio_cuda12,deduplication_cuda12]
 ```
 
 ```{note}
