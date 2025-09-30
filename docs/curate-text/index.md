@@ -60,12 +60,21 @@ Learn prerequisites, setup instructions, and initial configuration for text cura
 
 ## Curation Tasks
 
-### Load Data
+### Download Data
 
-Import your text data from various sources into NeMo Curator's processing pipeline.
+Download text data from remote sources and import existing datasets into NeMo Curator's processing pipeline.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
+
+:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data
+:link: text-load-data-read-existing
+:link-type: ref
+Read existing JSONL and Parquet datasets using Curator's reader stages
++++
+{bdg-secondary}`jsonl`
+{bdg-secondary}`parquet`
+:::
 
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` arXiv
 :link: text-load-data-arxiv
@@ -87,16 +96,6 @@ Load and preprocess text data from Common Crawl web archives
 {bdg-secondary}`distributed`
 :::
 
-:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Custom Data
-:link: text-load-data-custom
-:link-type: ref
-Load your own text datasets in various formats
-+++
-{bdg-secondary}`jsonl`
-{bdg-secondary}`parquet`
-{bdg-secondary}`custom-formats`
-:::
-
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Wikipedia
 :link: text-load-data-wikipedia
 :link-type: ref
@@ -105,6 +104,16 @@ Import and process Wikipedia articles for training datasets
 {bdg-secondary}`articles`
 {bdg-secondary}`multilingual`
 {bdg-secondary}`dumps`
+:::
+
+:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Custom Data
+:link: text-load-data-custom
+:link-type: ref
+Load your own text datasets in various formats
++++
+{bdg-secondary}`jsonl`
+{bdg-secondary}`parquet`
+{bdg-secondary}`custom-formats`
 :::
 
 ::::
@@ -142,8 +151,8 @@ Remove duplicate and near-duplicate documents efficiently
 Clean, normalize, and transform text content
 +++
 {bdg-secondary}`cleaning`
-{bdg-secondary}`pii-removal`
 {bdg-secondary}`normalization`
+{bdg-secondary}`formatting`
 :::
 
 :::{grid-item-card} {octicon}`globe;1.5em;sd-mr-1` Language Management
@@ -159,10 +168,9 @@ Handle multilingual content and language-specific processing
 :::{grid-item-card} {octicon}`tools;1.5em;sd-mr-1` Specialized Processing
 :link: process-data/specialized-processing/index
 :link-type: doc
-Domain-specific processing for code and synthetic data
+Domain-specific processing for code and advanced curation tasks
 +++
 {bdg-secondary}`code-processing`
-{bdg-secondary}`synthetic-data`
 :::
 
 ::::

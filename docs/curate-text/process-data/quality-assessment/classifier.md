@@ -164,32 +164,31 @@ Use the pre-trained `nvidia/quality-classifier-deberta` model for robust quality
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import DistributedDataClassifier
 from nemo_curator.stages.text.classifiers import QualityClassifier
 
 # Create pipeline with DeBERTa quality classifier
 pipeline = Pipeline(name="quality_classification_pipeline")
 
-# Add stages
-read_stage = JsonlReader("input_data/")
-classify_stage = DistributedDataClassifier(
-    QualityClassifier(
-        model_path="nvidia/quality-classifier-deberta",
-        labels=["Low", "Medium", "High"],  # Quality levels
-        batch_size=256,
-        max_chars=2000
-    ),
-    text_field="text",
-    pred_column="quality_pred"
+# Load dataset
+read_stage = JsonlReader(
+    file_paths="input_data/",
+    fields=["text", "id"]
 )
-write_stage = JsonlWriter("classified_output/")
-
 pipeline.add_stage(read_stage)
+
+# Apply quality classifier
+classify_stage = QualityClassifier(
+    max_chars=6000,  # Default is 6000
+    model_inference_batch_size=256
+)
 pipeline.add_stage(classify_stage)
+
+# Save results
+write_stage = JsonlWriter(path="classified_output/")
 pipeline.add_stage(write_stage)
 
 # Execute pipeline
-results = pipeline.run()
+results = pipeline.run()  # Uses XennaExecutor by default
 ```
 
 #### Option B: Custom fastText Models
@@ -199,48 +198,48 @@ If you need to train custom fastText models for specific domains or requirements
 :::{note}
 **When to use each approach:**
 
-- **DeBERTa Quality Classifier**: Higher accuracy, multi-class output (Low/Medium/High), better for general quality assessment
-- **fastText**: Faster inference, lower memory usage, better for high-throughput scenarios or when you have domain-specific training data
+- **QualityClassifier (DeBERTa)**: Higher accuracy, multi-class output (Low/Medium/High), better for general quality assessment. Use the `filter_by` parameter to filter during classification or omit it to add predictions as metadata only.
+- **FastTextQualityFilter**: Faster inference, lower memory usage, includes Pareto sampling, better for high-throughput scenarios or when you have domain-specific training data.
 :::
 
-### 3. Filter Data Using Quality Scores
+### 3. Use Quality Assessment
 
-After obtaining quality predictions, you can filter your dataset based on the scores. Here are examples for both classifier types:
+NeMo Curator provides two approaches for quality assessment:
+
+1. **Classification**: Use `QualityClassifier` to add quality predictions and optionally filter during classification
+2. **Filtering**: Use `FastTextQualityFilter` with `ScoreFilter` for document-level filtering with Pareto sampling
 
 ::::{tab-set}
 
-:::{tab-item} DeBERTa Quality Filter
+:::{tab-item} DeBERTa Quality Classification
 
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import QualityFilter
+from nemo_curator.stages.text.classifiers import QualityClassifier
 
-# Create pipeline with DeBERTa quality filter
+# Create pipeline with DeBERTa quality classifier
 pipeline = Pipeline(name="deberta_quality_pipeline")
 
 # Add stages
 read_stage = JsonlReader("input_data/")
-filter_stage = ScoreFilter(
-    QualityFilter(
-        model_path="nvidia/quality-classifier-deberta",
-        filter_by=["High"],  # Keep only high-quality documents
-        batch_size=256
-    ),
-    text_field="text",
-    score_field="quality_pred"
+classify_stage = QualityClassifier(
+    filter_by=["High"],  # Keep only high-quality documents
+    model_inference_batch_size=256,
+    max_chars=6000  # Default value
 )
 write_stage = JsonlWriter("high_quality_output/")
 
 pipeline.add_stage(read_stage)
-pipeline.add_stage(filter_stage)
+pipeline.add_stage(classify_stage)
 pipeline.add_stage(write_stage)
 
 # Execute pipeline
 results = pipeline.run()
 ```
+
+:::
 
 :::{tab-item} FastText Quality Filter
 
@@ -280,24 +279,24 @@ results = pipeline.run()
 
 :::{tab-item} Configuration
 
-You can configure quality filters with different parameters:
+You can configure quality classifiers and filters with different parameters:
 
 ```python
-from nemo_curator.stages.text.filters import QualityFilter, FastTextQualityFilter
+from nemo_curator.stages.text.classifiers import QualityClassifier
+from nemo_curator.stages.text.filters import FastTextQualityFilter
 
-# DeBERTa quality filter configurations
-basic_deberta_filter = QualityFilter(
-    model_path="nvidia/quality-classifier-deberta",
+# DeBERTa quality classifier configurations
+basic_deberta_classifier = QualityClassifier(
     filter_by=["High"],          # Keep only high-quality documents
-    batch_size=256,
-    max_chars=2000
+    model_inference_batch_size=256,
+    max_chars=6000               # Default value
 )
 
-# More inclusive DeBERTa filter
-inclusive_deberta_filter = QualityFilter(
-    model_path="nvidia/quality-classifier-deberta",
+# More inclusive DeBERTa classifier
+inclusive_deberta_classifier = QualityClassifier(
     filter_by=["Medium", "High"], # Keep medium and high-quality documents
-    batch_size=128
+    model_inference_batch_size=128,
+    max_chars=6000
 )
 
 # FastText quality filter configurations
@@ -331,16 +330,17 @@ NeMo Curator's implementation includes support for Pareto-based sampling, as des
 
 This method helps maintain diversity in the dataset while still prioritizing higher-quality documents.
 
-## Quality Filter Parameters
+## Quality Classifier and Filter Parameters
 
-### QualityFilter (DeBERTa)
+### QualityClassifier (DeBERTa)
 
-The `QualityFilter` accepts the following parameters:
+The `QualityClassifier` accepts the following parameters:
 
-- `model_path` (str, required): HuggingFace model path (e.g., "nvidia/quality-classifier-deberta")
-- `filter_by` (list, default=["High"]): Quality levels to keep (options: "Low", "Medium", "High")
-- `batch_size` (int, default=256): Batch size for inference
-- `max_chars` (int, default=2000): Max characters per document for processing
+- `filter_by` (list, default=None): Quality levels to keep (options: "Low", "Medium", "High")
+- `model_inference_batch_size` (int, default=256): Batch size for inference
+- `max_chars` (int, default=6000): Max characters per document for processing
+- `pred_column` (str, default="quality_pred"): Name of the prediction column
+- `text_field` (str, default="text"): Name of the text field in input data
 
 ### FastTextQualityFilter
 
@@ -358,19 +358,16 @@ Typical configurations for quality-based filtering:
 ### DeBERTa Quality Classifier
 
 ```yaml
-filters:
-  - name: ScoreFilter
-    filter:
-      name: QualityFilter
-      model_path: nvidia/quality-classifier-deberta
-      filter_by: ["High"]
-      batch_size: 256
-      max_chars: 2000
+classifiers:
+  - name: QualityClassifier
+    filter_by: ["High"]
+    model_inference_batch_size: 256
+    max_chars: 6000
+    pred_column: quality_pred
     text_field: text
-    score_field: quality_pred
 ```
 
-### FastText Quality Classifier
+### FastText Quality Filter
 
 ```yaml
 filters:

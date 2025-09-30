@@ -10,7 +10,7 @@ modality: "universal"
 
 # Infrastructure References
 
-This section provides technical reference documentation for NeMo Curator's infrastructure components that are used across all modalities (text, image, video). For deployment and operational configuration, see the [Admin Configuration Guide](admin-config).
+This section provides technical reference documentation for NeMo Curator's infrastructure components that are used across all modalities (text, image, video).
 
 ---
 
@@ -52,11 +52,10 @@ Continue interrupted operations across large datasets
 :::{grid-item-card} {octicon}`container;1.5em;sd-mr-1` Container Environments
 :link: reference-infrastructure-container-environments
 :link-type: ref
-Available environments and configurations in NeMo Curator containers. Includes Slurm environment variables, build arguments, and video-specific environments.
+Available environments and configurations in NeMo Curator containers. Includes build arguments and video-specific environments.
 +++
 {bdg-secondary}`docker`
 {bdg-secondary}`conda`
-{bdg-secondary}`slurm`
 {bdg-secondary}`environments`
 :::
 

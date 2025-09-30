@@ -9,17 +9,42 @@ modality: "universal"
 ---
 
 (admin-installation)=
+
 # Installation Guide
 
-This guide covers installing NeMo Curator and verifying your installation is working correctly. For configuration after installation, see [Configuration](admin-config).
+This guide covers installing NeMo Curator and verifying your installation is working correctly.
 
-## System Requirements
+## Before You Start
+
+### InternVideo2 Support (Optional)
+
+Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator:
+
+```bash
+# Clone and set up InternVideo2
+git clone https://github.com/OpenGVLab/InternVideo.git
+cd InternVideo
+git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
+
+# Download and apply NeMo Curator patch
+curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
+patch -p1 < intern_video2_multimodal.patch
+cd ..
+
+# Add InternVideo2 to the environment
+uv add InternVideo/InternVideo2/multi_modality
+```
+
+For more details, refer to the [Video Processing documentation](../curate-video/index.md).
+
+### System Requirements
 
 For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
 
 **Quick Start Requirements:**
-- **OS**: Ubuntu 22.04/20.04 (recommended) 
-- **Python**: 3.10 or 3.12 (Python 3.11 is not supported)
+
+- **OS**: Ubuntu 24.04/22.04/20.04 (recommended)
+- **Python**: 3.10, 3.11, or 3.12
 - **Memory**: 16GB+ RAM for basic text processing
 - **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
 
@@ -41,22 +66,36 @@ Choose one of the following installation methods based on your needs:
 
 :::{tab-item} PyPI Installation (Recommended)
 
-The simplest way to install NeMo Curator from the Python Package Index:
+Install NeMo Curator from the Python Package Index using `uv` for proper dependency resolution.
 
-**CPU-only installation:**
-```bash
-pip install nemo-curator
-```
+1. Install uv:
 
-**GPU-accelerated installation:**
-```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
-```
+   ```bash
+   curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+   source $HOME/.local/bin/env
+   ```
 
-**Full installation with all modules:**
-```bash
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]
-```
+2. Create and activate a virtual environment:
+
+   ```bash
+   uv venv -p 3.12
+   source .venv/bin/activate
+   ```
+
+3. Install NeMo Curator:
+
+   ```bash
+   # Install FFmpeg first
+   # Ubuntu/Debian
+   sudo apt-get update && sudo apt-get install -y ffmpeg
+   # macOS
+   brew install ffmpeg
+
+   # Install build dependencies and NeMo Curator
+   uv pip install torch wheel_stub psutil setuptools setuptools_scm
+   echo "transformers==4.55.2" > override.txt
+   uv pip install  https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
+   ```
 
 :::
 
@@ -69,11 +108,15 @@ Install the latest development version directly from GitHub:
 git clone https://github.com/NVIDIA/NeMo-Curator.git
 cd NeMo-Curator
 
-# Install with desired extras
-pip install --extra-index-url https://pypi.nvidia.com ".[all]"
+# Install uv if not already available
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install with all extras using uv
+uv sync --all-extras --all-groups
 ```
 
 **Benefits:**
+
 - Access to latest features and bug fixes
 - Ability to modify source code for custom needs
 - Easier contribution to the project
@@ -84,25 +127,25 @@ pip install --extra-index-url https://pypi.nvidia.com ".[all]"
 
 NeMo Curator is available as a standalone container:
 
-```{warning}
-**Container Availability**: The standalone NeMo Curator container is currently in development. Check the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers) for the latest availability and container path.
+```{note}
+**Container Build**: You can build the NeMo Curator container locally using the provided Dockerfile. A pre-built container will be available on NGC in the future.
 ```
 
 ```bash
-# Pull the container (path will be updated when available)
-docker pull nvcr.io/nvidia/nemo-curator:latest
+# Build the container locally
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator
+docker build -t nemo-curator:latest -f docker/Dockerfile .
 
 # Run the container with GPU support
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:latest
+docker run --gpus all -it --rm nemo-curator:latest
 
-# For custom installations inside container
-pip uninstall nemo-curator
-rm -r /opt/NeMo-Curator
-git clone https://github.com/NVIDIA/NeMo-Curator.git /opt/NeMo-Curator
-pip install --extra-index-url https://pypi.nvidia.com "/opt/NeMo-Curator[all]"
+# The container includes NeMo Curator with all dependencies pre-installed
+# Environment is activated automatically at /opt/venv
 ```
 
 **Benefits:**
+
 - Pre-configured environment with all dependencies
 - Consistent runtime across different systems
 - Ideal for production deployments
@@ -125,24 +168,42 @@ NeMo Curator provides several installation extras to install only the components
   - Installation Command
   - Description
 * - **Base**
-  - `pip install nemo-curator`
-  - CPU-only text curation modules
-* - **dev**
-  - `pip install nemo-curator[dev]`
-  - Development tools (pre-commit, ruff, pytest)
-* - **cuda12x**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]`
-  - CPU + GPU text curation with RAPIDS
+  - `uv pip install nemo-curator`
+  - CPU-only basic modules
+* - **deduplication_cuda12**
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[deduplication_cuda12]`
+  - RAPIDS libraries for GPU deduplication
+* - **text_cpu**
+  - `uv pip install nemo-curator[text_cpu]`
+  - CPU-only text processing and filtering
+* - **text_cuda12**
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[text_cuda12]`
+  - GPU-accelerated text processing with RAPIDS
 * - **audio_cpu**
-  - `pip install nemo-curator[audio_cpu]`
+  - `uv pip install nemo-curator[audio_cpu]`
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`
-  - GPU-accelerated audio curation with NeMo Toolkit ASR
-  - CPU + GPU text and image curation
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[audio_cuda12]`
+  - GPU-accelerated audio curation. When using `uv`, requires `transformers==4.55.2` override.
+* - **image_cpu**
+  - `uv pip install nemo-curator[image_cpu]`
+  - CPU-only image processing
+* - **image_cuda12**
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[image_cuda12]`
+  - GPU-accelerated image processing with NVIDIA DALI
+* - **video_cpu**
+  - `uv pip install nemo-curator[video_cpu]`
+  - CPU-only video processing
+* - **video_cuda12**
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[video_cuda12]`
+  - GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`.
 * - **all**
-  - `pip install --extra-index-url https://pypi.nvidia.com nemo-curator[all]`
-  - All stable modules (recommended)
+  - `uv pip install  https://pypi.nvidia.com nemo-curator[all]`
+  - All GPU-accelerated modules (recommended for full functionality). When using `uv`, requires transformers override and build dependencies.
+```
+
+```{note}
+**Development Dependencies**: For development tools (pre-commit, ruff, pytest), use `uv sync --group dev` instead of pip extras. Development dependencies are managed as dependency groups, not optional dependencies.
 ```
 
 ---
@@ -159,8 +220,8 @@ import nemo_curator
 print(f"NeMo Curator version: {nemo_curator.__version__}")
 
 # Test core modules
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modules import ExactDuplicates
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.tasks import DocumentBatch
 print("✓ Core modules imported successfully")
 ```
 
@@ -171,124 +232,26 @@ If you installed GPU support, verify GPU access:
 ```python
 # Check GPU availability
 try:
-    import cudf
-    import dask_cudf
-    print("✓ GPU modules available")
+    import torch
+    if torch.cuda.is_available():
+        print(f"✓ GPU available: {torch.cuda.get_device_name(0)}")
+        print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+    else:
+        print("⚠ No GPU detected")
     
-    # Test GPU memory
-    import cupy
-    mempool = cupy.get_default_memory_pool()
-    print(f"✓ GPU memory pool initialized: {mempool.total_bytes() / 1e9:.1f} GB")
+    # Check cuDF for GPU deduplication
+    import cudf
+    print("✓ cuDF available for GPU-accelerated deduplication")
 except ImportError as e:
-    print(f"⚠ GPU modules not available: {e}")
+    print(f"⚠ Some GPU modules not available: {e}")
 ```
 
-### 3. CLI Tools Verification
+### 3. Run a Quickstart Tutorial
 
-Test that command-line tools are properly installed:
+Try a modality-specific quickstart to see NeMo Curator in action:
 
-```bash
-# Check if CLI tools are available
-text_cleaning --help
-add_id --help
-gpu_exact_dups --help
+- [Text Curation Quickstart](gs-text) - Set up and run your first text curation pipeline
+- [Audio Curation Quickstart](gs-audio) - Get started with audio dataset curation
+- [Image Curation Quickstart](gs-image) - Curate image-text datasets for generative models
+- [Video Curation Quickstart](gs-video) - Split, encode, and curate video clips at scale
 
-# Test specific functionality
-echo '{"id": "doc1", "text": "Hello world"}' | text_cleaning --input-format jsonl
-```
-
-### 4. Dask Cluster Test
-
-Verify distributed computing capabilities:
-
-```python
-from nemo_curator.utils.distributed_utils import get_client
-
-# Test local cluster creation
-client = get_client(cluster_type="local", n_workers=2)
-print(f"✓ Dask cluster created: {client}")
-
-# Test basic distributed operation
-import dask.dataframe as dd
-df = dd.from_pandas(pd.DataFrame({"x": [1, 2, 3, 4]}), npartitions=2)
-result = df.x.sum().compute()
-print(f"✓ Distributed computation successful: {result}")
-
-client.close()
-```
-
----
-
-## Common Installation Issues
-
-### CUDA/GPU Issues
-
-**Problem**: GPU modules not available after installation
-```bash
-ImportError: No module named 'cudf'
-```
-
-**Solutions**:
-1. Ensure you installed with the correct extra: `nemo-curator[cuda12x]` or `nemo-curator[all]`
-2. Verify CUDA is properly installed: `nvidia-smi`
-3. Check CUDA version compatibility (CUDA 12.0+ required)
-4. Install RAPIDS manually: `pip install --extra-index-url https://pypi.nvidia.com cudf-cu12`
-
-### Python Version Issues
-
-**Problem**: Installation fails with Python version errors
-```bash
-ERROR: Package 'nemo_curator' requires a different Python: 3.9.0 not in '>=3.10'
-```
-
-**Solutions**:
-1. Upgrade to Python 3.10 or 3.12
-2. Use conda to manage Python versions: `conda create -n curator python=3.12`
-3. Avoid Python 3.11 (not supported due to RAPIDS compatibility)
-
-### Network/Registry Issues
-
-**Problem**: Cannot access NVIDIA PyPI registry
-```bash
-ERROR: Could not find a version that satisfies the requirement cudf-cu12
-```
-
-**Solutions**:
-1. Ensure you're using the NVIDIA registry: `--extra-index-url https://pypi.nvidia.com`
-2. Check network connectivity to PyPI and NVIDIA registry
-3. Try installing with `--trusted-host pypi.nvidia.com`
-4. Use container installation as alternative
-
-### Memory Issues
-
-**Problem**: Installation fails due to insufficient memory
-```bash
-MemoryError: Unable to allocate array
-```
-
-**Solutions**:
-1. Increase system memory or swap space
-2. Install packages individually rather than `[all]`
-3. Use `--no-cache-dir` flag: `pip install --no-cache-dir nemo-curator[all]`
-4. Consider container installation
-
----
-
-## Next Steps
-
-Choose your next step based on your goals:
-
-### For Local Development & Learning
-1. **Try a tutorial**: Start with [Get Started guides](../get-started/index.md)
-2. **Configure your environment**: See [Configuration Guide](config/index.md) for basic setup
-
-### For Production Deployment
-1. **Review requirements**: See [Production Deployment Requirements](deployment/requirements.md)
-2. **Choose deployment method**: See [Deployment Options](deployment/index.md)
-3. **Configure for production**: See [Configuration Guide](config/index.md) for advanced settings
-
-```{seealso}
-- [Configuration Guide](config/index.md) - Configure NeMo Curator for your environment
-- [Container Environments](../reference/infrastructure/container-environments.md) - Container-specific setup
-- [Deployment Requirements](deployment/requirements.md) - Production deployment prerequisites
-``` 

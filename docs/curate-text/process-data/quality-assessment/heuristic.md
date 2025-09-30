@@ -49,7 +49,7 @@ pipeline = Pipeline(name="heuristic_filtering")
 
 # Load your dataset
 reader = JsonlReader(
-    file_paths="input_data/*.jsonl",
+    file_paths="input_data/",
     fields=["text", "id"]
 )
 pipeline.add_stage(reader)
@@ -130,7 +130,7 @@ for config in filters_config:
 
 ## Available Filters
 
-NeMo Curator includes over 30 heuristic filters for assessing document quality. Below are the most commonly used filters with their parameters:
+NeMo Curator includes more than 30 heuristic filters for assessing document quality. Below are the most commonly used filters with their parameters:
 
 ### Text Length Filters
 
@@ -215,7 +215,7 @@ filters:
 
 ::::
 
-The configuration file `config/heuristic_filter_en.yaml` contains a general-purpose set of heuristic filters that work well for English text. For non-English texts, you may need to adjust the filter parameters.
+For non-English texts, you may need to adjust the filter parameters based on the specific characteristics of your target language.
 
 ## Best Practices
 
