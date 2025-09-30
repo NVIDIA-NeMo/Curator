@@ -27,7 +27,6 @@ To use NeMo Curator's audio curation modules, ensure you meet the following requ
   * CUDA 12 (or above)
 * Audio processing libraries (automatically installed with audio extras)
 
-
 :::{tip}
 If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
 
@@ -53,10 +52,6 @@ The fastest and most reliable way to install NeMo Curator with audio support:
 ```bash
 echo "transformers==4.55.2" > override.txt
 uv pip install "nemo-curator[audio_cuda12]" --override override.txt
-```
-
-```{note}
-uv provides faster dependency resolution and more reliable installations. It's the same tool used by NeMo Curator developers and CI/CD systems.
 ```
 
 :::
@@ -97,15 +92,11 @@ Use `audio_cpu` for CPU-only audio processing, `audio_cuda12` for GPU accelerati
 
 NeMo Curator is available as a standalone container:
 
-```{warning}
-**Container Availability**: The standalone NeMo Curator container is currently in development. Check the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers) for the latest availability and container path.
-```
-
 ```bash
 # Pull the container
 docker pull nvcr.io/nvidia/nemo-curator:latest
 
-# Run the container with GPU support
+# Run the container
 docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:latest
 ```
 

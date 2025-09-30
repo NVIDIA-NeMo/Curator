@@ -84,6 +84,48 @@ uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 
 :::
 
+:::{tab-item} Source With internvideo2
+
+```bash
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator
+uv sync --extra video_cuda12 --all-groups
+bash external/intern_video2_installation.sh
+uv add InternVideo/InternVideo2/multi_modality
+source .venv/bin/activate 
+```
+
+:::
+
+:::{tab-item} Source Without internvideo2
+
+```bash
+git clone https://github.com/NVIDIA/NeMo-Curator.git
+cd NeMo-Curator
+uv sync --extra video_cuda12 --all-groups
+source .venv/bin/activate
+```
+
+:::
+
+:::{tab-item} NeMo Curator Container
+
+NeMo Curator is available as a standalone container:
+
+```bash
+# Pull the container
+docker pull nvcr.io/nvidia/nemo-curator:latest
+
+# Run the container
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:latest
+```
+
+```{seealso}
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
+```
+
+:::
+
 ::::
 
 ## Install FFmpeg and Encoders

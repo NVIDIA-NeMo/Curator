@@ -12,11 +12,22 @@ modality: "universal"
 
 # Installation Guide
 
-This guide covers installing NeMo Curator and verifying your installation is working correctly.
+This guide covers installing NeMo Curator with support for **all modalities** and verifying your installation is working correctly.
 
 ## Before You Start
 
-## Install FFmpeg and Encoders
+### System Requirements
+
+For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
+
+**Quick Start Requirements:**
+
+- **OS**: Ubuntu 24.04/22.04/20.04 (recommended)
+- **Python**: 3.10, 3.11, or 3.12
+- **Memory**: 16GB+ RAM for basic text processing
+- **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
+
+### Install FFmpeg and Encoders
 
 Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
 
@@ -71,17 +82,6 @@ uv add InternVideo/InternVideo2/multi_modality
 ```
 
 For more details, refer to the [Video Processing documentation](../curate-video/index.md).
-
-### System Requirements
-
-For comprehensive system requirements and production deployment specifications, see [Production Deployment Requirements](deployment/requirements.md).
-
-**Quick Start Requirements:**
-
-- **OS**: Ubuntu 24.04/22.04/20.04 (recommended)
-- **Python**: 3.10, 3.11, or 3.12
-- **Memory**: 16GB+ RAM for basic text processing
-- **GPU** (optional): NVIDIA GPU with 16GB+ VRAM for acceleration
 
 ### Development vs Production
 

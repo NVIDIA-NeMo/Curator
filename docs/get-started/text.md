@@ -79,10 +79,6 @@ Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `.[text_cp
 
 NeMo Curator is available as a standalone container:
 
-```{warning}
-**Container Availability**: The standalone NeMo Curator container is currently in development. Check the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers) for the latest availability and container path.
-```
-
 ```bash
 # Pull the container
 docker pull nvcr.io/nvidia/nemo-curator:latest
