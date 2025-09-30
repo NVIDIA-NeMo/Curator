@@ -26,7 +26,6 @@ Use the pipeline stages or the example script flags to prepare captions and prev
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.caption.caption_preparation import CaptionPreparationStage
 from nemo_curator.stages.video.caption.caption_generation import CaptionGenerationStage
 from nemo_curator.stages.video.caption.caption_enhancement import CaptionEnhancementStage

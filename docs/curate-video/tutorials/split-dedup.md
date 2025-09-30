@@ -113,7 +113,6 @@ Use K-means clustering followed by pairwise similarity on the Parquet embeddings
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.deduplication.semantic.kmeans import KMeansStage
 from nemo_curator.stages.deduplication.semantic.pairwise import PairwiseStage
 

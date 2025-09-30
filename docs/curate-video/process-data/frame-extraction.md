@@ -37,7 +37,6 @@ Use the pipeline stages or the example script flags to extract frames for embedd
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
 from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose

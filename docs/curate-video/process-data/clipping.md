@@ -37,7 +37,6 @@ Use either the pipeline stages or the example script flags to create clips.
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.clipping.clip_extraction_stages import (
     FixedStrideExtractorStage,
 )
