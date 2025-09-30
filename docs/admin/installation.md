@@ -120,13 +120,6 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
 3. Install NeMo Curator:
 
    ```bash
-   # Install FFmpeg first
-   # Ubuntu/Debian
-   sudo apt-get update && sudo apt-get install -y ffmpeg
-   # macOS
-   brew install ffmpeg
-
-   # Install build dependencies and NeMo Curator
    uv pip install torch wheel_stub psutil setuptools setuptools_scm
    echo "transformers==4.55.2" > override.txt
    uv pip install  https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
