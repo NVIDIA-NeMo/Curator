@@ -110,34 +110,64 @@ The `ImageReaderStage` is the core component that handles tar archive loading wi
 
 ## Parameters
 
-```{list-table} Tar Archive Loading Parameters
+### FilePartitioningStage Parameters
+
+```{list-table}
 :header-rows: 1
-:widths: 20 20 40 20
+:widths: 20 15 15 50
 
 * - Parameter
   - Type
-  - Description
   - Default
+  - Description
 * - `file_paths`
-  - str
-  - Path to directory containing tar files
+  - str | list[str]
   - Required
+  - Path to directory containing tar files, or list of file paths
 * - `files_per_partition`
-  - int
-  - Number of tar files to process per partition (controls parallelism)
-  - 1
+  - int | None
+  - None
+  - Number of tar files to process per partition (controls parallelism). Defaults to 1 if both `files_per_partition` and `blocksize` are not provided
+* - `file_extensions`
+  - list[str] | None
+  - `[".jsonl", ".json", ".parquet"]`
+  - List of file extensions to include (for example, `[".tar"]`)
+* - `blocksize`
+  - int | str | None
+  - None
+  - Target size of the partitions. If provided, `files_per_partition` is ignored
+* - `limit`
+  - int | None
+  - None
+  - Maximum number of partitions to create
+```
+
+### ImageReaderStage Parameters
+
+```{list-table}
+:header-rows: 1
+:widths: 20 15 15 50
+
+* - Parameter
+  - Type
+  - Default
+  - Description
 * - `task_batch_size`
   - int
-  - Number of images per ImageBatch for processing
   - 100
+  - Number of images per ImageBatch for processing
+* - `verbose`
+  - bool
+  - True
+  - Enable verbose logging for debugging
 * - `num_threads`
   - int
-  - Number of threads for DALI operations
   - 8
+  - Number of threads for DALI operations
 * - `num_gpus_per_worker`
   - float
-  - GPU allocation per worker (0.25 = 1/4 GPU)
   - 0.25
+  - GPU allocation per worker (0.25 = 1/4 GPU)
 ```
 
 ---
@@ -191,32 +221,6 @@ pipeline.add_stage(ImageReaderStage(
     num_threads=8,              # Fewer threads for CPU processing
     num_gpus_per_worker=0,      # No GPU allocation
     verbose=True,
-))
-```
-
-### Performance Characteristics
-
-The DALI-based `ImageReaderStage` provides performance benefits over traditional image loading:
-
-- **GPU Acceleration**: Uses GPU decoding when CUDA is available for improved throughput
-- **Memory Efficiency**: Streams images in batches without loading entire datasets into memory
-- **I/O Optimization**: DALI's tar archive reader is optimized for tar file processing
-
-### Advanced Performance Tuning
-
-**Parallelism Configuration**
-
-```python
-# For datasets with many small tar files
-pipeline.add_stage(FilePartitioningStage(
-    files_per_partition=4,      # Process multiple tars together
-    file_extensions=[".tar"],
-))
-
-# For datasets with large tar files
-pipeline.add_stage(FilePartitioningStage(
-    files_per_partition=1,      # Process one tar per partition
-    file_extensions=[".tar"],
 ))
 ```
 

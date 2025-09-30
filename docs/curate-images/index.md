@@ -1,7 +1,7 @@
 ---
-description: "Overview of image data curation with NeMo Curator including loading, processing, classification, and export workflows"
+description: "Overview of image data curation with NeMo Curator including loading, processing, filtering, and export workflows"
 categories: ["workflows"]
-tags: ["image-curation", "tar-archives", "classification", "embedding", "workflows"]
+tags: ["image-curation", "tar-archives", "filtering", "embedding", "workflows"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
 content_type: "workflow"
@@ -12,7 +12,7 @@ modality: "image-only"
 
 # About Image Curation
 
-Learn how to curate high-quality image datasets using NeMo Curator's powerful image processing pipeline. NeMo Curator enables you to efficiently process large-scale image-text datasets, applying quality filtering, content classification, and semantic deduplication at scale.
+Learn how to curate high-quality image datasets using NeMo Curator's powerful image processing pipeline. NeMo Curator enables you to efficiently process large-scale image-text datasets, applying quality filtering, content filtering, and semantic deduplication at scale.
 
 ## Use Cases
 
@@ -32,8 +32,8 @@ flowchart LR
     A[Tar Archive Input] --> B[File Partitioning]
     B --> C[Image Reader<br/>DALI GPU-accelerated]
     C --> D[CLIP Embeddings<br/>ViT-L/14]
-    D --> E[Aesthetic Classification<br/>Quality scoring]
-    E --> F[NSFW Classification<br/>Content filtering]
+    D --> E[Aesthetic Filtering<br/>Quality scoring]
+    E --> F[NSFW Filtering<br/>Content filtering]
     F --> G[Duplicate Removal<br/>Semantic deduplication]
     G --> H[Export & Sharding<br/>Tar + Parquet output]
     
@@ -110,11 +110,11 @@ Transform and enhance your image data through classification, embeddings, and fi
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Classifiers
-:link: image-process-data-classifiers
+:::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filters
+:link: image-process-data-filters
 :link-type: ref
 
-Apply built-in classifiers for aesthetic quality and NSFW content filtering.
+Apply built-in filters for aesthetic quality and NSFW content filtering.
 +++
 {bdg-secondary}`Aesthetic` {bdg-secondary}`NSFW` {bdg-secondary}`quality filtering`
 

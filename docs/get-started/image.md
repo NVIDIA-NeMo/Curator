@@ -211,5 +211,5 @@ Explore the [Image Curation documentation](image-overview) for more advanced pro
 
 * **[Tar Archive Loading](../curate-images/load-data/tar-archives.md)** - Learn about loading JPEG images from tar files
 * **[CLIP Embeddings](../curate-images/process-data/embeddings/clip-embedder.md)** - Understand embedding generation
-* **[Quality Filtering](../curate-images/process-data/classifiers/index.md)** - Advanced aesthetic and NSFW classification
+* **[Quality Filtering](../curate-images/process-data/filters/index.md)** - Advanced aesthetic and NSFW filtering
 * **[Complete Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)** - Full working example with data download

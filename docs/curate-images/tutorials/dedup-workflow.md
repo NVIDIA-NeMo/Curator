@@ -181,19 +181,51 @@ dedup_workflow = create_deduplication_workflow(EMBEDDINGS_DIR, REMOVAL_DIR)
 dedup_workflow.run()
 ```
 
-### Deduplication Parameters
+### Parameters
 
-- **n_clusters**: Number of clusters for initial grouping. More clusters = faster processing but may miss some duplicates
-- **eps**: Similarity threshold (0-1). Lower values are more strict:
-  - `0.01`: Very strict, only removes near-identical images
-  - `0.05`: Moderate, removes visually similar images  
-  - `0.1`: Loose, removes semantically related images
-- **id_field**: Column name containing image identifiers
-- **embedding_field**: Column name containing embedding vectors
+```{list-table}
+:header-rows: 1
+:widths: 20 15 15 50
+
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `input_path`
+  - str
+  - Required
+  - Path to directory containing embedding Parquet files
+* - `output_path`
+  - str
+  - Required
+  - Path to directory for duplicate removal results
+* - `id_field`
+  - str
+  - Required
+  - Column name containing image identifiers
+* - `embedding_field`
+  - str
+  - Required
+  - Column name containing embedding vectors
+* - `n_clusters`
+  - int
+  - 100
+  - Number of clusters for initial grouping (more clusters = faster processing but may miss some duplicates)
+* - `eps`
+  - float
+  - 0.01
+  - Similarity threshold (0–1). Lower values are more strict: `0.01` = very strict (near-identical), `0.05` = moderate (visually similar), `0.1` = loose (semantically related)
+* - `verbose`
+  - bool
+  - True
+  - Enable verbose logging for debugging
+```
 
 ---
 
 ## 3. Remove Duplicate Images
+
+After identifying duplicates, use `ImageDuplicatesRemovalStage` to filter them from your dataset.
 
 Filter the original dataset to remove identified duplicates and create the final deduplicated dataset.
 
@@ -239,10 +271,42 @@ def create_image_removal_pipeline(input_dir, removal_dir, output_dir):
     ))
     
     return pipeline
+```
 
+### Parameters
+
+```{list-table}
+:header-rows: 1
+:widths: 20 15 15 50
+
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `removal_parquets_dir`
+  - str
+  - Required
+  - Directory containing Parquet files with image IDs to remove
+* - `duplicate_id_field`
+  - str
+  - `"id"`
+  - Name of the column containing image IDs to remove
+* - `verbose`
+  - bool
+  - False
+  - Enable verbose logging for debugging
+* - `num_workers_per_node`
+  - int | None
+  - None
+  - Number of workers per node for the stage (helps avoid OOM when multiple actors load the same removal Parquet files)
+```
+
+### Run the Removal Pipeline
+
+```python
 # Set paths
 INPUT_TAR_DIR = "/path/to/input/tar_dataset"
-REMOVAL_DIR = "/path/to/removal_ids"  
+REMOVAL_DIR = "/path/to/removal_ids"
 OUTPUT_DIR = "/path/to/deduplicated/dataset"
 
 # Run removal pipeline
@@ -385,21 +449,6 @@ def run_image_deduplication_workflow():
 if __name__ == "__main__":
     run_image_deduplication_workflow()
 ```
-
-## Performance Considerations
-
-### Processing Time
-
-- **Embedding generation**: Processing time varies by GPU and batch size
-- **Deduplication**: Scales with O(n²) within clusters, O(n) across clusters
-- **Removal**: Primarily I/O bound
-
-### Optimization Tips
-
-1. **Increase batch sizes** for high-memory GPUs
-2. **Adjust cluster count**: More clusters = faster but potentially less accurate
-3. **Use SSDs** for embedding storage to speed up deduplication
-4. **Process in chunks** for very large datasets (>10M images)
 
 ## Next Steps
 

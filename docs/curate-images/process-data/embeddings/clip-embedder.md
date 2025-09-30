@@ -62,15 +62,37 @@ pipeline.add_stage(ImageEmbeddingStage(
 results = pipeline.run()
 ```
 
-## Key Parameters
+## Parameters
 
-| Parameter                    | Default | Description                                                                 |
-|------------------------------|---------|-----------------------------------------------------------------------------|
-| `model_dir`                  | None    | Path to directory containing CLIP model weights                             |
-| `model_inference_batch_size` | 32      | Batch size for model inference                                              |
-| `num_gpus_per_worker`        | 0.25    | GPU allocation per worker (0.25 = 1/4 GPU)                                 |
-| `remove_image_data`          | False   | Whether to remove image data after embedding generation (saves memory)     |
-| `verbose`                    | False   | Enable verbose logging for debugging                                        |
+```{list-table}
+:header-rows: 1
+:widths: 20 15 15 50
+
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `model_dir`
+  - str
+  - None
+  - Path to directory containing CLIP model weights
+* - `model_inference_batch_size`
+  - int
+  - 32
+  - Batch size for model inference
+* - `num_gpus_per_worker`
+  - float
+  - 0.25
+  - GPU allocation per worker (0.25 = 1/4 GPU)
+* - `remove_image_data`
+  - bool
+  - False
+  - Whether to remove image data after embedding generation (saves memory)
+* - `verbose`
+  - bool
+  - False
+  - Enable verbose logging for debugging
+```
 
 ## Performance Notes
 

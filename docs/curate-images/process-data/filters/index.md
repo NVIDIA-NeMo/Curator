@@ -1,33 +1,33 @@
 ---
-description: "Image classification tools including aesthetic and NSFW classifiers for dataset quality control"
+description: "Image filtering tools including aesthetic and NSFW filters for dataset quality control"
 categories: ["workflows"]
-tags: ["classification", "aesthetic", "nsfw", "quality-filtering", "gpu-accelerated"]
+tags: ["filtering", "aesthetic", "nsfw", "quality-filtering", "gpu-accelerated"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
 modality: "image-only"
 ---
 
-(image-process-data-classifiers)=
+(image-process-data-filters)=
 
-# Image Classifiers
+# Image Filters
 
-NeMo Curator provides classifiers for image curation, including aesthetic and NSFW classifiers. These models help you filter, score, and curate large image datasets for downstream tasks such as generative model training and dataset quality control.
+NeMo Curator provides filters for image curation, including aesthetic and NSFW filters. These models help you filter, score, and curate large image datasets for downstream tasks such as generative model training and dataset quality control.
 
 ## How It Works
 
-Image classification in NeMo Curator typically follows these steps:
+Image filtering in NeMo Curator typically follows these steps:
 
 1. Load images using `FilePartitioningStage` and `ImageReaderStage`
 2. Generate image embeddings using `ImageEmbeddingStage`
-3. Apply classification stages (for example, `ImageAestheticFilterStage` or `ImageNSFWFilterStage`)
+3. Apply filtering stages (for example, `ImageAestheticFilterStage` or `ImageNSFWFilterStage`)
 4. Continue with further processing stages or save results
 
-Classification stages integrate seamlessly into NeMo Curator's pipeline architecture.
+Filtering stages integrate seamlessly into NeMo Curator's pipeline architecture.
 
 ## Prerequisites
 
-Before using classification stages, ensure that:
+Before using filtering stages, ensure that:
 
 - Load images using `ImageReaderStage`
 - Generate image embeddings using `ImageEmbeddingStage`
@@ -42,13 +42,13 @@ from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
 
 ---
 
-## Available Classifiers
+## Available Filters
 
 ::::{grid} 1 2 2 2
 :gutter: 1 1 1 2
 
 ::: {grid-item-card} Aesthetic Filter Stage
-:link: image-process-data-classifiers-aesthetic
+:link: image-process-data-filters-aesthetic
 :link-type: ref
 
 Assess the subjective quality of images using a model trained on human aesthetic preferences. Filters images below a configurable aesthetic score threshold (0.0 to 1.0).
@@ -57,10 +57,10 @@ Assess the subjective quality of images using a model trained on human aesthetic
 :::
 
 ::: {grid-item-card} NSFW Filter Stage
-:link: image-process-data-classifiers-nsfw
+:link: image-process-data-filters-nsfw
 :link-type: ref
 
-Detect not-safe-for-work (NSFW) content in images using a CLIP-based classifier. Removes images above a configurable NSFW probability threshold (0.0 to 1.0).
+Detect not-safe-for-work (NSFW) content in images using a CLIP-based filter. Removes images above a configurable NSFW probability threshold (0.0 to 1.0).
 +++
 {bdg-secondary}`ImageNSFWFilterStage` {bdg-secondary}`nsfw_score`
 :::

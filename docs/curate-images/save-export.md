@@ -9,6 +9,7 @@ modality: "image-only"
 ---
 
 (image-save-export)=
+
 # Saving and Exporting Image Datasets
 
 After processing and filtering your image datasets using NeMo Curator's pipeline stages, you can save results and export curated data for downstream use. The pipeline-based approach provides flexible options for saving and exporting your curated image data.
@@ -27,6 +28,38 @@ pipeline.add_stage(ImageWriterStage(
     remove_image_data=True,                 # Remove image data from memory after writing
     verbose=True,                           # Enable progress logging
 ))
+```
+
+### Parameters
+
+```{list-table}
+:header-rows: 1
+:widths: 20 15 15 50
+
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `output_dir`
+  - str
+  - Required
+  - Output directory for tar files and metadata
+* - `images_per_tar`
+  - int
+  - 1000
+  - Number of images per tar file (controls sharding)
+* - `verbose`
+  - bool
+  - False
+  - Enable verbose logging for debugging
+* - `deterministic_name`
+  - bool
+  - True
+  - Use deterministic hash-based naming for output files
+* - `remove_image_data`
+  - bool
+  - False
+  - Remove image data from memory after writing (saves memory)
 ```
 
 ## Pipeline-Based Filtering and Export
@@ -122,4 +155,4 @@ Each tar file contains JPEG images with sequential or ID-based filenames, while 
 
 For more details on stage parameters and customization options, see the [ImageWriterStage documentation](process-data/index.md) and the [Complete Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py).
 
-<!-- More details and examples will be added here. --> 
+<!-- More details and examples will be added here. -->
