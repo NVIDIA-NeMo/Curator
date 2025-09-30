@@ -115,7 +115,7 @@ myst_substitutions = {
     "company": "NVIDIA",
     "version": release,
     "current_year": "2025",
-    "github_repo": "https://github.com/NVIDIA/NeMo-Curator",
+    "github_repo": "https://github.com/NVIDIA-NeMo/Curator",
     "docs_url": "https://docs.nvidia.com/nemo-curator",
     "support_email": "nemo-curator-support@nvidia.com",
     "min_python_version": "3.8",

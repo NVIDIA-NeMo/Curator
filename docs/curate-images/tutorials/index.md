@@ -50,4 +50,4 @@ Image Duplicate Removal Workflow <dedup-workflow>
 
 ## Resources
 
-For working Python examples and command-line scripts, refer to the [Tutorials directory](https://github.com/NVIDIA/NeMo-Curator/tree/main/tutorials/image) in the [NeMo Curator GitHub repository](https://github.com/NVIDIA/NeMo-Curator).
+For working Python examples and command-line scripts, refer to the [Tutorials directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/image) in the [NeMo Curator GitHub repository](https://github.com/NVIDIA-NeMo/Curator).

@@ -153,6 +153,6 @@ Each tar file contains JPEG images with sequential or ID-based filenames, while 
 
 ---
 
-For more details on stage parameters and customization options, see the [ImageWriterStage documentation](process-data/index.md) and the [Complete Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py).
+For more details on stage parameters and customization options, see the [ImageWriterStage documentation](process-data/index.md) and the [Complete Tutorial](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image/getting-started/image_curation_example.py).
 
 <!-- More details and examples will be added here. -->
