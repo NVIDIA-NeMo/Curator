@@ -65,8 +65,8 @@ The audio extras include NeMo Toolkit with ASR models. Additional audio processi
 Install the latest version directly from GitHub:
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 uv sync --extra audio_cuda12 --all-groups
 source .venv/bin/activate 
 ```
