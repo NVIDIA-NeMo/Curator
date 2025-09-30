@@ -90,9 +90,9 @@ uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 
 Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
 
-:::::{tab-set}
+::::{tab-set}
 
-::::{tab-item} Debian/Ubuntu (Script)
+:::{tab-item} Debian/Ubuntu (Script)
 
 Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
 
@@ -104,21 +104,9 @@ chmod +x install_ffmpeg.sh
 sudo bash install_ffmpeg.sh
 ```
 
-::::
+:::
 
-::::{tab-item} macOS (Homebrew)
-
-Install `FFmpeg` using Homebrew, then verify available encoders.
-
-```bash
-brew install ffmpeg openh264
-```
-
-Note: Homebrew `ffmpeg` does not support NVENC on macOS. If `libopenh264` is not available in your build, use `libx264` as the H.264 encoder instead of `libopenh264`.
-
-::::
-
-::::{tab-item} Verify Installation
+:::{tab-item} Verify Installation
 
 Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
 
@@ -129,9 +117,9 @@ ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
 
-::::
+:::
 
-:::::
+::::
 
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
 

@@ -64,6 +64,8 @@ source .venv/bin/activate
 python your_script.py
 ```
 
+:::
+
 :::{tab-item} Docker Container
 
 You can build and run NeMo Curator in a container environment using the provided Dockerfile:
