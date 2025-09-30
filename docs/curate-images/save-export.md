@@ -1,7 +1,7 @@
 ---
-description: "Save metadata, export filtered datasets, and reshard WebDatasets for downstream use after image curation"
+description: "Save metadata, export filtered datasets, and configure output sharding for downstream use after image curation"
 categories: ["how-to-guides"]
-tags: ["data-export", "parquet", "webdataset", "filtering", "resharding", "metadata"]
+tags: ["data-export", "parquet", "tar-files", "filtering", "sharding", "metadata"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -9,65 +9,150 @@ modality: "image-only"
 ---
 
 (image-save-export)=
+
 # Saving and Exporting Image Datasets
 
-After processing and filtering your image datasets, you can save metadata, export results, and reshard WebDatasets for downstream use. NeMo Curator provides flexible options for saving and exporting your curated image data.
+After processing and filtering your image datasets using NeMo Curator's pipeline stages, you can save results and export curated data for downstream use. The pipeline-based approach provides flexible options for saving and exporting your curated image data.
 
-## Saving Metadata to Parquet
+## Saving Results with ImageWriterStage
 
-You can save the metadata (such as classifier scores, embeddings, or other columns) of your `ImageTextPairDataset` to Parquet files for easy analysis or further processing.
-
-```python
-# Assume 'dataset' is an ImageTextPairDataset
-# Save all metadata columns to the original path
-# (or specify a different path if desired)
-dataset.save_metadata()
-
-# Save only selected columns to a custom path
-dataset.save_metadata(path="/output/metadata", columns=["id", "aesthetic_score", "nsfw_score"])
-```
-
-## Exporting Filtered Datasets
-
-To export a filtered version of your dataset (for example, after removing low-quality or NSFW images), use the `to_webdataset` method. This will write new WebDataset shards and Parquet files containing only the filtered samples.
+The `ImageWriterStage` is the primary method for saving curated images and metadata to tar archives with accompanying Parquet files. This stage is typically the final step in your image curation pipeline.
 
 ```python
-# Filter your metadata (e.g., keep only high-quality images)
-filtered_col = (dataset.metadata["aesthetic_score"] > 0.5) & (dataset.metadata["nsfw_score"] < 0.2)
-dataset.metadata["keep"] = filtered_col
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-# Export the filtered dataset to a new directory as WebDataset shards
-dataset.to_webdataset(
-    path="/output/filtered_webdataset",  # Output directory
-    filter_column="keep",                # Boolean column indicating which samples to keep
-    samples_per_shard=10000,              # Number of samples per tar shard
-    max_shards=5                         # Number of digits for shard IDs
-)
+# Add ImageWriterStage to your pipeline
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/curated_images",    # Output directory for tar files and metadata
+    images_per_tar=1000,                    # Number of images per tar file
+    remove_image_data=True,                 # Remove image data from memory after writing
+    verbose=True,                           # Enable progress logging
+))
 ```
 
-- The output directory will contain new `.tar` files (with images, captions, and metadata) and matching `.parquet` files for each shard.
-- You can adjust `samples_per_shard` and `max_shards` to control sharding granularity and naming.
+### Parameters
 
-## Resharding WebDatasets
+```{list-table}
+:header-rows: 1
+:widths: 20 15 15 50
 
-If you want to change the sharding of your dataset (for example, to create larger or smaller shards), you can use the same `to_webdataset` method without filtering:
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `output_dir`
+  - str
+  - Required
+  - Output directory for tar files and metadata
+* - `images_per_tar`
+  - int
+  - 1000
+  - Number of images per tar file (controls sharding)
+* - `verbose`
+  - bool
+  - False
+  - Enable verbose logging for debugging
+* - `deterministic_name`
+  - bool
+  - True
+  - Use deterministic hash-based naming for output files
+* - `remove_image_data`
+  - bool
+  - False
+  - Remove image data from memory after writing (saves memory)
+```
+
+## Pipeline-Based Filtering and Export
+
+Filtering is built into the classification stages (`ImageAestheticFilterStage`, `ImageNSFWFilterStage`). Images that don't meet the criteria are automatically filtered out before reaching the `ImageWriterStage`.
 
 ```python
-# Reshard the dataset without filtering (keep all samples)
-dataset.metadata["keep"] = True
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.stages.image.io.image_reader import ImageReaderStage
+from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
+from nemo_curator.stages.image.filters.aesthetic_filter import ImageAestheticFilterStage
+from nemo_curator.stages.image.filters.nsfw_filter import ImageNSFWFilterStage
+from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
-dataset.to_webdataset(
-    path="/output/resharded_webdataset",
-    filter_column="keep",
-    samples_per_shard=20000,  # New shard size
-    max_shards=6
-)
+# Create pipeline with filtering and export
+pipeline = Pipeline(name="filter_and_export")
+
+# Load and process images
+pipeline.add_stage(FilePartitioningStage(
+    file_paths="/input/tar_archives",
+    files_per_partition=1,
+    file_extensions=[".tar"],
+))
+
+pipeline.add_stage(ImageReaderStage(
+    task_batch_size=100,
+    num_threads=16,
+    num_gpus_per_worker=0.25,
+))
+
+pipeline.add_stage(ImageEmbeddingStage(
+    model_dir="/models",
+    num_gpus_per_worker=0.25,
+))
+
+# Filter by aesthetic quality (score >= 0.5)
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir="/models",
+    score_threshold=0.5,
+    num_gpus_per_worker=0.25,
+))
+
+# Filter NSFW content (score < 0.5)
+pipeline.add_stage(ImageNSFWFilterStage(
+    model_dir="/models",
+    score_threshold=0.5,
+    num_gpus_per_worker=0.25,
+))
+
+# Save filtered results
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/filtered_dataset",
+    images_per_tar=1000,
+    remove_image_data=True,
+))
 ```
 
-This is useful for optimizing data loading performance or preparing data for specific downstream workflows.
+## Configuring Output Sharding
+
+To change the sharding of your dataset (create larger or smaller shards), adjust the `images_per_tar` parameter in `ImageWriterStage`:
+
+```python
+# Create larger shards (20,000 images per tar file)
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/resharded_dataset",
+    images_per_tar=20000,  # Larger shard size
+    remove_image_data=True,
+))
+```
+
+## Output Format
+
+The `ImageWriterStage` creates:
+
+* **Tar Archives**: `.tar` files containing JPEG images
+* **Parquet Files**: `.parquet` files with metadata for each corresponding tar file
+* **Deterministic Naming**: Files named with content-based hashes for reproducibility
+* **Preserved Metadata**: All scores and metadata from processing stages stored in Parquet files
+
+**Output Structure:**
+```bash
+output/
+├── images-{hash}-000000.tar     # Contains JPEG images
+├── images-{hash}-000000.parquet # Metadata for corresponding tar
+├── images-{hash}-000001.tar
+├── images-{hash}-000001.parquet
+```
+
+Each tar file contains JPEG images with sequential or ID-based filenames, while metadata (including `aesthetic_score`, `nsfw_score`, and other processing data) is stored in the accompanying Parquet files.
 
 ---
 
-For more details on the available methods and options, see the `ImageTextPairDataset` class in the NeMo Curator codebase.
+For more details on stage parameters and customization options, see the [ImageWriterStage documentation](process-data/index.md) and the [Complete Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py).
 
-<!-- More details and examples will be added here. --> 
+<!-- More details and examples will be added here. -->
