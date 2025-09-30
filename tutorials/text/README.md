@@ -27,4 +27,4 @@ Hands-on tutorials for curating text data with NeMo Curator. Complete working ex
 
 ## Support
 
-**Documentation**: [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [GitHub Discussions](https://github.com/NVIDIA/NeMo-Curator/discussions)
+**Documentation**: [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions)

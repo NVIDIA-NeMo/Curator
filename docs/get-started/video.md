@@ -64,8 +64,8 @@ uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 :::{tab-item} Source Without internvideo2
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 uv sync --extra video_cuda12 --all-groups
 source .venv/bin/activate
 ```
@@ -98,8 +98,8 @@ uv pip install InternVideo/InternVideo2/multi_modality
 :::{tab-item} Source With internvideo2
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 uv sync --extra video_cuda12 --all-groups
 bash external/intern_video2_installation.sh
 uv add InternVideo/InternVideo2/multi_modality
