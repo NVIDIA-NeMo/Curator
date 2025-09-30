@@ -58,8 +58,8 @@ uv pip install "nemo-curator[image_cuda12]"
 Install the latest version directly from GitHub using uv:
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 uv sync --extra image_cuda12
 ```
 
