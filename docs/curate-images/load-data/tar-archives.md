@@ -1,7 +1,7 @@
 ---
 description: "Load and process JPEG images from tar archives using DALI-powered GPU acceleration with distributed processing"
 categories: ["how-to-guides"]
-tags: ["tar-archives", "data-loading", "dali", "gpu-acceleration", "distributed", "cloud-storage"]
+tags: ["tar-archives", "data-loading", "dali", "gpu-acceleration", "distributed"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "how-to"
@@ -75,7 +75,7 @@ results = pipeline.run()
 
 **Parameters:**
 
-- `file_paths`: Path to directory containing tar files (local or cloud storage)
+- `file_paths`: Path to directory containing tar files
 - `files_per_partition`: Number of tar files to process per partition (controls parallelism)
 - `task_batch_size`: Number of images per ImageBatch for processing
 
@@ -120,7 +120,7 @@ The `ImageReaderStage` is the core component that handles tar archive loading wi
   - Default
 * - `file_paths`
   - str
-  - Path to directory containing tar files (local or cloud storage)
+  - Path to directory containing tar files
   - Required
 * - `files_per_partition`
   - int

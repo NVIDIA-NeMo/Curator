@@ -18,7 +18,7 @@ This page covers the core concepts for processing image data in NeMo Curator.
 
 Image embeddings are vector representations of images, used for downstream tasks like classification, filtering, and deduplication.
 
-- **ImageEmbeddingStage:** Uses CLIP ViT-L/14 model for high-quality embedding generation. Supports GPU acceleration, batching, and automatic CPU fallback. Users can also implement custom embedding models by modifying the class's `setup()` and `process()` methods.
+- **ImageEmbeddingStage:** Uses CLIP ViT-L/14 model for high-quality embedding generation. Supports GPU acceleration, batching, and automatic CPU fallback.
 - **CLIP Integration:** Built-in CLIP model provides robust embeddings for aesthetic and NSFW classification.
 - **Pipeline Integration:** Embedding generation integrates seamlessly into NeMo Curator's pipeline architecture.
 

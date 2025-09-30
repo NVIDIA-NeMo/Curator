@@ -169,8 +169,6 @@ def create_deduplication_workflow(embeddings_dir, removal_dir):
         embedding_field="embedding",
         n_clusters=100,          # Number of clusters for grouping
         eps=0.01,               # Similarity threshold (lower = more strict)
-        read_kwargs={"storage_options": {}},
-        write_kwargs={"storage_options": {}},
         verbose=True,
     )
 
@@ -356,8 +354,6 @@ def run_image_deduplication_workflow():
         embedding_field="embedding",
         n_clusters=100,
         eps=0.01,
-        read_kwargs={"storage_options": {}},
-        write_kwargs={"storage_options": {}},
         verbose=True,
     )
     dedup_workflow.run()

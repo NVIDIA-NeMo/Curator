@@ -23,9 +23,7 @@ NeMo Curator's image data loading uses a pipeline-based approach optimized for l
 
 3. **Tar Archive Format**: Processes sharded `.tar` archives containing JPEG images (other file types are ignored during loading).
 
-4. **Cloud and Local Storage**: Supports loading from local disk or cloud storage (S3, GCS, Azure) using the same pipeline stages.
-
-5. **Batch Processing**: Images are processed in `ImageBatch` objects containing decoded images, metadata, and processing results.
+4. **Batch Processing**: Images are processed in `ImageBatch` objects containing decoded images, metadata, and processing results.
 
 The result is a stream of `ImageBatch` objects ready for embedding, classification, and filtering in downstream pipeline stages.
 

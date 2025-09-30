@@ -100,10 +100,6 @@ ImageObject(
 )
 ```
 
-## Custom Embedding Models
-
-Users can also implement their own custom embedding models by modifying the `ImageEmbeddingStage` class's `setup()` and `process()` methods accordingly. This approach allows integration of proprietary or research models not available in the built-in implementation.
-
 ## Additional Resources
 
 - [Complete Pipeline Example](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)

@@ -86,7 +86,7 @@ Learn prerequisites, setup instructions, and initial configuration for image cur
 
 ### Load Data
 
-Load and process large-scale image datasets from local storage or cloud sources using tar archives with GPU-accelerated DALI for efficient distributed processing.
+Load and process large-scale image datasets from local storage using tar archives with GPU-accelerated DALI for efficient distributed processing.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
@@ -124,9 +124,9 @@ Apply built-in classifiers for aesthetic quality and NSFW content filtering.
 :link: image-process-data-embeddings
 :link-type: ref
 
-Generate image embeddings using CLIP models or custom embedders.
+Generate image embeddings using CLIP models.
 +++
-{bdg-secondary}`timm` {bdg-secondary}`custom` {bdg-secondary}`embeddings`
+{bdg-secondary}`embeddings`
 
 :::
 
