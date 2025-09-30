@@ -16,6 +16,41 @@ This guide covers installing NeMo Curator and verifying your installation is wor
 
 ## Before You Start
 
+## Install FFmpeg and Encoders
+
+Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
+
+::::{tab-set}
+
+:::{tab-item} Debian/Ubuntu (Script)
+
+Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
+
+- Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
+chmod +x install_ffmpeg.sh
+sudo bash install_ffmpeg.sh
+```
+
+:::
+
+:::{tab-item} Verify Installation
+
+Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
+
+```bash
+ffmpeg -hide_banner -version | head -n 5
+ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
+```
+
+If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
+
+:::
+
+::::
+
 ### InternVideo2 Support (Optional)
 
 Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator:

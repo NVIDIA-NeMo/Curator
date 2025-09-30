@@ -48,7 +48,7 @@ Create and activate a virtual environment, then choose an install option:
 
 ::::{tab-set}
 
-:::{tab-item} With internvideo2
+:::{tab-item} PyPi With internvideo2
 
 ```bash
 # Install base dependencies
@@ -75,7 +75,7 @@ Cosmos-Embed1 is generally better than InternVideo2 for most video embedding tas
 
 :::
 
-:::{tab-item} Without internvideo2
+:::{tab-item} PyPi Without internvideo2
 
 ```bash
 uv pip install torch wheel_stub psutil setuptools setuptools_scm
