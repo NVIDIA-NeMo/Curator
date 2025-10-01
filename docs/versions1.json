@@ -1,6 +1,11 @@
 [
     {
         "preferred": true,
+        "version": "25.09",
+        "url": "../25.09"
+    },
+    {
+        "preferred": false,
         "version": "0.25.7",
         "url": "../0.25.7"
     }
