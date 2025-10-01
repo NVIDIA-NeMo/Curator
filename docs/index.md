@@ -37,51 +37,7 @@ Explore the core concepts for each modality in NeMo Curator.
 
 ::::
 
-## Data Curation Workflows
-
-### Workflow Modalities
-
-Explore how you can use NeMo Curator across different content modalities.
-
-::::{grid} 1 2 2 2
-:gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` Curate Text
-:link: text-overview
-:link-type: ref
-Curate and prepare high-quality text datasets for LLM training.
-+++
-{bdg-secondary}`filtering` {bdg-secondary}`formatting` {bdg-secondary}`synthetic-data`
-:::
-
-:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Curate Images
-:link: image-overview
-:link-type: ref
-Curate image-text datasets with embedding, classification, and deduplication.
-+++
-{bdg-secondary}`embedding` {bdg-secondary}`classification` {bdg-secondary}`semantic-deduplication`
-:::
-
-:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Curate Videos
-:link: video-overview
-:link-type: ref
-
-Curate and process videos with GPU-accelerated pipelines and sharding.
-+++
-{bdg-secondary}`video-splitting` {bdg-secondary}`video-sharding` {bdg-secondary}`gpu-accelerated`
-:::
-
-:::{grid-item-card} {octicon}`unmute;1.5em;sd-mr-1` Curate Audio
-:link: audio-overview
-:link-type: ref
-Transcribe, filter, and curate speech and audio datasets with ASR models.
-+++
-{bdg-secondary}`asr` {bdg-secondary}`transcription` {bdg-secondary}`quality-filtering`
-:::
-
-::::
-
-## Quickstart Guides
+## Quickstarts
 
 Install and run NeMo Curator for specific modalities.
 
@@ -112,6 +68,50 @@ Set up and run video curation workflows.
 :link: gs-audio
 :link-type: ref
 Set up and run audio curation workflows.
+:::
+
+::::
+
+## Data Curation Workflows
+
+### Workflow Modalities
+
+Explore how you can use NeMo Curator across different content modalities.
+
+::::{grid} 1 2 2 2
+:gutter: 1 1 1 2
+
+:::{grid-item-card} {octicon}`book;1.5em;sd-mr-1` Curate Text
+:link: text-overview
+:link-type: ref
+Curate and prepare high-quality text datasets for LLM training.
++++
+{bdg-secondary}`filtering` {bdg-secondary}`formatting` {bdg-secondary}`deduplication`
+:::
+
+:::{grid-item-card} {octicon}`image;1.5em;sd-mr-1` Curate Images
+:link: image-overview
+:link-type: ref
+Curate image-text datasets with embedding, classification, and deduplication.
++++
+{bdg-secondary}`embedding` {bdg-secondary}`classification` {bdg-secondary}`semantic-deduplication`
+:::
+
+:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Curate Videos
+:link: video-overview
+:link-type: ref
+
+Curate and process videos with GPU-accelerated pipelines and sharding.
++++
+{bdg-secondary}`video-splitting` {bdg-secondary}`video-sharding` {bdg-secondary}`gpu-accelerated`
+:::
+
+:::{grid-item-card} {octicon}`unmute;1.5em;sd-mr-1` Curate Audio
+:link: audio-overview
+:link-type: ref
+Transcribe, filter, and curate speech and audio datasets with ASR models.
++++
+{bdg-secondary}`asr` {bdg-secondary}`transcription` {bdg-secondary}`quality-filtering`
 :::
 
 ::::
@@ -245,9 +245,6 @@ Save & Export <curate-audio/save-export.md>
 :maxdepth: 2
 admin/index.md
 Install Curator <admin/installation.md>
-Configure Curator <admin/config/index.md>
-Deploy Curator <admin/deployment/index.md>
-Integrations <admin/integrations/index.md>
 ::::
 
 ::::{toctree}

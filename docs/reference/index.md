@@ -82,17 +82,8 @@ Image processing, classifiers, and embedders.
 :link-type: url
 Text and data modification utilities.
 +++
-{bdg-secondary}`pii-modifier`
 {bdg-secondary}`markdown-remover`
-:::
-
-:::{grid-item-card} {octicon}`shield-check;1.5em;sd-mr-1` PII API
-:link: ../apidocs/pii/pii.html
-:link-type: url
-PII detection, recognizers, and redaction tools.
-+++
-{bdg-secondary}`recognizers`
-{bdg-secondary}`algorithms`
+{bdg-secondary}`url-remover`
 :::
 
 :::{grid-item-card} {octicon}`plug;1.5em;sd-mr-1` Services API
@@ -109,7 +100,6 @@ Service clients and integrations.
 :link-type: url
 NeMo Run integration for distributed execution.
 +++
-{bdg-secondary}`slurm`
 {bdg-secondary}`distributed`
 :::
 

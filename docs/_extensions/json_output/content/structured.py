@@ -184,10 +184,7 @@ def _build_image_info(attrs: dict[str, Any]) -> dict[str, Any] | None:
     if not image_src:
         return None
 
-    image_info = {
-        "src": image_src,
-        "alt": attrs.get("alt", "")
-    }
+    image_info = {"src": image_src, "alt": attrs.get("alt", "")}
 
     # Add optional attributes
     for attr_name in ["title", "width", "height"]:

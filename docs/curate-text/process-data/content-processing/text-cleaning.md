@@ -35,11 +35,12 @@ You can use these modules individually or sequentially in a cleaning pipeline.
 
 :::{tab-item} Python
 
-Consider the following example, which loads a dataset (`books.jsonl`), steps through each module in a cleaning pipeline, and outputs the processed dataset as `cleaned_books.jsonl`:
+Consider the following example, which loads a dataset from a directory (`books/`), steps through each module in a cleaning pipeline, and outputs the processed dataset to `cleaned_books/`:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.datasets import DocumentDataset
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
 from nemo_curator.stages.text.modules import Modify
 
@@ -47,13 +48,19 @@ def main():
     # Create processing pipeline
     pipeline = Pipeline(
         name="text_cleaning_pipeline",
-        description="Clean text data using Unicode reformatter, newline normalizer, and URL remover",
-        stages=[
-            Modify(UnicodeReformatter()),
-            Modify(NewlineNormalizer()),
-            Modify(UrlRemover()),
-        ]
+        description="Clean text data using Unicode reformatter, newline normalizer, and URL remover"
     )
+    
+    # Add reader stage
+    pipeline.add_stage(JsonlReader(file_paths="books/"))
+    
+    # Add processing stages
+    pipeline.add_stage(Modify(UnicodeReformatter()))
+    pipeline.add_stage(Modify(NewlineNormalizer()))
+    pipeline.add_stage(Modify(UrlRemover()))
+    
+    # Add writer stage
+    pipeline.add_stage(JsonlWriter(path="cleaned_books/"))
 
     # Execute pipeline
     results = pipeline.run()
@@ -98,4 +105,4 @@ class UnicodeReformatter(DocumentModifier):
         return ftfy.fix_text(text)
 ```
 
-To create a custom text cleaner, inherit from the `DocumentModifier` class and implement the constructor and `modify_document` method. Also, like the `DocumentFilter` class, `modify_document` can be annotated with `batched` to take in a pandas Series of documents instead of a single document. See the {ref}`custom filters documentation <text-process-data-filter-custom>` for more information.
+To create a custom text cleaner, inherit from the `DocumentModifier` class and implement the constructor and `modify_document` method.
