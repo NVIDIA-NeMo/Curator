@@ -58,8 +58,8 @@ uv pip install "nemo-curator[image_cuda12]"
 Install the latest version directly from GitHub using uv:
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 uv sync --extra image_cuda12
 ```
 
@@ -93,7 +93,7 @@ For details on container environments and configurations, see [Container Environ
 
 ## Download Sample Configuration
 
-NeMo Curator provides a working image curation example in the [Image Curation Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py). You can adapt this pipeline for your own datasets.
+NeMo Curator provides a working image curation example in the [Image Curation Tutorial](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image/getting-started/image_curation_example.py). You can adapt this pipeline for your own datasets.
 
 ## Set Up Data Directory
 
@@ -226,4 +226,4 @@ Explore the [Image Curation documentation](image-overview) for more advanced pro
 * **[Tar Archive Loading](../curate-images/load-data/tar-archives.md)** - Learn about loading JPEG images from tar files
 * **[CLIP Embeddings](../curate-images/process-data/embeddings/clip-embedder.md)** - Understand embedding generation
 * **[Quality Filtering](../curate-images/process-data/filters/index.md)** - Advanced aesthetic and NSFW filtering
-* **[Complete Tutorial](https://github.com/NVIDIA/NeMo-Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)** - Full working example with data download
+* **[Complete Tutorial](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/image/getting-started/image_curation_example.py)** - Full working example with data download

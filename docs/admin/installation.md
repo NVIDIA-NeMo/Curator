@@ -77,8 +77,8 @@ Install the latest development version directly from GitHub:
 
 ```bash
 # Clone the repository
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 
 # Install uv if not already available
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -106,8 +106,8 @@ NeMo Curator is available as a standalone container:
 
 ```bash
 # Build the container locally
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
 docker build -t nemo-curator:latest -f docker/Dockerfile .
 
 # Run the container with GPU support
@@ -161,10 +161,13 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 :::
 ::::
 
-### InternVideo2 Support (Optional)
+### InternVideo2 Support (Optional for Video)
 
-Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator:
+Video processing includes optional support for InternVideo2. To install InternVideo2, run these commands before installing NeMo Curator based on whether you install via PyPI or from source:
 
+::::{tab-set}
+
+:::{tab-item} PyPI Installation
 ```bash
 # Clone and set up InternVideo2
 git clone https://github.com/OpenGVLab/InternVideo.git
@@ -180,6 +183,17 @@ cd ..
 uv add InternVideo/InternVideo2/multi_modality
 ```
 
+:::
+
+:::{tab-item} Source Installation
+```bash
+# Inside the NeMo Curator folder
+bash external/intern_video2_installation.sh
+uv add InternVideo/InternVideo2/multi_modality
+```
+
+:::
+::::
 
 ---
 

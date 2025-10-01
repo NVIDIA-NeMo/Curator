@@ -32,4 +32,4 @@ The [`quickstart.py`](quickstart.py) demonstrates NeMo Curator's foundational ar
 
 ## Support
 
-**Documentation**: [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [GitHub Discussions](https://github.com/NVIDIA/NeMo-Curator/discussions)
+**Documentation**: [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions)
