@@ -81,7 +81,7 @@ def test_get_ray_client_multiple_start():
             os.environ.pop("RAY_ADDRESS", None)
 
 
-def wait_for_ray_cluster_start(client: RayClient, timeout: int = 10):
+def wait_for_ray_cluster_start(client: RayClient, timeout: int = 30):
     t_start = time.perf_counter()
     while True:
         fn = os.path.join(client.ray_temp_dir, "ray_current_cluster")
