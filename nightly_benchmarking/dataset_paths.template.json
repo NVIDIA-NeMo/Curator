@@ -1,0 +1,6 @@
+{
+  "tinystories": {
+    "json": "/datasets/tinystories_train/",
+    "parquet": "/datasets/tinystories_train_parquet/"
+  }
+}
