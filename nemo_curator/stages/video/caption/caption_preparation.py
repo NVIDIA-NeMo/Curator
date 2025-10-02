@@ -78,6 +78,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
     model_variant: str = "qwen"
+    model_path: str | None = None
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
@@ -96,7 +97,13 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
         return [], []
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        self.prompt_formatter = PromptFormatter(self.model_variant)
+        if self.model_variant == "nemotron":
+            if self.model_path is None:
+                msg = f"model_path is required for nemotron models (variant: {self.model_variant})"
+                raise ValueError(msg)
+            self.prompt_formatter = PromptFormatter(self.model_variant, model_path=self.model_path)
+        else:
+            self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
@@ -133,13 +140,16 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     clip.errors[f"{self.model_variant}_input"] = str(e)
                     continue
 
-                clip.windows.append(
-                    _Window(
-                        window_frame_info.start,
-                        window_frame_info.end,
-                        mp4_bytes=window_bytes,
-                        qwen_llm_input=llm_input,
-                    ),
+                window = _Window(
+                    window_frame_info.start,
+                    window_frame_info.end,
+                    mp4_bytes=window_bytes,
                 )
+                window.llm_inputs[self.model_variant] = llm_input
+
+                if self.model_variant == "qwen":
+                    window.qwen_llm_input = llm_input
+
+                clip.windows.append(window)
 
         return task

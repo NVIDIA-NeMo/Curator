@@ -19,6 +19,7 @@ from typing import Any
 from loguru import logger
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
+from nemo_curator.models.nemotron_h_vl import NemotronHVL
 from nemo_curator.models.qwen_vl import QwenVL
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -62,14 +63,32 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
             )
+        elif self.model_variant == "nemotron":
+            if NemotronHVL is None:
+                msg = "NemotronHVL is not available. Please install required dependencies."
+                raise ImportError(msg)
+            self.model = NemotronHVL(
+                model_dir=self.model_dir,
+                model_variant=self.model_variant,
+                caption_batch_size=self.caption_batch_size,
+                max_output_tokens=self.max_output_tokens,
+                stage2_prompt_text=self.stage2_prompt_text,
+                verbose=self.verbose,
+            )
         else:
             msg = f"Unsupported model variant: {self.model_variant}"
             raise ValueError(msg)
         self.model.setup()
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
-        """Download the weights for the QwenVL model on the node."""
-        QwenVL.download_weights_on_node(self.model_dir)
+        """Download/verify weights on the node."""
+        if self.model_variant == "qwen":
+            QwenVL.download_weights_on_node(self.model_dir)
+        elif self.model_variant == "nemotron":
+            if NemotronHVL is None:
+                msg = "NemotronHVL is not available. Please install required dependencies."
+                raise ImportError(msg)
+            NemotronHVL.download_weights_on_node(self.model_dir)
 
     def __post_init__(self) -> None:
         self._resources = Resources(gpus=1)
@@ -84,12 +103,20 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 logger.warning(f"Clip {clip.uuid} has no windows")
                 clip.errors["windows"] = "empty"
             for window_idx, window in enumerate(clip.windows):
-                if window.qwen_llm_input is None:
-                    logger.error(f"Clip {clip.uuid} window {window_idx} has no prepared inputs.")
-                    clip.errors[f"window-{window_idx}"] = "empty"
+                llm_input = window.llm_inputs.get(self.model_variant)
+
+                if llm_input is None and self.model_variant == "qwen" and window.qwen_llm_input is not None:
+                    llm_input = window.qwen_llm_input
+
+                if llm_input is None:
+                    logger.error(
+                        f"Clip {clip.uuid} window {window_idx} has no prepared inputs for {self.model_variant}."
+                    )
+                    clip.errors[f"window-{window_idx}"] = f"no_{self.model_variant}_input"
                     continue
+
                 mapping[idx] = (clip_idx, window_idx)
-                inputs.append(window.qwen_llm_input)
+                inputs.append(llm_input)
                 idx += 1
 
         captions = self.model.generate(
@@ -123,5 +150,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         # Clear caption inputs
         for clip in video.clips:
             for window in clip.windows:
+                if self.model_variant in window.llm_inputs:
+                    del window.llm_inputs[self.model_variant]
                 window.qwen_llm_input = None
                 window.mp4_bytes = None

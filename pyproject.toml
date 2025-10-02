@@ -121,13 +121,14 @@ video_cpu = [
     "torchvision",
     "einops",
     "easydict",
+    "timm"
 ]
 
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
     "cvcuda_cu12",
-    "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "flash-attn>=2.7.1,<=2.8.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",  
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
