@@ -192,9 +192,13 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             raise ValueError(msg)
 
     if args.generate_captions:
+        # Determine model path for caption preparation
+        model_path = args.captioning_model_path if hasattr(args, "captioning_model_path") else None
+
         pipeline.add_stage(
             CaptionPreparationStage(
                 model_variant=args.captioning_algorithm,
+                model_path=model_path,  # Required for NemotronH
                 prompt_variant=args.captioning_prompt_variant,
                 prompt_text=args.captioning_prompt_text,
                 sampling_fps=args.captioning_sampling_fps,
@@ -215,9 +219,16 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 )
             )
 
+        # Determine model directory
+        model_dir = (
+            args.captioning_model_path
+            if (args.captioning_algorithm.startswith("nemotron") or args.captioning_algorithm.startswith("NemotronH_"))
+            else args.model_dir
+        )
+
         pipeline.add_stage(
             CaptionGenerationStage(
-                model_dir=args.model_dir,
+                model_dir=model_dir,
                 model_variant=args.captioning_algorithm,
                 caption_batch_size=args.captioning_batch_size,
                 fp8=args.captioning_use_fp8_weights,
@@ -579,8 +590,14 @@ if __name__ == "__main__":
         "--captioning-algorithm",
         type=str,
         default="qwen",
-        choices=["qwen"],
-        help="Captioning algorithm to use in annotation pipeline.",
+        choices=["qwen", "nemotron"],
+        help="Captioning algorithm to use (qwen or nemotron).",
+    )
+    parser.add_argument(
+        "--captioning-model-path",
+        type=str,
+        default=None,
+        help="Path to model checkpoint (required for NemotronH models)",
     )
     parser.add_argument(
         "--captioning-window-size",
@@ -641,13 +658,13 @@ if __name__ == "__main__":
         dest="captioning_stage2_caption",
         action="store_true",
         default=False,
-        help="If set, generated captions are used as input prompts again into QwenVL to refine them",
+        help="If set, generated captions are refined with a second model pass (works for both Qwen and Nemotron)",
     )
     parser.add_argument(
         "--captioning-stage2-prompt-text",
         type=str,
         default=None,
-        help="Specify the input prompt used to generate stage2 Qwen captions",
+        help="Specify the prompt used for stage2 caption refinement.",
     )
     parser.add_argument(
         "--captioning-batch-size",
