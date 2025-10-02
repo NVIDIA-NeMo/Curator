@@ -169,7 +169,7 @@ jobs:
         run: |
           uv run coverage xml
           uv run coverage report
-          coverage_report=coverage-unit-test-${{ matrix.folder }}-${{ github.run_id }}-$(uuidgen)
+          coverage_report=coverage-unit-test-${{ replace(matrix.folder, '/', '-') }}-${{ github.run_id }}-$(uuidgen)
           echo "$coverage_report"
           echo "coverage_report=$coverage_report" >> "$GITHUB_OUTPUT"
       - name: Upload artifacts
