@@ -17,20 +17,34 @@ from typing import Any
 import torch
 from transformers import AutoProcessor
 
+from nemo_curator.models.nemotron_prompt_formatter import NemotronPromptFormatter
+
 VARIANT_MAPPING = {
     "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
+    "nemotron": None,
 }
 
-
 class PromptFormatter:
-    def __init__(self, prompt_variant: str):
+    def __init__(self, prompt_variant: str, model_path: str | None = None):
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
             raise ValueError(msg)
 
         self.prompt_variant = prompt_variant
         self.text_prompt = None
-        self.processor = AutoProcessor.from_pretrained(VARIANT_MAPPING[self.prompt_variant])
+
+        if prompt_variant == "qwen":
+            self.processor = AutoProcessor.from_pretrained(VARIANT_MAPPING[self.prompt_variant])
+            self.formatter = None
+        elif prompt_variant == "nemotron":
+            if model_path is None:
+                msg = f"model_path is required for nemotron models (variant: {prompt_variant})"
+                raise ValueError(msg)
+            self.processor = None
+            self.formatter = NemotronPromptFormatter(model_path)
+        else:
+            msg = f"Unsupported prompt variant: {prompt_variant}"
+            raise ValueError(msg)
 
     def generate_inputs(
         self,
@@ -61,17 +75,29 @@ class PromptFormatter:
                 - "multi_modal_data": Dictionary containing processed "image" and/or "video" inputs
 
         """
-        message = self.create_message(prompt)
-        if self.text_prompt is None or override_text_prompt:
-            self.text_prompt = self.processor.apply_chat_template(
-                message,
-                tokenizer=False,
+        # Use model-specific formatter
+        if self.prompt_variant == "qwen":
+            message = self.create_message(prompt)
+            if self.text_prompt is None or override_text_prompt:
+                self.text_prompt = self.processor.apply_chat_template(
+                    message,
+                    tokenizer=False,
+                    add_generation_prompt=True,
+                )
+            return {
+                "prompt": self.text_prompt,
+                "multi_modal_data": {"video": video_inputs},
+            }
+
+        if self.prompt_variant == "nemotron":
+            return self.formatter.generate_inputs(
+                prompt=prompt,
+                video_inputs=video_inputs,
                 add_generation_prompt=True,
             )
-        return {
-            "prompt": self.text_prompt,
-            "multi_modal_data": {"video": video_inputs},
-        }
+
+        msg = f"Unsupported prompt variant: {self.prompt_variant}"
+        raise ValueError(msg)
 
     def create_message(self, prompt: str) -> list[dict[str, Any]]:
         """Create a message.

@@ -41,8 +41,9 @@ class _Window:
     end_frame: int
     # MP4 bytes for this window
     mp4_bytes: bytes | None = None
+    llm_inputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Qwen LLM input for this window
-    qwen_llm_input: dict[str, Any] | None = None
+    qwen_llm_input: dict[str, Any] | None = None  # Backward compatibility
     # X1 model input for this window
     x1_input: Any | None = None
     # `caption: {model_name: caption}`
@@ -50,6 +51,13 @@ class _Window:
     enhanced_caption: dict[str, str] = field(default_factory=dict)
     # webp preview
     webp_bytes: bytes | None = None
+
+    def __post_init__(self):
+        """Sync qwen_llm_input with llm_inputs for backward compatibility."""
+        if self.qwen_llm_input is not None:
+            self.llm_inputs["qwen"] = self.qwen_llm_input
+        elif "qwen" in self.llm_inputs:
+            self.qwen_llm_input = self.llm_inputs["qwen"]
 
     def get_major_size(self) -> int:
         """Calculate total memory size of the window.
@@ -61,7 +69,9 @@ class _Window:
         total_size = 0
         total_size += len(self.mp4_bytes) if self.mp4_bytes else 0
         # TODO: this is probably inaccurate
-        total_size += sys.getsizeof(self.qwen_llm_input) if self.qwen_llm_input else 0
+        total_size += sum(sys.getsizeof(v) for v in self.llm_inputs.values())
+        if self.qwen_llm_input is not None and "qwen" not in self.llm_inputs:
+            total_size += sys.getsizeof(self.qwen_llm_input)
         total_size += sys.getsizeof(self.caption)
         total_size += sys.getsizeof(self.enhanced_caption)
         total_size += len(self.webp_bytes) if self.webp_bytes else 0
