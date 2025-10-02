@@ -37,7 +37,6 @@ Use the pipeline stages or the example script flags to enable motion and aesthet
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.filtering.motion_filter import (
     MotionVectorDecodeStage,
     MotionFilterStage,

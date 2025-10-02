@@ -117,7 +117,11 @@ def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
     if 'wer' in df.columns:
         df = df[df['wer'] < 50.0]  # Keep WER < 50%
     
-    return DocumentBatch(data=df)
+    return DocumentBatch(
+        data=df,
+        task_id=document_batch.task_id,
+        dataset_name=document_batch.dataset_name
+    )
 ```
 
 ## Output Format

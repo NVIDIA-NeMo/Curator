@@ -27,7 +27,7 @@ truncated_urls.to_parquet("./example_data/truncated_100k_mscoco.parquet")
 ```
 
 # Download and prepare relevant models weights
-
+Users can manually download or provide specific models. If not provided, the models can be auto-downloaded in the first run.
 
 ```bash
 # LAION NSFW detector weights

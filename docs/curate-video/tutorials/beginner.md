@@ -70,9 +70,9 @@ from nemo_curator.stages.video.clipping.clip_frame_extraction import (
     ClipFrameExtractionStage,
 )
 from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
-from nemo_curator.stages.video.embedding.internvideo2 import (
-    InternVideo2FrameCreationStage,
-    InternVideo2EmbeddingStage,
+from nemo_curator.stages.video.embedding.cosmos_embed1 import (
+    CosmosEmbed1FrameCreationStage,
+    CosmosEmbed1EmbeddingStage,
 )
 from nemo_curator.stages.video.io.clip_writer import ClipWriterStage
 
@@ -99,7 +99,7 @@ Read videos from storage and extract metadata to prepare for clipping.
 
 ```python
 pipeline.add_stage(
-    VideoReader(input_video_path=VIDEO_DIR, video_limit=-1, verbose=True)
+    VideoReader(input_video_path=VIDEO_DIR, video_limit=None, verbose=True)
 )
 ```
 
@@ -139,7 +139,7 @@ pipeline.add_stage(
         max_length_s=10.0,
         max_length_mode="stride",
         crop_s=0.5,
-        gpu_memory_gb=10.0,
+        gpu_memory_gb=10,
         limit_clips=0,
         verbose=True,
     )
@@ -184,16 +184,16 @@ pipeline.add_stage(
 )
 ```
 
-### Generate Embeddings (InternVideo2)
+### Generate Embeddings (Cosmos-Embed1)
 
-Create InternVideo2-ready frames and compute clip-level embeddings.
+Create Cosmos-Embed1-ready frames and compute clip-level embeddings.
 
 ```python
 pipeline.add_stage(
-    InternVideo2FrameCreationStage(model_dir=MODEL_DIR, target_fps=2.0, verbose=True)
+    CosmosEmbed1FrameCreationStage(model_dir=MODEL_DIR, target_fps=2.0, verbose=True)
 )
 pipeline.add_stage(
-    InternVideo2EmbeddingStage(model_dir=MODEL_DIR, gpu_memory_gb=20.0, verbose=True)
+    CosmosEmbed1EmbeddingStage(model_dir=MODEL_DIR, gpu_memory_gb=20.0, verbose=True)
 )
 ```
 
@@ -215,7 +215,7 @@ pipeline.add_stage(
         generate_embeddings=True,
         generate_previews=False,
         generate_captions=False,
-        embedding_algorithm="internvideo2",
+        embedding_algorithm="cosmos-embed1",
         caption_models=[],
         enhanced_caption_models=[],
         verbose=True,
