@@ -48,7 +48,7 @@ Process and curate high-quality text datasets for large language model (LLM) tra
 | **Data Sources** | Common Crawl • Wikipedia • ArXiv • Custom datasets | [Load Data](https://docs.nvidia.com/nemo/curator/latest/curate-text/load-data/index.html) |
 | **Quality Filtering** | 30+ heuristic filters • fastText classification • GPU-accelerated classifiers for domain, quality, safety, and content type | [Quality Assessment](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/quality-assessment/heuristic.html) |
 | **Deduplication** | Exact • Fuzzy (MinHash LSH) • Semantic (GPU-accelerated) | [Deduplication](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/deduplication/gpudedup.html) |
-| **Processing** | Text cleaning • Language identification • Task decontamination | [Content Processing](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/content-processing/text-cleaning.html) |
+| **Processing** | Text cleaning • Language identification | [Content Processing](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/content-processing/text-cleaning.html) |
 
 ---
 
