@@ -143,3 +143,10 @@ class RayClient:
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.stop()

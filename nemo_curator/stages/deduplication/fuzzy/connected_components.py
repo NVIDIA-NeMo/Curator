@@ -24,9 +24,7 @@ from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
-from nemo_curator.stages.deduplication.id_generator import (
-    CURATOR_DEDUP_ID_STR,
-)
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.file_group import FileGroupTask
@@ -40,8 +38,8 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
     def __init__(
         self,
         output_path: str,
-        source_field: str = f"{CURATOR_DEDUP_ID_STR}_x",
-        destination_field: str = f"{CURATOR_DEDUP_ID_STR}_y",
+        source_field: str | None = None,
+        destination_field: str | None = None,
         read_kwargs: dict | None = None,
         write_kwargs: dict | None = None,
     ):
@@ -54,8 +52,8 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
             write_kwargs: Keyword arguments to pass for writing the output files.
         """
 
-        self.source_field = source_field
-        self.destination_field = destination_field
+        self.source_field = source_field or f"{CURATOR_DEDUP_ID_STR}_x"
+        self.destination_field = destination_field or f"{CURATOR_DEDUP_ID_STR}_y"
         self.read_kwargs = read_kwargs if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
