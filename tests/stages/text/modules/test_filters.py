@@ -363,11 +363,11 @@ class TestFilterModule:
         filtered_data = filters.process(intermediate_data)
 
         # Empty DataFrame
-        expected_df = pd.DataFrame()
+        expected_df = pd.DataFrame(columns=["documents"], index=pd.Index([], dtype=object))
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_letter_count_letter_count",
+            task_id="batch_1_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
