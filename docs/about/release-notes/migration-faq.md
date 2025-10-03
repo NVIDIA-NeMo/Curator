@@ -10,7 +10,7 @@ modality: "universal"
 
 (migration-faq)=
 
-# Curator Migration FAQ
+# NeMo Curator Migration FAQ
 
 Frequently asked questions about migrating from Dask to Ray-based NeMo Curator.
 

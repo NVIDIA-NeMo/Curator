@@ -10,7 +10,7 @@ modality: "universal"
 
 (migration-guide)=
 
-# Curator Dask to Ray Migration Guide
+# NeMo Curator Migration Guide: Dask to Ray
 
 This guide explains how to transition existing Dask-based NeMo Curator workflows to the new Ray-based pipeline architecture.
 
@@ -95,9 +95,9 @@ In this step, core data curation operations—such as loading, cleaning, filteri
 Example operations:
 
 - Download the dataset and convert it to JSONL format
-- Clean and unify the given dataset (remove quotation marks, Unicode)
-- Filter the given dataset based on various criteria (word count, completeness)
-- Remove exact duplicates (deduplication)
+- Clean and unify the dataset (remove quotation marks, Unicode)
+- Filter the dataset based on various criteria (word count, completeness)
+- Remove exact duplicates from the dataset (deduplication)
 
 **Previous: Sequential Operations**
 
@@ -432,4 +432,4 @@ This is a high-level example, and exact implementation details may vary. For mor
 
 ## Additional Resources
 
-For questions about migration or other topics, refer to the [Migration FAQ](https://docs.google.com/document/d/1Fj1Rf1MI5TMHPwU3PEDomboKkRUe0Mu_Vqth5QGEP7o/edit?tab=t.0).
+For questions about migration or other topics, refer to the {ref}`Migration FAQ <migration-faq>`.
