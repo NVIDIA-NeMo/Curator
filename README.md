@@ -33,7 +33,7 @@ uv pip install "nemo-curator[text_cuda12]"
 python tutorials/quickstart.py
 ```
 
-**Full setup:** [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Docker](https://docs.nvidia.com/nemo/curator/latest/admin/index.html) • [Tutorials](tutorials/)
+**Full setup:** [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Docker](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) • [Tutorials](tutorials/)
 
 ---
 
