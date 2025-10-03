@@ -47,7 +47,7 @@ Process and curate high-quality text datasets for large language model (LLM) tra
 |----------|----------|---------------|
 | **Data Sources** | Common Crawl • Wikipedia • ArXiv • Custom datasets | [Load Data](https://docs.nvidia.com/nemo/curator/latest/curate-text/load-data/index.html) |
 | **Quality Filtering** | 30+ heuristic filters • fastText classification • GPU-accelerated classifiers for domain, quality, safety, and content type | [Quality Assessment](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/quality-assessment/heuristic.html) |
-| **Deduplication** | Exact • Fuzzy (MinHash LSH) • Semantic (GPU-accelerated) | [Deduplication](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/deduplication/gpudedup.html) |
+| **Deduplication** | Exact • Fuzzy (MinHash LSH) • Semantic (GPU-accelerated) | [Deduplication](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/deduplication/index.html) |
 | **Processing** | Text cleaning • Language identification | [Content Processing](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/content-processing/text-cleaning.html) |
 
 ---
@@ -60,8 +60,7 @@ Curate large-scale image datasets for vision language models (VLMs) and generati
 |----------|----------|---------------|
 | **Data Loading** | WebDataset format • Large-scale image-text pairs | [Load Data](https://docs.nvidia.com/nemo/curator/latest/curate-images/load-data/index.html) |
 | **Embeddings** | CLIP embeddings for semantic analysis | [Embeddings](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/embeddings/index.html) |
-| **Classification** | Aesthetic quality scoring • NSFW detection | [Classifiers](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/classifiers/index.html) |
-| **Deduplication** | Semantic deduplication using embedding-based clustering | [Deduplication](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/deduplication.html) |
+| **Filtering** | Aesthetic quality scoring • NSFW detection | [Filters](https://docs.nvidia.com/nemo/curator/latest/curate-images/process-data/filters/index.html) |
 
 ---
 
@@ -88,7 +87,7 @@ Prepare high-quality speech datasets for automatic speech recognition (ASR) and 
 | **Data Loading** | Local files • Custom manifests • Public datasets (FLEURS) | [Load Data](https://docs.nvidia.com/nemo/curator/latest/curate-audio/load-data/index.html) |
 | **ASR Processing** | NeMo Framework pretrained models • Automatic transcription | [ASR Inference](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/asr-inference/index.html) |
 | **Quality Assessment** | Word Error Rate (WER) calculation • Duration analysis • Quality-based filtering | [Quality Assessment](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/quality-assessment/index.html) |
-| **Integration** | Text curation workflow integration for multimodal pipelines | [Text Integration](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/text-integration/transcripts.html) |
+| **Integration** | Text curation workflow integration for multimodal pipelines | [Text Integration](https://docs.nvidia.com/nemo/curator/latest/curate-audio/process-data/text-integration/index.html) |
 
 ---
 
@@ -125,7 +124,7 @@ Data curation modules measurably improve model performance. In ablation studies 
 |----------|-------|
 | **Documentation** | [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
 | **Tutorials** | [Text](tutorials/text/) • [Image](tutorials/image/) • [Video](tutorials/video/) • [Audio](tutorials/audio/) |
-| **Deployment** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Infrastructure](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/index.html) • [Slurm](https://docs.nvidia.com/nemo/curator/latest/admin/deployment/slurm/index.html) |
+| **Deployment** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Infrastructure](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/index.html) • [Slurm](https://docs.nvidia.com/nemo/curator/latest/admin/deployment/slurm/image.html) |
 | **Community** | [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions) • [Issues](https://github.com/NVIDIA-NeMo/Curator/issues) |
 
 ---
