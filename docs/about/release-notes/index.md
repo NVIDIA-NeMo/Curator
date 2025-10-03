@@ -218,7 +218,7 @@ For all tutorial content, refer to the [tutorials directory](https://github.com/
 
 ## What's Next
 
-The next release will focus on completing the refactor of Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.
+The next release will focus on completing the refactor of Synthetic Data Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.
 
 ```{toctree}
 :hidden:
