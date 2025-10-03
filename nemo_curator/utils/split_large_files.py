@@ -19,8 +19,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import ray
 
-from nemo_curator.utils.file_utils import get_all_file_paths_under
 from nemo_curator.core.client import RayClient
+from nemo_curator.utils.file_utils import get_all_file_paths_under
 
 
 def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
@@ -37,25 +37,21 @@ def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
     return results
 
 
-def _write_table_to_file(  # noqa: PLR0913
-    table: pa.Table, outdir: str, output_prefix: str, ext: str, file_idx: int, verbose: bool
-) -> int:
+def _write_table_to_file(table: pa.Table, outdir: str, output_prefix: str, ext: str, file_idx: int) -> int:
     output_file = os.path.join(outdir, f"{output_prefix}_{file_idx}{ext}")
     pq.write_table(table, output_file)
-    if verbose:
-        print(f"Saved {output_file} (~{table.nbytes / (1024 * 1024):.2f} MB)")
+    print(f"Saved {output_file} (~{table.nbytes / (1024 * 1024):.2f} MB)")
     return file_idx + 1
 
 
 @ray.remote
-def split_parquet_file_by_size(input_file: str, outdir: str, target_size_mb: int, verbose: bool) -> None:
+def split_parquet_file_by_size(input_file: str, outdir: str, target_size_mb: int) -> None:
     root, ext = os.path.splitext(input_file)
     if not ext:
         ext = ".parquet"
     outfile_prefix = os.path.basename(root)
 
-    if verbose:
-        print(f"""Splitting parquet file...
+    print(f"""Splitting parquet file...
 
 Input file: {input_file}
 Output directory: {outdir}
@@ -82,7 +78,7 @@ Target size: {target_size_mb} MB
                 chunks = _split_table(row_group, target_size=target_size_bytes)
                 for chunk in chunks:
                     file_idx = _write_table_to_file(
-                        chunk, outdir=outdir, output_prefix=outfile_prefix, ext=ext, file_idx=file_idx, verbose=verbose
+                        chunk, outdir=outdir, output_prefix=outfile_prefix, ext=ext, file_idx=file_idx
                     )
                 row_group_idx += 1
             elif row_group.nbytes + current_size > target_size_bytes and current_size > 0:
@@ -98,13 +94,15 @@ Target size: {target_size_mb} MB
         if row_groups_to_write:
             sub_table = pa.concat_tables(row_groups_to_write)
             file_idx = _write_table_to_file(
-                sub_table, outdir=outdir, output_prefix=outfile_prefix, ext=ext, file_idx=file_idx, verbose=verbose
+                sub_table, outdir=outdir, output_prefix=outfile_prefix, ext=ext, file_idx=file_idx
             )
 
 
-def parse_args(args: argparse.Namespace):
+def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--infile", type=str, required=True, help="Path to input file, or directory of files, to split")
+    parser.add_argument(
+        "--infile", type=str, required=True, help="Path to input file, or directory of files, to split"
+    )
     parser.add_argument("--outdir", type=str, required=True, help="Output directory to store split files")
     parser.add_argument("--target-size-mb", type=int, default=128, help="Target size (in MB) of split output files")
     parser.add_argument(
@@ -112,18 +110,15 @@ def parse_args(args: argparse.Namespace):
         action="store_true",
         help="Enable verbose output",
     )
-    return parser.parse_args(args)
+    args = parser.parse_args()
 
-
-def main(args=None) -> None:
-    args = parse_args(args)
     files = get_all_file_paths_under(args.infile)
     if not files:
         print(f"No file(s) found at '{args.infile}'")
         return
 
     os.makedirs(args.outdir, exist_ok=True)
-    with ray.init():
+    with RayClient():
         ray.get(
             [
                 split_parquet_file_by_size.remote(
