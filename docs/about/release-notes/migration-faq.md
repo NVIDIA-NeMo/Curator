@@ -47,7 +47,7 @@ Ray pipelines in NeMo Curator are strictly linear. If you need to apply multiple
 
 ```{dropdown} How is the Ray pipeline structured? Is it streaming, batch, or hybrid?
 
-Ray pipelines use a streaming architecture where data tasks flow from stage to stage in-memory wherever possible (across Ray's object store), minimizing costly file system I/O. Production runs process data continuously for maximum throughput.
+Ray pipelines use a {ref}`streaming architecture <about-concepts-video-architecture>` where data tasks flow from stage to stage in-memory wherever possible (across Ray's object store), minimizing costly file system I/O. Production runs process data continuously for maximum throughput. For more details, refer to {ref}`Key Abstractions <about-concepts-video-abstractions>`.
 ```
 
 ```{dropdown} How do I save or checkpoint intermediate results between stages?
@@ -81,7 +81,7 @@ An internal adaptive scheduler monitors throughput for each stage every few minu
 
 ```{dropdown} How do I specify resource requirements (GPUs, CPUs, RAM) for a pipeline stage?
 
-Each stage specifies its own resource needs in code. Set required CPU or GPU count, GPU VRAM, and other specs directly. Ray packs tasks optimally (for example, several light jobs on one GPU).
+Each stage specifies its own resource needs in code (see {ref}`Pipeline Execution Backends <reference-execution-backends>` for configuration details). Set required CPU or GPU count, GPU VRAM, and other specs directly. Ray packs tasks optimally (for example, several light jobs on one GPU).
 ```
 
 ```{dropdown} What happens if a model's actual memory usage exceeds what I specified (OOM errors)?
@@ -110,7 +110,7 @@ Yes, you can specify different Conda environments per stage. Ensure module impor
 
 ```{dropdown} How do you handle quality filtering for low-resource languages where no good models exist?
 
-NeMo Curator suggests several strategies:
+NeMo Curator suggests several strategies (see {ref}`Heuristic Filtering <text-process-data-filter-heuristic>` and {ref}`Quality Assessment <about-concepts-text-data-processing>` for details):
 
 - Use available multilingual models (for example, Qwen, Mistral, or other models with many language capabilities)
 - Annotate high-quality English data with a classifier, translate these data to the target language, and then train a smaller in-language model
@@ -124,7 +124,7 @@ A set of models assigns a quality score (for example, 0–20), bucketed into hig
 
 ```{dropdown} How can we implement or reuse rule-based or custom quality filters? Is YAML (configuration-based) support available?
 
-Quality filters can be implemented as full Python stages in the pipeline. YAML or configuration-based filter definitions are available, making it easier to define and reuse filters without writing as much code. Collaboration is encouraged—please contribute region or language-specific filters via pull requests.
+Quality filters can be implemented as full Python stages in the pipeline (see {ref}`Heuristic Filtering <text-process-data-filter-heuristic>` for available filters and usage examples). YAML or configuration-based filter definitions are available, making it easier to define and reuse filters without writing as much code. Collaboration is encouraged—please contribute region or language-specific filters via pull requests.
 ```
 
 ```{dropdown} Can the system track the number of documents or tokens processed, filtered, or passed at each stage?
@@ -134,7 +134,7 @@ Each task is a data class. You can add whatever statistics you need (input or ou
 
 ```{dropdown} Does the new deduplication feature support global deduplication (across all snapshots, not just incremental)?
 
-Yes, the Ray-powered NeMo Curator supports massive-scale global deduplication using efficient, GPU-accelerated MinHash or other methods.
+Yes, the Ray-powered NeMo Curator supports massive-scale {ref}`global deduplication <text-process-data-dedup>` using efficient, GPU-accelerated MinHash or other methods. For comprehensive documentation, refer to {ref}`Deduplication Concepts <about-concepts-deduplication>`.
 ```
 
 ---
@@ -148,7 +148,7 @@ Ray will relaunch failed workers or actors, but robust error handling and resump
 
 ```{dropdown} How is observability handled? Can I track pipeline performance, actor counts, and task durations?
 
-All Ray pipelines expose resource and processing metrics via a built-in Grafana dashboard (with process time per task or actor, resource utilization, and so on). You can also summarize stats from task data at pipeline completion for custom reporting.
+All Ray pipelines expose resource and processing metrics via a built-in Grafana dashboard (with process time per task or actor, resource utilization, and so on). You can also summarize stats from task data at pipeline completion for custom reporting. For configuration options, refer to {ref}`Pipeline Execution Backends <reference-execution-backends>` and the [Ray Dashboard documentation](https://docs.ray.io/en/latest/ray-observability/getting-started.html).
 ```
 
 ```{dropdown} Can I resume processing from mid-pipeline if interrupted?
@@ -162,7 +162,7 @@ For streaming pipelines, each completed task can be tracked (temporarily with fi
 
 ```{dropdown} How customizable is the pipeline? Can I easily add my own stages, models, or data annotations?
 
-Yes, by design. Add new stages or modify process functions to integrate custom logic, models, or data preprocessing and postprocessing. Extend or fork example pipelines to suit new use cases.
+Yes, by design. Add new stages or modify process functions to integrate custom logic, models, or data preprocessing and postprocessing (see {ref}`Key Abstractions <about-concepts-video-abstractions>` for examples). Extend or fork example pipelines to suit new use cases.
 ```
 
 ```{dropdown} Can I contribute region or language-specific filters or tools back to NeMo Curator?
@@ -181,12 +181,12 @@ Each stage can specify its Conda environment, which must be present in the Docke
 
 ```{dropdown} How do I deploy NeMo Curator or Ray clusters?
 
-Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools. No custom infrastructure is needed. NVIDIA provides ready-to-use Docker images and up-to-date quickstart guides.
+Ray clusters can be deployed on any major cloud platform (AWS, GCP, Azure) using standard Ray tools (see [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html)). No custom infrastructure is needed. NVIDIA provides ready-to-use {ref}`Docker images <reference-infrastructure-container-environments>` and up-to-date quickstart guides. For complete deployment details, refer to {ref}`Production Deployment Requirements <admin-deployment-requirements>`.
 ```
 
 ```{dropdown} Do I need to build custom Docker images?
 
-Not for most standard uses. Use provided images or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on NGC.
+Not for most standard uses. Use {ref}`provided images <reference-infrastructure-container-environments>` or extend as needed (for example, to add proprietary or additional filters). Check out the official Docker container releases on the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator).
 ```
 
 ```{dropdown} Is there integration with existing cluster or orchestration tools like Airflow or Slurm?
@@ -210,7 +210,7 @@ For multi-node operations, you're responsible for managing communication setup (
 
 ```{dropdown} Are there examples of multi-type data (text, image, audio, video) pipelines?
 
-Yes. NeMo Curator supports multiple data modalities including text, image, audio, and video.
+Yes. NeMo Curator supports multiple data modalities including {ref}`text <gs-text>`, {ref}`image <gs-image>`, {ref}`audio <gs-audio>`, and {ref}`video <gs-video>` (links to quickstart guides for each modality).
 ```
 
 ---

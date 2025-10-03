@@ -79,7 +79,7 @@ dask_client = get_client(cluster_type="gpu")
 
 **New: Ray Cluster**
 
-Connect to a Ray cluster, which can manage tasks across CPU or GPU-backed nodes.
+Connect to a Ray cluster, which can manage tasks across CPU or GPU-backed nodes. For cluster setup details, refer to {ref}`Production Deployment Requirements <admin-deployment-requirements>` and the [Ray documentation](https://docs.ray.io/en/latest/cluster/getting-started.html).
 
 ```python
 # New: Ray
@@ -133,7 +133,7 @@ def main():
 
 **New: Modular Stages**
 
-In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads.
+In the new version, these operations are defined as discrete stages that operate on batches of data. Each stage can specify resources such as GPU count or CPU threads. For details on {ref}`available filters <text-process-data-filter-heuristic>`, {ref}`content cleaning operations <about-concepts-text-data-processing>`, and {ref}`pipeline concepts <about-concepts-video-abstractions>`, refer to the linked documentation.
 
 ```python
 # New: Define stages
@@ -148,7 +148,7 @@ stages = [
 ```
 
 ```{note}
-In the new version, deduplication should be run as a separate workflow using classes like `ExactDeduplicationWorkflow`, not embedded directly as a pipeline stage. For details and usage, refer to the {ref}`text deduplication documentation <process-data/deduplication/index>`.
+In the new version, deduplication should be run as a separate workflow using classes like `ExactDeduplicationWorkflow`, not embedded directly as a pipeline stage. For details and usage, refer to the {ref}`text deduplication documentation <text-process-data-dedup>`.
 ```
 
 ### Step 3: Create and Run Pipeline
@@ -165,7 +165,7 @@ pipeline = Pipeline(
     stages=stages,
 )
 
-# Create executor
+# Create executor (see {ref}`Pipeline Execution Backends <reference-execution-backends>` for configuration options)
 executor = XennaExecutor()
 
 # Execute pipeline
@@ -242,7 +242,7 @@ dataset = ImageTextPairDataset.from_webdataset(dataset_path, id_col)
 
 **New: Stage-Based Loading**
 
-In the new version, data loading is encapsulated in a dedicated pipeline stage. Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
+In the new version, data loading is encapsulated in a dedicated pipeline stage (see {ref}`Image Processing Concepts <about-concepts-image-data-processing>` for details). Instead of directly creating a dataset, users define an `ImageReaderStage` that handles reading from WebDataset `.tar` files.
 
 ```python
 # New: Read images from webdataset tar files
@@ -277,7 +277,7 @@ dataset.save_metadata()
 
 **New: Embedding Stage**
 
-In the new version, embedding generation is handled by a dedicated `ImageEmbeddingStage` pipeline stage with configurable resource parameters.
+In the new version, embedding generation is handled by a dedicated `ImageEmbeddingStage` pipeline stage with configurable resource parameters (see {ref}`CLIP Embedding Stage <image-process-data-embeddings-clip>` for details).
 
 ```python
 # New: Generate CLIP embeddings for images
@@ -310,7 +310,7 @@ dataset.to_webdataset(aesthetic_dataset_path, filter_column="passes_aesthetic_ch
 
 **New: Aesthetic Filter Stage**
 
-In the new version, aesthetic scoring and filtering are handled by the `ImageAestheticFilterStage`. This stage scores each image using a pretrained model and filters out images below a configured threshold.
+In the new version, aesthetic scoring and filtering are handled by the `ImageAestheticFilterStage` (see {ref}`Aesthetic Filter <image-process-data-filters-aesthetic>` for details). This stage scores each image using a pretrained model and filters out images below a configured threshold.
 
 ```python
 # New: Generate aesthetic quality scores and filter
@@ -369,7 +369,7 @@ dataset.to_webdataset(deduplicated_dataset_path, "is_unique")
 
 **New: Single Deduplication Stage**
 
-In the new version, semantic deduplication is encapsulated in a single stage, `SemanticDeduplicationStage`. This stage handles clustering and duplicate removal internally, using the configured number of clusters and similarity threshold.
+In the new version, semantic deduplication is encapsulated in a single stage, `SemanticDeduplicationStage` (see {ref}`Deduplication Concepts <about-concepts-deduplication>` for comprehensive documentation). This stage handles clustering and duplicate removal internally, using the configured number of clusters and similarity threshold.
 
 ```python
 # New: Semantic Deduplication
