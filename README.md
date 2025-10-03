@@ -96,7 +96,7 @@ Prepare high-quality speech datasets for automatic speech recognition (ASR) and 
 
 ### Performance at Scale
 
-NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGraph along with Dask to scale workloads across multi-node, multi-GPU environments.
+NeMo Curator leverages NVIDIA RAPIDS™ libraries such as cuDF, cuML, and cuGraph along with Ray to scale workloads across multi-node, multi-GPU environments.
 
 **Proven Results:**
 - **16× faster** fuzzy deduplication on 8 TB RedPajama v2 (1.78 trillion tokens)
