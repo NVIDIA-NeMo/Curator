@@ -46,6 +46,7 @@ extensions = [
     "content_gating",  # Unified content gating extension
     "myst_codeblock_substitutions",  # Our custom MyST substitutions in code blocks
     "json_output",  # Generate JSON output for each page
+    "llm_txt_output",  # Generate LLM.txt output for each page
     "search_assets",  # Enhanced search assets extension
     # "ai_assistant",  # AI assistant extension
     # "swagger_plugin_for_sphinx",  # For Swagger API documentation
@@ -85,6 +86,17 @@ intersphinx_timeout = 30
 json_output_settings = {
     "enabled": True,
 }
+
+# -- Options for LLM.txt Output ----------------------------------------------
+# Configure the llm.txt output extension for LLM consumption
+llm_txt_settings = {
+    'enabled': True,
+    'verbose': True,
+    'max_content_length': 5000,
+    'base_url': 'https://docs.nvidia.com/nemo/curator/latest',  # Canonical URL for absolute links
+    'card_handling': 'smart',  # Extract grid cards as structured lists
+}
+
 
 # -- Options for MyST Parser (Markdown) --------------------------------------
 # MyST Parser settings
