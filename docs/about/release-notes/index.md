@@ -14,7 +14,7 @@ modality: "universal"
 
 This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](../../curate-video/index.md) and [audio](../../curate-audio/index.md) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
 
-**Migrating from an over version of NeMo Curator?** Refer to the {ref}`Migration Guide <migration-guide>` for step-by-step instructions and the {ref}`Migration FAQ <migration-faq>` for common questions.
+**Migrating from a previous version of NeMo Curator?** Refer to the {ref}`Migration Guide <migration-guide>` for step-by-step instructions and the {ref}`Migration FAQ <migration-faq>` for common questions.
 
 ## Installation Updates
 
