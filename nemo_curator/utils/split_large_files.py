@@ -98,14 +98,18 @@ Target size: {target_size_mb} MB
             )
 
 
-def main() -> None:
+def parse_args(args: argparse.ArgumentParser | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--infile", type=str, required=True, help="Path to input file, or directory of files, to split"
     )
     parser.add_argument("--outdir", type=str, required=True, help="Output directory to store split files")
     parser.add_argument("--target-size-mb", type=int, default=128, help="Target size (in MB) of split output files")
-    args = parser.parse_args()
+    return parser.parse_args(args)
+
+
+def main(args: argparse.ArgumentParser | None = None) -> None:
+    args = parse_args(args)
 
     files = get_all_file_paths_under(args.infile)
     if not files:
