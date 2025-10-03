@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
@@ -54,8 +52,4 @@ def main(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    # hacking the arguments to always disable hydra's output
-    sys.argv.extend(
-        ["hydra.run.dir=.", "hydra.output_subdir=null", "hydra/job_logging=none", "hydra/hydra_logging=none"]
-    )
     main()
