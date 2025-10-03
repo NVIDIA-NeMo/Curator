@@ -105,11 +105,6 @@ def main() -> None:
     )
     parser.add_argument("--outdir", type=str, required=True, help="Output directory to store split files")
     parser.add_argument("--target-size-mb", type=int, default=128, help="Target size (in MB) of split output files")
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Enable verbose output",
-    )
     args = parser.parse_args()
 
     files = get_all_file_paths_under(args.infile)
@@ -121,9 +116,7 @@ def main() -> None:
     with RayClient():
         ray.get(
             [
-                split_parquet_file_by_size.remote(
-                    input_file=f, outdir=args.outdir, target_size_mb=args.target_size_mb, verbose=args.verbose
-                )
+                split_parquet_file_by_size.remote(input_file=f, outdir=args.outdir, target_size_mb=args.target_size_mb)
                 for f in files
             ]
         )
