@@ -124,7 +124,7 @@ Data curation modules measurably improve model performance. In ablation studies 
 |----------|-------|
 | **Documentation** | [Main Docs](https://docs.nvidia.com/nemo/curator/latest/) • [API Reference](https://docs.nvidia.com/nemo/curator/latest/apidocs/index.html) • [Concepts](https://docs.nvidia.com/nemo/curator/latest/about/concepts/index.html) |
 | **Tutorials** | [Text](tutorials/text/) • [Image](tutorials/image/) • [Video](tutorials/video/) • [Audio](tutorials/audio/) |
-| **Deployment** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Infrastructure](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/index.html) • [Slurm](https://docs.nvidia.com/nemo/curator/latest/admin/deployment/slurm/image.html) |
+| **Deployment** | [Installation](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html) • [Infrastructure](https://docs.nvidia.com/nemo/curator/latest/reference/infrastructure/index.html) |
 | **Community** | [GitHub Discussions](https://github.com/NVIDIA-NeMo/Curator/discussions) • [Issues](https://github.com/NVIDIA-NeMo/Curator/issues) |
 
 ---
