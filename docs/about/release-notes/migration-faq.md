@@ -217,7 +217,7 @@ Yes. NeMo Curator supports multiple data modalities including {ref}`text <gs-tex
 
 ```{dropdown} Where can I get support, ask questions, or contribute?
 
-Support and discussion channels are available on Slack, Teams, and GitHub. If you build innovative filters or features for your locale, please engage and contribute back. Regular calls and community check-ins are offered.
+Support and discussion channels are available on Slack and [GitHub](https://github.com/NVIDIA-NeMo/Curator). If you build innovative filters or features for your locale, please engage and contribute back. Regular calls and community check-ins are offered.
 ```
 
 ---
