@@ -105,9 +105,6 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             for window_idx, window in enumerate(clip.windows):
                 llm_input = window.llm_inputs.get(self.model_variant)
 
-                if llm_input is None and self.model_variant == "qwen" and window.qwen_llm_input is not None:
-                    llm_input = window.qwen_llm_input
-
                 if llm_input is None:
                     logger.error(
                         f"Clip {clip.uuid} window {window_idx} has no prepared inputs for {self.model_variant}."
@@ -152,5 +149,4 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
             for window in clip.windows:
                 if self.model_variant in window.llm_inputs:
                     del window.llm_inputs[self.model_variant]
-                window.qwen_llm_input = None
                 window.mp4_bytes = None

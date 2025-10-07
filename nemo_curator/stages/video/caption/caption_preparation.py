@@ -147,9 +147,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                 )
                 window.llm_inputs[self.model_variant] = llm_input
 
-                if self.model_variant == "qwen":
-                    window.qwen_llm_input = llm_input
-
                 clip.windows.append(window)
 
         return task
