@@ -96,12 +96,7 @@ Yes. Ray natively orchestrates jobs across nodes and GPUs. For multi-node operat
 
 ```{dropdown} How does the system manage GPU locality and optimal task placement?
 
-Internally, an allocator ensures data locality for heavy data transfer stages (for example, tasks passing large data between GPU-intensive stages tend to run on the same GPU or node to minimize transfer times). These are handled by Cosmos Xenna or Ray's underlying allocators and optimization routines—not directly inside NeMo Curator itself. These frameworks attempt to colocate data and computation to minimize data transfer and maximize throughput, according to your resource constraints and specifications.
-```
-
-```{dropdown} Can different pipeline stages use different Python environments or dependencies?
-
-Yes, you can specify different Conda environments per stage. Ensure module imports occur inside the stage's process or setup methods (not at the global scope).
+Internally, an allocator ensures data locality for heavy data transfer stages (for example, tasks passing large data between GPU-intensive stages tend to run on the same GPU or node to minimize transfer times). These are handled by [Cosmos Xenna](https://github.com/nvidia-cosmos/cosmos-xenna) or Ray's underlying allocators and optimization routines—not directly inside NeMo Curator itself. These frameworks attempt to colocate data and computation to minimize data transfer and maximize throughput, according to your resource constraints and specifications.
 ```
 
 ---
@@ -122,11 +117,6 @@ NeMo Curator suggests several strategies (see {ref}`Heuristic Filtering <text-pr
 A set of models assigns a quality score (for example, 0–20), bucketed into high, medium, or low groups. High-quality data might be upsampled or have synthetic variants generated; low-quality data is rewritten rather than simply dropped—especially valuable for low-resource contexts.
 ```
 
-```{dropdown} How can we implement or reuse rule-based or custom quality filters? Is YAML (configuration-based) support available?
-
-Quality filters can be implemented as full Python stages in the pipeline (see {ref}`Heuristic Filtering <text-process-data-filter-heuristic>` for available filters and usage examples). YAML or configuration-based filter definitions are available, making it easier to define and reuse filters without writing as much code. Collaboration is encouraged—please contribute region or language-specific filters via pull requests.
-```
-
 ```{dropdown} Can the system track the number of documents or tokens processed, filtered, or passed at each stage?
 
 Each task is a data class. You can add whatever statistics you need (input or output counts, tokens dropped, and so on) within stage logic for detailed reporting or logging.
@@ -134,7 +124,15 @@ Each task is a data class. You can add whatever statistics you need (input or ou
 
 ```{dropdown} Does the new deduplication feature support global deduplication (across all snapshots, not just incremental)?
 
-Yes, the Ray-powered NeMo Curator supports massive-scale {ref}`global deduplication <text-process-data-dedup>` using efficient, GPU-accelerated MinHash or other methods. For comprehensive documentation, refer to {ref}`Deduplication Concepts <about-concepts-deduplication>`.
+Yes, NeMo Curator supports {ref}`global deduplication <text-process-data-dedup>` by processing multiple data sources together in a single pass. You can provide files from multiple snapshots (such as different Common Crawl releases) as input, and deduplication will identify duplicates across all of them.
+
+Three GPU-accelerated approaches are available:
+
+- **Exact deduplication**: MD5 hashing for identical documents (unlimited scale)
+- **Fuzzy deduplication**: MinHash with LSH for near-duplicates (petabyte-scale)
+- **Semantic deduplication**: Embedding-based similarity for meaning-based duplicates (terabyte-scale)
+
+For comprehensive documentation, refer to {ref}`Deduplication Concepts <about-concepts-deduplication>`.
 ```
 
 ---
@@ -210,7 +208,7 @@ For multi-node operations, you're responsible for managing communication setup (
 
 ```{dropdown} Are there examples of multi-type data (text, image, audio, video) pipelines?
 
-Yes. NeMo Curator supports multiple data modalities including {ref}`text <gs-text>`, {ref}`image <gs-image>`, {ref}`audio <gs-audio>`, and {ref}`video <gs-video>` (links to quickstart guides for each modality).
+Yes. NeMo Curator supports multiple data modalities including {ref}`text <gs-text>`, {ref}`image <gs-image>`, {ref}`audio <gs-audio>`, and {ref}`video <gs-video>`.
 ```
 
 ---
