@@ -193,7 +193,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
 
     if args.generate_captions:
         # Determine model path for caption preparation
-        model_path = args.captioning_model_path if hasattr(args, "captioning_model_path") else None
+        model_path = args.nemotronh_vl_model_path if hasattr(args, "nemotronh_vl_model_path") else None
 
         pipeline.add_stage(
             CaptionPreparationStage(
@@ -221,7 +221,7 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
 
         # Determine model directory
         model_dir = (
-            args.captioning_model_path
+            args.nemotronh_vl_model_path
             if (args.captioning_algorithm.startswith("nemotron") or args.captioning_algorithm.startswith("NemotronH_"))
             else args.model_dir
         )
@@ -594,10 +594,10 @@ if __name__ == "__main__":
         help="Captioning algorithm to use (qwen or nemotron).",
     )
     parser.add_argument(
-        "--captioning-model-path",
+        "--nemotronh-vl-model-path",
         type=str,
         default=None,
-        help="Path to model checkpoint (required for NemotronH models)",
+        help="Path to NemotronH VL model checkpoint (required for NemotronH models)",
     )
     parser.add_argument(
         "--captioning-window-size",
