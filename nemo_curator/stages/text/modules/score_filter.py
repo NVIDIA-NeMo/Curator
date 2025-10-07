@@ -90,8 +90,11 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
             DocumentBatch: A batch with the new score
 
         """
-
         df = batch.to_pandas()
+
+        if df.empty:
+            logger.info(f"Empty dataset for batch {batch.task_id}")
+            return batch
 
         for score_fn_i, text_field_i, score_field_i in zip(
             self.score_fn, self.text_field, self.score_field, strict=True
@@ -184,6 +187,10 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         """
         df = batch.to_pandas()
+
+        if df.empty:
+            logger.info(f"Empty dataset for batch {batch.task_id}")
+            return batch
 
         for filter_fn_i, filter_field_i, invert_i in zip(self.filter_fn, self.filter_field, self.invert, strict=True):
             bool_mask = self.compute_filter_mask(df, filter_fn_i, filter_field_i, invert_i)
@@ -300,6 +307,10 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         """
         df = batch.to_pandas()
+
+        if df.empty:
+            logger.info(f"Empty dataset for batch {batch.task_id}")
+            return batch
 
         for filter_obj_i, text_field_i, score_field_i, invert_i in zip(
             self.filter_obj, self.text_field, self.score_field, self.invert, strict=True
