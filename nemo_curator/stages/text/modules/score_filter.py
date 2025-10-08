@@ -14,7 +14,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 from loguru import logger
@@ -61,6 +61,14 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.text_field + self.score_field
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        requires_setup = any(
+            hasattr(score_fn, "load_model") or hasattr(score_fn, "load_tokenizer")
+            for score_fn in self.score_fn
+            if isinstance(score_fn, DocumentFilter)
+        )
+        return {"is_actor_stage": requires_setup}
 
     def setup_on_node(
         self,
@@ -248,6 +256,14 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.text_field + self.score_field if self.score_field is not None else []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        requires_setup = any(
+            hasattr(filter_obj, "load_model") or hasattr(filter_obj, "load_tokenizer")
+            for filter_obj in self.filter_obj
+            if isinstance(filter_obj, DocumentFilter)
+        )
+        return {"is_actor_stage": requires_setup}
 
     def setup_on_node(
         self,
