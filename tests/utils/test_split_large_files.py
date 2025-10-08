@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -32,9 +33,11 @@ from nemo_curator.utils.split_large_files import parse_args, split_parquet_file_
 @pytest.fixture
 def parquet_file_factory(tmp_path: pathlib.Path):
     def _(num_row_groups: int = 1) -> pathlib.Path:
+        # This generates an in-memory pyarrow.Table of 18.5 MB
+        # I.e. `t.nbytes / 1e6 == 18.5`
         num_rows = 500_000
         rng = np.random.default_rng(seed=2)
-        df = pd.DataFrame(
+        t = pa.Table.from_pydict(
             {
                 "id": np.arange(num_rows),
                 "value1": rng.random(num_rows),
@@ -44,7 +47,7 @@ def parquet_file_factory(tmp_path: pathlib.Path):
             }
         )
         file = tmp_path / "test.parquet"
-        df.to_parquet(file, engine="pyarrow", row_group_size=len(df) // num_row_groups)
+        pq.write_table(t, file, row_group_size=t.num_rows // num_row_groups)
         assert pq.ParquetFile(file).num_row_groups == num_row_groups
         return file
 

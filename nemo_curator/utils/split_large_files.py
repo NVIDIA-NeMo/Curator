@@ -18,6 +18,7 @@ import os
 import pyarrow as pa
 import pyarrow.parquet as pq
 import ray
+from loguru import logger
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.utils.file_utils import get_all_file_paths_under
@@ -40,7 +41,7 @@ def _split_table(table: pa.Table, target_size: int) -> list[pa.Table]:
 def _write_table_to_file(table: pa.Table, outdir: str, output_prefix: str, ext: str, file_idx: int) -> int:
     output_file = os.path.join(outdir, f"{output_prefix}_{file_idx}{ext}")
     pq.write_table(table, output_file)
-    print(f"Saved {output_file} (~{table.nbytes / (1024 * 1024):.2f} MB)")
+    logger.debug(f"Saved {output_file} (~{table.nbytes / (1024 * 1024):.2f} MB)")
     return file_idx + 1
 
 
@@ -51,7 +52,7 @@ def split_parquet_file_by_size(input_file: str, outdir: str, target_size_mb: int
         ext = ".parquet"
     outfile_prefix = os.path.basename(root)
 
-    print(f"""Splitting parquet file...
+    logger.info(f"""Splitting parquet file...
 
 Input file: {input_file}
 Output directory: {outdir}
@@ -81,7 +82,7 @@ Target size: {target_size_mb} MB
                         chunk, outdir=outdir, output_prefix=outfile_prefix, ext=ext, file_idx=file_idx
                     )
                 row_group_idx += 1
-            elif row_group.nbytes + current_size > target_size_bytes and current_size > 0:
+            elif row_group.nbytes + current_size > target_size_bytes:
                 # Adding the current row group will push over the desired target size, so
                 # write current batch to a file.
                 break
@@ -113,7 +114,7 @@ def main(args: argparse.ArgumentParser | None = None) -> None:
 
     files = get_all_file_paths_under(args.infile)
     if not files:
-        print(f"No file(s) found at '{args.infile}'")
+        logger.error(f"No file(s) found at '{args.infile}'")
         return
 
     os.makedirs(args.outdir, exist_ok=True)
