@@ -453,27 +453,27 @@ class TestFilterModule:
 
     def test_ray_stage_spec(self) -> None:
         # Does not have load_model or load_tokenizer
-        filter = ScoreFilter(LetterCountFilter(), text_field="documents")
-        assert filter.ray_stage_spec() == {"is_actor_stage": False}
-        filter = Score(LetterCountFilter(), text_field="documents", score_field="score")
-        assert filter.ray_stage_spec() == {"is_actor_stage": False}
+        test_filter = ScoreFilter(LetterCountFilter(), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": False}
+        test_filter = Score(LetterCountFilter(), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": False}
 
         # Has load_model
-        filter = ScoreFilter(FakeQualityFilter(), text_field="documents")
-        assert filter.ray_stage_spec() == {"is_actor_stage": True}
-        filter = Score(FakeQualityFilter(), text_field="documents", score_field="score")
-        assert filter.ray_stage_spec() == {"is_actor_stage": True}
-        filter = ScoreFilter(FakeLangId(), text_field="documents")
-        assert filter.ray_stage_spec() == {"is_actor_stage": True}
-        filter = Score(FakeLangId(), text_field="documents", score_field="score")
-        assert filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = ScoreFilter(FakeQualityFilter(), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = Score(FakeQualityFilter(), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = ScoreFilter(FakeLangId(), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = Score(FakeLangId(), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
 
         # Has load_tokenizer
         tokenizer = DummyTokenizer()
-        filter = ScoreFilter(TokenCountFilter(tokenizer), text_field="documents")
-        assert filter.ray_stage_spec() == {"is_actor_stage": True}
-        filter = Score(TokenCountFilter(tokenizer), text_field="documents", score_field="score")
-        assert filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = ScoreFilter(TokenCountFilter(tokenizer), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = Score(TokenCountFilter(tokenizer), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
 
 
 class TestHeuristicFilters:

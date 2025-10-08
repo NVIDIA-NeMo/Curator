@@ -64,8 +64,8 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         requires_setup = any(
-            hasattr(score_fn, "load_model") or hasattr(score_fn, "load_tokenizer") 
-            for score_fn in self.score_fn 
+            hasattr(score_fn, "load_model") or hasattr(score_fn, "load_tokenizer")
+            for score_fn in self.score_fn
             if isinstance(score_fn, DocumentFilter)
         )
         return {"is_actor_stage": requires_setup}
@@ -259,8 +259,8 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def ray_stage_spec(self) -> dict[str, Any]:
         requires_setup = any(
-            hasattr(filter_obj, "load_model") or hasattr(filter_obj, "load_tokenizer") 
-            for filter_obj in self.filter_obj 
+            hasattr(filter_obj, "load_model") or hasattr(filter_obj, "load_tokenizer")
+            for filter_obj in self.filter_obj
             if isinstance(filter_obj, DocumentFilter)
         )
         return {"is_actor_stage": requires_setup}
