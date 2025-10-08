@@ -63,13 +63,12 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], self.text_field + self.score_field
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        for score_fn in self.score_fn:
-            if isinstance(score_fn, DocumentFilter):
-                if hasattr(score_fn, "load_model"):
-                    return {"is_actor_stage": True}
-                if hasattr(score_fn, "load_tokenizer"):
-                    return {"is_actor_stage": True}
-        return {}
+        requires_setup = any(
+            hasattr(score_fn, "load_model") or hasattr(score_fn, "load_tokenizer") 
+            for score_fn in self.score_fn 
+            if isinstance(score_fn, DocumentFilter)
+        )
+        return {"is_actor_stage": requires_setup}
 
     def setup_on_node(
         self,
@@ -259,13 +258,12 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], self.text_field + self.score_field if self.score_field is not None else []
 
     def ray_stage_spec(self) -> dict[str, Any]:
-        for filter_obj in self.filter_obj:
-            if isinstance(filter_obj, DocumentFilter):
-                if hasattr(filter_obj, "load_model"):
-                    return {"is_actor_stage": True}
-                if hasattr(filter_obj, "load_tokenizer"):
-                    return {"is_actor_stage": True}
-        return {}
+        requires_setup = any(
+            hasattr(filter_obj, "load_model") or hasattr(filter_obj, "load_tokenizer") 
+            for filter_obj in self.filter_obj 
+            if isinstance(filter_obj, DocumentFilter)
+        )
+        return {"is_actor_stage": requires_setup}
 
     def setup_on_node(
         self,
