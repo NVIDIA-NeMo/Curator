@@ -122,19 +122,6 @@ A set of models assigns a quality score (for example, 0–20), bucketed into hig
 Each task is a data class. You can add whatever statistics you need (input or output counts, tokens dropped, and so on) within stage logic for detailed reporting or logging.
 ```
 
-```{dropdown} Does the new deduplication feature support global deduplication (across all snapshots, not just incremental)?
-
-Yes, NeMo Curator supports {ref}`global deduplication <text-process-data-dedup>` by processing multiple data sources together in a single pass. You can provide files from multiple snapshots (such as different Common Crawl releases) as input, and deduplication will identify duplicates across all of them.
-
-Three GPU-accelerated approaches are available:
-
-- **Exact deduplication**: MD5 hashing for identical documents (unlimited scale)
-- **Fuzzy deduplication**: MinHash with LSH for near-duplicates (petabyte-scale)
-- **Semantic deduplication**: Embedding-based similarity for meaning-based duplicates (terabyte-scale)
-
-For comprehensive documentation, refer to {ref}`Deduplication Concepts <about-concepts-deduplication>`.
-```
-
 ---
 
 ## Fault Tolerance, Checkpointing, and Observability
@@ -166,11 +153,6 @@ Yes, by design. Add new stages or modify process functions to integrate custom l
 ```{dropdown} Can I contribute region or language-specific filters or tools back to NeMo Curator?
 
 Contributions are strongly encouraged. Submit pull requests or join community discussions to help expand NeMo Curator's capabilities for diverse regions and languages.
-```
-
-```{dropdown} How do I manage different dependencies for separate stages, especially if packaging as Docker images?
-
-Each stage can specify its Conda environment, which must be present in the Docker image. Import your dependencies within stage logic to ensure proper isolation.
 ```
 
 ---
@@ -217,7 +199,13 @@ Yes. NeMo Curator supports multiple data modalities including {ref}`text <gs-tex
 
 ```{dropdown} Where can I get support, ask questions, or contribute?
 
-Support and discussion channels are available on Slack and [GitHub](https://github.com/NVIDIA-NeMo/Curator). If you build innovative filters or features for your locale, please engage and contribute back. Regular calls and community check-ins are offered.
+All support and community engagement happens on [GitHub](https://github.com/NVIDIA-NeMo/Curator). We encourage you to:
+
+- **Open an issue** for bugs, feature requests, or questions
+- **Start a discussion** to share ideas or ask for guidance
+- **Submit a pull request** if you build innovative filters or features
+
+Regular community calls and check-ins are also offered to connect with the team and other users.
 ```
 
 ---
@@ -231,5 +219,5 @@ Support and discussion channels are available on Slack and [GitHub](https://gith
 ```
 
 ```{tip}
-If you find something missing or want to share a best practice or feature, join the NeMo Curator community or submit an issue or pull request on GitHub.
+If you find something missing or want to share a best practice or feature, please [open an issue](https://github.com/NVIDIA-NeMo/Curator/issues) or [submit a pull request](https://github.com/NVIDIA-NeMo/Curator/pulls) on GitHub.
 ```
