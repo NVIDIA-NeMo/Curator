@@ -91,9 +91,8 @@ class NemotronHVL(ModelInterface):
             msg = "vllm is required for NemotronHVL but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        # Use V0 engine to avoid flashinfer issues for now
-        os.environ["VLLM_USE_V1"] = "0"
-        logger.info("Using vLLM V0 engine.")
+        os.environ["VLLM_USE_V1"] = "1"
+        logger.info("Using vLLM V1 engine.")
 
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
