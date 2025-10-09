@@ -12,7 +12,7 @@ authors:
     affiliation: "NVIDIA"
   - family-names: Subramanian
     given-names: Sandeep
-    affiliation: "NVIDIA"
+    affiliation: "NVIDIA (at the time of contribution)"
   - family-names: Prabhumoye
     given-names: Shrimai
     affiliation: "NVIDIA"
@@ -27,7 +27,7 @@ authors:
     affiliation: "NVIDIA"
   - family-names: Wolf
     given-names: Ryan
-    affiliation: "NVIDIA"
+    affiliation: "NVIDIA (at the time of contribution)"
   - family-names: Yurick
     given-names: Sarah
     affiliation: "NVIDIA"
