@@ -14,6 +14,8 @@ modality: "universal"
 
 This major release represents a fundamental architecture shift from [Dask](https://www.dask.org/) to [Ray](https://www.ray.io/), expanding NeMo Curator to support multimodal data curation with new [video](../../curate-video/index.md) and [audio](../../curate-audio/index.md) capabilities. This refactor enables unified backend processing, better heterogeneous computing support, and enhanced autoscaling for dynamic workloads.
 
+**Migrating from a previous version of NeMo Curator?** Refer to the {ref}`Migration Guide <migration-guide>` for step-by-step instructions and the {ref}`Migration FAQ <migration-faq>` for common questions.
+
 ## Installation Updates
 
 - **New Docker container**: Updated Docker infrastructure with CUDA 12.8.1 and Ubuntu 24.04 base; obtainable through the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/nemo-curator) (`nvcr.io/nvidia/nemo-curator:{{ container_version }}`)
@@ -216,4 +218,13 @@ For all tutorial content, refer to the [tutorials directory](https://github.com/
 
 ## What's Next
 
-The next release will focus on completing the refactor of Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.
+The next release will focus on completing the refactor of Synthetic Data Generation, PII, and Blending & Shuffling features, along with additional performance optimizations and new modality support.
+
+```{toctree}
+:hidden:
+:maxdepth: 4
+
+Migration Guide <migration-guide>
+Migration FAQ <migration-faq>
+
+```
