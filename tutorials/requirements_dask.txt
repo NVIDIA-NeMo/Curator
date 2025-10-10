@@ -1,0 +1,21 @@
+# Dask Sentiment Analysis Pipeline Requirements
+# Core dependencies for the standalone Dask implementation
+
+# Dask for distributed processing
+dask[complete]>=2023.10.0
+huggingface-hub>=0.16.0
+
+# Logging
+loguru>=0.7.0
+numpy>=1.24.0
+
+# Data processing
+pandas>=1.5.0
+
+# Machine Learning
+torch>=2.0.0
+transformers>=4.25.0
+
+# Optional: for GPU support (uncomment if using CUDA)
+# torch-audio  # for additional torch audio support
+# accelerate   # for HuggingFace model acceleration
