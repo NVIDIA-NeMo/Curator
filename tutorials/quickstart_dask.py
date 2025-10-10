@@ -12,12 +12,10 @@ This version uses Dask for distributed processing instead of Ray/NeMo Curator.
 import random
 import warnings
 
-import dask
 import dask.dataframe as dd
 import huggingface_hub
 import pandas as pd
 import torch
-from dask import delayed
 from dask.distributed import Client
 from loguru import logger
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -153,7 +151,6 @@ class SentimentAnalyzer:
         return sentiment_labels
 
 
-@delayed
 def process_sentiment_partition(df: pd.DataFrame, model_name: str) -> pd.DataFrame:
     """
     Process sentiment for a partition of data.
@@ -223,21 +220,14 @@ def run_sentiment_analysis_pipeline(
 
         # Step 3: Add sentiment analysis
         logger.info("Step 3: Running sentiment analysis...")
+        # Define output metadata for map_partitions
+        meta = ddf_with_counts._meta.copy()
+        meta["sentiment"] = pd.Series(dtype=str)
+        ddf_with_sentiment = ddf_with_counts.map_partitions(process_sentiment_partition, model_name, meta=meta)
 
-        # Process each partition with sentiment analysis
-        delayed_results = []
-        for i in range(num_partitions):
-            partition = ddf_with_counts.get_partition(i)
-            partition_df = partition.compute()
-            delayed_result = process_sentiment_partition(partition_df, model_name)
-            delayed_results.append(delayed_result)
-
-        # Compute all results
+        # Compute final results
         logger.info("Computing results...")
-        final_partitions = dask.compute(*delayed_results)
-
-        # Combine results
-        final_df = pd.concat(final_partitions, ignore_index=True)
+        final_df = ddf_with_sentiment.compute()
 
         logger.info("Pipeline completed successfully!")
         return final_df
