@@ -45,7 +45,7 @@ class TestWindow:
         assert window.start_frame == 0
         assert window.end_frame == 10
         assert window.mp4_bytes is None
-        assert window.qwen_llm_input is None
+        assert window.llm_inputs == {}
         assert window.x1_input is None
         assert window.caption == {}
         assert window.enhanced_caption == {}
@@ -63,7 +63,7 @@ class TestWindow:
             start_frame=5,
             end_frame=15,
             mp4_bytes=mp4_data,
-            qwen_llm_input=qwen_input,
+            llm_inputs={"qwen": qwen_input},
             webp_bytes=webp_data,
             caption=caption,
             enhanced_caption=enhanced_caption,
@@ -72,7 +72,7 @@ class TestWindow:
         assert window.start_frame == 5
         assert window.end_frame == 15
         assert window.mp4_bytes == mp4_data
-        assert window.qwen_llm_input == qwen_input
+        assert window.llm_inputs["qwen"] == qwen_input
         assert window.webp_bytes == webp_data
         assert window.caption == caption
         assert window.enhanced_caption == enhanced_caption
@@ -97,7 +97,7 @@ class TestWindow:
             start_frame=0,
             end_frame=10,
             mp4_bytes=mp4_data,
-            qwen_llm_input=qwen_input,
+            llm_inputs={"qwen": qwen_input},
             webp_bytes=webp_data,
             caption=caption,
             enhanced_caption=enhanced_caption,
