@@ -65,6 +65,7 @@ NeMo Curator now supports comprehensive [video data curation](../../curate-video
 - **Semantic deduplication**: [K-means clustering and pairwise similarity](../../curate-video/process-data/dedup.md) for near-duplicate clip removal
 - **Content filtering**: [Motion-based filtering](../../curate-video/process-data/filtering.md) and [aesthetic filtering](../../curate-video/process-data/filtering.md) for quality improvement
 - **Embedding generation**: InternVideo2 and Cosmos-Embed1 models for clip-level embeddings
+- **Enhanced captioning**: [VL-based caption generation with optional LLM-based rewriting](../../curate-video/process-data/captions-preview.md) (Qwen-VL and Qwen-LM supported) for detailed video descriptions
 - **Ray-based distributed architecture**: Scalable video processing with [autoscaling support](../concepts/video/architecture.md)
 
 ### Audio
