@@ -73,7 +73,7 @@ def main():
     pipeline.add_stage(cc_stage)
 
     # Add output writer stage
-    writer = JsonlWriter(output_dir="./cc_output")
+    writer = JsonlWriter("./cc_output")
     pipeline.add_stage(writer)
 
     # Run pipeline
