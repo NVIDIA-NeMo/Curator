@@ -94,7 +94,7 @@ To write Parquet instead of JSONL, use `ParquetWriter`:
 from nemo_curator.stages.text.io.writer import ParquetWriter
 
 # Replace the JSONL writer with ParquetWriter
-writer = ParquetWriter(output_dir="./cc_output_parquet")
+writer = ParquetWriter("./cc_output_parquet")
 pipeline.add_stage(writer)
 ```
 
