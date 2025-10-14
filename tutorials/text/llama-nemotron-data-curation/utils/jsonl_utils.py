@@ -15,7 +15,6 @@
 import itertools
 import os
 from collections.abc import Generator
-from typing import List
 
 
 def split_jsonl_by_size(input_file: str, target_size_mb: int, output_dir: str, output_prefix: str) -> None:
@@ -55,7 +54,7 @@ def stream_jsonl_files(jsonl_dir: str) -> Generator[str, None, None]:
                 yield line.rstrip("\n")
 
 
-def chunked(gen: Generator[str, None, None], size: int = 100) -> Generator[List[str], None, None]:
+def chunked(gen: Generator[str, None, None], size: int = 100) -> Generator[list[str], None, None]:
     while True:
         chunk = list(itertools.islice(gen, size))
         if not chunk:  # generator exhausted
