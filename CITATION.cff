@@ -1,25 +1,63 @@
-cff-version: 1.0.0
+cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "NeMo-Curator: a toolkit for data curation"
 repository-code: https://github.com/NVIDIA-NeMo/Curator
+url: https://github.com/NVIDIA-NeMo/Curator
 authors:
   - family-names: Jennings
     given-names: Joseph
+    affiliation: "NVIDIA"
   - family-names: Patwary
     given-names: Mostofa
+    affiliation: "NVIDIA"
   - family-names: Subramanian
     given-names: Sandeep
+    affiliation: "NVIDIA (at the time of contribution)"
   - family-names: Prabhumoye
     given-names: Shrimai
+    affiliation: "NVIDIA"
   - family-names: Dattagupta
     given-names: Ayush
+    affiliation: "NVIDIA"
   - family-names: Jawa
     given-names: Vibhu
+    affiliation: "NVIDIA"
   - family-names: Liu
     given-names: Jiwei
+    affiliation: "NVIDIA"
   - family-names: Wolf
     given-names: Ryan
+    affiliation: "NVIDIA (at the time of contribution)"
   - family-names: Yurick
     given-names: Sarah
+    affiliation: "NVIDIA"
   - family-names: Singh
     given-names: Varun
+    affiliation: "NVIDIA"
+  - family-names: Chang
+    given-names: Dong Hyuk
+    affiliation: "NVIDIA"
+  - family-names: Tang
+    given-names: Ao
+    affiliation: "NVIDIA"
+  - family-names: Lane
+    given-names: Lawrence
+    affiliation: "NVIDIA"
+  - family-names: Truong
+    given-names: Charlie
+    affiliation: "NVIDIA"
+  - family-names: Vu
+    given-names: Huy
+    affiliation: "NVIDIA"
+  - family-names: Garg
+    given-names: Abhinav
+    affiliation: "NVIDIA"
+  - family-names: Mahajan
+    given-names: Praateek
+    affiliation: "NVIDIA"
+  - family-names: Karpov
+    given-names: Nikolay
+    affiliation: "NVIDIA"
+  - family-names: König
+    given-names: Oliver
+    affiliation: "NVIDIA"
