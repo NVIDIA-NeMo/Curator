@@ -4,7 +4,7 @@ The [Llama Nemotron Post-Training Dataset](https://huggingface.co/datasets/nvidi
 Organized into distinct subsets for supervised fine-tuning (SFT) or reinforcement learning (RL), it encompasses samples from various problem domains.
 All samples are in JSON lines (JSONL) format and contain metadata such as license type, source model, as well as the [Llama Nemotron](https://www.nvidia.com/en-us/ai-data-science/foundation-models/llama-nemotron/) model(s) trained with that sample.
 
-Each sample consists of a prompt, along with an expected reponse with detailed chain-of-thought (CoT) reasoning traces followed by responses (i.e., "reasoning on"), as well as samples with direct responses (i.e., "reasoning off").
+Each sample consists of a prompt, along with an expected response with detailed chain-of-thought (CoT) reasoning traces followed by responses (i.e., "reasoning on"), as well as samples with direct responses (i.e., "reasoning off").
 Here is an example of what a sample from the dataset may look like:
 
 ```bash
@@ -33,7 +33,7 @@ The relevant attributes for this tutorial are as follows:
 - `system_prompt`: the (suggested) system prompt to control the reasoning mode of the system. For Llama Nemotron training, the system prompt is always either "detailed thinking on" or "detailed thinking off". Needless to say, this field is tied to the value in the field `reasoning` (and vice versa)
 - `used_in_training`: the list of Llama Nemotron models that used this sample for training. For instance, a value of `["Ultra", "Nano"]` indicates that this sample was used for training Llama Nemotron and Ultra, but not Super
 
-This tutorial demonstrates how a user can process a subset the Llama Nemotron dataset using NeMo Curator. The output files are created in the `input/output` JSONL format, suitable for use with various training frameworks, including [NVIDIA NeMo Framework](https://github.com/NVIDIA/NeMo). You can easily modify this pipeline as you see fit and adapt it to your domain- or business-specific needs, and the resulting dataset can be used to train a reasoning model with a modest computing budget.
+This tutorial demonstrates how a user can process a subset of the Llama Nemotron dataset using NeMo Curator. The output files are created in the `input/output` JSONL format, suitable for use with various training frameworks, including [NVIDIA NeMo Framework](https://github.com/NVIDIA/NeMo). You can easily modify this pipeline as you see fit and adapt it to your domain- or business-specific needs, and the resulting dataset can be used to train a reasoning model with a modest computing budget.
 
 ## Environment Setup
 
