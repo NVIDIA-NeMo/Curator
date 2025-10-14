@@ -15,17 +15,15 @@
 import itertools
 import os
 from collections.abc import Generator
+from typing import List
 
-import ray
 
-
-@ray.remote
 def split_jsonl_by_size(input_file: str, target_size_mb: int, output_dir: str, output_prefix: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
 
     target_size = target_size_mb * 1024 * 1024
     file_count = 0
-    bytes_written = 0
+    bytes_written = target_size + 1
     out = None
 
     base_name = os.path.basename(input_file)  # e.g., "chat.jsonl"
@@ -33,15 +31,15 @@ def split_jsonl_by_size(input_file: str, target_size_mb: int, output_dir: str, o
 
     with open(input_file, encoding="utf-8") as infile:
         for line in infile:
-            if out is None or bytes_written + len(line.encode("utf-8")) > target_size:
-                if out:
-                    out.close()
+            line_len = len(line.encode("utf-8"))
+            if bytes_written + line_len > target_size:
+                out and out.close()
                 out_path = os.path.join(output_dir, f"{output_prefix}_{base_name_no_ext}_{file_count}.jsonl")
                 out = open(out_path, "w", encoding="utf-8")  # noqa: SIM115
                 file_count += 1
                 bytes_written = 0
             out.write(line)
-            bytes_written += len(line.encode("utf-8"))
+            bytes_written += line_len
 
     if out:
         out.close()
@@ -57,15 +55,28 @@ def stream_jsonl_files(jsonl_dir: str) -> Generator[str, None, None]:
                 yield line.rstrip("\n")
 
 
-def interleave_datasets(dir1: str, dir2: str, out_path: str) -> None:
-    gen1 = stream_jsonl_files(dir1)
-    gen2 = stream_jsonl_files(dir2)
+def chunked(gen: Generator[str, None, None], size: int = 100) -> Generator[List[str], None, None]:
+    while True:
+        chunk = list(itertools.islice(gen, size))
+        if not chunk:  # generator exhausted
+            break
+        yield chunk  # may be < size on last chunk
+
+
+def interleave_datasets(dir1: str, dir2: str, out_path: str, chunk_size: int = 1) -> None:
+    gen1 = chunked(stream_jsonl_files(dir1), chunk_size)
+    gen2 = chunked(stream_jsonl_files(dir2), chunk_size)
 
     with open(out_path, "w") as out:
-        for line1, line2 in itertools.zip_longest(gen1, gen2):
-            if line1 is not None:
-                out.write(line1 + "\n")
-            if line2 is not None:
-                out.write(line2 + "\n")
+        for chunk1, chunk2 in itertools.zip_longest(gen1, gen2, fillvalue=[]):
+            # write chunk1 (may be empty if dir1 is exhausted)
+            for line in chunk1:
+                out.write(line + "\n")
+            # write chunk2 (may be empty if dir2 is exhausted)
+            for line in chunk2:
+                out.write(line + "\n")
 
-    print(f"Interleaved datasets from directories {dir1} and {dir2} into file {out_path}")
+    print(
+        f"Interleaved datasets from {dir1} and {dir2} into {out_path} "
+        f"with adaptive chunk size up to {chunk_size}"
+    )

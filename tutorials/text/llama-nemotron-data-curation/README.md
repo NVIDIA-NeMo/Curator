@@ -53,8 +53,22 @@ The input dataset can be downloaded from Hugging Face here: https://huggingface.
 The following commands can be used to download the dataset:
 
 ```bash
+# If needed: apt-get update && apt-get install -y git-lfs
 git lfs install
 git clone https://huggingface.co/datasets/nvidia/Llama-Nemotron-Post-Training-Dataset
+```
+
+Alternatively, the dataset can be downloaded via Python:
+
+```python
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="nvidia/Llama-Nemotron-Post-Training-Dataset", 
+    repo_type="dataset", 
+    local_dir="/path/to/save/data",
+    # allow_patterns=["SFT/chat/chat.jsonl", "SFT/math/math_v1.1.jsonl"],  # Select specific files or directories (if desired)
+)
 ```
 
 ### Tokenizer access instructions
@@ -109,11 +123,11 @@ The above script applies basic filtering to the input dataset:
 - Remove samples with output responses longer than 8k tokens (with chat template applied via the tokenizer)
 - Remove any columns specified by the `--remove-columns` parameter. We recommend removing the columns specified above (so that the remaining columns are the "input", "output", and "completion_token_count" columns)
 
-After filtering, it sorts all samples by completion (output response) length, then "interleaves" thinking ON/thinking OFF for curriculum learning. The idea here is to sort the samples in increasing order of difficulty, using the completion token count as a measure of sample difficulty. We interleave samples from the "reasoning on" and "reasoning off" buckets to gradually introduce complexity.
+After filtering, it sorts all samples by completion (output response) length, then "interleaves" thinking ON/thinking OFF for curriculum learning. The idea here is to sort the samples in increasing order of difficulty, using the completion token count as a measure of sample difficulty. By default, we interleave one record at a time (i.e., 1 thinking ON sample, then 1 thinking OFF sample, then 1 thinking ON sample, etc.). The user may pass `--chunk-size` followed by an integer to interleave 10 records at a time (10 thinking ON samples, then 10 thinking OFF samples, then 10 thinking ON samples, and so on), 100 records at a time, etc. as desired. We interleave samples from the "reasoning on" and "reasoning off" buckets to gradually introduce complexity.
 
 ## Debugging Out of Memory Errors
 
-If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. One is to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 100 MB per partition. To customize the file reading logic, the user may specify `--json-blocksize "1gb"` with any string representation for the partition size (e.g., "1gb", "256mb").
+If you are running into out of memory (OOM) errors, there are a couple of approaches you can try. One is to avoid very large partitions of data. By default, the JSONL data is read with a blocksize of 100 MB per partition. To customize the file reading logic, the user may specify `--json-blocksize "100mb"` with any string representation for the partition size in MB (e.g., "100mb", "256mb").
 
 It can be useful to play around with the `--num-cpus` parameter as well. The goal is to maximize it for improved performance without oversubscribing your available hardware.
 

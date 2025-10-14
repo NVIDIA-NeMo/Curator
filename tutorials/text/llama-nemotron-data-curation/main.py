@@ -74,8 +74,8 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
     os.makedirs(input_dir, exist_ok=False)
 
     # Split into smaller files for parallel processing
-    split_files = [split_jsonl_by_size.remote(f, json_blocksize, input_dir, "split") for f in input_files]
-    ray.get(split_files)
+    for f in input_files:
+        split_jsonl_by_size(f, json_blocksize, input_dir, "split")
 
     # Read files for each pipeline
     pipeline_thinking_on.add_stage(JsonlReader(file_paths=input_dir))
@@ -193,6 +193,7 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
         thinking_on_sorted_path,
         thinking_off_sorted_path,
         os.path.join(args.output_dir, "training.jsonl"),
+        chunk_size=args.chunk_size,
     )
 
     end_time = time.time()
@@ -268,6 +269,13 @@ def attach_args() -> argparse.ArgumentParser:
         nargs="+",
         type=str,
         help="Columns to remove from the dataset.",
+    )
+
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=1,
+        help="Chunk size to use for interleaving the datasets.",
     )
 
     parser.add_argument(

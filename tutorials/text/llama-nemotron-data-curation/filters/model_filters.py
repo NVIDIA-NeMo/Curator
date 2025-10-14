@@ -253,6 +253,7 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
                 # but for speedups we just use the length of the base string instead of tokenizing it
                 # (we consider this to be acceptable since 1 token is approx 4 characters for English
                 # and we are only using the CompletionTokenCountFilter as a proxy for text complexity)
+                # Please keep this in mind when setting the max_completion_token_count
                 tokenize=False,
                 add_generation_prompt=False,
                 truncation=False,
