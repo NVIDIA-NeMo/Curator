@@ -87,8 +87,8 @@ def _display_json_ld(json_ld: dict | None) -> bool:
     print(f"   • @type: {json_ld.get('@type', 'N/A')}")
     print(f"   • headline: {json_ld.get('headline', 'N/A')}")
 
-    description = json_ld.get('description', 'N/A')
-    if description != 'N/A':
+    description = json_ld.get("description", "N/A")
+    if description != "N/A":
         print(f"   • description: {description[:80]}...")
 
     if "keywords" in json_ld and isinstance(json_ld["keywords"], list):
