@@ -73,10 +73,8 @@ def extract_frontmatter(env, docname: str) -> dict[str, Any]:  # noqa: ANN001
 
     except yaml.YAMLError as e:
         logger.warning(f"rich_metadata: YAML parsing error in {docname}: {e}")
-    except (FileNotFoundError, OSError, IOError) as e:
+    except OSError as e:
         logger.warning(f"rich_metadata: File error for {docname}: {e}")
-    except Exception as e:
-        logger.warning(f"rich_metadata: Unexpected error extracting frontmatter from {docname}: {e}")
 
     return metadata
 
@@ -173,23 +171,55 @@ def _add_twitter_fields(metadata: dict[str, Any], context: dict[str, Any]) -> li
     return twitter_tags
 
 
+def _add_personas_tag(metadata: dict[str, Any]) -> list[str]:
+    """Add personas/audience metadata tag."""
+    if "personas" not in metadata:
+        return []
+
+    personas = metadata["personas"]
+    if not isinstance(personas, list):
+        return []
+
+    audience_map = {
+        "data-scientist-focused": "Data Scientists",
+        "mle-focused": "Machine Learning Engineers",
+        "admin-focused": "Cluster Administrators",
+        "devops-focused": "DevOps Professionals",
+    }
+    audiences = [audience_map.get(p, p) for p in personas]
+    audience_str = ", ".join(audiences)
+    return [f'<meta name="audience" content="{audience_str}">']
+
+
+def _add_product_tags(metadata: dict[str, Any]) -> list[str]:
+    """Add product metadata tags from cascade."""
+    if "cascade" not in metadata:
+        return []
+
+    cascade = metadata["cascade"]
+    if not isinstance(cascade, dict) or "product" not in cascade:
+        return []
+
+    product = cascade["product"]
+    if not isinstance(product, dict):
+        return []
+
+    tags = []
+    if product.get("name"):
+        tags.append(f'<meta name="product-name" content="{product["name"]}">')
+    if product.get("version"):
+        tags.append(f'<meta name="product-version" content="{product["version"]}">')
+    return tags
+
+
 def _add_custom_fields(metadata: dict[str, Any]) -> list[str]:
     """Add custom NVIDIA/content metadata tags."""
     custom_tags = []
 
-    if "personas" in metadata:
-        personas = metadata["personas"]
-        if isinstance(personas, list):
-            audience_map = {
-                "data-scientist-focused": "Data Scientists",
-                "mle-focused": "Machine Learning Engineers",
-                "admin-focused": "Cluster Administrators",
-                "devops-focused": "DevOps Professionals",
-            }
-            audiences = [audience_map.get(p, p) for p in personas]
-            audience_str = ", ".join(audiences)
-            custom_tags.append(f'<meta name="audience" content="{audience_str}">')
+    # Add personas/audience tags
+    custom_tags.extend(_add_personas_tag(metadata))
 
+    # Add simple content metadata fields
     if "content_type" in metadata:
         custom_tags.append(f'<meta name="content-type-category" content="{metadata["content_type"]}">')
 
@@ -199,16 +229,8 @@ def _add_custom_fields(metadata: dict[str, Any]) -> list[str]:
     if "modality" in metadata:
         custom_tags.append(f'<meta name="modality" content="{metadata["modality"]}">')
 
-    # Product information from cascade
-    if "cascade" in metadata:
-        cascade = metadata["cascade"]
-        if isinstance(cascade, dict) and "product" in cascade:
-            product = cascade["product"]
-            if isinstance(product, dict):
-                if product.get("name"):
-                    custom_tags.append(f'<meta name="product-name" content="{product["name"]}">')
-                if product.get("version"):
-                    custom_tags.append(f'<meta name="product-version" content="{product["version"]}">')
+    # Add product information from cascade
+    custom_tags.extend(_add_product_tags(metadata))
 
     return custom_tags
 
@@ -224,13 +246,12 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[s
     Returns:
         Dictionary with categorized meta tag lists
     """
-    tags = {
+    return {
         "basic": _add_basic_fields(metadata),
         "opengraph": _add_opengraph_fields(metadata, context),
         "twitter": _add_twitter_fields(metadata, context),
         "custom": _add_custom_fields(metadata)
     }
-    return tags
 
 
 def build_json_ld(metadata: dict[str, Any], context: dict[str, Any]) -> str | None:  # noqa: C901, PLR0912
