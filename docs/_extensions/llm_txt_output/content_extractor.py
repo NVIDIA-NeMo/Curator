@@ -776,7 +776,17 @@ def _extract_frontmatter(file_path: str) -> dict[str, Any] | None:
 
     except ImportError:
         logger.debug("PyYAML not available, skipping frontmatter extraction")
-    except Exception as e:  # noqa: BLE001
+    except (OSError, UnicodeDecodeError) as e:
         logger.debug(f"Could not extract frontmatter from {file_path}: {e}")
-
+    except Exception as e:
+        # Try to catch YAML errors if yaml is imported
+        try:
+            import yaml
+            if isinstance(e, yaml.YAMLError):
+                logger.debug(f"Could not extract frontmatter from {file_path} due to YAML error: {e}")
+            else:
+                raise
+        except ImportError:
+            # If yaml is not available, just log the error
+            logger.debug(f"Could not extract frontmatter from {file_path}: {e}")
     return None
