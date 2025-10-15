@@ -106,8 +106,8 @@ def build_page_title(metadata: dict[str, Any], context: dict[str, Any], pagename
         if "title" in parent and parent["title"] != page_title:
             components.append(parent["title"])
     
-    # Add site name
-    site_name = context.get("docstitle", "NeMo Curator")
+    # Add site name (from Sphinx's project config)
+    site_name = context.get("docstitle", "")
     if site_name and site_name != page_title:
         components.append(site_name)
     
