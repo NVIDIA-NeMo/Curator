@@ -82,6 +82,66 @@ class DummyTokenizer:
         return text.split()
 
 
+class FakeQualityFilter(DocumentFilter):
+    """
+    Emulates FastTextQualityFilter without a model
+    """
+
+    def __init__(self, alpha: float = 3, seed: int = 42):
+        super().__init__()
+        self._alpha = alpha
+        self._seed = np.random.seed(seed)  # noqa: NPY002
+
+    def load_model(self) -> None:
+        pass
+
+    def score_document(self, text: str) -> float:
+        if text == "a":
+            return 0.00
+        elif text == "b":
+            return 0.25
+        elif text == "c":
+            return 0.50
+        elif text == "d":
+            return 0.75
+        else:
+            msg = f"Unexpected text: {text}"
+            raise ValueError(msg)
+
+    def keep_document(self, score: float) -> bool:
+        return np.random.pareto(self._alpha) > 1 - score  # noqa: NPY002
+
+
+class FakeLangId(DocumentFilter):
+    """
+    Emulates FastTextLangId without a model
+    """
+
+    def __init__(self, min_langid_score: float = 0.3):
+        super().__init__()
+        self._cutoff = min_langid_score
+
+    def load_model(self) -> None:
+        pass
+
+    def score_document(self, text: str) -> str:
+        if text in ["a", "d"]:
+            return str([0.5, "EN"])
+        if text == "b":
+            return str([0.7, "HI"])
+        if text == "c":
+            return str([0.2, "PT"])
+        else:
+            msg = f"Unexpected text: {text}"
+            raise ValueError(msg)
+
+    def keep_document(self, score: float | str) -> bool:
+        if isinstance(score, str):
+            score = eval(score)  # noqa: S307
+
+        return score[0] >= self._cutoff
+
+
 def all_equal(left_dataset: DocumentBatch, right_dataset: DocumentBatch) -> bool:
     df_left = left_dataset.to_pandas().reset_index(drop=True)
     df_right = right_dataset.to_pandas().reset_index(drop=True)
@@ -363,11 +423,11 @@ class TestFilterModule:
         filtered_data = filters.process(intermediate_data)
 
         # Empty DataFrame
-        expected_df = pd.DataFrame()
+        expected_df = pd.DataFrame(columns=["documents"], index=pd.Index([], dtype=object))
 
         expected_data = DocumentBatch(
             data=expected_df,
-            task_id="batch_1_letter_count_letter_count",
+            task_id="batch_1_letter_count",
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
@@ -390,6 +450,30 @@ class TestFilterModule:
             dataset_name="test_1",
         )
         assert all_equal(expected_data, filtered_data), f"Expected {expected_data} but got {filtered_data}"
+
+    def test_ray_stage_spec(self) -> None:
+        # Does not have load_model or load_tokenizer
+        test_filter = ScoreFilter(LetterCountFilter(), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": False}
+        test_filter = Score(LetterCountFilter(), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": False}
+
+        # Has load_model
+        test_filter = ScoreFilter(FakeQualityFilter(), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = Score(FakeQualityFilter(), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = ScoreFilter(FakeLangId(), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = Score(FakeLangId(), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+
+        # Has load_tokenizer
+        tokenizer = DummyTokenizer()
+        test_filter = ScoreFilter(TokenCountFilter(tokenizer), text_field="documents")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
+        test_filter = Score(TokenCountFilter(tokenizer), text_field="documents", score_field="score")
+        assert test_filter.ray_stage_spec() == {"is_actor_stage": True}
 
 
 class TestHeuristicFilters:
@@ -1198,60 +1282,6 @@ class TestCodeFilters:
     ) -> None:
         line_statistics = per_extension_filter._line_statistics(content)
         assert line_statistics == expected, f"Expected {expected} but got {line_statistics}"
-
-
-class FakeQualityFilter(DocumentFilter):
-    """
-    Emulates FastTextQualityFilter without a model
-    """
-
-    def __init__(self, alpha: float = 3, seed: int = 42):
-        super().__init__()
-        self._alpha = alpha
-        self._seed = np.random.seed(seed)  # noqa: NPY002
-
-    def score_document(self, text: str) -> float:
-        if text == "a":
-            return 0.00
-        elif text == "b":
-            return 0.25
-        elif text == "c":
-            return 0.50
-        elif text == "d":
-            return 0.75
-        else:
-            msg = f"Unexpected text: {text}"
-            raise ValueError(msg)
-
-    def keep_document(self, score: float) -> bool:
-        return np.random.pareto(self._alpha) > 1 - score  # noqa: NPY002
-
-
-class FakeLangId(DocumentFilter):
-    """
-    Emulates FastTextLangId without a model
-    """
-
-    def __init__(self, min_langid_score: float = 0.3):
-        super().__init__()
-        self._cutoff = min_langid_score
-
-    def score_document(self, text: str) -> str:
-        if text in ["a", "d"]:
-            return str([0.5, "EN"])
-        if text == "b":
-            return str([0.7, "HI"])
-        if text == "c":
-            return str([0.2, "PT"])
-        else:
-            msg = f"Unexpected text: {text}"
-            raise ValueError(msg)
-
-    def keep_document(self, score: float | str) -> bool:
-        if isinstance(score, str):
-            score = eval(score)  # noqa: S307
-
-        return score[0] >= self._cutoff
 
 
 class TestClassifierFilters:
