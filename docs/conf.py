@@ -90,11 +90,11 @@ json_output_settings = {
 # -- Options for LLM.txt Output ----------------------------------------------
 # Configure the llm.txt output extension for LLM consumption
 llm_txt_settings = {
-    'enabled': True,
-    'verbose': True,
-    'max_content_length': 5000,
-    'base_url': 'https://docs.nvidia.com/nemo/curator/latest',  # Canonical URL for absolute links
-    'card_handling': 'smart',  # Extract grid cards as structured lists
+    "enabled": True,
+    "verbose": True,
+    "max_content_length": 5000,
+    "base_url": "https://docs.nvidia.com/nemo/curator/latest",  # Canonical URL for absolute links
+    "card_handling": "smart",  # Extract grid cards as structured lists
 }
 
 
