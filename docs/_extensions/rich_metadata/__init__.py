@@ -159,9 +159,10 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[s
     
     tags["opengraph"].append('<meta property="og:type" content="article">')
     
-    if "title" in context:
-        title = context["title"]
-        tags["opengraph"].append(f'<meta property="og:title" content="{title}">')
+    # Use enhanced title (pagetitle) if available, otherwise fall back to plain title
+    enhanced_title = context.get("pagetitle") or context.get("title", "")
+    if enhanced_title:
+        tags["opengraph"].append(f'<meta property="og:title" content="{enhanced_title}">')
     
     if "pageurl" in context:
         url = context["pageurl"]
@@ -171,8 +172,9 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[s
     if "description" in metadata:
         tags["twitter"].append(f'<meta name="twitter:description" content="{metadata["description"]}">')
     
-    if "title" in context:
-        tags["twitter"].append(f'<meta name="twitter:title" content="{context["title"]}">')
+    # Use same enhanced title for consistency
+    if enhanced_title:
+        tags["twitter"].append(f'<meta name="twitter:title" content="{enhanced_title}">')
     
     tags["twitter"].append('<meta name="twitter:card" content="summary">')
     
