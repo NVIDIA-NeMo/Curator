@@ -73,8 +73,10 @@ def extract_frontmatter(env, docname: str) -> dict[str, Any]:  # noqa: ANN001
 
     except yaml.YAMLError as e:
         logger.warning(f"rich_metadata: YAML parsing error in {docname}: {e}")
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"rich_metadata: Could not extract frontmatter from {docname}: {e}")
+    except (FileNotFoundError, OSError, IOError) as e:
+        logger.warning(f"rich_metadata: File error for {docname}: {e}")
+    except Exception as e:
+        logger.warning(f"rich_metadata: Unexpected error extracting frontmatter from {docname}: {e}")
 
     return metadata
 
