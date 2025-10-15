@@ -125,7 +125,95 @@ def build_page_title(_metadata: dict[str, Any], context: dict[str, Any], _pagena
         return f"{components[0]}: {components[1]} - {components[2]} | NVIDIA"
 
 
-def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[str, list[str]]:  # noqa: C901, PLR0912
+def _add_basic_fields(metadata: dict[str, Any]) -> list[str]:
+    """Add basic SEO meta tags."""
+    basic_tags = []
+    if "description" in metadata:
+        description = metadata["description"]
+        basic_tags.append(f'<meta name="description" content="{description}">')
+
+    if "tags" in metadata:
+        keywords = metadata["tags"]
+        if isinstance(keywords, list):
+            keywords_str = ", ".join(keywords)
+            basic_tags.append(f'<meta name="keywords" content="{keywords_str}">')
+    return basic_tags
+
+
+def _add_opengraph_fields(metadata: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    """Add Open Graph meta tags."""
+    og_tags = []
+    if "description" in metadata:
+        og_tags.append(f'<meta property="og:description" content="{metadata["description"]}">')
+
+    og_tags.append('<meta property="og:type" content="article">')
+
+    enhanced_title = context.get("pagetitle") or context.get("title", "")
+    if enhanced_title:
+        og_tags.append(f'<meta property="og:title" content="{enhanced_title}">')
+
+    if "pageurl" in context:
+        url = context["pageurl"]
+        og_tags.append(f'<meta property="og:url" content="{url}">')
+
+    return og_tags
+
+
+def _add_twitter_fields(metadata: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    """Add Twitter Card meta tags."""
+    twitter_tags = []
+    if "description" in metadata:
+        twitter_tags.append(f'<meta name="twitter:description" content="{metadata["description"]}">')
+
+    enhanced_title = context.get("pagetitle") or context.get("title", "")
+    if enhanced_title:
+        twitter_tags.append(f'<meta name="twitter:title" content="{enhanced_title}">')
+
+    twitter_tags.append('<meta name="twitter:card" content="summary">')
+    return twitter_tags
+
+
+def _add_custom_fields(metadata: dict[str, Any]) -> list[str]:
+    """Add custom NVIDIA/content metadata tags."""
+    custom_tags = []
+
+    if "personas" in metadata:
+        personas = metadata["personas"]
+        if isinstance(personas, list):
+            audience_map = {
+                "data-scientist-focused": "Data Scientists",
+                "mle-focused": "Machine Learning Engineers",
+                "admin-focused": "Cluster Administrators",
+                "devops-focused": "DevOps Professionals",
+            }
+            audiences = [audience_map.get(p, p) for p in personas]
+            audience_str = ", ".join(audiences)
+            custom_tags.append(f'<meta name="audience" content="{audience_str}">')
+
+    if "content_type" in metadata:
+        custom_tags.append(f'<meta name="content-type-category" content="{metadata["content_type"]}">')
+
+    if "difficulty" in metadata:
+        custom_tags.append(f'<meta name="difficulty" content="{metadata["difficulty"]}">')
+
+    if "modality" in metadata:
+        custom_tags.append(f'<meta name="modality" content="{metadata["modality"]}">')
+
+    # Product information from cascade
+    if "cascade" in metadata:
+        cascade = metadata["cascade"]
+        if isinstance(cascade, dict) and "product" in cascade:
+            product = cascade["product"]
+            if isinstance(product, dict):
+                if product.get("name"):
+                    custom_tags.append(f'<meta name="product-name" content="{product["name"]}">')
+                if product.get("version"):
+                    custom_tags.append(f'<meta name="product-version" content="{product["version"]}">')
+
+    return custom_tags
+
+
+def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[str, list[str]]:
     """
     Build HTML meta tags from frontmatter metadata, organized by category.
 
@@ -137,83 +225,11 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[s
         Dictionary with categorized meta tag lists
     """
     tags = {
-        "basic": [],
-        "opengraph": [],
-        "twitter": [],
-        "custom": []
+        "basic": _add_basic_fields(metadata),
+        "opengraph": _add_opengraph_fields(metadata, context),
+        "twitter": _add_twitter_fields(metadata, context),
+        "custom": _add_custom_fields(metadata)
     }
-
-    # Basic SEO meta tags
-    if "description" in metadata:
-        description = metadata["description"]
-        tags["basic"].append(f'<meta name="description" content="{description}">')
-
-    if "tags" in metadata:
-        keywords = metadata["tags"]
-        if isinstance(keywords, list):
-            keywords_str = ", ".join(keywords)
-            tags["basic"].append(f'<meta name="keywords" content="{keywords_str}">')
-
-    # Open Graph tags
-    if "description" in metadata:
-        tags["opengraph"].append(f'<meta property="og:description" content="{metadata["description"]}">')
-
-    tags["opengraph"].append('<meta property="og:type" content="article">')
-
-    # Use enhanced title (pagetitle) if available, otherwise fall back to plain title
-    enhanced_title = context.get("pagetitle") or context.get("title", "")
-    if enhanced_title:
-        tags["opengraph"].append(f'<meta property="og:title" content="{enhanced_title}">')
-
-    if "pageurl" in context:
-        url = context["pageurl"]
-        tags["opengraph"].append(f'<meta property="og:url" content="{url}">')
-
-    # Twitter Card tags
-    if "description" in metadata:
-        tags["twitter"].append(f'<meta name="twitter:description" content="{metadata["description"]}">')
-
-    # Use same enhanced title for consistency
-    if enhanced_title:
-        tags["twitter"].append(f'<meta name="twitter:title" content="{enhanced_title}">')
-
-    tags["twitter"].append('<meta name="twitter:card" content="summary">')
-
-    # Custom NVIDIA/content metadata
-    if "personas" in metadata:
-        personas = metadata["personas"]
-        if isinstance(personas, list):
-            # Map personas to readable audience descriptions
-            audience_map = {
-                "data-scientist-focused": "Data Scientists",
-                "mle-focused": "Machine Learning Engineers",
-                "admin-focused": "Cluster Administrators",
-                "devops-focused": "DevOps Professionals",
-            }
-            audiences = [audience_map.get(p, p) for p in personas]
-            audience_str = ", ".join(audiences)
-            tags["custom"].append(f'<meta name="audience" content="{audience_str}">')
-
-    if "content_type" in metadata:
-        tags["custom"].append(f'<meta name="content-type-category" content="{metadata["content_type"]}">')
-
-    if "difficulty" in metadata:
-        tags["custom"].append(f'<meta name="difficulty" content="{metadata["difficulty"]}">')
-
-    if "modality" in metadata:
-        tags["custom"].append(f'<meta name="modality" content="{metadata["modality"]}">')
-
-    # Product information from cascade
-    if "cascade" in metadata:
-        cascade = metadata["cascade"]
-        if isinstance(cascade, dict) and "product" in cascade:
-            product = cascade["product"]
-            if isinstance(product, dict):
-                if product.get("name"):
-                    tags["custom"].append(f'<meta name="product-name" content="{product["name"]}">')
-                if product.get("version"):
-                    tags["custom"].append(f'<meta name="product-version" content="{product["version"]}">')
-
     return tags
 
 
