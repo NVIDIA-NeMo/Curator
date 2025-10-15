@@ -11,16 +11,16 @@ from .content_extractor import break_into_paragraphs
 logger = logging.getLogger(__name__)
 
 
-def build_llm_txt_content(content_data: dict[str, Any]) -> str:
+def build_llm_txt_content(content_data: dict[str, Any]) -> str:  # noqa: C901, PLR0912, PLR0915
     """Build llm.txt content from extracted data."""
     lines = []
 
-    # Title (H1)
+    # Title (H1)  # noqa: ERA001
     title = content_data.get("title", "Untitled")
     lines.append(f"# {title}")
     lines.append("")
 
-    # Summary (blockquote)
+    # Summary (blockquote)  # noqa: ERA001
     summary = content_data.get("summary", "")
     if summary:
         lines.append(f"> {summary}")

@@ -67,7 +67,7 @@ def extract_document_content(env: BuildEnvironment, docname: str, settings: dict
         if settings.get("include_metadata", True):
             metadata = _extract_metadata(env, docname)
 
-        return {
+        return {  # noqa: TRY300
             "title": title,
             "summary": summary,
             "overview": overview,
@@ -324,7 +324,7 @@ def _extract_headings(doctree: nodes.document) -> list[dict[str, str]]:
     return unique_headings
 
 
-def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_url: str = "") -> list[dict[str, str]]:
+def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901
     """Extract grid-item-card directives directly from raw markdown source."""
     cards = []
 
@@ -411,7 +411,7 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
     return cards
 
 
-def _extract_grid_cards(doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:
+def _extract_grid_cards(doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
     """
     Extract grid-item-card elements by finding reference patterns.
 
@@ -433,7 +433,7 @@ def _extract_grid_cards(doctree: nodes.document, base_url: str = "") -> list[dic
 
     # Also check for pending_xref nodes (MyST grid cards use these)
     try:
-        from sphinx.addnodes import pending_xref
+        from sphinx.addnodes import pending_xref  # noqa: PLC0415
 
         pending_refs = list(doctree.traverse(pending_xref))
     except ImportError:
@@ -569,7 +569,7 @@ def _extract_grid_cards(doctree: nodes.document, base_url: str = "") -> list[dic
     return cards
 
 
-def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[str, str] | None:
+def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[str, str] | None:  # noqa: C901, PLR0912, PLR0915
     """Extract title, description, and link from a grid card."""
     card_title = ""
     card_description = ""
@@ -673,7 +673,7 @@ def _extract_section_preview(section_node: nodes.section, max_chars: int = 150) 
     return ""
 
 
-def _extract_internal_links(doctree: nodes.document, max_links: int = 10, base_url: str = "") -> list[dict[str, str]]:
+def _extract_internal_links(doctree: nodes.document, max_links: int = 10, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901
     """Extract internal links from document and convert to absolute URLs."""
     links = []
     seen_urls = set()
@@ -763,7 +763,7 @@ def _extract_metadata(env: BuildEnvironment, docname: str) -> dict[str, Any]:
 def _extract_frontmatter(file_path: str) -> dict[str, Any] | None:
     """Extract YAML frontmatter from markdown files."""
     try:
-        import yaml
+        import yaml  # noqa: PLC0415
 
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
