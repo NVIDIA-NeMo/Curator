@@ -1,10 +1,17 @@
-{# Custom layout template to ensure rich metadata is injected #}
+{# Rich Metadata Extension - Layout Override #}
+{# Extends the theme's layout to inject metadata in extrahead block #}
 {% extends "!layout.html" %}
 
-{# Override the extrahead block to inject rich metadata #}
-{% block extrahead %}
+{%- block htmltitle %}
+{# Use pagetitle if set by rich_metadata extension, otherwise use default #}
+{%- if pagetitle and '|' in pagetitle %}
+<title>{{ pagetitle|striptags }}</title>
+{%- else %}
 {{ super() }}
-{% if rich_metadata %}
-{{ rich_metadata|safe }}
-{% endif %}
-{% endblock %}
+{%- endif %}
+{%- endblock htmltitle %}
+
+{%- block extrahead %}
+{{ super() }}
+{{ metatags }}
+{%- endblock extrahead %}

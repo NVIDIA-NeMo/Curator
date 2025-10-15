@@ -24,65 +24,159 @@ from sphinx.application import Sphinx
 from sphinx.config import Config
 from sphinx.util import logging
 
+# Import YAML for frontmatter parsing
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+    yaml = None
+
 logger = logging.getLogger(__name__)
 
 
-def extract_frontmatter(doctree: nodes.document) -> dict[str, Any]:
+def extract_frontmatter(env, docname: str) -> dict[str, Any]:
     """
-    Extract frontmatter metadata from a document tree.
+    Extract frontmatter from markdown source file.
+    
+    Uses the same approach as the json_output extension (proven to work).
     
     Args:
-        doctree: The document tree to extract metadata from
+        env: Sphinx build environment
+        docname: Document name
         
     Returns:
         Dictionary of frontmatter fields
     """
     metadata = {}
     
-    # Check if the document has docinfo (frontmatter)
-    if hasattr(doctree, "settings") and hasattr(doctree.settings, "env"):
-        env = doctree.settings.env
-        docname = env.docname
+    if not YAML_AVAILABLE:
+        logger.warning("PyYAML not available, frontmatter cannot be parsed")
+        return metadata
+    
+    try:
+        # Get source path - this returns the full absolute path
+        source_path = env.doc2path(docname)
         
-        # MyST parser stores frontmatter in env.metadata
-        if hasattr(env, "metadata") and docname in env.metadata:
-            metadata = env.metadata[docname]
+        # Only process markdown files
+        if source_path and str(source_path).endswith(".md"):
+            with open(source_path, encoding="utf-8") as f:
+                content = f.read()
+            
+            # Check for valid frontmatter format (YAML between --- markers)
+            if content.startswith("---"):
+                end_marker = content.find("\n---\n", 3)
+                if end_marker != -1:
+                    frontmatter_text = content[3:end_marker]
+                    metadata = yaml.safe_load(frontmatter_text) or {}
+                    logger.debug(f"rich_metadata: Extracted {len(metadata)} fields from {docname}")
+    
+    except yaml.YAMLError as e:
+        logger.warning(f"rich_metadata: YAML parsing error in {docname}: {e}")
+    except Exception as e:
+        logger.debug(f"rich_metadata: Could not extract frontmatter from {docname}: {e}")
     
     return metadata
 
 
-def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> list[str]:
+def build_page_title(metadata: dict[str, Any], context: dict[str, Any], pagename: str) -> str | None:
     """
-    Build HTML meta tags from frontmatter metadata.
+    Build enhanced page title in format: Page Title: Section - Site | NVIDIA
+    
+    Args:
+        metadata: Page frontmatter metadata
+        context: Sphinx page context
+        pagename: Document name
+        
+    Returns:
+        Enhanced title string or None to keep default
+    """
+    # Get base title
+    page_title = context.get("title", "")
+    if not page_title:
+        return None
+    
+    # Build title components
+    components = [page_title]
+    
+    # Add parent section if available (from breadcrumbs or parents)
+    if "parents" in context and context["parents"]:
+        # Get the immediate parent (last item in parents list)
+        parent = context["parents"][-1]
+        if "title" in parent and parent["title"] != page_title:
+            components.append(parent["title"])
+    
+    # Add site name
+    site_name = context.get("docstitle", "NeMo Curator")
+    if site_name and site_name != page_title:
+        components.append(site_name)
+    
+    # Build final title
+    # Format: "Page Title: Section - Site | NVIDIA"
+    if len(components) == 1:
+        # Just page: "Page Title | NVIDIA"
+        return f"{components[0]} | NVIDIA"
+    elif len(components) == 2:
+        # Page and site: "Page Title - Site | NVIDIA"
+        return f"{components[0]} - {components[1]} | NVIDIA"
+    else:
+        # Page, section, and site: "Page Title: Section - Site | NVIDIA"
+        return f"{components[0]}: {components[1]} - {components[2]} | NVIDIA"
+
+
+def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[str, list[str]]:
+    """
+    Build HTML meta tags from frontmatter metadata, organized by category.
     
     Args:
         metadata: Frontmatter metadata dictionary
         context: Sphinx HTML context
         
     Returns:
-        List of HTML meta tag strings
+        Dictionary with categorized meta tag lists
     """
-    tags = []
+    tags = {
+        "basic": [],
+        "opengraph": [],
+        "twitter": [],
+        "custom": []
+    }
     
-    # Standard meta tags
+    # Basic SEO meta tags
     if "description" in metadata:
         description = metadata["description"]
-        tags.append(f'<meta name="description" content="{description}">')
-        
-        # Open Graph
-        tags.append(f'<meta property="og:description" content="{description}">')
-        
-        # Twitter Card
-        tags.append(f'<meta name="twitter:description" content="{description}">')
+        tags["basic"].append(f'<meta name="description" content="{description}">')
     
-    # Keywords from tags
     if "tags" in metadata:
         keywords = metadata["tags"]
         if isinstance(keywords, list):
             keywords_str = ", ".join(keywords)
-            tags.append(f'<meta name="keywords" content="{keywords_str}">')
+            tags["basic"].append(f'<meta name="keywords" content="{keywords_str}">')
     
-    # Author/personas
+    # Open Graph tags
+    if "description" in metadata:
+        tags["opengraph"].append(f'<meta property="og:description" content="{metadata["description"]}">')
+    
+    tags["opengraph"].append('<meta property="og:type" content="article">')
+    
+    if "title" in context:
+        title = context["title"]
+        tags["opengraph"].append(f'<meta property="og:title" content="{title}">')
+    
+    if "pageurl" in context:
+        url = context["pageurl"]
+        tags["opengraph"].append(f'<meta property="og:url" content="{url}">')
+    
+    # Twitter Card tags
+    if "description" in metadata:
+        tags["twitter"].append(f'<meta name="twitter:description" content="{metadata["description"]}">')
+    
+    if "title" in context:
+        tags["twitter"].append(f'<meta name="twitter:title" content="{context["title"]}">')
+    
+    tags["twitter"].append('<meta name="twitter:card" content="summary">')
+    
+    # Custom NVIDIA/content metadata
     if "personas" in metadata:
         personas = metadata["personas"]
         if isinstance(personas, list):
@@ -95,33 +189,16 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> list[s
             }
             audiences = [audience_map.get(p, p) for p in personas]
             audience_str = ", ".join(audiences)
-            tags.append(f'<meta name="audience" content="{audience_str}">')
+            tags["custom"].append(f'<meta name="audience" content="{audience_str}">')
     
-    # Content type and difficulty
     if "content_type" in metadata:
-        tags.append(f'<meta name="content-type-category" content="{metadata["content_type"]}">')
+        tags["custom"].append(f'<meta name="content-type-category" content="{metadata["content_type"]}">')
     
     if "difficulty" in metadata:
-        tags.append(f'<meta name="difficulty" content="{metadata["difficulty"]}">')
+        tags["custom"].append(f'<meta name="difficulty" content="{metadata["difficulty"]}">')
     
-    # Modality
     if "modality" in metadata:
-        tags.append(f'<meta name="modality" content="{metadata["modality"]}">')
-    
-    # Open Graph type
-    tags.append('<meta property="og:type" content="article">')
-    
-    # Open Graph title (from page title)
-    if "title" in context:
-        title = context["title"]
-        tags.append(f'<meta property="og:title" content="{title}">')
-        tags.append(f'<meta name="twitter:title" content="{title}">')
-        tags.append(f'<meta name="twitter:card" content="summary">')
-    
-    # Open Graph URL (from page URL)
-    if "pageurl" in context:
-        url = context["pageurl"]
-        tags.append(f'<meta property="og:url" content="{url}">')
+        tags["custom"].append(f'<meta name="modality" content="{metadata["modality"]}">')
     
     # Product information from cascade
     if "cascade" in metadata:
@@ -130,9 +207,9 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> list[s
             product = cascade["product"]
             if isinstance(product, dict):
                 if "name" in product and product["name"]:
-                    tags.append(f'<meta name="product-name" content="{product["name"]}">')
+                    tags["custom"].append(f'<meta name="product-name" content="{product["name"]}">')
                 if "version" in product and product["version"]:
-                    tags.append(f'<meta name="product-version" content="{product["version"]}">')
+                    tags["custom"].append(f'<meta name="product-version" content="{product["version"]}">')
     
     return tags
 
@@ -249,40 +326,78 @@ def add_metadata_to_context(
     This function is called for each page during the HTML build process.
     It extracts frontmatter and injects SEO metadata into the page context.
     """
+    # Skip generated pages (genindex, py-modindex, search, etc.)
+    # These don't have doctrees and don't need custom metadata
     if doctree is None:
+        logger.debug(f"rich_metadata: Skipping generated page {pagename} (no doctree)")
         return
     
-    # Extract frontmatter metadata
-    metadata = extract_frontmatter(doctree)
+    # Extract frontmatter metadata from source file
+    env = app.builder.env
+    metadata = extract_frontmatter(env, pagename)
     
     if not metadata:
         return
     
-    # Build meta tags
+    # Build enhanced page title
+    enhanced_title = build_page_title(metadata, context, pagename)
+    if enhanced_title:
+        # Set pagetitle which is used by our layout template
+        # Template will use this for <title> tag to prevent theme from appending docstitle
+        context["pagetitle"] = enhanced_title
+    
+    # Build meta tags (returns dict with categorized tags)
     meta_tags = build_meta_tags(metadata, context)
     
     # Build JSON-LD structured data
     json_ld = build_json_ld(metadata, context)
     
-    # Combine all metadata HTML
-    metadata_html = "\n    ".join(meta_tags)
+    # Organize metadata with clear grouping
+    metadata_sections = []
+    
+    # Basic SEO meta tags
+    if meta_tags.get("basic"):
+        metadata_sections.append("<!-- SEO Meta Tags -->")
+        metadata_sections.extend(meta_tags["basic"])
+    
+    # Open Graph tags
+    if meta_tags.get("opengraph"):
+        metadata_sections.append("\n    <!-- Open Graph / Facebook -->")
+        metadata_sections.extend(meta_tags["opengraph"])
+    
+    # Twitter Card tags
+    if meta_tags.get("twitter"):
+        metadata_sections.append("\n    <!-- Twitter -->")
+        metadata_sections.extend(meta_tags["twitter"])
+    
+    # Custom NVIDIA/content metadata
+    if meta_tags.get("custom"):
+        metadata_sections.append("\n    <!-- Content Metadata -->")
+        metadata_sections.extend(meta_tags["custom"])
+    
+    # JSON-LD structured data
     if json_ld:
-        metadata_html = f"{metadata_html}\n    {json_ld}"
+        metadata_sections.append("\n    <!-- Structured Data (JSON-LD) -->")
+        metadata_sections.append(json_ld)
+    
+    # Combine all sections
+    metadata_html = "\n    ".join(metadata_sections)
     
     # Add to context for template injection
-    # This will be available in templates as {{ rich_metadata }}
-    context["rich_metadata"] = metadata_html
-    
-    # Also add to metatags if the theme supports it
     if "metatags" not in context:
         context["metatags"] = ""
     context["metatags"] = f"{context['metatags']}\n    {metadata_html}"
     
-    logger.debug(f"Rich metadata added for page: {pagename}")
+    logger.debug(f"rich_metadata: Added {len(meta_tags)} meta tags + JSON-LD for {pagename}")
 
 
 def add_template_path(_app: Sphinx, config: Config) -> None:
-    """Add template path during config initialization."""
+    """
+    Add template path during config initialization.
+    
+    This ensures our layout.html override is found, which injects
+    the metatags context variable into the extrahead block.
+    """
     extension_dir = os.path.dirname(os.path.abspath(__file__))
     templates_path = os.path.join(extension_dir, "templates")
     
@@ -300,6 +415,10 @@ def add_template_path(_app: Sphinx, config: Config) -> None:
 def setup(app: Sphinx) -> dict[str, Any]:
     """
     Setup function for the rich metadata extension.
+    
+    This extension injects SEO metadata into the HTML <head> by:
+    1. Modifying the page context's metatags variable
+    2. Providing a layout.html override that renders metatags in extrahead block
     """
     # Add our templates directory to Sphinx's template search path
     app.connect("config-inited", add_template_path)
