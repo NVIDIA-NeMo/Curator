@@ -156,22 +156,19 @@ def main(args: argparse.Namespace) -> None:  # noqa: PLR0915
         pipeline_thinking_on.add_stage(tokenizer_step)
         pipeline_thinking_off.add_stage(tokenizer_step)
 
-    # No specific columns are accessed after this point, so we can drop any that the user specifies
-    if args.remove_columns:
-        # Use processing_stage decorator to remove columns
-        @processing_stage(name="remove_columns", resources=Resources(cpus=1.0), batch_size=1)
-        def remove_columns(task: DocumentBatch) -> DocumentBatch:
-            task.data = task.data.drop(columns=args.remove_columns, axis=1)
-            return task
-
-        pipeline_thinking_on.add_stage(remove_columns)
-        pipeline_thinking_off.add_stage(remove_columns)
+    if args.keep_columns:
+        keep_columns = args.keep_columns
+        # Always keep the completion_token_count column, so that we can sort the samples
+        if "completion_token_count" not in keep_columns:
+            keep_columns.append("completion_token_count")
+    else:
+        keep_columns = ["input", "output", "completion_token_count"]
 
     # Save intermediate datasets
     thinking_on_unsorted_path = os.path.join(args.output_dir, "thinking_on_unsorted")
     thinking_off_unsorted_path = os.path.join(args.output_dir, "thinking_off_unsorted")
-    pipeline_thinking_on.add_stage(JsonlWriter(thinking_on_unsorted_path))
-    pipeline_thinking_off.add_stage(JsonlWriter(thinking_off_unsorted_path))
+    pipeline_thinking_on.add_stage(JsonlWriter(thinking_on_unsorted_path, fields=keep_columns))
+    pipeline_thinking_off.add_stage(JsonlWriter(thinking_off_unsorted_path, fields=keep_columns))
 
     # Run pipelines
     _thinking_on_output = pipeline_thinking_on.run()
@@ -265,10 +262,10 @@ def attach_args() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--remove-columns",
+        "--keep-columns",
         nargs="+",
         type=str,
-        help="Columns to remove from the dataset.",
+        help="Columns to keep when the dataset is written to disk.",
     )
 
     parser.add_argument(

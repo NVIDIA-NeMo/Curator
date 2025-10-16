@@ -103,7 +103,7 @@ LOGURU_LEVEL="ERROR" python main.py \
     --lang-id-model-path "/path/to/lid.176.ftz" \
     --max-token-count 16384 \
     --max-completion-token-count 8192 \
-    --remove-columns "category" "generator" "license" "reasoning" "system_prompt" "used_in_training" "version" \
+    --keep-columns "input" "output" \
     --output-dir "/path/to/curated-data" \
     --num-cpus 16
 ```
@@ -121,7 +121,7 @@ The above script applies basic filtering to the input dataset:
 - Remove non-English samples
 - Remove samples with total length (system prompt, input, and output responses) longer than 16k tokens (with chat template applied via the tokenizer)
 - Remove samples with output responses longer than 8k tokens (with chat template applied via the tokenizer)
-- Remove any columns specified by the `--remove-columns` parameter. We recommend removing the columns specified above (so that the remaining columns are the "input", "output", and "completion_token_count" columns)
+- Only keep columns specified by the `--keep-columns` parameter. We recommend keeping the "input", "output", and "completion_token_count" columns (the "completion_token_count" column always needs to be kept, so that we can sort the samples)
 
 After filtering, it sorts all samples by completion (output response) length, then "interleaves" thinking ON/thinking OFF for curriculum learning. The idea here is to sort the samples in increasing order of difficulty, using the completion token count as a measure of sample difficulty. By default, we interleave one record at a time (i.e., 1 thinking ON sample, then 1 thinking OFF sample, then 1 thinking ON sample, etc.). The user may pass `--chunk-size` followed by an integer to interleave 10 records at a time (10 thinking ON samples, then 10 thinking OFF samples, then 10 thinking ON samples, and so on), 100 records at a time, etc. as desired. We interleave samples from the "reasoning on" and "reasoning off" buckets to gradually introduce complexity.
 

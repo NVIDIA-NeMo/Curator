@@ -49,9 +49,6 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_actor_stage": True}
-
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
             self._setup(local_files_only=False)
@@ -134,9 +131,6 @@ class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_actor_stage": True}
-
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
             self._setup(local_files_only=False)
@@ -214,9 +208,6 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_actor_stage": True}
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
@@ -296,9 +287,6 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.input_field, self.output_field]
-
-    def ray_stage_spec(self) -> dict[str, Any]:
-        return {"is_actor_stage": True}
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
