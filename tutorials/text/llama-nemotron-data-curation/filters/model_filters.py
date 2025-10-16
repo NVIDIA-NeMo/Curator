@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-from typing import Any
 
 import fasttext
 import pandas as pd
