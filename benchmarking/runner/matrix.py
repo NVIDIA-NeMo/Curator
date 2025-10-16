@@ -14,7 +14,7 @@ class MatrixEntry:
     name: str
     script: str | None = None
     args: str | None = None
-    script_base_dir: str | None = None
+    script_base_dir: Path = Path(__file__).parent.parent / "scripts"
     timeout_s: int | None = None
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
     # If set, overrides the session-level delete_scratch setting for this entry
@@ -22,8 +22,8 @@ class MatrixEntry:
 
     def get_command_to_run(self, session_entry_path: Path, resolver: DatasetResolver) -> str:
         if self.script:
-            script_path = Path(self.script_base_dir or "nightly_benchmarking/scripts") / self.script
-            cmd = f"python {script_path} {self.args or ''} --benchmark-results-path" + " {session}/benchmark_results"
+            script_path = self.script_base_dir / self.script
+            cmd = f"python {script_path} {self.args or ''} --benchmark-results-path" + " {session_entry_dir}/benchmark_results"
 
             cmd = self.substitute_datasets_in_cmd(cmd, resolver)
             cmd = self.substitute_template_placeholders(cmd, session_entry_path)
@@ -48,15 +48,15 @@ class MatrixEntry:
     def substitute_template_placeholders(cmd: str, session_entry_path: Path) -> str:
         """Substitute template placeholders in command.
 
-        Supports {session_entry}/dir patterns where anything after {session_entry}/ becomes
-        a directory under the session entry directory.
+        Supports {session_entry_dir}/dir patterns where anything after {session_entry_dir}/ becomes
+        a directory under the generated session entry directory.
 
         Examples:
-        - {session_entry}/results.json -> /path/to/session/entry/results.json
-        - {session_entry}/tempdir/output -> /path/to/session/entry/tempdir/output
-        - {session_entry}/logs -> /path/to/session/entry/logs
+        - {session_entry_dir}/results.json -> /path/to/session/entry/results.json
+        - {session_entry_dir}/tempdir/output -> /path/to/session/entry/tempdir/output
+        - {session_entry_dir}/logs -> /path/to/session/entry/logs
         """
-        session_entry_pattern = re.compile(r"\{session_entry\}/([^}\s]+)")
+        session_entry_pattern = re.compile(r"\{session_entry_dir\}/([^}\s]+)")
 
         def replace_session_entry_path(match: re.Match[str]) -> str:
             subpath = match.group(1)
@@ -108,7 +108,6 @@ class MatrixConfig:
         for entry in self.entries:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
-
 
 
 def _resolve_env_vars(data: dict | list | str) -> dict | list | str:
