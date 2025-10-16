@@ -1,0 +1,263 @@
+import argparse
+from pathlib import Path
+import yaml
+import os
+import time
+import sys
+from typing import Any
+import json
+import traceback
+from statistics import mean, stdev
+import pickle
+
+from loguru import logger
+
+from nemo_curator.tasks import Task
+from nemo_curator.tasks.utils import TaskPerfUtils
+
+from runner.process import run_command_with_timeout
+from runner.env_capture import capture_environment_artifacts, collect_basic_env
+
+
+# FIXME: How do we want to package this tool? Perhaps a package extra for
+#  nemo-curator, i.e. nemo-curator[benchmarking]?
+# For now, add this directory to PYTHONPATH to import the runner modules
+sys.path.insert(0, Path(__file__).parent)
+from runner.matrix import MatrixConfig, MatrixEntry    
+from runner.datasets import DatasetResolver
+import shutil
+
+
+def create_dir(dir_path: Path) -> None:
+    """Ensure parent directory exists without removing it."""
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+
+def create_or_overwrite_dir(dir_path: Path) -> None:
+    """Create directory, removing it if it exists."""
+    if dir_path.exists():
+        shutil.rmtree(dir_path, ignore_errors=True)
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+
+def aggregate_task_metrics(tasks: list[Task], prefix: str | None = None) -> dict[str, Any]:
+    metrics = {}
+    tasks_metrics = TaskPerfUtils.collect_stage_metrics(tasks)
+    # For each of the metric compute mean/std/sum and flatten the dict
+    for stage_name, stage_data in tasks_metrics.items():
+        for metric_name, values in stage_data.items():
+            for agg_name, agg_func in [("sum", sum), ("mean", mean), ("std", stdev)]:
+                stage_key = stage_name if prefix is None else f"{prefix}_{stage_name}"
+                if len(values) > 0:
+                    metrics[f"{stage_key}_{metric_name}_{agg_name}"] = float(agg_func(values))
+                else:
+                    metrics[f"{stage_key}_{metric_name}_{agg_name}"] = 0.0
+    return metrics
+
+
+def get_script_params_metrics(benchmark_results_path: Path) -> dict[str, Any]:
+    with open(benchmark_results_path / "params.json") as f:
+        script_params = json.load(f)
+    with open(benchmark_results_path / "metrics.json") as f:
+        script_metrics = json.load(f)
+
+    with open(benchmark_results_path / "tasks.pkl", "rb") as f:
+        script_tasks = pickle.load(f)  # noqa: S301
+        if isinstance(script_tasks, list):
+            script_metrics.update(aggregate_task_metrics(script_tasks, prefix="task"))
+        elif isinstance(script_tasks, dict):
+            for pipeline_name, pipeline_tasks in script_tasks.items():
+                script_metrics.update(aggregate_task_metrics(pipeline_tasks, prefix=pipeline_name.lower()))
+
+    return {"params": script_params, "metrics": script_metrics}
+
+
+def run_entry(  # noqa: PLR0915
+    entry: MatrixEntry,
+    dataset_resolver: DatasetResolver,
+    session_path: Path,
+) -> tuple[dict[str, Any], bool, dict[str, Any]]:
+
+    session_entry_path = session_path / entry.name
+
+    # scratch_dir : This is the directory user can use to store scratch data; it'll be cleaned up after the entry is done
+    # ray_cluster_dir : This is the directory where Ray cluster is started; it'll be cleaned up after the entry is done
+    # logs_dir : This is the directory where logs are stored
+    # run_artifacts_dir : This is the directory where artifacts are stored
+    # benchmark_results_dir : This is the directory where benchmark results are stored
+    scratch_path, ray_cluster_path, logs_path, run_artifacts_path, benchmark_results_path = [
+        (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "artifacts", "benchmark_results"]
+    ]
+
+    cmd = entry.get_command_to_run(session_entry_path, dataset_resolver)
+
+    try:
+        # Create directories individually
+        for directory in [scratch_path, ray_cluster_path, logs_path, run_artifacts_path, benchmark_results_path]:
+            create_or_overwrite_dir(directory)
+
+        # Capture environment artifacts AFTER creating directories
+        capture_environment_artifacts(run_artifacts_path)
+
+        # Execute command with timeout
+        logger.info(f"\t\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+        started_exec = time.time()
+        completed = run_command_with_timeout(
+            command=cmd,
+            timeout_seconds=entry.timeout_s,
+            stdout_path=logs_path / "stdout.log",
+            stderr_path=logs_path / "stderr.log",
+            env=os.environ,
+        )
+        ended_exec = time.time()
+
+        # Show result
+        duration = ended_exec - started_exec
+        if completed["returncode"] == 0:
+            logger.success(f"\t\t✅ Run Succeeded in {duration:.1f} seconds")
+        else:
+            logger.error(f"\t\t❌ Run Failed in {duration:.1f} seconds")
+            if completed["timed_out"]:
+                logger.warning(f"\t\t⏰ Timed out after {entry.timeout_s}s")
+        logger.info(f"\t\tLogs found in {logs_path}")
+
+        # Prepare normalized result
+        basic_env = collect_basic_env()
+
+        # Params
+        run_params = {
+            "name": entry.name,
+            "cmd": cmd,
+            "started_at": started_at,
+            "ended_at": time.time(),
+            "exec_started_at": started_exec,
+            "logs_dir": logs_path,
+        }
+
+        # Metrics
+        run_metrics = {
+            "exec_time_s": ended_exec - started_exec,
+            "exit_code": completed["returncode"],
+            "timed_out": completed["timed_out"],
+        }
+
+        # Script Params metrics
+        script_params_metrics = get_script_params_metrics(benchmark_results_path)
+        ray_params = {}
+        result: dict[str, Any] = {
+            "run": run_params,
+            "ray": ray_params,
+            "env": basic_env,
+            "script_params_metrics": script_params_metrics,
+        }
+
+        Path(session_path / "results.json").write_text(json.dumps(result))
+
+        # Determine run success status
+        run_success = completed["returncode"] == 0
+
+        return (
+            result,
+            run_success,
+            {
+                "params": {
+                    **{f"run_{k}": v for k, v in run_params.items()},
+                    **{f"ray_{k}": v for k, v in ray_params.items()},
+                    **{f"env_{k}": v for k, v in basic_env.items()},
+                    **{f"script_{k}": v for k, v in script_params_metrics["params"].items()},
+                },
+                "metrics": {
+                    **{f"run_{k}": v for k, v in run_metrics.items()},
+                    **{f"script_{k}": v for k, v in script_params_metrics["metrics"].items()},
+                },
+                "artifacts": [
+                    run_artifacts_path / "pip-freeze.txt",
+                    run_artifacts_path / "conda-explicit.txt",
+                ],
+            },
+        )
+    finally:
+        # Ray cleanup stuff here
+        # Clean up the scratch dir if configured to delete
+        if entry.delete_scratch:
+            shutil.rmtree(scratch_path, ignore_errors=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Runs the benchmarking application")
+    parser.add_argument(
+        "--config",
+        required=True,
+        action="append",
+        help="Path to YAML config for benchmark matrix, machine paths, etc. Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--session-name", default=None, help="Optional human-readable session name (default nightly-run-<timestamp>)"
+    )
+    args = parser.parse_args()
+
+    # Consolidate the configuration from all YAML files into a single dict,
+    # and use by passing individual components the keys they need
+    config_dict = {}
+    for yml_file in args.config:
+        config_dicts = yaml.full_load_all(open(yml_file))
+        for d in config_dicts:
+            config_dict.update(d)
+    
+    config = MatrixConfig.create_from_dict(config_dict)
+    resolver = DatasetResolver.create_from_dicts(config_dict["datasets"])
+
+    create_dir(Path(config.results_dir))  # Don't delete the parent results directory
+
+    # Create session folder under results_dir
+    session_name_prefix = args.session_name or "benchmark-run"
+    session_name = time.strftime(f"{session_name_prefix}__%Y-%m-%d__%H-%M-%S")
+    session_path = (Path(config.results_dir) / session_name).absolute()
+    create_dir(session_path)  # Create session dir without deleting if exists
+
+    session_overall_success = True
+    
+    # Start session (parent run)
+    logger.info(f"Started session {session_name}...")
+
+    try:
+        results: list[dict[str, Any]] = []
+        for entry in config.entries:
+            logger.info(f"\tRunning {entry.name}")
+            run_success = False  # Default to failed, will be updated if successful
+            try:
+                result, run_success, sink_data = run_entry(
+                    entry=entry,
+                    dataset_resolver=resolver,
+                    session_path=session_path,
+                )
+                results.append(result)
+            except Exception as e:  # noqa: BLE001
+                # Handle exceptions at bench_driver level
+                run_success = False
+                session_overall_success = False
+
+                # Get the full traceback for better debugging
+                error_traceback = traceback.format_exc()
+                logger.error(f"\t\t❌ Entry failed with exception: {e}")
+                logger.debug(f"Full traceback:\n{error_traceback}")
+
+                result = {
+                    "name": entry.name,
+                    "run_id": f"{entry.name}-{int(time.time())}",
+                    "error": str(e),
+                    "traceback": error_traceback,
+                    "success": False,
+                }
+                results.append(result)
+            finally:
+                if not run_success:
+                    session_overall_success = False
+
+        # TODO: In future we can post to slack / upload to google drive
+    finally:
+        pass
+    
+
+if __name__ == "__main__":
+    main()
