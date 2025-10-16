@@ -79,7 +79,7 @@ pipeline = Pipeline(name="add_ids")
 # Add stages
 pipeline.add_stage(JsonlReader(file_paths="input/*.jsonl"))
 pipeline.add_stage(AddId(id_field="doc_id", id_prefix="v1"))
-pipeline.add_stage(JsonlWriter(output_path="output/"))
+pipeline.add_stage(JsonlWriter("output/"))
 
 # Run pipeline
 result = pipeline.run()
