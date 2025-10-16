@@ -37,12 +37,18 @@ RUN apt-get update \
     python-is-python3 \
     python3 \
     python3-dev \
+    python3-pip \
     python3-venv \
     python3.12-dev \
     vim
 WORKDIR /opt
 
-
+# Install micromamba
+ENV MAMBA_ROOT_PREFIX=/opt/micromamba
+ENV PATH=$MAMBA_ROOT_PREFIX/bin:$PATH
+RUN curl -Ls https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba && \
+    micromamba shell init -s bash -r $MAMBA_ROOT_PREFIX
+   
 # Install uv
 ENV UV_VERSION="0.8.22"
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
