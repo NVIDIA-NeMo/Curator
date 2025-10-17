@@ -76,8 +76,9 @@ def test_split_parquet_file_by_size(parquet_file_factory: Callable, tmp_path: pa
     pd.testing.assert_frame_equal(expected, result)
 
     # Check that split data files have expected sizes
-    sizes_mb = [pq.read_table(f).nbytes / (1024 * 1024) for f in outdir.rglob("*")]
+    files = sorted(outdir.rglob("*"))
+    sizes_mb = [pq.read_table(f).nbytes / (1024 * 1024) for f in files]
     # Below the target size
-    assert all(s_mb < target_size_mb for s_mb in sizes_mb)
+    assert all(s_mb < target_size_mb for s_mb in sizes_mb), (sizes_mb, files)
     # More than half the target (ignoring the last file, which can sometimes be small)
-    assert all(s_mb > target_size_mb / 2 for s_mb in sizes_mb[:-1])
+    assert all(s_mb > target_size_mb / 2 for s_mb in sizes_mb[:-1]), (sizes_mb, files)
