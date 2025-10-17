@@ -216,11 +216,11 @@ class TestCaptionPreparationStage:
             assert window1.start_frame == 0
             assert window1.end_frame == 10
             assert window1.mp4_bytes == b"window1_bytes"
-            # Check structure of qwen_llm_input (can't compare tensors directly)
-            assert "prompt" in window1.qwen_llm_input
-            assert "multi_modal_data" in window1.qwen_llm_input
-            assert window1.qwen_llm_input["prompt"] == "test formatted prompt"
-            assert "video" in window1.qwen_llm_input["multi_modal_data"]
+            # Check structure of llm_inputs["qwen"] (can't compare tensors directly)
+            assert "prompt" in window1.llm_inputs["qwen"]
+            assert "multi_modal_data" in window1.llm_inputs["qwen"]
+            assert window1.llm_inputs["qwen"]["prompt"] == "test formatted prompt"
+            assert "video" in window1.llm_inputs["qwen"]["multi_modal_data"]
 
     @patch("nemo_curator.stages.video.caption.caption_preparation.logger")
     def test_process_clip_without_buffer(self, mock_logger: Mock):
