@@ -134,9 +134,8 @@ def run_entry(  # noqa: PLR0915
         started_exec = time.time()
         completed = run_command_with_timeout(
             command=cmd,
-            timeout_seconds=entry.timeout_s,
-            stdout_path=logs_path / "stdout.log",
-            stderr_path=logs_path / "stderr.log",
+            timeout=entry.timeout_s,
+            stdouterr_path=logs_path / "stdouterr.log",
             env=os.environ,
         )
         ended_exec = time.time()

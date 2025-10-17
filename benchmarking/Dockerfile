@@ -122,6 +122,7 @@ COPY . /opt/Curator
 RUN cd /opt/Curator \
  && uv sync --link-mode copy --locked --extra all --all-groups \
  && uv add /opt/InternVideo/InternVideo2/multi_modality \
+ && uv add rich \
  && uv cache prune \
  && uv cache clean distance
 
