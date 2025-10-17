@@ -22,14 +22,25 @@ _control_chars = {c: None for c in range(sys.maxunicode) if unicodedata.category
 
 def run_command_with_timeout(
     command: str,
-    timeout: int | None = None,
+    timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
-    """Run a shell command with timeout, streaming to log files.
+    """Run a shell command with an optional timeout, streaming output to a log file.
+    
+    If running in an interactive terminal, displays subprocess output in a live, scrolling window.
+    Otherwise, prints output to the console and saves it to a log file.
 
-    Returns a dict with returncode and timed_out flag.
+    Args:
+        command: The shell command to run (as a string or list of arguments).
+        timeout: Timeout (in seconds) to terminate the command.
+        stdouterr_path: Path to the file for writing combined stdout and stderr.
+        env: Optional dictionary of environment variables.
+        collapse_on_success: If True and command succeeds, collapses live window output (only for interactive mode).
+
+    Returns:
+        dict: Contains 'returncode' and 'timed_out' fields.
     """
     cmd_list = command if isinstance(command, list) else shlex.split(command)
 
@@ -41,32 +52,36 @@ def run_command_with_timeout(
 
 def display_simple_subprocess(
     cmd_list: list[str],
-    timeout: int | None = None,
+    timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     collapse_on_success: bool = False,
 ) -> dict[str, Any]:
-    """Run a shell command with timeout, streaming to log files.
+    """Run a shell command with an optional timeout, streaming both stdout and stderr to a log file.
 
-    Returns a dict with returncode and timed_out flag.
-    If sys.stdout is a TTY, it will display the output in a scrolling live window.
-    Otherwise, it will print the output to the log file.
+    This function runs the given command using subprocess, writes all combined output (stdout and stderr)
+    to the provided log file, and streams it live to sys.stdout. Output is processed line by line in a dedicated
+    thread to ensure real-time updates. If the command does not complete within the specified timeout, it is terminated
+    and, if necessary, force killed. In case of timeout, a message is written to both the log file and stdout.
+
+    Args:
+        cmd_list: List of command arguments to execute.
+        timeout: Maximum allowed time in seconds before the process is terminated.
+        stdouterr_path: Destination file to save all subprocess output.
+        env: Optional dictionary of environment variables to use.
+        collapse_on_success: Unused in this function.
+
+    Returns:
+        dict: Contains 'returncode' (process exit code or 124 if timed out) and 'timed_out' (True if killed on timeout).
     """
-    start_time = time.time()
+    return_code = 0
+    timed_out = False
+    msg = ""
 
     with open(stdouterr_path, "w") as outfile:
+        start_time = time.time()
         try:
-            process = subprocess.Popen(
-                cmd_list,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                env=env,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-
-            # Helper function to read output in a separate thread
+            process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1, universal_newlines=True)
             def reader():
                 """Reads process output line by line and updates both the file and stdout."""
                 for line in process.stdout:
@@ -77,7 +92,6 @@ def display_simple_subprocess(
 
             reader_thread = threading.Thread(target=reader)
             reader_thread.start()
-
             reader_thread.join(timeout=timeout)
 
             if reader_thread.is_alive():
@@ -90,58 +104,70 @@ def display_simple_subprocess(
 
                 reader_thread.join() # Wait for the reader thread to finish
                 msg = f"\n--- Subprocess TIMED OUT after {timeout}s ---\n"
-                outfile.write(msg)
-                outfile.flush()
-                sys.stdout.write(msg)
-                sys.stdout.flush()
-                return {"returncode": 124, "timed_out": True}
-
-            # If we get here, the process finished within the timeout
-            return_code = process.wait()
-            runtime = time.time() - start_time
-            final_panel = None
-
-            # Determine the final state of the panel based on success/failure
-            if return_code == 0:
-                msg = f"\n--- Subprocess completed successfully in {runtime:.2f}s ---\n"
-                outfile.write(msg)
-                outfile.flush()
-                sys.stdout.write(msg)
-                sys.stdout.flush()
+                return_code = 124
+                timed_out = True
+            
             else:
-                # If the process failed, show the final output with a red border
-                msg = f"\n--- Subprocess failed (Exit Code: {return_code}) ---\n"
-                outfile.write(msg)
-                outfile.flush()
-                sys.stdout.write(msg)
-                sys.stdout.flush()
-
+                # If here, the process completed within the timeout
+                return_code = process.wait()
+                timed_out = False
+                # Determine the final message based on success/failure
+                if return_code == 0:
+                    msg = f"\n--- Subprocess completed successfully in {time.time() - start_time:.2f}s ---\n"
+                else:
+                    msg = f"\n--- Subprocess failed (Exit Code: {return_code}) ---\n"
+        
         except Exception as e:
             tb = traceback.format_exc()
             msg = f"\n--- An error occurred:\n{e}\n{tb} ---\n"
+
+        finally:
             outfile.write(msg)
             outfile.flush()
             sys.stdout.write(msg)
             sys.stdout.flush()
 
-    return {"returncode": return_code, "timed_out": False}
+    return {"returncode": return_code, "timed_out": timed_out}
 
 
 def display_scrolling_subprocess(
     cmd_list: list[str],
-    timeout: int | None = None,
+    timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     window_height: int = 6,
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
-    """Run a shell command with timeout, streaming to log files.
+    """
+    Runs the given shell command in a subprocess, streaming combined stdout and stderr
+    both to a log file (stdouterr_path) and to a live scrolling window in the terminal.
+    The process output is displayed in a limited-height ("window_height") panel that updates live.
 
-    Returns a dict with returncode and timed_out flag.
+    If the process runs longer than 'timeout' seconds, it is terminated and the function
+    returns with a special timeout code.
+
+    Args:
+        cmd_list (list[str]): Command and arguments to execute.
+        timeout (int): Timeout in seconds.
+        stdouterr_path (Path): Log file path to write stdout/stderr.
+        env (dict[str, str] | None): Environment variables for the subprocess.
+        window_height (int): Number of output lines to display in the live panel.
+        collapse_on_success (bool): If True, collapse panel after successful completion.
+
+    Returns:
+        dict: {
+            "returncode": int (the exit code, or 124 if timed out),
+            "timed_out": bool (True if timeout occurred)
+        }
     """
     output_buffer = deque(maxlen=window_height)
-    start_time = time.time()
+    return_code = 0
+    timed_out = False
+    msg = ""
+    
     with Live(auto_refresh=False, vertical_overflow="visible") as live, open(stdouterr_path, "w") as outfile:
+        start_time = time.time()
+        final_panel = None
         try:
             process = subprocess.Popen(
                 cmd_list,
@@ -152,8 +178,6 @@ def display_scrolling_subprocess(
                 bufsize=1,
                 universal_newlines=True
             )
-
-            # Helper function to read output in a separate thread
             def reader():
                 """Reads process output line by line and updates both the file and live display."""
                 last_line_not_blank = True
@@ -181,7 +205,6 @@ def display_scrolling_subprocess(
                     
             reader_thread = threading.Thread(target=reader)
             reader_thread.start()
-
             reader_thread.join(timeout=timeout)
 
             if reader_thread.is_alive():
@@ -200,56 +223,50 @@ def display_scrolling_subprocess(
                     border_style="red",
                     height=window_height + 2,
                 )
-                live.update(final_panel)
-                live.refresh()
-                outfile.write(f"\n--- {msg} ---\n")
-                outfile.flush()
-                return {"returncode": 124, "timed_out": True}
+                timed_out = True
+                return_code = 124
 
-            # If we get here, the process finished within the timeout
-            return_code = process.wait()
-            runtime = time.time() - start_time
+            else:
+                # If here, the process completed within the timeout
+                return_code = process.wait()
+                runtime = time.time() - start_time
+                timed_out = False
 
-            # Determine the final state of the panel based on success/failure
-            if return_code == 0:
-                msg = f"Subprocess completed successfully in {runtime:.2f}s"
-                if collapse_on_success:
-                    final_panel = Panel(
-                        Text(msg),
-                        title=f"[bold blue]{msg}[/]",
-                        border_style="green",
-                        height=3, # A smaller height for the collapsed view
-                    )
+                # Determine the final state of the panel based on success/failure
+                if return_code == 0:
+                    msg = f"Subprocess completed successfully in {runtime:.2f}s"
+                    if collapse_on_success:
+                        final_panel = Panel(
+                            Text(msg),
+                            title=f"[bold blue]{msg}[/]",
+                            border_style="green",
+                            height=3, # A smaller height for the collapsed view
+                        )
+                    else:
+                        final_panel = Panel(
+                            Text("\n".join(output_buffer), no_wrap=True),
+                            title=f"[bold blue]{msg}[/]",
+                            border_style="green",
+                            height=window_height + 2,
+                        )
                 else:
-                    # If not collapsing, show the final state in the expanded window
+                    msg = f"Subprocess failed (Exit Code: {return_code})"
                     final_panel = Panel(
                         Text("\n".join(output_buffer), no_wrap=True),
-                        title=f"[bold blue]{msg}[/]",
-                        border_style="green",
+                        title=f"[bold red]{msg}[/]",
+                        border_style="red",
                         height=window_height + 2,
                     )
-            else:
-                # If the process failed, show the final output with a red border
-                msg = f"Subprocess failed (Exit Code: {return_code})"
-                final_panel = Panel(
-                    Text("\n".join(output_buffer), no_wrap=True),
-                    title=f"[bold red]{msg}[/]",
-                    border_style="red",
-                    height=window_height + 2,
-                )
 
-            # Update the live display with the final panel
+        except Exception as e:
+            tb = traceback.format_exc()
+            msg = f"An error occurred:\n{e}\n{tb}"
+            final_panel = Panel(f"[bold red]{msg}[/]", title="[bold red]Error[/]")
+
+        finally:
             live.update(final_panel)
             live.refresh()
             outfile.write(f"\n--- {msg} ---\n")
             outfile.flush()
 
-        except Exception as e:
-            tb = traceback.format_exc()
-            msg = f"An error occurred:\n{e}\n{tb}"
-            live.update(Panel(f"[bold red]{msg}[/]", title="[bold red]Error[/]"))
-            live.refresh()
-            outfile.write(f"\n--- {msg} ---\n")
-            outfile.flush()
-
-    return {"returncode": return_code, "timed_out": False}
+    return {"returncode": return_code, "timed_out": timed_out}
