@@ -1,0 +1,17 @@
+{# Rich Metadata Extension - Layout Override #}
+{# Extends the theme's layout to inject metadata in extrahead block #}
+{% extends "!layout.html" %}
+
+{%- block htmltitle %}
+{# Use pagetitle if set by rich_metadata extension, otherwise use default #}
+{%- if pagetitle and '|' in pagetitle %}
+<title>{{ pagetitle|striptags }}</title>
+{%- else %}
+{{ super() }}
+{%- endif %}
+{%- endblock htmltitle %}
+
+{%- block extrahead %}
+{{ super() }}
+{# metatags is already rendered by parent theme's extrahead block #}
+{%- endblock extrahead %}
