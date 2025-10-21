@@ -118,7 +118,7 @@ text_cpu = [
     # Aegis
     "peft",
     # Modifiers
-    "ftfy==6.1.1",
+    "ftfy",
 ]
 
 text_cuda12 = [
