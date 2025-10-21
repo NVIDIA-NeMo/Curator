@@ -36,7 +36,7 @@ def extract_document_content(env: BuildEnvironment, docname: str, settings: dict
             grid_cards = _extract_grid_cards_from_markdown(env, docname, base_url)
             if not grid_cards:
                 # Fallback to doctree extraction
-                grid_cards = _extract_grid_cards(doctree, base_url)
+                grid_cards = _extract_grid_cards(env, doctree, base_url)
 
         # Extract raw text content
         raw_text = _extract_text_content(doctree)
@@ -324,7 +324,41 @@ def _extract_headings(doctree: nodes.document) -> list[dict[str, str]]:
     return unique_headings
 
 
-def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901
+def _resolve_reference_target(env: BuildEnvironment, target: str) -> str | None:
+    """
+    Resolve a MyST reference target to its actual document path.
+
+    Args:
+        env: Sphinx build environment
+        target: Reference target (e.g., 'gs-text')
+
+    Returns:
+        Document path (e.g., 'get-started/text') or None if not found
+    """
+    try:
+        # Check if target exists in Sphinx's standard domain labels
+        if hasattr(env, "domaindata"):
+            std_domain = env.domaindata.get("std", {})
+            labels = std_domain.get("labels", {})
+
+            # Labels map: target -> (docname, labelid, title)
+            if target in labels:
+                docname, _labelid, _title = labels[target]
+                return docname
+
+            # Also check anonlabels for anonymous references
+            anonlabels = std_domain.get("anonlabels", {})
+            if target in anonlabels:
+                docname, _labelid = anonlabels[target]
+                return docname
+
+    except (AttributeError, KeyError, TypeError) as e:
+        logger.debug(f"Error resolving reference target '{target}': {e}")
+
+    return None
+
+
+def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
     """Extract grid-item-card directives directly from raw markdown source."""
     cards = []
 
@@ -368,6 +402,10 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
             link_match = re.search(r":link:\s*([^\n]+)", card_body)
             link = link_match.group(1).strip() if link_match else ""
 
+            # Check link type to see if it's a reference
+            link_type_match = re.search(r":link-type:\s*([^\n]+)", card_body)
+            link_type = link_type_match.group(1).strip() if link_type_match else ""
+
             # Extract description (text after the directive options)
             # Remove directive options first
             desc_text = re.sub(r":[a-z-]+:.*?(?=\n|$)", "", card_body, flags=re.MULTILINE)
@@ -397,8 +435,20 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
                     # Keep external links as-is
                     pass
                 elif base_url:
+                    # If link-type is 'ref', resolve the reference target to actual document path
+                    if link_type == "ref":
+                        resolved_doc = _resolve_reference_target(env, link)
+                        if resolved_doc:
+                            link = resolved_doc
+                            if not link.endswith((".html", ".htm")):
+                                link = link + ".html"
+                        else:
+                            logger.debug(f"Could not resolve reference target: {link}")
+                            # Fallback: just append .html
+                            if not link.endswith((".html", ".htm")):
+                                link = link + ".html"
                     # Internal link - add .html extension if not present
-                    if not link.endswith((".html", ".htm")):
+                    elif not link.endswith((".html", ".htm")):
                         link = link + ".html"
                     link = _make_absolute_url(link, base_url)
 
@@ -411,7 +461,7 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
     return cards
 
 
-def _extract_grid_cards(doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
+def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
     """
     Extract grid-item-card elements by finding reference patterns.
 
@@ -541,8 +591,17 @@ def _extract_grid_cards(doctree: nodes.document, base_url: str = "") -> list[dic
             if not title or len(title) < MIN_TITLE_LENGTH:
                 continue
 
-            # Convert to absolute URL - reftarget is usually a docname
+            # Convert to absolute URL - reftarget might be a reference target
             if base_url:
+                # Check if this is a reference target (like 'gs-text')
+                # Try to resolve it to the actual document path
+                reftype = attrs.get("reftype", "")
+                if reftype in {"ref", ""}:
+                    # Try to resolve as a reference target
+                    resolved_doc = _resolve_reference_target(env, link)
+                    if resolved_doc:
+                        link = resolved_doc
+
                 # Add .html extension if not present
                 if not link.endswith((".html", ".htm")):
                     link = link + ".html"
