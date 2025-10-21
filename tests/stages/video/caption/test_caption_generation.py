@@ -105,26 +105,26 @@ class TestCaptionGenerationStage:
         # Create clips with windows
         clip1 = Clip(uuid=uuid4(), source_video="test1.mp4", span=(0.0, 10.0), buffer=b"test_buffer_1")
 
-        # Add windows with qwen_llm_input
+        # Add windows with llm_inputs
         window1 = _Window(
             start_frame=0,
             end_frame=10,
-            qwen_llm_input={"prompt": "test prompt 1", "multi_modal_data": {"video": "test_data_1"}},
+            llm_inputs={"qwen": {"prompt": "test prompt 1", "multi_modal_data": {"video": "test_data_1"}}},
         )
         window2 = _Window(
             start_frame=10,
             end_frame=20,
-            qwen_llm_input={"prompt": "test prompt 2", "multi_modal_data": {"video": "test_data_2"}},
+            llm_inputs={"qwen": {"prompt": "test prompt 2", "multi_modal_data": {"video": "test_data_2"}}},
         )
         clip1.windows = [window1, window2]
 
         clip2 = Clip(uuid=uuid4(), source_video="test2.mp4", span=(10.0, 20.0), buffer=b"test_buffer_2")
 
-        # Add window with qwen_llm_input
+        # Add window with llm_inputs
         window3 = _Window(
             start_frame=0,
             end_frame=15,
-            qwen_llm_input={"prompt": "test prompt 3", "multi_modal_data": {"video": "test_data_3"}},
+            llm_inputs={"qwen": {"prompt": "test prompt 3", "multi_modal_data": {"video": "test_data_3"}}},
         )
         clip2.windows = [window3]
 
@@ -160,7 +160,7 @@ class TestCaptionGenerationStage:
         # Verify cleanup
         for clip in result.data.clips:
             for window in clip.windows:
-                assert window.qwen_llm_input is None
+                assert "qwen" not in window.llm_inputs
                 assert window.mp4_bytes is None
 
     def test_process_with_verbose_logging(self):
@@ -176,7 +176,9 @@ class TestCaptionGenerationStage:
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         window = _Window(
-            start_frame=0, end_frame=5, qwen_llm_input={"prompt": "test", "multi_modal_data": {"video": "data"}}
+            start_frame=0,
+            end_frame=5,
+            llm_inputs={"qwen": {"prompt": "test", "multi_modal_data": {"video": "data"}}},
         )
         clip.windows = [window]
         video.clips = [clip]
@@ -210,7 +212,7 @@ class TestCaptionGenerationStage:
 
     @patch("nemo_curator.stages.video.caption.caption_generation.logger")
     def test_process_window_without_input(self, mock_logger: Mock):
-        """Test process method with windows that have no qwen_llm_input."""
+        """Test process method with windows that have no llm_inputs."""
         mock_model = Mock()
         mock_model.generate.return_value = []
         self.stage.model = mock_model
@@ -219,8 +221,8 @@ class TestCaptionGenerationStage:
 
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
-        # Window without qwen_llm_input
-        window = _Window(start_frame=0, end_frame=5, qwen_llm_input=None)
+        # Window without llm_inputs
+        window = _Window(start_frame=0, end_frame=5)
         clip.windows = [window]
         video.clips = [clip]
         task = VideoTask(task_id="test", dataset_name="test", data=video)
@@ -228,8 +230,8 @@ class TestCaptionGenerationStage:
         self.stage.process(task)
 
         # Verify error was logged and set
-        mock_logger.error.assert_called_once_with(f"Clip {clip.uuid} window 0 has no prepared inputs.")
-        assert clip.errors["window-0"] == "empty"
+        mock_logger.error.assert_called_once_with(f"Clip {clip.uuid} window 0 has no prepared inputs for qwen.")
+        assert clip.errors["window-0"] == "no_qwen_input"
 
     def test_assign_captions(self):
         """Test _assign_captions method."""
@@ -293,7 +295,9 @@ class TestCaptionGenerationStage:
         video = Video(input_video=pathlib.Path("test.mp4"))
         clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 5.0), buffer=b"test_buffer")
         window = _Window(
-            start_frame=0, end_frame=5, qwen_llm_input={"prompt": "test", "multi_modal_data": {"video": "data"}}
+            start_frame=0,
+            end_frame=5,
+            llm_inputs={"qwen": {"prompt": "test", "multi_modal_data": {"video": "data"}}},
         )
         clip.windows = [window]
         video.clips = [clip]
@@ -328,3 +332,74 @@ class TestCaptionGenerationStage:
             worker_metadata = WorkerMetadata(worker_id="test")
             self.stage.setup(worker_metadata)
             assert hasattr(self.stage, "model")
+
+    @patch("nemo_curator.stages.video.caption.caption_generation.NemotronHVL")
+    def test_setup_nemotron_variant(self, mock_nemotron_vl: Mock):
+        """Test setup method with nemotron variant."""
+        mock_model = Mock()
+        mock_nemotron_vl.return_value = mock_model
+
+        stage = CaptionGenerationStage(
+            model_dir="test/models",
+            model_variant="nemotron",
+            caption_batch_size=2,
+            max_output_tokens=256,
+            verbose=True,
+        )
+        stage.setup()
+
+        mock_nemotron_vl.assert_called_once_with(
+            model_dir="test/models",
+            model_variant="nemotron",
+            caption_batch_size=2,
+            max_output_tokens=256,
+            stage2_prompt_text=None,
+            verbose=True,
+        )
+        mock_model.setup.assert_called_once()
+        assert stage.model == mock_model
+
+    def test_process_nemotron_with_generic_llm_inputs(self):
+        """Test process method with nemotron using generic llm_inputs."""
+        mock_model = Mock()
+        mock_model.generate.return_value = ["Nemotron caption 1", "Nemotron caption 2"]
+
+        stage = CaptionGenerationStage(
+            model_dir="test/models",
+            model_variant="nemotron",
+            caption_batch_size=2,
+        )
+        stage.model = mock_model
+
+        import pathlib
+
+        video = Video(input_video=pathlib.Path("test.mp4"))
+        clip = Clip(uuid=uuid4(), source_video="test.mp4", span=(0.0, 10.0), buffer=b"test_buffer")
+
+        # Create windows with nemotron llm_inputs
+        window1 = _Window(
+            start_frame=0,
+            end_frame=10,
+            llm_inputs={"nemotron": {"prompt": "nemotron prompt 1", "multi_modal_data": {"video": "data1"}}},
+        )
+
+        window2 = _Window(
+            start_frame=10,
+            end_frame=20,
+            llm_inputs={"nemotron": {"prompt": "nemotron prompt 2", "multi_modal_data": {"video": "data2"}}},
+        )
+
+        clip.windows = [window1, window2]
+        video.clips = [clip]
+        task = VideoTask(task_id="test", dataset_name="test", data=video)
+
+        result = stage.process(task)
+
+        # Verify captions were assigned with nemotron key
+        assert result.data.clips[0].windows[0].caption["nemotron"] == "Nemotron caption 1"
+        assert result.data.clips[0].windows[1].caption["nemotron"] == "Nemotron caption 2"
+
+        # Verify cleanup - nemotron inputs should be deleted
+        assert "nemotron" not in result.data.clips[0].windows[0].llm_inputs
+        assert "nemotron" not in result.data.clips[0].windows[1].llm_inputs
+        
