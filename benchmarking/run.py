@@ -243,7 +243,8 @@ def main() -> None:
     for sink in config.sinks:
         sink.finalize()
     logger.info(f"Session {session_name} completed with overall success: {session_overall_success}")
+    return 0 if session_overall_success else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
