@@ -11,7 +11,7 @@ from loguru import logger
 from runner.utils import get_obj_for_json
 
 
-def dump_env(output_path: Path) -> None:
+def dump_env(output_path: Path) -> dict[str, Any]:
     env_data = get_env()
 
     try:
@@ -39,7 +39,9 @@ def dump_env(output_path: Path) -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to capture conda list: {e}")
 
+    # Write env data to file as JSON and return the dictionary written
     (output_path / "env.json").write_text(json.dumps(get_obj_for_json(env_data)))
+    return env_data
 
 
 def get_env() -> dict[str, Any]:
