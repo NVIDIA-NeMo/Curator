@@ -21,11 +21,11 @@ class MatrixEntry:
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
 
-    def get_command_to_run(self, session_entry_path: Path, resolver: DatasetResolver) -> str:
+    def get_command_to_run(self, session_entry_path: Path, benchmark_results_path: Path, resolver: DatasetResolver) -> str:
         if self.script:
             script_path = self.script_base_dir / self.script
             # FIXME: should --benchmark-results-path always be passed?
-            cmd = f"python {script_path} {self.args or ''} --benchmark-results-path" + " {session_entry_dir}/benchmark_results"
+            cmd = f"python {script_path} {self.args or ''} --benchmark-results-path={benchmark_results_path}"
 
             cmd = self.substitute_datasets_in_cmd(cmd, resolver)
             cmd = self.substitute_template_placeholders(cmd, session_entry_path)

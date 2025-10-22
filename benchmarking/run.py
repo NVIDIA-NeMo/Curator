@@ -109,7 +109,7 @@ def run_entry(  # noqa: PLR0915
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "benchmark_results"]
     ]
 
-    cmd = entry.get_command_to_run(session_entry_path, dataset_resolver)
+    cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, dataset_resolver)
     run_id = result.get("run_id", f"{entry.name}-{int(time.time())}")
 
     try:
@@ -141,7 +141,7 @@ def run_entry(  # noqa: PLR0915
                 logger.warning(f"\t\t⏰ Timed out after {entry.timeout_s}s")
         logger.info(f"\t\tLogs found in {logs_path}")
 
-        run_data = {
+        result.update({
             "cmd": cmd,
             "started_at": started_at,
             "ended_at": time.time(),
@@ -151,11 +151,10 @@ def run_entry(  # noqa: PLR0915
             "timed_out": completed["timed_out"],
             "logs_dir": logs_path,
             "success": success,
-        }
+        })
         ray_data = {}
         script_persisted_data = get_entry_script_persisted_data(benchmark_results_path)
         result.update({
-            "run_data": run_data,
             "ray_data": ray_data,
             "script_persisted_data": script_persisted_data,
         })
