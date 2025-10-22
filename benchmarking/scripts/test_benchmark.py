@@ -33,10 +33,8 @@ def run_demo_benchmark(  # noqa: PLR0913
         from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
         executor = RayDataExecutor()
-        if use_ray_data_settings:
-            from ray.data import DataContext
-
-            DataContext.get_current().target_max_block_size = 1
+        #from ray.data import DataContext
+        #DataContext.get_current().target_max_block_size = 1
 
     elif executor_name == "xenna":
         from nemo_curator.backends.xenna import XennaExecutor
@@ -55,15 +53,15 @@ def run_demo_benchmark(  # noqa: PLR0913
     try:
         time.sleep(10)
         output_tasks = []
+        run_time_taken = time.perf_counter() - run_start_time
+        num_removed = 0
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         success = True
     except Exception as e:  # noqa: BLE001
         logger.error(f"Benchmark failed: {e}")
         output_tasks = []
         success = False
-    finally:
-        run_time_taken = time.perf_counter() - run_start_time
-        num_removed = 0
+
     return {
         "params": {
             "executor": executor_name,
@@ -125,7 +123,7 @@ def main() -> int:
             "tasks": [],
         }
     finally:
-        write_results(results, args.output_path)
+        write_results(results, args.benchmark_results_path)
 
     # Return proper exit code based on success
     return 0 if results["metrics"]["is_success"] else 1

@@ -150,7 +150,7 @@ class SlackSink(Sink):
             data = [
                 ("name", result["name"]),
                 ("success", result["success"]),
-                ("runtime", f"{result['run_data']['exec_time_s']:.2f} s"),
+                ("runtime", f"{result['exec_time_s']:.2f} s"),
             ]
             left, right = zip(*data)
             right = [str(val) for val in right]
@@ -207,7 +207,7 @@ class SlackSink(Sink):
             data = [
                 ("name", result["name"]),
                 ("success", result["success"]),
-                ("runtime", f"{result['run_data']['exec_time_s']:.2f} s"),
+                ("runtime", f"{result['exec_time_s']:.2f} s"),
             ]
             for (var, val) in data:
                 row = [
