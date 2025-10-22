@@ -25,6 +25,7 @@ def run_command_with_timeout(
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
+    run_id: str | None = None,
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming output to a log file.
@@ -37,6 +38,7 @@ def run_command_with_timeout(
         timeout: Timeout (in seconds) to terminate the command.
         stdouterr_path: Path to the file for writing combined stdout and stderr.
         env: Optional dictionary of environment variables.
+        run_id: Optional run ID to identify the run.
         collapse_on_success: If True and command succeeds, collapses live window output (only for interactive mode).
 
     Returns:
@@ -45,9 +47,9 @@ def run_command_with_timeout(
     cmd_list = command if isinstance(command, list) else shlex.split(command)
 
     if sys.stdout.isatty():
-        return display_scrolling_subprocess(cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, window_height=6, collapse_on_success=collapse_on_success)
+        return display_scrolling_subprocess(cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, window_height=6, collapse_on_success=collapse_on_success, run_id=run_id)
     else:
-        return display_simple_subprocess(cmd_list, timeout=timeout, stdouterr_path=stdouterr_path)
+        return display_simple_subprocess(cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, run_id=run_id)
 
 
 def display_simple_subprocess(
@@ -55,6 +57,7 @@ def display_simple_subprocess(
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
+    run_id: str | None = None,
     collapse_on_success: bool = False,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming both stdout and stderr to a log file.
@@ -69,14 +72,16 @@ def display_simple_subprocess(
         timeout: Maximum allowed time in seconds before the process is terminated.
         stdouterr_path: Destination file to save all subprocess output.
         env: Optional dictionary of environment variables to use.
+        run_id: Optional run ID to identify the run.
         collapse_on_success: Unused in this function.
 
     Returns:
         dict: Contains 'returncode' (process exit code or 124 if timed out) and 'timed_out' (True if killed on timeout).
-    """
+    """ 
     return_code = 0
     timed_out = False
     msg = ""
+    run_id_msg = f" for run ID: {run_id}" if run_id else ""
 
     with open(stdouterr_path, "w") as outfile:
         start_time = time.time()
@@ -103,7 +108,7 @@ def display_simple_subprocess(
                     process.kill() # Force kill if it doesn't respond
 
                 reader_thread.join() # Wait for the reader thread to finish
-                msg = f"\n--- Subprocess TIMED OUT after {timeout}s ---\n"
+                msg = f"\n--- Subprocess TIMED OUT after {timeout}s{run_id_msg} ---\n"
                 return_code = 124
                 timed_out = True
             
@@ -113,13 +118,13 @@ def display_simple_subprocess(
                 timed_out = False
                 # Determine the final message based on success/failure
                 if return_code == 0:
-                    msg = f"\n--- Subprocess completed successfully in {time.time() - start_time:.2f}s ---\n"
+                    msg = f"\n--- Subprocess completed successfully in {time.time() - start_time:.2f}s{run_id_msg} ---\n"
                 else:
-                    msg = f"\n--- Subprocess failed (Exit Code: {return_code}) ---\n"
+                    msg = f"\n--- Subprocess failed (Exit Code: {return_code}){run_id_msg} ---\n"
         
         except Exception as e:
             tb = traceback.format_exc()
-            msg = f"\n--- An error occurred:\n{e}\n{tb} ---\n"
+            msg = f"\n--- An error occurred:\n{e}\n{tb}{run_id_msg} ---\n"
 
         finally:
             outfile.write(msg)
@@ -136,6 +141,7 @@ def display_scrolling_subprocess(
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     window_height: int = 6,
+    run_id: str | None = None,
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
     """
@@ -152,6 +158,7 @@ def display_scrolling_subprocess(
         stdouterr_path (Path): Log file path to write stdout/stderr.
         env (dict[str, str] | None): Environment variables for the subprocess.
         window_height (int): Number of output lines to display in the live panel.
+        run_id (str | None): Optional run ID to identify the run.
         collapse_on_success (bool): If True, collapse panel after successful completion.
 
     Returns:
@@ -164,8 +171,12 @@ def display_scrolling_subprocess(
     return_code = 0
     timed_out = False
     msg = ""
-    
-    with Live(auto_refresh=False, vertical_overflow="visible") as live, open(stdouterr_path, "w") as outfile:
+    run_id_msg = f" for run ID: {run_id}" if run_id else ""
+
+    with (
+        Live(auto_refresh=False, vertical_overflow="visible") as live,
+        open(stdouterr_path, "w") as outfile,
+    ):
         start_time = time.time()
         final_panel = None
         try:
@@ -192,7 +203,7 @@ def display_scrolling_subprocess(
                         display_text = Text("\n".join(output_buffer), no_wrap=True)
                         panel = Panel(
                             display_text,
-                            title="[bold blue]Subprocess Output[/]",
+                            title=f"[bold blue]Subprocess Output{run_id_msg}[/]",
                             border_style="green",
                             height=window_height + 2,  # +2 for top/bottom borders
                         )
@@ -216,7 +227,7 @@ def display_scrolling_subprocess(
                     process.kill() # Force kill if it doesn't respond
 
                 reader_thread.join() # Wait for the reader thread to finish
-                msg = f"Subprocess TIMED OUT after {timeout}s"
+                msg = f"Subprocess TIMED OUT after {timeout}s{run_id_msg}"
                 final_panel = Panel(
                     Text("\n".join(output_buffer), no_wrap=True),
                     title=f"[bold red]{msg}[/]",
@@ -234,7 +245,7 @@ def display_scrolling_subprocess(
 
                 # Determine the final state of the panel based on success/failure
                 if return_code == 0:
-                    msg = f"Subprocess completed successfully in {runtime:.2f}s"
+                    msg = f"Subprocess completed successfully in {runtime:.2f}s{run_id_msg}"
                     if collapse_on_success:
                         final_panel = Panel(
                             Text(msg),
@@ -250,7 +261,7 @@ def display_scrolling_subprocess(
                             height=window_height + 2,
                         )
                 else:
-                    msg = f"Subprocess failed (Exit Code: {return_code})"
+                    msg = f"Subprocess failed (Exit Code: {return_code}){run_id_msg}"
                     final_panel = Panel(
                         Text("\n".join(output_buffer), no_wrap=True),
                         title=f"[bold red]{msg}[/]",
@@ -260,7 +271,7 @@ def display_scrolling_subprocess(
 
         except Exception as e:
             tb = traceback.format_exc()
-            msg = f"An error occurred:\n{e}\n{tb}"
+            msg = f"An error occurred:\n{e}\n{tb}{run_id_msg}"
             final_panel = Panel(f"[bold red]{msg}[/]", title="[bold red]Error[/]")
 
         finally:
