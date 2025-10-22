@@ -8,14 +8,19 @@ from typing import Any
 
 from loguru import logger
 
+from runner.utils import get_obj_for_json
 
-def capture_environment_artifacts(output_path: Path) -> None:
-    Path(output_path).mkdir(parents=True, exist_ok=True)
+
+def dump_env(output_path: Path) -> None:
+    env_data = get_env()
+
     try:
         freeze = subprocess.check_output(["pip", "freeze"], text=True, timeout=120)  # noqa: S603, S607
-        (output_path / "pip-freeze.txt").write_text(freeze)
+        freeze_txt_path = output_path / "pip-freeze.txt"
+        freeze_txt_path.write_text(freeze)
+        env_data["pip_freeze_txt"] = freeze_txt_path
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Failed to capture pip freeze: {e}")
+        logger.warning(f"Failed to capture pip freeze: {e}")
     try:
         # Try micromamba first, then conda as fallback
         cmd = None
@@ -26,29 +31,25 @@ def capture_environment_artifacts(output_path: Path) -> None:
 
         if cmd:
             exp = subprocess.check_output(cmd, text=True, timeout=120)  # noqa: S603
-            (output_path / "conda-explicit.txt").write_text(exp)
+            conda_explicit_txt_path = output_path / "conda-explicit.txt"
+            conda_explicit_txt_path.write_text(exp)
+            env_data["conda_explicit_txt"] = conda_explicit_txt_path
         else:
             logger.warning("Neither micromamba nor conda found in PATH, skipping conda-explicit.txt")
     except Exception as e:  # noqa: BLE001
-        logger.error(f"Failed to capture conda list: {e}")
+        logger.warning(f"Failed to capture conda list: {e}")
 
-    sysenv = {
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "executable": os.getenv("_"),
-        "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES", ""),
-    }
-    (output_path / "sys-env.json").write_text(json.dumps(sysenv))
+    (output_path / "env.json").write_text(json.dumps(get_obj_for_json(env_data)))
 
 
-def collect_basic_env() -> dict[str, Any]:
-    try:
-        ray_ver = subprocess.check_output(["python", "-c", "import ray,sys;print(ray.__version__)"], text=True).strip()  # noqa: S603, S607
-    except Exception:  # noqa: BLE001
-        ray_ver = "unknown"
+def get_env() -> dict[str, Any]:
     return {
         "hostname": platform.node(),
-        "ray_version": ray_ver,
+        "platform": platform.platform(),
+        "ray_version": os.getenv("RAY_VERSION", "unknown"),
         "git_commit": os.getenv("GIT_COMMIT", "unknown"),
         "image_digest": os.getenv("IMAGE_DIGEST", "unknown"),
+        "python_version": platform.python_version(),
+        "executable": os.getenv("_"),
+        "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES", ""),
     }

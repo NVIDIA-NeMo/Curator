@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .datasets import DatasetResolver
+from .sinks.sink import Sink
 
 
 @dataclass
@@ -69,6 +70,7 @@ class MatrixEntry:
 class MatrixConfig:
     results_dir: str
     entries: list[MatrixEntry]
+    sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
     mlflow: dict[str, Any] = field(default_factory=dict)
     wandb: dict[str, Any] = field(default_factory=dict)
@@ -89,9 +91,30 @@ class MatrixConfig:
         mc_field_names = {f.name for f in fields(cls)}
         mc_data = {k: v for k, v in data.items() if k in mc_field_names}
         mc_data = _resolve_env_vars(mc_data)
+        sinks = cls.load_sinks(mc_data["sinks"])
+        mc_data["sinks"] = sinks
         entries = [MatrixEntry(**e) for e in mc_data["entries"]]
         mc_data["entries"] = entries
         return cls(**mc_data)
+
+    @classmethod
+    def load_sinks(cls, sink_configs: list[dict]) -> list[Sink]:
+        """Load sinks from the list of sink configuration dictionaries."""
+        sinks = []
+        for sink_config in sink_configs:
+            sink_name = sink_config["name"]
+            if sink_name == "mlflow":
+                from runner.sinks.mlflow_sink import MlflowSink
+                sinks.append(MlflowSink(config=sink_config))
+            elif sink_name == "slack":
+                from runner.sinks.slack_sink import SlackSink
+                sinks.append(SlackSink(config=sink_config))
+            elif sink_name == "gdrive":
+                from runner.sinks.gdrive_sink import GdriveSink
+                sinks.append(GdriveSink(config=sink_config))
+            else:
+                logger.warning(f"Unknown sink: {sink_name}, skipping")
+        return sinks
 
     def __post_init__(self) -> None:
         names = [entry.name for entry in self.entries]
