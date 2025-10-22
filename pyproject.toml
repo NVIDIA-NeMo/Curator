@@ -60,7 +60,7 @@ dependencies = [
     "mecab-python3",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.49",
+    "ray[default,data]>=2.50",
     "torch",
     "transformers==4.55.2",
 ]
