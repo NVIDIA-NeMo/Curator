@@ -24,6 +24,7 @@ class MatrixEntry:
     def get_command_to_run(self, session_entry_path: Path, resolver: DatasetResolver) -> str:
         if self.script:
             script_path = self.script_base_dir / self.script
+            # FIXME: should --benchmark-results-path always be passed?
             cmd = f"python {script_path} {self.args or ''} --benchmark-results-path" + " {session_entry_dir}/benchmark_results"
 
             cmd = self.substitute_datasets_in_cmd(cmd, resolver)
