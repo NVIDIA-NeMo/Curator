@@ -483,7 +483,7 @@ def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url
 
     # Also check for pending_xref nodes (MyST grid cards use these)
     try:
-        from sphinx.addnodes import pending_xref  # noqa: PLC0415
+        from sphinx.addnodes import pending_xref
 
         pending_refs = list(doctree.traverse(pending_xref))
     except ImportError:
@@ -822,7 +822,7 @@ def _extract_metadata(env: BuildEnvironment, docname: str) -> dict[str, Any]:
 def _extract_frontmatter(file_path: str) -> dict[str, Any] | None:
     """Extract YAML frontmatter from markdown files."""
     try:
-        import yaml  # noqa: PLC0415
+        import yaml
 
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
