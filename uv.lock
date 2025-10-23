@@ -4181,7 +4181,7 @@ requires-dist = [
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video-cpu') or (sys_platform == 'darwin' and extra == 'video-cpu')", index = "https://pypi.org/simple" },
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
     { name = "transformers", specifier = "==4.55.2" },
-    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==0.10.2" },
+    { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==0.11.0" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
 provides-extras = ["cuda12", "deduplication-cuda12", "audio-cpu", "audio-cuda12", "image-cpu", "image-cuda12", "text-cpu", "text-cuda12", "video-cpu", "video-cuda12", "all"]
@@ -8590,7 +8590,7 @@ wheels = [
 
 [[package]]
 name = "vllm"
-version = "0.10.2"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -8650,9 +8650,9 @@ dependencies = [
     { name = "xformers", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "xgrammar", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/0a/278d7bbf454f7de5322a5007427eed3e8b34ed6c2802491b56bbdfd7bbb4/vllm-0.10.2.tar.gz", hash = "sha256:57608f44cf61f5d80fb182c98e06e524cb2925bb528258a7b247c8e43a52d13e", size = 10908356, upload-time = "2025-09-13T23:00:34.918Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/82/5a/36d2351206f4d8d871b10780f874d03957985e08298d430cc837723e07af/vllm-0.11.0.tar.gz", hash = "sha256:f435a64c24e9c4178d657a76f8edd8548ddc444012f7d06a9f79ac3a6392bfae", size = 10822208, upload-time = "2025-10-04T01:39:57.798Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/1a/365479f413e7408b314c0237d6c929569874d5c002bc7c8b5a7fbf40c7d9/vllm-0.10.2-cp38-abi3-manylinux1_x86_64.whl", hash = "sha256:e0cba6110483d9bf25c4402d8655cf78d366dd13e4155210980cc3480ed98b7b", size = 436413211, upload-time = "2025-09-13T23:00:25.278Z" },
+    { url = "https://files.pythonhosted.org/packages/47/33/d19e0763c34392ec956534536fa837c060495bfff31ed83452135ea7608d/vllm-0.11.0-cp38-abi3-manylinux1_x86_64.whl", hash = "sha256:3861c75ff2b12e24f6d179ff5c084d791b42ded8675d76c8706697c79f68cd62", size = 438217982, upload-time = "2025-10-04T01:39:32.382Z" },
 ]
 
 [[package]]
@@ -8910,7 +8910,7 @@ wheels = [
 
 [[package]]
 name = "xgrammar"
-version = "0.1.23"
+version = "0.1.25"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "ninja", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -8921,14 +8921,14 @@ dependencies = [
     { name = "triton", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "typing-extensions", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/12/958457553a87c31bdb18c8395b88bb3255f7c7373ab3a0b046d3b7f37f86/xgrammar-0.1.23.tar.gz", hash = "sha256:5ef280455c1ac008f052d7ea92286f0ca3a3d7ab360224894ac69277c8827113", size = 2263693, upload-time = "2025-08-15T07:31:42.792Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/a9/dc3c63cf7f082d183711e46ef34d10d8a135c2319dc581905d79449f52ea/xgrammar-0.1.25.tar.gz", hash = "sha256:70ce16b27e8082f20808ed759b0733304316facc421656f0f30cfce514b5b77a", size = 2297187, upload-time = "2025-09-21T05:58:58.942Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5a/83/9fd0d2d4e06ef27b13f9343269c0110574622c543c6527d7dcafc55a194e/xgrammar-0.1.23-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:41d262c48354f2d845e8654c05be681c17fb9fc037cde6883ef434a07b1e9ace", size = 7854128, upload-time = "2025-08-15T07:31:11.458Z" },
-    { url = "https://files.pythonhosted.org/packages/6d/b7/0a328254411983f223baa33f10b54793570512e0868e6ba7b47cf2c7caae/xgrammar-0.1.23-cp310-cp310-win_amd64.whl", hash = "sha256:b2a40e4dd242dedc83c52f9699569efe04b448bd1cd06627d12a7093b4d800ed", size = 646685, upload-time = "2025-08-15T07:31:13.218Z" },
-    { url = "https://files.pythonhosted.org/packages/5c/d1/500caef952bea84f335453fee01836d1b8c8b700b173e07a37c6a4b62d67/xgrammar-0.1.23-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:280d6e114b6ea57ee9dc4b5e31b5f897132e74d279b8064e7679893804498652", size = 7855408, upload-time = "2025-08-15T07:31:19.647Z" },
-    { url = "https://files.pythonhosted.org/packages/5f/55/084f9ec87174220914f7b96c59f20e64ae2bc7938765c8b1d0191ae45d90/xgrammar-0.1.23-cp311-cp311-win_amd64.whl", hash = "sha256:a21b9f85fa321a2731106ffc167fde15d90e5af1779b64bc75c36fa809ea7925", size = 646693, upload-time = "2025-08-15T07:31:21.072Z" },
-    { url = "https://files.pythonhosted.org/packages/a1/13/53d950b93a361ef73e5930050916fa36c23fade80ee05cfb0339c044e951/xgrammar-0.1.23-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e0ff9c0a1d46c95d82345a5bf026956ef6d98f1aac7115b57ce88d1d93c4a374", size = 7858258, upload-time = "2025-08-15T07:31:26.782Z" },
-    { url = "https://files.pythonhosted.org/packages/f7/11/2ac0d10c88196f6fc6efa085a175483a72532cc7c2027cbd0583c759a748/xgrammar-0.1.23-cp312-cp312-win_amd64.whl", hash = "sha256:b330a5d673a53a657beb641af8e90146bba4ec18203c440ee7b7766856f5991c", size = 645937, upload-time = "2025-08-15T07:31:28.677Z" },
+    { url = "https://files.pythonhosted.org/packages/b1/c4/137d0e9cd038ff4141752c509dbeea0ec5093eb80815620c01b1f1c26d0a/xgrammar-0.1.25-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9785eafa251c996ebaa441f3b8a6c037538930104e265a64a013da0e6fd2ad86", size = 8709188, upload-time = "2025-09-21T05:58:26.246Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/3d/c228c470d50865c9db3fb1e75a95449d0183a8248519b89e86dc481d6078/xgrammar-0.1.25-cp310-cp310-win_amd64.whl", hash = "sha256:42ecefd020038b3919a473fe5b9bb9d8d809717b8689a736b81617dec4acc59b", size = 698919, upload-time = "2025-09-21T05:58:28.368Z" },
+    { url = "https://files.pythonhosted.org/packages/31/f6/3c5210bc41b61fb32b66bf5c9fd8ec5edacfeddf9860e95baa9caa9a2c82/xgrammar-0.1.25-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:fc19d6d7e8e51b6c9a266e949ac7fb3d2992447efeec7df32cca109149afac18", size = 8709514, upload-time = "2025-09-21T05:58:34.727Z" },
+    { url = "https://files.pythonhosted.org/packages/21/de/85714f307536b328cc16cc6755151865e8875378c8557c15447ca07dff98/xgrammar-0.1.25-cp311-cp311-win_amd64.whl", hash = "sha256:8fcb24f5a7acd5876165c50bd51ce4bf8e6ff897344a5086be92d1fe6695f7fe", size = 698722, upload-time = "2025-09-21T05:58:36.411Z" },
+    { url = "https://files.pythonhosted.org/packages/c6/c2/695797afa9922c30c45aa94e087ad33a9d87843f269461b622a65a39022a/xgrammar-0.1.25-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:47fdbfc6007df47de2142613220292023e88e4a570546b39591f053e4d9ec33f", size = 8712184, upload-time = "2025-09-21T05:58:43.142Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/7f/aa80d1d4c4632cd3d8d083f1de8b470fcb3df23d9165992a3ced019f1b93/xgrammar-0.1.25-cp312-cp312-win_amd64.whl", hash = "sha256:c9b3defb6b45272e896da401f43b513f5ac12104ec3101bbe4d3a7d02bcf4a27", size = 698264, upload-time = "2025-09-21T05:58:44.787Z" },
 ]
 
 [[package]]
