@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from cosmos_xenna.pipelines import v1 as pipelines_v1
-from cosmos_xenna.ray_utils.resources import NodeInfo as XennaNodeInfo
-from cosmos_xenna.ray_utils.resources import Resources as XennaResources
-from cosmos_xenna.ray_utils.resources import WorkerMetadata as XennaWorkerMetadata
+from cosmos_xenna.pipelines.v1 import NodeInfo as XennaNodeInfo
+from cosmos_xenna.pipelines.v1 import Resources as XennaResources
+from cosmos_xenna.pipelines.v1 import WorkerMetadata as XennaWorkerMetadata
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
