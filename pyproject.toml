@@ -144,7 +144,7 @@ video_cuda12 = [
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
-    "vllm==0.10.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.11.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
