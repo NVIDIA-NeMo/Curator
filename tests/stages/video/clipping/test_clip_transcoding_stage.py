@@ -272,7 +272,7 @@ class TestClipTranscodingStage:
 
         # Should not add any hwaccel options
         assert "-hwaccel" not in command
-    
+
     def test_add_hwaccel_options_enabled(self) -> None:
         """Test hardware acceleration options when enabled."""
         command = []

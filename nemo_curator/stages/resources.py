@@ -65,7 +65,7 @@ class Resources:
                 error_message = "gpu_memory_gb is too large for a single GPU. "
                 error_message += "Please use gpus for multi-GPU stages."
                 raise ValueError(error_message)
-        
+
         if self.entire_gpu:
             self.gpus = 1.0
 

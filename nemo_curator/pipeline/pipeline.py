@@ -129,7 +129,7 @@ class Pipeline:
         stage_info = ", ".join([f"{s.name}({s.__class__.__name__})" for s in self.stages])
         return f"Pipeline(name='{self.name}', stages=[{stage_info}])"
 
-    def describe(self) -> str:  # noqa: C901
+    def describe(self) -> str:
         """Get a detailed description of the pipeline stages and their requirements."""
         lines = [
             f"Pipeline: {self.name}",
