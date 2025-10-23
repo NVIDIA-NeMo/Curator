@@ -148,10 +148,6 @@ class Pipeline:
                 lines.append(f"  Resources: {stage.resources.cpus} CPUs")
                 if stage.resources.requires_gpu:
                     lines.append(f"    GPU Memory: {stage.resources.gpu_memory_gb} GB ({stage.resources.gpus} GPUs)")
-                if stage.resources.nvdecs > 0:
-                    lines.append(f"    NVDEC: {stage.resources.nvdecs}")
-                if stage.resources.nvencs > 0:
-                    lines.append(f"    NVENC: {stage.resources.nvencs}")
 
                 lines.append(f"  Batch size: {stage.batch_size}")
 
