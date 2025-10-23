@@ -39,7 +39,7 @@ docker run \
   --env=MLFLOW_TRACKING_URI=blank \
   --env=SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL} \
   \
-  bench \
+  curator_benchmarking \
     --config=${CONTAINER_CURATOR_DIR}/benchmarking/rratzel-ws1--config.yaml \
     --config=${CONTAINER_CURATOR_DIR}/benchmarking/container_paths.yaml
 
