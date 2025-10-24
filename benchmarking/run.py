@@ -181,8 +181,14 @@ def main() -> None:
     for yml_file in args.config:
         with open(yml_file) as f:
             config_dicts = yaml.full_load_all(f)
-        for d in config_dicts:
-            config_dict.update(d)
+            for d in config_dicts:
+                config_dict.update(d)
+
+    try:
+        MatrixConfig.assert_valid_config(config_dict)
+    except ValueError as e:
+        logger.error(f"Invalid configuration: {e}")
+        return 1
 
     config = MatrixConfig.create_from_dict(config_dict)
     resolver = DatasetResolver.create_from_dicts(config_dict["datasets"])
