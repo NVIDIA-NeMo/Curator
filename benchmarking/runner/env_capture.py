@@ -27,30 +27,24 @@ from runner.utils import get_obj_for_json
 def dump_env(output_path: Path) -> dict[str, Any]:
     env_data = get_env()
 
-    try:
-        freeze = subprocess.check_output(["pip", "freeze"], text=True, timeout=120)  # noqa: S603, S607
-        freeze_txt_path = output_path / "pip-freeze.txt"
-        freeze_txt_path.write_text(freeze)
-        env_data["pip_freeze_txt"] = freeze_txt_path
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"Failed to capture pip freeze: {e}")
-    try:
-        # Try micromamba first, then conda as fallback
-        cmd = None
-        if shutil.which("micromamba"):
-            cmd = ["micromamba", "list", "--explicit"]
-        elif shutil.which("conda"):
-            cmd = ["conda", "list", "--explicit"]
-
-        if cmd:
-            exp = subprocess.check_output(cmd, text=True, timeout=120)  # noqa: S603
-            conda_explicit_txt_path = output_path / "conda-explicit.txt"
-            conda_explicit_txt_path.write_text(exp)
-            env_data["conda_explicit_txt"] = conda_explicit_txt_path
-        else:
-            logger.warning("Neither micromamba nor conda found in PATH, skipping conda-explicit.txt")
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"Failed to capture conda list: {e}")
+    # Try package managers in order of preference for capturing the environment
+    # package_managers = [("uv", "pip freeze"), ("pip", "freeze"), ("micromamba", "list --explicit"), ("conda", "list --explicit")]  # noqa: ERA001
+    package_managers = [("uv", "pip freeze")]
+    env_dumped = False
+    for package_manager, cmd in package_managers:
+        if shutil.which(package_manager):
+            cmd_list = [package_manager, *cmd.split(" ")]
+            exp = subprocess.check_output(cmd_list, text=True, timeout=120)  # noqa: S603
+            packages_txt_path = output_path / "packages.txt"
+            packages_txt_path.write_text(exp)
+            env_data["packages_txt"] = str(packages_txt_path)
+            logger.info(f"Captured packages from {package_manager} {cmd} to {packages_txt_path}")
+            env_dumped = True
+            break
+    if not env_dumped:
+        logger.warning(
+            f"No package manager ({', '.join([pm for pm, _ in package_managers])}) found in PATH, skipping environment capture"
+        )
 
     # Write env data to file as JSON and return the dictionary written
     (output_path / "env.json").write_text(json.dumps(get_obj_for_json(env_data)))

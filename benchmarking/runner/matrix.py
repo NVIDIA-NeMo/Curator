@@ -99,6 +99,15 @@ class MatrixConfig:
     delete_scratch: bool = True
 
     @classmethod
+    def assert_valid_config(cls, data: dict) -> None:
+        """Assert that the configuration is valid."""
+        required_fields = ["results_dir", "entries"]
+        missing_fields = [k for k in required_fields if k not in data]
+        if missing_fields:
+            msg = f"Invalid configuration: missing required fields: {missing_fields}"
+            raise ValueError(msg)
+
+    @classmethod
     def create_from_dict(cls, data: dict) -> MatrixConfig:
         """
         Factory method to create a MatrixConfig from a dictionary.
