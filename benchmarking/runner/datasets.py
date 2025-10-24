@@ -34,7 +34,7 @@ class DatasetResolver:
            ...]
         """
         # Check for duplicate dataset names before proceeding
-        names = [d["name"] for d in data]
+        names = [d["name"] for d in data] if len(data) else []
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
             msg = f"Duplicate dataset name(s) found: {', '.join(duplicates)}"

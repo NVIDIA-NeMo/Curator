@@ -191,7 +191,7 @@ def main() -> None:
         return 1
 
     config = MatrixConfig.create_from_dict(config_dict)
-    resolver = DatasetResolver.create_from_dicts(config_dict["datasets"])
+    resolver = DatasetResolver.create_from_dicts(config_dict.get("datasets", []))
 
     # Create session folder under results_dir
     session_name_prefix = args.session_name or "benchmark-run"
