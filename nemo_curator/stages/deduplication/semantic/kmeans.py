@@ -189,8 +189,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         logger.debug(f"Read time: {(t1 - t0):.2f} seconds")
         # Fit the model cooperatively across actors, then predict on local data
         concatenated_embeddings = cp.concatenate(embeddings_arrays, axis=0)
-        self.kmeans.fit(concatenated_embeddings, sample_weight=None)
-        labels = self.kmeans.predict(concatenated_embeddings).astype(cp.int32)
+        self.kmeans._fit(concatenated_embeddings, sample_weight=None, convert_dtype=False, multigpu=True)
+        labels = self.kmeans.predict(concatenated_embeddings, convert_dtype=False).astype(cp.int32)
 
         t2 = time.perf_counter()
         logger.info(f"KMeans fit+predict time: {(t2 - t1):.2f} seconds")
@@ -233,7 +233,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         return results
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from cuml.cluster.kmeans_mg import KMeansMG as cumlKMeans
+        from cuml.cluster.kmeans import KMeans as cumlKMeans
 
         if not hasattr(self, "_raft_handle"):
             msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"
@@ -250,7 +250,6 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
             n_init=self.n_init,
             oversampling_factor=self.oversampling_factor,
             max_samples_per_batch=self.max_samples_per_batch,
-            convert_dtype=False,
         )
 
     @staticmethod
