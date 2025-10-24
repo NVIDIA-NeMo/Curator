@@ -29,4 +29,3 @@ CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
 
 # Build the benchmarking image
 docker build -f ${CURATOR_DIR}/benchmarking/Dockerfile --target curator_benchmarking --tag=curator_benchmarking ${CURATOR_DIR}
-

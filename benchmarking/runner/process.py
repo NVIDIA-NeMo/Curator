@@ -14,27 +14,27 @@
 
 from __future__ import annotations
 
-import unicodedata
-import traceback
-import subprocess
-import time
 import shlex
-from collections import deque
+import subprocess
 import sys
 import threading
-from typing import Any
+import time
+import traceback
+import unicodedata
+from collections import deque
 from pathlib import Path
+from typing import Any
 
-#from loguru import logger
 from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
 # Create a translation table that maps all control characters to None for deletion in order to safely print subprocess output to the scrolling live window.
 # This includes characters in the Unicode category 'Cc' (Control).
-_control_chars = {c: None for c in range(sys.maxunicode) if unicodedata.category(chr(c)) == 'Cc'}
+_control_chars = {c: None for c in range(sys.maxunicode) if unicodedata.category(chr(c)) == "Cc"}
 
-def run_command_with_timeout(
+
+def run_command_with_timeout(  # noqa: PLR0913
     command: str,
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
@@ -43,7 +43,7 @@ def run_command_with_timeout(
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming output to a log file.
-    
+
     If running in an interactive terminal, displays subprocess output in a live, scrolling window.
     Otherwise, prints output to the console and saves it to a log file.
 
@@ -61,9 +61,19 @@ def run_command_with_timeout(
     cmd_list = command if isinstance(command, list) else shlex.split(command)
 
     if sys.stdout.isatty():
-        return display_scrolling_subprocess(cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, window_height=6, collapse_on_success=collapse_on_success, run_id=run_id)
+        return display_scrolling_subprocess(
+            cmd_list,
+            timeout=timeout,
+            stdouterr_path=stdouterr_path,
+            env=env,
+            window_height=6,
+            collapse_on_success=collapse_on_success,
+            run_id=run_id,
+        )
     else:
-        return display_simple_subprocess(cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, run_id=run_id)
+        return display_simple_subprocess(
+            cmd_list, timeout=timeout, stdouterr_path=stdouterr_path, env=env, run_id=run_id
+        )
 
 
 def display_simple_subprocess(
@@ -72,7 +82,6 @@ def display_simple_subprocess(
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     run_id: str | None = None,
-    collapse_on_success: bool = False,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming both stdout and stderr to a log file.
 
@@ -87,11 +96,10 @@ def display_simple_subprocess(
         stdouterr_path: Destination file to save all subprocess output.
         env: Optional dictionary of environment variables to use.
         run_id: Optional run ID to identify the run.
-        collapse_on_success: Unused in this function.
 
     Returns:
         dict: Contains 'returncode' (process exit code or 124 if timed out) and 'timed_out' (True if killed on timeout).
-    """ 
+    """
     return_code = 0
     timed_out = False
     msg = ""
@@ -100,8 +108,17 @@ def display_simple_subprocess(
     with open(stdouterr_path, "w") as outfile:
         start_time = time.time()
         try:
-            process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, text=True, bufsize=1, universal_newlines=True)
-            def reader():
+            process = subprocess.Popen(  # noqa: S603
+                cmd_list,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=env,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
+
+            def reader() -> None:
                 """Reads process output line by line and updates both the file and stdout."""
                 for line in process.stdout:
                     outfile.write(line)
@@ -117,26 +134,28 @@ def display_simple_subprocess(
                 # Timeout occurred
                 process.terminate()
                 try:
-                    process.wait(timeout=1) # Give it a second to terminate gracefully
+                    process.wait(timeout=1)  # Give it a second to terminate gracefully
                 except subprocess.TimeoutExpired:
-                    process.kill() # Force kill if it doesn't respond
+                    process.kill()  # Force kill if it doesn't respond
 
-                reader_thread.join() # Wait for the reader thread to finish
+                reader_thread.join()  # Wait for the reader thread to finish
                 msg = f"\n--- Subprocess TIMED OUT after {timeout}s{run_id_msg} ---\n"
                 return_code = 124
                 timed_out = True
-            
+
             else:
                 # If here, the process completed within the timeout
                 return_code = process.wait()
                 timed_out = False
                 # Determine the final message based on success/failure
                 if return_code == 0:
-                    msg = f"\n--- Subprocess completed successfully in {time.time() - start_time:.2f}s{run_id_msg} ---\n"
+                    msg = (
+                        f"\n--- Subprocess completed successfully in {time.time() - start_time:.2f}s{run_id_msg} ---\n"
+                    )
                 else:
                     msg = f"\n--- Subprocess failed (Exit Code: {return_code}){run_id_msg} ---\n"
-        
-        except Exception as e:
+
+        except Exception as e:  # noqa: BLE001
             tb = traceback.format_exc()
             msg = f"\n--- An error occurred:\n{e}\n{tb}{run_id_msg} ---\n"
 
@@ -149,7 +168,7 @@ def display_simple_subprocess(
     return {"returncode": return_code, "timed_out": timed_out}
 
 
-def display_scrolling_subprocess(
+def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
     cmd_list: list[str],
     timeout: int,
     stdouterr_path: Path = Path("stdouterr.log"),
@@ -194,23 +213,24 @@ def display_scrolling_subprocess(
         start_time = time.time()
         final_panel = None
         try:
-            process = subprocess.Popen(
+            process = subprocess.Popen(  # noqa: S603
                 cmd_list,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 env=env,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
             )
-            def reader():
+
+            def reader() -> None:
                 """Reads process output line by line and updates both the file and live display."""
                 last_line_not_blank = True
                 for line in process.stdout:
                     outfile.write(line)
                     outfile.flush()
                     # Filter out chars that might break the scrolling live window before adding to the buffer.
-                    line = line.translate(_control_chars).strip()
+                    line = line.translate(_control_chars).strip()  # noqa: PLW2901
                     # Do not allow multiple blank lines, waste of already limited space.
                     if line or last_line_not_blank:
                         output_buffer.append(line)
@@ -223,11 +243,8 @@ def display_scrolling_subprocess(
                         )
                         live.update(panel)
                         live.refresh()
-                    if line:
-                        last_line_not_blank = True
-                    else:
-                        last_line_not_blank = False
-                    
+                    last_line_not_blank = True if line else False  # noqa: SIM210
+
             reader_thread = threading.Thread(target=reader)
             reader_thread.start()
             reader_thread.join(timeout=timeout)
@@ -236,11 +253,11 @@ def display_scrolling_subprocess(
                 # Timeout occurred
                 process.terminate()
                 try:
-                    process.wait(timeout=1) # Give it a second to terminate gracefully
+                    process.wait(timeout=1)  # Give it a second to terminate gracefully
                 except subprocess.TimeoutExpired:
-                    process.kill() # Force kill if it doesn't respond
+                    process.kill()  # Force kill if it doesn't respond
 
-                reader_thread.join() # Wait for the reader thread to finish
+                reader_thread.join()  # Wait for the reader thread to finish
                 msg = f"Subprocess TIMED OUT after {timeout}s{run_id_msg}"
                 final_panel = Panel(
                     Text("\n".join(output_buffer), no_wrap=True),
@@ -265,7 +282,7 @@ def display_scrolling_subprocess(
                             Text(msg),
                             title=f"[bold blue]{msg}[/]",
                             border_style="green",
-                            height=3, # A smaller height for the collapsed view
+                            height=3,  # A smaller height for the collapsed view
                         )
                     else:
                         final_panel = Panel(
@@ -283,7 +300,7 @@ def display_scrolling_subprocess(
                         height=window_height + 2,
                     )
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             tb = traceback.format_exc()
             msg = f"An error occurred:\n{e}\n{tb}{run_id_msg}"
             final_panel = Panel(f"[bold red]{msg}[/]", title="[bold red]Error[/]")

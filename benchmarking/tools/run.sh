@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# FIXME: Look into making use cases that rely on docker volume mounts formally supported
+# TODO: Look into making use cases that rely on docker volume mounts formally supported
 #   by the benchmarking framework. For example, the notion of local and container dir mappings
 #   could be in the same config YAML, and the tool would then automate launching the container.
 #   This would make make it easier than coordinating paths in both the YAML for datasets,

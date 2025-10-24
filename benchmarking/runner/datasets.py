@@ -36,19 +36,21 @@ class DatasetResolver:
         # Check for duplicate dataset names before proceeding
         names = [d["name"] for d in data]
         if len(names) != len(set(names)):
-            duplicates = set([name for name in names if names.count(name) > 1])
-            raise ValueError(f"Duplicate dataset name(s) found: {', '.join(duplicates)}")
+            duplicates = {name for name in names if names.count(name) > 1}
+            msg = f"Duplicate dataset name(s) found: {', '.join(duplicates)}"
+            raise ValueError(msg)
 
         instance = cls()
         for dataset in data:
             formats = dataset["formats"]
-            assert isinstance(formats, list), "formats must be a list"
+            if not isinstance(formats, list):
+                msg = "formats must be a list"
+                raise TypeError(msg)
             format_map = {}
             for fmt in formats:
                 format_map[fmt["type"]] = fmt["path"]
             instance._map[dataset["name"]] = format_map
         return instance
-
 
     def resolve(self, dataset_name: str, file_format: str) -> str:
         if dataset_name not in self._map:

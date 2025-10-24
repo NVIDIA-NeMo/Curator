@@ -48,7 +48,7 @@ ENV MAMBA_ROOT_PREFIX=/opt/micromamba
 ENV PATH=$MAMBA_ROOT_PREFIX/bin:$PATH
 RUN curl -Ls https://micromamba.snakepit.net/api/micromamba/linux-64/latest | tar -xvj -C /usr/local/bin --strip-components=1 bin/micromamba && \
     micromamba shell init -s bash -r $MAMBA_ROOT_PREFIX
-   
+
 # Install uv
 ENV UV_VERSION="0.8.22"
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh
@@ -93,7 +93,7 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
 
 
 ########################################################################
-# curator_benchmark image - 
+# curator_benchmark image -
 #
 # use cases:
 # * Start a container standalone to run all Curator benchmarks. Datasets are downloaded automatically and reside only in the container.
@@ -118,6 +118,7 @@ FROM curator_system_base AS curator_benchmarking
 COPY --from=curator_setup_deps /opt /opt
 
 # Install Curator, which includes benchmarking tools
+# Update pyproject.toml to get the latest RAPIDS libs
 COPY . /opt/Curator
 RUN cd /opt/Curator \
  && uv sync --link-mode copy --locked --extra all --all-groups \
@@ -133,7 +134,7 @@ ARG NVIDIA_BUILD_REF
 LABEL com.nvidia.build.ref="${NVIDIA_BUILD_REF}"
 
 # Install deps for specific benchmark scripts.
-# FIXME: look into a way that script authors can install their own deps so this does not need to be updated for each new script dep.
+# TODO: look into a way that script authors can install their own deps so this does not need to be updated for each new script dep.
 RUN apt-get install -y --no-install-recommends \
     wget
 

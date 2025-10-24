@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-
 from runner.utils import get_obj_for_json
 
 

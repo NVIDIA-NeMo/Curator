@@ -14,14 +14,17 @@
 
 from __future__ import annotations
 
-import re
 import os
+import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .datasets import DatasetResolver
-from .sinks.sink import Sink
+from loguru import logger
+
+if TYPE_CHECKING:
+    from .datasets import DatasetResolver
+    from .sinks.sink import Sink
 
 
 @dataclass
@@ -35,10 +38,12 @@ class MatrixEntry:
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
 
-    def get_command_to_run(self, session_entry_path: Path, benchmark_results_path: Path, resolver: DatasetResolver) -> str:
+    def get_command_to_run(
+        self, session_entry_path: Path, benchmark_results_path: Path, resolver: DatasetResolver
+    ) -> str:
         if self.script:
             script_path = self.script_base_dir / self.script
-            # FIXME: should --benchmark-results-path always be passed?
+            # TODO: should --benchmark-results-path always be passed?
             cmd = f"python {script_path} {self.args or ''} --benchmark-results-path={benchmark_results_path}"
 
             cmd = self.substitute_datasets_in_cmd(cmd, resolver)
@@ -120,12 +125,15 @@ class MatrixConfig:
             sink_name = sink_config["name"]
             if sink_name == "mlflow":
                 from runner.sinks.mlflow_sink import MlflowSink
+
                 sinks.append(MlflowSink(config=sink_config))
             elif sink_name == "slack":
                 from runner.sinks.slack_sink import SlackSink
+
                 sinks.append(SlackSink(config=sink_config))
             elif sink_name == "gdrive":
                 from runner.sinks.gdrive_sink import GdriveSink
+
                 sinks.append(GdriveSink(config=sink_config))
             else:
                 logger.warning(f"Unknown sink: {sink_name}, skipping")
@@ -134,9 +142,10 @@ class MatrixConfig:
     def __post_init__(self) -> None:
         names = [entry.name for entry in self.entries]
         if len(names) != len(set(names)):
-            duplicates = set([name for name in names if names.count(name) > 1])
-            raise ValueError(f"Duplicate entry name(s) found: {', '.join(duplicates)}")
-        
+            duplicates = {name for name in names if names.count(name) > 1}
+            msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
+            raise ValueError(msg)
+
         # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
         for entry in self.entries:
             if entry.delete_scratch is None:
