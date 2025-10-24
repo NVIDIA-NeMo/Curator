@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/usr/bin/env python3
 """Demo benchmarking script for nightly benchmarking framework.
 
 This script runs a demo benchmark with comprehensive metrics collection
@@ -23,41 +22,20 @@ import argparse
 import json
 import os
 import pickle
+import random
 import time
 from pathlib import Path
 from typing import Any
-import random
 
 from loguru import logger
 
-#from nemo_curator.stages.file_partitioning import FilePartitioningStage
-#from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
-#from nemo_curator.tasks import EmptyTask
 
-
-def run_demo_benchmark(  # noqa: PLR0913
+def run_demo_benchmark(
     input_path: str,
     output_path: str,
     benchmark_results_path: str,
-    executor_name: str,
 ) -> dict[str, Any]:
     """Run the demo benchmark and collect comprehensive metrics."""
-
-    # Setup executor
-    if executor_name == "ray_data":
-        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-        executor = RayDataExecutor()
-        #from ray.data import DataContext
-        #DataContext.get_current().target_max_block_size = 1
-
-    elif executor_name == "xenna":
-        from nemo_curator.backends.xenna import XennaExecutor
-
-        executor = XennaExecutor()
-    else:
-        msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg)
 
     # Ensure output directory
     Path(output_path).mkdir(parents=True, exist_ok=True)
@@ -66,8 +44,8 @@ def run_demo_benchmark(  # noqa: PLR0913
     run_start_time = time.perf_counter()
 
     try:
-        for i in range(11):
-            print("Output: " + "*" * random.randint(1, 100), flush=True)
+        for _ in range(11):
+            print("Output: " + "*" * random.randint(1, 100), flush=True)  # noqa: S311
             time.sleep(1)
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
@@ -81,9 +59,9 @@ def run_demo_benchmark(  # noqa: PLR0913
 
     return {
         "params": {
-            "executor": executor_name,
             "input_path": input_path,
             "output_path": output_path,
+            "benchmark_results_path": benchmark_results_path,
         },
         "metrics": {
             "is_success": success,
@@ -95,7 +73,7 @@ def run_demo_benchmark(  # noqa: PLR0913
     }
 
 
-# FIXME: since the benchmarking framework depends on these files being present for all benchmark scripts,
+# TODO: since the benchmarking framework depends on these files being present for all benchmark scripts,
 # the framework should provide a utility (essentially, this function) to ensure they are written correctly
 # with the correct names, paths, etc.
 def write_results(results: dict, output_path: str | None = None) -> None:
@@ -114,7 +92,7 @@ def main() -> int:
     # Paths
     parser.add_argument("--input-path", required=True, help="Path to input data")
     parser.add_argument("--output-path", required=True, help="Output directory for results")
-    # FIXME: the framework will always add this! Look into if this policy should be removed.
+    # TODO: the framework will always add this! Look into if this policy should be removed.
     parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
 
     args = parser.parse_args()
@@ -127,7 +105,6 @@ def main() -> int:
             input_path=args.input_path,
             output_path=args.output_path,
             benchmark_results_path=args.benchmark_results_path,
-            executor_name="ray_data",
         )
 
     except Exception as e:  # noqa: BLE001

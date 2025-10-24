@@ -322,9 +322,9 @@ def main():
     # Add your custom arguments
     parser.add_argument("--input", type=str)
     parser.add_argument("--iterations", type=int, default=100)
-    
+
     args = parser.parse_args()
-    
+
     # Your benchmark logic here
     run_benchmark(args)
 
@@ -407,13 +407,13 @@ from nemo_curator.tasks.utils import TaskPerfUtils
 def run_benchmark(args):
     """Main benchmark logic."""
     start_time = time.time()
-    
+
     # Your benchmark code here
     with Task("my_operation", TaskPerfUtils()):
         result = perform_operation(args.input)
-    
+
     execution_time = time.time() - start_time
-    
+
     # Write required output files
     params = {
         "input": str(args.input),
@@ -421,14 +421,14 @@ def run_benchmark(args):
     }
     with open(args.benchmark_results_path / "params.json", "w") as f:
         json.dump(params, f, indent=2)
-    
+
     metrics = {
         "execution_time_s": execution_time,
         "items_processed": len(result),
     }
     with open(args.benchmark_results_path / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2)
-    
+
     tasks = Task.get_all_tasks()
     with open(args.benchmark_results_path / "tasks.pkl", "wb") as f:
         pickle.dump(tasks, f)
@@ -439,7 +439,7 @@ def main():
     parser.add_argument("--benchmark-results-path", type=Path, required=True)
     parser.add_argument("--input", type=str, required=True)
     parser.add_argument("--param1", type=str, default="default")
-    
+
     args = parser.parse_args()
     run_benchmark(args)
 
@@ -521,33 +521,33 @@ class MyCustomSink(Sink):
         self.config = config
         self.enabled = config.get("enabled", True)
         self.api_endpoint = config.get("api_endpoint")
-        
+
         # Initialize any resources
         if not self.api_endpoint:
             raise ValueError("MyCustomSink: api_endpoint is required")
-    
+
     def initialize(self, session_name: str, env_data: dict[str, Any]) -> None:
         """Called at session start."""
         self.session_name = session_name
         self.env_data = env_data
-        
+
         if self.enabled:
             logger.info(f"MyCustomSink: Starting session {session_name}")
             # Perform initialization (e.g., create remote session)
-    
+
     def process_result(self, result: dict[str, Any]) -> None:
         """Called after each entry completes."""
         if self.enabled:
             logger.info(f"MyCustomSink: Processing {result['name']}")
             # Send result to your API, database, etc.
             self._send_to_api(result)
-    
+
     def finalize(self) -> None:
         """Called at session end."""
         if self.enabled:
             logger.info("MyCustomSink: Finalizing session")
             # Perform cleanup, send summary, etc.
-    
+
     def _send_to_api(self, data: dict) -> None:
         """Helper method for API calls."""
         # Your implementation
@@ -895,7 +895,7 @@ entries:
   - name: benchmark_v1
     script: my_benchmark.py
     args: --input {dataset:sample_data,parquet} --algorithm v1
-    
+
   - name: benchmark_v2
     script: my_benchmark.py
     args: --input {dataset:sample_data,parquet} --algorithm v2
@@ -1009,4 +1009,3 @@ benchmarking/
 Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
 
 Licensed under the Apache License, Version 2.0. See the main repository LICENSE file for details.
-
