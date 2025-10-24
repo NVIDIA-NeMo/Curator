@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from collections import defaultdict
+from typing import Any
 
 import numpy as np
 
@@ -63,3 +64,19 @@ class TaskPerfUtils:
             stage: {m: np.asarray(vals, dtype=float) for m, vals in metrics.items()}
             for stage, metrics in stage_to_metrics.items()
         }
+
+    @staticmethod
+    def aggregate_task_metrics(tasks: list[Task], prefix: str | None = None) -> dict[str, Any]:
+        """Aggregate task metrics by computing mean/std/sum."""
+        metrics = {}
+        tasks_metrics = TaskPerfUtils.collect_stage_metrics(tasks)
+        # For each of the metric compute mean/std/sum and flatten the dict
+        for stage_name, stage_data in tasks_metrics.items():
+            for metric_name, values in stage_data.items():
+                for agg_name, agg_func in [("sum", np.sum), ("mean", np.mean), ("std", np.std)]:
+                    stage_key = stage_name if prefix is None else f"{prefix}_{stage_name}"
+                    if len(values) > 0:
+                        metrics[f"{stage_key}_{metric_name}_{agg_name}"] = float(agg_func(values))
+                    else:
+                        metrics[f"{stage_key}_{metric_name}_{agg_name}"] = 0.0
+        return metrics
