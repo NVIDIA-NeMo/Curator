@@ -47,7 +47,7 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo "                           For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container."
     echo "  -h, --help               Show this help message and exit."
     echo ""
-    echo "ARGS, if specified, are passed to the benchmarking entrypoint within the container, either the default benchmarking entrypoint or the --shell bash entrypoint."
+    echo "ARGS, if specified, are passed to the container entrypoint, either the default benchmarking entrypoint or the --shell bash entrypoint."
     echo ""
     echo "Environment variables:"
     echo "  GPUS                     --gpus parameter for docker (using: ${GPUS})"
