@@ -16,30 +16,36 @@
 
 # Assume this script is in the <repo_root>benchmarking/tools directory
 THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
 
 GPUS=${GPUS:-'"device=1"'}
 
 DOCKER_IMAGE=${DOCKER_IMAGE:-nemo_curator_benchmarking:latest}
 
-LOCAL_CURATOR_DIR=${CURATOR_DIR}
+# Note: The CONTAINER_* env vars will also be set in the container so
+# they can be used for specifying paths in YAML config files.
+LOCAL_CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
 CONTAINER_CURATOR_DIR=/opt/Curator
 
-LOCAL_DATASETS_DIR=/datasets/curator
+LOCAL_DATASETS_DIR=${LOCAL_DATASETS_DIR:-/datasets/curator}
 CONTAINER_DATASETS_DIR=/data/datasets
 
-LOCAL_RESULTS_DIR=/home/rratzel/tmp/curator_benchmark_results/results
+LOCAL_RESULTS_DIR=${LOCAL_RESULTS_DIR:-/home/rratzel/tmp/curator_benchmark_results/results}
 CONTAINER_RESULTS_DIR=/data/benchmarking/results
 
-LOCAL_ARTIFACTS_DIR=/home/rratzel/tmp/curator_benchmark_results/artifacts
+LOCAL_ARTIFACTS_DIR=${LOCAL_ARTIFACTS_DIR:-/home/rratzel/tmp/curator_benchmark_results/artifacts}
 CONTAINER_ARTIFACTS_DIR=/data/benchmarking/artifacts
 
+CURATOR_SOURCE_DIR_OVERRIDE=""
 BASH_ENTRYPOINT_OVERRIDE=""
 ENTRYPOINT_ARGS=()
 while [[ $# -gt 0 ]]
 do
     key="$1"
     case $key in
+        --use-local-curator)
+            CURATOR_SOURCE_DIR_OVERRIDE="--volume ${LOCAL_CURATOR_DIR}:${CONTAINER_CURATOR_DIR}"
+            shift
+            ;;
         --shell)
             BASH_ENTRYPOINT_OVERRIDE="--entrypoint=bash"
             shift
@@ -68,7 +74,7 @@ docker run \
   \
   --gpus=${GPUS} \
   \
-  --volume ${LOCAL_CURATOR_DIR}:${CONTAINER_CURATOR_DIR} \
+  ${CURATOR_SOURCE_DIR_OVERRIDE} \
   --volume ${LOCAL_DATASETS_DIR}:${CONTAINER_DATASETS_DIR} \
   --volume ${LOCAL_RESULTS_DIR}:${CONTAINER_RESULTS_DIR} \
   --volume ${LOCAL_ARTIFACTS_DIR}:${CONTAINER_ARTIFACTS_DIR} \
