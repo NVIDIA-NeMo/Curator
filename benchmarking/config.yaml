@@ -1,14 +1,13 @@
-# /data is a mounted volume in the docker container.
-# tools/run.sh defines docker volume mounts.
-results_dir: "/data/benchmarking/results"
-artifacts_dir: "/data/benchmarking/artifacts"
+# See tools/run.sh for the env vars used in this config
+results_dir: ${CONTAINER_RESULTS_DIR}
+artifacts_dir: ${CONTAINER_ARTIFACTS_DIR}
 datasets:
-  - name: "cc"
+  - name: cc
     formats:
-    - type: "json"
-      path: "/data/datasets/sample/25de70f6c6a6.jsonl"
-    - type: "parquet"
-      path: "/data/datasets/sample/25de70f6c6a6.parquet"
+    - type: json
+      path: ${CONTAINER_DATASETS_DIR}/sample/25de70f6c6a6.jsonl
+    - type: parquet
+      path: ${CONTAINER_DATASETS_DIR}/sample/25de70f6c6a6.parquet
 
 default_timeout_s: 7200
 

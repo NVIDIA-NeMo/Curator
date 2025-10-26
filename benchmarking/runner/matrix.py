@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -68,14 +67,8 @@ class MatrixEntry:
     @staticmethod
     def substitute_template_placeholders(cmd: str, session_entry_path: Path) -> str:
         """Substitute template placeholders in command.
-
-        Supports {session_entry_dir}/dir patterns where anything after {session_entry_dir}/ becomes
-        a directory under the generated session entry directory.
-
-        Examples:
+        Example:
         - {session_entry_dir}/results.json -> /path/to/session/entry/results.json
-        - {session_entry_dir}/tempdir/output -> /path/to/session/entry/tempdir/output
-        - {session_entry_dir}/logs -> /path/to/session/entry/logs
         """
         session_entry_pattern = re.compile(r"\{session_entry_dir\}/([^}\s]+)")
 
@@ -100,7 +93,7 @@ class MatrixConfig:
 
     @classmethod
     def assert_valid_config(cls, data: dict) -> None:
-        """Assert that the configuration is valid."""
+        """Assert that the configuration contains the minimum required config values."""
         required_fields = ["results_dir", "entries"]
         missing_fields = [k for k in required_fields if k not in data]
         if missing_fields:
@@ -119,7 +112,6 @@ class MatrixConfig:
         """
         mc_field_names = {f.name for f in fields(cls)}
         mc_data = {k: v for k, v in data.items() if k in mc_field_names}
-        mc_data = _resolve_env_vars(mc_data)
         sinks = cls.load_sinks(mc_data["sinks"])
         mc_data["sinks"] = sinks
         entries = [MatrixEntry(**e) for e in mc_data["entries"]]
@@ -164,31 +156,3 @@ class MatrixConfig:
         for entry in self.entries:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
-
-
-def _resolve_env_vars(data: dict | list | str) -> dict | list | str:
-    """Recursively resolve environment variables in dictionary data.
-
-    Supports ${VAR_NAME} syntax. If the environment variable is not found,
-    the original string is left unchanged.
-    """
-    if isinstance(data, dict):
-        return {key: _resolve_env_vars(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [_resolve_env_vars(item) for item in data]
-    elif isinstance(data, str):
-        # Pattern to match ${VAR_NAME}
-        pattern = re.compile(r"\$\{([^}]+)\}")
-
-        def replace_env_var(match: re.Match[str]) -> str:
-            env_var_name = match.group(1)
-            env_value = os.getenv(env_var_name)
-            if env_value is not None:
-                return env_value
-            else:
-                msg = f"Environment variable {env_var_name} not found in the environment"
-                raise ValueError(msg)
-
-        return pattern.sub(replace_env_var, data)
-    else:
-        return data

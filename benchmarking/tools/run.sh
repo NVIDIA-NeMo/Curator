@@ -14,14 +14,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: Look into making use cases that rely on docker volume mounts formally supported
-#   by the benchmarking framework. For example, the notion of local and container dir mappings
-#   could be in the same config YAML, and the tool would then automate launching the container.
-#   This would make make it easier than coordinating paths in both the YAML for datasets,
-#   results, etc. and this script to ensure the volume mounts exist.
-DOCKER_IMAGE=${DOCKER_IMAGE:-curator_benchmarking}
+# Assume this script is in the <repo_root>benchmarking/tools directory
+THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
 
-LOCAL_CURATOR_DIR=/home/rratzel/Projects/curator
+GPUS=${GPUS:-'"device=1"'}
+
+DOCKER_IMAGE=${DOCKER_IMAGE:-nemo_curator_benchmarking:latest}
+
+LOCAL_CURATOR_DIR=${CURATOR_DIR}
 CONTAINER_CURATOR_DIR=/opt/Curator
 
 LOCAL_DATASETS_DIR=/datasets/curator
@@ -36,6 +37,7 @@ CONTAINER_ARTIFACTS_DIR=/data/benchmarking/artifacts
 DOCKER_ENTRYPOINT_OVERRIDE=""
 CONFIG_FILE=${CONTAINER_CURATOR_DIR}/benchmarking/config.yaml
 
+EXTRA_ARGS=""
 while [[ $# -gt 0 ]]
 do
     key="$1"
@@ -50,28 +52,38 @@ do
             shift
             ;;
         *)
-            # unknown option
+            # unknown option, pass as-is to the entrypoint
+            EXTRA_ARGS="${EXTRA_ARGS} $1"
             shift
             ;;
     esac
 done
-
-ENTRYPOINT_ARGS="--config=${CONFIG_FILE}"
+# Add the config file only if the default entrypoint is used
 if [ -n "${DOCKER_ENTRYPOINT_OVERRIDE}" ]; then
-    ENTRYPOINT_ARGS=""
+    ENTRYPOINT_ARGS="${EXTRA_ARGS}"
+else
+    ENTRYPOINT_ARGS="--config=${CONFIG_FILE} ${EXTRA_ARGS}"
 fi
 
 ########################################################
 docker run \
-  --gpus='"device=1"' \
   --rm \
-  -it \
-  --volume $LOCAL_DATASETS_DIR:$CONTAINER_DATASETS_DIR \
-  --volume $LOCAL_RESULTS_DIR:$CONTAINER_RESULTS_DIR \
-  --volume $LOCAL_ARTIFACTS_DIR:$CONTAINER_ARTIFACTS_DIR \
-  --volume ${LOCAL_CURATOR_DIR}/benchmarking:${CONTAINER_CURATOR_DIR}/benchmarking \
+  --interactive \
+  --tty \
+  \
+  --gpus=${GPUS} \
+  \
+  --volume ${LOCAL_CURATOR_DIR}:${CONTAINER_CURATOR_DIR} \
+  --volume ${LOCAL_DATASETS_DIR}:${CONTAINER_DATASETS_DIR} \
+  --volume ${LOCAL_RESULTS_DIR}:${CONTAINER_RESULTS_DIR} \
+  --volume ${LOCAL_ARTIFACTS_DIR}:${CONTAINER_ARTIFACTS_DIR} \
+  --env=CONTAINER_DATASETS_DIR=${CONTAINER_DATASETS_DIR} \
+  --env=CONTAINER_RESULTS_DIR=${CONTAINER_RESULTS_DIR} \
+  --env=CONTAINER_ARTIFACTS_DIR=${CONTAINER_ARTIFACTS_DIR} \
+  \
   --env=MLFLOW_TRACKING_URI=blank \
   --env=SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL} \
+  \
   ${DOCKER_ENTRYPOINT_OVERRIDE} \
   ${DOCKER_IMAGE} \
     ${ENTRYPOINT_ARGS}
