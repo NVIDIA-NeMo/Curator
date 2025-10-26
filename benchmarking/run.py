@@ -29,15 +29,20 @@ from loguru import logger
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
+_this_script_dir = Path(__file__).parent
+
 # TODO: How do we want to package this tool? Perhaps a package extra for
 #  nemo-curator, i.e. nemo-curator[benchmarking]?
 # For now, add this directory to PYTHONPATH to import the runner modules
-sys.path.insert(0, Path(__file__).parent)
-from runner.datasets import DatasetResolver
-from runner.env_capture import dump_env
-from runner.matrix import MatrixConfig, MatrixEntry
-from runner.process import run_command_with_timeout
-from runner.utils import get_obj_for_json, resolve_env_vars
+sys.path.insert(0, _this_script_dir)
+
+from runner.datasets import DatasetResolver  # noqa: E402
+from runner.env_capture import dump_env  # noqa: E402
+from runner.matrix import MatrixConfig, MatrixEntry  # noqa: E402
+from runner.process import run_command_with_timeout  # noqa: E402
+from runner.utils import get_obj_for_json, resolve_env_vars  # noqa: E402
+
+_default_config_file = _this_script_dir / "config.yaml"
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -166,19 +171,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
-        required=True,
+        type=Path,
         action="append",
-        help="Path to YAML config for benchmark matrix, machine paths, etc. Can be specified multiple times.",
+        help=(
+            "Path to YAML config for benchmark matrix, machine paths, etc. Can be "
+            "specified multiple times to merge configs. If not specified, "
+            f"{_default_config_file} will be used."
+        ),
     )
     parser.add_argument(
-        "--session-name", default=None, help="Optional human-readable session name (default nightly-run-<timestamp>)"
+        "--session-name",
+        default=None,
+        help=("Optional human-readable session name. Default is benchmark-run__<timestamp>."),
     )
     args = parser.parse_args()
 
-    # Consolidate the configuration from all YAML files into a single dict,
-    # and use by passing individual components the keys they need
+    # Consolidate the configuration from all YAML files into a single dict
     config_dict = {}
-    for yml_file in args.config:
+    for yml_file in args.config or [_default_config_file]:
         with open(yml_file) as f:
             config_dicts = yaml.full_load_all(f)
             for d in config_dicts:
@@ -195,8 +205,7 @@ def main() -> None:
     resolver = DatasetResolver.create_from_dicts(config_dict.get("datasets", []))
 
     # Create session folder under results_dir
-    session_name_prefix = args.session_name or "benchmark-run"
-    session_name = time.strftime(f"{session_name_prefix}__%Y-%m-%d__%H-%M-%S")
+    session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d__%H-%M-%S")
     session_path = (Path(config.results_dir) / session_name).absolute()
     ensure_dir(session_path)
 

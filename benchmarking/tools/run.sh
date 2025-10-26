@@ -34,36 +34,31 @@ CONTAINER_RESULTS_DIR=/data/benchmarking/results
 LOCAL_ARTIFACTS_DIR=/home/rratzel/tmp/curator_benchmark_results/artifacts
 CONTAINER_ARTIFACTS_DIR=/data/benchmarking/artifacts
 
-DOCKER_ENTRYPOINT_OVERRIDE=""
-CONFIG_FILE=${CONTAINER_CURATOR_DIR}/benchmarking/config.yaml
-
-EXTRA_ARGS=""
+BASH_ENTRYPOINT_OVERRIDE=""
+ENTRYPOINT_ARGS=()
 while [[ $# -gt 0 ]]
 do
     key="$1"
     case $key in
-        --config)
-            CONFIG_FILE="$2"
-            shift # past argument
-            shift # past value
-            ;;
         --shell)
-            DOCKER_ENTRYPOINT_OVERRIDE="--entrypoint=bash"
+            BASH_ENTRYPOINT_OVERRIDE="--entrypoint=bash"
             shift
             ;;
         *)
             # unknown option, pass as-is to the entrypoint
-            EXTRA_ARGS="${EXTRA_ARGS} $1"
+            ENTRYPOINT_ARGS+=("$1")
             shift
             ;;
     esac
 done
-# Add the config file only if the default entrypoint is used
-if [ -n "${DOCKER_ENTRYPOINT_OVERRIDE}" ]; then
-    ENTRYPOINT_ARGS="${EXTRA_ARGS}"
-else
-    ENTRYPOINT_ARGS="--config=${CONFIG_FILE} ${EXTRA_ARGS}"
+
+if [ -n "${BASH_ENTRYPOINT_OVERRIDE}" ] && [ "${#ENTRYPOINT_ARGS[@]}" -gt 0 ]; then
+    # Add arguments as a single string to the entrypoint after -c
+    # so ENTRYPOINT_ARGS is always an array with two items.
+    # ex. ["-c", "arg1 arg2 arg3"] -> bash -c "arg1 arg2 arg3"
+    ENTRYPOINT_ARGS=("-c" "$(printf "%s " "${ENTRYPOINT_ARGS[@]}")")
 fi
+
 
 ########################################################
 docker run \
@@ -84,8 +79,8 @@ docker run \
   --env=MLFLOW_TRACKING_URI=blank \
   --env=SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL} \
   \
-  ${DOCKER_ENTRYPOINT_OVERRIDE} \
+  ${BASH_ENTRYPOINT_OVERRIDE} \
   ${DOCKER_IMAGE} \
-    ${ENTRYPOINT_ARGS}
+    "${ENTRYPOINT_ARGS[@]}"
 
 exit $?
