@@ -29,6 +29,9 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  UV_HTTP_TIMEOUT: 60
+
 jobs:
   pre-flight:
     runs-on: ubuntu-latest
