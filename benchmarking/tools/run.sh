@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Assume this script is in the <repo_root>benchmarking/tools directory
+# Assume this script is in the <repo_root>/benchmarking/tools directory
 THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GPUS=${GPUS:-'"device=1"'}
