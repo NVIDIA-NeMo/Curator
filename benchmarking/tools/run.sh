@@ -23,17 +23,43 @@ DOCKER_IMAGE=${DOCKER_IMAGE:-nemo_curator_benchmarking:latest}
 
 # Note: The CONTAINER_* env vars will also be set in the container so
 # they can be used for specifying paths in YAML config files.
-LOCAL_CURATOR_DIR="$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"
+LOCAL_CURATOR_DIR=${LOCAL_CURATOR_DIR:-"$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"}
 CONTAINER_CURATOR_DIR=/opt/Curator
 
-LOCAL_DATASETS_DIR=${LOCAL_DATASETS_DIR:-/datasets/curator}
+LOCAL_DATASETS_DIR=${LOCAL_DATASETS_DIR:-"/datasets/curator"}
 CONTAINER_DATASETS_DIR=/data/datasets
 
-LOCAL_RESULTS_DIR=${LOCAL_RESULTS_DIR:-/home/rratzel/tmp/curator_benchmark_results/results}
+LOCAL_RESULTS_DIR=${LOCAL_RESULTS_DIR:-"/home/rratzel/tmp/curator_benchmark_results/results"}
 CONTAINER_RESULTS_DIR=/data/benchmarking/results
 
-LOCAL_ARTIFACTS_DIR=${LOCAL_ARTIFACTS_DIR:-/home/rratzel/tmp/curator_benchmark_results/artifacts}
+LOCAL_ARTIFACTS_DIR=${LOCAL_ARTIFACTS_DIR:-"/home/rratzel/tmp/curator_benchmark_results/artifacts"}
 CONTAINER_ARTIFACTS_DIR=/data/benchmarking/artifacts
+
+
+################################################################################################################
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    # Show help and exit. Do this here to allow for help options to be passed to the container when other args are present.
+    echo "Usage: $(basename "$0") [OPTIONS] [ARGS ...]"
+    echo ""
+    echo "Options:"
+    echo "  --use-local-curator      Mount the value of LOCAL_CURATOR_DIR (see below) into the container for live development."
+    echo "  --shell                  Start an interactive bash shell instead of running benchmarks."
+    echo "  -h, --help               Show this help message and exit."
+    echo ""
+    echo "Arguments are passed to the benchmarking entrypoint within the container."
+    echo "If you use --shell, arguments will be passed to the bash shell."
+    echo "  For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container."
+    echo ""
+    echo "Environment variables:"
+    echo "  GPUS                     --gpus parameter for docker (will use: ${GPUS})"
+    echo "  DOCKER_IMAGE             Docker image to use (will use: ${DOCKER_IMAGE})"
+    echo "  LOCAL_CURATOR_DIR        Local Curator repo path (will use: ${LOCAL_CURATOR_DIR})"
+    echo "  LOCAL_DATASETS_DIR       Path to datasets on the host (will use: ${LOCAL_DATASETS_DIR})"
+    echo "  LOCAL_RESULTS_DIR        Results output directory on the host (will use: ${LOCAL_RESULTS_DIR})"
+    echo "  LOCAL_ARTIFACTS_DIR      Artifacts output directory on the host (will use: ${LOCAL_ARTIFACTS_DIR})"
+    echo "  SLACK_WEBHOOK_URL        Slack webhook URL (optional: for notifications from container)"
+    exit 0
+fi
 
 CURATOR_SOURCE_DIR_OVERRIDE=""
 BASH_ENTRYPOINT_OVERRIDE=""
@@ -66,7 +92,7 @@ if [ -n "${BASH_ENTRYPOINT_OVERRIDE}" ] && [ "${#ENTRYPOINT_ARGS[@]}" -gt 0 ]; t
 fi
 
 
-########################################################
+################################################################################################################
 docker run \
   --rm \
   --interactive \
