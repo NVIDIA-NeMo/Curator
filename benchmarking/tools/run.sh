@@ -56,7 +56,6 @@ if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     echo "  LOCAL_DATASETS_DIR       Path to datasets on the host (using: ${LOCAL_DATASETS_DIR})"
     echo "  LOCAL_RESULTS_DIR        Results output directory on the host (using: ${LOCAL_RESULTS_DIR})"
     echo "  LOCAL_ARTIFACTS_DIR      Artifacts output directory on the host (using: ${LOCAL_ARTIFACTS_DIR})"
-    echo "  SLACK_WEBHOOK_URL        Slack webhook URL (optional: for notifications from container)"
     exit 0
 fi
 
