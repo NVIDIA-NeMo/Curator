@@ -42,7 +42,7 @@ from runner.matrix import MatrixConfig, MatrixEntry  # noqa: E402
 from runner.process import run_command_with_timeout  # noqa: E402
 from runner.utils import get_obj_for_json, resolve_env_vars  # noqa: E402
 
-_default_config_file = _this_script_dir / "config.yaml"
+default_config_file = _this_script_dir / "config.yaml"
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -176,7 +176,7 @@ def main() -> None:
         help=(
             "Path to YAML config for benchmark matrix, machine paths, etc. Can be "
             "specified multiple times to merge configs. If not specified, "
-            f"{_default_config_file} will be used."
+            f"{default_config_file} will be used."
         ),
     )
     parser.add_argument(
@@ -188,7 +188,7 @@ def main() -> None:
 
     # Consolidate the configuration from all YAML files into a single dict
     config_dict = {}
-    for yml_file in args.config or [_default_config_file]:
+    for yml_file in args.config or [default_config_file]:
         with open(yml_file) as f:
             config_dicts = yaml.full_load_all(f)
             for d in config_dicts:
