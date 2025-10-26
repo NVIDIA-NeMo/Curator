@@ -37,7 +37,7 @@ from runner.datasets import DatasetResolver
 from runner.env_capture import dump_env
 from runner.matrix import MatrixConfig, MatrixEntry
 from runner.process import run_command_with_timeout
-from runner.utils import get_obj_for_json
+from runner.utils import get_obj_for_json, resolve_env_vars
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -183,9 +183,10 @@ def main() -> None:
             config_dicts = yaml.full_load_all(f)
             for d in config_dicts:
                 config_dict.update(d)
-
+    # Preprocess the config dict prior to creating objects from it
     try:
         MatrixConfig.assert_valid_config(config_dict)
+        config_dict = resolve_env_vars(config_dict)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1

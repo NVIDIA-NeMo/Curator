@@ -40,7 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3\
     curl \
     git \
-    vim
+    vim && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
 
@@ -81,7 +82,7 @@ RUN cd /opt/Curator && \
   uv cache clean distance
 
 # heredocs only works with buildkit enabled (enabled by default),
-# see https://github.com/moby/buildkit/issues/3474   
+# see https://github.com/moby/buildkit/issues/3474
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
 export PATH="/opt/venv/bin:$PATH"

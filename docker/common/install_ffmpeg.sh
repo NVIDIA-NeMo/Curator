@@ -94,4 +94,4 @@ ldconfig
 cd /
 rm -rf /tmp/ffmpeg*
 rm -rf /tmp/nv-codec-headers*
-
+rm -rf /var/lib/apt/lists/
