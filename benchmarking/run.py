@@ -224,10 +224,10 @@ def main() -> None:
 
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
-    env_data = dump_env(session_path)
+    env_dict = dump_env(session_path)
 
     for sink in config.sinks:
-        sink.initialize(session_name, env_data)
+        sink.initialize(session_name=session_name, matrix_config=config, env_dict=env_dict)
 
     for entry in config.entries:
         run_success = False

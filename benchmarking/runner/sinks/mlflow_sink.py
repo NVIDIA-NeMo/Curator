@@ -12,32 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
 import traceback
+from typing import Any
 
 from loguru import logger
-
+from runner.matrix import MatrixConfig
 from runner.sinks.sink import Sink
 
 
 class MlflowSink(Sink):
-    def __init__(self, config: dict[str, Any]):
-        super().__init__(config)
-        self.config = config
-        self.tracking_uri = config.get("tracking_uri")
+    def __init__(self, sink_config: dict[str, Any]):
+        super().__init__(sink_config)
+        self.sink_config = sink_config
+        self.tracking_uri = sink_config.get("tracking_uri")
         if not self.tracking_uri:
-            raise ValueError("MlflowSink: No tracking URI configured")
-        self.experiment = config.get("experiment")
+            msg = "MlflowSink: No tracking URI configured"
+            raise ValueError(msg)
+        self.experiment = sink_config.get("experiment")
         if not self.experiment:
-            raise ValueError("MlflowSink: No experiment configured")
-        self.enabled = self.config.get("enabled", True)
+            msg = "MlflowSink: No experiment configured"
+            raise ValueError(msg)
+        self.enabled = self.sink_config.get("enabled", True)
         self.results: list[dict[str, Any]] = []
         self.session_name: str = None
-        self.env_data: dict[str, Any] = None
+        self.matrix_config: MatrixConfig = None
+        self.env_dict: dict[str, Any] = None
 
-    def initialize(self, session_name: str, env_data: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, matrix_config: MatrixConfig, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name
-        self.env_data = env_data
+        self.matrix_config = matrix_config
+        self.env_dict = env_dict
 
     def process_result(self, result: dict[str, Any]) -> None:
         self.results.append(result)
@@ -46,7 +50,7 @@ class MlflowSink(Sink):
         if self.enabled:
             try:
                 self._push(self.results)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 tb = traceback.format_exc()
                 logger.error(f"MlflowSink: Error posting to Mlflow: {e}\n{tb}")
         else:

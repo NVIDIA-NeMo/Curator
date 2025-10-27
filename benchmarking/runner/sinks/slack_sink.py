@@ -19,6 +19,7 @@ from typing import Any
 
 import requests
 from loguru import logger
+from runner.matrix import MatrixConfig
 from runner.sinks.sink import Sink
 from runner.utils import get_obj_for_json
 
@@ -68,22 +69,24 @@ _blank_row = [
 
 
 class SlackSink(Sink):
-    def __init__(self, config: dict[str, Any]):
-        super().__init__(config)
-        self.config = config
-        self.webhook_url = config.get("webhook_url")
+    def __init__(self, sink_config: dict[str, Any]):
+        super().__init__(sink_config)
+        self.sink_config = sink_config
+        self.webhook_url = sink_config.get("webhook_url")
         if not self.webhook_url:
             msg = "SlackSink: No webhook URL configured"
             raise ValueError(msg)
-        self.enabled = self.config.get("enabled", True)
+        self.enabled = self.sink_config.get("enabled", True)
         self.results: list[dict[str, Any]] = []
         self.session_name: str = None
-        self.env_data: dict[str, Any] = None
+        self.matrix_config: MatrixConfig = None
+        self.env_dict: dict[str, Any] = None
 
-    def initialize(self, session_name: str, env_data: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, matrix_config: MatrixConfig, env_dict: dict[str, Any]) -> None:
         # Initializes the sink for the session.
         self.session_name = session_name
-        self.env_data = env_data
+        self.matrix_config = matrix_config
+        self.env_dict = env_dict
 
     def process_result(self, result: dict[str, Any]) -> None:
         # Queues the individual result for posting as a final report during finalize.
@@ -113,7 +116,7 @@ class SlackSink(Sink):
         report_data.append({"type": "section", "text": {"type": "mrkdwn", "text": "*Environment*"}})
         table_dict = {"type": "table", "rows": []}
         rows = []
-        for var, val in self.env_data.items():
+        for var, val in self.env_dict.items():
             row = [
                 {
                     "type": "rich_text",
@@ -191,7 +194,7 @@ class SlackSink(Sink):
                 },
             ]
         )
-        for var, val in self.env_data.items():
+        for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
             row = [
@@ -300,12 +303,14 @@ if __name__ == "__main__":
                 with open(results_json_path) as f:
                     yield json.load(f)
 
+    sink_config = {"webhook_url": webhook_url}
+    matrix_config = MatrixConfig(results_dir=results_root_path, artifacts_dir=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)
 
-    slack_sink = SlackSink(config={"webhook_url": webhook_url})
-    slack_sink.initialize(session_name="test", env_data=env_data)
+    slack_sink = SlackSink(sink_config=sink_config)
+    slack_sink.initialize(session_name="test", matrix_config=matrix_config, env_dict=env_data)
     for result in collect_results_from_dir(results_root_path):
-        slack_sink.process_result(result)
+        slack_sink.process_result(result=result)
     slack_sink.finalize()
