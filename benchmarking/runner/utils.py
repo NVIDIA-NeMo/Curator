@@ -48,10 +48,10 @@ _env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 def _replace_env_var(match: re.Match[str]) -> str:
     env_var_name = match.group(1)
     env_value = os.getenv(env_var_name)
-    if env_value is not None:
+    if env_value is not None and env_value != "":
         return env_value
     else:
-        msg = f"Environment variable {env_var_name} not found in the environment"
+        msg = f"Environment variable {env_var_name} not found in the environment or is empty"
         raise ValueError(msg)
 
 

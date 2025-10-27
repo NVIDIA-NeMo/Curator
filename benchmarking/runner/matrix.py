@@ -82,6 +82,7 @@ class MatrixEntry:
 @dataclass(frozen=True, kw_only=True)
 class MatrixConfig:
     results_dir: str
+    artifacts_dir: str
     entries: list[MatrixEntry]
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
@@ -112,7 +113,7 @@ class MatrixConfig:
     @classmethod
     def assert_valid_config(cls, data: dict) -> None:
         """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_dir", "entries"]
+        required_fields = ["results_dir", "artifacts_dir", "entries"]
         missing_fields = [k for k in required_fields if k not in data]
         if missing_fields:
             msg = f"Invalid configuration: missing required fields: {missing_fields}"
@@ -142,18 +143,22 @@ class MatrixConfig:
         sinks = []
         for sink_config in sink_configs:
             sink_name = sink_config["name"]
+            sink_enabled = sink_config.get("enabled", True)
+            if not sink_enabled:
+                logger.warning(f"Sink {sink_name} is not enabled, skipping")
+                continue
             if sink_name == "mlflow":
                 from runner.sinks.mlflow_sink import MlflowSink
 
-                sinks.append(MlflowSink(config=sink_config))
+                sinks.append(MlflowSink(sink_config=sink_config))
             elif sink_name == "slack":
                 from runner.sinks.slack_sink import SlackSink
 
-                sinks.append(SlackSink(config=sink_config))
+                sinks.append(SlackSink(sink_config=sink_config))
             elif sink_name == "gdrive":
                 from runner.sinks.gdrive_sink import GdriveSink
 
-                sinks.append(GdriveSink(config=sink_config))
+                sinks.append(GdriveSink(sink_config=sink_config))
             else:
                 logger.warning(f"Unknown sink: {sink_name}, skipping")
         return sinks

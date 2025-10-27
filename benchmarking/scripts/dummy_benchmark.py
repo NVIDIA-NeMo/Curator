@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Demo benchmarking script for nightly benchmarking framework.
+"""Dummy benchmarking script for testing the benchmarking framework.
 
-This script runs a demo benchmark with comprehensive metrics collection
-using TaskPerfUtils and logs results to configured sinks.
+This script runs a dummy benchmark with comprehensive metrics collection
+and logs results to configured sinks.
 """
 
 import argparse
@@ -40,7 +40,7 @@ def run_demo_benchmark(
     # Ensure output directory
     Path(output_path).mkdir(parents=True, exist_ok=True)
 
-    logger.info("Starting demo benchmark")
+    logger.info("Starting dummy benchmark")
     run_start_time = time.perf_counter()
 
     try:
@@ -97,7 +97,7 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    logger.info("=== Demo Benchmark Starting ===")
+    logger.info("=== Dummy Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
     try:
