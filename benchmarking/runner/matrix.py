@@ -91,6 +91,24 @@ class MatrixConfig:
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
 
+    def __post_init__(self) -> None:
+        """Post-initialization checks and updates for dataclass."""
+        names = [entry.name for entry in self.entries]
+        if len(names) != len(set(names)):
+            duplicates = {name for name in names if names.count(name) > 1}
+            msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
+            raise ValueError(msg)
+
+        # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
+        for entry in self.entries:
+            if entry.delete_scratch is None:
+                entry.delete_scratch = self.delete_scratch
+
+        # Update timeout_s for each entry that has not been set to the session-level default_timeout_s
+        for entry in self.entries:
+            if entry.timeout_s is None:
+                entry.timeout_s = self.default_timeout_s
+
     @classmethod
     def assert_valid_config(cls, data: dict) -> None:
         """Assert that the configuration contains the minimum required config values."""
@@ -139,20 +157,3 @@ class MatrixConfig:
             else:
                 logger.warning(f"Unknown sink: {sink_name}, skipping")
         return sinks
-
-    def __post_init__(self) -> None:
-        names = [entry.name for entry in self.entries]
-        if len(names) != len(set(names)):
-            duplicates = {name for name in names if names.count(name) > 1}
-            msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
-            raise ValueError(msg)
-
-        # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
-        for entry in self.entries:
-            if entry.delete_scratch is None:
-                entry.delete_scratch = self.delete_scratch
-
-        # Update timeout_s for each entry that has not been set to the session-level default_timeout_s
-        for entry in self.entries:
-            if entry.timeout_s is None:
-                entry.timeout_s = self.default_timeout_s

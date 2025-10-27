@@ -36,11 +36,16 @@ _this_script_dir = Path(__file__).parent
 # For now, add this directory to PYTHONPATH to import the runner modules
 sys.path.insert(0, _this_script_dir)
 
-from runner.datasets import DatasetResolver  # noqa: E402
-from runner.env_capture import dump_env  # noqa: E402
-from runner.matrix import MatrixConfig, MatrixEntry  # noqa: E402
-from runner.process import run_command_with_timeout  # noqa: E402
-from runner.utils import get_obj_for_json, resolve_env_vars  # noqa: E402
+# ruff: noqa: E402
+from runner.datasets import DatasetResolver
+from runner.env_capture import dump_env
+from runner.matrix import MatrixConfig, MatrixEntry
+from runner.process import run_command_with_timeout
+from runner.ray_cluster import (
+    setup_ray_cluster_and_env,
+    teardown_ray_cluster_and_env,
+)
+from runner.utils import get_obj_for_json, resolve_env_vars
 
 default_config_file = _this_script_dir / "config.yaml"
 
@@ -111,6 +116,13 @@ def run_entry(
         for directory in [scratch_path, ray_cluster_path, logs_path, benchmark_results_path]:
             create_or_overwrite_dir(directory)
 
+        ray_client, ray_temp_dir, ray_env = setup_ray_cluster_and_env(
+            num_cpus=entry.ray.get("num_cpus", os.cpu_count() or 1),
+            num_gpus=entry.ray.get("num_gpus", 0),
+            enable_object_spilling=bool(entry.ray.get("enable_object_spilling", False)),
+            ray_log_path=logs_path / "ray.log",
+        )
+
         # Execute command with timeout
         logger.info(f"\t\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
@@ -118,7 +130,7 @@ def run_entry(
             command=cmd,
             timeout=entry.timeout_s,
             stdouterr_path=logs_path / "stdouterr.log",
-            env=os.environ,
+            env=ray_env,
             run_id=run_id,
         )
         ended_exec = time.time()
@@ -161,7 +173,8 @@ def run_entry(
         return success
 
     finally:
-        # Ray cleanup stuff here
+        teardown_ray_cluster_and_env(ray_client, ray_temp_dir, ray_cluster_path)
+
         # Clean up the scratch dir if configured to delete
         if entry.delete_scratch:
             shutil.rmtree(scratch_path, ignore_errors=True)
