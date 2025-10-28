@@ -89,6 +89,12 @@ if [ -n "${BASH_ENTRYPOINT_OVERRIDE}" ] && [ "${#ENTRYPOINT_ARGS[@]}" -gt 0 ]; t
     ENTRYPOINT_ARGS=("-c" "$(printf "%s " "${ENTRYPOINT_ARGS[@]}")")
 fi
 
+IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.Digest}}')
+if [ "${IMAGE_DIGEST}" = "<none>" ]; then
+    # Use the image ID as a fallback
+    IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.ID}}')
+fi
+
 
 ################################################################################################################
 docker run \
@@ -106,6 +112,7 @@ docker run \
   --env=CONTAINER_RESULTS_DIR=${CONTAINER_RESULTS_DIR} \
   --env=CONTAINER_ARTIFACTS_DIR=${CONTAINER_ARTIFACTS_DIR} \
   \
+  --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
   --env=MLFLOW_TRACKING_URI=blank \
   --env=SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL} \
   --env=GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID} \

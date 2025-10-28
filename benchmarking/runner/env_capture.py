@@ -20,6 +20,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import git
+import pynvml
 from loguru import logger
 from runner.utils import get_obj_for_json
 
@@ -52,13 +54,68 @@ def dump_env(output_path: Path) -> dict[str, Any]:
 
 
 def get_env() -> dict[str, Any]:
+    try:
+        import ray
+
+        ray_version = ray.__version__
+    except ModuleNotFoundError:
+        ray_version = "not_installed"
+
+    git_commit_string = get_git_commit_string()
+    cuda_visible_devices = get_gpu_info_string()
+    # The image digest is not known at image build time and is not available inside the container, so it must be passed in when the container is run.
+    # Get the image digest via the env var set from tools/run.sh
+    image_digest = os.getenv("IMAGE_DIGEST", "unknown")
+
     return {
         "hostname": platform.node(),
         "platform": platform.platform(),
-        "ray_version": os.getenv("RAY_VERSION", "unknown"),
-        "git_commit": os.getenv("GIT_COMMIT", "unknown"),
-        "image_digest": os.getenv("IMAGE_DIGEST", "unknown"),
+        "ray_version": ray_version,
+        "git_commit": git_commit_string,
+        "image_digest": image_digest,
         "python_version": platform.python_version(),
         "executable": os.getenv("_"),
-        "cuda_visible_devices": os.getenv("CUDA_VISIBLE_DEVICES", ""),
+        "cuda_visible_devices": cuda_visible_devices,
     }
+
+
+def get_git_commit_string() -> str:
+    """Returns the git commit string for Curator."""
+    # Use the directory where this script is located (which is assumed to be the Curator repo)
+    # Another option is to use the file location of the nemo_curator __init__.py file, but that may not be the location of the repo if nemo_curator is installed as a package.
+    # Note: if the benchmarking tools (i.e. this file and others) eventually become an installable package, this approach may not work if these tools are installed as a package.
+    try:
+        repo = git.Repo(Path(__file__).parent)
+        commit_str = repo.head.commit.hexsha
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to get git commit string: {e}")
+        commit_str = "unknown"
+
+    return commit_str
+
+
+def get_gpu_info_string() -> str:
+    """Returns a string describing the GPUs visible to the process.
+    If no GPUs are visible, returns "No GPUs found".
+    If multiple GPUs are visible, returns a string with the number of each GPU model (e.g. "2X H100").
+    """
+    try:
+        pynvml.nvmlInit()
+        # Rather than assume all visible GPUs are the same model (which is by
+        # far the most common case), count the number of each model just in case.
+        gpu_names_count = {}
+        for i in range(pynvml.nvmlDeviceGetCount()):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            gpu_names_count[name] = gpu_names_count.get(name, 0) + 1
+        pynvml.nvmlShutdown()
+        if len(gpu_names_count) > 0:
+            counts = [f"{count}X {name}" for name, count in gpu_names_count.items()]
+            gpu_info_str = ", ".join(counts)
+        else:
+            gpu_info_str = "No GPUs found"
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"Failed to get GPU info: {e}")
+        gpu_info_str = "unknown"
+
+    return gpu_info_str
