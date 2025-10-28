@@ -298,14 +298,32 @@ def break_into_paragraphs(text: str, max_paragraph_length: int = 400) -> str:
             continue
 
         # Split long paragraphs at sentence boundaries
-        # Improved regex that avoids splitting on common abbreviations
-        # Matches sentence endings followed by whitespace and capital letter or digit
-        # But not after common abbreviations like Dr., Mr., U.S., etc.
-        sentences = re.split(
-            r"(?<!\b(?:Dr|Mr|Mrs|Ms|Prof|Sr|Jr|vs|etc|i\.e|e\.g|Fig|Vol|No|Ph\.D|U\.S|U\.K))"
-            r"(?<=[.!?])\s+(?=[A-Z0-9])",
-            para,
-        )
+        # Use a simple regex and then filter out false splits from abbreviations
+        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z0-9])", para)
+        
+        # Common abbreviations that shouldn't trigger sentence splits
+        abbrevs = {
+            "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "Sr.", "Jr.",
+            "vs.", "etc.", "i.e.", "e.g.", "Fig.", "Vol.", "No.",
+            "Ph.D.", "U.S.", "U.K.", "Inc.", "Ltd.", "Corp.",
+        }
+        
+        # Merge sentences that were split after abbreviations
+        merged_sentences = []
+        i = 0
+        while i < len(sentences):
+            current = sentences[i]
+            # Check if current ends with an abbreviation
+            if i + 1 < len(sentences):
+                ends_with_abbrev = any(current.rstrip().endswith(abbr) for abbr in abbrevs)
+                if ends_with_abbrev:
+                    # Merge with next sentence
+                    current = current + " " + sentences[i + 1]
+                    i += 1
+            merged_sentences.append(current)
+            i += 1
+        
+        sentences = merged_sentences
 
         current_block = []
         current_length = 0
