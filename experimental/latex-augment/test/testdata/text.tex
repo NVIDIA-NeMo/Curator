@@ -1,0 +1,219 @@
+### Paragraph with inline math and references
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor
+incididunt $\vec{k} \cdot \vec{p}$ ut labore et dolore magna aliqua. Ut enim
+ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex
+$\mathcal{Q}^*$ ea commodo consequat~\cite{Cicero-45}. Duis aute irure dolor
+in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+Excepteur sint occaecat cupidatat non proident \cref{fig:geo}, sunt in culpa
+qui officia deserunt mollit anim id est laborum.
+
+---
+
+<s>Yberz vcfhz qbybe fvg nzrg, pbafrpgrghe nqvcvfpvat ryvg, frq qb rvhfzbq grzcbe vapvqvqhag <latex>$\vec{k} \cdot \vec{p}$</latex> hg ynober rg qbyber zntan nyvdhn.</s> <s>Hg ravz nq zvavz iravnz, dhvf abfgehq rkrepvgngvba hyynzpb ynobevf avfv hg nyvdhvc rk <latex>$\mathcal{Q}^*$</latex> rn pbzzbqb pbafrdhng~<latex>\cite{Cicero-45}</latex>.</s> <s>Qhvf nhgr veher qbybe va erceruraqrevg va ibyhcgngr iryvg rffr pvyyhz qbyber rh shtvng ahyyn cnevnghe.</s>
+<s>Rkprcgrhe fvag bppnrpng phcvqngng aba cebvqrag <latex>\cref{fig:geo}</latex>, fhag va phycn dhv bssvpvn qrfrehag zbyyvg navz vq rfg ynobehz.</s>
+
+### Numbers
+
+123
+10\,000
+99\%
+4.12$\pm$0.31
+
+---
+
+123
+10\,000
+99\%
+4.12$\pm$0.31
+
+### [concat] Operators
+
+a+b-c*d<e>f!g|h:i'j,k(l)
+
+---
+
+<s>a+b-c*d<e>f!g|h:i'j,k(l)</s>
+
+### \newline
+
+Extracting Content and Layout with Integrated \newline Reading Order for Documents
+
+---
+
+<s>Rkgenpgvat Pbagrag naq Ynlbhg jvgu Vagrtengrq <latex>\newline</latex> Ernqvat Beqre sbe Qbphzragf</s>
+
+### [concat] \newline
+
+Extracting Content and Layout with Integrated \newline Reading Order for Documents
+
+---
+
+<s>ExtractingContentandLayoutwithIntegrated<latex>\newline</latex>{}ReadingOrderforDocuments</s>
+
+### \latex
+
+\latex is not latex.
+
+---
+
+\latex <s>vf abg yngrk.</s>
+
+### Verbatim text
+
+\verb|<structured_text>| or \verb|<plain_text>| or~\verb|<no_text>|
+
+---
+
+\verb|<structured_text>| <s>be <latex>\verb|<plain_text>|</latex> be~</s>\verb|<no_text>|
+
+### Anchor pass-through
+
+foo <a0> bar
+
+---
+
+<s>sbb <a0> one</s>
+
+### Escape <s> and <latex>
+
+foo <s>bar</s> <latex>baz</latex>
+
+---
+
+<s>sbb <latex>\textless{}</latex>{}f>one<latex>\textless{}</latex>{}/f> <latex>\textless{}</latex>{}yngrk>onm<latex>\textless{}</latex>{}/yngrk></s>
+
+### \mbox and \fbox
+
+\mbox{foo}
+\fbox{foo}
+
+---
+
+\mbox{<s>sbb</s>}
+\fbox{<s>sbb</s>}
+
+### [xfail] \framebox and \makebox
+
+\framebox[x][y]{foo}
+\makebox[x][y]{foo}
+
+---
+
+\framebox[x][y]{<s>sbb</s>}
+\makebox[x][y]{<s>sbb</s>}
+
+### [xfail] \parbox
+
+\parbox{1cm}{foo}
+\parbox[x][y][z]{1cm}{foo}
+
+---
+
+\parbox{1cm}{<s>sbb</s>}
+\parbox[x][y][z]{1cm}{<s>sbb</s>}
+
+### curly braces
+
+{foo}
+
+{
+bar
+}
+
+---
+
+{<s>sbb</s>}
+
+{
+<s>one</s>
+}
+
+### [concat] Escaped space
+
+i.i.d.\ Gaussian noise
+i.i.d.\@ Gaussian noise
+
+---
+
+<s>i.i.d.</s>\ <s>Gaussiannoisei.i.d.</s>\@ <s>Gaussiannoise</s>
+
+### Non-breaking space
+
+foo~bar
+
+\subsection{}~\label{asdf}
+
+---
+
+<s>sbb~one</s>
+
+\subsection{}~\label{asdf}
+
+### \em, \bf
+
+foo {\em bar} {\bf baz}
+
+---
+
+<s>sbb</s> {\em <s>one</s>} {\bf <s>onm</s>}
+
+### \textit, \textbf
+
+foo \textit{bar} \textbf{baz}
+
+---
+
+<s>sbb</s> \textit{<s>one</s>} \textbf{<s>onm</s>}
+
+### [xfail] \underline
+
+\underline x
+\underline1
+
+---
+
+\underline k
+\underline1
+
+### [xfail] Accents
+
+astrof{\'\i}sica
+ci\^encia
+gar\c{c}on
+Gen\`eve
+irm\~a
+observat\'orio
+kes\"ay\"o
+se\~nor
+stra\ss e
+
+---
+
+<s>astrofísica</s>
+<s>ciência</s>
+<s>garçon</s>
+<s>Genève</s>
+<s>irmã</s>
+<s>observatório</s>
+<s>kesäyö</s>
+<s>señor</s>
+<s>straße</s>
+
+### Percentages
+
+less than 5\% water
+
+---
+
+<s>yrff guna 5\% jngre</s>
+
+### [xfail] Quotes
+
+`single'
+``double''
+
+---
+
+<s>‘fvatyr’</s>
+<s>“qbhoyr”</s>

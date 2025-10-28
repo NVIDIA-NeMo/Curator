@@ -1,0 +1,243 @@
+### \author
+
+\author{S.N.Bose \and A.Einstein}
+
+---
+
+\author{<s>F.A.Obfr</s> \and <s>N.Rvafgrva</s>}
+
+### \author with \footnote
+
+\author{John Doe
+\footnote{Visiting}
+}
+
+---
+
+\author{<s>Wbua Qbr</s>
+\footnote{<s>Ivfvgvat</s>}
+}
+
+### \author with \affiliation
+
+\author{John Doe
+\affiliation{
+Thomas the Tank Engine
+}
+}
+
+---
+
+\author{<s>Wbua Qbr</s>
+\affiliation{
+<s>Gubznf gur Gnax Ratvar</s>
+}
+}
+
+### \title
+
+\title{Paper}
+\title[Foo]{Paper}
+
+---
+
+\title{<s>Cncre</s>}
+\title[<s>Sbb</s>]{<s>Cncre</s>}
+
+### \footnote
+
+asdf\footnote[1]{Bar}
+
+\footnote
+%{hehe}
+{hoho}
+
+---
+
+<s>nfqs</s>\footnote[1]{<s>One</s>}
+
+\footnote
+%{hehe}
+{<s>ubub</s>}
+
+### \footnotetext
+
+\footnotetext{Foo}
+\footnotetext[1]{Foo}
+
+---
+
+\footnotetext{<s>Sbb</s>}
+\footnotetext[1]{<s>Sbb</s>}
+
+### [xfail] \setlist
+
+\setlist[itemize]{noitemsep}
+
+---
+
+\setlist[itemize]{noitemsep}
+
+### \shortstack
+
+\shortstack{Mask\\out} \shortstack{Edit\\distance}
+
+---
+
+\shortstack{<s>Znfx</s>\\<s>bhg</s>} \shortstack{<s>Rqvg</s>\\<s>qvfgnapr</s>}
+
+### \cite
+
+this-and-that \cite{Bose, Einstein} but for computers
+
+---
+
+<s>guvf-naq-gung <latex>\cite{Bose, Einstein}</latex> ohg sbe pbzchgref</s>
+
+### \markboth
+
+\markboth{abc}{xyz}
+
+---
+
+\markboth{<s>nop</s>}{<s>klm</s>}
+
+### \thanks
+
+\thanks{The computers}
+
+---
+
+\thanks{<s>Gur pbzchgref</s>}
+
+### \surname
+
+\surname{Doe}
+
+---
+
+\surname{<s>Qbr</s>}
+
+### \newtheorem
+
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem*{remark}{Remark}
+
+---
+
+\newtheorem{theorem}{<s>Gurberz</s>}[section]
+\newtheorem{lemma}[theorem]{<s>Yrzzn</s>}
+\newtheorem*{remark}{<s>Erznex</s>}
+
+### Unknown command with empty args
+
+foobar \foobar{emptyTag}{}{}
+
+---
+
+<s>sbbone</s> \foobar{emptyTag}{}{}
+
+### Unknown command and braces after newline
+
+zzz
+
+\foobar{xyx}
+
+{
+foobar
+}
+
+---
+
+<s>mmm</s>
+
+\foobar{xyx}
+
+{
+foobar
+}
+
+### TeX primitives
+
+\topskip=40pt
+\leftskip 10pt 
+\rightskip 0pt plus 1 fill
+\parskip=10pt
+\parindent=0pt
+\parfillskip=10pt
+\baselineskip=12pt plus1fil
+\baselineskip24pt
+\lineskip=10pt
+\lineskiplimit=10pt
+\textheight=220mm
+\textwidth=160mm
+\paperheight=297mm
+\paperwidth=210mm
+\topmargin=-5mm
+\oddsidemargin=-1mm
+\headheight=12pt
+\headsep=12pt
+\marginparpush=10pt
+\marginparwidth=10pt
+\marginparsep=10pt
+\footskip=10pt
+\hoffset=0pt
+\voffset=0pt
+\setlength{\baselineskip}{12pt plus1fil}
+foobar
+
+---
+
+\topskip=40pt
+\leftskip 10pt 
+\rightskip 0pt plus 1 fill
+\parskip=10pt
+\parindent=0pt
+\parfillskip=10pt
+\baselineskip=12pt plus1fil
+\baselineskip24pt
+\lineskip=10pt
+\lineskiplimit=10pt
+\textheight=220mm
+\textwidth=160mm
+\paperheight=297mm
+\paperwidth=210mm
+\topmargin=-5mm
+\oddsidemargin=-1mm
+\headheight=12pt
+\headsep=12pt
+\marginparpush=10pt
+\marginparwidth=10pt
+\marginparsep=10pt
+\footskip=10pt
+\hoffset=0pt
+\voffset=0pt
+\setlength{\baselineskip}{12pt plus1fil}
+<s>sbbone</s>
+
+### \url
+
+The code is available at \url{https://github.com/foo/bar}.
+
+---
+
+<s>Gur pbqr vf ninvynoyr ng</s> \url{https://github.com/foo/bar}.
+
+### \tikzstyle
+
+\tikzstyle{process} = [rectangle, minimum width=3cm, minimum height=1cm, text centered, draw=black, fill=orange!30]
+\tikzstyle{complex} = [rectangle, path picture={\draw (0,0) -- (1,1); \fill[blue] (0.5,0.5) circle (0.1);}, fill=red!20]
+\tikzstyle{arrow} = [thick, ->]
+\tikzstyle{nested} = [rectangle, label={[fill=white, inner sep=1pt]above:{Text with {nested} content}}, fill=gray!30]
+
+Some text \tikzstyle{inline} = [minimum size=1cm] and \textbf{more text}.
+
+---
+
+\tikzstyle{process} = [rectangle, minimum width=3cm, minimum height=1cm, text centered, draw=black, fill=orange!30]
+\tikzstyle{complex} = [rectangle, path picture={\draw (0,0) -- (1,1); \fill[blue] (0.5,0.5) circle (0.1);}, fill=red!20]
+\tikzstyle{arrow} = [thick, ->]
+\tikzstyle{nested} = [rectangle, label={[fill=white, inner sep=1pt]above:{Text with {nested} content}}, fill=gray!30]
+
+<s>Fbzr grkg</s> \tikzstyle{inline} = [minimum size=1cm] <s>naq</s> \textbf{<s>zber grkg</s>}.

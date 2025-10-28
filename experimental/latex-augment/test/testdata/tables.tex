@@ -1,0 +1,161 @@
+### Multi-line caption
+
+\begin{table*}[t]
+    \caption{Evaluation results \cite{nltk} metrics. \\
+    *MIP-maximal-information prompt\\
+    **Counting F1 score}
+    \label{tab:results}
+\end{table*}
+
+---
+
+\begin{table*}[t]
+    \caption{<s>Rinyhngvba erfhygf <latex>\cite{nltk}</latex> zrgevpf.</s> \\
+    <s>*ZVC-znkvzny-vasbezngvba cebzcg</s>\\
+    <s>**Pbhagvat S1 fpber</s>}
+    \label{tab:results}
+\end{table*}
+
+### \multirow and \multicolumn
+
+\begin{tabular}{cc}
+    \multirow{2}{*}{Method} & \multicolumn{2}{c}{Edit distance$\downarrow$} \\
+\end{tabular}
+
+---
+
+\begin{tabular}{cc}
+    \multirow{2}{*}{<s>Zrgubq</s>} & \multicolumn{2}{c}{<s>Rqvg qvfgnapr</s>$\downarrow$} \\
+\end{tabular}
+
+### \toprule, \midrule, \bottomrule, \hline
+
+\begin{tabular}{lcc}
+\toprule
+    {Method}                      &       {$\frac{tkn}{step}$}            & {WER}   \\
+    \midrule
+    Nougat \cite{Nougat} & 1 & - \\
+    \hline
+    Caramel \cite{Caramel} & 1 & - \\
+    \bottomrule
+\end{tabular}
+
+---
+
+\begin{tabular}{lcc}
+\toprule
+    {<s>Zrgubq</s>}                      &       {$\frac{tkn}{step}$}            & {<s>JRE</s>}   \\
+    \midrule
+    <s>Abhtng</s> \cite{Nougat} & 1 & - \\
+    \hline
+    <s>Pnenzry</s> \cite{Caramel} & 1 & - \\
+    \bottomrule
+\end{tabular}
+
+### \resizebox
+
+\resizebox{\textwidth}{!}{
+    \begin{tabular}{c}
+        Foo \\
+        Bar \\
+    \end{tabular}
+}
+
+---
+
+\resizebox{\textwidth}{!}{
+    \begin{tabular}{c}
+        <s>Sbb</s> \\
+        <s>One</s> \\
+    \end{tabular}
+}
+
+### [xfail] \cmidrule
+
+\begin{tabular}{cc}
+\toprule[.9pt]
+Foo & Bar \\
+\cmidrule(rl){1-2}
+X & Y \\
+\end{tabular}
+
+---
+
+\begin{tabular}{cc}
+\toprule[.9pt]
+<s>Sbb</s> & <s>One</s> \\
+\cmidrule(rl){1-2}
+<s>K</s> & <s>L</s> \\
+\end{tabular}
+
+### [xfail] \makecell
+
+\begin{tabular}{lcc}
+    \makecell[l]{\textbf{Foo-bar} \\
+    \textbf{Common Crawl} \\ 
+    \textbf{samples}} & 123             & {Plain, Boxes, Classes}\\
+\end{tabular}
+
+---
+
+\begin{tabular}{lcc}
+    \makecell[l]{\textbf{<s>Sbb-one</s>} \\
+    \textbf{<s>Pbzzba Penjy</s>} \\ 
+    \textbf{<s>fnzcyrf</s>}} & 123             & {<s>Cynva, Obkrf, Pynffrf</s>}\\
+\end{tabular}
+
+### \subfloat
+
+\begin{tabular}{ccc}
+\subfloat{...}
+\subfloat[Foo]{...}
+\subfloat[Foo][Bar]{...}
+\end{tabular}
+
+---
+
+\begin{tabular}{ccc}
+\subfloat{...}
+\subfloat[<s>Sbb</s>]{...}
+\subfloat[<s>Sbb</s>][<s>One</s>]{...}
+\end{tabular}
+
+### \tabular with paragraph columns
+
+\begin{tabular}{ |p{3cm}| }
+foo \\
+\end{tabular}
+
+---
+
+\begin{tabular}{ |p{3cm}| }
+<s>sbb</s> \\
+\end{tabular}
+
+### \tabular with optional alignment
+
+\begin{tabular}[c]{@{}c@{}}abc \\ xyz\end{tabular}
+
+---
+
+\begin{tabular}[c]{@{}c@{}}<s>nop</s> \\ <s>klm</s>\end{tabular}
+
+### \tabularx
+
+\begin{tabularx}{250pt}{|c|X|c|X|}
+foo \\
+\end{tabularx}
+
+\begin{tabularx}{250pt}[z]{|c|X|c|X|}
+foo \\
+\end{tabularx}
+    
+---
+
+\begin{tabularx}{250pt}{|c|X|c|X|}
+<s>sbb</s> \\
+\end{tabularx}
+
+\begin{tabularx}{250pt}[z]{|c|X|c|X|}
+<s>sbb</s> \\
+\end{tabularx}

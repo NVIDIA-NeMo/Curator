@@ -1,0 +1,59 @@
+### Figure with includegraphics and options
+
+\begin{figure}%[H]
+\centering
+ \includegraphics[width=0.45\textwidth]{fig1.png}
+ \caption{This is a caption.}
+\end{figure}
+
+---
+
+\begin{figure}%[H]
+\centering
+ \includegraphics[width=0.45\textwidth]{fig1.png}
+ \caption{<s>Guvf vf n pncgvba.</s>}
+\end{figure}
+
+### Subfigures
+
+\begin{figure*}[ht]
+    
+    \centering
+    \begin{subfigure}{0.55\columnwidth}
+        \centering
+        \includegraphics[width=\linewidth]{foo1.png} % asdf
+        \caption{}
+        \label{fig:subfig_a}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.55\columnwidth}
+        \centering
+        \includegraphics[width=\linewidth]{foo2.png} % aaa
+        \caption{}
+        \label{fig:subfig_b}
+    \end{subfigure}
+    \caption{this is a great figure.}
+    \label{fig:xyz}
+\end{figure*}
+
+---
+
+\begin{figure*}[ht]
+    
+    \centering
+    \begin{subfigure}{0.55\columnwidth}
+        \centering
+        \includegraphics[width=\linewidth]{foo1.png} % asdf
+        \caption{}
+        \label{fig:subfig_a}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.55\columnwidth}
+        \centering
+        \includegraphics[width=\linewidth]{foo2.png} % aaa
+        \caption{}
+        \label{fig:subfig_b}
+    \end{subfigure}
+    \caption{<s>guvf vf n terng svther.</s>}
+    \label{fig:xyz}
+\end{figure*}
