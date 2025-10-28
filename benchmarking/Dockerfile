@@ -36,5 +36,8 @@ RUN cd /opt/Curator \
     rich \
   && uv cache prune
 
+# Add the Curator repo to the safe.directory list to avoid GitPython warnings
+RUN git config --global --add safe.directory /opt/Curator
+
  # Set the entrypoint to the main benchmarking runner script
 ENTRYPOINT ["python", "/opt/Curator/benchmarking/run.py"]

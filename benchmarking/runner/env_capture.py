@@ -17,6 +17,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -74,7 +75,7 @@ def get_env() -> dict[str, Any]:
         "git_commit": git_commit_string,
         "image_digest": image_digest,
         "python_version": platform.python_version(),
-        "executable": os.getenv("_"),
+        "executable": sys.executable,
         "cuda_visible_devices": cuda_visible_devices,
     }
 
@@ -85,7 +86,7 @@ def get_git_commit_string() -> str:
     # Another option is to use the file location of the nemo_curator __init__.py file, but that may not be the location of the repo if nemo_curator is installed as a package.
     # Note: if the benchmarking tools (i.e. this file and others) eventually become an installable package, this approach may not work if these tools are installed as a package.
     try:
-        repo = git.Repo(Path(__file__).parent)
+        repo = git.Repo(Path(__file__).parent, search_parent_directories=True)
         commit_str = repo.head.commit.hexsha
     except Exception as e:  # noqa: BLE001
         logger.warning(f"Failed to get git commit string: {e}")

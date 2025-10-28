@@ -89,10 +89,10 @@ if [ -n "${BASH_ENTRYPOINT_OVERRIDE}" ] && [ "${#ENTRYPOINT_ARGS[@]}" -gt 0 ]; t
     ENTRYPOINT_ARGS=("-c" "$(printf "%s " "${ENTRYPOINT_ARGS[@]}")")
 fi
 
-IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.Digest}}')
-if [ "${IMAGE_DIGEST}" = "<none>" ]; then
+IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.Digest}}' 2>/dev/null)
+if [ -z "${IMAGE_DIGEST}" ] || [ "${IMAGE_DIGEST}" = "<none>" ]; then
     # Use the image ID as a fallback
-    IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.ID}}')
+    IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.ID}}' 2>/dev/null)
 fi
 
 
