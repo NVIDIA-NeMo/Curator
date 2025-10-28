@@ -1,7 +1,12 @@
 [
     {
         "preferred": true,
+        "version": "25.09",
+        "url": "https://docs.nvidia.com/nemo/curator/25.09/"
+    },
+    {
+        "name": "25.07",
         "version": "0.25.7",
-        "url": "../0.25.7"
+        "url": "https://docs.nvidia.com/nemo/curator/0.25.7/"
     }
 ]

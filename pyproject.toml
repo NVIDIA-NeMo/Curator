@@ -38,6 +38,18 @@ authors = [
 description = "Scalable Data Preprocessing Tool for Training Large Language Models"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
@@ -48,13 +60,13 @@ dependencies = [
     "mecab-python3",
     "pandas>=2.1.0",
     "pyarrow",
-    "ray[default,data]>=2.49",
+    "ray[default,data]>=2.50",
     "torch",
     "transformers==4.55.2",
 ]
 
 [project.optional-dependencies]
-cuda12 = ["gpustat", "pynvml"]
+cuda12 = ["gpustat", "nvidia-ml-py"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
@@ -68,17 +80,20 @@ deduplication_cuda12 = [
 ]
 
 audio_cpu = [
-    "nemo_toolkit[asr]",
+    "nemo_toolkit[asr]==2.4.0",
 ]
 audio_cuda12 = [
     "nemo_curator[audio_cpu]",
     "nemo_curator[cuda12]",
 ]
 
-image_cpu = []
+image_cpu = [
+    "torchvision"
+]
 
 # NVIDIA DALI (simplified; update the package to match your CUDA version if needed)
 image_cuda12 = [
+    "nemo_curator[image_cpu]",
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nvidia-dali-cuda120",
@@ -90,9 +105,10 @@ text_cpu = [
     "beautifulsoup4",
     "justext",
     "lxml",
-    "resiliparse",
-    "trafilatura==2.0.0",
     "pycld2",
+    "resiliparse",
+    "s5cmd",
+    "trafilatura==2.0.0",
     "warcio",
     # Filters
     "fasttext==0.9.3",
@@ -101,7 +117,7 @@ text_cpu = [
     # Aegis
     "peft",
     # Modifiers
-    "ftfy==6.1.1",
+    "ftfy",
 ]
 
 text_cuda12 = [
@@ -128,7 +144,7 @@ video_cuda12 = [
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
-    "vllm==0.10.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.11.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -141,6 +157,7 @@ all = [
 
 [dependency-groups]
 build = ["setuptools", "torch<=2.8.0"]
+dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
     "coverage",
@@ -154,7 +171,8 @@ test = [
 
 [tool.uv]
 package = true
-default-groups = ["test"]
+managed = true
+default-groups = ["dev", "test"]
 index-strategy = "unsafe-best-match"
 no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
@@ -166,6 +184,7 @@ override-dependencies = [
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
+    "transformers==4.55.2",
 ]
 
 

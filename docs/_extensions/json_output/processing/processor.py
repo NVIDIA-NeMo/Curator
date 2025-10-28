@@ -63,7 +63,6 @@ def _filter_documents(app: Sphinx, json_builder: JSONOutputBuilder, log_func: Ca
     return _apply_size_filtering(app, all_docs, log_func)
 
 
-
 def _get_initial_documents(app: Sphinx, json_builder: JSONOutputBuilder) -> tuple[list[str], list[str]]:
     """Get initial document lists, separating processable from gated documents."""
     all_docs = []
@@ -129,10 +128,7 @@ def _log_results(log_func: Callable[[str], None], generated_count: int, failed_c
 
 
 def process_documents_parallel(
-    json_builder: JSONOutputBuilder,
-    all_docs: list[str],
-    config: Config,
-    log_func: Callable[[str], None]
+    json_builder: JSONOutputBuilder, all_docs: list[str], config: Config, log_func: Callable[[str], None]
 ) -> tuple[int, int]:
     """Process documents in parallel batches."""
     parallel_workers = get_setting(config, "parallel_workers", "auto")

@@ -37,7 +37,6 @@ Use the pipeline stage or the example script flags to encode clips with CPU or G
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage, ClipTranscodingStage
 
 pipe = Pipeline(name="transcode_example")

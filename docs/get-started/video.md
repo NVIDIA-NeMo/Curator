@@ -18,15 +18,27 @@ The [example pipeline](#run-the-splitting-pipeline-example) processes a list of 
 
 ## Prerequisites
 
-To use NeMo Curator’s video curation modules, ensure you meet the following requirements:
+To use NeMo Curator's video curation modules, ensure you meet the following requirements:
 
-- Python 3.10 or higher
-- NVIDIA GPU
+- **OS**: Ubuntu 24.04/22.04/20.04 (required for GPU-accelerated processing)
+- **Python**: 3.10, 3.11, or 3.12
+- **uv** (for package management and installation)
+- **NVIDIA GPU** (required)
   - Volta™ or higher (compute capability 7.0+)
   - CUDA 12 or above
   - With defaults, the full splitting plus captioning example can use up to 38 GB of VRAM. Reduce VRAM to about 21 GB by lowering batch sizes and using FP8 where available.
-- `FFmpeg` 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
-- Git (required for some model dependencies)
+- **FFmpeg** 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
+- **Git** (required for some model dependencies)
+
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+:::
 
 ---
 
@@ -34,37 +46,95 @@ To use NeMo Curator’s video curation modules, ensure you meet the following re
 
 Create and activate a virtual environment, then choose an install option:
 
+```{note}
+Cosmos-Embed1 (the default) is generally better than InternVideo2 for most video embedding tasks. Consider using Cosmos-Embed1 (`cosmos-embed1-224p`) unless you have specific requirements for InternVideo2.
+```
+
 ::::{tab-set}
 
-:::{tab-item} GPU (CUDA)
+:::{tab-item} PyPi Without internvideo2
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install "nemo-curator[video,video_cuda]"
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
 ```
 
 :::
 
-:::{tab-item} CPU
+:::{tab-item} Source Without internvideo2
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install --upgrade pip
-pip install "nemo-curator[video]"
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
+uv sync --extra video_cuda12 --all-groups
+source .venv/bin/activate
+```
+
+:::
+
+:::{tab-item} PyPi With internvideo2
+
+```bash
+# Install base dependencies
+uv pip install torch wheel_stub psutil setuptools setuptools_scm
+uv pip install --no-build-isolation "nemo-curator[video_cuda12]"
+
+# Clone and set up InternVideo2
+git clone https://github.com/OpenGVLab/InternVideo.git
+cd InternVideo
+git checkout 09d872e5093296c6f36b8b3a91fc511b76433bf7
+
+# Download and apply NeMo Curator patch
+curl -fsSL https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/external/intern_video2_multimodal.patch -o intern_video2_multimodal.patch
+patch -p1 < intern_video2_multimodal.patch
+cd ..
+
+# Add InternVideo2 to the environment
+uv pip install InternVideo/InternVideo2/multi_modality
+```
+
+:::
+
+:::{tab-item} Source With internvideo2
+
+```bash
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
+uv sync --extra video_cuda12 --all-groups
+bash external/intern_video2_installation.sh
+uv add InternVideo/InternVideo2/multi_modality
+source .venv/bin/activate 
+```
+
+:::
+
+:::{tab-item} NeMo Curator Container
+
+NeMo Curator is available as a standalone container:
+
+```bash
+# Pull the container
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
+
+# Run the container
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
+```
+
+```{seealso}
+For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
 ```
 
 :::
 
 ::::
 
-## Install `FFmpeg` and Encoders
+## Install FFmpeg and Encoders
 
 Curator’s video pipelines rely on `FFmpeg` for decoding and encoding. If you plan to encode clips (for example, using `--transcode-encoder libopenh264` or `h264_nvenc`), install `FFmpeg` with the corresponding encoders.
 
-:::::{tab-set}
+::::{tab-set}
 
-::::{tab-item} Debian/Ubuntu (Script)
+:::{tab-item} Debian/Ubuntu (Script)
 
 Use the maintained script in the repository to build and install `FFmpeg` with `libopenh264` and NVIDIA NVENC support. The script enables `--enable-libopenh264`, `--enable-cuda-nvcc`, and `--enable-libnpp`.
 
@@ -76,21 +146,9 @@ chmod +x install_ffmpeg.sh
 sudo bash install_ffmpeg.sh
 ```
 
-::::
+:::
 
-::::{tab-item} macOS (Homebrew)
-
-Install `FFmpeg` using Homebrew, then verify available encoders.
-
-```bash
-brew install ffmpeg openh264
-```
-
-Note: Homebrew `ffmpeg` does not support NVENC on macOS. If `libopenh264` is not available in your build, use `libx264` as the H.264 encoder instead of `libopenh264`.
-
-::::
-
-::::{tab-item} Verify Installation
+:::{tab-item} Verify Installation
 
 Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
 
@@ -101,9 +159,9 @@ ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
 
 If encoders are missing, reinstall `FFmpeg` with the required options or use the Debian/Ubuntu script above.
 
-::::
+:::
 
-:::::
+::::
 
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
 
@@ -117,32 +175,28 @@ Embeddings convert each video clip into a numeric vector that captures visual an
 
 You can choose between two embedding models:
 
-- **Cosmos-Embed1 (default)**: Automatically downloaded to `MODEL_DIR` on first run; good general-purpose performance and lower VRAM usage.
-- **InternVideo2 (IV2)**: Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage.
+- **Cosmos-Embed1 (default)**: Available in three variants—**cosmos-embed1-224p**, **cosmos-embed1-336p**, and **cosmos-embed1-448p**—which differ in input resolution and accuracy/VRAM tradeoff. All variants are automatically downloaded to `MODEL_DIR` on first run.  
+  - [cosmos-embed1-224p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-224p)
+  - [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-336p)
+  - [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-448p)
+- **InternVideo2 (IV2)**: Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage. 
+  - [InternVideo Official Github Page](https://github.com/OpenGVLab/InternVideo)
 
-For this quickstart, we're going to set up support for **IV2**.
+For this quickstart, we're going to set up support for **Cosmos-Embed1-224p**.
 
-### Prepare IV2 Model Weights
+### Prepare Model Weights
 
-Complete the following steps when you set `--embedding-algorithm` to `internvideo2` or when you pre-stage models for offline use.
+For most use cases, you only need to create a model directory. The required model files will be downloaded automatically on first run.
 
-1. Create a model directory.
+1. Create a model directory:
+   ```bash
+   mkdir -p "$MODEL_DIR"
+   ```
    :::{tip}
    You can reuse the same `<MODEL_DIR>` across runs.
    :::
-2. Download the IV2 Checkpoint from the [OpenGVLab page](https://github.com/OpenGVLab) and accept the terms.
-3. Download the BERT model files for [`google-bert/bert-large-uncased`](https://huggingface.co/google-bert/bert-large-uncased).
 
-The directory should resemble the following:
-
-```text
-<MODEL_DIR>/
-  OpenGVLab/InternVideo2-Stage2_1B-224p-f4/InternVideo2-stage2_1b-224p-f4.pt
-  google-bert/bert-large-uncased/
-    config.json
-    tokenizer.json
-    ... (standard tokenizer files)
-```
+2. No additional setup is required. The model will be downloaded automatically when first used.
 
 ## Set Up Data Directories
 
@@ -169,7 +223,7 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --output-clip-path "$OUT_DIR" \
   --splitting-algorithm fixed_stride \
   --fixed-stride-split-duration 10.0 \
-  --embedding-algorithm internvideo2 \
+  --embedding-algorithm cosmos-embed1-224p \
   --transcode-encoder libopenh264 \
   --verbose
 ```
@@ -196,7 +250,7 @@ The example script supports the following options:
 ```
 
 :::{tip}
-To use the default Cosmos-Embed1 instead, omit `--embedding-algorithm` or set `--embedding-algorithm cosmos-embed1-224p`.
+To use InternVideo2 instead, set `--embedding-algorithm internvideo2`.
 :::
 
 ## Next Steps

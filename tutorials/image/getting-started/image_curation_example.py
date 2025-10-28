@@ -19,6 +19,7 @@ import time
 from helper import download_webdataset
 
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.image.embedders.clip_embedder import ImageEmbeddingStage
@@ -44,7 +45,7 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
         task_batch_size=args.task_batch_size,
-        verbose=True,  # Force verbose to see debug info
+        verbose=args.verbose,  # Force verbose to see debug info
         num_threads=16,  # More threads for I/O
         num_gpus_per_worker=0.25,
     ))
@@ -89,6 +90,9 @@ def create_image_curation_pipeline(args: argparse.Namespace) -> Pipeline:
 
 def main(args: argparse.Namespace) -> None:
     """Main execution function for image curation pipeline."""
+
+    ray_client = RayClient()
+    ray_client.start()
 
     print("Starting image curation pipeline...")
     print(f"Input parquet file: {args.input_parquet}")
@@ -150,6 +154,8 @@ def main(args: argparse.Namespace) -> None:
     print(f"Total execution time: {int(hours):02d}:{int(minutes):02d}:{seconds:.2f}")
     print(f"Total execution time: {execution_time:.2f} seconds")
     print(f"\nProcessed dataset available at: {args.output_dataset_dir}")
+
+    ray_client.stop()
 
 
 if __name__ == "__main__":

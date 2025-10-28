@@ -7,7 +7,9 @@ For simplicity, this tutorial uses the validation split of this dataset, which c
 ## Usage
 After installing the NeMo Curator package, you can simply run the following command:
 ```
-python tutorials/text/tinystories/main.py
+LOGURU_LEVEL="ERROR" python tutorials/text/tinystories/main.py
 ```
 
 This will download the validation split of the TinyStories dataset and begin the data curation pipeline.
+
+We use `LOGURU_LEVEL="ERROR"` to help minimize console output and produce cleaner logs for the user.

@@ -37,7 +37,6 @@ Use the pipeline stages or the example script flags to extract frames for embedd
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.video.clipping.clip_extraction_stages import FixedStrideExtractorStage
 from nemo_curator.stages.video.clipping.clip_frame_extraction import ClipFrameExtractionStage
 from nemo_curator.utils.decoder_utils import FrameExtractionPolicy, FramePurpose
@@ -117,6 +116,8 @@ from nemo_curator.stages.video.clipping.video_frame_extraction import VideoFrame
 
 frame_extractor = VideoFrameExtractionStage(
     decoder_mode="pynvc",  # or "ffmpeg_gpu", "ffmpeg_cpu"
+    output_hw=(27, 48),    # (height, width) for frame extraction
+    pyncv_batch_size=64,   # batch size for PyNvCodec
     verbose=True,
 )
 ```
@@ -139,8 +140,14 @@ frame_extractor = VideoFrameExtractionStage(
   - Shortcut that sets default FPS for specific purposes (such as embeddings). You can still pass `target_fps` to override.
 * - `target_res`
   - Output frame resolution `(height, width)`. Use `(-1, -1)` to keep original.
+* - `num_cpus`
+  - Number of CPU cores for frame extraction. Default: `3`.
 * - `decoder_mode`
   - For full‑video extraction: `pynvc` (NVDEC), `ffmpeg_gpu`, or `ffmpeg_cpu`.
+* - `output_hw`
+  - For full‑video extraction: `(height, width)` tuple for frame dimensions. Default: `(27, 48)`.
+* - `pyncv_batch_size`
+  - For full‑video extraction: batch size for PyNvCodec processing. Default: `64`.
 ```
 
 ### LCM Sampling for Several FPS Values
