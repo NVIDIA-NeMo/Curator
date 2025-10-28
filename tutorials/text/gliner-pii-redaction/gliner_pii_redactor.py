@@ -140,10 +140,12 @@ class GlinerPiiRedactor(ProcessingStage[DocumentBatch, DocumentBatch]):
         )
 
     def redact_entities(self, text: str, entities: list[dict[str, Any]]) -> str:
+        # Ensure the entities are sorted by start index
+        entities = sorted(entities, key=lambda x: x["start"])
         for entity in entities:
             # Replace "text" with "{label}"
             # Only replace the first instance of the entity text
-            # This is safe because the "entities" list is returned in the order that they appear in the text
+            # This is safe because the "entities" list is sorted in the order that they appear in the text
             text = text.replace(entity["text"], f"{{{entity['label']}}}", 1)
         return text
 
