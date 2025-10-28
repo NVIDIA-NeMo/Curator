@@ -141,7 +141,7 @@ class GlinerPiiRedactor(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def redact_entities(self, text: str, entities: list[dict[str, Any]]) -> str:
         for entity in entities:
-            # Replace "text" with "{{label}}"
+            # Replace "text" with "{label}"
             text = text.replace(entity["text"], f"{{{entity['label']}}}")
         return text
 
