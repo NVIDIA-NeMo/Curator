@@ -27,8 +27,7 @@ def write_llm_txt_file(app: Sphinx, docname: str, content: str) -> None:
         txt_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Write the file
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(content)
+        txt_path.write_text(content, encoding="utf-8")
 
         logger.debug(f"Generated llm.txt: {txt_path}")
 
@@ -42,7 +41,6 @@ def get_output_path(app: Sphinx, docname: str) -> Path:
 
     if docname == "index":
         return outdir / "index.llm.txt"
-    elif docname.endswith("/index"):
+    if docname.endswith("/index"):
         return outdir / docname[:-6] / "index.llm.txt"
-    else:
-        return outdir / f"{docname}.llm.txt"
+    return outdir / f"{docname}.llm.txt"

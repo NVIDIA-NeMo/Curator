@@ -1,5 +1,4 @@
-"""
-Sphinx extension to generate llm.txt files for LLM consumption.
+"""Sphinx extension to generate llm.txt files for LLM consumption.
 
 This extension creates parallel llm.txt files for each document in a standardized
 markdown format that Large Language Models can easily parse and understand.
@@ -23,7 +22,7 @@ from .processor import on_build_finished
 
 
 def setup(app: Sphinx) -> dict[str, Any]:
-    """Setup function for Sphinx extension."""
+    """Set up Sphinx extension for llm.txt generation."""
     # Add configuration with default settings
     default_settings = get_default_settings()
     app.add_config_value("llm_txt_settings", default_settings, "html")

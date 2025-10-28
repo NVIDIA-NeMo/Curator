@@ -93,8 +93,7 @@ def build_llm_txt_content(content_data: dict[str, Any]) -> str:  # noqa: C901, P
 
 
 def _normalize_spacing(content: str) -> str:
-    """
-    Normalize spacing in final output.
+    """Normalize spacing in final output.
 
     Removes excessive blank lines while preserving document structure.
     Ensures max 2 consecutive blank lines anywhere in the document.
@@ -104,6 +103,7 @@ def _normalize_spacing(content: str) -> str:
 
     Returns:
         Content with normalized spacing
+
     """
     # Replace 3+ consecutive newlines with just 2
     content = re.sub(r"\n{3,}", "\n\n", content)

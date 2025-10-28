@@ -52,7 +52,7 @@ def on_build_finished(app: Sphinx, exception: Exception) -> None:
                         "docname": docname,
                         "title": content_data.get("title", "Untitled"),
                         "content": llm_txt_content,
-                    }
+                    },
                 )
 
                 generated_count += 1
@@ -101,8 +101,8 @@ def should_generate_llm_txt(config: Config, docname: str) -> bool:
 
 
 def is_content_gated(config: Config, docname: str) -> bool:
-    """
-    Check if a document is content gated by checking Sphinx's exclude_patterns.
+    """Check if a document is content gated by checking Sphinx's exclude_patterns.
+
     This works with the content_gating extension.
     """
     sphinx_exclude_patterns = getattr(config, "exclude_patterns", [])

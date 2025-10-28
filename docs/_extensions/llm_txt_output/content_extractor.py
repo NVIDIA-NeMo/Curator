@@ -21,14 +21,14 @@ MAX_KEY_SECTION_TRUNCATE = 347  # Leave room for "..."
 
 
 def _clean_card_title(title: str) -> str:
-    """
-    Clean title text by removing octicon references and other artifacts.
+    """Clean title text by removing octicon references and other artifacts.
 
     Args:
         title: Raw title text
 
     Returns:
         Cleaned title text
+
     """
     # Remove octicon with various formats
     title = re.sub(r"\{octicon\}[^{}`]+", "", title)  # {octicon}icon
@@ -41,8 +41,7 @@ def _clean_card_title(title: str) -> str:
 
 
 def _truncate_description(description: str, max_length: int = MAX_DESCRIPTION_LENGTH) -> str:
-    """
-    Truncate description text to specified length with ellipsis.
+    """Truncate description text to specified length with ellipsis.
 
     Args:
         description: Description text to truncate
@@ -50,6 +49,7 @@ def _truncate_description(description: str, max_length: int = MAX_DESCRIPTION_LE
 
     Returns:
         Truncated description with "..." if needed
+
     """
     if not description:
         return ""
@@ -65,8 +65,7 @@ def _truncate_description(description: str, max_length: int = MAX_DESCRIPTION_LE
 
 
 def _resolve_url(url: str, base_url: str) -> str:
-    """
-    Properly resolve relative URLs to absolute URLs using urllib.parse.urljoin.
+    """Properly resolve relative URLs to absolute URLs using urllib.parse.urljoin.
 
     Args:
         url: Relative or absolute URL
@@ -74,6 +73,7 @@ def _resolve_url(url: str, base_url: str) -> str:
 
     Returns:
         Absolute URL
+
     """
     if not url or not base_url:
         return url
@@ -274,8 +274,7 @@ def clean_text_for_llm_txt(text: str) -> str:
 
 
 def break_into_paragraphs(text: str, max_paragraph_length: int = 400) -> str:
-    """
-    Break long text blocks into readable paragraphs.
+    """Break long text blocks into readable paragraphs.
 
     Args:
         text: Text to break into paragraphs
@@ -283,6 +282,7 @@ def break_into_paragraphs(text: str, max_paragraph_length: int = 400) -> str:
 
     Returns:
         Text with paragraph breaks inserted at sentence boundaries
+
     """
     if not text or len(text) < max_paragraph_length:
         return text
@@ -365,8 +365,7 @@ def _extract_overview(text: str, max_length: int) -> str:
         last_period = truncated.rfind(".")
         if last_period > max_length * 0.8:  # If we found a period in last 20%
             return truncated[: last_period + 1]
-        else:
-            return truncated + "..."
+        return truncated + "..."
 
     return text
 
@@ -406,8 +405,7 @@ def _extract_headings(doctree: nodes.document) -> list[dict[str, str]]:
 
 
 def _resolve_reference_target(env: BuildEnvironment, target: str) -> str | None:
-    """
-    Resolve a MyST reference target to its actual document path.
+    """Resolve a MyST reference target to its actual document path.
 
     Args:
         env: Sphinx build environment
@@ -415,6 +413,7 @@ def _resolve_reference_target(env: BuildEnvironment, target: str) -> str | None:
 
     Returns:
         Document path (e.g., 'get-started/text') or None if not found
+
     """
     try:
         # Check if target exists in Sphinx's standard domain labels
@@ -451,8 +450,7 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
             return []
 
         # Read raw markdown
-        with open(source_path, encoding="utf-8") as f:
-            content = f.read()
+        content = source_path.read_text(encoding="utf-8")
 
         # Look for grid-item-card directives using regex
         # Pattern: :::{grid-item-card} [icon] Title
@@ -493,7 +491,7 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
             # Clean up description - remove template variables and format better
             if description:
                 description = re.sub(
-                    r"\{\{[^}]+\}\}", "NeMo Evaluator", description
+                    r"\{\{[^}]+\}\}", "NeMo Evaluator", description,
                 )  # Replace {{ product_name_short }}
                 description = re.sub(r"\{bdg-[^}]+\}", "", description)  # Remove badge directives
                 description = re.sub(r"`+", "", description)  # Remove backticks
@@ -527,8 +525,7 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
 
 
 def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:
-    """
-    Extract grid-item-card elements by finding reference patterns.
+    """Extract grid-item-card elements by finding reference patterns.
 
     Since MyST grid cards create complex nested structures, we use a simpler
     approach: find all internal reference links and their surrounding context.
@@ -734,9 +731,13 @@ def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[s
         # Truncate using helper function
         card_description = _truncate_description(card_description)
 
-    logger.debug(
-        f"Card extraction result - Title: {card_title}, Link: {card_link}, Desc: {card_description[:50] if card_description else 'None'}"
-    )
+        desc_preview = card_description[:50] if card_description else "None"
+        logger.debug(
+            "Card extraction result - Title: %s, Link: %s, Desc: %s",
+            card_title,
+            card_link,
+            desc_preview,
+        )
 
     # Only return if we have at least a title or link
     if card_title or card_link:
@@ -826,9 +827,9 @@ def _extract_frontmatter(file_path: str) -> dict[str, Any] | None:
     """Extract YAML frontmatter from markdown files."""
     try:
         import yaml
+        from pathlib import Path
 
-        with open(file_path, encoding="utf-8") as f:
-            content = f.read()
+        content = Path(file_path).read_text(encoding="utf-8")
 
         # Normalize line endings to handle Windows CRLF
         content = content.replace("\r\n", "\n").replace("\r", "\n")
