@@ -1,0 +1,47 @@
+### [concat] Inline math
+
+employing a $\vec{k} \cdot \vec{p}$ electronic
+
+---
+
+<s>employinga<latex>$\vec{k} \cdot \vec{p}$</latex>{}electronic</s>
+
+### Math with syntax error
+
+$x^2$
+$\invalid}stuff$
+
+---
+
+$x^2$
+$\invalid}stuff$
+
+### [empty] Balanced display math
+
+$$x^2$$
+\[x^2.\]
+
+---
+
+$$x^2$$
+\[x^2.\]
+
+### Inline math with braces
+
+$\sum_{e \in \E} \beta_{e,i} \cdot \phi_e(t) \leq s_i \big( \rho_i(t) \big)$
+
+$d_e(\rho_e(t))$
+
+$\bar \rho_e = + \infty$
+
+$e \in \mathcal{S}$
+
+---
+
+$\sum_{e \in \E} \beta_{e,i} \cdot \phi_e(t) \leq s_i \big( \rho_i(t) \big)$
+
+$d_e(\rho_e(t))$
+
+$\bar \rho_e = + \infty$
+
+$e \in \mathcal{S}$

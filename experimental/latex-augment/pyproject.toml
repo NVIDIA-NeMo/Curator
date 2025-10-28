@@ -1,0 +1,54 @@
+[project]
+name = "curator-latex-augment"
+version = "0.1"
+description = "LaTeX source augmentation tool"
+license = "Apache-2.0"
+readme = "README.md"
+classifiers = [
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "sentencepiece>=0.2.0",
+    "spacy>=3.8.2",
+    "torch>=2.5.1",
+    "transformers>=4.46.3",
+    "tree-sitter>=0.23.2",
+    "scipy>=1.14.1",
+    "numpy>=2.0.2",
+    "protobuf>=5.29.1",
+    "playwright>=1.51.0",
+    "tree-sitter-latex",
+    "beautifulsoup4>=4.14.2",
+    "webdataset>=1.0.2",
+    "zstandard>=0.25.0",
+    "pillow>=11.3.0",
+]
+
+[dependency-groups]
+dev = [
+    "build>=1.2.2.post1",
+    "ipykernel>=6.29.5",
+    "ipython>=8.29.0",
+    "pip>=24.3.1",
+    "pytest>=8.3.3",
+    "ruff>=0.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test"]
+
+[tool.uv.workspace]
+members = [
+    "tree-sitter-latex",
+]
+
+[tool.uv.sources]
+tree-sitter-latex = { workspace = true }
