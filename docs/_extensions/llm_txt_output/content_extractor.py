@@ -2,6 +2,7 @@
 
 import re
 from typing import Any
+from urllib.parse import urljoin
 
 from docutils import nodes
 from sphinx.environment import BuildEnvironment
@@ -17,6 +18,80 @@ MAX_DESCRIPTION_LENGTH = 200  # For grid cards
 MAX_DESCRIPTION_TRUNCATE = 197  # Leave room for "..."
 MAX_KEY_SECTION_LENGTH = 350  # For key sections (longer for navigation)
 MAX_KEY_SECTION_TRUNCATE = 347  # Leave room for "..."
+
+
+def _clean_card_title(title: str) -> str:
+    """
+    Clean title text by removing octicon references and other artifacts.
+
+    Args:
+        title: Raw title text
+
+    Returns:
+        Cleaned title text
+    """
+    # Remove octicon with various formats
+    title = re.sub(r"\{octicon\}[^{}`]+", "", title)  # {octicon}icon
+    title = re.sub(r"`[^`]*octicon[^`]*`", "", title)  # `octicon...`
+    title = re.sub(r"\{octicon\}`[^`]+`", "", title)  # {octicon}`icon`
+    title = re.sub(r"octicon`[^`]+`", "", title)  # octicon`icon`
+    # Clean remaining backticks
+    title = re.sub(r"`+", "", title)
+    return title.strip()
+
+
+def _truncate_description(description: str, max_length: int = MAX_DESCRIPTION_LENGTH) -> str:
+    """
+    Truncate description text to specified length with ellipsis.
+
+    Args:
+        description: Description text to truncate
+        max_length: Maximum length (default: MAX_DESCRIPTION_LENGTH)
+
+    Returns:
+        Truncated description with "..." if needed
+    """
+    if not description:
+        return ""
+
+    # Clean up description
+    description = re.sub(r"\s+", " ", description).strip()
+
+    if len(description) > max_length:
+        truncate_at = max_length - 3  # Leave room for "..."
+        return description[:truncate_at] + "..."
+
+    return description
+
+
+def _resolve_url(url: str, base_url: str) -> str:
+    """
+    Properly resolve relative URLs to absolute URLs using urllib.parse.urljoin.
+
+    Args:
+        url: Relative or absolute URL
+        base_url: Base URL for resolution
+
+    Returns:
+        Absolute URL
+    """
+    if not url or not base_url:
+        return url
+
+    # Handle anchor-only links
+    if url.startswith("#"):
+        return url
+
+    # Handle external links
+    if url.startswith(("http://", "https://", "ftp://", "mailto:")):
+        return url
+
+    # Ensure base_url ends with / for proper urljoin behavior
+    if not base_url.endswith("/"):
+        base_url = base_url + "/"
+
+    # Use urljoin for proper path resolution
+    return urljoin(base_url, url)
 
 
 def extract_document_content(env: BuildEnvironment, docname: str, settings: dict[str, Any]) -> dict[str, Any]:
@@ -223,8 +298,14 @@ def break_into_paragraphs(text: str, max_paragraph_length: int = 400) -> str:
             continue
 
         # Split long paragraphs at sentence boundaries
-        # Match sentences ending with period, exclamation, or question mark
-        sentences = re.split(r"(?<=[.!?])\s+(?=[A-Z])", para)
+        # Improved regex that avoids splitting on common abbreviations
+        # Matches sentence endings followed by whitespace and capital letter or digit
+        # But not after common abbreviations like Dr., Mr., U.S., etc.
+        sentences = re.split(
+            r"(?<!\b(?:Dr|Mr|Mrs|Ms|Prof|Sr|Jr|vs|etc|i\.e|e\.g|Fig|Vol|No|Ph\.D|U\.S|U\.K))"
+            r"(?<=[.!?])\s+(?=[A-Z0-9])",
+            para,
+        )
 
         current_block = []
         current_length = 0
@@ -358,7 +439,7 @@ def _resolve_reference_target(env: BuildEnvironment, target: str) -> str | None:
     return None
 
 
-def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
+def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_url: str = "") -> list[dict[str, str]]:
     """Extract grid-item-card directives directly from raw markdown source."""
     cards = []
 
@@ -388,15 +469,8 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
             title_line = match.group(1).strip()
             card_body = match.group(2).strip()
 
-            # Extract title and clean thoroughly
-            title = title_line
-            # Remove octicon with various formats
-            title = re.sub(r"\{octicon\}[^{}`]+", "", title)  # {octicon}icon
-            title = re.sub(r"`[^`]*octicon[^`]*`", "", title)  # `octicon...`
-            title = re.sub(r"\{octicon\}`[^`]+`", "", title)  # {octicon}`icon`
-            # Also clean backticks that remain
-            title = re.sub(r"`+", "", title)
-            title = title.strip()
+            # Extract title and clean using helper function
+            title = _clean_card_title(title_line)
 
             # Extract link target
             link_match = re.search(r":link:\s*([^\n]+)", card_body)
@@ -423,34 +497,25 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
                 )  # Replace {{ product_name_short }}
                 description = re.sub(r"\{bdg-[^}]+\}", "", description)  # Remove badge directives
                 description = re.sub(r"`+", "", description)  # Remove backticks
-                description = re.sub(r"\s+", " ", description)
                 description = re.sub(r"^\*\*([^*]+)\*\*\s*-?\s*", r"\1 - ", description)  # Handle **Bold** - text
-                if len(description) > MAX_DESCRIPTION_LENGTH:
-                    description = description[:MAX_DESCRIPTION_TRUNCATE] + "..."
+                description = _truncate_description(description)
 
             # Convert link to absolute URL only if it's an internal link
-            if link:
-                # Check if it's an external link
-                if link.startswith(("http://", "https://", "ftp://", "mailto:")):
-                    # Keep external links as-is
-                    pass
-                elif base_url:
-                    # If link-type is 'ref', resolve the reference target to actual document path
-                    if link_type == "ref":
-                        resolved_doc = _resolve_reference_target(env, link)
-                        if resolved_doc:
-                            link = resolved_doc
-                            if not link.endswith((".html", ".htm")):
-                                link = link + ".html"
-                        else:
-                            logger.debug(f"Could not resolve reference target: {link}")
-                            # Fallback: just append .html
-                            if not link.endswith((".html", ".htm")):
-                                link = link + ".html"
-                    # Internal link - add .html extension if not present
-                    elif not link.endswith((".html", ".htm")):
-                        link = link + ".html"
-                    link = _make_absolute_url(link, base_url)
+            if link and not link.startswith(("http://", "https://", "ftp://", "mailto:")):
+                # If link-type is 'ref', resolve the reference target to actual document path
+                if link_type == "ref":
+                    resolved_doc = _resolve_reference_target(env, link)
+                    if resolved_doc:
+                        link = resolved_doc
+                    else:
+                        logger.debug(f"Could not resolve reference target: {link}")
+
+                # Add .html extension if not present
+                if not link.endswith((".html", ".htm")):
+                    link = link + ".html"
+
+                # Use helper function for proper URL resolution
+                link = _resolve_url(link, base_url)
 
             if title and link:
                 cards.append({"title": title, "description": description, "url": link})
@@ -461,7 +526,7 @@ def _extract_grid_cards_from_markdown(env: BuildEnvironment, docname: str, base_
     return cards
 
 
-def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901, PLR0912, PLR0915
+def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url: str = "") -> list[dict[str, str]]:
     """
     Extract grid-item-card elements by finding reference patterns.
 
@@ -509,19 +574,14 @@ def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url
             continue
         seen_urls.add(link)
 
-        # Get title from link text
-        title = ref.astext().strip()
-
-        # Clean octicon references
-        title = re.sub(r"\{octicon\}[^{}`]+", "", title)
-        title = re.sub(r"octicon`[^`]+`", "", title).strip()
+        # Get title from link text and clean using helper function
+        title = _clean_card_title(ref.astext().strip())
 
         if not title or len(title) < MIN_TITLE_LENGTH:
             continue
 
-        # Convert to absolute URL
-        if base_url:
-            link = _make_absolute_url(link, base_url)
+        # Convert to absolute URL using helper function
+        link = _resolve_url(link, base_url)
 
         # Try to find a description in the same or nearby paragraph
         description = ""
@@ -529,10 +589,7 @@ def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url
 
         # Check if parent paragraph has more text
         if isinstance(parent, nodes.paragraph):
-            parent_text = parent.astext().strip()
-            # Clean octicons
-            parent_text = re.sub(r"\{octicon\}[^{}`]+", "", parent_text)
-            parent_text = re.sub(r"octicon`[^`]+`", "", parent_text).strip()
+            parent_text = _clean_card_title(parent.astext().strip())
 
             # If parent has more text than just the title, use it as description
             if len(parent_text) > len(title) + 10:
@@ -551,18 +608,14 @@ def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url
                     if parent_idx + 1 < len(parent_node.children):
                         next_node = parent_node.children[parent_idx + 1]
                         if isinstance(next_node, nodes.paragraph):
-                            desc_text = next_node.astext().strip()
-                            # Clean octicons
-                            desc_text = re.sub(r"\{octicon\}[^{}`]+", "", desc_text)
-                            desc_text = re.sub(r"octicon`[^`]+`", "", desc_text).strip()
+                            desc_text = _clean_card_title(next_node.astext().strip())
                             if desc_text and desc_text != title:
                                 description = desc_text
             except (ValueError, IndexError, AttributeError):
                 pass
 
-        # Truncate long descriptions
-        if description and len(description) > MAX_DESCRIPTION_LENGTH:
-            description = description[:MAX_DESCRIPTION_TRUNCATE] + "..."
+        # Truncate long descriptions using helper function
+        description = _truncate_description(description)
 
         cards.append({"title": title, "description": description, "url": link})
 
@@ -581,86 +634,70 @@ def _extract_grid_cards(env: BuildEnvironment, doctree: nodes.document, base_url
                 continue
             seen_urls.add(link)
 
-            # Get title from the text content
-            title = pxref.astext().strip()
-
-            # Clean octicon references
-            title = re.sub(r"\{octicon\}[^{}`]+", "", title)
-            title = re.sub(r"octicon`[^`]+`", "", title).strip()
+            # Get title from the text content and clean using helper function
+            title = _clean_card_title(pxref.astext().strip())
 
             if not title or len(title) < MIN_TITLE_LENGTH:
                 continue
 
-            # Convert to absolute URL - reftarget might be a reference target
-            if base_url:
-                # Check if this is a reference target (like 'gs-text')
-                # Try to resolve it to the actual document path
-                reftype = attrs.get("reftype", "")
-                if reftype in {"ref", ""}:
-                    # Try to resolve as a reference target
-                    resolved_doc = _resolve_reference_target(env, link)
-                    if resolved_doc:
-                        link = resolved_doc
+            # Resolve reference target if needed
+            reftype = attrs.get("reftype", "")
+            if reftype in {"ref", ""}:
+                resolved_doc = _resolve_reference_target(env, link)
+                if resolved_doc:
+                    link = resolved_doc
 
-                # Add .html extension if not present
-                if not link.endswith((".html", ".htm")):
-                    link = link + ".html"
-                link = _make_absolute_url(link, base_url)
+            # Add .html extension if not present
+            if not link.endswith((".html", ".htm")):
+                link = link + ".html"
+
+            # Use helper function for proper URL resolution
+            link = _resolve_url(link, base_url)
 
             # Try to find description
             description = ""
             parent = pxref.parent
             if isinstance(parent, nodes.paragraph):
-                parent_text = parent.astext().strip()
-                parent_text = re.sub(r"\{octicon\}[^{}`]+", "", parent_text)
-                parent_text = re.sub(r"octicon`[^`]+`", "", parent_text).strip()
+                parent_text = _clean_card_title(parent.astext().strip())
 
                 if len(parent_text) > len(title) + 10:
                     description = parent_text.replace(title, "").strip()
                     description = re.sub(r"^[\s\-:•]+", "", description)
                     description = re.sub(r"[\s\-:•]+$", "", description)
 
-            if description and len(description) > MAX_DESCRIPTION_LENGTH:
-                description = description[:MAX_DESCRIPTION_TRUNCATE] + "..."
+            # Truncate description using helper function
+            description = _truncate_description(description)
 
             cards.append({"title": title, "description": description, "url": link})
 
     return cards
 
 
-def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[str, str] | None:  # noqa: C901, PLR0912, PLR0915
+def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[str, str] | None:
     """Extract title, description, and link from a grid card."""
     card_title = ""
     card_description = ""
     card_link = ""
 
-    # Get all text from the card first
-    full_text = card_node.astext().strip()
+    # Get all text from the card first and clean using helper function
+    full_text = _clean_card_title(card_node.astext().strip())
     logger.debug(f"Card full text: {full_text[:100]}")
-
-    # Clean octicon references from full text
-    full_text = re.sub(r"\{octicon\}[^{}`]+", "", full_text)
-    full_text = re.sub(r"octicon`[^`]+`", "", full_text)
 
     # Extract link first - this is most reliable
     for node in card_node.traverse(nodes.reference):
         if hasattr(node, "attributes"):
             attrs = node.attributes
-            # Get link text as potential title
-            link_text = node.astext().strip()
-            if link_text:
-                # Clean octicon from link text
-                link_text = re.sub(r"\{octicon\}[^{}`]+", "", link_text)
-                link_text = re.sub(r"octicon`[^`]+`", "", link_text).strip()
-                if not card_title and link_text:
-                    card_title = link_text
+            # Get link text as potential title and clean using helper function
+            link_text = _clean_card_title(node.astext().strip())
+            if link_text and not card_title:
+                card_title = link_text
 
             # Get URL
             if "refuri" in attrs:
                 link = attrs["refuri"]
                 # Skip external links
                 if not link.startswith(("http://", "https://", "ftp://", "mailto:")):
-                    card_link = _make_absolute_url(link, base_url) if base_url else link
+                    card_link = _resolve_url(link, base_url)
                     logger.debug(f"Found card link: {card_link}")
                     break
 
@@ -668,9 +705,7 @@ def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[s
     if not card_title:
         for node in card_node.traverse():
             if isinstance(node, (nodes.strong, nodes.emphasis)):
-                text = node.astext().strip()
-                text = re.sub(r"\{octicon\}[^{}`]+", "", text)
-                text = re.sub(r"octicon`[^`]+`", "", text).strip()
+                text = _clean_card_title(node.astext().strip())
                 if text and len(text) > MIN_TITLE_LENGTH:
                     card_title = text
                     break
@@ -688,10 +723,7 @@ def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[s
     # Extract description (all paragraphs)
     paragraphs = []
     for node in card_node.traverse(nodes.paragraph):
-        text = node.astext().strip()
-        # Clean octicon references
-        text = re.sub(r"\{octicon\}[^{}`]+", "", text)
-        text = re.sub(r"octicon`[^`]+`", "", text).strip()
+        text = _clean_card_title(node.astext().strip())
 
         # Don't include text that's part of the title
         if text and text != card_title and not card_title.startswith(text):
@@ -699,10 +731,8 @@ def _extract_card_info(card_node: nodes.container, base_url: str = "") -> dict[s
 
     if paragraphs:
         card_description = " ".join(paragraphs)
-        # Clean up
-        card_description = re.sub(r"\s+", " ", card_description)
-        if len(card_description) > MAX_DESCRIPTION_LENGTH:
-            card_description = card_description[:MAX_DESCRIPTION_TRUNCATE] + "..."
+        # Truncate using helper function
+        card_description = _truncate_description(card_description)
 
     logger.debug(
         f"Card extraction result - Title: {card_title}, Link: {card_link}, Desc: {card_description[:50] if card_description else 'None'}"
@@ -732,7 +762,7 @@ def _extract_section_preview(section_node: nodes.section, max_chars: int = 150) 
     return ""
 
 
-def _extract_internal_links(doctree: nodes.document, max_links: int = 10, base_url: str = "") -> list[dict[str, str]]:  # noqa: C901
+def _extract_internal_links(doctree: nodes.document, max_links: int = 10, base_url: str = "") -> list[dict[str, str]]:
     """Extract internal links from document and convert to absolute URLs."""
     links = []
     seen_urls = set()
@@ -758,10 +788,9 @@ def _extract_internal_links(doctree: nodes.document, max_links: int = 10, base_u
             elif "reftarget" in attrs:
                 link_url = attrs["reftarget"]
 
-        # Convert relative URLs to absolute URLs if base_url is provided
-        if link_url and base_url and not link_url.startswith(("http://", "https://", "#")):
-            # Clean up the link URL (remove .html extensions for cleaner URLs)
-            link_url = _make_absolute_url(link_url, base_url)
+        # Convert relative URLs to absolute URLs using helper function
+        if link_url and not link_url.startswith(("http://", "https://", "#")):
+            link_url = _resolve_url(link_url, base_url)
 
         # Add if we have valid text and URL, and haven't seen it before
         if link_text and link_url and link_url not in seen_urls:
@@ -769,32 +798,6 @@ def _extract_internal_links(doctree: nodes.document, max_links: int = 10, base_u
             seen_urls.add(link_url)
 
     return links
-
-
-def _make_absolute_url(relative_url: str, base_url: str) -> str:
-    """Convert relative URL to absolute URL."""
-    # Remove leading slashes and ../ references
-    url = relative_url.strip()
-
-    # Handle anchor-only links
-    if url.startswith("#"):
-        return url
-
-    # Remove leading ./
-    url = url.removeprefix("./")
-
-    # Handle ../ references (go up one level)
-    # For simplicity, we'll just remove them and join with base
-    # A more sophisticated approach would track directory depth
-    url = url.replace("../", "")
-
-    # Ensure base_url doesn't end with /
-    base = base_url.rstrip("/")
-
-    # Ensure url doesn't start with /
-    url = url.lstrip("/")
-
-    return f"{base}/{url}"
 
 
 def _extract_metadata(env: BuildEnvironment, docname: str) -> dict[str, Any]:
@@ -826,6 +829,9 @@ def _extract_frontmatter(file_path: str) -> dict[str, Any] | None:
 
         with open(file_path, encoding="utf-8") as f:
             content = f.read()
+
+        # Normalize line endings to handle Windows CRLF
+        content = content.replace("\r\n", "\n").replace("\r", "\n")
 
         if content.startswith("---"):
             end_marker = content.find("\n---\n", 3)
