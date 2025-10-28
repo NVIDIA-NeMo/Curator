@@ -142,7 +142,9 @@ class GlinerPiiRedactor(ProcessingStage[DocumentBatch, DocumentBatch]):
     def redact_entities(self, text: str, entities: list[dict[str, Any]]) -> str:
         for entity in entities:
             # Replace "text" with "{label}"
-            text = text.replace(entity["text"], f"{{{entity['label']}}}")
+            # Only replace the first instance of the entity text
+            # This is safe because the "entities" list is returned in the order that they appear in the text
+            text = text.replace(entity["text"], f"{{{entity['label']}}}", 1)
         return text
 
     def process(self, batch: DocumentBatch) -> DocumentBatch | None:
