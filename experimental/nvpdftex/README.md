@@ -33,7 +33,7 @@ Required components:
 * [nvtexlive](https://github.com/NVIDIA/nvtexlive) - The modified version of TeX Live which includes TeX and LaTeX
 * [nvtexpy](https://github.com/NVIDIA/nvtexpy) - The engine which receives signals from the TeX compiler and translates those into boxes with labels and markdown content
 * The launcher script in this repository (`process_latex.py`)
-* Optionally: latex-augment - The augmentation tools
+* Optionally: [latex-augment](../latex-augment/) - The augmentation tools
 
 ### Set up All Repos
 
