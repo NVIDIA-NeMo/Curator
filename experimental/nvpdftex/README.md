@@ -30,8 +30,8 @@ Check out the augmentation tools 👉 [here](../latex-augment/).
 
 Required components:
 
-* nvtexlive - The modified version of TeX Live which includes TeX and LaTeX
-* nvtexpy - The engine which receives signals from the TeX compiler and translates those into boxes with labels and markdown content
+* [nvtexlive](https://github.com/NVIDIA/nvtexlive) - The modified version of TeX Live which includes TeX and LaTeX
+* [nvtexpy](https://github.com/NVIDIA/nvtexpy) - The engine which receives signals from the TeX compiler and translates those into boxes with labels and markdown content
 * The launcher script in this repository (`process_latex.py`)
 * Optionally: latex-augment - The augmentation tools
 
