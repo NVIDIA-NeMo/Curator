@@ -1,3 +1,14 @@
+# These three paths must be defined and are used to resolve the paths for
+# results, artifacts, and datasets.
+# If running inside a Docker container started with tools/run.sh, the paths
+# will automatically be mapped to the following container paths:
+#  - results_path: /results
+#  - artifacts_path: /artifacts
+#  - datasets_path: /datasets
+# If running on the host, the paths will remain as defined below.
+# Paths can be used in other values in this file by using their placeholder
+# (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
+# appropriate path at runtime.
 results_path: /raid/rratzel/benchmarking/curator/results
 artifacts_path: /raid/rratzel/benchmarking/curator/artifacts
 datasets_path: /raid
