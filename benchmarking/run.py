@@ -48,8 +48,6 @@ from runner.ray_cluster import (
 )
 from runner.utils import get_obj_for_json, resolve_env_vars
 
-default_config_file = _this_script_dir / "config.yaml"
-
 
 def ensure_dir(dir_path: Path) -> None:
     """Ensure dir_path and parents exists, creating them if necessary."""
@@ -188,10 +186,10 @@ def main() -> None:
         "--config",
         type=Path,
         action="append",
+        required=True,
         help=(
             "Path to YAML config for benchmark matrix, machine paths, etc. Can be "
-            "specified multiple times to merge configs. If not specified, "
-            f"{default_config_file} will be used."
+            "specified multiple times to merge configs."
         ),
     )
     parser.add_argument(
@@ -203,7 +201,7 @@ def main() -> None:
 
     # Consolidate the configuration from all YAML files into a single dict
     config_dict = {}
-    for yml_file in args.config or [default_config_file]:
+    for yml_file in args.config:
         with open(yml_file) as f:
             config_dicts = yaml.full_load_all(f)
             for d in config_dicts:

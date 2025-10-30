@@ -123,7 +123,7 @@ class MatrixConfig:
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:
         """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["paths", "entries"]
+        required_fields = ["results_path", "artifacts_path", "datasets_path", "entries"]
         missing_fields = [k for k in required_fields if k not in data]
         if missing_fields:
             msg = f"Invalid configuration: missing required fields: {missing_fields}"
@@ -139,7 +139,7 @@ class MatrixConfig:
         entry dicts to MatrixEntry objects, and returns a new MatrixConfig
         object.
         """
-        path_resolver = PathResolver(data.get("paths", {}))
+        path_resolver = PathResolver(data)
         dataset_resolver = DatasetResolver(data.get("datasets", []))
 
         # Filter out data not needed for a MatrixConfig object.
