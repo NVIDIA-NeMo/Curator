@@ -69,7 +69,7 @@ class GdriveSink(Sink):
             logger.warning("GdriveSink: Not enabled, skipping post.")
 
     def _tar_results_and_artifacts(self) -> Path:
-        results_path = Path(self.matrix_config.results_dir)
+        results_path = Path(self.matrix_config.results_path)
         artifacts_path = Path(self.matrix_config.artifacts_dir)
         tar_path = results_path / f"{self.session_name}.tar.gz"
         with tarfile.open(tar_path, "w:gz") as tar:
