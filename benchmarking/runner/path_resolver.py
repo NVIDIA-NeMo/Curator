@@ -28,30 +28,13 @@ class PathResolver:
         """
         :param data: dictionary containing the paths for results, artifacts, and datasets
         """
-        # Determine if running inside a Docker container
-        # This is a commonly-used heuristic: /proc/1/cgroup often includes 'docker' or 'kubepods' in containers
-        in_docker = False
-        try:
-            with open("/proc/1/cgroup") as f:
-                contents = f.read()
-                if "docker" in contents or "kubepods" in contents:
-                    self.in_docker = True
-        except FileNotFoundError:
-            # If /proc/1/cgroup doesn't exist, assume not in Docker
-            in_docker = False
-
-        if in_docker:
-            self.path_map = {
-                "results_path": CONTAINER_RESULTS_DIR,
-                "artifacts_path": CONTAINER_ARTIFACTS_DIR,
-                "datasets_path": CONTAINER_DATASETS_DIR,
-            }
-        else:
-            self.path_map = {
-                "results_path": data["results_path"],
-                "artifacts_path": data["artifacts_path"],
-                "datasets_path": data["datasets_path"],
-            }
+        # TODO: Is this the best way to determine if running inside a Docker container?
+        in_docker = Path("/.dockerenv").exists()
+        self.path_map = {
+            "results_path": CONTAINER_RESULTS_DIR if in_docker else data["results_path"],
+            "artifacts_path": CONTAINER_ARTIFACTS_DIR if in_docker else data["artifacts_path"],
+            "datasets_path": CONTAINER_DATASETS_DIR if in_docker else data["datasets_path"],
+        }
 
     def resolve(self, dir_type: str) -> Path:
         """
