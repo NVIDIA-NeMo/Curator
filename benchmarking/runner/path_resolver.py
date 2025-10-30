@@ -13,55 +13,52 @@
 # limitations under the License.
 
 from pathlib import Path
-from typing import Any
+
+CONTAINER_RESULTS_DIR = "/results"
+CONTAINER_ARTIFACTS_DIR = "/artifacts"
+CONTAINER_DATASETS_DIR = "/datasets"
 
 
 class PathResolver:
     """
-    Resolves host/container paths loaded from a dictionary parsed from YAML,
-    as in the 'paths' section of a YAML config.
-    Example YAML config:
-    paths:
-      results_dir:
-        container: /path/to/results
-        host: /path/to/results
-      artifacts_dir:
-        container: /path/to/artifacts
-        host: /path/to/artifacts
-      datasets_dir:
-        container: /path/to/datasets
-        host: /path/to/datasets
-
-    Resulting dictionary returned from yaml.safe_load() for the above 'paths' section:
-    {
-      "results_dir": {"container": "/path/to/results", "host": "/path/to/results"},
-      "artifacts_dir": {"container": "/path/to/artifacts", "host": "/path/to/artifacts"},
-      "datasets_dir": {"container": "/path/to/datasets", "host": "/path/to/datasets"},
-    }
+    Resolves host/container paths for results, artifacts, and datasets.
     """
 
-    def __init__(self, paths_dict: dict[str, dict[str, Any]]) -> None:
+    def __init__(self, data: dict) -> None:
         """
-        :param paths_dict: dictionary mapping dir_type to dicts containing 'container' and/or 'host'
+        :param data: dictionary containing the paths for results, artifacts, and datasets
         """
-        self.paths_dict: dict[str, dict[str, Any]] = paths_dict
+        # Determine if running inside a Docker container
+        # This is a commonly-used heuristic: /proc/1/cgroup often includes 'docker' or 'kubepods' in containers
+        in_docker = False
+        try:
+            with open("/proc/1/cgroup") as f:
+                contents = f.read()
+                if "docker" in contents or "kubepods" in contents:
+                    self.in_docker = True
+        except FileNotFoundError:
+            # If /proc/1/cgroup doesn't exist, assume not in Docker
+            in_docker = False
+
+        if in_docker:
+            self.path_map = {
+                "results_path": CONTAINER_RESULTS_DIR,
+                "artifacts_path": CONTAINER_ARTIFACTS_DIR,
+                "datasets_path": CONTAINER_DATASETS_DIR,
+            }
+        else:
+            self.path_map = {
+                "results_path": data["results_path"],
+                "artifacts_path": data["artifacts_path"],
+                "datasets_path": data["datasets_path"],
+            }
 
     def resolve(self, dir_type: str) -> Path:
         """
-        Given a directory type (e.g., 'results_dir'), return the first
-        existing path among 'container' and 'host'. Checks 'container' first, then 'host'.
-        Returns the path (Path) if found, else raises FileNotFoundError.
+        Given a directory type (e.g., 'results_path'), return the path.
         """
-        if dir_type not in self.paths_dict:
-            msg = f"Unknown dir_type: {dir_type}, expected one of: {', '.join(self.paths_dict.keys())}"
+        if dir_type not in self.path_map:
+            msg = f"Unknown dir_type: {dir_type}"
             raise ValueError(msg)
 
-        dvals: dict[str, Any] = self.paths_dict[dir_type]
-        for key in ("container", "host"):
-            path = Path(dvals.get(key))
-            if path and path.exists():
-                return path
-
-        msg = f"No existing path found for '{dir_type}'. Checked: "
-        msg += f"container={dvals.get('container')}, host={dvals.get('host')}"
-        raise FileNotFoundError(msg)
+        return Path(self.path_map[dir_type])

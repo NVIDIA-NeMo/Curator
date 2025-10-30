@@ -1,13 +1,6 @@
-paths:
-  results_path:
-    container: /data/benchmarking/results
-    host: /raid/rratzel/benchmarking/curator/results
-  artifacts_path:
-    container: /data/benchmarking/artifacts
-    host: /raid/rratzel/benchmarking/curator/artifacts
-  datasets_path:
-    container: /data/datasets
-    host: /raid
+results_path: /raid/rratzel/benchmarking/curator/results
+artifacts_path: /raid/rratzel/benchmarking/curator/artifacts
+datasets_path: /raid
 
 datasets:
   - name: "tinystories_train"
