@@ -135,7 +135,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         VOLUME_MOUNTS.append(f"--volume {config_file_host}:{container_config_file_path}")
         # Only add modified --config args if running the benchmark tool entrypoint, not the shell entrypoint.
         if not args.shell:
-            ENTRYPOINT_ARGS.append(f"--config {container_config_file_path}")
+            ENTRYPOINT_ARGS.append(f"--config={container_config_file_path}")
 
     # Print final vars for eval in bash
     print(f"BASH_ENTRYPOINT_OVERRIDE={BASH_ENTRYPOINT_OVERRIDE}")
