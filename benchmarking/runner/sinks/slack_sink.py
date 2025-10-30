@@ -304,7 +304,7 @@ if __name__ == "__main__":
                     yield json.load(f)
 
     sink_config = {"webhook_url": webhook_url}
-    matrix_config = MatrixConfig(results_dir=results_root_path, artifacts_dir=results_root_path)
+    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_dir=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)

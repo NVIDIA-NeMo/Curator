@@ -17,46 +17,63 @@
 # Assume this script is in the <repo_root>/benchmarking/tools directory
 THIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-GPUS=${GPUS:-'"device=1"'}
-
 DOCKER_IMAGE=${DOCKER_IMAGE:-nemo_curator_benchmarking:latest}
-
-# Note: The CONTAINER_* env vars will also be set in the container so
-# they can be used for specifying paths in YAML config files.
-LOCAL_CURATOR_DIR=${LOCAL_CURATOR_DIR:-"$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"}
-CONTAINER_CURATOR_DIR=/opt/Curator
-
-LOCAL_DATASETS_DIR=${LOCAL_DATASETS_DIR:-"/datasets/curator"}
-CONTAINER_DATASETS_DIR=/data/datasets
-
-LOCAL_RESULTS_DIR=${LOCAL_RESULTS_DIR:-"/home/rratzel/tmp/curator_benchmark_results/results"}
-CONTAINER_RESULTS_DIR=/data/benchmarking/results
-
-LOCAL_ARTIFACTS_DIR=${LOCAL_ARTIFACTS_DIR:-"/home/rratzel/tmp/curator_benchmark_results/artifacts"}
-CONTAINER_ARTIFACTS_DIR=/data/benchmarking/artifacts
-
+GPUS=${GPUS:-'"device=1"'}
+HOST_CURATOR_DIR=${HOST_CURATOR_DIR:-"$(cd ${THIS_SCRIPT_DIR}/../.. && pwd)"}
+CONTAINER_CURATOR_DIR="/opt/Curator"
+HOST_PATHS_CONFIG_FILE=${HOST_PATHS_CONFIG_FILE:-$(realpath "${THIS_SCRIPT_DIR}/../config.yaml")}
 
 ################################################################################################################
+# Get directory paths from ${HOST_PATHS_CONFIG_FILE}
+get_dir_from_paths_config() {
+    local dir_name=$1
+    local dir_type=$2
+    # TODO: Calling python is rather slow, consider requiring yq instead.
+    python -c "import yaml; print(yaml.safe_load(open('${HOST_PATHS_CONFIG_FILE}'))['paths']['${dir_name}']['${dir_type}'].replace('\"',''))" 2>/dev/null
+}
+if [ -f "${HOST_PATHS_CONFIG_FILE}" ]; then
+    HOST_RESULTS_DIR=${HOST_RESULTS_DIR:-$(get_dir_from_paths_config 'results_path' 'host')}
+    CONTAINER_RESULTS_DIR=$(get_dir_from_paths_config 'results_path' 'container')
+    HOST_ARTIFACTS_DIR=${HOST_ARTIFACTS_DIR:-$(get_dir_from_paths_config 'artifacts_path' 'host')}
+    CONTAINER_ARTIFACTS_DIR=$(get_dir_from_paths_config 'artifacts_path' 'container')
+    HOST_DATASETS_DIR=${HOST_DATASETS_DIR:-$(get_dir_from_paths_config 'datasets_path' 'host')}
+    CONTAINER_DATASETS_DIR=$(get_dir_from_paths_config 'datasets_path' 'container')
+fi
+
 if [[ "$1" == "-h" || "$1" == "--help" ]]; then
     # Show help and exit. Do this here to allow for help options to be passed to the container when other args are present.
     echo "Usage: $(basename "$0") [OPTIONS] [ARGS ...]"
     echo ""
     echo "Options:"
-    echo "  --use-local-curator      Mount \$LOCAL_CURATOR_DIR (see below) into the container for benchmarking/debugging local sources without rebuilding the image."
+    echo "  --use-host-curator       Mount \$HOST_CURATOR_DIR into the container for benchmarking/debugging curator sources without rebuilding the image."
     echo "  --shell                  Start an interactive bash shell instead of running benchmarks. ARGS, if specified, will be passed to 'bash -c'."
     echo "                           For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container."
     echo "  -h, --help               Show this help message and exit."
     echo ""
     echo "ARGS, if specified, are passed to the container entrypoint, either the default benchmarking entrypoint or the --shell bash entrypoint."
     echo ""
-    echo "Environment variables:"
-    echo "  GPUS                     --gpus parameter for docker (using: ${GPUS})"
-    echo "  DOCKER_IMAGE             Docker image to use (using: ${DOCKER_IMAGE})"
-    echo "  LOCAL_CURATOR_DIR        Local Curator repo path (using: ${LOCAL_CURATOR_DIR})"
-    echo "  LOCAL_DATASETS_DIR       Path to datasets on the host (using: ${LOCAL_DATASETS_DIR})"
-    echo "  LOCAL_RESULTS_DIR        Results output directory on the host (using: ${LOCAL_RESULTS_DIR})"
-    echo "  LOCAL_ARTIFACTS_DIR      Artifacts output directory on the host (using: ${LOCAL_ARTIFACTS_DIR})"
+    echo "Optional environment variables to override config and defaults:"
+    echo "  HOST_PATHS_CONFIG_FILE    YAML file containing the mapping of container to host directory paths (using: ${HOST_PATHS_CONFIG_FILE})"
+    echo "  GPUS                      Value for --gpus option to docker run (using: ${GPUS})"
+    echo "  DOCKER_IMAGE              Docker image to use (using: ${DOCKER_IMAGE})"
+    echo "  HOST_CURATOR_DIR          Curator repo path used with --use-host-curator (see above) (using: ${HOST_CURATOR_DIR})"
+    echo "  HOST_DATASETS_DIR         Path to datasets on the host (using: ${HOST_DATASETS_DIR})"
+    echo "  HOST_RESULTS_DIR          Results output directory on the host (using: ${HOST_RESULTS_DIR})"
+    echo "  HOST_ARTIFACTS_DIR        Artifacts output directory on the host (using: ${HOST_ARTIFACTS_DIR})"
     exit 0
+fi
+
+if [ ! -d "${HOST_RESULTS_DIR}" ]; then
+    echo "Error: Host results directory not found: \"${HOST_RESULTS_DIR}\". Ensure HOST_RESULTS_DIR is set or ${HOST_PATHS_CONFIG_FILE} is configured correctly."
+    exit 1
+fi
+if [ ! -d "${HOST_ARTIFACTS_DIR}" ]; then
+    echo "Error: Host artifacts directory not found: \"${HOST_ARTIFACTS_DIR}\". Ensure HOST_ARTIFACTS_DIR is set or ${HOST_PATHS_CONFIG_FILE} is configured correctly."
+    exit 1
+fi
+if [ ! -d "${HOST_DATASETS_DIR}" ]; then
+    echo "Error: Host datasets directory not found: \"${HOST_DATASETS_DIR}\". Ensure HOST_DATASETS_DIR is set or ${HOST_PATHS_CONFIG_FILE} is configured correctly."
+    exit 1
 fi
 
 CURATOR_SOURCE_DIR_OVERRIDE=""
@@ -66,8 +83,8 @@ while [[ $# -gt 0 ]]
 do
     key="$1"
     case $key in
-        --use-local-curator)
-            CURATOR_SOURCE_DIR_OVERRIDE="--volume ${LOCAL_CURATOR_DIR}:${CONTAINER_CURATOR_DIR}"
+        --use-host-curator)
+            CURATOR_SOURCE_DIR_OVERRIDE="--volume ${HOST_CURATOR_DIR}:${CONTAINER_CURATOR_DIR}"
             shift
             ;;
         --shell)
@@ -105,12 +122,9 @@ docker run \
   --gpus=${GPUS} \
   \
   ${CURATOR_SOURCE_DIR_OVERRIDE} \
-  --volume ${LOCAL_DATASETS_DIR}:${CONTAINER_DATASETS_DIR} \
-  --volume ${LOCAL_RESULTS_DIR}:${CONTAINER_RESULTS_DIR} \
-  --volume ${LOCAL_ARTIFACTS_DIR}:${CONTAINER_ARTIFACTS_DIR} \
-  --env=CONTAINER_DATASETS_DIR=${CONTAINER_DATASETS_DIR} \
-  --env=CONTAINER_RESULTS_DIR=${CONTAINER_RESULTS_DIR} \
-  --env=CONTAINER_ARTIFACTS_DIR=${CONTAINER_ARTIFACTS_DIR} \
+  --volume ${HOST_DATASETS_DIR}:${CONTAINER_DATASETS_DIR} \
+  --volume ${HOST_RESULTS_DIR}:${CONTAINER_RESULTS_DIR} \
+  --volume ${HOST_ARTIFACTS_DIR}:${CONTAINER_ARTIFACTS_DIR} \
   \
   --env=IMAGE_DIGEST=${IMAGE_DIGEST} \
   --env=MLFLOW_TRACKING_URI=blank \

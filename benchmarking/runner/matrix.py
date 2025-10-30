@@ -22,8 +22,9 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 if TYPE_CHECKING:
-    from .datasets import DatasetResolver
-    from .sinks.sink import Sink
+    from runner.sinks.sink import Sink
+from runner.datasets import DatasetResolver
+from runner.path_resolver import PathResolver
 
 
 @dataclass
@@ -38,14 +39,18 @@ class MatrixEntry:
     delete_scratch: bool | None = None
 
     def get_command_to_run(
-        self, session_entry_path: Path, benchmark_results_path: Path, resolver: DatasetResolver
+        self,
+        session_entry_path: Path,
+        benchmark_results_path: Path,
+        path_resolver: PathResolver,
+        dataset_resolver: DatasetResolver,
     ) -> str:
         if self.script:
             script_path = self.script_base_dir / self.script
             # TODO: should --benchmark-results-path always be passed?
             cmd = f"python {script_path} {self.args or ''} --benchmark-results-path={benchmark_results_path}"
 
-            cmd = self.substitute_datasets_in_cmd(cmd, resolver)
+            cmd = self.substitute_paths_in_cmd(cmd, path_resolver, dataset_resolver)
             cmd = self.substitute_template_placeholders(cmd, session_entry_path)
         else:
             msg = f"Entry {self.name} must specify either cmd or script"
@@ -54,15 +59,21 @@ class MatrixEntry:
         return cmd
 
     @staticmethod
-    def substitute_datasets_in_cmd(cmd: str, resolver: DatasetResolver) -> str:
-        pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
+    def substitute_paths_in_cmd(cmd: str, path_resolver: PathResolver, dataset_resolver: DatasetResolver) -> str:
+        dataset_pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
 
-        def _replace(match: re.Match[str]) -> str:
+        def _replace_dataset(match: re.Match[str]) -> str:
             dataset_name = match.group(1).strip()
             dataset_format = match.group(2).strip()
-            return resolver.resolve(dataset_name, dataset_format)
+            return str(dataset_resolver.resolve(dataset_name, dataset_format))
 
-        return pattern.sub(_replace, cmd)
+        path_pattern = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+        def _replace_path(match: re.Match[str]) -> str:
+            path_name = match.group(1).strip()
+            return str(path_resolver.resolve(path_name))
+
+        return path_pattern.sub(_replace_path, dataset_pattern.sub(_replace_dataset, cmd))
 
     @staticmethod
     def substitute_template_placeholders(cmd: str, session_entry_path: Path) -> str:
@@ -81,16 +92,15 @@ class MatrixEntry:
 
 @dataclass(frozen=True, kw_only=True)
 class MatrixConfig:
-    results_dir: str
-    artifacts_dir: str
+    results_path: Path
+    artifacts_path: Path
     entries: list[MatrixEntry]
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
-    mlflow: dict[str, Any] = field(default_factory=dict)
-    wandb: dict[str, Any] = field(default_factory=dict)
-    slack: dict[str, Any] = field(default_factory=dict)
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
+    path_resolver: PathResolver = None
+    dataset_resolver: DatasetResolver = None
 
     def __post_init__(self) -> None:
         """Post-initialization checks and updates for dataclass."""
@@ -111,9 +121,9 @@ class MatrixConfig:
                 entry.timeout_s = self.default_timeout_s
 
     @classmethod
-    def assert_valid_config(cls, data: dict) -> None:
+    def assert_valid_config_dict(cls, data: dict) -> None:
         """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_dir", "artifacts_dir", "entries"]
+        required_fields = ["paths", "entries"]
         missing_fields = [k for k in required_fields if k not in data]
         if missing_fields:
             msg = f"Invalid configuration: missing required fields: {missing_fields}"
@@ -129,16 +139,28 @@ class MatrixConfig:
         entry dicts to MatrixEntry objects, and returns a new MatrixConfig
         object.
         """
+        path_resolver = PathResolver(data.get("paths", {}))
+        dataset_resolver = DatasetResolver(data.get("datasets", []))
+
+        # Filter out data not needed for a MatrixConfig object.
         mc_field_names = {f.name for f in fields(cls)}
         mc_data = {k: v for k, v in data.items() if k in mc_field_names}
-        sinks = cls.load_sinks(mc_data["sinks"])
-        mc_data["sinks"] = sinks
-        entries = [MatrixEntry(**e) for e in mc_data["entries"]]
+        sinks = cls.create_sinks_from_dict(mc_data["sinks"])
+        # Load entries only if enabled (enabled by default)
+        # TODO: should entries be created unconditionally and have an "enabled" field instead?
+        entries = [MatrixEntry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
+
+        mc_data["results_path"] = path_resolver.resolve("results_path")
+        mc_data["artifacts_path"] = path_resolver.resolve("artifacts_path")
         mc_data["entries"] = entries
+        mc_data["sinks"] = sinks
+        mc_data["path_resolver"] = path_resolver
+        mc_data["dataset_resolver"] = dataset_resolver
+
         return cls(**mc_data)
 
     @classmethod
-    def load_sinks(cls, sink_configs: list[dict]) -> list[Sink]:
+    def create_sinks_from_dict(cls, sink_configs: list[dict]) -> list[Sink]:
         """Load sinks from the list of sink configuration dictionaries."""
         sinks = []
         for sink_config in sink_configs:

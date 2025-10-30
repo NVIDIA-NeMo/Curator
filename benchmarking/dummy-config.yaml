@@ -20,10 +20,10 @@ sinks:
     tracking_uri: ${MLFLOW_TRACKING_URI}
     experiment: ray-curator-common-crawl
   - name: slack
-    enabled: false
+    enabled: true
     webhook_url: ${SLACK_WEBHOOK_URL}
   - name: gdrive
-    enabled: true
+    enabled: false
     drive_folder_id: ${GDRIVE_FOLDER_ID}
     service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 

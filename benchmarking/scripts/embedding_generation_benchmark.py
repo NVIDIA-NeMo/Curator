@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Embedding generation benchmarking script.
+
+This script runs embedding generation benchmarks with comprehensive metrics collection
+using various executors and logs results to configured sinks.
+"""
+
+import argparse
+import json
+import os
+import pickle
+import time
+import traceback
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+
+
+def run_embedding_generation_benchmark(  # noqa: PLR0913
+    input_path: str,
+    output_path: str,
+    executor_name: str,
+    dataset_size_gb: float,
+    model_identifier: str,
+    model_inference_batch_size: int,
+    benchmark_results_path: str,
+) -> dict[str, Any]:
+    """Run the embedding generation benchmark and collect comprehensive metrics."""
+
+    # Setup executor
+    if executor_name == "ray_data":
+        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+
+        executor = RayDataExecutor()
+    elif executor_name == "xenna":
+        from nemo_curator.backends.xenna import XennaExecutor
+
+        executor = XennaExecutor()
+    else:
+        msg = f"Executor {executor_name} not supported"
+        raise ValueError(msg)
+
+    # Ensure output directory
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+
+    logger.info("Starting embedding generation benchmark")
+    logger.info(f"Input path: {input_path}")
+    logger.info(f"Dataset size: {dataset_size_gb} GB")
+    logger.info(f"Model: {model_identifier}")
+    logger.info(f"Batch size: {model_inference_batch_size}")
+
+    run_start_time = time.perf_counter()
+
+    try:
+        # TODO: Implement actual embedding generation pipeline
+        # This would typically involve:
+        # 1. Loading the dataset
+        # 2. Loading the embedding model (e.g., sentence-transformers)
+        # 3. Running inference on the dataset to generate embeddings
+        # 4. Writing results to output_path
+
+        # Placeholder for actual implementation
+        logger.info("Running embedding generation pipeline...")
+        logger.info(f"Loading model: {model_identifier}")
+        logger.debug(f"Using executor: {executor}")
+
+        # Example: Load data from input_path
+        # dataset = load_dataset(input_path, dataset_size_gb) # noqa: ERA001
+
+        # Example: Load embedding model
+        # from sentence_transformers import SentenceTransformer # noqa: ERA001
+        # model = SentenceTransformer(model_identifier) # noqa: ERA001
+
+        # Example: Run embedding generation
+        # embedder = EmbeddingGenerator(model=model, batch_size=model_inference_batch_size) # noqa: ERA001
+        # output_tasks = embedder.generate_embeddings(dataset, executor) # noqa: ERA001
+
+        # For now, return empty tasks list
+        output_tasks = []
+        num_documents_processed = 0
+        num_embeddings_generated = 0
+        embedding_dimension = 0
+
+        run_time_taken = time.perf_counter() - run_start_time
+        logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
+        logger.success(f"Processed {num_documents_processed} documents")
+        logger.success(f"Generated {num_embeddings_generated} embeddings")
+        success = True
+
+    except Exception as e:  # noqa: BLE001
+        error_traceback = traceback.format_exc()
+        logger.error(f"Benchmark failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
+        output_tasks = []
+        run_time_taken = time.perf_counter() - run_start_time
+        num_documents_processed = 0
+        num_embeddings_generated = 0
+        embedding_dimension = 0
+        success = False
+
+    return {
+        "params": {
+            "executor": executor_name,
+            "input_path": input_path,
+            "output_path": output_path,
+            "dataset_size_gb": dataset_size_gb,
+            "model_identifier": model_identifier,
+            "model_inference_batch_size": model_inference_batch_size,
+            "benchmark_results_path": benchmark_results_path,
+        },
+        "metrics": {
+            "is_success": success,
+            "time_taken": run_time_taken,
+            "num_documents_processed": num_documents_processed,
+            "num_embeddings_generated": num_embeddings_generated,
+            "embedding_dimension": embedding_dimension,
+            "num_output_tasks": len(output_tasks),
+            "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
+            "throughput_embeddings_per_sec": num_embeddings_generated / run_time_taken if run_time_taken > 0 else 0,
+        },
+        "tasks": output_tasks,
+    }
+
+
+def write_results(results: dict, output_path: str | None = None) -> None:
+    """Write results to a file or stdout."""
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    with open(os.path.join(output_path, "params.json"), "w") as f:
+        json.dump(results["params"], f, indent=2)
+    with open(os.path.join(output_path, "metrics.json"), "w") as f:
+        json.dump(results["metrics"], f, indent=2)
+    with open(os.path.join(output_path, "tasks.pkl"), "wb") as f:
+        pickle.dump(results["tasks"], f)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Embedding generation benchmark")
+    # Paths
+    parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
+    parser.add_argument("--input-path", required=True, help="Path to input data")
+    parser.add_argument("--output-path", default="./embedding_generation_output", help="Output directory for results")
+    # Executor
+    parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
+    # Pipeline Specific
+    parser.add_argument("--dataset-size-gb", type=float, required=True, help="Size of dataset to process in GB")
+    parser.add_argument(
+        "--model-identifier",
+        type=str,
+        required=True,
+        help="Model identifier (e.g., sentence-transformers/all-MiniLM-L6-v2)",
+    )
+    parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
+
+    args = parser.parse_args()
+
+    logger.info("=== Embedding Generation Benchmark Starting ===")
+    logger.info(f"Arguments: {vars(args)}")
+
+    try:
+        results = run_embedding_generation_benchmark(
+            input_path=args.input_path,
+            output_path=args.output_path,
+            executor_name=args.executor,
+            dataset_size_gb=args.dataset_size_gb,
+            model_identifier=args.model_identifier,
+            model_inference_batch_size=args.model_inference_batch_size,
+            benchmark_results_path=args.benchmark_results_path,
+        )
+
+    except Exception as e:  # noqa: BLE001
+        error_traceback = traceback.format_exc()
+        print(f"Benchmark failed: {e}")
+        logger.debug(f"Full traceback:\n{error_traceback}")
+        results = {
+            "params": vars(args),
+            "metrics": {
+                "is_success": False,
+            },
+            "tasks": [],
+        }
+    finally:
+        write_results(results, args.benchmark_results_path)
+
+    # Return proper exit code based on success
+    return 0 if results["metrics"]["is_success"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

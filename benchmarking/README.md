@@ -4,7 +4,6 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 ## Table of Contents
 
-- [Overview](#overview)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
 - [Installation & Setup](#installation--setup)
@@ -17,29 +16,14 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 
 ---
 
-## Overview
-
-The NeMo Curator Benchmarking Framework helps developers:
-
-- **Measure Performance**: Run benchmarks to measure execution time, throughput, and resource utilization
-- **Track Quality**: Monitor performance trends over time through, receive notifications, and more through configurable sinks (MLflow, Slack, etc.)
-- **Ensure Reproducibility**: Use Docker containers for consistent environments across runs
-- **Automate Testing**: Integrate benchmarks into CI/CD pipelines
-- **Compare Implementations**: Test different configurations, algorithms, or data processing strategies
-
-The framework orchestrates benchmark scripts, collects metrics, manages environments, and delivers results through multiple reporting channels.
-
----
-
 ## Quick Start
 
 ### Using Docker (Recommended)
 
 **1. Build the Docker image:**
-
+Assuming the working directory is the NeMo Curator repo root dir
 ```bash
-cd benchmarking/tools
-./build_docker.sh
+./benchmarking/tools/build_docker.sh
 ```
 
 **2. Create a simple configuration file** (e.g., `my_benchmark.yaml`):
@@ -57,9 +41,7 @@ entries:
 **3. Run the benchmark:**
 
 ```bash
-# Using the provided run.sh script
-cd benchmarking/tools
-./run.sh
+./benchmarking/tools/run.sh
 ```
 
 Or manually:
@@ -89,10 +71,10 @@ A **session** represents a single invocation of the benchmarking framework. Each
 
 ### Entry
 
-An **entry** is a single benchmark task within a session. Each entry:
+An **entry** is a single benchmark run within a session. Each entry:
 - Runs a specific benchmark script with defined arguments
-- Has its own timeout, Ray configuration, and scratch directory
-- Produces metrics, parameters, and task performance data
+- Has its own timeout, Ray configuration, and scratch directory, or can inherit from sessin-wide defaults
+- Produces metrics, parameters, and run performance data
 - Can reference datasets using template syntax
 
 Example entry:

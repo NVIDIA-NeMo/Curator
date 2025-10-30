@@ -1,0 +1,117 @@
+paths:
+  results_path:
+    container: /data/benchmarking/results
+    host: /raid/rratzel/benchmarking/curator/results
+  artifacts_path:
+    container: /data/benchmarking/artifacts
+    host: /raid/rratzel/benchmarking/curator/artifacts
+  datasets_path:
+    container: /data/datasets
+    host: /raid
+
+datasets:
+  - name: "tinystories_train"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/prospector-lm/clean/tinystories_train_parquet"
+
+default_timeout_s: 7200
+
+# Optional sinks
+sinks:
+  - name: mlflow
+    enabled: false
+    tracking_uri: ${MLFLOW_TRACKING_URI}
+    experiment: ray-curator-common-crawl
+  - name: slack
+    enabled: true
+    webhook_url: ${SLACK_WEBHOOK_URL}
+#  - name: gdrive
+#    enabled: false
+#    drive_folder_id: ${GDRIVE_FOLDER_ID}
+#    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
+
+# Whether to delete scratch dirs after each run
+delete_scratch: true
+
+entries:
+  - name: domain_classification_raydata
+    script: domain_classification_benchmark.py
+    args: >-
+      --executor=ray_data
+      --input-path={dataset:tinystories_train,parquet}
+      --dataset-size-gb=10
+      --model-inference-batch-size=1024
+    timeout_s: 20000
+    ray:
+      num_cpus: 4
+      num_gpus: 0
+      enable_object_spilling: false
+  - name: domain_classification_xenna
+    enabled: false
+    script: domain_classification_benchmark.py
+    args: >-
+      --executor=xenna
+      --input-path={dataset:tinystories_train,parquet}
+      --dataset-size-gb=10
+      --model-inference-batch-size=1024
+    timeout_s: 20000
+  - name: embedding_generation_raydata
+    script: embedding_generation_benchmark.py
+    args: >-
+      --executor=ray_data
+      --input-path={dataset:tinystories_train,parquet}
+      --dataset-size-gb=10
+      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
+      --model-inference-batch-size=1024
+    timeout_s: 20000
+    ray:
+      num_cpus: 4
+      num_gpus: 0
+      enable_object_spilling: false
+  - name: embedding_generation_xenna
+    enabled: false
+    script: embedding_generation_benchmark.py
+    args: >-
+      --executor=xenna
+      --input-path={dataset:tinystories_train,parquet}
+      --dataset-size-gb=10
+      --model-identifier=sentence-transformers/all-MiniLM-L6-v2
+      --model-inference-batch-size=1024
+    timeout_s: 20000
+  - name: removal_raydata
+    enabled: false
+    script: removal_benchmark.py
+    args: >-
+      --executor=ray_data
+      --input-path={dataset:tinystories_train,parquet}
+      --ids-to-remove-path=some_path
+      --id-generator-path=some_path
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --input-fields=id,text
+      --input-id-field=CURATOR_DEDUP_ID_STR
+      --input-files-per-partition=1
+      --ids-to-remove-fields=id
+      --output-filetype=parquet
+    timeout_s: 20000
+    ray:
+      num_cpus: 4
+      num_gpus: 0
+      enable_object_spilling: false
+  - name: removal_xenna
+    enabled: false
+    script: removal_benchmark.py
+    args: >-
+      --executor=xenna
+      --input-path={dataset:tinystories_train,parquet}
+      --ids-to-remove-path=some_path
+      --id-generator-path=some_path
+      --output-path={session_entry_dir}/scratch/output
+      --input-filetype=parquet
+      --input-fields=id,text
+      --input-id-field=CURATOR_DEDUP_ID_STR
+      --input-files-per-partition=1
+      --ids-to-remove-fields=id
+      --output-filetype=parquet
+    timeout_s: 20000

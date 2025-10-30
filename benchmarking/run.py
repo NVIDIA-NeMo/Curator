@@ -40,6 +40,7 @@ sys.path.insert(0, _this_script_dir)
 from runner.datasets import DatasetResolver
 from runner.env_capture import dump_env
 from runner.matrix import MatrixConfig, MatrixEntry
+from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
     setup_ray_cluster_and_env,
@@ -93,6 +94,7 @@ def get_entry_script_persisted_data(benchmark_results_path: Path) -> dict[str, A
 
 def run_entry(
     entry: MatrixEntry,
+    path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
     session_path: Path,
     result: dict[str, Any],
@@ -108,7 +110,7 @@ def run_entry(
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "benchmark_results"]
     ]
 
-    cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, dataset_resolver)
+    cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, path_resolver, dataset_resolver)
     run_id = result.get("run_id", f"{entry.name}-{int(time.time())}")
 
     try:
@@ -208,18 +210,17 @@ def main() -> None:
                 config_dict.update(d)
     # Preprocess the config dict prior to creating objects from it
     try:
-        MatrixConfig.assert_valid_config(config_dict)
+        MatrixConfig.assert_valid_config_dict(config_dict)
         config_dict = resolve_env_vars(config_dict)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
     config = MatrixConfig.create_from_dict(config_dict)
-    resolver = DatasetResolver.create_from_dicts(config_dict.get("datasets", []))
 
     # Create session folder under results_dir
     session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d__%H-%M-%S")
-    session_path = (Path(config.results_dir) / session_name).absolute()
+    session_path = (config.results_path / session_name).absolute()
     ensure_dir(session_path)
 
     session_overall_success = True
@@ -241,7 +242,8 @@ def main() -> None:
         try:
             run_success = run_entry(
                 entry=entry,
-                dataset_resolver=resolver,
+                path_resolver=config.path_resolver,
+                dataset_resolver=config.dataset_resolver,
                 session_path=session_path,
                 result=result,
             )
