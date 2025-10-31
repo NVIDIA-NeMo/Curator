@@ -28,7 +28,7 @@ sinks:
 #    tracking_uri: ${MLFLOW_TRACKING_URI}
 #    experiment: ray-curator-common-crawl
   - name: slack
-    enabled: true
+    enabled: false
     webhook_url: ${SLACK_WEBHOOK_URL}
 #  - name: gdrive
 #    enabled: false
@@ -40,6 +40,7 @@ delete_scratch: true
 
 entries:
   - name: domain_classification_raydata
+    enabled: false
     script: domain_classification_benchmark.py
     args: >-
       --executor=ray_data
@@ -61,6 +62,7 @@ entries:
       --model-inference-batch-size=1024
     timeout_s: 20000
   - name: embedding_generation_raydata
+    enabled: true
     script: embedding_generation_benchmark.py
     args: >-
       --executor=ray_data

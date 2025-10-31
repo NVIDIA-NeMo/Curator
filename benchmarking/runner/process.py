@@ -40,6 +40,7 @@ def run_command_with_timeout(  # noqa: PLR0913
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     run_id: str | None = None,
+    fancy: bool = True,
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming output to a log file.
@@ -53,14 +54,15 @@ def run_command_with_timeout(  # noqa: PLR0913
         stdouterr_path: Path to the file for writing combined stdout and stderr.
         env: Optional dictionary of environment variables.
         run_id: Optional run ID to identify the run.
-        collapse_on_success: If True and command succeeds, collapses live window output (only for interactive mode).
+        fancy: If True, displays subprocess output in a live, scrolling window.
+        collapse_on_success: If True and command succeeds, collapses live window output (only for fancy=True and interactive mode).
 
     Returns:
         dict: Contains 'returncode' and 'timed_out' fields.
     """
     cmd_list = command if isinstance(command, list) else shlex.split(command)
 
-    if sys.stdout.isatty():
+    if sys.stdout.isatty() and fancy:
         return display_scrolling_subprocess(
             cmd_list,
             timeout=timeout,

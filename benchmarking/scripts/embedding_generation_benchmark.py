@@ -21,7 +21,6 @@ using various executors and logs results to configured sinks.
 
 import argparse
 import json
-import os
 import pickle
 import time
 import traceback
@@ -30,73 +29,80 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
+from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+
+_executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
+
 
 def run_embedding_generation_benchmark(  # noqa: PLR0913
-    input_path: str,
-    output_path: str,
+    input_path: Path,
+    output_path: Path,
     executor_name: str,
     dataset_size_gb: float,
     model_identifier: str,
     model_inference_batch_size: int,
-    benchmark_results_path: str,
+    benchmark_results_path: Path,
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
 
     # Setup executor
-    if executor_name == "ray_data":
-        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-        executor = RayDataExecutor()
-    elif executor_name == "xenna":
-        from nemo_curator.backends.xenna import XennaExecutor
-
-        executor = XennaExecutor()
-    else:
+    try:
+        executor = _executor_map[executor_name]()
+    except KeyError:
         msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg)
+        raise ValueError(msg) from None
 
     # Ensure output directory
-    Path(output_path).mkdir(parents=True, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     logger.info("Starting embedding generation benchmark")
     logger.info(f"Input path: {input_path}")
     logger.info(f"Dataset size: {dataset_size_gb} GB")
     logger.info(f"Model: {model_identifier}")
     logger.info(f"Batch size: {model_inference_batch_size}")
+    logger.debug(f"Executor: {executor}")
 
     run_start_time = time.perf_counter()
 
     try:
-        # TODO: Implement actual embedding generation pipeline
-        # This would typically involve:
-        # 1. Loading the dataset
-        # 2. Loading the embedding model (e.g., sentence-transformers)
-        # 3. Running inference on the dataset to generate embeddings
-        # 4. Writing results to output_path
-
-        # Placeholder for actual implementation
         logger.info("Running embedding generation pipeline...")
-        logger.info(f"Loading model: {model_identifier}")
-        logger.debug(f"Using executor: {executor}")
 
-        # Example: Load data from input_path
-        # dataset = load_dataset(input_path, dataset_size_gb) # noqa: ERA001
+        input_files = load_dataset_files(input_path, dataset_size_gb)
 
-        # Example: Load embedding model
-        # from sentence_transformers import SentenceTransformer # noqa: ERA001
-        # model = SentenceTransformer(model_identifier) # noqa: ERA001
+        executor = RayDataExecutor() if executor_name == "ray_data" else XennaExecutor()
 
-        # Example: Run embedding generation
-        # embedder = EmbeddingGenerator(model=model, batch_size=model_inference_batch_size) # noqa: ERA001
-        # output_tasks = embedder.generate_embeddings(dataset, executor) # noqa: ERA001
+        pipeline = Pipeline(
+            name="embedding_generation_pipeline",
+            stages=[
+                ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False),
+                EmbeddingCreatorStage(
+                    model_identifier=model_identifier,
+                    text_field="text",
+                    max_seq_length=None,
+                    max_chars=None,
+                    embedding_pooling="mean_pooling",
+                    model_inference_batch_size=model_inference_batch_size,
+                ),
+                ParquetWriter(path=str(output_path), fields=["embedding"]),
+            ],
+        )
+        output_tasks = pipeline.run(executor)
+        run_time_taken = time.perf_counter() - run_start_time
 
-        # For now, return empty tasks list
-        output_tasks = []
-        num_documents_processed = 0
-        num_embeddings_generated = 0
+        num_documents_processed = sum(
+            task._metadata.get("num_documents", 0) for task in output_tasks if hasattr(task, "_metadata")
+        )
+        num_embeddings_generated = sum(
+            task._metadata.get("num_embeddings", 0) for task in output_tasks if hasattr(task, "_metadata")
+        )
         embedding_dimension = 0
 
-        run_time_taken = time.perf_counter() - run_start_time
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} documents")
         logger.success(f"Generated {num_embeddings_generated} embeddings")
@@ -116,12 +122,12 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     return {
         "params": {
             "executor": executor_name,
-            "input_path": input_path,
-            "output_path": output_path,
+            "input_path": str(input_path),
+            "output_path": str(output_path),
             "dataset_size_gb": dataset_size_gb,
             "model_identifier": model_identifier,
             "model_inference_batch_size": model_inference_batch_size,
-            "benchmark_results_path": benchmark_results_path,
+            "benchmark_results_path": str(benchmark_results_path),
         },
         "metrics": {
             "is_success": success,
@@ -137,23 +143,40 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     }
 
 
-def write_results(results: dict, output_path: str | None = None) -> None:
-    """Write results to a file or stdout."""
-    Path(output_path).mkdir(parents=True, exist_ok=True)
-    with open(os.path.join(output_path, "params.json"), "w") as f:
-        json.dump(results["params"], f, indent=2)
-    with open(os.path.join(output_path, "metrics.json"), "w") as f:
-        json.dump(results["metrics"], f, indent=2)
-    with open(os.path.join(output_path, "tasks.pkl"), "wb") as f:
-        pickle.dump(results["tasks"], f)
+def write_results(results: dict[str, Any], output_path: Path) -> None:
+    """Write results to files required by the benchmarking framework at the given path."""
+    output_path.mkdir(parents=True, exist_ok=True)
+    (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
+    (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
+    (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+
+
+def load_dataset_files(dataset_path: Path, dataset_size_gb: float) -> list[str]:
+    """Load the dataset files at the given path and return a subset of the files whose combined size is approximately the given size in GB."""
+    input_files = get_all_file_paths_and_size_under(
+        dataset_path, recurse_subdirectories=True, keep_extensions="parquet"
+    )
+    desired_size_bytes = (1024**3) * dataset_size_gb
+    total_size = 0
+    subset_files = []
+    for file, size in input_files:
+        if size + total_size > desired_size_bytes:
+            break
+        else:
+            subset_files.append(file)
+            total_size += size
+
+    return subset_files
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Embedding generation benchmark")
     # Paths
-    parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
-    parser.add_argument("--input-path", required=True, help="Path to input data")
-    parser.add_argument("--output-path", default="./embedding_generation_output", help="Output directory for results")
+    parser.add_argument("--benchmark-results-path", type=Path, required=True, help="Path to benchmark results")
+    parser.add_argument("--input-path", required=True, type=Path, help="Path to input data")
+    parser.add_argument(
+        "--output-path", default=Path("./embedding_generation_output"), type=Path, help="Output directory for results"
+    )
     # Executor
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
     # Pipeline Specific

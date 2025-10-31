@@ -37,6 +37,7 @@ class MatrixEntry:
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
+    enabled: bool = True
 
     def get_command_to_run(
         self,
