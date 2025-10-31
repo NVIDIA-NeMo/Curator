@@ -19,18 +19,21 @@ It consists of the following steps:
 Step 1: Set up pipeline for synthetic data generation using a multilingual Q&A prompt
 Step 2: Run the pipeline executor to generate data batches with the LLM client
 Step 3: Optionally Filter output using language and score filters
-Step 4: Print pipeline description and show generated documents
+Step 4: Write the generated data to JSONL format
+Step 5: Print pipeline description and show generated documents
 """
 
 import argparse
 import os
 import time
 
-from nemo_curator.backends.xenna import XennaExecutor
+import pandas as pd
+
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
+from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 
 
@@ -99,10 +102,10 @@ def parse_args() -> argparse.Namespace:
         "--prompt", type=str, default=None, help="Custom prompt template (must include {language} placeholder)"
     )
     parser.add_argument(
-        "--benchmark-output",
+        "--output-path",
         type=str,
-        default=None,
-        help="Optional file path to save benchmark results",
+        default="./synthetic_output",
+        help="Directory path to save the generated synthetic data in JSONL format",
     )
 
     return parser.parse_args()
@@ -162,17 +165,22 @@ def main() -> None:
             ),
         )
 
+    # Add JSONL writer to save the generated data
+    pipeline.add_stage(
+        JsonlWriter(
+            path=args.output_path,
+        )
+    )
+
     # Print pipeline description
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
 
-    # Create executor
-    executor = XennaExecutor()
 
     # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
     start_time = time.time()
-    results = pipeline.run(executor)
+    results = pipeline.run()
     end_time = time.time()
 
     elapsed_time = end_time - start_time
@@ -180,39 +188,33 @@ def main() -> None:
     # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
-    print(f"Total output documents: {len(results) if results else 0}")
 
-    # Calculate throughput if documents were generated
+    # Collect output file paths and read generated data
+    output_files = []
+    all_data_frames = []
     if results:
-        total_docs = sum(len(batch.data) for batch in results)
-        if total_docs > 0:
-            print(f"Throughput: {total_docs / elapsed_time:.2f} documents/second")
-            print(f"Average time per document: {elapsed_time / total_docs:.2f} seconds")
+        print(f"\nGenerated data saved to: {args.output_path}")
+        for result in results:
+            if hasattr(result, "data") and result.data:
+                for file_path in result.data:
+                    print(f"  - {file_path}")
+                    output_files.append(file_path)
+                    # Read the JSONL file to get the actual data
+                    df = pd.read_json(file_path, lines=True)
+                    all_data_frames.append(df)
 
-            # Save benchmark results if output file is specified
-            if args.benchmark_output:
-                with open(args.benchmark_output, "a") as f:
-                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                    f.write(f"Model: {args.model_name}\n")
-                    f.write(f"Num Samples: {args.num_samples}\n")
-                    f.write(f"Languages: {', '.join(args.languages)}\n")
-                    f.write(f"Max Concurrent Requests: {args.max_concurrent_requests}\n")
-                    f.write(f"Total Execution Time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)\n")
-                    f.write(f"Total Documents Generated: {total_docs}\n")
-                    f.write(f"Throughput: {total_docs / elapsed_time:.2f} documents/second\n")
-                    f.write(f"Average Time per Document: {elapsed_time / total_docs:.2f} seconds\n")
-                    f.write("-" * 80 + "\n\n")
-                print(f"\nBenchmark results saved to: {args.benchmark_output}")
-
-    if results:
-        for i, document_batch in enumerate(results):
-            print(f"\nDocument Batch {i}:")
-            print(f"Number of documents: {len(document_batch.data)}")
-            print("\nGenerated text:")
-            for j, text in enumerate(document_batch.data["text"]):
-                print(f"Document {j + 1}:")
-                print(f"'{text}'")
-                print("-" * 40)
+    # Display sample of generated documents
+    print("\n" + "=" * 50)
+    print("Sample of generated documents:")
+    print("=" * 50)
+    for i, df in enumerate(all_data_frames):
+        print(f"\nFile {i + 1}: {output_files[i]}")
+        print(f"Number of documents: {len(df)}")
+        print("\nGenerated text (showing first 5):")
+        for j, text in enumerate(df["text"].head(5)):
+            print(f"Document {j + 1}:")
+            print(f"'{text}'")
+            print("-" * 40)
 
 
 if __name__ == "__main__":
