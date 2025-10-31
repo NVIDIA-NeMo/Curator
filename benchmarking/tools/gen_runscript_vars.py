@@ -86,10 +86,10 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
     # It will be removed before parsing the rest of the args.
     if len(argv) > 1:
         script_name = Path(argv[1]).name
-        # Show help and exit if --help is passed as first arg. All other options including are passed to the
-        # container entrypoint including -h and --help if other args are present. This provides a way for
-        # -h|--help to be passed to the container entrypoint while still allowing for -h|--help output for
-        # the run.sh script.
+        # Show help and exit if -h|--help is passed as first arg. All other options are passed to the
+        # container entrypoint including -h|--help if other args are present. This provides a way for
+        # -h|--help to be passed to the container entrypoint while still allowing for -h|--help output
+        # for the run.sh script.
         if len(argv) > 2 and argv[2] in ("-h", "--help"):  # noqa: PLR2004
             print_help(script_name)
             sys.exit(1)
@@ -106,20 +106,21 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
     parser.add_argument("--shell", action="store_true")
     parser.add_argument("--config", action="append", type=Path, default=[])
 
-    args, unknown = parser.parse_known_args(argv[1:])
+    args, unknown_args = parser.parse_known_args(argv[1:])
 
     # Set volume mount for host curator directory.
     if args.use_host_curator:
-        # Do not use combine_dir_paths here since CONTAINER_CURATOR_DIR is assumed to be a unique absolute path (e.g., /opt/Curator from Dockerfile).
+        # Do not use combine_dir_paths here since CONTAINER_CURATOR_DIR is assumed to be a unique absolute
+        # path (e.g., /opt/Curator from Dockerfile).
         volume_mounts.append(f"--volume {Path(HOST_CURATOR_DIR).absolute()}:{CONTAINER_CURATOR_DIR}")
 
     # Set entrypoint to bash if --shell is passed.
     if args.shell:
         bash_entrypoint_override = "--entrypoint=bash"
-        if len(unknown) > 0:
-            entrypoint_args.extend(["-c", " ".join(unknown)])
+        if len(unknown_args) > 0:
+            entrypoint_args.extend(["-c", " ".join(unknown_args)])
     else:
-        entrypoint_args.extend(unknown)
+        entrypoint_args.extend(unknown_args)
 
     # Parse config files and set volume mounts for results, artifacts, and datasets.
     if args.config:
@@ -153,16 +154,18 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
                 msg = f"Path value {path_type} not found in config file(s)."
                 raise ValueError(msg)
 
-    # Add volume mounts for each config file so the script in the container can read each one and add each to ENTRYPOINT_ARGS.
+    # Add volume mounts for each config file so the script in the container can read each one
+    # and add each to ENTRYPOINT_ARGS.
     for config_file in args.config:
         config_file_host = config_file.absolute().expanduser().resolve()
         container_dir_path = combine_dir_paths(CONTAINER_CONFIG_DIR_ROOT, config_file_host)
         volume_mounts.append(f"--volume {config_file_host}:{container_dir_path}")
-        # Only add modified --config args if running the benchmark tool entrypoint, not the shell entrypoint.
+        # Only add modified --config args if running the benchmark tool entrypoint, not the
+        # bash shell entrypoint.
         if not args.shell:
             entrypoint_args.append(f"--config={container_dir_path}")
 
-    # Build the string to eval in bash
+    # Build and return the string to eval in bash.
     eval_str = ""
     eval_str += f"BASH_ENTRYPOINT_OVERRIDE={bash_entrypoint_override}\n"
     eval_str += f"DOCKER_IMAGE={DOCKER_IMAGE}\n"
