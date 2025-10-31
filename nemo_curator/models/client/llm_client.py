@@ -26,7 +26,7 @@ class ConversationFormatter(ABC):
 
     @abstractmethod
     def format_conversation(self, conv: list[dict]) -> str:
-        msg = "format_converstaion must be implemented by subclasses"
+        msg = "format_conversation must be implemented by subclasses"
         raise NotImplementedError(msg)
 
 @dataclass
@@ -126,7 +126,7 @@ class AsyncLLMClient(ABC):
             generation_config = GenerationConfig()
 
         # Initialize semaphore if not already done or if we're in a different event loop
-        current_loop = asyncio.get_event_loop()
+        current_loop = asyncio.get_running_loop()
         if self._semaphore is None or self._semaphore_loop != current_loop:
             self._semaphore = asyncio.Semaphore(self.max_concurrent_requests)
             self._semaphore_loop = current_loop
