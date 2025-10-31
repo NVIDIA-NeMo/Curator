@@ -29,8 +29,8 @@ import time
 
 import pandas as pd
 
-from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.core.client import RayClient
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
