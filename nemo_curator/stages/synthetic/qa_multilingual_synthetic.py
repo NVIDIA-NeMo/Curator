@@ -128,12 +128,21 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
 
 
 class LanguageFilter(DocumentFilter):
+    """Filter documents based on language prefix codes.
+
+    Keeps documents that start with any of the specified language codes.
+    Designed to work with prompts that instruct LLMs to prefix responses
+    with language codes (e.g., [EN], [FR], [DE]).
+    """
 
     def __init__(self, languages: list[str]):
         self._name = "language_filter"
         self.languages = languages
 
+
     def score_document(self, text: str) -> float:
+        if not self.languages:
+            return 1.0 # If no languages are specified, keep all documents
         return 1.0 if text.startswith(tuple(self.languages)) else 0.0
 
     def keep_document(self, score: float) -> bool:

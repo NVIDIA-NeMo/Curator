@@ -491,6 +491,22 @@ class TestLanguageFilter:
         assert filter_instance.score_document("english text") == 0.0
         assert filter_instance.score_document("ENGLISH text") == 0.0
 
+    def test_filter_empty_language_list(self) -> None:
+        """Test filter with empty language list keeps all documents."""
+        filter_instance = LanguageFilter([])
+
+        # With empty language list, should keep all documents (return 1.0)
+        assert filter_instance.score_document("English text") == 1.0
+        assert filter_instance.score_document("Spanish text") == 1.0
+        assert filter_instance.score_document("[EN] Some text") == 1.0
+        assert filter_instance.score_document("[FR] Autre texte") == 1.0
+        assert filter_instance.score_document("Any text at all") == 1.0
+        assert filter_instance.score_document("") == 1.0  # Even empty text
+
+        # Verify keep_document also returns True
+        score = filter_instance.score_document("Any text")
+        assert filter_instance.keep_document(score) is True
+
     def test_integration_score_and_keep(self) -> None:
         """Test integration of score_document and keep_document."""
         filter_instance = LanguageFilter(["Python", "Java", "JavaScript"])
