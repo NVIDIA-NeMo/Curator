@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nemo_curator.models.client.llm_client import AsyncLLMClient, LLMClient
+from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
 
 
 class TestLLMClient:
@@ -82,6 +82,40 @@ class TestAsyncLLMClient:
 
         client = TestAsyncLLMClient()
         result = await client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
+        assert result == ["test response"]
+
+    @pytest.mark.asyncio
+    async def test_query_model_dict_generation_config(self) -> None:
+        """Test that generation_config dict is properly converted to GenerationConfig."""
+
+        class TestAsyncLLMClient(AsyncLLMClient):
+            def setup(self) -> None:
+                pass
+
+            async def _query_model_impl(
+                self,
+                *,
+                messages: Iterable,  # noqa: ARG002
+                model: str,  # noqa: ARG002
+                generation_config: GenerationConfig | None = None,
+                **kwargs: object,  # noqa: ARG002
+            ) -> list[str]:
+                # Verify that generation_config was converted from dict to GenerationConfig
+                assert isinstance(generation_config, GenerationConfig)
+                assert generation_config.max_tokens == 512
+                assert generation_config.temperature == 0.7
+                assert generation_config.top_p == 0.9
+                return ["test response"]
+
+        client = TestAsyncLLMClient()
+
+        # Pass generation_config as a dictionary
+        config_dict = {"max_tokens": 512, "temperature": 0.7, "top_p": 0.9}
+        result = await client.query_model(
+            messages=[{"role": "user", "content": "test"}],
+            model="test-model",
+            generation_config=config_dict,
+        )
         assert result == ["test response"]
 
     @pytest.mark.asyncio

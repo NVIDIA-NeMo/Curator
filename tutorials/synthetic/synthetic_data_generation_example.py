@@ -24,6 +24,7 @@ Step 4: Print pipeline description and show generated documents
 
 import argparse
 import os
+import time
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
@@ -97,6 +98,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--prompt", type=str, default=None, help="Custom prompt template (must include {language} placeholder)"
     )
+    parser.add_argument(
+        "--benchmark-output",
+        type=str,
+        default=None,
+        help="Optional file path to save benchmark results",
+    )
 
     return parser.parse_args()
 
@@ -162,13 +169,40 @@ def main() -> None:
     # Create executor
     executor = XennaExecutor()
 
-    # Execute pipeline
+    # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
+    start_time = time.time()
     results = pipeline.run(executor)
+    end_time = time.time()
+
+    elapsed_time = end_time - start_time
 
     # Print results
     print("\nPipeline completed!")
+    print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
     print(f"Total output documents: {len(results) if results else 0}")
+
+    # Calculate throughput if documents were generated
+    if results:
+        total_docs = sum(len(batch.data) for batch in results)
+        if total_docs > 0:
+            print(f"Throughput: {total_docs / elapsed_time:.2f} documents/second")
+            print(f"Average time per document: {elapsed_time / total_docs:.2f} seconds")
+
+            # Save benchmark results if output file is specified
+            if args.benchmark_output:
+                with open(args.benchmark_output, "a") as f:
+                    f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    f.write(f"Model: {args.model_name}\n")
+                    f.write(f"Num Samples: {args.num_samples}\n")
+                    f.write(f"Languages: {', '.join(args.languages)}\n")
+                    f.write(f"Max Concurrent Requests: {args.max_concurrent_requests}\n")
+                    f.write(f"Total Execution Time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)\n")
+                    f.write(f"Total Documents Generated: {total_docs}\n")
+                    f.write(f"Throughput: {total_docs / elapsed_time:.2f} documents/second\n")
+                    f.write(f"Average Time per Document: {elapsed_time / total_docs:.2f} seconds\n")
+                    f.write("-" * 80 + "\n\n")
+                print(f"\nBenchmark results saved to: {args.benchmark_output}")
 
     if results:
         for i, document_batch in enumerate(results):

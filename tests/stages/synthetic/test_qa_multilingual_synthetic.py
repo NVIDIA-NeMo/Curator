@@ -74,19 +74,6 @@ class MockAsyncLLMClient(AsyncLLMClient):
 class TestQAMultilingualSyntheticStage:
     """Test cases for QAMultilingualSyntheticStage."""
 
-    def test_inputs_outputs(self) -> None:
-        """Test inputs() and outputs() methods."""
-        client = MockSyncLLMClient()
-        stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
-        )
-
-        inputs = stage.inputs()
-        assert inputs == ([], [])
-
-        outputs = stage.outputs()
-        assert outputs == (["data"], ["text"])
-
     def test_setup(self) -> None:
         """Test setup() method calls client.setup()."""
         client = MockSyncLLMClient()

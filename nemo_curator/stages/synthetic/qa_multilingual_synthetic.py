@@ -21,6 +21,7 @@ import secrets
 from dataclasses import dataclass
 
 import pandas as pd
+from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
@@ -74,7 +75,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         """Process samples using synchronous client (sequential)."""
         responses = []
         for i in range(self.num_samples):
-            print(f"Generating sample {i + 1}/{self.num_samples} (sync)...")
+            logger.info(f"Generating sample {i + 1}/{self.num_samples} (sync)...")
             language = secrets.choice(self.languages)
             prompt = self.prompt.format(language=language)
             response = self.client.query_model(

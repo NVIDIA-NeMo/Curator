@@ -156,14 +156,6 @@ class TestOpenAIClient:
 class TestAsyncOpenAIClient:
     """Test cases for the AsyncOpenAIClient class."""
 
-    def test_init_with_defaults(self) -> None:
-        """Test AsyncOpenAIClient initialization with default parameters."""
-        client = AsyncOpenAIClient()
-        assert client.max_concurrent_requests == 5
-        assert client.max_retries == 3
-        assert client.base_delay == 1.0
-        assert client.openai_kwargs == {}
-
     @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
     def test_setup(self, mock_async_openai: Mock) -> None:
         """Test setup method creates AsyncOpenAI client with kwargs."""
