@@ -42,7 +42,7 @@ class OpenAIClient(LLMClient):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        generation_config: GenerationConfig | None = None,
+        generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
         if conversation_formatter is not None:
             warnings.warn("conversation_formatter is not used in an OpenAIClient", stacklevel=2)
@@ -50,6 +50,8 @@ class OpenAIClient(LLMClient):
         # Use default config if none provided
         if generation_config is None:
             generation_config = GenerationConfig()
+        elif isinstance(generation_config, dict):
+            generation_config = GenerationConfig(**generation_config)
 
         if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an OpenAIClient", stacklevel=2)
@@ -76,11 +78,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
     """
 
     def __init__(
-        self,
-        max_concurrent_requests: int = 5,
-        max_retries: int = 3,
-        base_delay: float = 1.0,
-        **kwargs
+        self, max_concurrent_requests: int = 5, max_retries: int = 3, base_delay: float = 1.0, **kwargs
     ) -> None:
         """
         Initialize the AsyncOpenAI client.
@@ -108,7 +106,7 @@ class AsyncOpenAIClient(AsyncLLMClient):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        generation_config: GenerationConfig | None = None,
+        generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
         """
         Internal implementation of query_model without retry/concurrency logic.
@@ -119,6 +117,8 @@ class AsyncOpenAIClient(AsyncLLMClient):
         # Use default config if none provided
         if generation_config is None:
             generation_config = GenerationConfig()
+        elif isinstance(generation_config, dict):
+            generation_config = GenerationConfig(**generation_config)
 
         if generation_config.top_k is not None:
             warnings.warn("top_k is not used in an AsyncOpenAIClient", stacklevel=2)

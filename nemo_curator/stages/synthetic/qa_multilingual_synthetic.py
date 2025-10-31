@@ -25,7 +25,6 @@ import pandas as pd
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
 
@@ -75,13 +74,13 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         """Process samples using synchronous client (sequential)."""
         responses = []
         for i in range(self.num_samples):
-            print(f"Generating sample {i+1}/{self.num_samples} (sync)...")
+            print(f"Generating sample {i + 1}/{self.num_samples} (sync)...")
             language = secrets.choice(self.languages)
             prompt = self.prompt.format(language=language)
             response = self.client.query_model(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                generation_config=self.generation_config
+                generation_config=self.generation_config,
             )
             generated_text = self._process_llm_response(response)
             responses.append(generated_text)
@@ -106,44 +105,24 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         # This is an edge case (e.g., Ray async actors), but we can handle it
         # by running in a new thread with its own loop
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, self._generate_responses_async())
             return future.result()
 
     async def _generate_responses_async(self) -> list[str]:
         """Generate responses asynchronously using concurrent requests."""
+
         async def generate_single_response(_i: int) -> str:
             language = secrets.choice(self.languages)
             prompt = self.prompt.format(language=language)
             response = await self.client.query_model(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
-                generation_config=self.generation_config
+                generation_config=self.generation_config,
             )
             return self._process_llm_response(response)
 
         # Create tasks for all samples and execute concurrently
         tasks = [generate_single_response(i) for i in range(self.num_samples)]
         return await asyncio.gather(*tasks)
-
-
-class LanguageFilter(DocumentFilter):
-    """Filter documents based on language prefix codes.
-
-    Keeps documents that start with any of the specified language codes.
-    Designed to work with prompts that instruct LLMs to prefix responses
-    with language codes (e.g., [EN], [FR], [DE]).
-    """
-
-    def __init__(self, languages: list[str]):
-        self._name = "language_filter"
-        self.languages = languages
-
-
-    def score_document(self, text: str) -> float:
-        if not self.languages:
-            return 1.0 # If no languages are specified, keep all documents
-        return 1.0 if text.startswith(tuple(self.languages)) else 0.0
-
-    def keep_document(self, score: float) -> bool:
-        return score == 1.0

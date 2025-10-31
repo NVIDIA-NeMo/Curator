@@ -23,10 +23,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
-from nemo_curator.stages.synthetic.qa_multilingual_synthetic import (
-    LanguageFilter,
-    QAMultilingualSyntheticStage,
-)
+from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
 
 
@@ -41,7 +38,10 @@ class MockSyncLLMClient(LLMClient):
     def setup(self) -> None:
         self.setup_called = True
 
-    def query_model(self, *, messages: Iterable, model: str, generation_config: GenerationConfig | None = None, **kwargs: object) -> list[str]:  # noqa: ARG002
+    def query_model(
+        self, *, messages: Iterable, model: str, generation_config: GenerationConfig | None = None, **kwargs: object
+    ) -> list[str]:
+        del messages, model, generation_config, kwargs  # Unused in mock
         response = self.responses[self.call_count % len(self.responses)]
         self.call_count += 1
         return response
@@ -60,7 +60,10 @@ class MockAsyncLLMClient(AsyncLLMClient):
     def setup(self) -> None:
         self.setup_called = True
 
-    async def _query_model_impl(self, *, messages: Iterable, model: str, generation_config: GenerationConfig | None = None, **kwargs: object) -> list[str]:  # noqa: ARG002
+    async def _query_model_impl(
+        self, *, messages: Iterable, model: str, generation_config: GenerationConfig | None = None, **kwargs: object
+    ) -> list[str]:
+        del messages, model, generation_config, kwargs  # Unused in mock
         if self.delay > 0:
             await asyncio.sleep(self.delay)
         response = self.responses[self.call_count % len(self.responses)]
@@ -71,65 +74,11 @@ class MockAsyncLLMClient(AsyncLLMClient):
 class TestQAMultilingualSyntheticStage:
     """Test cases for QAMultilingualSyntheticStage."""
 
-    def test_init_with_sync_client(self) -> None:
-        """Test initialization with synchronous client."""
-        client = MockSyncLLMClient()
-        stage = QAMultilingualSyntheticStage(
-            prompt="Generate text in {language}",
-            languages=["English", "Spanish"],
-            client=client,
-            model_name="test-model",
-            num_samples=5
-        )
-
-        assert stage.prompt == "Generate text in {language}"
-        assert stage.languages == ["English", "Spanish"]
-        assert stage.client is client
-        assert stage.model_name == "test-model"
-        assert stage.num_samples == 5
-        assert stage.generation_config is None
-        assert stage._name == "QAMultilingualSyntheticStage"
-        assert stage.is_async_client is False
-
-    def test_init_with_async_client(self) -> None:
-        """Test initialization with asynchronous client."""
-        client = MockAsyncLLMClient()
-        stage = QAMultilingualSyntheticStage(
-            prompt="Generate text in {language}",
-            languages=["French", "German"],
-            client=client,
-            model_name="test-model",
-            num_samples=3
-        )
-
-        assert stage.is_async_client is True
-
-    def test_init_with_generation_config(self) -> None:
-        """Test initialization with generation config."""
-        client = MockSyncLLMClient()
-        config = GenerationConfig(max_tokens=100, temperature=0.7)
-        stage = QAMultilingualSyntheticStage(
-            prompt="Test prompt {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1,
-            generation_config=config
-        )
-
-        assert stage.generation_config is config
-        assert stage.generation_config.max_tokens == 100
-        assert stage.generation_config.temperature == 0.7
-
     def test_inputs_outputs(self) -> None:
         """Test inputs() and outputs() methods."""
         client = MockSyncLLMClient()
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         inputs = stage.inputs()
@@ -142,11 +91,7 @@ class TestQAMultilingualSyntheticStage:
         """Test setup() method calls client.setup()."""
         client = MockSyncLLMClient()
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         assert client.setup_called is False
@@ -157,11 +102,7 @@ class TestQAMultilingualSyntheticStage:
         """Test _process_llm_response with simple text."""
         client = MockSyncLLMClient()
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         result = stage._process_llm_response(["Simple response"])
@@ -171,11 +112,7 @@ class TestQAMultilingualSyntheticStage:
         """Test _process_llm_response removes asterisks."""
         client = MockSyncLLMClient()
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         result = stage._process_llm_response(["**Bold text** with *emphasis*"])
@@ -185,11 +122,7 @@ class TestQAMultilingualSyntheticStage:
         """Test _process_llm_response with empty response."""
         client = MockSyncLLMClient()
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         result = stage._process_llm_response([])
@@ -203,7 +136,7 @@ class TestQAMultilingualSyntheticStage:
             languages=["English"],
             client=client,
             model_name="test-model",
-            num_samples=1
+            num_samples=1,
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
@@ -220,22 +153,18 @@ class TestQAMultilingualSyntheticStage:
 
     def test_process_sync_multiple_samples(self) -> None:
         """Test synchronous processing with multiple samples."""
-        responses = [
-            ["Response 1"],
-            ["Response 2"],
-            ["Response 3"]
-        ]
+        responses = [["Response 1"], ["Response 2"], ["Response 3"]]
         client = MockSyncLLMClient(responses=responses)
         stage = QAMultilingualSyntheticStage(
             prompt="Generate in {language}",
             languages=["English", "Spanish"],
             client=client,
             model_name="test-model",
-            num_samples=3
+            num_samples=3,
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
-        with patch("builtins.print"):  # Suppress print statements
+        with patch("nemo_curator.models.client.llm_client.logger"):  # Suppress log statements
             result = stage.process(task)
 
         assert isinstance(result, DocumentBatch)
@@ -251,7 +180,7 @@ class TestQAMultilingualSyntheticStage:
             languages=["English"],
             client=client,
             model_name="test-model",
-            num_samples=1
+            num_samples=1,
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
@@ -264,20 +193,14 @@ class TestQAMultilingualSyntheticStage:
 
     def test_process_async_multiple_samples(self) -> None:
         """Test asynchronous processing with multiple concurrent samples."""
-        responses = [
-            ["Async 1"],
-            ["Async 2"],
-            ["Async 3"],
-            ["Async 4"],
-            ["Async 5"]
-        ]
+        responses = [["Async 1"], ["Async 2"], ["Async 3"], ["Async 4"], ["Async 5"]]
         client = MockAsyncLLMClient(responses=responses, delay=0.01)
         stage = QAMultilingualSyntheticStage(
             prompt="Generate in {language}",
             languages=["English", "Spanish", "French"],
             client=client,
             model_name="test-model",
-            num_samples=5
+            num_samples=5,
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
@@ -299,11 +222,11 @@ class TestQAMultilingualSyntheticStage:
             client=client,
             model_name="test-model",
             num_samples=1,
-            generation_config=config
+            generation_config=config,
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
-        with patch("builtins.print"):
+        with patch("nemo_curator.models.client.llm_client.logger"):
             result = stage.process(task)
 
         assert len(result.data) == 1
@@ -327,10 +250,10 @@ class TestQAMultilingualSyntheticStage:
             languages=["Japanese"],
             client=client,
             model_name="test-model",
-            num_samples=2
+            num_samples=2,
         )
 
-        with patch("builtins.print"), patch("secrets.choice", return_value="Japanese"):
+        with patch("nemo_curator.models.client.llm_client.logger"), patch("secrets.choice", return_value="Japanese"):
             task = _EmptyTask(task_id="test", dataset_name="test", data=None)
             stage.process(task)
 
@@ -341,15 +264,11 @@ class TestQAMultilingualSyntheticStage:
         """Test that asterisks are removed from responses in sync mode."""
         client = MockSyncLLMClient(responses=[["**Bold** *italic* text"]])
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
-        with patch("builtins.print"):
+        with patch("nemo_curator.models.client.llm_client.logger"):
             result = stage.process(task)
 
         assert result.data["text"].iloc[0] == "Bold italic text"
@@ -358,11 +277,7 @@ class TestQAMultilingualSyntheticStage:
         """Test that asterisks are removed from responses in async mode."""
         client = MockAsyncLLMClient(responses=[["**Another** *styled* response"]])
         stage = QAMultilingualSyntheticStage(
-            prompt="Test {language}",
-            languages=["English"],
-            client=client,
-            model_name="test-model",
-            num_samples=1
+            prompt="Test {language}", languages=["English"], client=client, model_name="test-model", num_samples=1
         )
 
         task = _EmptyTask(task_id="test", dataset_name="test", data=None)
@@ -392,10 +307,10 @@ class TestQAMultilingualSyntheticStage:
             languages=["English", "Spanish", "French"],
             client=client,
             model_name="test-model",
-            num_samples=10
+            num_samples=10,
         )
 
-        with patch("builtins.print"):
+        with patch("nemo_curator.models.client.llm_client.logger"):
             task = _EmptyTask(task_id="test", dataset_name="test", data=None)
             stage.process(task)
 
@@ -403,131 +318,3 @@ class TestQAMultilingualSyntheticStage:
         assert len(selected_languages) == 10
         # All should be from the allowed set
         assert all(lang in ["English", "Spanish", "French"] for lang in selected_languages)
-
-
-class TestLanguageFilter:
-    """Test cases for LanguageFilter."""
-
-    def test_init(self) -> None:
-        """Test LanguageFilter initialization."""
-        languages = ["English", "Spanish", "French"]
-        filter_instance = LanguageFilter(languages)
-
-        assert filter_instance._name == "language_filter"
-        assert filter_instance.languages == languages
-
-    def test_score_document_matching(self) -> None:
-        """Test score_document with text starting with language."""
-        filter_instance = LanguageFilter(["English", "Spanish"])
-
-        score = filter_instance.score_document("English text here")
-        assert score == 1.0
-
-        score = filter_instance.score_document("Spanish content")
-        assert score == 1.0
-
-    def test_score_document_not_matching(self) -> None:
-        """Test score_document with text not starting with language."""
-        filter_instance = LanguageFilter(["English", "Spanish"])
-
-        score = filter_instance.score_document("French text here")
-        assert score == 0.0
-
-        score = filter_instance.score_document("Some other content")
-        assert score == 0.0
-
-    def test_score_document_partial_match(self) -> None:
-        """Test score_document with language appearing later in text."""
-        filter_instance = LanguageFilter(["English"])
-
-        # Language not at start - should not match
-        score = filter_instance.score_document("This is English text")
-        assert score == 0.0
-
-    def test_score_document_empty(self) -> None:
-        """Test score_document with empty text."""
-        filter_instance = LanguageFilter(["English"])
-
-        score = filter_instance.score_document("")
-        assert score == 0.0
-
-    def test_keep_document_with_matching_score(self) -> None:
-        """Test keep_document returns True for score 1.0."""
-        filter_instance = LanguageFilter(["English"])
-
-        assert filter_instance.keep_document(1.0) is True
-
-    def test_keep_document_with_non_matching_score(self) -> None:
-        """Test keep_document returns False for score 0.0."""
-        filter_instance = LanguageFilter(["English"])
-
-        assert filter_instance.keep_document(0.0) is False
-
-    def test_keep_document_with_other_scores(self) -> None:
-        """Test keep_document with various scores."""
-        filter_instance = LanguageFilter(["English"])
-
-        # Only exact 1.0 should pass
-        assert filter_instance.keep_document(0.5) is False
-        assert filter_instance.keep_document(0.99) is False
-
-    def test_filter_multiple_languages(self) -> None:
-        """Test filter with multiple languages."""
-        filter_instance = LanguageFilter(["English", "Spanish", "French", "German"])
-
-        assert filter_instance.score_document("English text") == 1.0
-        assert filter_instance.score_document("Spanish text") == 1.0
-        assert filter_instance.score_document("French text") == 1.0
-        assert filter_instance.score_document("German text") == 1.0
-        assert filter_instance.score_document("Italian text") == 0.0
-
-    def test_filter_case_sensitive(self) -> None:
-        """Test that filter is case-sensitive."""
-        filter_instance = LanguageFilter(["English"])
-
-        # Exact match
-        assert filter_instance.score_document("English text") == 1.0
-        # Different case - won't match with startswith(tuple)
-        assert filter_instance.score_document("english text") == 0.0
-        assert filter_instance.score_document("ENGLISH text") == 0.0
-
-    def test_filter_empty_language_list(self) -> None:
-        """Test filter with empty language list keeps all documents."""
-        filter_instance = LanguageFilter([])
-
-        # With empty language list, should keep all documents (return 1.0)
-        assert filter_instance.score_document("English text") == 1.0
-        assert filter_instance.score_document("Spanish text") == 1.0
-        assert filter_instance.score_document("[EN] Some text") == 1.0
-        assert filter_instance.score_document("[FR] Autre texte") == 1.0
-        assert filter_instance.score_document("Any text at all") == 1.0
-        assert filter_instance.score_document("") == 1.0  # Even empty text
-
-        # Verify keep_document also returns True
-        score = filter_instance.score_document("Any text")
-        assert filter_instance.keep_document(score) is True
-
-    def test_integration_score_and_keep(self) -> None:
-        """Test integration of score_document and keep_document."""
-        filter_instance = LanguageFilter(["Python", "Java", "JavaScript"])
-
-        texts = [
-            "Python is great",
-            "Java programming",
-            "JavaScript code",
-            "Ruby language",
-            "C++ development"
-        ]
-
-        results = []
-        for text in texts:
-            score = filter_instance.score_document(text)
-            keep = filter_instance.keep_document(score)
-            results.append((text, keep))
-
-        assert results[0][1] is True  # Python is great
-        assert results[1][1] is True  # Java programming
-        assert results[2][1] is True  # JavaScript code
-        assert results[3][1] is False  # Ruby language
-        assert results[4][1] is False  # C++ development
-

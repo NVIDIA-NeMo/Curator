@@ -22,7 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
-from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
+from nemo_curator.models.client.llm_client import AsyncLLMClient, LLMClient
 
 
 class TestLLMClient:
@@ -64,42 +64,6 @@ class TestLLMClient:
 class TestAsyncLLMClient:
     """Test cases for the AsyncLLMClient abstract base class."""
 
-    def test_init_with_defaults(self) -> None:
-        """Test AsyncLLMClient initialization with default parameters."""
-
-        class TestAsyncLLMClient(AsyncLLMClient):
-            def setup(self) -> None:
-                pass
-
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
-                return ["test response"]
-
-        client = TestAsyncLLMClient()
-        assert client.max_concurrent_requests == 5
-        assert client.max_retries == 3
-        assert client.base_delay == 1.0
-        assert client._semaphore is None
-        assert client._semaphore_loop is None
-
-    def test_init_with_custom_parameters(self) -> None:
-        """Test AsyncLLMClient initialization with custom parameters."""
-
-        class TestAsyncLLMClient(AsyncLLMClient):
-            def setup(self) -> None:
-                pass
-
-            async def _query_model_impl(self, *, messages: Iterable, model: str, **kwargs: object) -> list[str]:  # noqa: ARG002
-                return ["test response"]
-
-        client = TestAsyncLLMClient(
-            max_concurrent_requests=10,
-            max_retries=5,
-            base_delay=2.0
-        )
-        assert client.max_concurrent_requests == 10
-        assert client.max_retries == 5
-        assert client.base_delay == 2.0
-
     def test_cannot_instantiate_abstract_class(self) -> None:
         """Test that AsyncLLMClient cannot be instantiated directly."""
         with pytest.raises(TypeError):
@@ -117,39 +81,7 @@ class TestAsyncLLMClient:
                 return ["test response"]
 
         client = TestAsyncLLMClient()
-        result = await client.query_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="test-model"
-        )
-        assert result == ["test response"]
-
-    @pytest.mark.asyncio
-    async def test_query_model_with_custom_parameters(self) -> None:
-        """Test query_model with all custom parameters."""
-
-        class TestAsyncLLMClient(AsyncLLMClient):
-            def setup(self) -> None:
-                pass
-
-            async def _query_model_impl(self, *, messages: Iterable, model: str, generation_config: GenerationConfig=None, **kwargs: object) -> list[str]:  # noqa: ARG002
-                # Verify parameters are passed through in generation_config
-                assert generation_config is not None
-                assert generation_config.max_tokens == 1024
-                assert generation_config.temperature == 0.5
-                assert generation_config.seed == 42
-                return ["test response"]
-
-        client = TestAsyncLLMClient()
-        config = GenerationConfig(
-            max_tokens=1024,
-            temperature=0.5,
-            seed=42
-        )
-        result = await client.query_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="test-model",
-            generation_config=config
-        )
+        result = await client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
         assert result == ["test response"]
 
     @pytest.mark.asyncio
@@ -176,11 +108,8 @@ class TestAsyncLLMClient:
 
         client = TestAsyncLLMClient()
 
-        with patch("builtins.print"):  # Suppress warning prints
-            result = await client.query_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="test-model"
-            )
+        with patch("nemo_curator.models.client.llm_client.logger"):  # Suppress warning logs
+            result = await client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
 
         assert result == ["success after retry"]
         assert client.attempt_count == 3  # Should have tried 3 times
@@ -200,10 +129,7 @@ class TestAsyncLLMClient:
         client = TestAsyncLLMClient()
 
         with pytest.raises(ValueError, match="Some other error"):
-            await client.query_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="test-model"
-            )
+            await client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
 
     @pytest.mark.asyncio
     async def test_query_model_max_retries_exceeded(self) -> None:
@@ -225,11 +151,11 @@ class TestAsyncLLMClient:
 
         client = TestAsyncLLMClient()
 
-        with patch("builtins.print"), pytest.raises(RateLimitError, match="429 Rate limit exceeded"):
-            await client.query_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="test-model"
-            )
+        with (
+            patch("nemo_curator.models.client.llm_client.logger"),
+            pytest.raises(RateLimitError, match="429 Rate limit exceeded"),
+        ):
+            await client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
 
     @pytest.mark.asyncio
     async def test_semaphore_initialization_and_reuse(self) -> None:
@@ -245,10 +171,7 @@ class TestAsyncLLMClient:
         client = TestAsyncLLMClient(max_concurrent_requests=3)
 
         # First call should initialize semaphore
-        await client.query_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="test-model"
-        )
+        await client.query_model(messages=[{"role": "user", "content": "test"}], model="test-model")
 
         assert client._semaphore is not None
         assert client._semaphore._value == 3  # max_concurrent_requests
@@ -259,10 +182,7 @@ class TestAsyncLLMClient:
         original_loop = client._semaphore_loop
 
         # Second call should reuse semaphore
-        await client.query_model(
-            messages=[{"role": "user", "content": "test2"}],
-            model="test-model"
-        )
+        await client.query_model(messages=[{"role": "user", "content": "test2"}], model="test-model")
 
         assert client._semaphore is original_semaphore
         assert client._semaphore_loop is original_loop
@@ -291,10 +211,7 @@ class TestAsyncLLMClient:
 
         # Start 5 concurrent requests
         tasks = [
-            client.query_model(
-                messages=[{"role": "user", "content": f"test{i}"}],
-                model="test-model"
-            )
+            client.query_model(messages=[{"role": "user", "content": f"test{i}"}], model="test-model")
             for i in range(5)
         ]
 

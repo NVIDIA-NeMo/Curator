@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-Quick synthetic data generation example for Ray Curator
+Quick synthetic data generation example for NeMo Curator
 This example shows how to use the QAMultilingualSyntheticStage to generate synthetic data.
 It consists of the following steps:
 Step 1: Set up pipeline for synthetic data generation using a multilingual Q&A prompt
@@ -28,15 +28,37 @@ import os
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.synthetic.qa_multilingual_synthetic import LanguageFilter, QAMultilingualSyntheticStage
+from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
+from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
+
+
+class BeginsWithLanguageFilter(DocumentFilter):
+    """Filter documents based on language prefix codes.
+
+    Keeps documents that start with any of the specified language codes.
+    Designed to work with prompts that instruct LLMs to prefix responses
+    with language codes (e.g., [EN], [FR], [DE]).
+    """
+
+    def __init__(self, languages: list[str]):
+        self._name = "begins_with_language_filter"
+        self.languages = languages
+
+    def score_document(self, text: str) -> float:
+        if not self.languages:
+            return 1.0  # If no languages are specified, keep all documents
+        return 1.0 if text.startswith(tuple(self.languages)) else 0.0
+
+    def keep_document(self, score: float) -> bool:
+        return score == 1.0
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Generate synthetic multilingual Q&A data using LLM",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # API Configuration
@@ -44,39 +66,23 @@ def parse_args() -> argparse.Namespace:
         "--api-key",
         type=str,
         default=os.environ.get("NVIDIA_API_KEY", ""),
-        help="NVIDIA API key (or set NVIDIA_API_KEY environment variable)"
+        help="NVIDIA API key (or set NVIDIA_API_KEY environment variable)",
     )
     parser.add_argument(
-        "--base-url",
-        type=str,
-        default="https://integrate.api.nvidia.com/v1",
-        help="Base URL for the API endpoint"
+        "--base-url", type=str, default="https://integrate.api.nvidia.com/v1", help="Base URL for the API endpoint"
     )
     parser.add_argument(
-        "--max-concurrent-requests",
-        type=int,
-        default=3,
-        help="Maximum number of concurrent API requests"
+        "--max-concurrent-requests", type=int, default=3, help="Maximum number of concurrent API requests"
     )
-    parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=3,
-        help="Maximum number of retries for failed requests"
-    )
-    parser.add_argument(
-        "--base-delay",
-        type=float,
-        default=1.0,
-        help="Base delay between retries (in seconds)"
-    )
+    parser.add_argument("--max-retries", type=int, default=3, help="Maximum number of retries for failed requests")
+    parser.add_argument("--base-delay", type=float, default=1.0, help="Base delay between retries (in seconds)")
 
     # Model Configuration
     parser.add_argument(
         "--model-name",
         type=str,
         default="nvdev/nvidia/llama-3.1-nemotron-70b-instruct",
-        help="Name of the model to use for generation"
+        help="Name of the model to use for generation",
     )
 
     # Generation Configuration
@@ -84,24 +90,12 @@ def parse_args() -> argparse.Namespace:
         "--languages",
         nargs="+",
         default=["English", "French", "German", "Spanish", "Italian"],
-        help="Languages to generate Q&A pairs for"
+        help="Languages to generate Q&A pairs for",
     )
+    parser.add_argument("--num-samples", type=int, default=100, help="Number of samples to generate")
+    parser.add_argument("--no-filter-languages", action="store_true", help="Do not filter languages")
     parser.add_argument(
-        "--num-samples",
-        type=int,
-        default=100,
-        help="Number of samples to generate"
-    )
-    parser.add_argument(
-        "--no-filter-languages",
-        action="store_true",
-        help="Do not filter languages"
-    )
-    parser.add_argument(
-        "--prompt",
-        type=str,
-        default=None,
-        help="Custom prompt template (must include {language} placeholder)"
+        "--prompt", type=str, default=None, help="Custom prompt template (must include {language} placeholder)"
     )
 
     return parser.parse_args()
@@ -117,9 +111,7 @@ def main() -> None:
             "API key is required. Set NVIDIA_API_KEY environment variable or use --api-key argument. "
             "Get your API key from https://build.nvidia.com/settings/api-keys"
         )
-        raise ValueError(
-            msg
-        )
+        raise ValueError(msg)
 
     # Create pipeline
     pipeline = Pipeline(name="synthetic_data_generation", description="Generate synthetic text data using LLM")
@@ -130,14 +122,18 @@ def main() -> None:
         base_url=args.base_url,
         max_concurrent_requests=args.max_concurrent_requests,
         max_retries=args.max_retries,
-        base_delay=args.base_delay
+        base_delay=args.base_delay,
     )
 
     # Define a prompt for synthetic data generation
-    prompt = args.prompt if args.prompt else """
+    prompt = (
+        args.prompt
+        if args.prompt
+        else """
     Generate a short question and a short answer in the general science domain in the language {language}.
     Begin with the language name using the 2-letter code, which is in square brackets, e.g. [EN] for English, [FR] for French, [DE] for German, [ES] for Spanish, [IT] for Italian.
     """
+    )
 
     # Add the synthetic data generation stage
     pipeline.add_stage(
@@ -152,8 +148,8 @@ def main() -> None:
     if not args.no_filter_languages:
         pipeline.add_stage(
             ScoreFilter(
-                LanguageFilter(
-                    languages=["[EN]"], # Only keep English documents
+                BeginsWithLanguageFilter(
+                    languages=["[EN]"],  # Only keep English documents
                 ),
                 text_field="text",
             ),

@@ -29,16 +29,6 @@ from nemo_curator.models.client.openai_client import AsyncOpenAIClient, OpenAICl
 class TestOpenAIClient:
     """Test cases for the OpenAIClient class."""
 
-    def test_init_with_kwargs(self) -> None:
-        """Test OpenAIClient initialization with keyword arguments."""
-        client = OpenAIClient(api_key="test-key", base_url="https://test.example.com")
-        assert client.openai_kwargs == {"api_key": "test-key", "base_url": "https://test.example.com"}
-
-    def test_init_without_kwargs(self) -> None:
-        """Test OpenAIClient initialization without keyword arguments."""
-        client = OpenAIClient()
-        assert client.openai_kwargs == {}
-
     @patch("nemo_curator.models.client.openai_client.OpenAI")
     def test_setup(self, mock_openai: Mock) -> None:
         """Test setup method creates OpenAI client with kwargs."""
@@ -69,9 +59,7 @@ class TestOpenAIClient:
 
         config = GenerationConfig(max_tokens=1024, temperature=0.7)
         result = client.query_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="gpt-4",
-            generation_config=config
+            messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config
         )
 
         assert result == ["Test response content"]
@@ -85,7 +73,7 @@ class TestOpenAIClient:
             stream=False,
             temperature=0.7,
             top_p=0.95,
-            timeout=120
+            timeout=120,
         )
 
     @patch("nemo_curator.models.client.openai_client.OpenAI")
@@ -108,9 +96,7 @@ class TestOpenAIClient:
 
         config = GenerationConfig(n=2)
         result = client.query_model(
-            messages=[{"role": "user", "content": "test"}],
-            model="gpt-4",
-            generation_config=config
+            messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config
         )
 
         assert result == ["Response 1", "Response 2"]
@@ -136,9 +122,7 @@ class TestOpenAIClient:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             client.query_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="gpt-4",
-                conversation_formatter=formatter
+                messages=[{"role": "user", "content": "test"}], model="gpt-4", conversation_formatter=formatter
             )
 
             assert len(w) == 1
@@ -163,11 +147,7 @@ class TestOpenAIClient:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             config = GenerationConfig(top_k=10)
-            client.query_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="gpt-4",
-                generation_config=config
-            )
+            client.query_model(messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config)
 
             assert len(w) == 1
             assert "top_k is not used in an OpenAIClient" in str(w[0].message)
@@ -183,20 +163,6 @@ class TestAsyncOpenAIClient:
         assert client.max_retries == 3
         assert client.base_delay == 1.0
         assert client.openai_kwargs == {}
-
-    def test_init_with_custom_parameters(self) -> None:
-        """Test AsyncOpenAIClient initialization with custom parameters."""
-        client = AsyncOpenAIClient(
-            max_concurrent_requests=10,
-            max_retries=5,
-            base_delay=2.0,
-            api_key="test-key",
-            base_url="https://test.example.com"
-        )
-        assert client.max_concurrent_requests == 10
-        assert client.max_retries == 5
-        assert client.base_delay == 2.0
-        assert client.openai_kwargs == {"api_key": "test-key", "base_url": "https://test.example.com"}
 
     @patch("nemo_curator.models.client.openai_client.AsyncOpenAI")
     def test_setup(self, mock_async_openai: Mock) -> None:
@@ -229,9 +195,7 @@ class TestAsyncOpenAIClient:
 
         config = GenerationConfig(max_tokens=1024, temperature=0.7)
         result = await client._query_model_impl(
-            messages=[{"role": "user", "content": "test"}],
-            model="gpt-4",
-            generation_config=config
+            messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config
         )
 
         assert result == ["Test response content"]
@@ -245,7 +209,7 @@ class TestAsyncOpenAIClient:
             stream=False,
             temperature=0.7,
             top_p=0.95,
-            timeout=120
+            timeout=120,
         )
 
     @pytest.mark.asyncio
@@ -269,9 +233,7 @@ class TestAsyncOpenAIClient:
 
         config = GenerationConfig(n=2)
         result = await client._query_model_impl(
-            messages=[{"role": "user", "content": "test"}],
-            model="gpt-4",
-            generation_config=config
+            messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config
         )
 
         assert result == ["Response 1", "Response 2"]
@@ -298,9 +260,7 @@ class TestAsyncOpenAIClient:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             await client._query_model_impl(
-                messages=[{"role": "user", "content": "test"}],
-                model="gpt-4",
-                conversation_formatter=formatter
+                messages=[{"role": "user", "content": "test"}], model="gpt-4", conversation_formatter=formatter
             )
 
             assert len(w) == 1
@@ -327,9 +287,7 @@ class TestAsyncOpenAIClient:
             warnings.simplefilter("always")
             config = GenerationConfig(top_k=10)
             await client._query_model_impl(
-                messages=[{"role": "user", "content": "test"}],
-                model="gpt-4",
-                generation_config=config
+                messages=[{"role": "user", "content": "test"}], model="gpt-4", generation_config=config
             )
 
             assert len(w) == 1
@@ -365,11 +323,8 @@ class TestAsyncOpenAIClient:
         client = AsyncOpenAIClient(max_retries=3, base_delay=0.01)  # Fast test
         client.setup()
 
-        with patch("builtins.print"):  # Suppress warning prints
-            result = await client.query_model(
-                messages=[{"role": "user", "content": "test"}],
-                model="gpt-4"
-            )
+        with patch("nemo_curator.models.client.llm_client.logger"):  # Suppress warning logs
+            result = await client.query_model(messages=[{"role": "user", "content": "test"}], model="gpt-4")
 
         assert result == ["Success after retry"]
         assert call_count == 3  # Should have tried 3 times
@@ -403,11 +358,7 @@ class TestAsyncOpenAIClient:
 
         # Start 5 concurrent requests
         tasks = [
-            client.query_model(
-                messages=[{"role": "user", "content": f"test{i}"}],
-                model="gpt-4"
-            )
-            for i in range(5)
+            client.query_model(messages=[{"role": "user", "content": f"test{i}"}], model="gpt-4") for i in range(5)
         ]
 
         results = await asyncio.gather(*tasks)

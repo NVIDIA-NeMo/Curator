@@ -11,11 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import asyncio
 import secrets
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass
+
+from loguru import logger
 
 
 class ConversationFormatter(ABC):
@@ -29,9 +32,11 @@ class ConversationFormatter(ABC):
         msg = "format_conversation must be implemented by subclasses"
         raise NotImplementedError(msg)
 
+
 @dataclass
 class GenerationConfig:
     """Configuration class for LLM generation parameters."""
+
     max_tokens: int | None = 2048
     n: int | None = 1
     seed: int | None = 0
@@ -61,7 +66,7 @@ class LLMClient(ABC):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        generation_config: GenerationConfig | None = None,
+        generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
         msg = "Subclass of LLMClient must implement 'query_model'"
         raise NotImplementedError(msg)
@@ -101,7 +106,7 @@ class AsyncLLMClient(ABC):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        generation_config: GenerationConfig | None = None,
+        generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
         """
         Internal implementation of query_model without retry/concurrency logic.
@@ -116,7 +121,7 @@ class AsyncLLMClient(ABC):
         messages: Iterable,
         model: str,
         conversation_formatter: ConversationFormatter | None = None,
-        generation_config: GenerationConfig | None = None,
+        generation_config: GenerationConfig | dict | None = None,
     ) -> list[str]:
         """
         Query the model with automatic retry and concurrency control.
@@ -124,6 +129,8 @@ class AsyncLLMClient(ABC):
         # Use default config if none provided
         if generation_config is None:
             generation_config = GenerationConfig()
+        elif isinstance(generation_config, dict):
+            generation_config = GenerationConfig(**generation_config)
 
         # Initialize semaphore if not already done or if we're in a different event loop
         current_loop = asyncio.get_running_loop()
@@ -140,21 +147,27 @@ class AsyncLLMClient(ABC):
                 if attempt > 0 and last_exception:
                     is_rate_limit = "429" in str(last_exception) or "rate" in str(last_exception).lower()
                     is_connection_error = (
-                        "connection" in str(last_exception).lower() or
-                        "ReadError" in str(last_exception) or
-                        "BrokenResourceError" in str(last_exception) or
-                        "APIConnectionError" in str(last_exception) or
-                        "httpx.ReadError" in str(last_exception)
+                        "connection" in str(last_exception).lower()
+                        or "ReadError" in str(last_exception)
+                        or "BrokenResourceError" in str(last_exception)
+                        or "APIConnectionError" in str(last_exception)
+                        or "httpx.ReadError" in str(last_exception)
                     )
 
                     if is_rate_limit or is_connection_error:
                         if is_rate_limit:
-                            print(f"⚠️  WARNING: Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s...")
+                            logger.warning(
+                                f"Rate limit error (429) detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s..."
+                            )
                         else:
-                            print(f"⚠️  WARNING: Connection error detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s...")
-                            print(f"   Error details: {str(last_exception)[:200]}...")
+                            logger.warning(
+                                f"Connection error detected. Attempt {attempt + 1}/{self.max_retries + 1}. Retrying in {self.base_delay * (2 ** (attempt - 1)):.1f}s..."
+                            )
+                            logger.warning(f"Error details: {str(last_exception)[:200]}...")
                             if "localhost" in str(last_exception):
-                                print("   💡 Local API server issue - consider reducing --max-concurrent-requests or checking server resources")
+                                logger.warning(
+                                    "Local API server issue - consider reducing --max-concurrent-requests or checking server resources"
+                                )
 
                         # Exponential backoff with jitter
                         delay = self.base_delay * (2 ** (attempt - 1)) + secrets.randbelow(100) / 100.0
@@ -176,14 +189,14 @@ class AsyncLLMClient(ABC):
                     # If this is the last attempt, provide helpful error message
                     if attempt == self.max_retries:
                         if "connection" in str(e).lower() or "ReadError" in str(e):
-                            print(f"ERROR: Connection error after {self.max_retries + 1} attempts!")
-                            print(f"   Final error: {str(e)[:200]}...")
+                            logger.error(f"Connection error after {self.max_retries + 1} attempts!")
+                            logger.error(f"Final error: {str(e)[:200]}...")
                             if "localhost" in str(e):
-                                print("      Suggestions for local API server:")
-                                print("      - Check if server is running and has sufficient resources")
-                                print("      - Reduce concurrent requests: --max-concurrent-requests 1")
-                                print("      - Increase timeout: --timeout 900")
-                                print("      - Check server logs for memory/GPU issues")
+                                logger.error("Suggestions for local API server:")
+                                logger.error("- Check if server is running and has sufficient resources")
+                                logger.error("- Reduce concurrent requests: --max-concurrent-requests 1")
+                                logger.error("- Increase timeout: --timeout 900")
+                                logger.error("- Check server logs for memory/GPU issues")
                         raise
                     # Otherwise, continue to next iteration
                     continue
@@ -194,4 +207,7 @@ class AsyncLLMClient(ABC):
                 raise last_exception
 
             # This should never be reached, but add explicit return for linter
+            logger.warning(
+                "Unexpected code path: AsyncLLMClient.query_model completed without returning a result or raising an exception"
+            )
             return []
