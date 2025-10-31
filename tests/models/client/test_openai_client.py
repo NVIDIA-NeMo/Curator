@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from nemo_curator.models.client.llm_client import GenerationConfig, ConversationFormatter
+from nemo_curator.models.client.llm_client import ConversationFormatter, GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient, OpenAIClient
 
 

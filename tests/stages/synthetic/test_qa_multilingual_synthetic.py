@@ -18,10 +18,9 @@ Unit tests for nemo_curator.stages.synthetic.qa_multilingual_synthetic module.
 
 import asyncio
 from collections.abc import Iterable
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
 from nemo_curator.stages.synthetic.qa_multilingual_synthetic import (
@@ -336,7 +335,7 @@ class TestQAMultilingualSyntheticStage:
             stage.process(task)
 
         assert len(captured_prompts) == 2
-        assert all("Please write in Japanese language" == p for p in captured_prompts)
+        assert all(p == "Please write in Japanese language" for p in captured_prompts)
 
     def test_process_sync_with_response_asterisks(self) -> None:
         """Test that asterisks are removed from responses in sync mode."""
