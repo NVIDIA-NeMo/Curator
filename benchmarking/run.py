@@ -107,7 +107,6 @@ def run_entry(
     scratch_path, ray_cluster_path, logs_path, benchmark_results_path = [
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "benchmark_results"]
     ]
-
     cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, path_resolver, dataset_resolver)
     run_id = result.get("run_id", f"{entry.name}-{int(time.time())}")
 

@@ -14,9 +14,18 @@
 
 from pathlib import Path
 
-CONTAINER_RESULTS_DIR = "/results"
-CONTAINER_ARTIFACTS_DIR = "/artifacts"
-CONTAINER_DATASETS_DIR = "/datasets"
+CONTAINER_CURATOR_DIR = "/opt/Curator"
+
+# Currently all set to /MOUNT to make it obvious in log/error messages from the
+# container that these paths are available on the host. The assumption is that
+# /MOUNT is simply prepended to the host absolute path, meaning each mounted dir
+# will automatically be unique (unless the user intentionally used the same host
+# paths). This also makes copy-and-paste easier, since all but "/MOUNT" can be
+# copied and used on the host as-is.
+CONTAINER_CONFIG_DIR_ROOT = "/MOUNT"
+CONTAINER_RESULTS_DIR_ROOT = "/MOUNT"
+CONTAINER_ARTIFACTS_DIR_ROOT = "/MOUNT"
+CONTAINER_DATASETS_DIR_ROOT = "/MOUNT"
 
 
 class PathResolver:
@@ -26,14 +35,16 @@ class PathResolver:
 
     def __init__(self, data: dict) -> None:
         """
-        :param data: dictionary containing the paths for results, artifacts, and datasets
+        data is a dictionary containing the paths for results, artifacts, and datasets
+        Resolved paths for a container are simply a root dir (see above) prepended to the host path.
         """
         # TODO: Is this the best way to determine if running inside a Docker container?
         in_docker = Path("/.dockerenv").exists()
+        (rp, ap, dp) = (Path(data["results_path"]), Path(data["artifacts_path"]), Path(data["datasets_path"]))
         self.path_map = {
-            "results_path": CONTAINER_RESULTS_DIR if in_docker else data["results_path"],
-            "artifacts_path": CONTAINER_ARTIFACTS_DIR if in_docker else data["artifacts_path"],
-            "datasets_path": CONTAINER_DATASETS_DIR if in_docker else data["datasets_path"],
+            "results_path": Path(f"{CONTAINER_RESULTS_DIR_ROOT}/{rp}") if in_docker else rp,
+            "artifacts_path": Path(f"{CONTAINER_ARTIFACTS_DIR_ROOT}/{ap}") if in_docker else ap,
+            "datasets_path": Path(f"{CONTAINER_DATASETS_DIR_ROOT}/{dp}") if in_docker else dp,
         }
 
     def resolve(self, dir_type: str) -> Path:
@@ -44,4 +55,4 @@ class PathResolver:
             msg = f"Unknown dir_type: {dir_type}"
             raise ValueError(msg)
 
-        return Path(self.path_map[dir_type])
+        return self.path_map[dir_type]
