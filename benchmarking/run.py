@@ -132,6 +132,7 @@ def run_entry(
             stdouterr_path=logs_path / "stdouterr.log",
             env=ray_env,
             run_id=run_id,
+            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
         ended_exec = time.time()
 
