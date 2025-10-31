@@ -180,7 +180,6 @@ def main() -> None:
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
 
-
     # Execute pipeline with timing
     print("Starting synthetic data generation pipeline...")
     start_time = time.time()
