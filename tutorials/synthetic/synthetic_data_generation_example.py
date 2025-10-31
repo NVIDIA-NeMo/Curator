@@ -30,6 +30,7 @@ import time
 import pandas as pd
 
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
 from nemo_curator.stages.text.filters.doc_filter import DocumentFilter
@@ -113,6 +114,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Main function to run the synthetic data generation pipeline."""
+    client = RayClient(include_dashboard=False)
+    client.start()
+
     args = parse_args()
 
     # Validate API key
@@ -216,6 +220,7 @@ def main() -> None:
             print(f"'{text}'")
             print("-" * 40)
 
+    client.stop()
 
 if __name__ == "__main__":
     main()
