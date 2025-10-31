@@ -2,8 +2,6 @@
 
 Hands-on tutorials for generating synthetic data with NeMo Curator. Complete working examples with detailed explanations.
 
-## Quick Start
-
 
 ## Available Tutorials
 
