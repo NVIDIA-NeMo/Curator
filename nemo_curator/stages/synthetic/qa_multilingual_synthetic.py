@@ -88,8 +88,27 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
         return responses
 
     def _process_async(self) -> list[str]:
-        """Process samples using async client (concurrent)."""
-        return asyncio.run(self._generate_responses_async())
+        """Process samples using async client (concurrent).
+
+        This method handles both cases:
+        - Normal case: No event loop exists, creates one with asyncio.run()
+        - Edge case: Called from async context, runs in separate thread
+        """
+        try:
+            # Check if we're already in an async context
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # No loop running - this is the expected/normal case
+            # Safe to use asyncio.run() which creates its own loop
+            return asyncio.run(self._generate_responses_async())
+
+        # If we get here, there's already a loop running
+        # This is an edge case (e.g., Ray async actors), but we can handle it
+        # by running in a new thread with its own loop
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, self._generate_responses_async())
+            return future.result()
 
     async def _generate_responses_async(self) -> list[str]:
         """Generate responses asynchronously using concurrent requests."""
