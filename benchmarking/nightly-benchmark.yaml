@@ -1,10 +1,7 @@
 # These three paths must be defined and are used to resolve the paths for
-# results, artifacts, and datasets.
+# results, artifacts, and datasets. These must be existing paths on the host.
 # If running inside a Docker container started with tools/run.sh, the paths
-# will automatically be mapped to the following container paths:
-#  - results_path: /results
-#  - artifacts_path: /artifacts
-#  - datasets_path: /datasets
+# will automatically be mapped to the appropriate volume mount.
 # If running on the host, the paths will remain as defined below.
 # Paths can be used in other values in this file by using their placeholder
 # (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
