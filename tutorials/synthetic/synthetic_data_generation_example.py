@@ -90,7 +90,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-name",
         type=str,
-        default="nvdev/nvidia/llama-3.1-nemotron-70b-instruct",
+        default="meta/llama-3.3-70b-instruct",
         help="Name of the model to use for generation",
     )
 
