@@ -17,10 +17,13 @@ Quick synthetic data generation example for NeMo Curator
 This example shows how to use the QAMultilingualSyntheticStage to generate synthetic data.
 It consists of the following steps:
 Step 1: Set up pipeline for synthetic data generation using a multilingual Q&A prompt
-Step 2: Run the pipeline executor to generate data batches with the LLM client
-Step 3: Optionally Filter output using language and score filters
-Step 4: Write the generated data to JSONL format
-Step 5: Print pipeline description and show generated documents
+Step 2: Configure generation parameters (temperature, top_p, seed) for output diversity
+Step 3: Run the pipeline executor to generate data batches with the LLM client
+Step 4: Optionally Filter output using language and score filters
+Step 5: Write the generated data to JSONL format
+Step 6: Print pipeline description and show generated documents
+
+Note: To ensure diverse/unique outputs, use a higher temperature (e.g., 0.9) and avoid fixed seeds.
 """
 
 import argparse
@@ -30,6 +33,7 @@ import time
 import pandas as pd
 
 from nemo_curator.core.client import RayClient
+from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
@@ -109,6 +113,32 @@ def parse_args() -> argparse.Namespace:
         help="Directory path to save the generated synthetic data in JSONL format",
     )
 
+    # LLM Sampling Parameters (for diversity)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.9,
+        help="Sampling temperature (higher = more random/diverse, lower = more deterministic). Range: 0.0-2.0",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=0.95,
+        help="Nucleus sampling parameter (considers tokens with cumulative probability top_p). Range: 0.0-1.0",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility (default: None for non-deterministic generation)",
+    )
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=2048,
+        help="Maximum number of tokens to generate per sample",
+    )
+
     return parser.parse_args()
 
 
@@ -149,6 +179,13 @@ def main() -> None:
     """
     )
 
+    generation_config = GenerationConfig(
+        temperature=args.temperature,
+        top_p=args.top_p,
+        seed=args.seed,
+        max_tokens=args.max_tokens,
+    )
+
     # Add the synthetic data generation stage
     pipeline.add_stage(
         QAMultilingualSyntheticStage(
@@ -157,6 +194,7 @@ def main() -> None:
             client=llm_client,
             model_name=args.model_name,
             num_samples=args.num_samples,
+            generation_config=generation_config,
         )
     )
     if not args.no_filter_languages:
@@ -220,6 +258,7 @@ def main() -> None:
             print("-" * 40)
 
     client.stop()
+
 
 if __name__ == "__main__":
     main()
