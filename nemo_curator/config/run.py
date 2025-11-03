@@ -24,32 +24,47 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
-    pipeline = Pipeline(name="yaml_pipeline", description="Create and execute a pipeline from a YAML file")
 
-    # Add stages to the pipeline
-    for p in cfg.stages:
-        if "input_file_type" in p:  # Text-specific
-            if p.input_file_type not in ["jsonl", "parquet"]:
-                msg = f"Invalid input file type: {p.input_file_type}"
-                raise ValueError(msg)
-            reader_stage = JsonlReader if p.input_file_type == "jsonl" else ParquetReader
-            stage = reader_stage(
-                file_paths=p.file_paths,
-                files_per_partition=p.files_per_partition,
-                blocksize=p.blocksize,
-                fields=p.fields,
-            )
-        elif "output_file_type" in p:  # Text-specific
-            if p.output_file_type not in ["jsonl", "parquet"]:
-                msg = f"Invalid output file type: {p.output_file_type}"
-                raise ValueError(msg)
-            writer_stage = JsonlWriter if p.output_file_type == "jsonl" else ParquetWriter
-            stage = writer_stage(path=p.path, fields=p.fields)
-        else:
-            stage = hydra.utils.instantiate(p)
-        pipeline.add_stage(stage)
+    if "stages" in cfg:
+        pipeline = Pipeline(name="yaml_pipeline", description="Create and execute a pipeline from a YAML file")
 
-    return pipeline
+        # Add stages to the pipeline
+        for p in cfg.stages:
+            if "input_file_type" in p:  # Text-specific
+                if p.input_file_type not in ["jsonl", "parquet"]:
+                    msg = f"Invalid input file type: {p.input_file_type}"
+                    raise ValueError(msg)
+                reader_stage = JsonlReader if p.input_file_type == "jsonl" else ParquetReader
+                stage = reader_stage(
+                    file_paths=p.file_paths,
+                    files_per_partition=p.files_per_partition,
+                    blocksize=p.blocksize,
+                    fields=p.fields,
+                )
+            elif "output_file_type" in p:  # Text-specific
+                if p.output_file_type not in ["jsonl", "parquet"]:
+                    msg = f"Invalid output file type: {p.output_file_type}"
+                    raise ValueError(msg)
+                writer_stage = JsonlWriter if p.output_file_type == "jsonl" else ParquetWriter
+                stage = writer_stage(path=p.path, fields=p.fields)
+            else:
+                stage = hydra.utils.instantiate(p)
+            pipeline.add_stage(stage)
+
+        return pipeline
+
+    elif "workflow" in cfg:
+        if len(cfg.workflow) > 1:
+            msg = "Only one workflow can be executed at a time. Please define a single workflow in the YAML configuration."
+            raise RuntimeError(msg)
+
+        # Initialize a deduplication workflow
+        pipeline = hydra.utils.instantiate(cfg.workflow[0])
+        return pipeline
+
+    else:
+        msg = "Invalid YAML configuration. Please define stages to add to a pipeline or a workflow to execute."
+        raise RuntimeError(msg)
 
 
 @hydra.main(version_base=None)

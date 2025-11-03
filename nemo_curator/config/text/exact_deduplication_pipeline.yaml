@@ -21,3 +21,32 @@ hydra:
   run:
     dir: .
   output_subdir: null
+
+documentation: |
+  NeMo Curator Pipeline Exact Deduplication Configuration File
+  ############################################################
+  This configuration file can be used to build a NeMo Curator pipeline that performs exact deduplication.
+  This example reads the input files, runs the exact deduplication workflow, and saves the results.
+
+input_path: ???
+output_path: ???
+input_filetype: jsonl
+text_field: "text"
+id_field: null  # id_field should be None if assign_id is True
+
+workflow:
+  - _target_: nemo_curator.stages.deduplication.exact.workflow.ExactDeduplicationWorkflow
+    # I/O config
+    input_path: ${input_path}
+    output_path: ${output_path}
+    input_filetype: ${input_filetype}
+    input_blocksize: "2GiB"
+    input_file_extensions: null
+    read_kwargs: null
+    write_kwargs: null
+    # Deduplication config
+    assign_id: True
+    text_field: ${text_field}
+    id_field: ${id_field}
+    perform_removal: False
+    env_vars: null
