@@ -30,7 +30,8 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     for p in cfg.stages:
         if "input_file_type" in p:  # Text-specific
             if p.input_file_type not in ["jsonl", "parquet"]:
-                raise ValueError(f"Invalid input file type: {p.input_file_type}")
+                msg = f"Invalid input file type: {p.input_file_type}"
+                raise ValueError(msg)
             reader_stage = JsonlReader if p.input_file_type == "jsonl" else ParquetReader
             stage = reader_stage(
                 file_paths=p.file_paths,
@@ -40,7 +41,8 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
             )
         elif "output_file_type" in p:  # Text-specific
             if p.output_file_type not in ["jsonl", "parquet"]:
-                raise ValueError(f"Invalid output file type: {p.output_file_type}")
+                msg = f"Invalid output file type: {p.output_file_type}"
+                raise ValueError(msg)
             writer_stage = JsonlWriter if p.output_file_type == "jsonl" else ParquetWriter
             stage = writer_stage(path=p.path, fields=p.fields)
         else:
