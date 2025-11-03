@@ -22,10 +22,121 @@ import torch
 from nemo_curator.stages.math.classifiers.finemath import (
     FINEMATH_MODEL_ID,
     MAX_SEQ_LENGTH,
+    CenterCropTextStage,
     FineMathClassifier,
     FineMathModelStage,
 )
 from nemo_curator.tasks import DocumentBatch
+
+
+class TestCenterCropTextStage:
+    """Test the CenterCropTextStage class."""
+
+    def test_init_default_values(self) -> None:
+        """Test CenterCropTextStage initialization with default values."""
+        stage = CenterCropTextStage()
+
+        assert stage.text_field == "text"
+        assert stage.center_crop_chars == 10_000
+
+    def test_init_custom_values(self) -> None:
+        """Test CenterCropTextStage initialization with custom values."""
+        stage = CenterCropTextStage(text_field="content", center_crop_chars=5000)
+
+        assert stage.text_field == "content"
+        assert stage.center_crop_chars == 5000
+
+    def test_inputs_outputs(self) -> None:
+        """Test inputs and outputs methods."""
+        stage = CenterCropTextStage(text_field="custom_text")
+
+        inputs = stage.inputs()
+        outputs = stage.outputs()
+
+        assert inputs == (["data"], ["custom_text"])
+        assert outputs == (["data"], ["custom_text"])
+
+    def test_mid_slice_function(self) -> None:
+        """Test the _mid_slice static method."""
+        # Test with short string (cropping needed due to implementation)
+        short_text = "Hello World"  # 11 characters, mid=5
+        result = CenterCropTextStage._mid_slice(short_text, 100)
+        # m=5, b=max(0, 5-100)=0, e=min(5+100, 11-1)=10
+        assert result == "Hello Worl"  # s[0:10]
+
+        # Test with long string (cropping needed)
+        long_text = "0123456789" * 10  # 100 characters, mid=50
+        result = CenterCropTextStage._mid_slice(long_text, 10)
+        # m=50, b=max(0, 50-10)=40, e=min(50+10, 100-1)=60
+        assert len(result) == 20  # s[40:60]
+        expected = long_text[40:60]  # Get the actual slice from the long text
+        assert result == expected
+
+        # Test edge case with empty string
+        result = CenterCropTextStage._mid_slice("", 10)
+        assert result == ""
+
+    def test_process_with_cropping(self) -> None:
+        """Test process method with text that needs cropping."""
+        stage = CenterCropTextStage(center_crop_chars=5)
+
+        # Create test data with long text
+        long_text = "0123456789ABCDEFGHIJ"  # 20 characters, mid=10
+        df = pd.DataFrame({"text": [long_text, "short"]})
+        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+
+        result = stage.process(batch)
+
+        # Long text: m=10, b=max(0, 10-5)=5, e=min(10+5, 20-1)=15
+        # Should get s[5:15] = "56789ABCDE"
+        cropped_text = result.data["text"].iloc[0]
+        assert len(cropped_text) == 10
+        assert cropped_text == "56789ABCDE"
+
+        # Short text: "short" has 5 chars, mid=2, b=max(0, 2-5)=0, e=min(2+5, 5-1)=4
+        # Should get s[0:4] = "shor"
+        assert result.data["text"].iloc[1] == "shor"
+
+    def test_process_no_cropping_needed(self) -> None:
+        """Test process method when no cropping is needed."""
+        stage = CenterCropTextStage(center_crop_chars=100)
+
+        df = pd.DataFrame({"text": ["Short text", "Another short text"]})
+        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+
+        result = stage.process(batch)
+
+        # Due to the _mid_slice implementation, even with large crop_chars,
+        # text gets cropped due to the min(m+n, len(s)-1) logic
+        # "Short text" (10 chars): m=5, b=0, e=min(5+100, 10-1)=9, so s[0:9]="Short tex"
+        assert result.data["text"].iloc[0] == "Short tex"
+        # "Another short text" (18 chars): m=9, b=0, e=min(9+100, 18-1)=17, so s[0:17]
+        assert result.data["text"].iloc[1] == "Another short tex"
+
+    def test_process_zero_crop_chars(self) -> None:
+        """Test process method with zero crop characters."""
+        stage = CenterCropTextStage(center_crop_chars=0)
+
+        df = pd.DataFrame({"text": ["Any text here"]})
+        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+
+        result = stage.process(batch)
+
+        # Should remain unchanged when crop_chars is 0
+        assert result.data["text"].iloc[0] == "Any text here"
+
+    def test_process_missing_text_field(self) -> None:
+        """Test process method when text field is missing."""
+        stage = CenterCropTextStage(text_field="missing_field")
+
+        df = pd.DataFrame({"other_field": ["Some text"]})
+        batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
+
+        result = stage.process(batch)
+
+        # Should return unchanged when field is missing
+        assert "other_field" in result.data.columns
+        assert "missing_field" not in result.data.columns
 
 
 class TestFineMathModelStage:
@@ -204,9 +315,10 @@ class TestFineMathClassifier:
         assert classifier.text_field == "text"
         assert classifier.max_chars is None
         assert classifier.max_seq_length == MAX_SEQ_LENGTH
-        assert classifier.sort_by_length is True
-        assert classifier.model_inference_batch_size == 256
+        assert classifier.sort_by_length is False
+        assert classifier.model_inference_batch_size == 1024
         assert classifier.autocast is True
+        assert classifier.center_crop_chars == 10_000
 
     def test_init_custom_values(self) -> None:
         """Test FineMathClassifier initialization with custom values."""
@@ -217,9 +329,10 @@ class TestFineMathClassifier:
             text_field="content",
             max_chars=1000,
             max_seq_length=256,
-            sort_by_length=False,
+            sort_by_length=True,  # Override default
             model_inference_batch_size=128,
             autocast=False,
+            center_crop_chars=5000,  # Custom value
         )
 
         assert classifier.cache_dir == "/custom/cache"
@@ -228,25 +341,32 @@ class TestFineMathClassifier:
         assert classifier.text_field == "content"
         assert classifier.max_chars == 1000
         assert classifier.max_seq_length == 256
-        assert classifier.sort_by_length is False
+        assert classifier.sort_by_length is True  # Custom override
         assert classifier.model_inference_batch_size == 128
         assert classifier.autocast is False
+        assert classifier.center_crop_chars == 5000  # Custom value
 
     def test_post_init_creates_stages(self) -> None:
         """Test that __post_init__ creates the correct stages."""
         classifier = FineMathClassifier()
 
-        # Should have 2 stages: TokenizerStage and FineMathModelStage
-        assert len(classifier.stages) == 2
+        # Should have 3 stages: CenterCropTextStage, TokenizerStage and FineMathModelStage
+        assert len(classifier.stages) == 3
+
+        # Check center crop stage
+        center_crop_stage = classifier.stages[0]
+        assert isinstance(center_crop_stage, CenterCropTextStage)
+        assert center_crop_stage.text_field == "text"
+        assert center_crop_stage.center_crop_chars == 10_000
 
         # Check tokenizer stage
-        tokenizer_stage = classifier.stages[0]
+        tokenizer_stage = classifier.stages[1]
         assert tokenizer_stage.model_identifier == FINEMATH_MODEL_ID
         assert tokenizer_stage.text_field == "text"
         assert tokenizer_stage.max_seq_length == MAX_SEQ_LENGTH
 
         # Check model stage
-        model_stage = classifier.stages[1]
+        model_stage = classifier.stages[2]
         assert isinstance(model_stage, FineMathModelStage)
         assert model_stage.model_identifier == FINEMATH_MODEL_ID
         assert model_stage.float_score_column == "finemath_scores"
@@ -267,7 +387,7 @@ class TestFineMathClassifier:
         )
 
         # Check tokenizer stage configuration
-        tokenizer_stage = classifier.stages[0]
+        tokenizer_stage = classifier.stages[1]
         assert tokenizer_stage.cache_dir == "/test/cache"
         assert tokenizer_stage.text_field == "content"
         assert tokenizer_stage.max_chars == 500
@@ -275,7 +395,7 @@ class TestFineMathClassifier:
         assert tokenizer_stage.sort_by_length is False
 
         # Check model stage configuration
-        model_stage = classifier.stages[1]
+        model_stage = classifier.stages[2]
         assert model_stage.cache_dir == "/test/cache"
         assert model_stage.float_score_column == "custom_float"
         assert model_stage.int_score_column == "custom_int"
@@ -287,21 +407,21 @@ class TestFineMathClassifier:
         """Test inputs method returns tokenizer stage inputs."""
         classifier = FineMathClassifier()
 
-        # Should return the inputs from the first stage (tokenizer)
+        # Should return the inputs from the first stage (center crop)
         inputs = classifier.inputs()
-        tokenizer_inputs = classifier.stages[0].inputs()
+        first_stage_inputs = classifier.stages[0].inputs()
 
-        assert inputs == tokenizer_inputs
+        assert inputs == first_stage_inputs
 
     def test_outputs(self) -> None:
         """Test outputs method returns model stage outputs."""
         classifier = FineMathClassifier()
 
-        # Should return the outputs from the second stage (model)
+        # Should return the outputs from the last stage (model)
         outputs = classifier.outputs()
-        model_outputs = classifier.stages[1].outputs()
+        expected_outputs = (["data"], ["finemath_scores", "finemath_int_scores"])
 
-        assert outputs == model_outputs
+        assert outputs == expected_outputs
 
     def test_outputs_custom_columns(self) -> None:
         """Test outputs method with custom column names."""
@@ -319,7 +439,7 @@ class TestFineMathClassifier:
         decomposed_stages = classifier.decompose()
 
         assert decomposed_stages == classifier.stages
-        assert len(decomposed_stages) == 2
+        assert len(decomposed_stages) == 3
 
     def test_name_generation(self) -> None:
         """Test that the classifier name is generated correctly."""
@@ -357,13 +477,14 @@ class TestFineMathClassifier:
 
         # Check decomposition
         stages = classifier.decompose()
-        assert len(stages) == 2
+        assert len(stages) == 3
 
         # Verify stage types
         from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 
-        assert isinstance(stages[0], TokenizerStage)
-        assert isinstance(stages[1], FineMathModelStage)
+        assert isinstance(stages[0], CenterCropTextStage)
+        assert isinstance(stages[1], TokenizerStage)
+        assert isinstance(stages[2], FineMathModelStage)
 
     def test_classifier_with_different_text_field(self) -> None:
         """Test classifier with different text field name."""

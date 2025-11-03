@@ -29,7 +29,13 @@ pip install pynvml
 ```bash
 python examples/math/run_text_preprocess.py \
   --input "examples/math/data/*.parquet" \
-  --output /tmp/math_mock/preprocessed_parquet
+  --output /tmp/math_mock/preprocessed_jsonl
+
+# Optional: Add --report-stats to see extraction statistics
+python examples/math/run_text_preprocess.py \
+  --input "examples/math/data/*.parquet" \
+  --output /tmp/math_mock/preprocessed_jsonl \
+  --report-stats
 ```
 
 - Parquet files include columns: `binary_content` (bytes), `url`, `mime_type`.
@@ -40,11 +46,11 @@ Run the pipeline that reads JSONL, classifies with the FineMath model, and write
 
 ```bash
 python examples/math/run_quality_classifier.py \
-  --input "examples/math/data/*.jsonl" \
-  --output /tmp/math_mock/out
+  --input "/tmp/math_mock/preprocessed_jsonl/*.jsonl" \
+  --output /tmp/math_mock/classified_output
 ```
 
-Outputs will be written as JSONL files under `/tmp/math_mock/out/` with columns:
+Outputs will be written as JSONL files under `/tmp/math_mock/classified_output/` with columns:
 - `finemath_scores`: float scores (0..5)
 - `finemath_int_scores`: integer scores (0..5)
 

@@ -14,6 +14,7 @@
 
 import argparse
 
+import ray.data
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
@@ -32,8 +33,8 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
     p.add_stage(
         ParquetReader(file_paths=input_glob).with_(
             {
-                "file_partitioning": {"resources": Resources(cpus=0.5)},
-                "parquet_reader": {"resources": Resources(cpus=0.5)},
+                "file_partitioning": {"resources": Resources(cpus=0.1)},
+                "parquet_reader": {"resources": Resources(cpus=0.1)},
             }
         )
     )
@@ -44,15 +45,33 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
         )
     )
 
-    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=0.5)))
+    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=0.1)))
 
     return p
+
+
+def report_extraction_stats(output_dir: str) -> None:
+    """Optional: Report extraction statistics by reading output with Ray Data."""
+    try:
+        ds = ray.data.read_json(f"{output_dir}/*.jsonl")
+        total = ds.count()
+        html_docs = ds.filter(lambda row: row.get("type") == "html").count()
+        html_failed = ds.filter(
+            lambda row: row.get("type") == "html" and (not row.get("text") or row.get("text").strip() == "")
+        ).count()
+
+        logger.info(
+            f"Extraction stats: {total} total documents, {html_docs} HTML, {html_failed} HTML extraction failures"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not compute stats (optional): {e}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run math text preprocessing on Parquet files")
     parser.add_argument("--input", required=True, help="Glob or directory for Parquet input files")
     parser.add_argument("--output", required=True, help="Output directory for JSONL results")
+    parser.add_argument("--report-stats", action="store_true", help="Report extraction statistics after processing")
     args = parser.parse_args()
 
     ray_client = RayClient()
@@ -63,6 +82,12 @@ def main() -> None:
 
     executor = XennaExecutor()
     pipeline.run(executor)
+
+    logger.info("Pipeline completed successfully.")
+
+    # Optional: Report extraction statistics
+    if args.report_stats:
+        report_extraction_stats(args.output)
 
     ray_client.stop()
 

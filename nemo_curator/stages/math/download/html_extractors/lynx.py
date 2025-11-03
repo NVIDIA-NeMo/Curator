@@ -15,8 +15,12 @@
 import shutil
 import subprocess
 
+import ftfy
+
 
 class LynxExtractor:
+    """Extract text from HTML using the lynx command-line browser."""
+
     def __init__(self, timeout_sec: int = 20):
         self.timeout_sec = timeout_sec
         # Validate lynx executable exists at initialization
@@ -26,8 +30,13 @@ class LynxExtractor:
             raise RuntimeError(error_msg)
 
     def extract_text(self, html: str) -> str:
+        """Extract text from HTML content.
+
+        Returns empty string on any failure (timeout, encoding errors, etc).
+        """
         if not html:
             return ""
+
         try:
             proc = subprocess.run(  # noqa: S603,UP022
                 [  # noqa: S607
@@ -47,11 +56,13 @@ class LynxExtractor:
                 check=False,
                 timeout=self.timeout_sec,
             )
-        except subprocess.TimeoutExpired:
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError, UnicodeEncodeError):
             return ""
+
         if proc.returncode == 0:
             try:
                 return proc.stdout.decode("utf-8")
             except (UnicodeDecodeError, UnicodeError):
-                return proc.stdout.decode("utf-8", errors="replace")
+                return ftfy.fix_text(proc.stdout.decode("utf-8", errors="replace"))
+
         return ""

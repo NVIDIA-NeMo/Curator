@@ -113,7 +113,7 @@ class TestLynxExtractor:
 
         result = extractor.extract_text(simple_html)
 
-        # Should handle decode error gracefully with error replacement
+        # Should handle decode error gracefully with ftfy and error replacement
         assert isinstance(result, str)
         mock_run.assert_called_once()
 
@@ -133,3 +133,48 @@ class TestLynxExtractor:
         assert "Quadratic Formula" in result
         assert "coefficients" in result
         mock_run.assert_called_once()
+
+    @mock.patch("subprocess.run")
+    def test_lynx_extractor_subprocess_error(self, mock_run: mock.Mock, simple_html: str) -> None:
+        """Test LynxExtractor with subprocess error handling."""
+        mock_run.side_effect = subprocess.SubprocessError("Subprocess failed")
+
+        extractor = LynxExtractor()
+
+        result = extractor.extract_text(simple_html)
+
+        assert result == ""
+        mock_run.assert_called_once()
+
+    @mock.patch("subprocess.run")
+    def test_lynx_extractor_os_error(self, mock_run: mock.Mock, simple_html: str) -> None:
+        """Test LynxExtractor with OS error handling."""
+        mock_run.side_effect = OSError("System error")
+
+        extractor = LynxExtractor()
+
+        result = extractor.extract_text(simple_html)
+
+        assert result == ""
+        mock_run.assert_called_once()
+
+    def test_lynx_extractor_unicode_encode_error(self) -> None:
+        """Test LynxExtractor with Unicode encode error handling."""
+        extractor = LynxExtractor()
+
+        # Create HTML with characters that might cause encoding issues
+        problematic_html = "Test content with problematic chars: \udcff"
+
+        # Mock subprocess.run to raise UnicodeEncodeError during input processing
+        def mock_run_with_encode_error(*_args, **kwargs) -> mock.Mock:
+            # Simulate the error happening when trying to encode the input
+            if "input" in kwargs:
+                encoding = "utf-8"
+                error_msg = "invalid start byte"
+                raise UnicodeEncodeError(encoding, "test", 0, 1, error_msg)
+            return mock.Mock()
+
+        with mock.patch("subprocess.run", side_effect=mock_run_with_encode_error):
+            result = extractor.extract_text(problematic_html)
+
+        assert result == ""

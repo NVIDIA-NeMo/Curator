@@ -36,6 +36,45 @@ FINEMATH_MODEL_ID = "HuggingFaceTB/finemath-classifier"
 MAX_SEQ_LENGTH = 512
 
 
+class CenterCropTextStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """
+    Pre-tokenization stage that center-crops the text field to a fixed number
+    of characters to keep central context.
+    """
+
+    def __init__(self, text_field: str = "text", center_crop_chars: int = 10_000):
+        self.text_field = text_field
+        self.center_crop_chars = max(0, int(center_crop_chars))
+        self._name = format_name_with_suffix(FINEMATH_MODEL_ID, suffix="_center_crop")
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.text_field]
+
+    @staticmethod
+    def _mid_slice(s: str, n: int) -> str:
+        m = len(s) // 2
+        b, e = max(0, m - n), min(m + n, len(s) - 1)
+        return s[b:e]
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+        if self.text_field in df.columns and self.center_crop_chars > 0:
+            df[self.text_field] = (
+                df[self.text_field].astype(str).map(lambda t: self._mid_slice(t, self.center_crop_chars))
+            )
+
+        return DocumentBatch(
+            task_id=batch.task_id,
+            dataset_name=batch.dataset_name,
+            data=df,
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
+
+
 class FineMathModelStage(ModelStage):
     """
     HF sequence classification model stage for FineMath.
@@ -127,39 +166,48 @@ class FineMathClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     text_field: str = "text"
     max_chars: int | None = None
     max_seq_length: int = MAX_SEQ_LENGTH
-    sort_by_length: bool = True
-    model_inference_batch_size: int = 256
+    sort_by_length: bool = False
+    model_inference_batch_size: int = 1024
     autocast: bool = True
+    center_crop_chars: int | None = 10_000
 
     def __post_init__(self) -> None:
         super().__init__()
-        self.stages = [
-            TokenizerStage(
-                model_identifier=FINEMATH_MODEL_ID,
-                cache_dir=self.cache_dir,
-                text_field=self.text_field,
-                max_chars=self.max_chars,
-                max_seq_length=self.max_seq_length,
-                padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
-                sort_by_length=self.sort_by_length,
-            ),
-            FineMathModelStage(
-                model_identifier=FINEMATH_MODEL_ID,
-                cache_dir=self.cache_dir,
-                float_score_column=self.float_score_column,
-                int_score_column=self.int_score_column,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                autocast=self.autocast,
-            ),
-        ]
+        stages: list[ProcessingStage] = []
+
+        if self.center_crop_chars is not None and self.center_crop_chars > 0:
+            stages.append(CenterCropTextStage(text_field=self.text_field, center_crop_chars=self.center_crop_chars))
+
+        stages.extend(
+            [
+                TokenizerStage(
+                    model_identifier=FINEMATH_MODEL_ID,
+                    cache_dir=self.cache_dir,
+                    text_field=self.text_field,
+                    max_chars=self.max_chars,
+                    max_seq_length=self.max_seq_length,
+                    padding_side=DEBERTA_TOKENIZER_PADDING_SIDE,
+                    sort_by_length=self.sort_by_length,
+                ),
+                FineMathModelStage(
+                    model_identifier=FINEMATH_MODEL_ID,
+                    cache_dir=self.cache_dir,
+                    float_score_column=self.float_score_column,
+                    int_score_column=self.int_score_column,
+                    model_inference_batch_size=self.model_inference_batch_size,
+                    has_seq_order=self.sort_by_length,
+                    autocast=self.autocast,
+                ),
+            ]
+        )
+        self.stages = stages
         self._name = format_name_with_suffix(FINEMATH_MODEL_ID)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return self.stages[1].outputs()
+        return self.stages[-1].outputs()  # Return last stage outputs
 
     def decompose(self) -> list[ProcessingStage]:
         return self.stages
