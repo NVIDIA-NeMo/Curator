@@ -59,8 +59,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
             raise RuntimeError(msg)
 
         # Initialize a deduplication workflow
-        pipeline = hydra.utils.instantiate(cfg.workflow[0])
-        return pipeline
+        return hydra.utils.instantiate(cfg.workflow[0])
 
     else:
         msg = "Invalid YAML configuration. Please define stages to add to a pipeline or a workflow to execute."
