@@ -63,6 +63,7 @@ dependencies = [
     "ray[default,data]>=2.50",
     "torch",
     "transformers==4.55.2",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
