@@ -155,7 +155,7 @@ class AegisModelStage(ModelStage):
         cache_dir: str | None = None,
         hf_token: str | None = None,
         pred_column: str = "preds",
-        prob_column: str = "probs",
+        score_field: str = "probs",
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         add_instruction_data_guard: bool = False,
@@ -174,10 +174,10 @@ class AegisModelStage(ModelStage):
 
         self.add_instruction_data_guard = add_instruction_data_guard
         self.pred_column = pred_column
-        self.prob_column = prob_column
+        self.score_field = score_field
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.prob_column] if self.add_instruction_data_guard else [])
+        return ["data"], [self.pred_column] + ([self.score_field] if self.add_instruction_data_guard else [])
 
     # We use the _setup function to ensure that everything needed for Aegis is downloaded and loaded properly
     def _setup(self, local_files_only: bool = True) -> None:
@@ -221,7 +221,7 @@ class AegisModelStage(ModelStage):
         df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
 
         if self.add_instruction_data_guard:
-            df_cpu[self.prob_column] = collected_output[self.pred_column].tolist()
+            df_cpu[self.score_field] = collected_output[self.pred_column].tolist()
             df_cpu[self.pred_column] = (collected_output[self.pred_column] >= 0.5).tolist()  # noqa: PLR2004
         else:
             df_cpu[self.pred_column] = collected_output[self.pred_column].tolist()
@@ -520,7 +520,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
             needed to access the base model for AEGIS (meta-llama/LlamaGuard-7b). You can get access to
             Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
         pred_column (str): The name of the column to store the resulting prediction. Defaults to "is_poisoned".
-        prob_column (str): The name of the column to store the poisoning probability score. Defaults to "instruction_data_guard_poisoning_score".
+        score_field (str): The name of the column to store the poisoning probability score. Defaults to "instruction_data_guard_poisoning_score".
         text_field (str): The field in the dataset that should be classified. Defaults to "text".
         filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
             expect those specified in this list. Defaults to None.
@@ -535,7 +535,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     cache_dir: str | None = None
     hf_token: str | bool | None = None
     pred_column: str = "is_poisoned"
-    prob_column: str = "instruction_data_guard_poisoning_score"
+    score_field: str = "instruction_data_guard_poisoning_score"
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int = 6000
@@ -565,7 +565,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
                 pred_column=self.pred_column,
-                prob_column=self.prob_column,
+                score_field=self.score_field,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=True,

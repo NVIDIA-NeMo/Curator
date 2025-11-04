@@ -35,7 +35,7 @@ class DomainClassifier(DistributedDataClassifier):
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "quality_pred".
-        prob_column: The name of the probability column. Defaults to None.
+        score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: The maximum number of characters to use from the input text. Defaults to 2000.
@@ -51,7 +51,7 @@ class DomainClassifier(DistributedDataClassifier):
         self,
         cache_dir: str | None = None,
         pred_column: str = "domain_pred",
-        prob_column: str | None = None,
+        score_field: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_chars: int = 2000,
@@ -63,7 +63,7 @@ class DomainClassifier(DistributedDataClassifier):
             model_identifier=DOMAIN_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
             pred_column=pred_column,
-            prob_column=prob_column,
+            score_field=score_field,
             text_field=text_field,
             filter_by=filter_by,
             max_chars=max_chars,
@@ -87,7 +87,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "quality_pred".
-        prob_column: The name of the probability column. Defaults to None.
+        score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: The maximum number of characters to use from the input text. Defaults to 2000.
@@ -103,7 +103,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
         self,
         cache_dir: str | None = None,
         pred_column: str = "multilingual_domain_pred",
-        prob_column: str | None = None,
+        score_field: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_chars: int = 2000,
@@ -115,7 +115,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
             model_identifier=MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
             pred_column=pred_column,
-            prob_column=prob_column,
+            score_field=score_field,
             text_field=text_field,
             filter_by=filter_by,
             max_chars=max_chars,

@@ -70,7 +70,7 @@ class ClassifierModelStage(ModelStage):
     Args:
         model_identifier: The identifier of the Hugging Face model.
         pred_column: The name of the prediction column.
-        prob_column: The name of the probability column. Defaults to None.
+        score_field: The name of the probability column. Defaults to None.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
@@ -85,7 +85,7 @@ class ClassifierModelStage(ModelStage):
         model_identifier: str,
         cache_dir: str | None = None,
         pred_column: str = "preds",
-        prob_column: str | None = None,
+        score_field: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
@@ -102,15 +102,15 @@ class ClassifierModelStage(ModelStage):
         )
 
         self.pred_column = pred_column
-        if prob_column is not None:
-            self.prob_column = prob_column
-            self.keep_prob_column = True
+        if score_field is not None:
+            self.score_field = score_field
+            self.keep_score_field = True
         else:
-            self.prob_column = "probs"
-            self.keep_prob_column = False
+            self.score_field = "probs"
+            self.keep_score_field = False
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.prob_column] if self.keep_prob_column else [])
+        return ["data"], [self.pred_column] + ([self.score_field] if self.keep_score_field else [])
 
     def _setup(self, local_files_only: bool = True) -> None:
         self.model = (
@@ -134,7 +134,7 @@ class ClassifierModelStage(ModelStage):
         pred_labels = [self.labels[idx] for idx in preds]
 
         return {
-            self.prob_column: probs,
+            self.score_field: probs,
             self.pred_column: np.array(pred_labels),
         }
 
@@ -142,8 +142,8 @@ class ClassifierModelStage(ModelStage):
         df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
         df_cpu[self.pred_column] = collected_output[self.pred_column]
 
-        if self.keep_prob_column:
-            df_cpu[self.prob_column] = collected_output[self.prob_column].tolist()
+        if self.keep_score_field:
+            df_cpu[self.score_field] = collected_output[self.score_field].tolist()
 
         return df_cpu
 
@@ -159,7 +159,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         model_identifier: The identifier of the Hugging Face model.
         cache_dir: The Hugging Face cache directory. Defaults to None.
         pred_column: The name of the prediction column. Defaults to "preds".
-        prob_column: The name of the probability column. Defaults to None.
+        score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -178,7 +178,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     model_identifier: str
     cache_dir: str | None = None
     pred_column: str = "preds"
-    prob_column: str | None = None
+    score_field: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int | None = None
@@ -205,7 +205,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=self.model_identifier,
                 cache_dir=self.cache_dir,
                 pred_column=self.pred_column,
-                prob_column=self.prob_column,
+                score_field=self.score_field,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
