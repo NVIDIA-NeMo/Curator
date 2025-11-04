@@ -233,13 +233,13 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
                     outfile.flush()
                     # Filter out chars that might break the scrolling live window before adding to the buffer.
                     line = line.translate(_control_chars).strip()  # noqa: PLW2901
-                    # Do not allow multiple blank lines, waste of already limited space.
+                    # Do not allow multiple blank lines, it's a waste of already limited space.
                     if line or last_line_not_blank:
                         output_buffer.append(line)
                         display_text = Text("\n".join(output_buffer), no_wrap=True)
                         panel = Panel(
                             display_text,
-                            title=f"[bold blue]Subprocess Output{run_id_msg}[/]",
+                            title=f"[bold blue]Subprocess Output{run_id_msg}, elapsed time: {time.time() - start_time:.2f}s[/]",
                             border_style="green",
                             height=window_height + 2,  # +2 for top/bottom borders
                         )

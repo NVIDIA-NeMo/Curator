@@ -14,7 +14,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from runner.matrix import MatrixConfig
+from runner.matrix import MatrixConfig, MatrixEntry
 
 
 class Sink(ABC):
@@ -44,11 +44,12 @@ class Sink(ABC):
         """
 
     @abstractmethod
-    def process_result(self, result: dict[str, Any]) -> None:
+    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
         """Process an individual benchmark result.
 
         Args:
-            result: Dictionary containing benchmark result data.
+            result_dict: Dictionary containing benchmark result data.
+            matrix_entry: Matrix entry configuration.
         """
 
     @abstractmethod

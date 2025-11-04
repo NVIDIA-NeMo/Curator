@@ -153,7 +153,7 @@ def run_entry(
                 "started_at": started_at,
                 "ended_at": time.time(),
                 "exec_started_at": started_exec,
-                "exec_time_s": ended_exec - started_exec,
+                "exec_time_s": duration,
                 "exit_code": completed["returncode"],
                 "timed_out": completed["timed_out"],
                 "logs_dir": logs_path,
@@ -161,11 +161,16 @@ def run_entry(
             }
         )
         ray_data = {}
+        # script_persisted_data is a dictionary with keys "params" and "metrics"
+        # "params" will contain everything the script wrote to its params.json file
+        # "metrics" will contain everything the script wrote to its metrics.json file plus metrics
+        # from the Task objects restored from the tasks.pkl file.
         script_persisted_data = get_entry_script_persisted_data(benchmark_results_path)
         result.update(
             {
                 "ray_data": ray_data,
-                "script_persisted_data": script_persisted_data,
+                "metrics": script_persisted_data["metrics"],
+                "params": script_persisted_data["params"],
             }
         )
         Path(session_entry_path / "results.json").write_text(json.dumps(get_obj_for_json(result)))
@@ -262,7 +267,7 @@ def main() -> None:
         finally:
             session_overall_success &= run_success
             for sink in config.sinks:
-                sink.process_result(result)
+                sink.process_result(result_dict=result, matrix_entry=entry)
 
     for sink in config.sinks:
         sink.finalize()

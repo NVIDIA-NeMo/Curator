@@ -18,10 +18,10 @@
 This script runs domain classification benchmarks with comprehensive metrics collection
 using various executors and logs results to configured sinks.
 """
+# ruff: noqa: ERA001
 
 import argparse
 import json
-import os
 import pickle
 import time
 import traceback
@@ -30,63 +30,72 @@ from typing import Any
 
 from loguru import logger
 
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.classifiers import DomainClassifier
+from nemo_curator.stages.text.io.reader import ParquetReader
+from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
+
+_executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
+
 
 def run_domain_classification_benchmark(  # noqa: PLR0913
-    input_path: str,
-    output_path: str,
+    input_path: Path,
+    output_path: Path,
     executor_name: str,
     dataset_size_gb: float,
     model_inference_batch_size: int,
-    benchmark_results_path: str,
+    benchmark_results_path: Path,
 ) -> dict[str, Any]:
     """Run the domain classification benchmark and collect comprehensive metrics."""
 
     # Setup executor
-    if executor_name == "ray_data":
-        from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-        executor = RayDataExecutor()
-    elif executor_name == "xenna":
-        from nemo_curator.backends.xenna import XennaExecutor
-
-        executor = XennaExecutor()
-    else:
+    try:
+        executor = _executor_map[executor_name]()
+    except KeyError:
         msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg)
+        raise ValueError(msg) from None
 
     # Ensure output directory
-    Path(output_path).mkdir(parents=True, exist_ok=True)
+    output_path = output_path.absolute()
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Starting domain classification benchmark")
     logger.info(f"Input path: {input_path}")
+    logger.info(f"Output path: {output_path}")
     logger.info(f"Dataset size: {dataset_size_gb} GB")
     logger.info(f"Batch size: {model_inference_batch_size}")
+    logger.debug(f"Executor: {executor}")
 
     run_start_time = time.perf_counter()
 
     try:
-        # TODO: Implement actual domain classification pipeline
-        # This would typically involve:
-        # 1. Loading the dataset
-        # 2. Loading a domain classification model
-        # 3. Running inference on the dataset
-        # 4. Writing results to output_path
-
-        # Placeholder for actual implementation
         logger.info("Running domain classification pipeline...")
-        logger.debug(f"Using executor: {executor}")
 
-        # Example: Load data from input_path
-        # dataset = load_dataset(input_path, dataset_size_gb) # noqa: ERA001
+        input_files = load_dataset_files(input_path, dataset_size_gb)
 
-        # Example: Run classification
-        # classifier = DomainClassifier(batch_size=model_inference_batch_size) # noqa: ERA001
-        # output_tasks = classifier.classify(dataset, executor) # noqa: ERA001
+        executor = RayDataExecutor() if executor_name == "ray_data" else XennaExecutor()
 
-        # For now, return empty tasks list
-        output_tasks = []
-        num_documents_processed = 0
-        num_domains_classified = 0
+        pipeline = Pipeline(
+            name="domain_classification_pipeline",
+            stages=[
+                ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False),
+                DomainClassifier(
+                    text_field="text",
+                    model_inference_batch_size=model_inference_batch_size,
+                ),
+                ParquetWriter(path=str(output_path), fields=["domain_pred"]),
+            ],
+        )
+        output_tasks = pipeline.run(executor)
+        run_time_taken = time.perf_counter() - run_start_time
+
+        # task._metadata is a dictionary of metadata for the task, but will not be used here.
+        # Instead simply use the num_items property of the task to get the number of documents processed.
+        # TODO: can we get the number of domains classified?
+        num_documents_processed = sum(task.num_items for task in output_tasks)
+        # num_domains_classified = 0
 
         run_time_taken = time.perf_counter() - run_start_time
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
@@ -100,23 +109,23 @@ def run_domain_classification_benchmark(  # noqa: PLR0913
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
-        num_domains_classified = 0
+        # num_domains_classified = 0
         success = False
 
     return {
         "params": {
             "executor": executor_name,
-            "input_path": input_path,
-            "output_path": output_path,
+            "input_path": str(input_path),
+            "output_path": str(output_path),
             "dataset_size_gb": dataset_size_gb,
             "model_inference_batch_size": model_inference_batch_size,
-            "benchmark_results_path": benchmark_results_path,
+            "benchmark_results_path": str(benchmark_results_path),
         },
         "metrics": {
             "is_success": success,
             "time_taken": run_time_taken,
             "num_documents_processed": num_documents_processed,
-            "num_domains_classified": num_domains_classified,
+            # "num_domains_classified": num_domains_classified,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
         },
@@ -124,23 +133,40 @@ def run_domain_classification_benchmark(  # noqa: PLR0913
     }
 
 
-def write_results(results: dict, output_path: str | None = None) -> None:
-    """Write results to a file or stdout."""
-    Path(output_path).mkdir(parents=True, exist_ok=True)
-    with open(os.path.join(output_path, "params.json"), "w") as f:
-        json.dump(results["params"], f, indent=2)
-    with open(os.path.join(output_path, "metrics.json"), "w") as f:
-        json.dump(results["metrics"], f, indent=2)
-    with open(os.path.join(output_path, "tasks.pkl"), "wb") as f:
-        pickle.dump(results["tasks"], f)
+def write_results(results: dict[str, Any], output_path: Path) -> None:
+    """Write results to files required by the benchmarking framework at the given path."""
+    output_path.mkdir(parents=True, exist_ok=True)
+    (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
+    (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
+    (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+
+
+def load_dataset_files(dataset_path: Path, dataset_size_gb: float) -> list[str]:
+    """Load the dataset files at the given path and return a subset of the files whose combined size is approximately the given size in GB."""
+    input_files = get_all_file_paths_and_size_under(
+        dataset_path, recurse_subdirectories=True, keep_extensions="parquet"
+    )
+    desired_size_bytes = (1024**3) * dataset_size_gb
+    total_size = 0
+    subset_files = []
+    for file, size in input_files:
+        if size + total_size > desired_size_bytes:
+            break
+        else:
+            subset_files.append(file)
+            total_size += size
+
+    return subset_files
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Domain classification benchmark")
     # Paths
-    parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
-    parser.add_argument("--input-path", required=True, help="Path to input data")
-    parser.add_argument("--output-path", default="./domain_classification_output", help="Output directory for results")
+    parser.add_argument("--benchmark-results-path", type=Path, required=True, help="Path to benchmark results")
+    parser.add_argument("--input-path", required=True, type=Path, help="Path to input data")
+    parser.add_argument(
+        "--output-path", default=Path("./domain_classification_output"), type=Path, help="Output directory for results"
+    )
     # Executor
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
     # Pipeline Specific

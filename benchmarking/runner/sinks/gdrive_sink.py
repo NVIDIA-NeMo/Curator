@@ -23,7 +23,7 @@ from loguru import logger
 from oauth2client.service_account import ServiceAccountCredentials
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
-from runner.matrix import MatrixConfig
+from runner.matrix import MatrixConfig, MatrixEntry
 from runner.sinks.sink import Sink
 
 
@@ -52,8 +52,8 @@ class GdriveSink(Sink):
             msg = "GdriveSink: No service account file configured"
             raise ValueError(msg)
 
-    def process_result(self, result: dict[str, Any]) -> None:
-        self.results.append(result)
+    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
+        pass
 
     def finalize(self) -> None:
         if self.enabled:
