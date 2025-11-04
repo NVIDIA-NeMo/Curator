@@ -43,13 +43,13 @@ class MockTorchModel(nn.Module):
 
 
 class MockModelStage(ModelStage):
-    def __init__(self, pred_column: str = "predictions", **kwargs):
+    def __init__(self, label_field: str = "predictions", **kwargs):
         super().__init__(**kwargs)
-        self.pred_column = pred_column
+        self.label_field = label_field
         self.model = None
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column]
+        return ["data"], [self.label_field]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         self.model = MockTorchModel(device="cpu")
@@ -59,15 +59,15 @@ class MockModelStage(ModelStage):
     ) -> dict[str, np.ndarray]:
         # Simple processing: take mean across sequence dimension
         processed = outputs.mean(dim=1).cpu().numpy()
-        return {self.pred_column: processed}
+        return {self.label_field: processed}
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
         df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
         result = df_cpu.copy()
-        result[self.pred_column] = None
+        result[self.label_field] = None
 
         if collected_output:
-            result[self.pred_column] = collected_output[self.pred_column].tolist()
+            result[self.label_field] = collected_output[self.label_field].tolist()
 
         return result
 

@@ -339,7 +339,7 @@ The `QualityClassifier` accepts the following parameters:
 - `filter_by` (list, default=None): Quality levels to keep (options: "Low", "Medium", "High")
 - `model_inference_batch_size` (int, default=256): Batch size for inference
 - `max_chars` (int, default=6000): Max characters per document for processing
-- `pred_column` (str, default="quality_pred"): Name of the prediction column
+- `label_field` (str, default="quality_pred"): Name of the prediction column
 - `text_field` (str, default="text"): Name of the text field in input data
 
 ### FastTextQualityFilter
@@ -363,7 +363,7 @@ classifiers:
     filter_by: ["High"]
     model_inference_batch_size: 256
     max_chars: 6000
-    pred_column: quality_pred
+    label_field: quality_pred
     text_field: text
 ```
 
