@@ -1,0 +1,45 @@
+---
+# Example 2: Multiple benchmarks with different parameters
+results_dir: "/raid/jnke/curator/Curator/benchmarking_results"
+default_timeout_s: 300
+delete_scratch: true
+
+# Disable sinks for simplicity
+sinks: []
+
+# Define datasets for template substitution
+datasets:
+  - name: sample_data
+    formats:
+      - type: text
+        path: "/tmp/dummy_input"
+
+# Multiple benchmark entries with different configurations
+entries:
+  - name: benchmark_short_run
+    script: test_benchmark.py
+    args: >-
+      --input-path {dataset:sample_data,text}
+      --output-path {session_entry_dir}/output_short
+    timeout_s: 60
+
+  - name: benchmark_medium_run
+    script: test_benchmark.py
+    args: >-
+      --input-path {dataset:sample_data,text}
+      --output-path {session_entry_dir}/output_medium
+    timeout_s: 120
+
+  - name: benchmark_comparison_v1
+    script: test_benchmark.py
+    args: >-
+      --input-path {dataset:sample_data,text}
+      --output-path {session_entry_dir}/output_v1
+    timeout_s: 90
+
+  - name: benchmark_comparison_v2
+    script: test_benchmark.py
+    args: >-
+      --input-path {dataset:sample_data,text}
+      --output-path {session_entry_dir}/output_v2
+    timeout_s: 90

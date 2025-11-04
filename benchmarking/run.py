@@ -180,9 +180,10 @@ def main() -> None:
     config_dict = {}
     for yml_file in args.config:
         with open(yml_file) as f:
-            config_dicts = yaml.full_load_all(f)
+            config_dicts = list(yaml.full_load_all(f))  # Consume the generator inside the with block
         for d in config_dicts:
-            config_dict.update(d)
+            if d:  # Skip None documents
+                config_dict.update(d)
 
     config = MatrixConfig.create_from_dict(config_dict)
     resolver = DatasetResolver.create_from_dicts(config_dict["datasets"])

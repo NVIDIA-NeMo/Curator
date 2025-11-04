@@ -1,0 +1,24 @@
+---
+# Container-based configuration for benchmarking examples
+results_dir: "/raid/jnke/curator/Curator/benchmarking_results"
+
+# Optional: Global timeout for all entries (seconds)
+default_timeout_s: 300
+
+# Optional: Delete scratch directories after each entry completes
+delete_scratch: true
+
+# Disable sinks for simplicity in our examples
+sinks: []
+
+# Datasets (required even if empty)
+datasets: []
+
+# Simple benchmark entries
+entries:
+  - name: simple_test
+    script: test_benchmark.py
+    args: >-
+      --input-path /tmp/dummy_input
+      --output-path {session_entry_dir}/output
+    timeout_s: 60
