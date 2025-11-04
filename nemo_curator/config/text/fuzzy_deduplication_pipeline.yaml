@@ -21,3 +21,37 @@ hydra:
   run:
     dir: .
   output_subdir: null
+
+documentation: |
+  NeMo Curator Pipeline Fuzzy Deduplication Configuration File
+  ############################################################
+  This configuration file can be used to build a NeMo Curator pipeline that performs fuzzy deduplication.
+  This example reads the input files, runs the fuzzy deduplication workflow, and saves the results.
+
+input_path: ???
+output_path: ???
+cache_path: ???
+input_filetype: jsonl
+text_field: "text"
+
+workflow:
+  - _target_: nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow
+    input_path: ${input_path}
+    output_path: ${output_path}
+    cache_path: ${cache_path}
+    input_filetype: ${input_filetype}
+    input_blocksize: "1GiB"
+    input_file_extensions: null
+    read_kwargs: null
+    cache_kwargs: null
+    write_kwargs: null
+    text_field: ${text_field}
+    perform_removal: False
+    # Minhash + LSH Config
+    seed: 42
+    char_ngrams: 24
+    num_bands: 20
+    minhashes_per_band: 13
+    use_64_bit_hash: False
+    bands_per_iteration: 5
+    env_vars: null
