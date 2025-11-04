@@ -25,13 +25,17 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
 
+    if "stages" in cfg and "workflow" in cfg:
+        msg = "Both stages and workflow are defined in the configuration. Please define either stages or workflow, not both."
+        raise RuntimeError(msg)
+
     if "stages" in cfg:
         pipeline = Pipeline(name="yaml_pipeline", description="Create and execute a pipeline from a YAML file")
 
         # Add stages to the pipeline
         for p in cfg.stages:
             if "input_file_type" in p:  # Text-specific
-                if p.input_file_type not in ["jsonl", "parquet"]:
+                if p.input_file_type.lower() not in ["jsonl", "parquet"]:
                     msg = f"Invalid input file type: {p.input_file_type}"
                     raise ValueError(msg)
                 reader_stage = JsonlReader if p.input_file_type == "jsonl" else ParquetReader
@@ -42,7 +46,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
                     fields=p.fields,
                 )
             elif "output_file_type" in p:  # Text-specific
-                if p.output_file_type not in ["jsonl", "parquet"]:
+                if p.output_file_type.lower() not in ["jsonl", "parquet"]:
                     msg = f"Invalid output file type: {p.output_file_type}"
                     raise ValueError(msg)
                 writer_stage = JsonlWriter if p.output_file_type == "jsonl" else ParquetWriter
@@ -54,8 +58,8 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
         return pipeline
 
     elif "workflow" in cfg:
-        if len(cfg.workflow) > 1:
-            msg = "Only one workflow can be executed at a time. Please define a single workflow in the YAML configuration."
+        if len(cfg.workflow) != 1:
+            msg = "One workflow should be defined in the YAML configuration. Please define a single workflow."
             raise RuntimeError(msg)
 
         # Initialize a deduplication workflow
