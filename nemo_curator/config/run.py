@@ -77,9 +77,7 @@ def main(cfg: DictConfig) -> None:
     print("Starting pipeline execution...")
     results = pipeline.run()
 
-    # Print results
     print("\nPipeline completed!")
-    print(f"Total output tasks: {len(results) if results else 0}")
 
     ray_client.stop()
 
