@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
+
 import hydra
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
@@ -22,7 +24,7 @@ from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 
-def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
+def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN401
     logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
 
     if "stages" in cfg and "workflow" in cfg:
@@ -35,10 +37,11 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
         # Add stages to the pipeline
         for p in cfg.stages:
             if "input_file_type" in p:  # Text-specific
-                if p.input_file_type.lower() not in ["jsonl", "parquet"]:
-                    msg = f"Invalid input file type: {p.input_file_type}"
+                input_file_type = p.input_file_type.lower()
+                if input_file_type not in ["jsonl", "parquet"]:
+                    msg = f"Invalid input file type: {input_file_type}"
                     raise ValueError(msg)
-                reader_stage = JsonlReader if p.input_file_type == "jsonl" else ParquetReader
+                reader_stage = JsonlReader if input_file_type == "jsonl" else ParquetReader
                 stage = reader_stage(
                     file_paths=p.file_paths,
                     files_per_partition=p.files_per_partition,
@@ -46,10 +49,11 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
                     fields=p.fields,
                 )
             elif "output_file_type" in p:  # Text-specific
-                if p.output_file_type.lower() not in ["jsonl", "parquet"]:
-                    msg = f"Invalid output file type: {p.output_file_type}"
+                output_file_type = p.output_file_type.lower()
+                if output_file_type not in ["jsonl", "parquet"]:
+                    msg = f"Invalid output file type: {output_file_type}"
                     raise ValueError(msg)
-                writer_stage = JsonlWriter if p.output_file_type == "jsonl" else ParquetWriter
+                writer_stage = JsonlWriter if output_file_type == "jsonl" else ParquetWriter
                 stage = writer_stage(path=p.path, fields=p.fields)
             else:
                 stage = hydra.utils.instantiate(p)
