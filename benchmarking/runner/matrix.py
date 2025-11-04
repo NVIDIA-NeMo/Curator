@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: ERA001
+
 from __future__ import annotations
 
 import re
@@ -34,10 +36,32 @@ class MatrixEntry:
     args: str | None = None
     script_base_dir: Path = Path(__file__).parent.parent / "scripts"
     timeout_s: int | None = None
+    sink_data: dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
     enabled: bool = True
+
+    def __post_init__(self) -> None:
+        """Post-initialization checks and updates for dataclass."""
+        # Convert list of dicts to dict of dicts for easier lookup for sink_data
+        # sink_data is typically a list of dicts from reading YAML, like this:
+        # sink_data:
+        #   - name: slack
+        #     additional_metrics: ["num_documents_processed", "throughput_docs_per_sec"]
+        #   - name: gdrive
+        #     ...
+        if not self.sink_data:
+            msg = "Sink data is required"
+            raise ValueError(msg)
+        if isinstance(self.sink_data, list):
+            sink_data = {}
+            for data in self.sink_data:
+                sink_data[data["name"]] = data
+            self.sink_data = sink_data
+        elif not isinstance(self.sink_data, dict):
+            msg = "Sink data must be a list or a dict"
+            raise TypeError(msg)
 
     def get_command_to_run(
         self,
@@ -58,6 +82,9 @@ class MatrixEntry:
             raise ValueError(msg)
 
         return cmd
+
+    def get_sink_data(self, sink_name: str) -> dict[str, Any]:
+        return self.sink_data.get(sink_name, {})
 
     @staticmethod
     def substitute_paths_in_cmd(cmd: str, path_resolver: PathResolver, dataset_resolver: DatasetResolver) -> str:

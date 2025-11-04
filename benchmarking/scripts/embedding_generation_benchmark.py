@@ -18,6 +18,7 @@
 This script runs embedding generation benchmarks with comprehensive metrics collection
 using various executors and logs results to configured sinks.
 """
+# ruff: noqa: ERA001
 
 import argparse
 import json
@@ -59,10 +60,12 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         raise ValueError(msg) from None
 
     # Ensure output directory
+    output_path = output_path.absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
     logger.info("Starting embedding generation benchmark")
     logger.info(f"Input path: {input_path}")
+    logger.info(f"Output path: {output_path}")
     logger.info(f"Dataset size: {dataset_size_gb} GB")
     logger.info(f"Model: {model_identifier}")
     logger.info(f"Batch size: {model_inference_batch_size}")
@@ -89,23 +92,21 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
                     embedding_pooling="mean_pooling",
                     model_inference_batch_size=model_inference_batch_size,
                 ),
-                ParquetWriter(path=str(output_path), fields=["embedding"]),
+                ParquetWriter(path=str(output_path), fields=["embeddings"]),
             ],
         )
+
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        num_documents_processed = sum(
-            task._metadata.get("num_documents", 0) for task in output_tasks if hasattr(task, "_metadata")
-        )
-        num_embeddings_generated = sum(
-            task._metadata.get("num_embeddings", 0) for task in output_tasks if hasattr(task, "_metadata")
-        )
-        embedding_dimension = 0
+        # task._metadata is a dictionary of metadata for the task, but will not be used here.
+        # Instead simply use the num_items property of the task to get the number of documents processed.
+        # TODO: can we get the number of embeddings generated?
+        num_documents_processed = sum(task.num_items for task in output_tasks)
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} documents")
-        logger.success(f"Generated {num_embeddings_generated} embeddings")
+        # logger.success(f"Generated {num_embeddings_generated} embeddings")
         success = True
 
     except Exception as e:  # noqa: BLE001
@@ -115,8 +116,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
-        num_embeddings_generated = 0
-        embedding_dimension = 0
+        # num_embeddings_generated = 0
+        # embedding_dimension = 0
         success = False
 
     return {
@@ -133,11 +134,11 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
             "is_success": success,
             "time_taken": run_time_taken,
             "num_documents_processed": num_documents_processed,
-            "num_embeddings_generated": num_embeddings_generated,
-            "embedding_dimension": embedding_dimension,
+            # "num_embeddings_generated": num_embeddings_generated,
+            # "embedding_dimension": embedding_dimension,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
-            "throughput_embeddings_per_sec": num_embeddings_generated / run_time_taken if run_time_taken > 0 else 0,
+            # "throughput_embeddings_per_sec": num_embeddings_generated / run_time_taken if run_time_taken > 0 else 0,
         },
         "tasks": output_tasks,
     }
