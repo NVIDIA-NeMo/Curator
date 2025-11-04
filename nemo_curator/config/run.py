@@ -75,7 +75,7 @@ def main(cfg: DictConfig) -> None:
 
     # Execute pipeline
     print("Starting pipeline execution...")
-    results = pipeline.run()
+    _results = pipeline.run()
 
     print("\nPipeline completed!")
 
