@@ -32,7 +32,7 @@ from runner.path_resolver import (  # noqa: E402
 )
 
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "nemo_curator_benchmarking:latest")
-GPUS = os.environ.get("GPUS", '"device=1"')
+GPUS = os.environ.get("GPUS", "all")
 HOST_CURATOR_DIR = os.environ.get("HOST_CURATOR_DIR", str(this_script_path.parent.parent.absolute()))
 CURATOR_BENCHMARKING_DEBUG = os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0")
 

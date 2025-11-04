@@ -247,8 +247,9 @@ if __name__ == "__main__":
     from pathlib import Path
 
     parser = argparse.ArgumentParser(description="Post benchmark results to Slack via webhook.")
-    parser.add_argument("webhook_url", help="Slack webhook URL")
-    parser.add_argument("results_root_dir", help="Path to the directory containing result subdirectories")
+    parser.add_argument("--webhook-url", help="Slack webhook URL")
+    parser.add_argument("--results-root-dir", help="Path to the directory containing result subdirectories")
+    parser.add_argument("--additional-metrics", help="Additional metrics to include in the report", nargs="+")
     args = parser.parse_args()
 
     webhook_url = args.webhook_url
@@ -262,8 +263,8 @@ if __name__ == "__main__":
                 with open(results_json_path) as f:
                     yield json.load(f)
 
-    sink_config = {"webhook_url": webhook_url}
-    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_dir=results_root_path)
+    sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
+    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_path=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)
@@ -271,6 +272,9 @@ if __name__ == "__main__":
     slack_sink = SlackSink(sink_config=sink_config)
     slack_sink.initialize(session_name="test", matrix_config=matrix_config, env_dict=env_data)
 
+    matrix_entry = MatrixEntry(
+        name="test", sink_data=[{"name": "slack", "additional_metrics": args.additional_metrics}]
+    )
     for result in collect_results_from_dir(results_root_path):
-        slack_sink.process_result(result_dict=result, matrix_entry=None)
+        slack_sink.process_result(result_dict=result, matrix_entry=matrix_entry)
     slack_sink.finalize()

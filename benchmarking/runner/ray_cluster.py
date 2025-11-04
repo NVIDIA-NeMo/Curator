@@ -70,7 +70,7 @@ def teardown_ray_cluster_and_env(
 def start_ray_head(
     num_cpus: int,
     num_gpus: int,
-    include_dashboard: bool = False,
+    include_dashboard: bool = True,
     enable_object_spilling: bool = False,
     ray_log_path: Path | None = None,
 ) -> tuple[RayClient, str, str]:

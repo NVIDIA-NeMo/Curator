@@ -49,10 +49,11 @@ fi
 ################################################################################################################
 docker run \
   --rm \
+  --net=host \
   --interactive \
   --tty \
   \
-  --gpus=${GPUS} \
+  --gpus="\"${GPUS}\"" \
   \
   ${VOLUME_MOUNTS} \
   \
@@ -62,6 +63,7 @@ docker run \
   --env=GDRIVE_FOLDER_ID=${GDRIVE_FOLDER_ID} \
   --env=GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE} \
   --env=CURATOR_BENCHMARKING_DEBUG=${CURATOR_BENCHMARKING_DEBUG} \
+  --env=HOST_HOSTNAME=$(hostname) \
   \
   ${BASH_ENTRYPOINT_OVERRIDE} \
   ${DOCKER_IMAGE} \

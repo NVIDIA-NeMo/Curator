@@ -122,7 +122,7 @@ class MatrixEntry:
 class MatrixConfig:
     results_path: Path
     artifacts_path: Path
-    entries: list[MatrixEntry]
+    entries: list[MatrixEntry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
     # Whether to delete the entry's scratch directory after completion by default
