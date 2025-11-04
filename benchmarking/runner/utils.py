@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import re
+
 
 def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
     """
@@ -37,3 +40,32 @@ def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
     else:
         retval = obj
     return retval
+
+
+_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
+
+
+def _replace_env_var(match: re.Match[str]) -> str:
+    env_var_name = match.group(1)
+    env_value = os.getenv(env_var_name)
+    if env_value is not None and env_value != "":
+        return env_value
+    else:
+        msg = f"Environment variable {env_var_name} not found in the environment or is empty"
+        raise ValueError(msg)
+
+
+def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | object:
+    """Recursively resolve environment variables in strings in/from various objects.
+
+    Environment variables are identified in strings when specified using the ${VAR_NAME}
+    syntax. If the environment variable is not found, ValueError is raised.
+    """
+    if isinstance(data, dict):
+        return {key: resolve_env_vars(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [resolve_env_vars(item) for item in data]
+    elif isinstance(data, str):
+        return _env_var_pattern.sub(_replace_env_var, data)
+    else:
+        return data

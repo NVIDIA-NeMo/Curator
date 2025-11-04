@@ -14,40 +14,44 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from runner.matrix import MatrixConfig, MatrixEntry
+
 
 class Sink(ABC):
     """Abstract base class for benchmark result sinks."""
 
     @abstractmethod
-    def __init__(self, config: dict[str, Any]):
+    def __init__(self, sink_config: dict[str, Any]):
         """Initialize the sink with configuration.
-        
+
         Args:
-            config: Configuration dictionary for the sink.
+            sink_config: Configuration dictionary for the sink.
         """
-        pass
 
     @abstractmethod
-    def initialize(self, session_name: str, env_data: dict[str, Any]) -> None:
+    def initialize(
+        self,
+        session_name: str,
+        matrix_config: MatrixConfig,
+        env_dict: dict[str, Any],
+    ) -> None:
         """Initialize the sink for a benchmark session.
-        
+
         Args:
             session_name: Name of the benchmark session.
-            env_data: Environment data for the session.
+            matrix_config: Matrix configuration for the session.
+            env_dict: Environment dictionary for the session.
         """
-        pass
 
     @abstractmethod
-    def process_result(self, result: dict[str, Any]) -> None:
+    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
         """Process an individual benchmark result.
-        
+
         Args:
-            result: Dictionary containing benchmark result data.
+            result_dict: Dictionary containing benchmark result data.
+            matrix_entry: Matrix entry configuration.
         """
-        pass
 
     @abstractmethod
     def finalize(self) -> None:
         """Finalize the sink after all results have been processed."""
-        pass
-

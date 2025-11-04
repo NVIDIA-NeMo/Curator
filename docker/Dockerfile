@@ -40,7 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python-is-python3\
     curl \
     git \
-    vim
+    vim && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
 
@@ -80,8 +81,6 @@ RUN cd /opt/Curator && \
   uv cache prune && \
   uv cache clean distance
 
-# heredocs only works with buildkit enabled (enabled by default),
-# see https://github.com/moby/buildkit/issues/3474   
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
 export PATH="/opt/venv/bin:$PATH"
@@ -96,5 +95,3 @@ ENV NVIDIA_BUILD_ID=${NVIDIA_BUILD_ID:-<unknown>}
 LABEL com.nvidia.build.id="${NVIDIA_BUILD_ID}"
 ARG NVIDIA_BUILD_REF
 LABEL com.nvidia.build.ref="${NVIDIA_BUILD_REF}"
-
-RUN rm -rf /var/lib/apt/lists/*

@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: ERA001
+
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -23,8 +24,9 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 if TYPE_CHECKING:
-    from .datasets import DatasetResolver
-    from .sinks.sink import Sink
+    from runner.sinks.sink import Sink
+from runner.datasets import DatasetResolver
+from runner.path_resolver import PathResolver
 
 
 @dataclass
@@ -34,19 +36,46 @@ class MatrixEntry:
     args: str | None = None
     script_base_dir: Path = Path(__file__).parent.parent / "scripts"
     timeout_s: int | None = None
+    sink_data: dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        """Post-initialization checks and updates for dataclass."""
+        # Convert list of dicts to dict of dicts for easier lookup for sink_data
+        # sink_data is typically a list of dicts from reading YAML, like this:
+        # sink_data:
+        #   - name: slack
+        #     additional_metrics: ["num_documents_processed", "throughput_docs_per_sec"]
+        #   - name: gdrive
+        #     ...
+        if not self.sink_data:
+            msg = "Sink data is required"
+            raise ValueError(msg)
+        if isinstance(self.sink_data, list):
+            sink_data = {}
+            for data in self.sink_data:
+                sink_data[data["name"]] = data
+            self.sink_data = sink_data
+        elif not isinstance(self.sink_data, dict):
+            msg = "Sink data must be a list or a dict"
+            raise TypeError(msg)
 
     def get_command_to_run(
-        self, session_entry_path: Path, benchmark_results_path: Path, resolver: DatasetResolver
+        self,
+        session_entry_path: Path,
+        benchmark_results_path: Path,
+        path_resolver: PathResolver,
+        dataset_resolver: DatasetResolver,
     ) -> str:
         if self.script:
             script_path = self.script_base_dir / self.script
             # TODO: should --benchmark-results-path always be passed?
             cmd = f"python {script_path} {self.args or ''} --benchmark-results-path={benchmark_results_path}"
 
-            cmd = self.substitute_datasets_in_cmd(cmd, resolver)
+            cmd = self.substitute_paths_in_cmd(cmd, path_resolver, dataset_resolver)
             cmd = self.substitute_template_placeholders(cmd, session_entry_path)
         else:
             msg = f"Entry {self.name} must specify either cmd or script"
@@ -54,28 +83,31 @@ class MatrixEntry:
 
         return cmd
 
-    @staticmethod
-    def substitute_datasets_in_cmd(cmd: str, resolver: DatasetResolver) -> str:
-        pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
+    def get_sink_data(self, sink_name: str) -> dict[str, Any]:
+        return self.sink_data.get(sink_name, {})
 
-        def _replace(match: re.Match[str]) -> str:
+    @staticmethod
+    def substitute_paths_in_cmd(cmd: str, path_resolver: PathResolver, dataset_resolver: DatasetResolver) -> str:
+        dataset_pattern = re.compile(r"\{dataset:([^,}]+),([^}]+)\}")
+
+        def _replace_dataset(match: re.Match[str]) -> str:
             dataset_name = match.group(1).strip()
             dataset_format = match.group(2).strip()
-            return resolver.resolve(dataset_name, dataset_format)
+            return str(dataset_resolver.resolve(dataset_name, dataset_format))
 
-        return pattern.sub(_replace, cmd)
+        path_pattern = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+
+        def _replace_path(match: re.Match[str]) -> str:
+            path_name = match.group(1).strip()
+            return str(path_resolver.resolve(path_name))
+
+        return path_pattern.sub(_replace_path, dataset_pattern.sub(_replace_dataset, cmd))
 
     @staticmethod
     def substitute_template_placeholders(cmd: str, session_entry_path: Path) -> str:
         """Substitute template placeholders in command.
-
-        Supports {session_entry_dir}/dir patterns where anything after {session_entry_dir}/ becomes
-        a directory under the generated session entry directory.
-
-        Examples:
+        Example:
         - {session_entry_dir}/results.json -> /path/to/session/entry/results.json
-        - {session_entry_dir}/tempdir/output -> /path/to/session/entry/tempdir/output
-        - {session_entry_dir}/logs -> /path/to/session/entry/logs
         """
         session_entry_pattern = re.compile(r"\{session_entry_dir\}/([^}\s]+)")
 
@@ -88,58 +120,18 @@ class MatrixEntry:
 
 @dataclass(frozen=True, kw_only=True)
 class MatrixConfig:
-    results_dir: str
+    results_path: Path
+    artifacts_path: Path
     entries: list[MatrixEntry]
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
-    mlflow: dict[str, Any] = field(default_factory=dict)
-    wandb: dict[str, Any] = field(default_factory=dict)
-    slack: dict[str, Any] = field(default_factory=dict)
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
-
-    @classmethod
-    def create_from_dict(cls, data: dict) -> MatrixConfig:
-        """
-        Factory method to create a MatrixConfig from a dictionary.
-
-        The dictionary is typically created from reading one or more YAML files.
-        This method resolves environment variables and converts the list of
-        entry dicts to MatrixEntry objects, and returns a new MatrixConfig
-        object.
-        """
-        mc_field_names = {f.name for f in fields(cls)}
-        mc_data = {k: v for k, v in data.items() if k in mc_field_names}
-        mc_data = _resolve_env_vars(mc_data)
-        sinks = cls.load_sinks(mc_data["sinks"])
-        mc_data["sinks"] = sinks
-        entries = [MatrixEntry(**e) for e in mc_data["entries"]]
-        mc_data["entries"] = entries
-        return cls(**mc_data)
-
-    @classmethod
-    def load_sinks(cls, sink_configs: list[dict]) -> list[Sink]:
-        """Load sinks from the list of sink configuration dictionaries."""
-        sinks = []
-        for sink_config in sink_configs:
-            sink_name = sink_config["name"]
-            if sink_name == "mlflow":
-                from runner.sinks.mlflow_sink import MlflowSink
-
-                sinks.append(MlflowSink(config=sink_config))
-            elif sink_name == "slack":
-                from runner.sinks.slack_sink import SlackSink
-
-                sinks.append(SlackSink(config=sink_config))
-            elif sink_name == "gdrive":
-                from runner.sinks.gdrive_sink import GdriveSink
-
-                sinks.append(GdriveSink(config=sink_config))
-            else:
-                logger.warning(f"Unknown sink: {sink_name}, skipping")
-        return sinks
+    path_resolver: PathResolver = None
+    dataset_resolver: DatasetResolver = None
 
     def __post_init__(self) -> None:
+        """Post-initialization checks and updates for dataclass."""
         names = [entry.name for entry in self.entries]
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
@@ -156,30 +148,67 @@ class MatrixConfig:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
 
+    @classmethod
+    def assert_valid_config_dict(cls, data: dict) -> None:
+        """Assert that the configuration contains the minimum required config values."""
+        required_fields = ["results_path", "artifacts_path", "datasets_path", "entries"]
+        missing_fields = [k for k in required_fields if k not in data]
+        if missing_fields:
+            msg = f"Invalid configuration: missing required fields: {missing_fields}"
+            raise ValueError(msg)
 
-def _resolve_env_vars(data: dict | list | str) -> dict | list | str:
-    """Recursively resolve environment variables in dictionary data.
+    @classmethod
+    def create_from_dict(cls, data: dict) -> MatrixConfig:
+        """
+        Factory method to create a MatrixConfig from a dictionary.
 
-    Supports ${VAR_NAME} syntax. If the environment variable is not found,
-    the original string is left unchanged.
-    """
-    if isinstance(data, dict):
-        return {key: _resolve_env_vars(value) for key, value in data.items()}
-    elif isinstance(data, list):
-        return [_resolve_env_vars(item) for item in data]
-    elif isinstance(data, str):
-        # Pattern to match ${VAR_NAME}
-        pattern = re.compile(r"\$\{([^}]+)\}")
+        The dictionary is typically created from reading one or more YAML files.
+        This method resolves environment variables and converts the list of
+        entry dicts to MatrixEntry objects, and returns a new MatrixConfig
+        object.
+        """
+        path_resolver = PathResolver(data)
+        dataset_resolver = DatasetResolver(data.get("datasets", []))
 
-        def replace_env_var(match: re.Match[str]) -> str:
-            env_var_name = match.group(1)
-            env_value = os.getenv(env_var_name)
-            if env_value is not None:
-                return env_value
+        # Filter out data not needed for a MatrixConfig object.
+        mc_field_names = {f.name for f in fields(cls)}
+        mc_data = {k: v for k, v in data.items() if k in mc_field_names}
+        sinks = cls.create_sinks_from_dict(mc_data["sinks"])
+        # Load entries only if enabled (enabled by default)
+        # TODO: should entries be created unconditionally and have an "enabled" field instead?
+        entries = [MatrixEntry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
+
+        mc_data["results_path"] = path_resolver.resolve("results_path")
+        mc_data["artifacts_path"] = path_resolver.resolve("artifacts_path")
+        mc_data["entries"] = entries
+        mc_data["sinks"] = sinks
+        mc_data["path_resolver"] = path_resolver
+        mc_data["dataset_resolver"] = dataset_resolver
+
+        return cls(**mc_data)
+
+    @classmethod
+    def create_sinks_from_dict(cls, sink_configs: list[dict]) -> list[Sink]:
+        """Load sinks from the list of sink configuration dictionaries."""
+        sinks = []
+        for sink_config in sink_configs:
+            sink_name = sink_config["name"]
+            sink_enabled = sink_config.get("enabled", True)
+            if not sink_enabled:
+                logger.warning(f"Sink {sink_name} is not enabled, skipping")
+                continue
+            if sink_name == "mlflow":
+                from runner.sinks.mlflow_sink import MlflowSink
+
+                sinks.append(MlflowSink(sink_config=sink_config))
+            elif sink_name == "slack":
+                from runner.sinks.slack_sink import SlackSink
+
+                sinks.append(SlackSink(sink_config=sink_config))
+            elif sink_name == "gdrive":
+                from runner.sinks.gdrive_sink import GdriveSink
+
+                sinks.append(GdriveSink(sink_config=sink_config))
             else:
-                msg = f"Environment variable {env_var_name} not found in the environment"
-                raise ValueError(msg)
-
-        return pattern.sub(replace_env_var, data)
-    else:
-        return data
+                logger.warning(f"Unknown sink: {sink_name}, skipping")
+        return sinks

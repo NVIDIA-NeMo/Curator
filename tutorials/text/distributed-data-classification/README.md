@@ -1,4 +1,5 @@
 # Distributed Data Classification
+
 The following is a set of Jupyter notebook tutorials which demonstrate how to use various text classification models supported by NeMo Curator.
 The goal of using these classifiers is to help with data annotation, which is useful in data blending for foundation model training.
 
@@ -6,7 +7,9 @@ Each of these classifiers are available on Hugging Face and can be run independe
 By running them with NeMo Curator, the classifiers are accelerated using a heterogenous pipeline setup where tokenization is run across CPUs and model inference is run across GPUs.
 Each of the Jupyter notebooks in this directory demonstrate how to run the classifiers on text data and are easily scalable to large amounts of data.
 
-Before running any of these notebooks, please see this [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html#admin-installation) page for instructions on how to install NeMo Curator. Be sure to use an installation method which includes GPU dependencies.
+Before running any of these notebooks, see this [Installation Guide](https://docs.nvidia.com/nemo/curator/latest/admin/installation.html#admin-installation) page for instructions on how to install NeMo Curator. Be sure to use an installation method which includes GPU dependencies.
+
+For more information about the classifiers, refer to our [Distributed Data Classification](https://docs.nvidia.com/nemo/curator/latest/curate-text/process-data/quality-assessment/distributed-classifier.html) documentation page.
 
 ## List of Classifiers
 

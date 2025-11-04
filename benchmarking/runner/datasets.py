@@ -16,13 +16,9 @@ from __future__ import annotations
 
 
 class DatasetResolver:
-    def __init__(self) -> None:
-        self._map = {}
-
-    @classmethod
-    def create_from_dicts(cls, data: list[dict]) -> DatasetResolver:
+    def __init__(self, data: list[dict]) -> None:
         """
-        Factory method to create a DatasetResolver from a list of dataset dictionaries.
+        Constructor for a DatasetResolver which accepts a list of dataset dictionaries.
         Dataset dictionaries are likely created from reading one or more YAML files.
         Example input:
         [ { "name": "my_dataset",
@@ -33,14 +29,15 @@ class DatasetResolver:
            },
            ...]
         """
+        self._map = {}
+
         # Check for duplicate dataset names before proceeding
-        names = [d["name"] for d in data]
+        names = [d["name"] for d in data] if len(data) else []
         if len(names) != len(set(names)):
             duplicates = {name for name in names if names.count(name) > 1}
             msg = f"Duplicate dataset name(s) found: {', '.join(duplicates)}"
             raise ValueError(msg)
 
-        instance = cls()
         for dataset in data:
             formats = dataset["formats"]
             if not isinstance(formats, list):
@@ -49,8 +46,7 @@ class DatasetResolver:
             format_map = {}
             for fmt in formats:
                 format_map[fmt["type"]] = fmt["path"]
-            instance._map[dataset["name"]] = format_map
-        return instance
+            self._map[dataset["name"]] = format_map
 
     def resolve(self, dataset_name: str, file_format: str) -> str:
         if dataset_name not in self._map:

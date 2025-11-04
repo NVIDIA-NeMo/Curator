@@ -29,15 +29,24 @@ from loguru import logger
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
+_this_script_dir = Path(__file__).parent
+
 # TODO: How do we want to package this tool? Perhaps a package extra for
 #  nemo-curator, i.e. nemo-curator[benchmarking]?
 # For now, add this directory to PYTHONPATH to import the runner modules
-sys.path.insert(0, Path(__file__).parent)
+sys.path.insert(0, _this_script_dir)
+
+# ruff: noqa: E402
 from runner.datasets import DatasetResolver
 from runner.env_capture import dump_env
 from runner.matrix import MatrixConfig, MatrixEntry
+from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
-from runner.utils import get_obj_for_json
+from runner.ray_cluster import (
+    setup_ray_cluster_and_env,
+    teardown_ray_cluster_and_env,
+)
+from runner.utils import get_obj_for_json, resolve_env_vars
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -83,6 +92,7 @@ def get_entry_script_persisted_data(benchmark_results_path: Path) -> dict[str, A
 
 def run_entry(
     entry: MatrixEntry,
+    path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
     session_path: Path,
     result: dict[str, Any],
@@ -97,14 +107,20 @@ def run_entry(
     scratch_path, ray_cluster_path, logs_path, benchmark_results_path = [
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "benchmark_results"]
     ]
-
-    cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, dataset_resolver)
+    cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, path_resolver, dataset_resolver)
     run_id = result.get("run_id", f"{entry.name}-{int(time.time())}")
 
     try:
         # Create directories individually
         for directory in [scratch_path, ray_cluster_path, logs_path, benchmark_results_path]:
             create_or_overwrite_dir(directory)
+
+        ray_client, ray_temp_dir, ray_env = setup_ray_cluster_and_env(
+            num_cpus=entry.ray.get("num_cpus", os.cpu_count() or 1),
+            num_gpus=entry.ray.get("num_gpus", 0),
+            enable_object_spilling=bool(entry.ray.get("enable_object_spilling", False)),
+            ray_log_path=logs_path / "ray.log",
+        )
 
         # Execute command with timeout
         logger.info(f"\t\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
@@ -113,8 +129,9 @@ def run_entry(
             command=cmd,
             timeout=entry.timeout_s,
             stdouterr_path=logs_path / "stdouterr.log",
-            env=os.environ,
+            env=ray_env,
             run_id=run_id,
+            fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
         ended_exec = time.time()
 
@@ -136,7 +153,7 @@ def run_entry(
                 "started_at": started_at,
                 "ended_at": time.time(),
                 "exec_started_at": started_exec,
-                "exec_time_s": ended_exec - started_exec,
+                "exec_time_s": duration,
                 "exit_code": completed["returncode"],
                 "timed_out": completed["timed_out"],
                 "logs_dir": logs_path,
@@ -144,11 +161,16 @@ def run_entry(
             }
         )
         ray_data = {}
+        # script_persisted_data is a dictionary with keys "params" and "metrics"
+        # "params" will contain everything the script wrote to its params.json file
+        # "metrics" will contain everything the script wrote to its metrics.json file plus metrics
+        # from the Task objects restored from the tasks.pkl file.
         script_persisted_data = get_entry_script_persisted_data(benchmark_results_path)
         result.update(
             {
                 "ray_data": ray_data,
-                "script_persisted_data": script_persisted_data,
+                "metrics": script_persisted_data["metrics"],
+                "params": script_persisted_data["params"],
             }
         )
         Path(session_entry_path / "results.json").write_text(json.dumps(get_obj_for_json(result)))
@@ -156,7 +178,8 @@ def run_entry(
         return success
 
     finally:
-        # Ray cleanup stuff here
+        teardown_ray_cluster_and_env(ray_client, ray_temp_dir, ray_cluster_path)
+
         # Clean up the scratch dir if configured to delete
         if entry.delete_scratch:
             shutil.rmtree(scratch_path, ignore_errors=True)
@@ -166,40 +189,49 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
-        required=True,
+        type=Path,
         action="append",
-        help="Path to YAML config for benchmark matrix, machine paths, etc. Can be specified multiple times.",
+        required=True,
+        help=(
+            "Path to YAML config for benchmark matrix, machine paths, etc. Can be "
+            "specified multiple times to merge configs."
+        ),
     )
     parser.add_argument(
-        "--session-name", default=None, help="Optional human-readable session name (default nightly-run-<timestamp>)"
+        "--session-name",
+        default=None,
+        help=("Optional human-readable session name. Default is benchmark-run__<timestamp>."),
     )
     args = parser.parse_args()
 
-    # Consolidate the configuration from all YAML files into a single dict,
-    # and use by passing individual components the keys they need
+    # Consolidate the configuration from all YAML files into a single dict
     config_dict = {}
     for yml_file in args.config:
         with open(yml_file) as f:
-            config_dicts = list(yaml.full_load_all(f))  # Consume the generator inside the with block
-        for d in config_dicts:
-            if d:  # Skip None documents
+            config_dicts = yaml.full_load_all(f)
+            for d in config_dicts:
                 config_dict.update(d)
+    # Preprocess the config dict prior to creating objects from it
+    try:
+        MatrixConfig.assert_valid_config_dict(config_dict)
+        config_dict = resolve_env_vars(config_dict)
+    except ValueError as e:
+        logger.error(f"Invalid configuration: {e}")
+        return 1
 
     config = MatrixConfig.create_from_dict(config_dict)
-    resolver = DatasetResolver.create_from_dicts(config_dict["datasets"])
 
     # Create session folder under results_dir
-    session_name_prefix = args.session_name or "benchmark-run"
-    session_name = time.strftime(f"{session_name_prefix}__%Y-%m-%d__%H-%M-%S")
-    session_path = (Path(config.results_dir) / session_name).absolute()
+    session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d__%H-%M-%S")
+    session_path = (config.results_path / session_name).absolute()
     ensure_dir(session_path)
 
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
-    env_data = dump_env(session_path)
+    env_dict = dump_env(session_path)
 
     for sink in config.sinks:
-        sink.initialize(session_name, env_data)
+        sink.initialize(session_name=session_name, matrix_config=config, env_dict=env_dict)
 
     for entry in config.entries:
         run_success = False
@@ -213,7 +245,8 @@ def main() -> None:
         try:
             run_success = run_entry(
                 entry=entry,
-                dataset_resolver=resolver,
+                path_resolver=config.path_resolver,
+                dataset_resolver=config.dataset_resolver,
                 session_path=session_path,
                 result=result,
             )
@@ -234,7 +267,7 @@ def main() -> None:
         finally:
             session_overall_success &= run_success
             for sink in config.sinks:
-                sink.process_result(result)
+                sink.process_result(result_dict=result, matrix_entry=entry)
 
     for sink in config.sinks:
         sink.finalize()

@@ -40,6 +40,7 @@ def run_command_with_timeout(  # noqa: PLR0913
     stdouterr_path: Path = Path("stdouterr.log"),
     env: dict[str, str] | None = None,
     run_id: str | None = None,
+    fancy: bool = True,
     collapse_on_success: bool = True,
 ) -> dict[str, Any]:
     """Run a shell command with an optional timeout, streaming output to a log file.
@@ -53,14 +54,15 @@ def run_command_with_timeout(  # noqa: PLR0913
         stdouterr_path: Path to the file for writing combined stdout and stderr.
         env: Optional dictionary of environment variables.
         run_id: Optional run ID to identify the run.
-        collapse_on_success: If True and command succeeds, collapses live window output (only for interactive mode).
+        fancy: If True, displays subprocess output in a live, scrolling window.
+        collapse_on_success: If True and command succeeds, collapses live window output (only for fancy=True and interactive mode).
 
     Returns:
         dict: Contains 'returncode' and 'timed_out' fields.
     """
     cmd_list = command if isinstance(command, list) else shlex.split(command)
 
-    if sys.stdout.isatty():
+    if sys.stdout.isatty() and fancy:
         return display_scrolling_subprocess(
             cmd_list,
             timeout=timeout,
@@ -231,13 +233,13 @@ def display_scrolling_subprocess(  # noqa: PLR0913,PLR0915
                     outfile.flush()
                     # Filter out chars that might break the scrolling live window before adding to the buffer.
                     line = line.translate(_control_chars).strip()  # noqa: PLW2901
-                    # Do not allow multiple blank lines, waste of already limited space.
+                    # Do not allow multiple blank lines, it's a waste of already limited space.
                     if line or last_line_not_blank:
                         output_buffer.append(line)
                         display_text = Text("\n".join(output_buffer), no_wrap=True)
                         panel = Panel(
                             display_text,
-                            title=f"[bold blue]Subprocess Output{run_id_msg}[/]",
+                            title=f"[bold blue]Subprocess Output{run_id_msg}, elapsed time: {time.time() - start_time:.2f}s[/]",
                             border_style="green",
                             height=window_height + 2,  # +2 for top/bottom borders
                         )
