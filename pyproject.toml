@@ -63,6 +63,7 @@ dependencies = [
     "ray[default,data]>=2.50",
     "torch",
     "transformers==4.55.2",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -178,6 +179,7 @@ no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+    "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
