@@ -31,7 +31,7 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
@@ -43,7 +43,7 @@ AEGIS_VARIANTS = [
     "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
 ]
 INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER = "nvidia/instruction-data-guard"
-HIDDEN_TEXT_COLUMN = "_curator_hidden_text"
+HIDDEN_TEXT_FIELD = "_curator_hidden_text"
 MAX_SEQ_LENGTH = 4096
 TOKENIZER_PADDING_SIDE = "left"
 TORCH_DTYPE = torch.bfloat16
@@ -218,7 +218,7 @@ class AegisModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         if self.add_instruction_data_guard:
             df_cpu[self.score_field] = collected_output[self.label_field].tolist()
@@ -243,12 +243,12 @@ class FormatAegisPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [HIDDEN_TEXT_COLUMN]
+        return ["data"], [HIDDEN_TEXT_FIELD]
 
     def _wrap_in_prompt(self, df: pd.DataFrame) -> pd.DataFrame:
         documents = df[self.text_field].tolist()
         prompts = [format_aegis(doc[: self.max_chars]) for doc in documents]
-        df[HIDDEN_TEXT_COLUMN] = prompts
+        df[HIDDEN_TEXT_FIELD] = prompts
         return df
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
@@ -278,7 +278,7 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
     _name = "postprocess_aegis_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.raw_output_field, HIDDEN_TEXT_COLUMN]
+        return ["data"], [self.raw_output_field, HIDDEN_TEXT_FIELD]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.label_field] + ([self.raw_output_field] if self.keep_raw_output else [])
@@ -338,7 +338,7 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
             skip_special_tokens=True,
         )
 
-        original_lengths = df[HIDDEN_TEXT_COLUMN].str.len().tolist()
+        original_lengths = df[HIDDEN_TEXT_FIELD].str.len().tolist()
         generated_tokens = [
             chars[original_length:] for chars, original_length in zip(generated_tokens, original_lengths, strict=False)
         ]
@@ -351,7 +351,7 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
 
         df[self.label_field] = pd.Series(parsed_response)
 
-        return df.drop(columns=[HIDDEN_TEXT_COLUMN])
+        return df.drop(columns=[HIDDEN_TEXT_FIELD])
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -431,7 +431,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
-                text_field=HIDDEN_TEXT_COLUMN,
+                text_field=HIDDEN_TEXT_FIELD,
                 max_seq_length=MAX_SEQ_LENGTH,
                 padding_side=TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
