@@ -21,7 +21,7 @@ import requests
 from loguru import logger
 from runner.matrix import MatrixConfig, MatrixEntry
 from runner.sinks.sink import Sink
-from runner.utils import get_obj_for_json
+from runner.utils import find_result, get_obj_for_json
 
 _post_template = """
 {
@@ -117,7 +117,7 @@ class SlackSink(Sink):
         else:
             logger.warning("SlackSink: Not enabled, skipping post.")
 
-    def _post(self) -> None:
+    def _post(self) -> None:  # noqa: C901
         message_text_values = {
             "REPORT_JSON_TEXT": "REPORT_JSON_TEXT",
             "GOOGLE_DRIVE_LINK": "https://google.com",
@@ -136,7 +136,7 @@ class SlackSink(Sink):
                     "elements": [
                         {
                             "type": "rich_text_section",
-                            "elements": [{"type": "text", "text": "Environment", "style": {"bold": True}}],
+                            "elements": [{"type": "text", "text": "ENVIRONMENT", "style": {"bold": True}}],
                         }
                     ],
                 },
@@ -169,7 +169,7 @@ class SlackSink(Sink):
                     "elements": [
                         {
                             "type": "rich_text_section",
-                            "elements": [{"type": "text", "text": "Results", "style": {"bold": True}}],
+                            "elements": [{"type": "text", "text": "RESULTS", "style": {"bold": True}}],
                         }
                     ],
                 },
@@ -180,18 +180,26 @@ class SlackSink(Sink):
             ]
         )
 
-        for metrics, result in self.results_to_report:
-            # Function to check for values in both the result["metrics"] sub-dict and then result itself.
-            def get_result(result_name: str, default_value: Any | None = None) -> Any:  # noqa: ANN401
-                return result["metrics"].get(result_name, result.get(result_name, default_value))  # noqa: B023
-
+        for metrics, results in self.results_to_report:
             data = [
-                ("name", get_result("name")),
-                ("success", get_result("success")),
-                ("runtime", f"{get_result('exec_time_s', 0):.2f} s"),
+                ("name", find_result(results, "name")),
+                ("success", find_result(results, "success")),
+                ("runtime", f"{find_result(results, 'exec_time_s', 0):.2f} s"),
             ]
             for metric in metrics:
-                data.append((metric, get_result(metric, 0)))
+                data.append((metric, find_result(results, metric, 0)))
+
+            # Requirements checks
+            if "requirements_not_met" in results:
+                all_requirements_met = True
+                for metric_name, reason_not_met in results["requirements_not_met"].items():
+                    data.append((f"Requirement for {metric_name} was not met", f"{reason_not_met}"))
+                    all_requirements_met = False
+                if all_requirements_met:
+                    data.append(("All requirements met", "✅"))
+                else:
+                    data.append(("All requirements met", "❌"))
+
             for var, val in data:
                 row = [
                     {

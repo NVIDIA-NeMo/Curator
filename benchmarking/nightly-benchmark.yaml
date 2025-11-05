@@ -54,12 +54,10 @@ entries:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
-    #requirements:
-    #  - name: meets_expected_throughput_speed
-    #    metric: throughput_docs_per_sec
-    #    value: 200
-    #    tolerance: 0.05
-    #    #eval: "(num_documents_processed / exec_time_s > 1000) >= 200"
+    # Optional: Requirements for the benchmark to pass.  These will result in the benchmark being marked as failed if not met.
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 0.2
 
   - name: domain_classification_xenna
     enabled: false

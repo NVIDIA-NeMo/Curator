@@ -46,7 +46,7 @@ from runner.ray_cluster import (
     setup_ray_cluster_and_env,
     teardown_ray_cluster_and_env,
 )
-from runner.utils import get_obj_for_json, resolve_env_vars
+from runner.utils import find_result, get_obj_for_json, resolve_env_vars
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -90,14 +90,50 @@ def get_entry_script_persisted_data(benchmark_results_path: Path) -> dict[str, A
     return {"params": script_params, "metrics": script_metrics}
 
 
+def check_requirements_update_results(result_data: dict[str, Any], requirements: dict[str, Any]) -> bool:
+    """
+    Check if the benchmark meets the requirements. Creates a new "requirements" key in the result_data
+    dictionary with the results of the requirements checks.
+    Returns True if the benchmark meets the requirements, False otherwise.
+    """
+    meets_requirements = True
+    requirements_data = {}
+
+    for metric_name, requirement_dict in requirements.items():
+        reason_not_met = None
+        actual_value = find_result(result_data, metric_name)
+        if actual_value is None:
+            reason_not_met = f"{metric_name} not found in metrics"
+        elif "min_value" in requirement_dict:
+            min_value = requirement_dict["min_value"]
+            if actual_value < min_value:
+                reason_not_met = f"{metric_name} < {min_value}"
+        elif "max_value" in requirement_dict:
+            max_value = requirement_dict["max_value"]
+            if actual_value > max_value:
+                reason_not_met = f"{metric_name} > {max_value}"
+        else:
+            reason_not_met = f"No min or max value specified for {metric_name}"
+
+        # Update the requirements_data dictionary with the result of the requirements check
+        meets_requirements &= reason_not_met is None
+        requirements_data[metric_name] = reason_not_met
+        if reason_not_met is None:
+            logger.debug(f"\t\t✅ Requirement for {metric_name} was met")
+        else:
+            logger.error(f"\t\t❌ Requirement for {metric_name} was not met: {reason_not_met}")
+
+    result_data["requirements_not_met"] = requirements_data
+    return meets_requirements
+
+
 def run_entry(
     entry: MatrixEntry,
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
     session_path: Path,
-    result: dict[str, Any],
+    result_data: dict[str, Any],
 ) -> tuple[dict[str, Any], bool, dict[str, Any]]:
-    started_at = time.time()
     session_entry_path = session_path / entry.name
 
     # scratch_path : This is the directory user can use to store scratch data; it'll be cleaned up after the entry is done
@@ -108,7 +144,7 @@ def run_entry(
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "benchmark_results"]
     ]
     cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, path_resolver, dataset_resolver)
-    run_id = result.get("run_id", f"{entry.name}-{int(time.time())}")
+    run_id = result_data.get("run_id", f"{entry.name}-{int(time.time())}")
 
     try:
         # Create directories individually
@@ -125,7 +161,7 @@ def run_entry(
         # Execute command with timeout
         logger.info(f"\t\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
-        completed = run_command_with_timeout(
+        run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
             stdouterr_path=logs_path / "stdouterr.log",
@@ -134,30 +170,17 @@ def run_entry(
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
         ended_exec = time.time()
-
-        # Show result
         duration = ended_exec - started_exec
-        if completed["returncode"] == 0:
-            success = True
-            logger.success(f"\t\t✅ Run Succeeded in {duration:.1f} seconds")
-        else:
-            success = False
-            logger.error(f"\t\t❌ Run Failed in {duration:.1f} seconds")
-            if completed["timed_out"]:
-                logger.warning(f"\t\t⏰ Timed out after {entry.timeout_s}s")
-        logger.info(f"\t\tLogs found in {logs_path}")
 
-        result.update(
+        # Update result_data
+        result_data.update(
             {
                 "cmd": cmd,
-                "started_at": started_at,
-                "ended_at": time.time(),
                 "exec_started_at": started_exec,
                 "exec_time_s": duration,
-                "exit_code": completed["returncode"],
-                "timed_out": completed["timed_out"],
+                "exit_code": run_data["returncode"],
+                "timed_out": run_data["timed_out"],
                 "logs_dir": logs_path,
-                "success": success,
             }
         )
         ray_data = {}
@@ -166,14 +189,27 @@ def run_entry(
         # "metrics" will contain everything the script wrote to its metrics.json file plus metrics
         # from the Task objects restored from the tasks.pkl file.
         script_persisted_data = get_entry_script_persisted_data(benchmark_results_path)
-        result.update(
+        result_data.update(
             {
                 "ray_data": ray_data,
                 "metrics": script_persisted_data["metrics"],
                 "params": script_persisted_data["params"],
             }
         )
-        Path(session_entry_path / "results.json").write_text(json.dumps(get_obj_for_json(result)))
+
+        # Check if the run itself returned a success code, if so, use the updated
+        # result_data to check if requirements were met.
+        if run_data["returncode"] == 0:
+            success = check_requirements_update_results(result_data, entry.requirements)
+        else:
+            success = False
+            logger.error(f"\t\t❌ Run Failed in {duration:.1f} seconds")
+            if run_data["timed_out"]:
+                logger.warning(f"\t\t⏰ Timed out after {entry.timeout_s}s")
+
+        result_data["success"] = success
+        logger.info(f"\t\tLogs found in {logs_path}")
+        Path(session_entry_path / "results.json").write_text(json.dumps(get_obj_for_json(result_data)))
 
         return success
 
@@ -236,7 +272,7 @@ def main() -> None:
     for entry in config.entries:
         run_success = False
         run_id = f"{entry.name}-{int(time.time())}"
-        result = {
+        result_data = {
             "name": entry.name,
             "run_id": run_id,
             "success": run_success,
@@ -248,7 +284,7 @@ def main() -> None:
                 path_resolver=config.path_resolver,
                 dataset_resolver=config.dataset_resolver,
                 session_path=session_path,
-                result=result,
+                result_data=result_data,
             )
 
         except Exception as e:  # noqa: BLE001
@@ -256,7 +292,7 @@ def main() -> None:
             error_traceback = traceback.format_exc()
             logger.error(f"\t\t❌ Entry failed with exception: {e}")
             logger.debug(f"Full traceback:\n{error_traceback}")
-            result.update(
+            result_data.update(
                 {
                     "error": str(e),
                     "traceback": error_traceback,
@@ -267,7 +303,7 @@ def main() -> None:
         finally:
             session_overall_success &= run_success
             for sink in config.sinks:
-                sink.process_result(result_dict=result, matrix_entry=entry)
+                sink.process_result(result_dict=result_data, matrix_entry=entry)
 
     for sink in config.sinks:
         sink.finalize()

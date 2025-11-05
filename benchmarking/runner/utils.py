@@ -14,6 +14,7 @@
 
 import os
 import re
+from typing import Any
 
 
 def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
@@ -69,3 +70,11 @@ def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | ob
         return _env_var_pattern.sub(_replace_env_var, data)
     else:
         return data
+
+
+def find_result(results: dict[str, Any], key: str, default_value: Any = None) -> Any:  # noqa: ANN401
+    """Find a value in the results dictionary by key, checking both the metrics sub-dict and then the results itself."""
+    if "metrics" in results:
+        return results["metrics"].get(key, results.get(key, default_value))
+    else:
+        return results.get(key, default_value)
