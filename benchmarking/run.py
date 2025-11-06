@@ -117,10 +117,10 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
 
         # Update the requirements_data dictionary with the result of the requirements check
         meets_requirements &= reason_not_met is None
-        requirements_data[metric_name] = reason_not_met
         if reason_not_met is None:
             logger.debug(f"\t\t✅ Requirement for {metric_name} was met")
         else:
+            requirements_data[metric_name] = reason_not_met
             logger.error(f"\t\t❌ Requirement for {metric_name} was not met: {reason_not_met}")
 
     result_data["requirements_not_met"] = requirements_data
