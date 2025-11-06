@@ -53,8 +53,17 @@ class MatrixEntry:
         #   - name: gdrive
         #     ...
         sink_data = {}
-        for data in self.sink_data:
-            sink_data[data["name"]] = data
+        # Will be a list of dicts if reading from YAML, in which case make it a dict of dicts with key
+        # from "name" for easy lookup based on sink name.
+        if isinstance(self.sink_data, list):
+            for data in self.sink_data:
+                sink_data[data["name"]] = data
+        # If already a dict, use it directly and assume it is already in the correct format.
+        elif isinstance(self.sink_data, dict):
+            sink_data = self.sink_data
+        else:
+            msg = f"Invalid sink_data type: {type(self.sink_data)}"
+            raise TypeError(msg)
         self.sink_data = sink_data
 
         # Convert the requirements list of dicts to a dict of dicts for easier lookup with key from "metric".
@@ -65,8 +74,17 @@ class MatrixEntry:
         #   - metric: num_documents_processed
         #     ...
         requirements = {}
-        for data in self.requirements:
-            requirements[data["metric"]] = data
+        # Will be a list of dicts if reading from YAML, in which case make it a dict of dicts with key
+        # from "metric" for easy lookup based on metric name.
+        if isinstance(self.requirements, list):
+            for data in self.requirements:
+                requirements[data["metric"]] = data
+        # If already a dict, use it directly and assume it is already in the correct format.
+        elif isinstance(self.requirements, dict):
+            requirements = self.requirements
+        else:
+            msg = f"Invalid requirements type: {type(self.requirements)}"
+            raise TypeError(msg)
         self.requirements = requirements
 
     def get_command_to_run(
@@ -184,7 +202,7 @@ class MatrixConfig:
         # Filter out data not needed for a MatrixConfig object.
         mc_field_names = {f.name for f in fields(cls)}
         mc_data = {k: v for k, v in data.items() if k in mc_field_names}
-        sinks = cls.create_sinks_from_dict(mc_data["sinks"])
+        sinks = cls.create_sinks_from_dict(mc_data.get("sinks", []))
         # Load entries only if enabled (enabled by default)
         # TODO: should entries be created unconditionally and have an "enabled" field instead?
         entries = [MatrixEntry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
