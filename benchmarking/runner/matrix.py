@@ -105,7 +105,13 @@ class MatrixEntry:
 
         def _replace_path(match: re.Match[str]) -> str:
             path_name = match.group(1).strip()
-            return str(path_resolver.resolve(path_name))
+            # PathResolver.resolve() only matches specific paths intended to be mapped between host and container.
+            # ValueError is raised if this is not one of those paths, meaning either the path is meant for template
+            # substitution instead or possibly should be used as-is, in which case simply return the original string.
+            try:
+                return str(path_resolver.resolve(path_name))
+            except ValueError:
+                return match.group(0)
 
         return path_pattern.sub(_replace_path, dataset_pattern.sub(_replace_dataset, cmd))
 
@@ -115,11 +121,10 @@ class MatrixEntry:
         Example:
         - {session_entry_dir}/results.json -> /path/to/session/entry/results.json
         """
-        session_entry_pattern = re.compile(r"\{session_entry_dir\}/([^}\s]+)")
+        session_entry_pattern = re.compile(r"\{session_entry_dir\}")
 
-        def replace_session_entry_path(match: re.Match[str]) -> str:
-            subpath = match.group(1)
-            return str(session_entry_path / subpath)
+        def replace_session_entry_path(match: re.Match[str]) -> str:  # noqa: ARG001
+            return str(session_entry_path)
 
         return session_entry_pattern.sub(replace_session_entry_path, cmd)
 
