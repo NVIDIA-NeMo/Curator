@@ -181,15 +181,36 @@ class SlackSink(Sink):
         )
 
         for metrics, results in self.results_to_report:
+            # Name and success icon row
+            entry_name = find_result(results, "name")
+            success_str = "✅ (success)" if find_result(results, "success") else "❌ (FAILED)"
+            rows.append(
+                [
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {
+                                "type": "rich_text_section",
+                                "elements": [{"type": "text", "text": entry_name, "style": {"bold": True}}],
+                            }
+                        ],
+                    },
+                    {
+                        "type": "rich_text",
+                        "elements": [
+                            {"type": "rich_text_section", "elements": [{"type": "text", "text": success_str}]}
+                        ],
+                    },
+                ]
+            )
+            # Remaining rows are metrics and values
             data = [
-                ("name", find_result(results, "name")),
-                ("success", find_result(results, "success")),
                 ("runtime", f"{find_result(results, 'exec_time_s', 0):.2f} s"),
             ]
             for metric in metrics:
                 data.append((metric, find_result(results, metric, 0)))
 
-            # Requirements checks
+            # Requirements checks - add a row for each requirement that was not met
             if "requirements_not_met" in results:
                 all_requirements_met = True
                 for metric_name, reason_not_met in results["requirements_not_met"].items():
