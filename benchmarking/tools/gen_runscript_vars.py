@@ -50,6 +50,7 @@ def print_help(script_name: str) -> None:
       --use-host-curator       Mount $HOST_CURATOR_DIR into the container for benchmarking/debugging curator sources without rebuilding the image.
       --shell                  Start an interactive bash shell instead of running benchmarks. ARGS, if specified, will be passed to 'bash -c'.
                                For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container.
+      --config <path>          Path to a YAML config file. Can be specified multiple times to merge configs. This arg is required if not using --shell.
       -h, --help               Show this help message and exit.
 
       ARGS, if specified, are passed to the container entrypoint, either the default benchmarking entrypoint or the --shell bash entrypoint.
