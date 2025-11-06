@@ -104,16 +104,19 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
         actual_value = find_result(result_data, metric_name)
         if actual_value is None:
             reason_not_met = f"{metric_name} not found in metrics"
-        elif "min_value" in requirement_dict:
-            min_value = requirement_dict["min_value"]
-            if actual_value < min_value:
-                reason_not_met = f"{metric_name} < {min_value}"
-        elif "max_value" in requirement_dict:
-            max_value = requirement_dict["max_value"]
-            if actual_value > max_value:
-                reason_not_met = f"{metric_name} > {max_value}"
         else:
-            reason_not_met = f"No min or max value specified for {metric_name}"
+            has_min = "min_value" in requirement_dict
+            has_max = "max_value" in requirement_dict
+            if has_min:
+                min_value = requirement_dict["min_value"]
+                if actual_value < min_value:
+                    reason_not_met = f"{metric_name} < {min_value}"
+            if has_max:
+                max_value = requirement_dict["max_value"]
+                if actual_value > max_value:
+                    reason_not_met = f"{metric_name} > {max_value}"
+            if not has_min and not has_max:
+                reason_not_met = f"No min or max value specified for {metric_name}"
 
         # Update the requirements_data dictionary with the result of the requirements check
         meets_requirements &= reason_not_met is None
@@ -136,7 +139,7 @@ def run_entry(
 ) -> bool:
     session_entry_path = session_path / entry.name
 
-    # scratch_path : This is the directory user can use to store scratch data; it'll be cleaned up after the entry is done
+    # scratch_path : This is the directory user can use to store scratch data; it'll be cleaned up after the entry is done if delete_scratch is True
     # ray_cluster_path : This is the directory where Ray cluster is started; it'll be cleaned up after the entry is done
     # logs_path : This is the directory where logs are stored
     # benchmark_results_path : This is the directory where benchmark results are stored

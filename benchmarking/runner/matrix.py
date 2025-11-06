@@ -43,7 +43,7 @@ class MatrixEntry:
     delete_scratch: bool | None = None
     enabled: bool = True
 
-    def __post_init__(self) -> None:
+    def __post_init__(self) -> None:  # noqa: C901
         """Post-initialization checks and updates for dataclass."""
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:
@@ -85,6 +85,21 @@ class MatrixEntry:
         else:
             msg = f"Invalid requirements type: {type(self.requirements)}"
             raise TypeError(msg)
+        # For each requirement dict in requirements, check that if both min_value and max_value are present,
+        # then max_value >= min_value. Raise ValueError if not.
+        # Raise TypeError if req is not a dict.
+        for metric_name, req in requirements.items():
+            if not isinstance(req, dict):
+                msg = f"Requirement for metric '{metric_name}' is not a dict: {type(req)}"
+                raise TypeError(msg)
+            has_min = "min_value" in req
+            has_max = "max_value" in req
+            if has_min and has_max:
+                min_value = req["min_value"]
+                max_value = req["max_value"]
+                if max_value < min_value:
+                    msg = f"Invalid requirement for metric '{metric_name}': max_value ({max_value}) < min_value ({min_value})"
+                    raise ValueError(msg)
         self.requirements = requirements
 
     def get_command_to_run(

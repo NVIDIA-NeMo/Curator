@@ -129,84 +129,41 @@ class SlackSink(Sink):
         report_data = []
         table_dict = {"type": "table", "rows": []}
         rows = []
-        rows.append(
-            [
-                {
-                    "type": "rich_text",
-                    "elements": [
-                        {
-                            "type": "rich_text_section",
-                            "elements": [{"type": "text", "text": "ENVIRONMENT", "style": {"bold": True}}],
-                        }
-                    ],
-                },
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-                },
-            ]
+        # Summary rows - list overall status, each individual entry and its success status
+        overall_status = (
+            "✅ success"
+            if all(find_result(results, "success") for _, results in self.results_to_report)
+            else "❌ one or more FAILED"
         )
+        rows.append(self._two_column_row_bold("OVERALL STATUS", overall_status))
+        for _, results in self.results_to_report:
+            # Name and success icon row
+            entry_name = find_result(results, "name")
+            success_str = "✅ success" if find_result(results, "success") else "❌ FAILED"
+            rows.append(self._two_column_row_bold(entry_name, success_str))
+
+        rows.append(_blank_row)
+
+        # Environment header row
+        rows.append(self._two_column_row_bold("ENVIRONMENT", " "))
+        # Environment rows
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
-            row = [
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(var)}]}],
-                },
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(val)}]}],
-                },
-            ]
-            rows.append(row)
+            rows.append(self._two_column_row(str(var), str(val)))
 
         rows.append(_blank_row)
-        rows.append(
-            [
-                {
-                    "type": "rich_text",
-                    "elements": [
-                        {
-                            "type": "rich_text_section",
-                            "elements": [{"type": "text", "text": "RESULTS", "style": {"bold": True}}],
-                        }
-                    ],
-                },
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-                },
-            ]
-        )
-
+        # Results header row
+        rows.append(self._two_column_row_bold("RESULTS", " "))
+        # Results rows
         for metrics, results in self.results_to_report:
             # Name and success icon row
             entry_name = find_result(results, "name")
-            success_str = "✅ (success)" if find_result(results, "success") else "❌ (FAILED)"
-            rows.append(
-                [
-                    {
-                        "type": "rich_text",
-                        "elements": [
-                            {
-                                "type": "rich_text_section",
-                                "elements": [{"type": "text", "text": entry_name, "style": {"bold": True}}],
-                            }
-                        ],
-                    },
-                    {
-                        "type": "rich_text",
-                        "elements": [
-                            {"type": "rich_text_section", "elements": [{"type": "text", "text": success_str}]}
-                        ],
-                    },
-                ]
-            )
+            success_str = "✅ success" if find_result(results, "success") else "❌ FAILED"
+            rows.append(self._two_column_row_bold(entry_name, success_str))
+
             # Remaining rows are metrics and values
-            data = [
-                ("runtime", f"{find_result(results, 'exec_time_s', 0):.2f} s"),
-            ]
+            data = []
             for metric in metrics:
                 data.append((metric, find_result(results, metric, 0)))
 
@@ -222,21 +179,14 @@ class SlackSink(Sink):
                     data.append(("All requirements met", "❌"))
 
             for var, val in data:
-                row = [
-                    {
-                        "type": "rich_text",
-                        "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(var)}]}],
-                    },
-                    {
-                        "type": "rich_text",
-                        "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(val)}]}],
-                    },
-                ]
-                rows.append(row)
+                rows.append(self._two_column_row(str(var), str(val)))
+            # Add a blank row between entry results
             rows.append(_blank_row)
 
+        # Remove the last blank row added in the loop above
         if len(self.results_to_report) > 0:
             rows.pop(-1)
+
         table_dict["rows"] = rows
         report_data.append(table_dict)
         # Add a comma to separate each item to be added to the "blocks" array in the template.
@@ -268,6 +218,37 @@ class SlackSink(Sink):
 
         # Substitute variables matching $VAR
         return re.sub(r"\$[A-Za-z0-9_]+", replacer, template_str)
+
+    @staticmethod
+    def _two_column_row(left_text: str, right_text: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": left_text}]}],
+            },
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
+            },
+        ]
+
+    @staticmethod
+    def _two_column_row_bold(left_text: str, right_text: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": left_text, "style": {"bold": True}}],
+                    }
+                ],
+            },
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
+            },
+        ]
 
 
 # Run SlackSink from the command line to post a summary of the results to Slack.

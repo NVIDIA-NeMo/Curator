@@ -68,6 +68,7 @@ entries:
       --dataset-size-gb=10
       --model-inference-batch-size=1024
     timeout_s: 20000
+
   - name: embedding_generation_raydata
     enabled: true
     script: embedding_generation_benchmark.py
@@ -86,6 +87,7 @@ entries:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
+
   - name: embedding_generation_xenna
     enabled: false
     script: embedding_generation_benchmark.py
@@ -96,6 +98,7 @@ entries:
       --model-identifier=sentence-transformers/all-MiniLM-L6-v2
       --model-inference-batch-size=1024
     timeout_s: 20000
+
   - name: removal_raydata
     enabled: false
     script: removal_benchmark.py
@@ -116,6 +119,7 @@ entries:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
+
   - name: removal_xenna
     enabled: false
     script: removal_benchmark.py

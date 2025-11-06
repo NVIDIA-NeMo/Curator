@@ -65,7 +65,7 @@ Results are written to the `results_path` specified in your configuration, organ
 ### Session
 
 A **session** represents a single invocation of the benchmarking framework. Each session:
-- Has a unique name with timestamp (e.g., `nightly-run__2025-01-23__14-30-00`)
+- Has a unique name with timestamp (e.g., `benchmark-run__2025-01-23__14-30-00`)
 - Contains one or more benchmark entries
 - Produces a session directory with results and artifacts
 - Captures environment metadata (system info, package versions, etc.)
@@ -83,6 +83,16 @@ A **session** represents a single invocation of the benchmarking framework. Each
 
 See [Writing Benchmark Scripts](#writing-benchmark-scripts) for details.
 
+### Entry
+
+An **entry** is a single benchmark run within a session. Each entry:
+- Runs a specific benchmark script with defined arguments
+- Has its own timeout, Ray configuration, sink configuration, pass/fail requirments, or can inherit from session-wide defaults
+- Produces metrics, parameters, and run performance data
+- Can reference datasets using template syntax
+- Can pass additional data to sinks to provide for customized operations unique to the entry. For example, the `slack_sink` can accept additional metrics to report for an entry that other entries may not have.
+- Can specify specific requirements that must be met in order to return a passing status. For example, an entry can require that a specific throughput metric meet or exceed a minimum value.
+
 ### Sinks
 
 **Sinks** are pluggable modules that are called by the framework at various stages to allow for custom processing of benchmark data:
@@ -97,21 +107,20 @@ Built-in sinks include:
 
 See [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions) for details.
 
-### Entry
-
-An **entry** is a single benchmark run within a session. Each entry:
-- Runs a specific benchmark script with defined arguments
-- Has its own timeout, Ray configuration, sink configuration, pass/fail requirments, or can inherit from session-wide defaults
-- Produces metrics, parameters, and run performance data
-- Can reference datasets using template syntax
-- Can pass additional data to sinks to provide for customized operations unique to the entry. For example, the `slack_sink` can accept additional metrics to report for an entry that other entries may not have.
-- Can specify specific requirements that must be met in order to return a passing status. For example, an entry can require that a specific throughput metric meet or exceed a minimum value.
-
 ## Configuration
 
 ### YAML Configuration Files
 
 The framework uses one or more YAML files to configure benchmark sessions. Multiple configuration files are merged, allowing separation of concerns (e.g., machine-specific paths vs. benchmark definitions).
+
+A useful pattern is to use multiple YAML files, where configuration that does not typically change is in one or more files, and user or machine-specific configuration is others.  For example, `my_paths_and_reports.yaml` could have results / artifacts / datasets paths and personal sink settings (individual slack channel, etc.), and `release-benchmarks.yaml` could have the team-wide configuration containing the individual benchmark entries and performance requirements.
+
+This can be especially useful during development. During development you'll not only want to use your own paths and report settings, you'll also want to use the standard benchmarking environment (i.e. a container), but cannot afford to rebuild the Docker image for each code change you're evaluating. The `--use-host-curator` flag is intended for this case. This flag will use your Curator source dir on host inside the container via a volume mount (this works because the container has curator installed in editable mode), and no image rebuild step is needed.
+
+An example of a development scenario using this pattern looks like this:
+```bash
+./benchmarking/tools/run.sh --use-host-curator --config ~/curator_benchmarking/my_paths_and_reports.yaml --config ./benchmarking/release-benchmarks.yaml
+```
 
 ### Configuration Structure
 
@@ -120,6 +129,7 @@ The framework uses one or more YAML files to configure benchmark sessions. Multi
 # These paths must exist on the host machine
 # When running in Docker with tools/run.sh, paths are automatically mapped to container volumes
 # These base paths can be referenced in other configuration values using {results_path}, {artifacts_path}, {datasets_path}
+# NOTE: the current version of the framework does not use artifacts_path
 results_path: /path/to/results
 artifacts_path: /path/to/artifacts
 datasets_path: /path/to/datasets
@@ -128,6 +138,9 @@ datasets_path: /path/to/datasets
 default_timeout_s: 7200
 
 # Optional: Delete scratch directories after each entry completes
+# The path {session_entry_dir}/scratch is automatically created when an entry starts and can be used by benchmark
+#scripts for writing temp files. This directory is automatically cleaned up on completion of the entry if
+# delete_scratch is true.
 delete_scratch: true
 
 # Optional: Configure sinks for result processing
@@ -150,9 +163,9 @@ datasets:
   - name: common_crawl
     formats:
       - type: json
-        path: "{datasets_path}/cc_sample.jsonl"  # Can reference base paths
+        path: "{datasets_path}/cc_sample"  # Can reference base paths
       - type: parquet
-        path: "{datasets_path}/cc_sample.parquet"
+        path: "{datasets_path}/cc_sample"
 
 # Required: List of benchmark entries to run
 entries:
@@ -234,7 +247,7 @@ datasets:
 
 Available base path placeholders:
 - `{results_path}` - Resolves to the configured `results_path`
-- `{artifacts_path}` - Resolves to the configured `artifacts_path`
+- `{artifacts_path}` - Resolves to the configured `artifacts_path` *Note: unused in current version of the framework*
 - `{datasets_path}` - Resolves to the configured `datasets_path`
 
 **Dataset references** - Reference datasets in entry arguments:
