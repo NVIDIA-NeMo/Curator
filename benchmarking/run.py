@@ -133,7 +133,7 @@ def run_entry(
     dataset_resolver: DatasetResolver,
     session_path: Path,
     result_data: dict[str, Any],
-) -> tuple[dict[str, Any], bool, dict[str, Any]]:
+) -> bool:
     session_entry_path = session_path / entry.name
 
     # scratch_path : This is the directory user can use to store scratch data; it'll be cleaned up after the entry is done
