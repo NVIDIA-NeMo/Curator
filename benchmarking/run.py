@@ -221,7 +221,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
