@@ -265,6 +265,106 @@ class TestProcessingStageWith:
         assert stage_with_custom2.resources == Resources(cpus=7.0)
 
 
+class TestProcessingStageOverriddenProperties:
+    """Test that ProcessingStage raises an error if a derived class overrides the name, resources, or batch_size property."""
+
+    def test_name_property(self):
+        """Test that ProcessingStage raises an error if a derived class overrides the name property."""
+        with pytest.raises(TypeError, match="MockStageOverriddenName must not override 'name'"):
+
+            class MockStageOverriddenName(ProcessingStage[MockTask, MockTask]):
+                """Mock stage with overridden name property."""
+
+                _name = "MockStageOverriddenName"
+                _resources = Resources(cpus=1.0)
+                _batch_size = 1
+
+                # A derived class must not override the name property
+                def name(self) -> str:
+                    return self._name
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
+                def inputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+                def outputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+    def test_resources_property(self):
+        """Test that ProcessingStage raises an error if a derived class overrides the resources property."""
+        with pytest.raises(TypeError, match="MockStageOverriddenResources must not override 'resources'"):
+
+            class MockStageOverriddenResources(ProcessingStage[MockTask, MockTask]):
+                """Mock stage with overridden resources property."""
+
+                _name = "MockStageOverriddenResources"
+                _resources = Resources(cpus=1.0)
+                _batch_size = 1
+
+                # A derived class must not override the resources property
+                def resources(self) -> Resources:
+                    return self._resources
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
+                def inputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+                def outputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+    def test_batch_size_property(self):
+        """Test that ProcessingStage raises an error if a derived class overrides the batch_size property."""
+        with pytest.raises(TypeError, match="MockStageOverriddenBatchSize must not override 'batch_size'"):
+
+            class MockStageOverriddenBatchSize(ProcessingStage[MockTask, MockTask]):
+                """Mock stage with overridden batch_size property."""
+
+                _name = "MockStageOverriddenBatchSize"
+                _resources = Resources(cpus=1.0)
+                _batch_size = 1
+
+                # A derived class must not override the batch_size property
+                def batch_size(self) -> int:
+                    return self._batch_size
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
+                def inputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+                def outputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+    def test_nested_class_inheritance(self):
+        """Test that nested class inheritance raises an error if a derived class overrides the name, resources, or batch_size property."""
+        with pytest.raises(TypeError, match="MockStageNestedOverriddenName must not override 'name'"):
+
+            class MockStageNestedOverriddenName(ConcreteProcessingStage):
+                """Mock stage with nested class inheritance."""
+
+                _name = "MockStageNestedOverriddenName"
+                _resources = Resources(cpus=1.0)
+                _batch_size = 1
+
+                # A derived class must not override the name property
+                def name(self) -> str:
+                    return self._name
+
+                def process(self, task: MockTask) -> MockTask:
+                    return task
+
+                def inputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+                def outputs(self) -> tuple[list[str], list[str]]:
+                    return [], []
+
+
 # Mock stages for testing composite stage functionality
 class MockStageA(ProcessingStage[MockTask, MockTask]):
     """Mock stage A for testing composite stages."""
