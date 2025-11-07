@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from abc import ABC, ABCMeta, abstractmethod
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from loguru import logger
 
@@ -85,17 +85,32 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     _batch_size = 1
 
     @property
+    @final
     def name(self) -> str:
         return self._name
 
     @property
+    @final
     def resources(self) -> Resources:
         return self._resources
 
     @property
+    @final
     def batch_size(self) -> int | None:
         """Number of tasks to process in a batch."""
         return self._batch_size
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "name" in cls.__dict__:
+            msg = f"{cls.__name__} must not override 'name'"
+            raise TypeError(msg)
+        if "resources" in cls.__dict__:
+            msg = f"{cls.__name__} must not override 'resources'"
+            raise TypeError(msg)
+        if "batch_size" in cls.__dict__:
+            msg = f"{cls.__name__} must not override 'batch_size'"
+            raise TypeError(msg)
 
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
