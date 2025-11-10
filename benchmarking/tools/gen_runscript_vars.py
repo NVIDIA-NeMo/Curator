@@ -41,7 +41,7 @@ VOLUME_MOUNTS = []
 
 
 def print_help(script_name: str) -> None:
-    """Print usage and help message for the run script (not this script)to stderr."""
+    """Print usage and help message for the run script (not this script) to stderr."""
     sys.stderr.write(f"""
   Usage: {script_name} [OPTIONS] [ARGS ...]
 
