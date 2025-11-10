@@ -88,7 +88,7 @@ def get_frames_from_ffmpeg(
     video_stream, err = process.communicate()
     if process.returncode != 0:
         if use_gpu:
-            logger.warning("Caught ffmpeg runtime error with `use_gpu=True` option, falling back to CPU.")
+            logger.warning("Caught FFmpeg runtime error with `use_gpu=True` option, falling back to CPU.")
             return get_frames_from_ffmpeg(video_file, width, height, use_gpu=False)
         logger.exception(f"FFmpeg error: {err.decode('utf-8')}")
         return None
@@ -160,7 +160,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
                     try:
                         video.frame_array = self.pynvc_frame_extractor(video_path).cpu().numpy().astype(np.uint8)
                     except Exception as e:  # noqa: BLE001
-                        logger.warning(f"Got exception {e} with PyNvVideoCodec decode, trying ffmpeg CPU fallback")
+                        logger.warning(f"Got exception {e} with PyNvVideoCodec decode, trying FFmpeg CPU fallback")
                         video.frame_array = get_frames_from_ffmpeg(
                             video_path,
                             width=width,
