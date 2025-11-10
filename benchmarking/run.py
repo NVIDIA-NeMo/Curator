@@ -139,9 +139,9 @@ def run_entry(
 ) -> bool:
     session_entry_path = session_path / entry.name
 
-    # scratch_path : This is the directory user can use to store scratch data; it'll be cleaned up after the entry is done if delete_scratch is True
-    # ray_cluster_path : This is the directory where Ray cluster is started; it'll be cleaned up after the entry is done
-    # logs_path : This is the directory where logs are stored
+    # scratch_path : This is the directory provided to users for saving scratch/temp data; it'll be cleaned up after the entry is done if delete_scratch is True
+    # ray_cluster_path : This is the directory where Ray debug/log files are saved
+    # logs_path : This is the directory where stdout/stderr and Ray startup logs are saved
     # benchmark_results_path : This is the directory where benchmark results are stored
     scratch_path, ray_cluster_path, logs_path, benchmark_results_path = [
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs", "benchmark_results"]
