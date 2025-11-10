@@ -36,7 +36,7 @@ class MegatronTokenWriterStage(BaseWriter):
     """Stage that writes a DocumentBatch to a Megatron tokenizer index file."""
 
     append_eod: bool = False
-    _file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["megatron"])
+    file_extension: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["megatron"])
     _document_indices: list[int] = field(default_factory=lambda: [0])
     _sequence_lengths: list[int] = field(default_factory=list)
 
@@ -83,7 +83,7 @@ class MegatronTokenWriterStage(BaseWriter):
 
         token_size = task._metadata.get("token_size", 4)
         file_prefix = self.fs.sep.join([self._fs_path, filename])
-        for file_extension in self._file_extensions:
+        for file_extension in self.file_extension:
             file_path = file_prefix + file_extension
             if self.fs.exists(file_path):
                 logger.debug(f"File {file_path} already exists, overwriting it")
@@ -95,7 +95,7 @@ class MegatronTokenWriterStage(BaseWriter):
         return FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
-            data=[file_prefix + file_extension for file_extension in self._file_extensions],
+            data=[file_prefix + file_extension for file_extension in self.file_extension],
             _metadata={
                 **task._metadata,
                 "format": "megatron",
@@ -182,8 +182,7 @@ class MegatronTokenWriterStage(BaseWriter):
 class MegatronTokenizerWriter(CompositeStage[DocumentBatch, FileGroupTask]):
     """Writer that writes a DocumentBatch to a Megatron tokenizer index file."""
 
-    _name: str = "megatron_tokenizer_writer"
-
+    output_dir: str
     # TokenizerStage arguments
     model_identifier: str
     cache_dir: str | None = None
@@ -193,6 +192,8 @@ class MegatronTokenizerWriter(CompositeStage[DocumentBatch, FileGroupTask]):
     unk_token: bool = False
     # MegatronTokenWriterStage arguments
     append_eod: bool = False
+
+    _name: str = "megatron_tokenizer_writer"
 
     # TODO(asolergi-nv): Sino mirar de meter en decomponse y no aqui en post init
     def __post_init__(self) -> None:
@@ -207,7 +208,7 @@ class MegatronTokenizerWriter(CompositeStage[DocumentBatch, FileGroupTask]):
                 sort_by_length=False,
                 unk_token=self.unk_token,
             ),
-            MegatronTokenWriterStage(append_eod=self.append_eod),
+            MegatronTokenWriterStage(self.output_dir, append_eod=self.append_eod),
         ]
 
     def decompose(self) -> list[ProcessingStage]:
