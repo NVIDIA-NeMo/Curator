@@ -31,7 +31,6 @@ from loguru import logger
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-from nemo_curator.tasks.tasks import _EmptyTask
 
 
 def create_common_crawl_pipeline(  # noqa: PLR0913
@@ -121,12 +120,11 @@ def run_benchmark(args: argparse.Namespace) -> dict:
         msg = f"Invalid executor type: {args.executor}"
         raise ValueError(msg)
 
-    initial_task = _EmptyTask(task_id="common_crawl_task", dataset_name="common_crawl", data=None)
-
     logger.info("Starting Common Crawl pipeline execution...")
     start = time.perf_counter()
+
     try:
-        results = pipeline.run(executor, initial_tasks=[initial_task])
+        results = pipeline.run(executor, initial_tasks=None)
         success = True
     except Exception as e:  # noqa: BLE001
         logger.error(f"Pipeline failed: {e}")
