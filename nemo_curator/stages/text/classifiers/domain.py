@@ -34,7 +34,7 @@ class DomainClassifier(DistributedDataClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        label_field: The name of the prediction column. Defaults to "quality_pred".
+        label_field: The name of the prediction column. Defaults to "domain_pred".
         score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
@@ -86,7 +86,7 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        label_field: The name of the prediction column. Defaults to "quality_pred".
+        label_field: The name of the prediction column. Defaults to "multilingual_domain_pred".
         score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.

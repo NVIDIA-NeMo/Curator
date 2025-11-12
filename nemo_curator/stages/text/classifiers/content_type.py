@@ -35,7 +35,7 @@ class ContentTypeClassifier(DistributedDataClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        label_field: The name of the prediction column. Defaults to "quality_pred".
+        label_field: The name of the prediction column. Defaults to "content_pred".
         score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
