@@ -74,8 +74,6 @@ class MegatronTokenWriterStage(BaseWriter):
         Returns:
             FileGroupTask: Task containing paths to written files
         """
-        self.eod_token_id = -1  # TODO(asolergi-nv): Handle eod token id
-
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
             filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
@@ -83,14 +81,21 @@ class MegatronTokenWriterStage(BaseWriter):
             logger.warning("The task does not have source_files in metadata, using UUID for base filename")
             filename = uuid.uuid4().hex
 
-        token_size = task._metadata.get("token_size", 4)
+        token_size = task._metadata.get("token_size", -1)
+        if token_size == -1:
+            logger.warning("tokenizer.vocab_size is not set, assuming 4 bytes per token (vocab_size > 65536)")
+            token_size = 4
+        eod_token_id = task._metadata.get("eod_token_id", -1)
+        if eod_token_id == -1:
+            logger.warning("tokenizer.eos_token_id is not set, disabling append_eod")
+            self.append_eod = False
         file_prefix = self.fs.sep.join([self._fs_path, filename])
         for file_extension in self.file_extension:
             file_path = file_prefix + file_extension
             if self.fs.exists(file_path):
                 logger.debug(f"File {file_path} already exists, overwriting it")
 
-        self.write_data(task, file_prefix, token_size)
+        self.write_data(task, file_prefix, token_size, eod_token_id)
         logger.debug(f"Written {self.num_tokens} tokens ({self.num_documents} documents) to {file_prefix}")
 
         # Create FileGroupTask with written files
@@ -106,7 +111,7 @@ class MegatronTokenWriterStage(BaseWriter):
             _stage_perf=task._stage_perf,
         )
 
-    def write_data(self, task: DocumentBatch, file_prefix: str, token_size: int) -> None:
+    def write_data(self, task: DocumentBatch, file_prefix: str, token_size: int, eod_token_id: int) -> None:
         """Write data to Megatron tokenizer index file."""
 
         token_dtype = np.int32 if token_size == 4 else np.uint16  # noqa: PLR2004
@@ -130,7 +135,7 @@ class MegatronTokenWriterStage(BaseWriter):
         with open(file_prefix + ".bin", "wb") as f:
             for document_tokens in df[INPUT_ID_COLUMN].tolist():
                 if self.append_eod:
-                    document_tokens.append(self.eod_token_id)
+                    document_tokens.append(eod_token_id)
                 f.write(
                     np.array(document_tokens, dtype=token_dtype).tobytes(order="C")
                 )  # TODO(asolergi-nv): Check if document_tokens is already a np array + which dtype
