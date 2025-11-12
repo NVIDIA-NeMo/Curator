@@ -35,7 +35,7 @@ class BoilerPlateStringModifier(DocumentModifier):
         self._remove_if_at_top_or_bottom = remove_if_at_top_or_bottom
         self._top_or_bottom_only = False
         self._boilerplate_paragraph_indices = []
-        self.name = "boilerplate_string_ratio"
+        self._name = "boilerplate_string_ratio"
 
     def modify_document(self, text: str) -> str:
         # Initialize variables
