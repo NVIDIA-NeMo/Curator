@@ -16,10 +16,10 @@ import math
 from typing import TYPE_CHECKING, Any
 
 import cudf
-from cugraph.dask.comms.comms_wrapper import init_subcomms as c_init_subcomms
 from loguru import logger
 from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
+from pylibcugraph.comms.comms_wrapper import init_subcomms as c_init_subcomms
 
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
