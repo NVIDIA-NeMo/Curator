@@ -316,7 +316,7 @@ if __name__ == "__main__":
         "--dry-run",
         action="store_true",
         default=False,
-        help="If set only write minimum metadata",
+        help="If set, only write minimum metadata",
     )
 
     # Splitting parameters
@@ -343,14 +343,14 @@ if __name__ == "__main__":
         "--limit-clips",
         type=int,
         default=0,
-        help="limit number of clips from each input video to process. 0 means no limit.",
+        help="Limit number of clips from each input video to process. 0 means no limit.",
     )
     parser.add_argument(
         "--transnetv2-frame-decoder-mode",
         type=str,
         default="pynvc",
         choices=["pynvc", "ffmpeg_gpu", "ffmpeg_cpu"],
-        help="Choose between ffmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
+        help="Choose between FFmpeg on CPU or GPU or PyNvVideoCodec for video decode.",
     )
     parser.add_argument(
         "--transnetv2-threshold",
@@ -395,7 +395,7 @@ if __name__ == "__main__":
         "--transcode-cpus-per-worker",
         type=float,
         default=6.0,
-        help="Number of CPU threads per worker. The stage uses a batched ffmpeg "
+        help="Number of CPU threads per worker. The stage uses a batched FFmpeg "
         "commandline with batch_size (-transcode-ffmpeg-batch-size) of ~64 and per-batch thread count of 1.",
     )
     parser.add_argument(
@@ -403,26 +403,26 @@ if __name__ == "__main__":
         type=str,
         default="libopenh264",
         choices=["libopenh264", "h264_nvenc", "libx264"],
-        help="Codec for transcoding clips; None to skip transocding.",
+        help="Codec for transcoding clips; None to skip transcoding.",
     )
     parser.add_argument(
         "--transcode-encoder-threads",
         type=int,
         default=1,
-        help="Number of threads per ffmpeg encoding sub-command for transcoding clips.",
+        help="Number of threads per FFmpeg encoding sub-command for transcoding clips.",
     )
     parser.add_argument(
         "--transcode-ffmpeg-batch-size",
         type=int,
         default=16,
-        help="FFMPEG batchsize for transcoding clips. Each clip/sub-command in "
+        help="FFmpeg batchsize for transcoding clips. Each clip/sub-command in "
         "the batch uses --transcode-encoder-threads number of CPU threads",
     )
     parser.add_argument(
         "--transcode-use-hwaccel",
         action="store_true",
         default=False,
-        help="Whether to use cuda acceleration for decoding in transcoding stage.",
+        help="Whether to use CUDA acceleration for decoding in transcoding stage.",
     )
     parser.add_argument(
         "--transcode-use-input-video-bit-rate",
@@ -634,7 +634,7 @@ if __name__ == "__main__":
         dest="captioning_model_does_preprocess",
         action="store_true",
         default=False,
-        help="If set, Captioning model will handle preprocessing (resize, rescale, normalize) instead of our code.",
+        help="If set, captioning model will handle preprocessing (resize, rescale, normalize) instead of our code.",
     )
     parser.add_argument(
         "--captioning-stage2-caption",
@@ -671,7 +671,7 @@ if __name__ == "__main__":
         "--captioning-use-vllm-mmcache",
         action="store_true",
         default=False,
-        help="vLLM MultiModal Cache Usage, default disabled for better performance and GPU Utilization",
+        help="vLLM MultiModal Cache Usage, default disabled for better performance and GPU utilization",
     )
     # Caption enhancement arguments
     parser.add_argument(
@@ -721,7 +721,7 @@ if __name__ == "__main__":
         "--enhance-captions-prompt-text",
         type=str,
         default=None,
-        help="Prompt text for further enhancing captions using EnhanceCaptionStage w/ Qwen-LM.",
+        help="Prompt text for further enhancing captions using EnhanceCaptionStage with Qwen-LM.",
     )
     parser.add_argument(
         "--enhanced-caption-models",

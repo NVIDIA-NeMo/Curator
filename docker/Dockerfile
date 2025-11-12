@@ -57,7 +57,7 @@ RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
 
 FROM build AS nemo_curator_dep
 
-# Install ffmpeg
+# Install FFmpeg
 COPY docker/common/install_ffmpeg.sh .
 RUN bash install_ffmpeg.sh && \
     rm install_ffmpeg.sh

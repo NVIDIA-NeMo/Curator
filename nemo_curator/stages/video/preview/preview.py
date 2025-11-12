@@ -105,12 +105,12 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
             try:
                 output = subprocess.check_output(command, stderr=subprocess.STDOUT)  # noqa: S603
                 if output:
-                    logger.warning(f"ffmpeg output: {output.decode('utf-8')}")
+                    logger.warning(f"FFmpeg output: {output.decode('utf-8')}")
             except subprocess.CalledProcessError as e:
-                logger.error(f"ffmpeg command failed with return code {e.returncode}")
-                logger.warning(f"ffmpeg command: {' '.join(command)}")
+                logger.error(f"FFmpeg command failed with return code {e.returncode}")
+                logger.warning(f"FFmpeg command: {' '.join(command)}")
                 if e.output:
-                    logger.warning(f"ffmpeg output: {e.output.decode('utf-8')}")
+                    logger.warning(f"FFmpeg output: {e.output.decode('utf-8')}")
                 return
 
             window.webp_bytes = output_webp.read_bytes()
