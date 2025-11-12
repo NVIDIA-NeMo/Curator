@@ -29,7 +29,7 @@ class FastTextQualityFilter(DocumentFilter):
         self._label = label
         self._alpha = alpha
         self._seed = np.random.seed(seed)  # noqa: NPY002
-        self.name = "fasttext_quality_filter"
+        self._name = "fasttext_quality_filter"
 
     def model_check_or_download(self) -> None:
         if not os.path.exists(self._model_path):
@@ -63,7 +63,7 @@ class FastTextLangId(DocumentFilter):
         self._model_path = model_path
         self._lang_code = None
         self._cutoff = min_langid_score
-        self.name = "lang_id"
+        self._name = "lang_id"
 
     def model_check_or_download(self) -> None:
         if not os.path.exists(self._model_path):

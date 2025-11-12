@@ -66,7 +66,7 @@ class LetterCountFilter(DocumentFilter):
         super().__init__()
         self.letter = letter
         self.min_count = min_count
-        self.name = "letter_count"
+        self._name = "letter_count"
 
     def score_document(self, text: str) -> int:
         return text.count(self.letter)
