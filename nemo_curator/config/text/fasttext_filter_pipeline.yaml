@@ -35,7 +35,7 @@ documentation: |
 input_path: ???
 output_path: ???
 text_field: text
-# Path to the FasText language id model (e.g., lid.176.bin)
+# Path to the FastText language id model (e.g., lid.176.bin)
 fasttext_langid_model_path: ???
 # Path to the FastText quality model file
 fasttext_quality_model_path: ???
