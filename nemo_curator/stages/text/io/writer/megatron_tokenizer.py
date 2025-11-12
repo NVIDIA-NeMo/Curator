@@ -74,6 +74,8 @@ class MegatronTokenWriterStage(BaseWriter):
         Returns:
             FileGroupTask: Task containing paths to written files
         """
+        self.eod_token_id = -1  # TODO(asolergi-nv): Handle eod token id
+
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
             filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
@@ -115,19 +117,24 @@ class MegatronTokenWriterStage(BaseWriter):
         df = task.to_pandas()  # Convert to pandas DataFrame if needed # TODO(asolergi-nv): Check with curator if needed or if we should do this after computing the lengths of each document
 
         # Compute length of each sample with the attention mask
-        df[TOKEN_LENGTH_COLUMN] = df[ATTENTION_MASK_COLUMN].sum(axis=1)
+        df[TOKEN_LENGTH_COLUMN] = df[ATTENTION_MASK_COLUMN].apply(np.sum)
         # Drop attention mask
         df = df.drop(columns=[ATTENTION_MASK_COLUMN])  # TODO(asolergi-nv): Optional
         # Write tokens to disk
-        self._num_documents += len(df)
+
+        """
+        for document_tokens in df[INPUT_ID_COLUMN].tolist():
+            self._sequence_lengths.append(len(document_tokens))
+            self._document_indices.append(len(self._sequence_lengths))
+        """
         with open(file_prefix + ".bin", "wb") as f:
             for document_tokens in df[INPUT_ID_COLUMN].tolist():
                 if self.append_eod:
                     document_tokens.append(self.eod_token_id)
                 f.write(
                     np.array(document_tokens, dtype=token_dtype).tobytes(order="C")
-                )  # TODO(asolergi-nv): Check if it is already a np array + which dtype
-                self._sequence_lengths += len(document_tokens)
+                )  # TODO(asolergi-nv): Check if document_tokens is already a np array + which dtype
+                self._sequence_lengths.append(len(document_tokens))
                 self._document_indices.append(len(self._sequence_lengths))
 
         # Write index file to disk
@@ -195,7 +202,6 @@ class MegatronTokenizerWriter(CompositeStage[DocumentBatch, FileGroupTask]):
 
     _name: str = "megatron_tokenizer_writer"
 
-    # TODO(asolergi-nv): Sino mirar de meter en decomponse y no aqui en post init
     def __post_init__(self) -> None:
         super().__init__()
         self.stages = [

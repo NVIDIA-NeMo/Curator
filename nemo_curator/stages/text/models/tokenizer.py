@@ -167,7 +167,9 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             data=output,
             _metadata={
                 **batch._metadata,
-                "token_size": 4 if self.tokenizer.get_vocab_size() > np.iinfo(np.uint16).max + 1 else 2,
+                "token_size": 4
+                if self.tokenizer.vocab_size > np.iinfo(np.uint16).max + 1
+                else 2,  # TODO(asolergi-nv): Make sure .vocab_size is always available
             },
             _stage_perf=batch._stage_perf,
         )
