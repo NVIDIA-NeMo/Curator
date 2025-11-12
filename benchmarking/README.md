@@ -5,88 +5,70 @@ A comprehensive benchmarking framework for measuring and tracking the performanc
 ## Table of Contents
 
 - [Quick Start](#quick-start)
-- [Core Concepts](#core-concepts)
-- [Installation & Setup](#installation--setup)
+- [Concepts](#concepts)
 - [Configuration](#configuration)
+- [Running benchmarks and using the container](#running-benchmarks-and-using-the-container)
 - [Writing Benchmark Scripts](#writing-benchmark-scripts)
 - [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions)
-- [Docker Usage](#docker-usage)
-- [Debugging](#debugging)
-- [Examples](#examples)
 
 ---
 
 ## Quick Start
 
-### Using Docker (Recommended)
-
 **1. Build the Docker image:**
-Assuming the working directory is the NeMo Curator repo root dir
+
+Assuming the working directory is the NeMo Curator repo root dir:
 ```bash
 ./benchmarking/tools/build_docker.sh
 ```
 
-**2. Create a simple configuration file** (e.g., `my_benchmark.yaml`):
+This builds the `curator_benchmarking` image with:
+- CUDA support
+- Python 3.12 environment
+- NeMo Curator from source in repo root dir
+- All NeMo Curator dependencies
+- Benchmarking framework and scripts
+
+Note: you may only need to do this periodically when the environment needs to be updated. See the `--use-host-curator` example below.
+
+**2. Update config:**
+
+Update `results_path`, `artifacts_path`, and `datasets_path` in the YAML config file based on your preferences. In this example, we'll edit the YAML config `./benchmarking/nightly-benchmark.yaml`
 
 ```yaml
-results_dir: "/benchmarking/results"
-
-entries:
-  - name: test_benchmark
-    script: test_benchmark.py
-    args: --iterations 100
-    timeout_s: 300
+results_path: /path/where/results/are/stored
+artifacts_path: /path/where/artifacts/are/stored
+datasets_path: /path/to/datasets
 ```
 
-**3. Run the benchmark:**
+**3. Run benchmarks:**
 
 ```bash
-./benchmarking/tools/run.sh
+./benchmarking/tools/run.sh --config ./benchmarking/nightly-benchmark.yaml
 ```
 
-Or manually:
-
+To run using the Curator sources on the host instead of those in the image, pass the `--use-host-curator` option:
 ```bash
-docker run --rm \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/my_benchmark.yaml
+./benchmarking/tools/run.sh --config ./benchmarking/nightly-benchmark.yaml --use-host-curator
 ```
+This is especially useful during active development and debugging since it avoids a costly rebuild step.
+
 
 **4. View results:**
 
-Results are written to the `results_dir` specified in your configuration, organized by session timestamp.
+Results are written to the `results_path` specified in your configuration, organized by session timestamp.
 
 ---
 
-## Core Concepts
+## Concepts
 
 ### Session
 
 A **session** represents a single invocation of the benchmarking framework. Each session:
-- Has a unique name with timestamp (e.g., `nightly-run__2025-01-23__14-30-00`)
+- Has a unique name with timestamp (e.g., `benchmark-run__2025-01-23__14-30-00`)
 - Contains one or more benchmark entries
 - Produces a session directory with results and artifacts
 - Captures environment metadata (system info, package versions, etc.)
-
-### Entry
-
-An **entry** is a single benchmark run within a session. Each entry:
-- Runs a specific benchmark script with defined arguments
-- Has its own timeout, Ray configuration, and scratch directory, or can inherit from sessin-wide defaults
-- Produces metrics, parameters, and run performance data
-- Can reference datasets using template syntax
-
-Example entry:
-```yaml
-- name: cc_benchmark
-  script: common_crawl_benchmark.py
-  args: --url_limit 100 --executor ray_data
-  timeout_s: 3600
-  ray:
-    num_cpus: 64
-    num_gpus: 1
-```
 
 ### Scripts
 
@@ -95,78 +77,35 @@ Example entry:
 - Receive arguments from the framework (paths, parameters, etc.)
 - Execute Curator operations and collect metrics
 - Write standardized output files (params.json, metrics.json, tasks.pkl)
+- Can be run standalone outside of the benchmark framework to debug problems, perform useful work, or be used as examples.
+- Can be written by users to benchmark specific use cases.
+- Are referenced in the YAML configuration as "entries" to be included in benchmark runs with specific options.
 
 See [Writing Benchmark Scripts](#writing-benchmark-scripts) for details.
 
+### Entry
+
+An **entry** is a single benchmark run within a session. Each entry:
+- Runs a specific benchmark script with defined arguments
+- Has its own timeout, Ray configuration, sink configuration, pass/fail requirments, or can inherit from session-wide defaults
+- Produces metrics, parameters, and run performance data
+- Can reference datasets using template syntax
+- Can pass additional data to sinks to provide for customized operations unique to the entry. For example, the `slack_sink` can accept additional metrics to report for an entry that other entries may not have.
+- Can specify specific requirements that must be met in order to return a passing status. For example, an entry can require that a specific throughput metric meet or exceed a minimum value.
+
 ### Sinks
 
-**Sinks** are pluggable modules that process benchmark results at various stages:
+**Sinks** are pluggable modules that are called by the framework at various stages to allow for custom processing of benchmark data:
 - Initialize at session start
-- Process each entry's results
+- Process each entry's individual benchmark results
 - Finalize at session end
 
 Built-in sinks include:
-- **MLflow**: Track experiments and metrics
 - **Slack**: Post results to Slack channels
 - **Google Drive**: Upload results to cloud storage (extensible)
+- **MLflow**: Track experiments and metrics
 
 See [Sinks: Custom Reporting & Actions](#sinks-custom-reporting--actions) for details.
-
-### Tools
-
-The `tools/` directory contains helper scripts:
-- `build_docker.sh`: Build the benchmarking Docker image
-- `run.sh`: Example script for running benchmarks in Docker with volume mounts
-
----
-
-## Installation & Setup
-
-### Option 1: Docker Container (Recommended)
-
-**Build the image:**
-
-```bash
-cd benchmarking/tools
-./build_docker.sh
-```
-
-This builds the `curator_benchmarking` image with:
-- CUDA support
-- All NeMo Curator dependencies
-- Benchmarking framework and scripts
-- Python 3.12 environment
-
-**Verify the build:**
-
-```bash
-docker images | grep curator_benchmarking
-```
-
-### Option 2: Bare Metal (Local Python Environment)
-
-**Requirements:**
-- Python 3.10+
-- CUDA 12.x (for GPU operations)
-- NeMo Curator installed with all extras
-
-**Setup:**
-
-```bash
-# Install NeMo Curator with all dependencies
-cd <curator_repo_root>
-uv sync --extra all --all-groups
-
-# Install additional benchmarking dependencies
-uv add rich loguru
-
-# Run directly
-python benchmarking/run.py --config benchmarking/config.yaml
-```
-
-**Note**: Bare metal requires manually managing dependencies and environment consistency.
-
----
 
 ## Configuration
 
@@ -174,52 +113,88 @@ python benchmarking/run.py --config benchmarking/config.yaml
 
 The framework uses one or more YAML files to configure benchmark sessions. Multiple configuration files are merged, allowing separation of concerns (e.g., machine-specific paths vs. benchmark definitions).
 
+A useful pattern is to use multiple YAML files, where configuration that does not typically change is in one or more files, and user or machine-specific configuration is others.  For example, `my_paths_and_reports.yaml` could have results / artifacts / datasets paths and personal sink settings (individual slack channel, etc.), and `release-benchmarks.yaml` could have the team-wide configuration containing the individual benchmark entries and performance requirements.
+
+This can be especially useful during development. During development you'll not only want to use your own paths and report settings, you'll also want to use the standard benchmarking environment (i.e. a container), but cannot afford to rebuild the Docker image for each code change you're evaluating. The `--use-host-curator` flag is intended for this case. This flag will use your Curator source dir on host inside the container via a volume mount (this works because the container has curator installed in editable mode), and no image rebuild step is needed.
+
+An example of a development scenario using this pattern looks like this:
+```bash
+./benchmarking/tools/run.sh --use-host-curator --config ~/curator_benchmarking/my_paths_and_reports.yaml --config ./benchmarking/release-benchmarks.yaml
+```
+
 ### Configuration Structure
 
 ```yaml
-# Required: Where to write results
-results_dir: "/path/to/results"
-
-# Optional: Where to write large artifacts (logs, scratch data)
-artifacts_dir: "/path/to/artifacts"  # Defaults to results_dir/artifacts
+# Required: Base paths for results, artifacts, and datasets
+# These paths must exist on the host machine
+# When running in Docker with tools/run.sh, paths are automatically mapped to container volumes
+# These base paths can be referenced in other configuration values using {results_path}, {artifacts_path}, {datasets_path}
+# NOTE: the current version of the framework does not use artifacts_path
+results_path: /path/to/results
+artifacts_path: /path/to/artifacts
+datasets_path: /path/to/datasets
 
 # Optional: Global timeout for all entries (seconds)
 default_timeout_s: 7200
 
 # Optional: Delete scratch directories after each entry completes
+# The path {session_entry_dir}/scratch is automatically created when an entry starts and can be used by benchmark
+#scripts for writing temp files. This directory is automatically cleaned up on completion of the entry if
+# delete_scratch is true.
 delete_scratch: true
 
 # Optional: Configure sinks for result processing
 sinks:
   - name: mlflow
+    enabled: true
     tracking_uri: ${MLFLOW_TRACKING_URI}
     experiment: my-experiment
-    enabled: true
   - name: slack
-    webhook_url: ${SLACK_WEBHOOK_URL}
     enabled: true
+    webhook_url: ${SLACK_WEBHOOK_URL}
+    default_metrics: ["exec_time_s"]  # Metrics to report by default for all entries
+  - name: gdrive
+    enabled: false
+    drive_folder_id: ${GDRIVE_FOLDER_ID}
+    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
 # Optional: Define datasets for template substitution
 datasets:
   - name: common_crawl
     formats:
       - type: json
-        path: /data/cc_sample.jsonl
+        path: "{datasets_path}/cc_sample"  # Can reference base paths
       - type: parquet
-        path: /data/cc_sample.parquet
+        path: "{datasets_path}/cc_sample"
 
 # Required: List of benchmark entries to run
 entries:
   - name: my_benchmark
+    enabled: true  # Optional: Whether to run this entry (default: true)
     script: my_script.py
     args: >-
       --input {dataset:common_crawl,parquet}
       --output {session_entry_dir}/output
-    timeout_s: 1800
+    timeout_s: 1800  # Optional: Override global timeout
+
+    # Optional: Per-entry sink configuration
+    sink_data:
+      - name: slack
+        additional_metrics: ["throughput_docs_per_sec", "num_documents_processed"]
+
+    # Optional: Ray configuration for this entry
     ray:
       num_cpus: 32
       num_gpus: 1
-    delete_scratch: false  # Override global setting
+      enable_object_spilling: false
+
+    # Optional: Requirements for the benchmark to pass
+    requirements:
+      - metric: throughput_docs_per_sec
+        min_value: 100
+
+    # Optional: Override global delete_scratch setting
+    delete_scratch: false
 ```
 
 ### Passing Configuration Files
@@ -245,32 +220,182 @@ python benchmarking/run.py \
 
 ### Environment Variables
 
-Configuration values can reference environment variables:
+Configuration values can reference environment variables using `${VAR_NAME}` syntax:
 
 ```yaml
-results_dir: "${HOME}/benchmarks/results"
+results_path: "${HOME}/benchmarks/results"
 sinks:
   - name: slack
     webhook_url: ${SLACK_WEBHOOK_URL}
+  - name: mlflow
+    tracking_uri: ${MLFLOW_TRACKING_URI}
 ```
 
-### Template Substitution
+### Template Substitution and Path Resolution
 
-**Dataset references** in entry arguments:
+The framework supports several types of placeholders in configuration values:
+
+**Base path references** - Reference the configured base paths:
+
+```yaml
+datasets:
+  - name: my_dataset
+    formats:
+      - type: parquet
+        path: "{datasets_path}/subdir/data.parquet"
+```
+
+Available base path placeholders:
+- `{results_path}` - Resolves to the configured `results_path`
+- `{artifacts_path}` - Resolves to the configured `artifacts_path` *Note: unused in current version of the framework*
+- `{datasets_path}` - Resolves to the configured `datasets_path`
+
+**Dataset references** - Reference datasets in entry arguments:
 
 ```yaml
 args: --input {dataset:common_crawl,parquet}
 ```
 
-Resolves to the path defined in the `datasets` section.
+Resolves to the path defined in the `datasets` section for that dataset and format.
 
-**Session entry directory** for output paths:
+**Session entry directory** - Reference the entry's runtime directory:
 
 ```yaml
 args: --output {session_entry_dir}/results
 ```
 
-Resolves to the entry's unique directory within the session (e.g., `/results/session-name/entry-name/results`).
+Resolves to the entry's unique directory within the session (e.g., `/results/session-name__timestamp/entry-name/results`).
+
+### Entry Configuration Details
+
+**enabled**: Controls whether an entry is run (default: `true`). Useful for temporarily disabling entries without removing them from the configuration.
+
+**sink_data**: Provides entry-specific configuration for sinks. For example, the Slack sink can accept `additional_metrics` to report metrics beyond the default set:
+
+```yaml
+sink_data:
+  - name: slack
+    additional_metrics: ["num_documents_processed", "throughput_docs_per_sec"]
+```
+
+**requirements**: Defines pass/fail criteria for the benchmark. If any requirement is not met, the entry is marked as failed:
+
+```yaml
+requirements:
+  - metric: throughput_docs_per_sec
+    min_value: 100
+  - metric: peak_memory_gb
+    max_value: 64
+```
+
+**ray**: Configures Ray resources for the entry:
+
+```yaml
+ray:
+  num_cpus: 64
+  num_gpus: 4
+  enable_object_spilling: false  # Disable object spilling to local disk
+```
+
+---
+
+## Running benchmarks and using the container
+
+The `benchmarking/tools/run.sh` script provides a convenient way to run benchmarks in a Docker container with proper volume mounts, GPU access, and environment configuration.
+
+### Basic Usage
+
+Run benchmarks using a configuration file:
+
+```bash
+./benchmarking/tools/run.sh --config benchmarking/my-benchmark.yaml
+```
+
+This command:
+- Reads the configuration file and extracts `results_path`, `artifacts_path`, and `datasets_path`
+- Automatically creates volume mounts to map these paths into the container
+- Runs the benchmarking framework with the Curator code built into the Docker image
+- Passes environment variables like `SLACK_WEBHOOK_URL` and `MLFLOW_TRACKING_URI` to the container
+
+### Using Host Curator Sources
+
+To run benchmarks using Curator source code from your local repository instead of the version built into the image:
+
+```bash
+./benchmarking/tools/run.sh --use-host-curator --config benchmarking/my-benchmark.yaml
+```
+
+This mounts your local Curator repository (from `$HOST_CURATOR_DIR`) into the container at `/opt/Curator`, allowing you to:
+- Test local changes without rebuilding the Docker image
+- Quickly iterate on Curator development
+- Debug issues with modified source code
+
+The `HOST_CURATOR_DIR` environment variable defaults to the repository root but can be overridden:
+
+```bash
+HOST_CURATOR_DIR=/path/to/my/curator/fork ./benchmarking/tools/run.sh --use-host-curator --config my-benchmark.yaml
+```
+
+### Interactive Shell
+
+Get an interactive bash shell in the container environment:
+
+```bash
+./benchmarking/tools/run.sh --shell
+```
+
+This is useful for:
+- Exploring the container environment
+- Running benchmarks manually for debugging
+- Checking installed packages and versions
+- Testing commands before adding them to scripts
+
+### Running Commands in the Container
+
+Execute a specific command in the container without an interactive shell:
+
+```bash
+./benchmarking/tools/run.sh --shell "uv pip list"
+```
+
+This runs the command and exits. Examples:
+
+```bash
+# Check installed packages
+./benchmarking/tools/run.sh --shell "uv pip list | grep curator"
+
+# Verify Python environment
+./benchmarking/tools/run.sh --shell "python -c 'import nemo_curator; print(nemo_curator.__version__)'"
+
+# List available benchmark scripts
+./benchmarking/tools/run.sh --shell "ls -l /opt/Curator/benchmarking/scripts/"
+```
+
+### Controlling GPU Access
+
+Use the `GPUS` environment variable to control which GPUs are visible to the container:
+
+```bash
+# Use all GPUs (default)
+./benchmarking/tools/run.sh --config my-benchmark.yaml
+
+# Use specific GPUs
+GPUS="device=0,1" ./benchmarking/tools/run.sh --config my-benchmark.yaml
+
+# Use only GPU 2
+GPUS="device=2" ./benchmarking/tools/run.sh --config my-benchmark.yaml
+
+# Run without GPU access
+GPUS="none" ./benchmarking/tools/run.sh --config my-benchmark.yaml
+```
+
+The `GPUS` value is passed directly to Docker's `--gpus` flag.
+
+### More details
+For more details, refer to the `--help` output for `run.sh`
+```bash
+./benchmarking/tools/run.sh --help
+```
 
 ---
 
@@ -278,164 +403,32 @@ Resolves to the entry's unique directory within the session (e.g., `/results/ses
 
 ### Script Location
 
-Benchmark scripts should be placed in the `benchmarking/scripts/` directory or specify a custom location:
-
-```yaml
-entries:
-  - name: my_benchmark
-    script: my_benchmark.py  # Looks in benchmarking/scripts/
-    script_base_dir: /custom/path  # Optional override
-```
+Benchmark scripts should be placed in the `benchmarking/scripts/` directory. Scripts are referenced by filename in the YAML configuration.
 
 ### Required Script Interface
 
+Benchmark scripts must follow these requirements:
+
 #### 1. Accept Framework Arguments
 
-Your script must accept the `--benchmark-results-path` argument (automatically passed by the framework):
-
-```python
-#!/usr/bin/env python3
-import argparse
-from pathlib import Path
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--benchmark-results-path", type=Path, required=True)
-    # Add your custom arguments
-    parser.add_argument("--input", type=str)
-    parser.add_argument("--iterations", type=int, default=100)
-
-    args = parser.parse_args()
-
-    # Your benchmark logic here
-    run_benchmark(args)
-
-if __name__ == "__main__":
-    main()
-```
+Your script must accept the `--benchmark-results-path` argument. This is automatically passed by the framework and specifies the directory where output files should be written. You can add any additional custom arguments your benchmark needs.
 
 #### 2. Generate Required Output Files
 
-Your script **must** write three files to `--benchmark-results-path`:
+Your script **must** write three JSON/pickle files to the `--benchmark-results-path` directory:
 
-**a) `params.json`** - Parameters used in the benchmark:
+**`params.json`** - A JSON file containing all parameters used in the benchmark run (input paths, configuration options, etc.). This allows for reproducibility and tracking of what settings were used.
 
-```python
-import json
+**`metrics.json`** - A JSON file containing all measured metrics from the benchmark (execution time, throughput, memory usage, etc.). Metric names used here can be referenced in entry requirements and sink configurations.
 
-params = {
-    "input_path": str(args.input),
-    "iterations": args.iterations,
-    "executor": "ray_data",
-    "num_workers": 64
-}
+**`tasks.pkl`** - A pickle file containing NeMo Curator `Task` objects that capture detailed performance data. Use `nemo_curator.tasks.Task` with `TaskPerfUtils()` to wrap operations in your script, then save all tasks using `Task.get_all_tasks()`.
 
-with open(args.benchmark_results_path / "params.json", "w") as f:
-    json.dump(params, f, indent=2)
-```
+### Reference Implementations
 
-**b) `metrics.json`** - Measured metrics:
-
-```python
-metrics = {
-    "execution_time_s": 123.45,
-    "throughput_mb_s": 456.78,
-    "rows_processed": 1000000,
-    "peak_memory_gb": 32.5
-}
-
-with open(args.benchmark_results_path / "metrics.json", "w") as f:
-    json.dump(metrics, f, indent=2)
-```
-
-**c) `tasks.pkl`** - Task performance data (using NeMo Curator's TaskPerfUtils):
-
-```python
-import pickle
-from nemo_curator.tasks import Task
-from nemo_curator.tasks.utils import TaskPerfUtils
-
-# Wrap your operations in Task objects
-with Task("data_loading", TaskPerfUtils()):
-    # Your data loading code
-    df = load_data(args.input)
-
-with Task("processing", TaskPerfUtils()):
-    # Your processing code
-    result = process_data(df)
-
-# Save all tasks
-tasks = Task.get_all_tasks()
-with open(args.benchmark_results_path / "tasks.pkl", "wb") as f:
-    pickle.dump(tasks, f)
-```
-
-### Script Template
-
-```python
-#!/usr/bin/env python3
-"""My benchmark script for NeMo Curator."""
-
-import argparse
-import json
-import pickle
-import time
-from pathlib import Path
-
-from nemo_curator.tasks import Task
-from nemo_curator.tasks.utils import TaskPerfUtils
-
-
-def run_benchmark(args):
-    """Main benchmark logic."""
-    start_time = time.time()
-
-    # Your benchmark code here
-    with Task("my_operation", TaskPerfUtils()):
-        result = perform_operation(args.input)
-
-    execution_time = time.time() - start_time
-
-    # Write required output files
-    params = {
-        "input": str(args.input),
-        "parameter1": args.param1,
-    }
-    with open(args.benchmark_results_path / "params.json", "w") as f:
-        json.dump(params, f, indent=2)
-
-    metrics = {
-        "execution_time_s": execution_time,
-        "items_processed": len(result),
-    }
-    with open(args.benchmark_results_path / "metrics.json", "w") as f:
-        json.dump(metrics, f, indent=2)
-
-    tasks = Task.get_all_tasks()
-    with open(args.benchmark_results_path / "tasks.pkl", "wb") as f:
-        pickle.dump(tasks, f)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="My benchmark")
-    parser.add_argument("--benchmark-results-path", type=Path, required=True)
-    parser.add_argument("--input", type=str, required=True)
-    parser.add_argument("--param1", type=str, default="default")
-
-    args = parser.parse_args()
-    run_benchmark(args)
-
-
-if __name__ == "__main__":
-    main()
-```
-
-### Example Scripts
-
-See existing scripts in `scripts/`:
-- `test_benchmark.py` - Simple demo benchmark
-- `common_crawl_benchmark.py` - Common Crawl processing
-- `removal_benchmark.py` - Data removal logic benchmark
+See existing scripts in `scripts/` for complete examples:
+- `domain_classification_benchmark.py` - Domain classification with model inference
+- `embedding_generation_benchmark.py` - Embedding generation benchmark
+- `removal_benchmark.py` - Data removal operations benchmark
 
 ---
 
@@ -578,411 +571,6 @@ Results passed to `process_result()` contain:
     "stdouterr_file": "/path/to/log.txt"
 }
 ```
-
----
-
-## Docker Usage
-
-### Building the Image
-
-Use the provided build script:
-
-```bash
-cd benchmarking/tools
-./build_docker.sh
-```
-
-Or manually:
-
-```bash
-docker build \
-  -f benchmarking/Dockerfile \
-  --target curator_benchmarking \
-  -t curator_benchmarking \
-  /path/to/curator/repo
-```
-
-### Running with Docker
-
-#### Basic Usage
-
-```bash
-docker run --rm \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml
-```
-
-#### GPU Support
-
-```bash
-docker run --rm \
-  --gpus all \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml
-```
-
-Or specify specific GPUs:
-
-```bash
-docker run --rm \
-  --gpus '"device=0,1"' \
-  ...
-```
-
-### Volume Mounts for Development
-
-#### Mount Local Curator Source
-
-Test changes to Curator code without rebuilding the image:
-
-```bash
-docker run --rm \
-  --volume /host/path/to/curator:/opt/Curator \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml
-```
-
-This allows you to:
-- Edit Curator source code on the host
-- Run benchmarks in the container using your modified code
-- Iterate quickly without rebuilding
-
-#### Mount Datasets
-
-Provide access to datasets on the host:
-
-```bash
-docker run --rm \
-  --volume /host/datasets:/datasets:ro \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml
-```
-
-Use `:ro` for read-only access to prevent accidental modification.
-
-#### Mount Configuration Files
-
-Keep configuration on the host:
-
-```bash
-docker run --rm \
-  --volume $(pwd)/my_config.yaml:/config/my_config.yaml:ro \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking \
-    --config /config/my_config.yaml
-```
-
-#### Mount Results and Artifacts
-
-Write results back to the host:
-
-```bash
-docker run --rm \
-  --volume $(pwd)/results:/benchmarking/results \
-  --volume $(pwd)/artifacts:/benchmarking/artifacts \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml
-```
-
-Configuration should reference these paths:
-
-```yaml
-results_dir: /benchmarking/results
-artifacts_dir: /benchmarking/artifacts
-```
-
-### Complete Example with Multiple Mounts
-
-The `tools/run.sh` script demonstrates a full setup:
-
-```bash
-docker run \
-  --gpus='"device=1"' \
-  --rm \
-  -it \
-  --volume /host/datasets:/datasets:ro \
-  --volume /host/results:/benchmarking/results \
-  --volume /host/artifacts:/benchmarking/artifacts \
-  --volume /host/curator:/opt/Curator \
-  --env=MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI} \
-  --env=SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL} \
-  curator_benchmarking \
-    --config=/opt/Curator/benchmarking/config.yaml \
-    --config=/opt/Curator/benchmarking/paths.yaml
-```
-
-### Environment Variables
-
-Pass environment variables for configuration:
-
-```bash
-docker run --rm \
-  --env MLFLOW_TRACKING_URI=http://mlflow:5000 \
-  --env SLACK_WEBHOOK_URL=https://hooks.slack.com/... \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml
-```
-
----
-
-## Debugging
-
-### Interactive Shell in Container
-
-Override the entrypoint to get a bash shell:
-
-```bash
-docker run --rm -it \
-  --entrypoint /bin/bash \
-  --volume /host/curator:/opt/Curator \
-  --volume $(pwd)/results:/benchmarking/results \
-  curator_benchmarking
-```
-
-Inside the container, you can:
-
-```bash
-# Explore the environment
-ls /opt/Curator/benchmarking/
-
-# Run benchmarks manually
-python /opt/Curator/benchmarking/run.py \
-  --config /opt/Curator/benchmarking/config.yaml
-
-# Run individual scripts
-python /opt/Curator/benchmarking/scripts/test_benchmark.py \
-  --benchmark-results-path /tmp/test
-
-# Check Python environment
-python -c "import nemo_curator; print(nemo_curator.__version__)"
-
-# Debug with interactive Python
-ipython
-```
-
-### Debugging Benchmark Scripts
-
-**Run a script standalone:**
-
-```bash
-# Create a temporary results directory
-mkdir -p /tmp/benchmark_results
-
-# Run the script directly
-python benchmarking/scripts/my_script.py \
-  --benchmark-results-path /tmp/benchmark_results \
-  --input /data/test.parquet \
-  --iterations 10
-
-# Check outputs
-ls -la /tmp/benchmark_results/
-cat /tmp/benchmark_results/params.json
-cat /tmp/benchmark_results/metrics.json
-```
-
-**Use Python debugger:**
-
-Add breakpoints to your script:
-
-```python
-import pdb; pdb.set_trace()
-```
-
-Or use `ipdb` for a better experience:
-
-```python
-import ipdb; ipdb.set_trace()
-```
-
-### Viewing Logs
-
-**Framework logs** are written to stdout/stderr and captured in the session directory.
-
-**Entry logs** (stdout/stderr from benchmark scripts) are saved to:
-
-```
-{results_dir}/{session_name}/{entry_name}/stdouterr.log
-```
-
-**View logs in real-time:**
-
-```bash
-tail -f results/my-session__2025-01-23__14-30-00/my_entry/stdouterr.log
-```
-
-### Common Issues
-
-**Issue: "Module not found" errors**
-
-- Ensure `PYTHONPATH` includes the benchmarking directory
-- In Docker, verify the Curator installation with `uv sync`
-
-**Issue: Permission denied when writing results**
-
-- Check volume mount permissions
-- Ensure the results directory is writable by the container user
-
-**Issue: Timeout errors**
-
-- Increase `timeout_s` in entry configuration
-- Check `default_timeout_s` in global configuration
-- Monitor resource usage (CPU, memory, GPU)
-
-**Issue: Out of memory**
-
-- Adjust Ray configuration (`num_cpus`, `object_spilling`)
-- Reduce dataset size or batch size
-- Monitor memory usage with `nvidia-smi` (GPU) or `top` (CPU)
-
----
-
-## Examples
-
-### Example 1: Simple Benchmark
-
-**config.yaml:**
-
-```yaml
-results_dir: "./results"
-entries:
-  - name: quick_test
-    script: test_benchmark.py
-    args: --iterations 50
-    timeout_s: 300
-```
-
-**Run:**
-
-```bash
-python benchmarking/run.py --config config.yaml
-```
-
-### Example 2: Multiple Benchmarks with Datasets
-
-**config.yaml:**
-
-```yaml
-results_dir: "./results"
-datasets:
-  - name: sample_data
-    formats:
-      - type: parquet
-        path: /data/sample.parquet
-
-entries:
-  - name: benchmark_v1
-    script: my_benchmark.py
-    args: --input {dataset:sample_data,parquet} --algorithm v1
-
-  - name: benchmark_v2
-    script: my_benchmark.py
-    args: --input {dataset:sample_data,parquet} --algorithm v2
-```
-
-### Example 3: Production Setup with Sinks
-
-**config.yaml:**
-
-```yaml
-results_dir: "/benchmarks/results"
-default_timeout_s: 7200
-
-sinks:
-  - name: mlflow
-    tracking_uri: http://mlflow.example.com:5000
-    experiment: nightly-benchmarks
-    enabled: true
-  - name: slack
-    webhook_url: ${SLACK_WEBHOOK_URL}
-    enabled: true
-
-datasets:
-  - name: cc_large
-    formats:
-      - type: parquet
-        path: /data/common_crawl_large.parquet
-
-entries:
-  - name: cc_extraction
-    script: common_crawl_benchmark.py
-    args: >-
-      --download_path {session_entry_dir}/scratch/downloads
-      --output_path {session_entry_dir}/scratch/output
-      --output_format parquet
-      --url_limit 10000
-    timeout_s: 14400
-    ray:
-      num_cpus: 128
-      num_gpus: 8
-```
-
-**Run with Docker:**
-
-```bash
-docker run --rm \
-  --gpus all \
-  --volume /data:/data:ro \
-  --volume /benchmarks:/benchmarks \
-  --env SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL} \
-  curator_benchmarking \
-    --config /opt/Curator/benchmarking/config.yaml \
-    --session-name nightly-run
-```
-
----
-
-## Additional Resources
-
-### Directory Structure
-
-```
-benchmarking/
-├── README.md              # This file
-├── run.py                 # Main framework entry point
-├── config.yaml            # Example configuration
-├── paths.yaml             # Example paths configuration
-├── Dockerfile             # Container definition
-├── scripts/               # Benchmark scripts
-│   ├── test_benchmark.py
-│   ├── common_crawl_benchmark.py
-│   └── removal_benchmark.py
-├── runner/                # Framework modules
-│   ├── matrix.py          # Configuration and entry management
-│   ├── datasets.py        # Dataset resolution
-│   ├── process.py         # Process execution with timeout
-│   ├── env_capture.py     # Environment metadata capture
-│   ├── utils.py           # Utility functions
-│   └── sinks/             # Result processing sinks
-│       ├── sink.py        # Base sink class
-│       ├── mlflow_sink.py
-│       ├── slack_sink.py
-│       └── gdrive_sink.py
-└── tools/                 # Helper scripts
-    ├── build_docker.sh    # Build Docker image
-    └── run.sh             # Example run script
-```
-
-### Tips & Best Practices
-
-1. **Use Version Control**: Track configuration files and scripts in git
-2. **Parameterize Paths**: Use environment variables and separate path configs
-3. **Start Small**: Test with small datasets before running full benchmarks
-4. **Monitor Resources**: Watch CPU, memory, and GPU usage during runs
-5. **Clean Up Scratch**: Enable `delete_scratch` to avoid filling disk
-6. **Tag Docker Images**: Use tags for reproducibility (`curator_benchmarking:v1.0`)
-7. **Document Changes**: Add comments to configuration explaining non-obvious settings
-8. **Test Locally First**: Verify scripts work before containerizing
-
-### Getting Help
-
-- Check logs in `{results_dir}/{session_name}/`
-- Review script outputs in `{session_name}/{entry_name}/stdouterr.log`
-- Use `--help` flag: `python run.py --help`
-- Inspect results: `cat results/session/entry/params.json`
 
 ---
 

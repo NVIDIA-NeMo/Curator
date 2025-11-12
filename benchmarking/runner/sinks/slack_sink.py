@@ -21,7 +21,7 @@ import requests
 from loguru import logger
 from runner.matrix import MatrixConfig, MatrixEntry
 from runner.sinks.sink import Sink
-from runner.utils import get_obj_for_json
+from runner.utils import find_result, get_obj_for_json
 
 _post_template = """
 {
@@ -117,7 +117,7 @@ class SlackSink(Sink):
         else:
             logger.warning("SlackSink: Not enabled, skipping post.")
 
-    def _post(self) -> None:
+    def _post(self) -> None:  # noqa: C901
         message_text_values = {
             "REPORT_JSON_TEXT": "REPORT_JSON_TEXT",
             "GOOGLE_DRIVE_LINK": "https://google.com",
@@ -129,85 +129,64 @@ class SlackSink(Sink):
         report_data = []
         table_dict = {"type": "table", "rows": []}
         rows = []
-        rows.append(
-            [
-                {
-                    "type": "rich_text",
-                    "elements": [
-                        {
-                            "type": "rich_text_section",
-                            "elements": [{"type": "text", "text": "Environment", "style": {"bold": True}}],
-                        }
-                    ],
-                },
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-                },
-            ]
+        # Summary rows - list overall status, each individual entry and its success status
+        overall_status = (
+            "✅ success"
+            if all(find_result(results, "success") for _, results in self.results_to_report)
+            else "❌ one or more FAILED"
         )
+        rows.append(self._two_column_row_bold("OVERALL STATUS", overall_status))
+        for _, results in self.results_to_report:
+            # Name and success icon row
+            entry_name = find_result(results, "name")
+            success_str = "✅ success" if find_result(results, "success") else "❌ FAILED"
+            rows.append(self._two_column_row_bold(entry_name, success_str))
+
+        rows.append(_blank_row)
+
+        # Environment header row
+        rows.append(self._two_column_row_bold("ENVIRONMENT", " "))
+        # Environment rows
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
-            row = [
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(var)}]}],
-                },
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(val)}]}],
-                },
-            ]
-            rows.append(row)
+            rows.append(self._two_column_row(str(var), str(val)))
 
         rows.append(_blank_row)
-        rows.append(
-            [
-                {
-                    "type": "rich_text",
-                    "elements": [
-                        {
-                            "type": "rich_text_section",
-                            "elements": [{"type": "text", "text": "Results", "style": {"bold": True}}],
-                        }
-                    ],
-                },
-                {
-                    "type": "rich_text",
-                    "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": " "}]}],
-                },
-            ]
-        )
+        # Results header row
+        rows.append(self._two_column_row_bold("RESULTS", " "))
+        # Results rows
+        for metrics, results in self.results_to_report:
+            # Name and success icon row
+            entry_name = find_result(results, "name")
+            success_str = "✅ success" if find_result(results, "success") else "❌ FAILED"
+            rows.append(self._two_column_row_bold(entry_name, success_str))
 
-        for metrics, result in self.results_to_report:
-            # Function to check for values in both the result["metrics"] sub-dict and then result itself.
-            def get_result(result_name: str, default_value: Any | None = None) -> Any:  # noqa: ANN401
-                return result["metrics"].get(result_name, result.get(result_name, default_value))  # noqa: B023
-
-            data = [
-                ("name", get_result("name")),
-                ("success", get_result("success")),
-                ("runtime", f"{get_result('exec_time_s', 0):.2f} s"),
-            ]
+            # Remaining rows are metrics and values
+            data = []
             for metric in metrics:
-                data.append((metric, get_result(metric, 0)))
+                data.append((metric, find_result(results, metric, 0)))
+
+            # Requirements checks - add a row for each requirement that was not met
+            if "requirements_not_met" in results:
+                all_requirements_met = True
+                for metric_name, reason_not_met in results["requirements_not_met"].items():
+                    data.append((f"Requirement for {metric_name} was not met", f"{reason_not_met}"))
+                    all_requirements_met = False
+                if all_requirements_met:
+                    data.append(("All requirements met", "✅"))
+                else:
+                    data.append(("All requirements met", "❌"))
+
             for var, val in data:
-                row = [
-                    {
-                        "type": "rich_text",
-                        "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(var)}]}],
-                    },
-                    {
-                        "type": "rich_text",
-                        "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": str(val)}]}],
-                    },
-                ]
-                rows.append(row)
+                rows.append(self._two_column_row(str(var), str(val)))
+            # Add a blank row between entry results
             rows.append(_blank_row)
 
+        # Remove the last blank row added in the loop above
         if len(self.results_to_report) > 0:
             rows.pop(-1)
+
         table_dict["rows"] = rows
         report_data.append(table_dict)
         # Add a comma to separate each item to be added to the "blocks" array in the template.
@@ -240,6 +219,37 @@ class SlackSink(Sink):
         # Substitute variables matching $VAR
         return re.sub(r"\$[A-Za-z0-9_]+", replacer, template_str)
 
+    @staticmethod
+    def _two_column_row(left_text: str, right_text: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": left_text}]}],
+            },
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
+            },
+        ]
+
+    @staticmethod
+    def _two_column_row_bold(left_text: str, right_text: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "text", "text": left_text, "style": {"bold": True}}],
+                    }
+                ],
+            },
+            {
+                "type": "rich_text",
+                "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
+            },
+        ]
+
 
 # Run SlackSink from the command line to post a summary of the results to Slack.
 if __name__ == "__main__":
@@ -247,8 +257,9 @@ if __name__ == "__main__":
     from pathlib import Path
 
     parser = argparse.ArgumentParser(description="Post benchmark results to Slack via webhook.")
-    parser.add_argument("webhook_url", help="Slack webhook URL")
-    parser.add_argument("results_root_dir", help="Path to the directory containing result subdirectories")
+    parser.add_argument("--webhook-url", help="Slack webhook URL")
+    parser.add_argument("--results-root-dir", help="Path to the directory containing result subdirectories")
+    parser.add_argument("--additional-metrics", help="Additional metrics to include in the report", nargs="+")
     args = parser.parse_args()
 
     webhook_url = args.webhook_url
@@ -262,8 +273,8 @@ if __name__ == "__main__":
                 with open(results_json_path) as f:
                     yield json.load(f)
 
-    sink_config = {"webhook_url": webhook_url}
-    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_dir=results_root_path)
+    sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
+    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_path=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)
@@ -271,6 +282,9 @@ if __name__ == "__main__":
     slack_sink = SlackSink(sink_config=sink_config)
     slack_sink.initialize(session_name="test", matrix_config=matrix_config, env_dict=env_data)
 
+    matrix_entry = MatrixEntry(
+        name="test", sink_data=[{"name": "slack", "additional_metrics": args.additional_metrics}]
+    )
     for result in collect_results_from_dir(results_root_path):
-        slack_sink.process_result(result_dict=result, matrix_entry=None)
+        slack_sink.process_result(result_dict=result, matrix_entry=matrix_entry)
     slack_sink.finalize()

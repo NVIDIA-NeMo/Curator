@@ -34,7 +34,7 @@ def setup_ray_cluster_and_env(
     ray_log_path: Path,
 ) -> tuple[RayClient, Path, dict[str, str]]:
     """Setup Ray cluster and environment variables."""
-    ray_client, ray_temp_dir = start_ray_head(
+    ray_client, ray_temp_path = start_ray_head(
         num_cpus=num_cpus,
         num_gpus=num_gpus,
         enable_object_spilling=enable_object_spilling,
@@ -49,17 +49,17 @@ def setup_ray_cluster_and_env(
     os.environ["RAY_ADDRESS"] = ray_address
     logger.debug(f"Set RAY_ADDRESS={ray_address}")
 
-    return ray_client, ray_temp_dir, env
+    return ray_client, ray_temp_path, env
 
 
 def teardown_ray_cluster_and_env(
     ray_client: RayClient,
-    ray_temp_dir: Path,
+    ray_temp_path: Path,
     ray_cluster_path: Path,
 ) -> None:
     """Teardown Ray cluster and environment variables."""
     if ray_client is not None:
-        stop_ray_head(ray_client, ray_temp_dir, ray_cluster_path)
+        stop_ray_head(ray_client, ray_temp_path, ray_cluster_path)
 
         # Clean up RAY_ADDRESS environment variable immediately after stopping cluster
         if "RAY_ADDRESS" in os.environ:
@@ -70,10 +70,10 @@ def teardown_ray_cluster_and_env(
 def start_ray_head(
     num_cpus: int,
     num_gpus: int,
-    include_dashboard: bool = False,
+    include_dashboard: bool = True,
     enable_object_spilling: bool = False,
     ray_log_path: Path | None = None,
-) -> tuple[RayClient, str, str]:
+) -> tuple[RayClient, Path]:
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
@@ -197,37 +197,36 @@ def _copy_session_contents(session_src: Path, session_dst: Path) -> None:
         _copy_item_safely(item, dst_item)
 
 
-def _copy_ray_debug_artifacts(short_temp_dir: str, ray_destination_dir: str) -> None:
+def _copy_ray_debug_artifacts(short_temp_path: Path, ray_destination_path: Path) -> None:
     """Copy Ray debugging artifacts to the specified ray destination directory."""
-    temp_path = Path(short_temp_dir)
-    if not temp_path.exists():
+
+    if not short_temp_path.exists():
         return
 
     # Use the provided ray destination directory directly
-    ray_debug_dir = Path(ray_destination_dir)
-    ray_debug_dir.mkdir(parents=True, exist_ok=True)
+    ray_destination_path.mkdir(parents=True, exist_ok=True)
 
     # Copy log files from Ray temp dir
-    logs_src = temp_path / "logs"
+    logs_src = short_temp_path / "logs"
     if logs_src.exists():
-        logs_dst = ray_debug_dir / "logs"
+        logs_dst = ray_destination_path / "logs"
         shutil.copytree(logs_src, logs_dst, dirs_exist_ok=True, ignore_errors=True)
 
     # Copy session info but skip sockets directory
-    session_src = temp_path / "session_latest"
+    session_src = short_temp_path / "session_latest"
     if session_src.exists():
-        session_dst = ray_debug_dir / "session_latest"
+        session_dst = ray_destination_path / "session_latest"
         _copy_session_contents(session_src, session_dst)
 
 
-def stop_ray_head(client: RayClient, ray_temp_dir: str, ray_destination_dir: str) -> None:
+def stop_ray_head(client: RayClient, ray_temp_path: Path, ray_destination_path: Path) -> None:
     """Stop Ray head node and clean up artifacts."""
     # Stop the Ray client
     _stop_ray_client(client)
 
     # Copy debugging artifacts and clean up temp directory
     try:
-        _copy_ray_debug_artifacts(ray_temp_dir, ray_destination_dir)
-        shutil.rmtree(ray_temp_dir, ignore_errors=True)
+        _copy_ray_debug_artifacts(ray_temp_path, ray_destination_path)
+        shutil.rmtree(ray_temp_path, ignore_errors=True)
     except Exception:  # noqa: BLE001
         logger.exception("Failed to copy/remove Ray temp dir")

@@ -64,12 +64,16 @@ def get_env() -> dict[str, Any]:
 
     git_commit_string = get_git_commit_string()
     cuda_visible_devices = get_gpu_info_string()
-    # The image digest is not known at image build time and is not available inside the container, so it must be passed in when the container is run.
+    # The image digest is not known at image build time and is not available inside the
+    # container, so it must be passed in when the container is run.
     # Get the image digest via the env var set from tools/run.sh
     image_digest = os.getenv("IMAGE_DIGEST", "unknown")
 
+    # Better support container environment usage by looking for the env var HOST_HOSTNAME
+    # which can be set to the container hostname (see tools/run.sh) since the name of the
+    # host machine is expected by most users.
     return {
-        "hostname": platform.node(),
+        "hostname": os.getenv("HOST_HOSTNAME", platform.node()),
         "platform": platform.platform(),
         "ray_version": ray_version,
         "git_commit": git_commit_string,

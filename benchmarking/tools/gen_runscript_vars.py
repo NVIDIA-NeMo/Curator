@@ -1,4 +1,3 @@
-#!/bin/env python
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -32,7 +31,7 @@ from runner.path_resolver import (  # noqa: E402
 )
 
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "nemo_curator_benchmarking:latest")
-GPUS = os.environ.get("GPUS", '"device=1"')
+GPUS = os.environ.get("GPUS", "all")
 HOST_CURATOR_DIR = os.environ.get("HOST_CURATOR_DIR", str(this_script_path.parent.parent.absolute()))
 CURATOR_BENCHMARKING_DEBUG = os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0")
 
@@ -42,7 +41,7 @@ VOLUME_MOUNTS = []
 
 
 def print_help(script_name: str) -> None:
-    """Print usage and help message for the run script (not this script)to stderr."""
+    """Print usage and help message for the run script (not this script) to stderr."""
     sys.stderr.write(f"""
   Usage: {script_name} [OPTIONS] [ARGS ...]
 
@@ -50,6 +49,7 @@ def print_help(script_name: str) -> None:
       --use-host-curator       Mount $HOST_CURATOR_DIR into the container for benchmarking/debugging curator sources without rebuilding the image.
       --shell                  Start an interactive bash shell instead of running benchmarks. ARGS, if specified, will be passed to 'bash -c'.
                                For example: '--shell uv pip list | grep cugraph' will run 'uv pip list | grep cugraph' to display the version of cugraph installed in the container.
+      --config <path>          Path to a YAML config file. Can be specified multiple times to merge configs. This arg is required if not using --shell.
       -h, --help               Show this help message and exit.
 
       ARGS, if specified, are passed to the container entrypoint, either the default benchmarking entrypoint or the --shell bash entrypoint.
