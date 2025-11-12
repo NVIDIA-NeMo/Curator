@@ -37,9 +37,9 @@ class MockTask(Task[dict]):
 class ConcreteProcessingStage(ProcessingStage[MockTask, MockTask]):
     """Concrete implementation of ProcessingStage for testing."""
 
-    _name = "ConcreteProcessingStage"
-    _resources = Resources(cpus=2.0)
-    _batch_size = 2
+    name = "ConcreteProcessingStage"
+    resources = Resources(cpus=2.0)
+    batch_size = 2
 
     def process(self, task: MockTask) -> MockTask:
         return task
@@ -218,9 +218,9 @@ class TestProcessingStageWith:
 
         # Create a stage that uses class-level defaults (no instance variables set)
         class MinimalStage(ProcessingStage[MockTask, MockTask]):
-            _name = "MinimalStage"
-            # Note: _resources is not set, so it falls back to ProcessingStage._resources
-            _batch_size = 1
+            name = "MinimalStage"
+            # Note: resources is not set, so it falls back to ProcessingStage.resources
+            batch_size = 1
 
             def process(self, task: MockTask) -> MockTask:
                 return task
@@ -232,11 +232,11 @@ class TestProcessingStageWith:
         stage_with_custom = stage.with_(resources=Resources(cpus=5.0))
 
         # Store original class-level resources for restoration
-        original_class_resources = ProcessingStage._resources
+        original_class_resources = ProcessingStage.resources
 
         try:
             # Modify the class-level resources
-            ProcessingStage._resources = Resources(cpus=10.0)
+            ProcessingStage.resources = Resources(cpus=10.0)
 
             # The original stage should now reflect the class-level change
             # (because it doesn't have an instance variable set)
@@ -255,7 +255,7 @@ class TestProcessingStageWith:
 
         finally:
             # Restore the original class-level resources
-            ProcessingStage._resources = original_class_resources
+            ProcessingStage.resources = original_class_resources
 
         # After restoration, the original stage should go back to the default
         assert stage.resources == original_class_resources
@@ -266,22 +266,22 @@ class TestProcessingStageWith:
 
 
 class TestProcessingStageOverriddenProperties:
-    """Test that ProcessingStage raises an error if a derived class overrides the name, resources, or batch_size property."""
+    """Test that ProcessingStage raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
 
     def test_name_property(self):
-        """Test that ProcessingStage raises an error if a derived class overrides the name property."""
-        with pytest.raises(TypeError, match="MockStageOverriddenName must not override 'name'"):
+        """Test that ProcessingStage raises an error if a derived class overrides the _name property."""
+        with pytest.raises(TypeError, match="MockStageOverriddenName must not override '_name'"):
 
             class MockStageOverriddenName(ProcessingStage[MockTask, MockTask]):
-                """Mock stage with overridden name property."""
+                """Mock stage with overridden _name property."""
 
-                _name = "MockStageOverriddenName"
-                _resources = Resources(cpus=1.0)
-                _batch_size = 1
+                name = "MockStageOverriddenName"
+                resources = Resources(cpus=1.0)
+                batch_size = 1
 
-                # A derived class must not override the name property
-                def name(self) -> str:
-                    return self._name
+                # A derived class must not override the _name property
+                def _name(self) -> str:
+                    return self.name
 
                 def process(self, task: MockTask) -> MockTask:
                     return task
@@ -293,19 +293,19 @@ class TestProcessingStageOverriddenProperties:
                     return [], []
 
     def test_resources_property(self):
-        """Test that ProcessingStage raises an error if a derived class overrides the resources property."""
-        with pytest.raises(TypeError, match="MockStageOverriddenResources must not override 'resources'"):
+        """Test that ProcessingStage raises an error if a derived class overrides the _resources property."""
+        with pytest.raises(TypeError, match="MockStageOverriddenResources must not override '_resources'"):
 
             class MockStageOverriddenResources(ProcessingStage[MockTask, MockTask]):
-                """Mock stage with overridden resources property."""
+                """Mock stage with overridden _resources property."""
 
-                _name = "MockStageOverriddenResources"
-                _resources = Resources(cpus=1.0)
-                _batch_size = 1
+                name = "MockStageOverriddenResources"
+                resources = Resources(cpus=1.0)
+                batch_size = 1
 
-                # A derived class must not override the resources property
-                def resources(self) -> Resources:
-                    return self._resources
+                # A derived class must not override the _resources property
+                def _resources(self) -> Resources:
+                    return self.resources
 
                 def process(self, task: MockTask) -> MockTask:
                     return task
@@ -317,19 +317,19 @@ class TestProcessingStageOverriddenProperties:
                     return [], []
 
     def test_batch_size_property(self):
-        """Test that ProcessingStage raises an error if a derived class overrides the batch_size property."""
-        with pytest.raises(TypeError, match="MockStageOverriddenBatchSize must not override 'batch_size'"):
+        """Test that ProcessingStage raises an error if a derived class overrides the _batch_size property."""
+        with pytest.raises(TypeError, match="MockStageOverriddenBatchSize must not override '_batch_size'"):
 
             class MockStageOverriddenBatchSize(ProcessingStage[MockTask, MockTask]):
-                """Mock stage with overridden batch_size property."""
+                """Mock stage with overridden _batch_size property."""
 
-                _name = "MockStageOverriddenBatchSize"
-                _resources = Resources(cpus=1.0)
-                _batch_size = 1
+                name = "MockStageOverriddenBatchSize"
+                resources = Resources(cpus=1.0)
+                batch_size = 1
 
-                # A derived class must not override the batch_size property
-                def batch_size(self) -> int:
-                    return self._batch_size
+                # A derived class must not override the _batch_size property
+                def _batch_size(self) -> int:
+                    return self.batch_size
 
                 def process(self, task: MockTask) -> MockTask:
                     return task
@@ -341,19 +341,19 @@ class TestProcessingStageOverriddenProperties:
                     return [], []
 
     def test_nested_class_inheritance(self):
-        """Test that nested class inheritance raises an error if a derived class overrides the name, resources, or batch_size property."""
-        with pytest.raises(TypeError, match="MockStageNestedOverriddenName must not override 'name'"):
+        """Test that nested class inheritance raises an error if a derived class overrides the _name, _resources, or _batch_size property."""
+        with pytest.raises(TypeError, match="MockStageNestedOverriddenName must not override '_name'"):
 
             class MockStageNestedOverriddenName(ConcreteProcessingStage):
                 """Mock stage with nested class inheritance."""
 
-                _name = "MockStageNestedOverriddenName"
-                _resources = Resources(cpus=1.0)
-                _batch_size = 1
+                name = "MockStageNestedOverriddenName"
+                resources = Resources(cpus=1.0)
+                batch_size = 1
 
-                # A derived class must not override the name property
-                def name(self) -> str:
-                    return self._name
+                # A derived class must not override the _name property
+                def _name(self) -> str:
+                    return self.name
 
                 def process(self, task: MockTask) -> MockTask:
                     return task
@@ -369,9 +369,9 @@ class TestProcessingStageOverriddenProperties:
 class MockStageA(ProcessingStage[MockTask, MockTask]):
     """Mock stage A for testing composite stages."""
 
-    _name = "MockStageA"
-    _resources = Resources(cpus=1.0)
-    _batch_size = 1
+    name = "MockStageA"
+    resources = Resources(cpus=1.0)
+    batch_size = 1
 
     def process(self, task: MockTask) -> MockTask:
         return task
@@ -386,9 +386,9 @@ class MockStageA(ProcessingStage[MockTask, MockTask]):
 class MockStageB(ProcessingStage[MockTask, MockTask]):
     """Mock stage B for testing composite stages."""
 
-    _name = "MockStageB"
-    _resources = Resources(cpus=2.0)
-    _batch_size = 2
+    name = "MockStageB"
+    resources = Resources(cpus=2.0)
+    batch_size = 2
 
     def process(self, task: MockTask) -> MockTask:
         return task
@@ -403,9 +403,9 @@ class MockStageB(ProcessingStage[MockTask, MockTask]):
 class MockStageC(ProcessingStage[MockTask, MockTask]):
     """Mock stage C for testing composite stages."""
 
-    _name = "MockStageC"
-    _resources = Resources(cpus=3.0)
-    _batch_size = 3
+    name = "MockStageC"
+    resources = Resources(cpus=3.0)
+    batch_size = 3
 
     def process(self, task: MockTask) -> MockTask:
         return task
@@ -420,7 +420,7 @@ class MockStageC(ProcessingStage[MockTask, MockTask]):
 class ConcreteCompositeStage(CompositeStage[MockTask, MockTask]):
     """Concrete implementation of CompositeStage for testing."""
 
-    _name = "ConcreteCompositeStage"
+    name = "ConcreteCompositeStage"
 
     def decompose(self) -> list[ProcessingStage]:
         """Return a list of mock stages for testing."""
@@ -574,9 +574,6 @@ class TestCompositeStageWith:
         config = {"MockStageA": {"name": "CustomStageA"}}
         composite.with_(config)
 
-        # Should raise ValueError due to non-unique names
-        import pytest
-
         with pytest.raises(ValueError, match="All stages must have unique names"):
             composite._apply_with_(duplicate_stages)
 
@@ -588,9 +585,6 @@ class TestCompositeStageWith:
         # Configure an unknown stage
         config = {"UnknownStage": {"name": "CustomStage"}}
         composite.with_(config)
-
-        # Should raise ValueError due to unknown stage name
-        import pytest
 
         with pytest.raises(ValueError, match="Stage UnknownStage not found in composite stage"):
             composite._apply_with_(stages)
