@@ -65,7 +65,7 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
         Whether the underlying rapidsmpf shuffler should collect shuffle statistics.
     """
 
-    _name = "ExactDuplicateIds"
+    name = "ExactDuplicateIds"
 
     def __init__(  # noqa: PLR0913
         self,

@@ -26,7 +26,7 @@ class DocumentFilter(ABC):
 
     def __init__(self):
         super().__init__()
-        self._name = self.__class__.__name__
+        self.name = self.__class__.__name__
         self._sentences = None
         self._paragraphs = None
         self._ngrams = None
@@ -77,7 +77,7 @@ class DocumentFilter(ABC):
 
     @property
     def name(self) -> str:
-        return self._name
+        return self.name
 
     @property
     def sentences(self) -> list:

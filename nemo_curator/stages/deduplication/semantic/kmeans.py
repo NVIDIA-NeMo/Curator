@@ -112,8 +112,8 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         self.input_storage_options = self.read_kwargs.pop("storage_options", None)
         self.output_storage_options = self.write_kwargs.pop("storage_options", None)
 
-        self._name = "KMeansStage"
-        self._resources = Resources(cpus=1.0, gpus=1.0)
+        self.name = "KMeansStage"
+        self.resources = Resources(cpus=1.0, gpus=1.0)
 
     def process(self, task: FileGroupTask) -> _EmptyTask:
         msg = "KMeansReadFitWriteStage does not support single-task processing"

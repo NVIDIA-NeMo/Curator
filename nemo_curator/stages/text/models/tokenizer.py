@@ -68,7 +68,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         sort_by_length: bool = True,
         unk_token: bool = False,
     ):
-        self._name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
+        self.name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
 
         self.model_identifier = model_identifier
         self.cache_dir = cache_dir

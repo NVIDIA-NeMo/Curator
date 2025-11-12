@@ -29,7 +29,7 @@ class DocumentModifier(ABC):
 
     def __init__(self) -> None:
         super().__init__()
-        self._name = self.__class__.__name__
+        self.name = self.__class__.__name__
         self._sentences = None
         self._paragraphs = None
         self._ngrams = None
@@ -41,4 +41,4 @@ class DocumentModifier(ABC):
 
     @property
     def name(self) -> str:
-        return self._name
+        return self.name

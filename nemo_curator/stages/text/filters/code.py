@@ -33,7 +33,7 @@ class PythonCommentToCodeFilter(DocumentFilter):
         self._min_threshold = min_comment_to_code_ratio
         self._max_threshold = max_comment_to_code_ratio
 
-        self._name = "python_comment_ratio"
+        self.name = "python_comment_ratio"
 
     def score_document(self, source: str) -> float:
         docstrings, comments = get_comments_and_docstring(source)
@@ -63,7 +63,7 @@ class GeneralCommentToCodeFilter(DocumentFilter):
         self._min_threshold = min_comment_to_code_ratio
         self._max_threshold = max_comment_to_code_ratio
 
-        self._name = "comment_ratio"
+        self.name = "comment_ratio"
 
     def score_document(self, source: str) -> float:
         try:
@@ -88,7 +88,7 @@ class NumberOfLinesOfCodeFilter(DocumentFilter):
         self._min_lines = min_lines
         self._max_lines = max_lines
 
-        self._name = "num_lines"
+        self.name = "num_lines"
 
     def score_document(self, source: str) -> int:
         return source.count("\n") + 1
@@ -106,7 +106,7 @@ class TokenizerFertilityFilter(DocumentFilter):
         self._tokenizer.Load(path_to_tokenizer)
         self._threshold = min_char_to_token_ratio
 
-        self._name = "tokenizer_fertility"
+        self.name = "tokenizer_fertility"
 
     def score_document(self, source: str) -> float:
         tokens = self._tokenizer.encode_as_pieces(source)
@@ -131,7 +131,7 @@ class XMLHeaderFilter(DocumentFilter):
     def __init__(self, char_prefix_search_length: int = 100):
         self._char_prefix_search_length = char_prefix_search_length
 
-        self._name = "xml_header"
+        self.name = "xml_header"
 
     def score_document(self, source: str) -> float:
         source_prefix = source[: self._char_prefix_search_length]
@@ -154,7 +154,7 @@ class AlphaFilter(DocumentFilter):
     def __init__(self, min_alpha_ratio: float = 0.25):
         self._min_alpha_ratio = min_alpha_ratio
 
-        self._name = "alpha_filter"
+        self.name = "alpha_filter"
 
     def score_document(self, source: str) -> float:
         return len(regex_alpha.findall(source)) / len(source)
@@ -172,7 +172,7 @@ class HTMLBoilerplateFilter(DocumentFilter):
         self._min_lang_content_ratio = min_lang_content_ratio
         self._min_lang_content_num_chars = min_lang_content_num_chars
 
-        self._name = "html_boilerplate"
+        self.name = "html_boilerplate"
 
     def score_document(self, source: str) -> float | None:
         try:
@@ -207,7 +207,7 @@ class PerExtensionFilter(DocumentFilter):
         self._lang = lang
         self._extension = extension
         self._ext_to_filter = self._load_filter_csv(metadata_file, lang)
-        self._name = "per_extension_filter"
+        self.name = "per_extension_filter"
 
     def _load_filter_csv(self, path: str, language: str | None = None) -> dict:
         """Load csv file that specifies the filter to apply for each (lang, extension)."""

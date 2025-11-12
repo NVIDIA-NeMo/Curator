@@ -124,9 +124,9 @@ def processing_stage(
         # Dynamically create a subclass of ProcessingStage whose *process* method
         # delegates directly to the user function.
         class _FunctionProcessingStage(ProcessingStage[TIn, TOut]):
-            _name: str = str(name)
-            _resources: Resources = resources  # type: ignore[assignment]
-            _batch_size: int | None = batch_size  # type: ignore[assignment]
+            name: str = str(name)
+            resources: Resources = resources  # type: ignore[assignment]
+            batch_size: int | None = batch_size  # type: ignore[assignment]
 
             # Keep a reference to the original function for introspection /
             # debugging.

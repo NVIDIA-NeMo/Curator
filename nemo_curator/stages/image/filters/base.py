@@ -34,13 +34,13 @@ class BaseFilterStage(ProcessingStage[ImageBatch, ImageBatch]):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     score_threshold: float = 0.5
     verbose: bool = False
-    _name: str = "image_filter"
+    name: str = "image_filter"
 
     def __post_init__(self) -> None:
         if torch.cuda.is_available():
-            self._resources = Resources(gpus=self.num_gpus_per_worker)
+            self.resources = Resources(gpus=self.num_gpus_per_worker)
         else:
-            self._resources = Resources()
+            self.resources = Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

@@ -54,7 +54,7 @@ class NonAlphaNumericFilter(DocumentFilter):
     def __init__(self, max_non_alpha_numeric_to_text_ratio: float = 0.25):
         super().__init__()
         self._cutoff = max_non_alpha_numeric_to_text_ratio
-        self._name = "alpha_numeric"
+        self.name = "alpha_numeric"
 
     def score_document(self, text: str) -> float:
         nchar = len(text)
@@ -80,7 +80,7 @@ class SymbolsToWordsFilter(DocumentFilter):
         super().__init__()
         self._cutoff = max_symbol_to_word_ratio
         self._word_splitter = get_word_splitter(lang)
-        self._name = "symbol_to_word"
+        self.name = "symbol_to_word"
 
     def score_document(self, text: str) -> float:
         num_symbol_words = 0
@@ -105,7 +105,7 @@ class NumbersFilter(DocumentFilter):
     def __init__(self, max_number_to_text_ratio: float = 0.15):
         super().__init__()
         self._cutoff = max_number_to_text_ratio
-        self._name = "numbers_ratio"
+        self.name = "numbers_ratio"
 
     def score_document(self, text: str) -> float:
         nchar = len(text)
@@ -124,7 +124,7 @@ class UrlsFilter(DocumentFilter):
     def __init__(self, max_url_to_text_ratio: float = 0.2):
         super().__init__()
         self._cutoff = max_url_to_text_ratio
-        self._name = "urls_ratio"
+        self.name = "urls_ratio"
 
     def score_document(self, text: str) -> float:
         all_urls = regex_url.findall(text)
@@ -147,7 +147,7 @@ class BulletsFilter(DocumentFilter):
         super().__init__()
         self._cutoff = max_bullet_lines_ratio
         self._sentences = None
-        self._name = "bullet_ratio"
+        self.name = "bullet_ratio"
 
     def score_document(self, text: str) -> float:
         # Get sentences
@@ -175,7 +175,7 @@ class WhiteSpaceFilter(DocumentFilter):
     def __init__(self, max_white_space_ratio: float = 0.25):
         super().__init__()
         self._cutoff = max_white_space_ratio
-        self._name = "white_space"
+        self.name = "white_space"
 
     def score_document(self, text: str) -> float:
         # Do not strip the document since we want to
@@ -196,7 +196,7 @@ class ParenthesesFilter(DocumentFilter):
     def __init__(self, max_parentheses_ratio: float = 0.1):
         super().__init__()
         self._max_parentheses_ratio = max_parentheses_ratio
-        self._name = "parentheses_ratio"
+        self.name = "parentheses_ratio"
 
     def score_document(self, text: str) -> float:
         nchar = len(text)
@@ -223,7 +223,7 @@ class LongWordFilter(DocumentFilter):
         super().__init__()
         self._max_word_length = max_word_length
         self._word_splitter = get_word_splitter(lang)
-        self._name = "max_word_length"
+        self.name = "max_word_length"
 
     def score_document(self, text: str) -> float:
         return max(len(w) for w in self._word_splitter(text.strip()))
@@ -247,7 +247,7 @@ class WordCountFilter(DocumentFilter):
         self._min_words = min_words
         self._max_words = max_words
         self._word_splitter = get_word_splitter(lang)
-        self._name = "word_count"
+        self.name = "word_count"
 
     def score_document(self, text: str) -> float:
         return len(self._word_splitter(text.strip()))
@@ -273,7 +273,7 @@ class BoilerPlateStringFilter(DocumentFilter):
         self._max_boilerplate_string_ratio = max_boilerplate_string_ratio
         self._boilerplate_paragraph_indices = []
         self._max_ratio = 1.0
-        self._name = "boilerplate_string_ratio"
+        self.name = "boilerplate_string_ratio"
 
     def score_document(self, text: str) -> float:
         # Initialize variables
@@ -315,7 +315,7 @@ class MeanWordLengthFilter(DocumentFilter):
         self._min_cutoff = min_mean_word_length
         self._max_cutoff = max_mean_word_length
         self._word_splitter = get_word_splitter(lang)
-        self._name = "mean_word_length"
+        self.name = "mean_word_length"
 
     def score_document(self, text: str) -> float:
         word_lens = [len(w) for w in self._word_splitter(text.strip()) if len(w) > 0]
@@ -335,7 +335,7 @@ class RepeatedLinesFilter(DocumentFilter):
     def __init__(self, max_repeated_line_fraction: float = 0.7):
         super().__init__()
         self._cutoff = max_repeated_line_fraction
-        self._name = "repeated_lines"
+        self.name = "repeated_lines"
 
     def score_document(self, text: str) -> float:
         sentences = self._sentences
@@ -357,7 +357,7 @@ class RepeatedParagraphsFilter(DocumentFilter):
     def __init__(self, max_repeated_paragraphs_ratio: float = 0.7):
         super().__init__()
         self._max_repeated_paragraphs_ratio = max_repeated_paragraphs_ratio
-        self._name = "repeated_paragraphs"
+        self.name = "repeated_paragraphs"
 
     def score_document(self, text: str) -> float:
         paragraphs = self._paragraphs
@@ -379,7 +379,7 @@ class RepeatedLinesByCharFilter(DocumentFilter):
     def __init__(self, max_repeated_lines_char_ratio: float = 0.8):
         super().__init__()
         self._cutoff = max_repeated_lines_char_ratio
-        self._name = "repeated_lines_char"
+        self.name = "repeated_lines_char"
 
     def score_document(self, text: str) -> float:
         sentences = self._sentences
@@ -402,7 +402,7 @@ class RepeatedParagraphsByCharFilter(DocumentFilter):
     def __init__(self, max_repeated_paragraphs_char_ratio: float = 0.8):
         super().__init__()
         self._cutoff = max_repeated_paragraphs_char_ratio
-        self._name = "repeated_paragraphs_char"
+        self.name = "repeated_paragraphs_char"
 
     def score_document(self, text: str) -> float:
         paragraphs = self._paragraphs
@@ -432,7 +432,7 @@ class RepeatingTopNGramsFilter(DocumentFilter):
         self._cutoff = max_repeating_ngram_ratio
         self._max_ratio = 1.0
         self._word_splitter = get_word_splitter(lang)
-        self._name = f"repeating_top_{n}grams"
+        self.name = f"repeating_top_{n}grams"
 
     def score_document(self, text: str) -> float:
         ngrams = self._ngrams
@@ -475,7 +475,7 @@ class RepeatingDuplicateNGramsFilter(DocumentFilter):
         self._cutoff = max_repeating_duplicate_ngram_ratio
         self._max_ratio = 1.0
         self._word_splitter = get_word_splitter(lang)
-        self._name = f"repeating_dup_{n}gram"
+        self.name = f"repeating_dup_{n}gram"
 
     def score_document(self, text: str) -> float:
         ngrams = self._ngrams
@@ -517,7 +517,7 @@ class PunctuationFilter(DocumentFilter):
     def __init__(self, max_num_sentences_without_endmark_ratio: float = 0.85):
         super().__init__()
         self._cutoff = max_num_sentences_without_endmark_ratio
-        self._name = "punctuation"
+        self.name = "punctuation"
 
     def score_document(self, text: str) -> float:
         sentences = self._sentences
@@ -539,7 +539,7 @@ class EllipsisFilter(DocumentFilter):
     def __init__(self, max_num_lines_ending_with_ellipsis_ratio: float = 0.3):
         super().__init__()
         self._cutoff = max_num_lines_ending_with_ellipsis_ratio
-        self._name = "ellipsis"
+        self.name = "ellipsis"
 
     def score_document(self, text: str) -> float:
         sentences = self._sentences
@@ -573,7 +573,7 @@ class CommonEnglishWordsFilter(DocumentFilter):
         self._cutoff = min_num_common_words
         self._stop_at_false = stop_at_false
         self._word_splitter = get_word_splitter("en")
-        self._name = "common_english_words"
+        self.name = "common_english_words"
 
     def score_document(self, text: str) -> int:
         common_word_counter = 0
@@ -603,7 +603,7 @@ class WordsWithoutAlphabetsFilter(DocumentFilter):
         super().__init__()
         self._cutoff = min_words_with_alphabets
         self._word_splitter = get_word_splitter(lang)
-        self._name = "words_without_alphabets"
+        self.name = "words_without_alphabets"
 
     def score_document(self, text: str) -> float:
         num_english_alpha = 0
@@ -677,7 +677,7 @@ class TokenCountFilter(DocumentFilter):
         self._hf_token = hf_token
         self._min_tokens = min_tokens
         self._max_tokens = max_tokens
-        self._name = "token_count"
+        self.name = "token_count"
 
     def model_check_or_download(self) -> None:
         if self._hf_model_name is not None:
@@ -766,7 +766,7 @@ class HistogramFilter(DocumentFilter):
         self._threshold = threshold
         self._cache_dir = cache_dir if cache_dir else user_cache_dir()
         self._threshold_char = threshold_char
-        self._name = "histogram"
+        self.name = "histogram"
 
         if not os.path.isdir(os.path.join(self._cache_dir, "histograms")):
             self._download_histograms()
