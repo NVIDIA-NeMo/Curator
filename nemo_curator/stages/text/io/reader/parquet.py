@@ -20,7 +20,7 @@ import pandas as pd
 from nemo_curator.stages.base import CompositeStage
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.tasks import DocumentBatch, _EmptyTask
-from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
+from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS, get_fs
 
 from .base import BaseReader
 
@@ -59,7 +59,12 @@ class ParquetReaderStage(BaseReader):
         if "dtype_backend" not in read_kwargs:
             update_kwargs["dtype_backend"] = "pyarrow"
         read_kwargs.update(update_kwargs)
-        return pd.read_parquet(paths, **read_kwargs)
+
+        # TODO generating filesystem for each task will be inefficient, we should benchmark pq.read_table  # noqa: TD004
+        fs = get_fs(paths[0], storage_options=read_kwargs.get("storage_options", {}))
+        # pop storage_options from read_kwargs
+        read_kwargs.pop("storage_options", None)
+        return pd.read_parquet(paths, filesystem=fs, **read_kwargs)
 
 
 @dataclass

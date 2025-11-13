@@ -31,6 +31,7 @@ import pandas as pd
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import DocumentBatch
+from nemo_curator.utils.file_utils import get_fs
 
 
 @dataclass
@@ -57,6 +58,8 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         super().__init__()
         self._name = "DuplicatesRemovalStage"
         self.read_kwargs = self.read_kwargs.copy() if self.read_kwargs else {}
+        # TODO : I think we can remove this
+        self.fs = get_fs(self.ids_to_remove_path, storage_options=self.read_kwargs.get("storage_options", {}))
 
     def process(self, task: DocumentBatch) -> DocumentBatch:
         """
@@ -72,12 +75,14 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         input_df_min_max_time = time.perf_counter() - input_df_t0
         # Filter the parquet files for IDs to remove within this range
         read_dupes_t0 = time.perf_counter()
+
         removal_df = pd.read_parquet(
             self.ids_to_remove_path,
             filters=[(self.duplicate_id_field, ">=", min_id), (self.duplicate_id_field, "<=", max_id)],
             columns=[self.duplicate_id_field],
-            **self.read_kwargs,
+            **self.read_kwargs,  # this might fail if filesystem exists in read_kwargs
         )
+
         read_dupes_time = time.perf_counter() - read_dupes_t0
 
         # Filter out documents with IDs in the removal set using pandas

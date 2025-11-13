@@ -41,4 +41,6 @@ class ParquetWriter(BaseWriter):
 
         # Add any additional kwargs, allowing them to override defaults
         write_kwargs.update(self.write_kwargs)
-        df.to_parquet(file_path, **write_kwargs)
+        # Pop storage_options as we're directly passing the filesystem to the writer
+        write_kwargs.pop("storage_options", None)
+        df.to_parquet(file_path, filesystem=self.fs, **write_kwargs)
