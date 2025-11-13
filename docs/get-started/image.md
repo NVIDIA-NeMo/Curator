@@ -136,7 +136,7 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Stage 2: Read images from tar files using DALI
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=100,
+    batch_size=100,
     verbose=True,
     num_threads=8,
     num_gpus_per_worker=0.25,

@@ -75,4 +75,4 @@ class ContentTypeClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(CONTENT_TYPE_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(CONTENT_TYPE_MODEL_IDENTIFIER)

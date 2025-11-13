@@ -306,7 +306,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = format_name_with_suffix(PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             msg = "filter_by not supported with PromptTaskComplexityClassifier"

@@ -62,9 +62,9 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         unpack_inference_batch: bool = False,
         autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(model_identifier, suffix="_model")
+        self.name = format_name_with_suffix(model_identifier, suffix="_model")
         # Assume that the model can fit on a single GPU
-        self._resources = Resources(cpus=1, gpus=1)
+        self.resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
         self.cache_dir = cache_dir

@@ -33,11 +33,11 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     otherwise falls back to CPU decoding.
     """
 
-    task_batch_size: int = 100
+    batch_size: int = 100
     verbose: bool = True
     num_threads: int = 8
     num_gpus_per_worker: float = 0.25
-    _name: str = "image_reader"
+    name: str = "image_reader"
 
     def __post_init__(self) -> None:
         # Allow both GPU and CPU DALI; log mode for visibility
@@ -47,9 +47,9 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             logger.info("CUDA not available; ImageReaderStage using DALI CPU decode.")
 
         if torch.cuda.is_available():
-            self._resources = Resources(gpus=self.num_gpus_per_worker)
+            self.resources = Resources(gpus=self.num_gpus_per_worker)
         else:
-            self._resources = Resources()
+            self.resources = Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -68,7 +68,7 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             raise RuntimeError(msg) from exc
 
         @pipeline_def(
-            batch_size=self.task_batch_size,
+            batch_size=self.batch_size,
             num_threads=self.num_threads,
             device_id=0,  # First device; unused for CPU-only DALI builds
         )

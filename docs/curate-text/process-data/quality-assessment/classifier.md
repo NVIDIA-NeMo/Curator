@@ -389,6 +389,6 @@ For effective classifier-based filtering:
 1. **Model selection**: Start with the DeBERTa quality classifier for general use cases; consider fastText for high-throughput scenarios
 2. **Validation**: Manually review a sample of filtered results to confirm effectiveness
 3. **Quality level tuning**: Adjust `filter_by` levels (DeBERTa) or `alpha` values (fastText) based on your quality requirements
-4. **Batch size optimization**: Tune `batch_size` for DeBERTa models based on your available memory
+4. **Batch size optimization**: Tune `model_inference_batch_size` for DeBERTa models based on your available memory
 5. **Combination with heuristics**: Consider using heuristic filters as a pre-filter to improve efficiency
 6. **Domain adaptation**: For specialized corpora, consider training custom models using domain-specific data
