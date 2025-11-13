@@ -158,7 +158,7 @@ class EnronEmailsDownloadExtractStage(DocumentDownloadExtractStage):
         download_dir: str,
         verbose: bool = True,
     ):
-        self._name = "enron_emails_download_extract_pipeline"
+        self.name = "enron_emails_download_extract_pipeline"
 
         self.url_generator = EnronEmailsURLGenerator()
         self.downloader = EnronEmailsDownloader(

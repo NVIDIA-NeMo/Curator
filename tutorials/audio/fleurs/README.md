@@ -75,7 +75,7 @@ Depending on configuration, you may also compute and filter by WER using the pre
 
 ### GPU/CPU, cleaning, and performance notes
 
-- ASR inference is GPU-accelerated. The YAML config requests one GPU via `processors.1._resources.gpus: 1.0`. For CPU fallback with the Python script, pass `--gpus 0`.
+- ASR inference is GPU-accelerated. The YAML config requests one GPU via `processors.1.resources.gpus: 1.0`. For CPU fallback with the Python script, pass `--gpus 0`.
 - Use `--clean` to remove an existing `result/` directory before writing outputs. 
 - Use `--verbose` for DEBUG-level logs, helpful for intermittent issues.
 - Reduce or increase batch sizes by editing `pipeline.py` or `pipeline.yaml` (e.g., `CreateInitialManifestFleursStage().with_(batch_size=4)`).

@@ -74,7 +74,7 @@ class DomainClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(DOMAIN_MODEL_IDENTIFIER)
 
 
 class MultilingualDomainClassifier(DistributedDataClassifier):
@@ -126,4 +126,4 @@ class MultilingualDomainClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(MULTILINGUAL_DOMAIN_MODEL_IDENTIFIER)

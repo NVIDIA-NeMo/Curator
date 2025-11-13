@@ -36,7 +36,7 @@ class InternVideo2FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     target_fps: float = 2.0
     verbose: bool = False
     model_dir: str = "InternVideo2"
-    _name: str = "internvideo2_embedding_frame_creation"
+    name: str = "internvideo2_embedding_frame_creation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
@@ -112,10 +112,10 @@ class InternVideo2EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     gpu_memory_gb: float = 10.0
     model_dir: str = "InternVideo2"
-    _name: str = "internvideo2_embedding"
+    name: str = "internvideo2_embedding"
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
+        self.resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]

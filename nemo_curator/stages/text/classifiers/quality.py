@@ -74,4 +74,4 @@ class QualityClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)

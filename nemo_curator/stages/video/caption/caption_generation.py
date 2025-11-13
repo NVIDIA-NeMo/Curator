@@ -43,7 +43,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     generate_stage2_caption: bool = False
     stage2_prompt_text: str | None = None
-    _name: str = "caption_generation"
+    name: str = "caption_generation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
@@ -72,7 +72,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         QwenVL.download_weights_on_node(self.model_dir)
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpus=1)
+        self.resources = Resources(gpus=1)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data

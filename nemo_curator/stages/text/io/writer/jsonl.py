@@ -27,7 +27,7 @@ class JsonlWriter(BaseWriter):
     # Additional kwargs for pandas.DataFrame.to_json
     file_extension: str = "jsonl"
     write_kwargs: dict[str, Any] = field(default_factory=dict)
-    _name: str = "jsonl_writer"
+    name: str = "jsonl_writer"
 
     def write_data(self, task: DocumentBatch, file_path: str) -> None:
         """Write data to JSONL file using pandas DataFrame.to_json."""

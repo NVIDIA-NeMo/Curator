@@ -261,7 +261,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
 
 
 class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
@@ -316,7 +316,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
 
 
 class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
@@ -371,4 +371,4 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)

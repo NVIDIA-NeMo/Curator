@@ -61,7 +61,7 @@ class SampleTask(Task[pd.DataFrame]):
 
 
 class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
-    _name: str = "TaskCreationStage"
+    name: str = "TaskCreationStage"
 
     def __init__(self, num_sentences_per_task: int, num_tasks: int):
         self.num_sentences_per_task = num_sentences_per_task
@@ -92,9 +92,9 @@ class TaskCreationStage(ProcessingStage[_EmptyTask, SampleTask]):
 
 
 class WordCountStage(ProcessingStage[SampleTask, SampleTask]):
-    _name: str = "WordCountStage"
-    _resources: Resources = Resources(cpus=1.0)
-    _batch_size: int = 1
+    name: str = "WordCountStage"
+    resources: Resources = Resources(cpus=1.0)
+    batch_size: int = 1
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["sentence"]
@@ -111,9 +111,9 @@ class WordCountStage(ProcessingStage[SampleTask, SampleTask]):
 
 
 class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
-    _name: str = "SentimentStage"
-    _resources: Resources = Resources(cpus=1.0, gpu_memory_gb=10.0)
-    _batch_size: int = 1
+    name: str = "SentimentStage"
+    resources: Resources = Resources(cpus=1.0, gpu_memory_gb=10.0)
+    batch_size: int = 1
 
     def __init__(self, model_name: str, batch_size: int):
         """
@@ -122,7 +122,7 @@ class SentimentStage(ProcessingStage[SampleTask, SampleTask]):
             batch_size: The batch size (in terms of number of tasks) to use for the model
         """
         self.model_name = model_name
-        self._batch_size = batch_size
+        self.batch_size = batch_size
         self.model = None
         self.tokenizer = None
 

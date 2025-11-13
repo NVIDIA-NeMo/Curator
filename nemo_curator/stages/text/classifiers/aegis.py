@@ -237,7 +237,7 @@ class FormatAegisPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     text_field: str
     max_chars: int
-    _name = "format_aegis_prompt"
+    name = "format_aegis_prompt"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
@@ -275,7 +275,7 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
     pred_column: str = "aegis_pred"
     raw_pred_column: str = "_aegis_raw_pred"
     keep_raw_pred: bool = False
-    _name = "postprocess_aegis_responses"
+    name = "postprocess_aegis_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.raw_pred_column, HIDDEN_TEXT_COLUMN]
@@ -420,7 +420,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = format_name_with_suffix(self.aegis_variant)
+        self.name = format_name_with_suffix(self.aegis_variant)
 
         self.stages = [
             FormatAegisPromptStage(
@@ -546,7 +546,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
 
         self.stages = [
             TokenizerStage(

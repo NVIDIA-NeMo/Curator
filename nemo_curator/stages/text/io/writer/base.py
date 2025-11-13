@@ -40,7 +40,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     fields: list[str] | None = None
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
-    _name: str = "BaseWriter"
+    name: str = "BaseWriter"
     _fs_path: str = field(init=False, repr=False, default="")
     _protocol: str = field(init=False, repr=False, default="file")
     _has_explicit_protocol: bool = field(init=False, repr=False, default=False)

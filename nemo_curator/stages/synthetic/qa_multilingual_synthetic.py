@@ -41,7 +41,7 @@ class QAMultilingualSyntheticStage(ProcessingStage[_EmptyTask, DocumentBatch]):
     model_name: str
     num_samples: int
     generation_config: GenerationConfig | None = None
-    _name: str = "QAMultilingualSyntheticStage"
+    name: str = "QAMultilingualSyntheticStage"
 
     def __post_init__(self) -> None:
         self.is_async_client = isinstance(self.client, AsyncLLMClient)

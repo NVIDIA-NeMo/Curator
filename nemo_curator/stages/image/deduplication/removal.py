@@ -46,7 +46,7 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
     verbose: bool = False
     num_workers_per_node: int | None = None
 
-    _name: str = "image_dedup_filter"
+    name: str = "image_dedup_filter"
 
     # Internal cache
     _ids_to_remove: set[str] = field(default_factory=set)
@@ -92,7 +92,7 @@ class ImageDuplicatesRemovalStage(ProcessingStage[ImageBatch, ImageBatch]):
         return ImageBatch(
             data=filtered_images,
             dataset_name=task.dataset_name,
-            task_id=f"{task.task_id}_{self._name}",
+            task_id=f"{task.task_id}_{self.name}",
             _metadata=task._metadata,
             _stage_perf=task._stage_perf,
         )
