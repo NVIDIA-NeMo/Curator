@@ -58,6 +58,9 @@ Composite stages provide a user-facing convenience API and decompose into one or
 
 ```python
 class MyStage(ProcessingStage[X, Y]):
+    name: str = "..."
+    resources: Resources = Resources(...)
+
     def inputs(self) -> tuple[list[str], list[str]]: ...
     def outputs(self) -> tuple[list[str], list[str]]: ...
 
