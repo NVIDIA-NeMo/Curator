@@ -17,6 +17,7 @@ import glob
 import os
 from datetime import datetime
 
+import pandas as pd
 from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
@@ -32,8 +33,6 @@ from nemo_curator.utils import prompts
 
 def fill_null_text(text: str | None) -> str:
     """Fill null/NaN text values with empty string."""
-    import pandas as pd
-
     if pd.isna(text) or text is None:
         return ""
     return str(text)
