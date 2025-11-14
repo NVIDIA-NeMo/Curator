@@ -103,13 +103,13 @@ For long texts that exceed model context limits, chunk first then clean each chu
 
 ```bash
 python examples/math/run_cleanup_webpages_with_llm.py \
-  --input "DATA_PATH/*.jsonl" \
-  --output OUTPUT_CHUNK_DIR \
+  --input DATA_DIR \
+  --output OUTPUT_DIR \
   --model microsoft/phi-4 \
   --prompt HTML_TO_TEXT_PROMPT \
   --chunk_data \
   --chunk_length 5000 \
-  --input_filetype jsonl
+  --input_filetype parquet
 ```
 
 This will chunk the data and clean each chunk, creating output in `OUTPUT_CHUNK_DIR/cleanup_*/` with:
@@ -124,11 +124,11 @@ For texts that fit within model context limits, clean directly:
 
 ```bash
 python examples/math/run_cleanup_webpages_with_llm.py \
-  --input "DATA_PATH/*.jsonl" \
-  --output OUTPUT_PATH \
+  --input DATA_DIR \
+  --output OUTPUT_DIR \
   --model microsoft/phi-4 \
   --prompt HTML_TO_TEXT_PROMPT \
-  --input_filetype jsonl
+  --input_filetype parquet
 ```
 
 Outputs will be written as JSONL files with:
