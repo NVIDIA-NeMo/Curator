@@ -82,7 +82,6 @@ def build_pipeline(  # noqa: PLR0913
             )
         )
 
-    # Fill null text values
     p.add_stage(
         Modify(modifier_fn=fill_null_text, input_fields="text", output_fields="text").with_(
             resources=Resources(cpus=0.5)
@@ -103,7 +102,6 @@ def build_pipeline(  # noqa: PLR0913
     try:
         system_prompt = getattr(prompts, prompt)
     except AttributeError:
-        # If not found in prompts module, use the string directly
         system_prompt = prompt
 
     # LLM cleanup stage
@@ -176,13 +174,11 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Validate arguments
     if args.chunk_data and not args.chunk_length:
         parser.error("--chunk_length is required when --chunk_data is enabled")
     if args.chunk_data and not args.max_model_len and args.model not in _MODELS:
         parser.error("--max_model_len is required when --chunk_data is enabled for models not in the spec")
 
-    # Expand input glob pattern
     if os.path.isdir(args.input):
         if args.input_filetype == "parquet":
             input_files = glob.glob(os.path.join(args.input, "**/*.parquet"), recursive=True)
@@ -198,7 +194,6 @@ def main() -> None:
 
     logger.info(f"Found {len(input_files)} input files")
 
-    # Create timestamped output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005
     output_dir = os.path.join(args.output, f"cleanup_{timestamp}")
 
