@@ -22,6 +22,7 @@ from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
+from nemo_curator.models.vllm_model import _MODELS
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math import LLMCleanupStage, TokenSplitterStage
 from nemo_curator.stages.resources import Resources
@@ -54,7 +55,6 @@ def build_pipeline(  # noqa: PLR0913
     min_p: float = 0.0,
     max_tokens: int | None = None,
     cache_dir: str | None = None,
-    filter_by_n_tokens: bool = False,
 ) -> Pipeline:
     """Build the LLM cleanup pipeline."""
     p = Pipeline(
@@ -121,7 +121,6 @@ def build_pipeline(  # noqa: PLR0913
             min_p=min_p,
             max_tokens=max_tokens,
             cache_dir=cache_dir,
-            filter_by_n_tokens=filter_by_n_tokens,
         ).with_(resources=Resources(cpus=1, gpus=1))
     )
 
@@ -174,19 +173,14 @@ def main() -> None:
     parser.add_argument("--min_p", type=float, default=0.0, help="Min-p sampling parameter (for Qwen3)")
     parser.add_argument("--max_tokens", type=int, default=None, help="Maximum tokens to generate")
     parser.add_argument("--cache_dir", type=str, default=None, help="Cache directory for model weights")
-    parser.add_argument(
-        "--filter_by_n_tokens",
-        action="store_true",
-        help="Filter chunks by n_tokens field (requires chunk_data)",
-    )
 
     args = parser.parse_args()
 
     # Validate arguments
     if args.chunk_data and not args.chunk_length:
         parser.error("--chunk_length is required when --chunk_data is enabled")
-    if args.filter_by_n_tokens and not args.chunk_data:
-        parser.error("--filter_by_n_tokens requires --chunk_data")
+    if args.chunk_data and not args.max_model_len and args.model not in _MODELS:
+        parser.error("--max_model_len is required when --chunk_data is enabled for models not in the spec")
 
     # Expand input glob pattern
     if os.path.isdir(args.input):
@@ -228,7 +222,6 @@ def main() -> None:
             min_p=args.min_p,
             max_tokens=args.max_tokens,
             cache_dir=args.cache_dir,
-            filter_by_n_tokens=args.filter_by_n_tokens,
         )
 
         logger.info(pipeline.describe())

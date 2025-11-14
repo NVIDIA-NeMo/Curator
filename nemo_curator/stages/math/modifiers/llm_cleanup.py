@@ -15,7 +15,7 @@
 import pandas as pd
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.models.vllm_model import VLLMModel
+from nemo_curator.models.vllm_model import _MODELS, VLLMModel
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
@@ -44,7 +44,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         min_p: float = 0.0,
         max_tokens: int | None = None,
         cache_dir: str | None = None,
-        filter_by_n_tokens: bool = False,
         n_tokens_field: str = "n_tokens",
     ):
         """
@@ -63,7 +62,6 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             min_p: Min-p sampling parameter (for Qwen3). Defaults to 0.0.
             max_tokens: Maximum tokens to generate. Defaults to None.
             cache_dir: Cache directory for model weights. Defaults to None.
-            filter_by_n_tokens: Filter chunks by n_tokens field. Defaults to False.
             n_tokens_field: Name of the n_tokens field. Defaults to "n_tokens".
         """
         if isinstance(model, VLLMModel):
@@ -87,16 +85,15 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.output_field = output_field
         self.max_model_len = max_model_len
         self.classification = classification
-        self.filter_by_n_tokens = filter_by_n_tokens
         self.n_tokens_field = n_tokens_field
         self._resources = Resources(cpus=1, gpus=1)
         self._name = format_name_with_suffix(model_name, suffix="_llm_cleanup")
+        self._tokenizer = None
+        self._final_max_model_len = None  # Will be set in setup() after capping
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        input_fields = [self.text_field]
-        if self.filter_by_n_tokens:
-            input_fields.append(self.n_tokens_field)
-        return ["data"], input_fields
+
+        return ["data"], [self.text_field, self.n_tokens_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.classification:
@@ -104,17 +101,37 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.output_field]
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        """Set up the model wrapper."""
+        """Set up the model wrapper and tokenizer."""
         self._model.setup()
+        # Get tokenizer for chat template formatting
+        self._tokenizer = self._model.get_tokenizer()
+        # Get the capped max_model_len from the model
+        if hasattr(self._model, "_final_max_model_len"):
+            self._final_max_model_len = self._model._final_max_model_len
+        else:
+            # Fallback: calculate capped value from model spec
+            model_name = self._model.model if hasattr(self._model, "model") else ""
+            model_spec = _MODELS.get(model_name)
+            if model_spec and self.max_model_len is not None:
+                self._final_max_model_len = min(self.max_model_len, model_spec.max_model_len)
+            else:
+                self._final_max_model_len = self.max_model_len
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
 
-        if self.filter_by_n_tokens and self.n_tokens_field in df.columns:
-            if self.max_model_len is None:
-                msg = "filter_by_n_tokens requires max_model_len to be set"
+        # Always filter by n_tokens if the field is present
+        if self.n_tokens_field in df.columns:
+            # Use capped max_model_len for filtering
+            final_max_model_len = (
+                self._final_max_model_len
+                if self._final_max_model_len is not None
+                else self.max_model_len
+            )
+            if final_max_model_len is None:
+                msg = "max_model_len must be set when processing chunked data (n_tokens field present)"
                 raise ValueError(msg)
-            threshold = int(0.8 * self.max_model_len)
+            threshold = int(0.8 * final_max_model_len)
             df = df[df[self.n_tokens_field] < threshold].copy()
             if len(df) == 0:
                 return DocumentBatch(
@@ -124,15 +141,52 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     _metadata=batch._metadata,
                     _stage_perf=batch._stage_perf,
                 )
-
-        if self.n_tokens_field in df.columns:
+            # Sort by n_tokens for efficient batching
             df = df.sort_values(by=self.n_tokens_field, kind="stable", ignore_index=True)
+            # Drop n_tokens column after filtering/sorting
+            df = df.drop(columns=[self.n_tokens_field])
 
+        # Check if this is a Qwen3 model
+        model_name = self._model.model if hasattr(self._model, "model") else ""
+        is_qwen3_30b_a3b = model_name == "Qwen/Qwen3-30B-A3B"
+
+        # Format prompts using chat template
         prompts = []
         for _, row in df.iterrows():
             text = str(row[self.text_field]) if pd.notna(row[self.text_field]) else ""
-            prompt = self.system_prompt.format(text=text)
-            prompts.append(prompt)
+            user_prompt = self.system_prompt.format(text=text)
+
+            # Add /nothink for Qwen3-30B-A3B models
+            if is_qwen3_30b_a3b:
+                user_prompt = user_prompt + " /nothink"
+                system_content = " /nothink"
+            else:
+                system_content = ""
+
+            # Format as chat template messages
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            # Apply chat template using tokenizer
+            if self._tokenizer is not None:
+                try:
+                    formatted_prompt = self._tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                        chat_template_kwargs=(
+                            {"enable_thinking": False} if is_qwen3_30b_a3b else {}
+                        ),
+                    )
+                    prompts.append(formatted_prompt)
+                except (AttributeError, ValueError, TypeError, KeyError):
+                    # Fallback to plain prompt if chat template fails
+                    prompts.append(user_prompt)
+            else:
+                # Fallback to plain prompt if tokenizer not available
+                prompts.append(user_prompt)
 
         generated_texts = self._model.generate(prompts)
 

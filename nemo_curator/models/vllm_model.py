@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
+from typing import Any, NamedTuple
 
 try:
     from vllm import LLM, SamplingParams
@@ -21,7 +21,6 @@ try:
 except ImportError:
     VLLM_AVAILABLE = False
 
-    # Create dummy classes for type hints when vllm is not available
     class LLM:
         pass
 
@@ -29,6 +28,43 @@ except ImportError:
         pass
 
 from nemo_curator.models.base import ModelInterface
+
+
+class ModelSpec(NamedTuple):
+    """Model specification for vLLM configuration."""
+
+    name: str
+    max_model_len: int
+    tensor_parallel_size: int
+    max_num_batched_tokens: int
+    batch_size: int
+
+_MODELS: dict[str, ModelSpec] = {
+    "microsoft/phi-4": ModelSpec("microsoft/phi-4", 16_384, 1, 8_192, 128),
+    "google/gemma-3-12b-it": ModelSpec("google/gemma-3-12b-it", 131_072, 1, 8_192, 128),
+    "google/gemma-3-27b-it": ModelSpec("google/gemma-3-27b-it", 131_072, 2, 4096, 64),
+    "google/gemma-3-27b-it-32k": ModelSpec("google/gemma-3-27b-it", 32_768, 2, 4096, 64),
+    "Qwen/Qwen2-7B-Instruct": ModelSpec("Qwen/Qwen2-7B-Instruct", 131_072, 1, 8_192, 128),
+    "Qwen/Qwen2-72B-Instruct": ModelSpec("Qwen/Qwen2-72B-Instruct", 131_072, 4, 4096, 64),
+    "mistralai/Mistral-7B-Instruct-v0.3": ModelSpec(
+        "mistralai/Mistral-7B-Instruct-v0.3", 32768, 1, 8_192, 128
+    ),
+    "deepseek-ai/DeepSeek-V3": ModelSpec("deepseek-ai/DeepSeek-V3", 163840, 8, 4096, 64),
+    "Qwen/Qwen2.5-32B-Instruct": ModelSpec("Qwen/Qwen2.5-32B-Instruct", 32_768, 8, 4096, 64),
+    "Qwen/Qwen2.5-72B-Instruct": ModelSpec("Qwen/Qwen2.5-72B-Instruct", 131_072, 8, 4096, 64),
+    "Qwen/Qwen3-30B-A3B": ModelSpec("Qwen/Qwen3-30B-A3B", 32_768, 2, 8_192, 64),
+    "Qwen/Qwen3-30B-A3B-Instruct-2507": ModelSpec(
+        "Qwen/Qwen3-30B-A3B-Instruct-2507", 262144, 4, 4096, 32
+    ),
+    "openai/gpt-oss-20b": ModelSpec("openai/gpt-oss-20b", 131_072, 1, 8_192, 128),
+    "openai/gpt-oss-120b": ModelSpec("openai/gpt-oss-120b", 131_072, 4, 8_192, 64),
+    "Qwen/Qwen3-Coder-30B-A3B-Instruct": ModelSpec(
+        "Qwen/Qwen3-Coder-30B-A3B-Instruct", 262144, 4, 8_192, 256
+    ),
+    "nvidia/NVIDIA-Nemotron-Nano-9B-v2": ModelSpec(
+        "nvidia/NVIDIA-Nemotron-Nano-9B-v2", 131_072, 1, 8_192, 128
+    ),
+}
 
 
 class VLLMModel(ModelInterface):
@@ -79,17 +115,43 @@ class VLLMModel(ModelInterface):
             msg = "vLLM is required for VLLMModel. Please install it: pip install vllm"
             raise ImportError(msg)
 
+        model_spec = _MODELS.get(self.model)
+
+        # Determine max_model_len: cap user-provided value at model spec's max
+        if model_spec:
+            final_max_model_len = (
+                min(self.max_model_len, model_spec.max_model_len)
+                if self.max_model_len is not None
+                else model_spec.max_model_len
+            )
+        else:
+            # Model not in spec, use provided max_model_len or let vLLM auto-detect
+            final_max_model_len = self.max_model_len
+
+        # Build vLLM engine kwargs with model-specific optimizations
         llm_kwargs: dict[str, Any] = {
             "model": self.model,
             "enforce_eager": False,
             "trust_remote_code": True,
         }
-        if self.max_model_len is not None:
-            llm_kwargs["max_model_len"] = self.max_model_len
+
+        if final_max_model_len is not None:
+            llm_kwargs["max_model_len"] = final_max_model_len
+
+        # Add model-specific optimizations if available
+        if model_spec:
+            llm_kwargs["tensor_parallel_size"] = model_spec.tensor_parallel_size
+            llm_kwargs["max_num_batched_tokens"] = model_spec.max_num_batched_tokens
 
         self._llm = LLM(**llm_kwargs)
+        self._final_max_model_len = final_max_model_len
 
-        max_gen_tokens = self.max_tokens if self.max_tokens is not None else self.max_model_len
+        # Use model_spec.max_model_len for max_tokens default if max_tokens not specified
+        max_gen_tokens = (
+            self.max_tokens
+            if self.max_tokens is not None
+            else (model_spec.max_model_len if model_spec else final_max_model_len)
+        )
         is_qwen3 = "Qwen3" in self.model or "qwen3" in self.model.lower()
 
         sampling_kwargs: dict[str, Any] = {
@@ -109,13 +171,14 @@ class VLLMModel(ModelInterface):
             sampling_kwargs["top_p"] = self.top_p
 
         self._sampling_params = SamplingParams(**sampling_kwargs)
+        self._is_qwen3 = is_qwen3
 
-    def generate(self, prompts: list[str]) -> list[str]:
+    def generate(self, prompts: list[str] | list[list[dict[str, str]]]) -> list[str]:
         """
         Generate text from prompts.
 
         Args:
-            prompts: List of prompt strings to generate from.
+            prompts: List of prompt strings or list of message dicts (for chat template).
 
         Returns:
             List of generated text strings.
@@ -137,3 +200,10 @@ class VLLMModel(ModelInterface):
         except Exception as e:
             msg = f"Error generating text: {e}"
             raise RuntimeError(msg) from e
+
+    def get_tokenizer(self) -> Any:  # noqa: ANN401
+        """Get the tokenizer from the LLM instance."""
+        if self._llm is None:
+            msg = "Model not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        return self._llm.get_tokenizer()
