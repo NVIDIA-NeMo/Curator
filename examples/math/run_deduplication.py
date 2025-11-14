@@ -167,6 +167,8 @@ def main() -> None:
             input_path=args.input_path,
             ids_to_remove_path=duplicate_ids_path,
             output_path=args.deduplicated_output_path,
+            input_filetype=args.input_filetype,
+            input_file_extensions=input_file_extensions,
             input_id_field="_curator_dedup_id",
             ids_to_remove_duplicate_id_field="_curator_dedup_id",
             input_blocksize=args.input_blocksize,
