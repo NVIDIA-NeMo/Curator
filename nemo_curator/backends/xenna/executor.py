@@ -32,7 +32,7 @@ class XennaExecutor(BaseExecutor):
     and the Cosmos-Xenna execution engine for distributed processing.
     """
 
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         """Initialize the executor.
 
         Args:
@@ -43,8 +43,14 @@ class XennaExecutor(BaseExecutor):
                 - execution_mode: 'streaming' or 'batch' (default: 'streaming')
                 - cpu_allocation_percentage: CPU allocation ratio (default: 0.95)
                 - autoscale_interval_s: Auto-scaling interval (default: 180)
+            ignore_head_node (bool, optional): Whether to ignore the head node (default: False)
+                Not supported by XennaExecutor. Raises an error if set to True.
         """
-        super().__init__(config)
+        super().__init__(config, ignore_head_node)
+        if self.ignore_head_node:
+            msg = "ignore_head_node is not supported by XennaExecutor. Use RayDataExecutor or RayActorPoolExecutor instead."
+            raise ValueError(msg)
+
         self._default_pipeline_config = {
             "logging_interval": 60,
             "ignore_failures": False,

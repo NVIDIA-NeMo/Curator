@@ -70,7 +70,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def process_dataset(self, dataset: Dataset) -> Dataset:
+    def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
         Args:
@@ -89,7 +89,9 @@ class RayDataStageAdapter(BaseStageAdapter):
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
             concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(self.stage),
+                "concurrency": calculate_concurrency_for_actors_for_stage(
+                    self.stage, ignore_head_node=ignore_head_node
+                ),
             }
         else:
             map_batches_fn = create_task_from_stage(self.stage)

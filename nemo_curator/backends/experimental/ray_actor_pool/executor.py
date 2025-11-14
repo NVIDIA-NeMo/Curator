@@ -59,8 +59,8 @@ class RayActorPoolExecutor(BaseExecutor):
     4. Provides better backpressure management through ActorPool
     """
 
-    def __init__(self, config: dict | None = None):
-        super().__init__(config)
+    def __init__(self, config: dict | None = None, ignore_head_node: bool = False):
+        super().__init__(config, ignore_head_node)
 
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> list[Task]:  # noqa: PLR0912
         """Execute the pipeline stages using ActorPool.
@@ -83,7 +83,7 @@ class RayActorPoolExecutor(BaseExecutor):
             ray.init(ignore_reinit_error=True, runtime_env=_parse_runtime_env(self.config.get("runtime_env", {})))
 
             # Execute setup on node for all stages BEFORE processing begins
-            execute_setup_on_node(stages)
+            execute_setup_on_node(stages, ignore_head_node=self.ignore_head_node)
             logger.info(
                 f"Setup on node complete for all stages. Starting Ray Actor Pool pipeline with {len(stages)} stages"
             )
@@ -107,6 +107,7 @@ class RayActorPoolExecutor(BaseExecutor):
                         len(current_tasks),
                         reserved_cpus=self.config.get("reserved_cpus", 0.0),
                         reserved_gpus=self.config.get("reserved_gpus", 0.0),
+                        ignore_head_node=self.ignore_head_node,
                     )
                     logger.info(
                         f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
@@ -377,6 +378,7 @@ class RayActorPoolExecutor(BaseExecutor):
                 len(original_input),
                 reserved_cpus=self.config.get("reserved_cpus", 0.0),
                 reserved_gpus=self.config.get("reserved_gpus", 0.0),
+                ignore_head_node=self.ignore_head_node,
             )
             logger.info(
                 f" {stage} - Creating {num_actors} actors (CPUs: {stage.resources.cpus}, GPUs: {stage.resources.gpus})"
