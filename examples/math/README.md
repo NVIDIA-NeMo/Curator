@@ -16,6 +16,12 @@ source .venv/bin/activate
 pip install pynvml
 ```
 
+- For LLM cleanup pipeline, install vLLM:
+
+```bash
+uv pip install vllm
+```
+
 ## Prerequisites
 - GPU(s) with CUDA for the HF model
 - Python environment with `nemo-curator` installed (uv sync above)
@@ -63,3 +69,74 @@ Output
 {"id":4,"text":"Using \\(a^2+b^2=c^2\\) we derive the relation.","finemath_scores":1.93359375,"finemath_int_scores":2}
 {"id":5,"text":"Consider the set A \\subseteq B and A \\in \\mathbb{R}^n.","finemath_scores":1.5458984375,"finemath_int_scores":2}
 ```
+
+## Deduplication Pipeline
+
+Run fuzzy deduplication on Parquet or JSONL files:
+
+```bash
+python examples/math/run_deduplication.py \
+  --input_path "DATA_PATH/*.jsonl" \
+  --cache_dir CACHE_DIR \
+  --duplicate_ids_output_path DUPLICATE_IDS_OUTPUT_PATH \
+  --deduplicated_output_path DEDUPLICATED_OUTPUT_PATH \
+  --input_filetype jsonl
+```
+
+Deduplication takes place in two stages.
+1. In the first stage, the duplicate ids are identified and saved to disk.
+2. In the second stage, the duplicate ids are removed from the dataset
+
+- `--input_path`: Input directory or glob pattern for Parquet/JSONL files
+- `--cache_dir`: Cache directory for deduplication intermediates (must be empty between runs)
+- `--duplicate_ids_output_path`: Output directory for duplicate IDs and id generator mapping
+- `--deduplicated_output_path`: Output directory for deduplicated data
+- `--input_filetype`: Input file type (`jsonl` or `parquet`)
+
+## LLM Cleanup Pipeline
+
+The LLM cleanup pipeline always runs LLM cleanup. Optionally, you can chunk long texts before cleaning using the `--chunk_data` flag.
+
+### Option 1: Clean with chunking (for long texts)
+
+For long texts that exceed model context limits, chunk first then clean each chunk:
+
+```bash
+python examples/math/run_cleanup_webpages_with_llm.py \
+  --input "DATA_PATH/*.jsonl" \
+  --output OUTPUT_CHUNK_DIR \
+  --model microsoft/phi-4 \
+  --prompt HTML_TO_TEXT_PROMPT \
+  --chunk_data \
+  --chunk_length 5000 \
+  --input_filetype jsonl
+```
+
+This will chunk the data and clean each chunk, creating output in `OUTPUT_CHUNK_DIR/cleanup_*/` with:
+- `cleaned_text`: LLM-processed text (or `label` if `--classification` is used)
+- `chunk_id`: Sequential chunk identifier (if chunking was used)
+- `n_tokens`: Number of tokens in the chunk (if chunking was used)
+- All original metadata fields preserved
+
+### Option 2: Clean without chunking (for short texts)
+
+For texts that fit within model context limits, clean directly:
+
+```bash
+python examples/math/run_cleanup_webpages_with_llm.py \
+  --input "DATA_PATH/*.jsonl" \
+  --output OUTPUT_PATH \
+  --model microsoft/phi-4 \
+  --prompt HTML_TO_TEXT_PROMPT \
+  --input_filetype jsonl
+```
+
+Outputs will be written as JSONL files with:
+- `cleaned_text`: LLM-processed text (or `label` if `--classification` is used)
+- All original metadata fields preserved
+
+Additional options:
+- `--classification`: Output classification labels instead of cleaned text
+- `--max_model_len`: Maximum model context length (auto-detected if not specified)
+- `--filter_by_n_tokens`: Filter chunks by token count (requires `--chunk_data`)
+- `--temperature`, `--top_p`, `--top_k`, `--min_p`: Sampling parameters
