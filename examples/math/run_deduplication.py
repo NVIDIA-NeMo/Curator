@@ -19,13 +19,7 @@ from pathlib import Path
 from loguru import logger
 
 from nemo_curator.core.client import RayClient
-from nemo_curator.stages.deduplication.fuzzy.workflow import (
-    FuzzyDeduplicationWorkflow,
-    ID_GENERATOR_OUTPUT_FILENAME,
-)
-from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import (
-    DUPLICATE_IDS_SUBDIR,
-)
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 
 

@@ -22,10 +22,10 @@ except ImportError:
     VLLM_AVAILABLE = False
 
     # Create dummy classes for type hints when vllm is not available
-    class LLM:  # noqa: PLW0602
+    class LLM:
         pass
 
-    class SamplingParams:  # noqa: PLW0602
+    class SamplingParams:
         pass
 
 from nemo_curator.models.base import ModelInterface
@@ -34,7 +34,7 @@ from nemo_curator.models.base import ModelInterface
 class VLLMModel(ModelInterface):
     """Generic vLLM language model wrapper for text generation."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model: str,
         max_model_len: int | None = None,
@@ -86,8 +86,6 @@ class VLLMModel(ModelInterface):
         }
         if self.max_model_len is not None:
             llm_kwargs["max_model_len"] = self.max_model_len
-        if self.cache_dir is not None:
-            llm_kwargs["cache_dir"] = self.cache_dir
 
         self._llm = LLM(**llm_kwargs)
 
