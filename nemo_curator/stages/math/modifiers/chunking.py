@@ -26,7 +26,7 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     while preserving paragraph boundaries.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model_name: str,
         max_length_tokens: int = 8000,
@@ -55,7 +55,7 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         df = batch.to_pandas()
 
         records = []
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             row_dict = row.to_dict()
             text = str(row_dict.get(self.text_field, ""))
             if self.text_field in row_dict:

@@ -16,6 +16,6 @@ from .chunking import TokenSplitterStage
 from .llm_cleanup import LLMCleanupStage
 
 __all__ = [
-    "TokenSplitterStage",
     "LLMCleanupStage",
+    "TokenSplitterStage",
 ]

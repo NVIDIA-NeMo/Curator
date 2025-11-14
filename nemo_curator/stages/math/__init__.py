@@ -19,7 +19,7 @@ from .modifiers.llm_cleanup import LLMCleanupStage
 
 __all__ = [
     "FineMathClassifier",
+    "LLMCleanupStage",
     "MathContentExtractor",
     "TokenSplitterStage",
-    "LLMCleanupStage",
 ]

@@ -1,4 +1,4 @@
-HTML_TO_TEXT_PROMPT = """
+HTML_TO_TEXT_PROMPT = r"""
 You are given raw text extracted from an HTML page. Process this text to extract only the meaningful content, following these strict guidelines:
 
 1) **Retain only the main content and its associated titles**. Remove all boilerplate, navigation menus, sidebars, footers, headers, related articles, spam comments, interactive elements, and advertisements.
@@ -18,7 +18,7 @@ Task:
 Start directly with the processed text. DO NOT include any introductory or framing phrases such as “Here is the cleaned content,” “Processed output,” or similar. End your response after the cleaned content.
 """
 
-HTML_TO_TEXT_PROMPT_CODE = """
+HTML_TO_TEXT_PROMPT_CODE = r"""
 You are given raw text extracted from an HTML page. Process this text to extract only the meaningful content, following these strict guidelines:
 
 1) **Retain only the main content and its associated titles**. Remove all boilerplate, navigation menus, sidebars, footers, headers, related articles, spam comments, interactive elements, and advertisements.
