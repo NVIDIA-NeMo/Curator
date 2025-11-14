@@ -14,8 +14,8 @@
 
 from .classifiers.finemath import FineMathClassifier
 from .download.extract import MathContentExtractor
-from .preprocess.chunking import TokenSplitterStage
-from .preprocess.llm_cleanup import LLMCleanupStage
+from .modifiers.chunking import TokenSplitterStage
+from .modifiers.llm_cleanup import LLMCleanupStage
 
 __all__ = [
     "FineMathClassifier",

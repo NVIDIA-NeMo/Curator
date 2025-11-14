@@ -12,25 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any
-
 import pandas as pd
 
-try:
-    from vllm import LLM, SamplingParams
-
-    VLLM_AVAILABLE = True
-except ImportError:
-    VLLM_AVAILABLE = False
-
-    # Create dummy classes for type hints when vllm is not available
-    class LLM:  # noqa: PLW0602
-        pass
-
-    class SamplingParams:  # noqa: PLW0602
-        pass
-
 from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.models.vllm_model import VLLMModel
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
@@ -40,11 +25,14 @@ from nemo_curator.tasks import DocumentBatch
 class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
     LLM-based text cleanup stage using vLLM for distributed inference.
+
+    This stage uses a VLLMModel wrapper to generate cleaned text from input prompts.
+    It handles filtering, sorting, prompt formatting, and output field management.
     """
 
     def __init__(
         self,
-        model: str,
+        model: str | VLLMModel,
         system_prompt: str,
         text_field: str = "text",
         output_field: str = "cleaned_text",
@@ -59,24 +47,50 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         filter_by_n_tokens: bool = False,
         n_tokens_field: str = "n_tokens",
     ):
-        self.model = model
+        """
+        Initialize the LLM cleanup stage.
+
+        Args:
+            model: Model identifier string (e.g., "microsoft/phi-4") or VLLMModel instance.
+            system_prompt: Prompt template string with {text} placeholder.
+            text_field: Name of the input text field. Defaults to "text".
+            output_field: Name of the output field. Defaults to "cleaned_text".
+            max_model_len: Maximum model context length. If not specified, vLLM will auto-detect.
+            classification: If True, output to "label" field instead of output_field. Defaults to False.
+            temperature: Sampling temperature. Defaults to 0.7.
+            top_p: Top-p sampling parameter. Defaults to 0.8.
+            top_k: Top-k sampling parameter. Defaults to 20.
+            min_p: Min-p sampling parameter (for Qwen3). Defaults to 0.0.
+            max_tokens: Maximum tokens to generate. Defaults to None.
+            cache_dir: Cache directory for model weights. Defaults to None.
+            filter_by_n_tokens: Filter chunks by n_tokens field. Defaults to False.
+            n_tokens_field: Name of the n_tokens field. Defaults to "n_tokens".
+        """
+        if isinstance(model, VLLMModel):
+            self._model = model
+            model_name = model.model
+        else:
+            self._model = VLLMModel(
+                model=model,
+                max_model_len=max_model_len,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                min_p=min_p,
+                max_tokens=max_tokens,
+                cache_dir=cache_dir,
+            )
+            model_name = model
+
         self.system_prompt = system_prompt
         self.text_field = text_field
         self.output_field = output_field
         self.max_model_len = max_model_len
         self.classification = classification
-        self.temperature = temperature
-        self.top_p = top_p
-        self.top_k = top_k
-        self.min_p = min_p
-        self.max_tokens = max_tokens
-        self.cache_dir = cache_dir
         self.filter_by_n_tokens = filter_by_n_tokens
         self.n_tokens_field = n_tokens_field
-        self._llm = None
-        self._sampling_params = None
         self._resources = Resources(cpus=1, gpus=1)
-        self._name = format_name_with_suffix(self.model, suffix="_llm_cleanup")
+        self._name = format_name_with_suffix(model_name, suffix="_llm_cleanup")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         input_fields = [self.text_field]
@@ -90,49 +104,11 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.output_field]
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        if not VLLM_AVAILABLE:
-            msg = "vLLM is required for LLMCleanupStage. Please install it: pip install vllm"
-            raise ImportError(msg)
-
-        llm_kwargs: dict[str, Any] = {
-            "model": self.model,
-            "enforce_eager": False,
-            "trust_remote_code": True,
-        }
-        if self.max_model_len is not None:
-            llm_kwargs["max_model_len"] = self.max_model_len
-        if self.cache_dir is not None:
-            llm_kwargs["cache_dir"] = self.cache_dir
-
-        self._llm = LLM(**llm_kwargs)
-
-        max_gen_tokens = self.max_tokens if self.max_tokens is not None else self.max_model_len
-        is_qwen3 = "Qwen3" in self.model or "qwen3" in self.model.lower()
-
-        sampling_kwargs: dict[str, Any] = {
-            "temperature": self.temperature,
-            "max_tokens": max_gen_tokens,
-        }
-
-        if is_qwen3:
-            sampling_kwargs.update(
-                {
-                    "top_p": self.top_p,
-                    "top_k": self.top_k,
-                    "min_p": self.min_p,
-                }
-            )
-        else:
-            sampling_kwargs["top_p"] = self.top_p
-
-        self._sampling_params = SamplingParams(**sampling_kwargs)
+        """Set up the model wrapper."""
+        self._model.setup()
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
-
-        if self._llm is None or self._sampling_params is None:
-            msg = "LLM not initialized. Call setup() first."
-            raise RuntimeError(msg)
 
         if self.filter_by_n_tokens and self.n_tokens_field in df.columns:
             if self.max_model_len is None:
@@ -158,16 +134,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             prompt = self.system_prompt.format(text=text)
             prompts.append(prompt)
 
-        try:
-            outputs = self._llm.generate(
-                prompts,
-                sampling_params=self._sampling_params,
-                use_tqdm=False,
-            )
-            generated_texts = [out.outputs[0].text for out in outputs]
-        except Exception as e:
-            msg = f"Error generating text for batch: {e}"
-            raise RuntimeError(msg) from e
+        generated_texts = self._model.generate(prompts)
 
         output_df = df.copy()
 
