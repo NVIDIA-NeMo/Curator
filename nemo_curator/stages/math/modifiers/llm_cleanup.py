@@ -30,7 +30,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     It handles filtering, sorting, prompt formatting, and output field management.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         model: str | VLLMModel,
         system_prompt: str,
