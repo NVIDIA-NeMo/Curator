@@ -250,7 +250,7 @@ class TestPreviewStage:
 
         # Mock subprocess error
         mock_subprocess.side_effect = subprocess.CalledProcessError(
-            returncode=1, cmd=["ffmpeg"], output=b"ffmpeg error output"
+            returncode=1, cmd=["ffmpeg"], output=b"FFmpeg error output"
         )
 
         # Create window with mp4 bytes
@@ -276,13 +276,13 @@ class TestPreviewStage:
                 # Verify error was logged
                 mock_logger.error.assert_called_once()
                 error_msg = mock_logger.error.call_args[0][0]
-                assert "ffmpeg command failed with return code 1" in error_msg
+                assert "FFmpeg command failed with return code 1" in error_msg
 
                 # Verify warning was logged with command
                 mock_logger.warning.assert_called()
                 warning_calls = [call[0][0] for call in mock_logger.warning.call_args_list]
-                assert any("ffmpeg command:" in msg for msg in warning_calls)
-                assert any("ffmpeg output:" in msg for msg in warning_calls)
+                assert any("FFmpeg command:" in msg for msg in warning_calls)
+                assert any("FFmpeg output:" in msg for msg in warning_calls)
 
                 # Verify webp_bytes was not set
                 assert window.webp_bytes is None
@@ -290,12 +290,12 @@ class TestPreviewStage:
     @patch("nemo_curator.stages.video.preview.preview.make_pipeline_temporary_dir")
     @patch("subprocess.check_output")
     def test_generate_preview_with_ffmpeg_output(self, mock_subprocess: "MagicMock", mock_temp_dir: "MagicMock"):
-        """Test preview generation when ffmpeg produces output."""
+        """Test preview generation when FFmpeg produces output."""
         # Mock temporary directory context manager
         mock_temp_dir.return_value.__enter__.return_value = pathlib.Path("temp/preview")
 
         # Mock subprocess with output
-        mock_subprocess.return_value = b"ffmpeg info message"
+        mock_subprocess.return_value = b"FFmpeg info message"
 
         # Create window with mp4 bytes
         window = _Window(start_frame=0, end_frame=30, mp4_bytes=b"fake_mp4_data")
@@ -318,10 +318,10 @@ class TestPreviewStage:
             with patch("nemo_curator.stages.video.preview.preview.logger") as mock_logger:
                 stage._generate_preview(window)
 
-                # Verify warning was logged about ffmpeg output
+                # Verify warning was logged about FFmpeg output
                 mock_logger.warning.assert_called_once()
                 warning_msg = mock_logger.warning.call_args[0][0]
-                assert "ffmpeg output: ffmpeg info message" in warning_msg
+                assert "FFmpeg output: FFmpeg info message" in warning_msg
 
                 # Verify webp_bytes was set
                 assert window.webp_bytes == b"fake_webp_data"

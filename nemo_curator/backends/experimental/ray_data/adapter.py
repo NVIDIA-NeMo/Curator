@@ -46,7 +46,7 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         # Go through all the keys in the ray_stage_spec and raise error if they are not in RayStageSpecKeys
         for key in self.stage.ray_stage_spec():
-            if key not in RayStageSpecKeys:
+            if key not in {e.value for e in RayStageSpecKeys}:
                 msg = f"Invalid key {key} in ray_stage_spec for stage {self.stage}"
                 raise ValueError(msg)
 

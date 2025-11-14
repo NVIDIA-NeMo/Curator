@@ -31,7 +31,6 @@ Language management in NeMo Curator typically follows this pattern using the Pip
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import FastTextLangId
@@ -53,8 +52,7 @@ pipeline.add_stage(
 )
 
 # 2) Execute
-executor = XennaExecutor()
-results = pipeline.run(executor)
+results = pipeline.run()
 ```
 
 ---

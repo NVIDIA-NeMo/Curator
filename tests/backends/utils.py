@@ -98,7 +98,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Add a length field to the document."""
 
     def __init__(self, column_name: str = "doc_length"):
-        self._name = "add_length"
+        self.name = "add_length"
         self.column_name = column_name
 
     def process_batch(self, tasks: list[DocumentBatch]) -> list[DocumentBatch]:
@@ -108,7 +108,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # Get the counter actor by name and record timing for the actor+increment call
         t_actor0 = time.perf_counter()
         counter_actor = ray.get_actor("stage_call_counter", namespace="stage_call_counter")
-        stage_identifier = f"{self._name}_{self.column_name}"
+        stage_identifier = f"{self.name}_{self.column_name}"
         ray.get(counter_actor.increment.remote(stage_identifier))
         t_actor1 = time.perf_counter()
 
@@ -139,7 +139,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, input_data: DocumentBatch) -> DocumentBatch:
         """Dummy process method - we use process_batch instead."""
-        msg = f"Stage '{self._name}' should use process_batch, not process"
+        msg = f"Stage '{self.name}' should use process_batch, not process"
         raise NotImplementedError(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -157,7 +157,7 @@ class AddLengthStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 class SplitIntoRowsStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     """Split the document into rows."""
 
-    _name = "split_into_rows"
+    name = "split_into_rows"
 
     def process(self, input_data: DocumentBatch) -> list[DocumentBatch]:
         import time
@@ -211,7 +211,7 @@ class StageWithSetup(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(self, temp_file_path: Path):
         self.TEMP_FILE_PATH = temp_file_path
 
-    _name = "stage_with_setup"
+    name = "stage_with_setup"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

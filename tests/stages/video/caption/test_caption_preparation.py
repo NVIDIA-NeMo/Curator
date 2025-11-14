@@ -100,7 +100,7 @@ class TestCaptionPreparationStage:
         assert stage.model_does_preprocess is False
         assert stage.preprocess_dtype == "float32"
         assert stage.generate_previews is True
-        assert stage._name == "caption_preparation"
+        assert stage.name == "caption_preparation"
 
     def test_inputs(self):
         """Test inputs method returns correct format."""
@@ -180,7 +180,7 @@ class TestCaptionPreparationStage:
         ]
 
         # Mock resources
-        with patch.object(self.stage, "_resources") as mock_resources:
+        with patch.object(self.stage, "resources") as mock_resources:
             mock_resources.cpus = 4
 
             task = self._create_test_video_task()
@@ -270,7 +270,7 @@ class TestCaptionPreparationStage:
         )
 
         # Mock resources
-        with patch.object(self.stage, "_resources") as mock_resources:
+        with patch.object(self.stage, "resources") as mock_resources:
             mock_resources.cpus = 2
 
             task = self._create_test_video_task()
@@ -306,7 +306,7 @@ class TestCaptionPreparationStage:
         )
 
         # Mock resources
-        with patch.object(self.stage, "_resources") as mock_resources:
+        with patch.object(self.stage, "resources") as mock_resources:
             mock_resources.cpus = 1
 
             task = self._create_test_video_task()
@@ -335,7 +335,7 @@ class TestCaptionPreparationStage:
         )
 
         # Mock resources
-        with patch.object(self.stage, "_resources") as mock_resources:
+        with patch.object(self.stage, "resources") as mock_resources:
             mock_resources.cpus = 2
 
             # Create task with single clip
@@ -378,7 +378,7 @@ class TestCaptionPreparationStage:
 
     def test_stage_name(self):
         """Test that stage has correct name."""
-        assert self.stage._name == "caption_preparation"
+        assert self.stage.name == "caption_preparation"
 
     def test_prompts_constants(self):
         """Test that prompt constants are defined correctly."""
@@ -405,7 +405,7 @@ class TestCaptionPreparationStage:
         mock_split_video.return_value = ([], [], [])
 
         # Mock resources
-        with patch.object(self.stage, "_resources") as mock_resources:
+        with patch.object(self.stage, "resources") as mock_resources:
             mock_resources.cpus = 1
 
             task = self._create_test_video_task()

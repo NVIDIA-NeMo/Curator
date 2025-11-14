@@ -33,7 +33,7 @@ class ImageNSFWFilterStage(BaseFilterStage):
     will be filtered out as NSFW content.
     """
     weights_path: str = None
-    _name: str = "image_nsfw_filter"
+    name: str = "image_nsfw_filter"
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Download NSFW model weights from LAION repository."""

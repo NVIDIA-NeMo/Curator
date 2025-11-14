@@ -37,7 +37,7 @@ class AddId(ProcessingStage[DocumentBatch, DocumentBatch]):
     id_field: str
     id_prefix: str | None = None
     overwrite: bool = False
-    _name: str = "add_id"
+    name: str = "add_id"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

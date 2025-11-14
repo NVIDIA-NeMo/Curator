@@ -27,7 +27,7 @@ class ParquetWriter(BaseWriter):
     # Additional kwargs for pandas.DataFrame.to_parquet
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     file_extension: str = "parquet"
-    _name: str = "parquet_writer"
+    name: str = "parquet_writer"
 
     def write_data(self, task: DocumentBatch, file_path: str) -> None:
         """Write data to Parquet file using pandas DataFrame.to_parquet."""

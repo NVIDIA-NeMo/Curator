@@ -81,8 +81,10 @@ def start_prometheus_grafana(
         raise
 
     logger.info("If you are running using Xenna, please remember to export XENNA_RAY_METRICS_PORT=8080")
-    logger.info("You can access the grafana dashboard at http://localhost:3000, username: admin, password: admin")
-    logger.info("You can access the prometheus dashboard at http://localhost:9090")
+    logger.info(
+        f"You can access the grafana dashboard at http://localhost:{grafana_web_port}, username: admin, password: admin"
+    )
+    logger.info(f"You can access the prometheus dashboard at http://localhost:{prometheus_web_port}")
     logger.info("Currently, we only provide a xenna dashboard,")
     logger.info("but you can add more dashboards by adding json files")
     logger.info(f"in {DEFAULT_NEMO_CURATOR_METRICS_PATH}/grafana/dashboards")

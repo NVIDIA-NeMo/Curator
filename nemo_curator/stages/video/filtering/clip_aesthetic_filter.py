@@ -40,7 +40,7 @@ class ClipAestheticFilterStage(ProcessingStage[VideoTask, VideoTask]):
     target_fps: float = 1.0
     num_gpus_per_worker: float = 0.25
     verbose: bool = False
-    _name: str = "clip_aesthetic_filter"
+    name: str = "clip_aesthetic_filter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
@@ -49,7 +49,7 @@ class ClipAestheticFilterStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["decoded_motion_data"]
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpus=self.num_gpus_per_worker)
+        self.resources = Resources(gpus=self.num_gpus_per_worker)
 
     def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
         """Download the weights for the CLIPAestheticScorer model on the node."""

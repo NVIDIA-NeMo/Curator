@@ -1,7 +1,7 @@
 ---
 description: "Comprehensive system, hardware, and software requirements for deploying NeMo Curator in production environments"
 categories: ["reference"]
-tags: ["requirements", "system-requirements", "hardware", "software", "kubernetes", "slurm", "gpu", "storage"]
+tags: ["requirements", "system-requirements", "hardware", "software", "gpu", "storage"]
 personas: ["admin-focused", "devops-focused"]
 difficulty: "reference"
 content_type: "reference"
@@ -16,9 +16,8 @@ This page details the comprehensive system, hardware, and software requirements 
 ## System Requirements
 
 - **Operating System**: Ubuntu 22.04/20.04 (recommended)
-- **Python**: Python 3.10 or 3.12 (Python 3.11 is not supported due to RAPIDS compatibility)
+- **Python**: Python 3.10, 3.11, or 3.12
   - packaging >= 22.0
-- **Shared Filesystem**: For Slurm deployments, a shared filesystem (NFS, Lustre, etc.) accessible from all compute nodes
 
 ## Hardware Requirements
 
@@ -39,24 +38,13 @@ This page details the comprehensive system, hardware, and software requirements 
 ## Software Dependencies
 
 ### Core Dependencies
-- [Dask](https://docs.dask.org/en/stable/) for distributed computing
-- [dask-cuda](https://docs.rapids.ai/api/dask-cuda/stable/) for GPU-enabled clusters
-- RAPIDS libraries (cuDF, cuML, cuGraph) for GPU acceleration
+- Python 3.10+ with required packages for distributed computing
+- RAPIDS libraries (cuDF) for GPU-accelerated deduplication operations
 
 ### Container Support (Recommended)
 - **Docker** or **Podman** for containerized deployment
-- **Singularity/Apptainer** for HPC environments
 - Access to NVIDIA NGC registry for official containers
 
-### Cluster Management
-- **Kubernetes**: For Kubernetes deployment
-  - [GPU Operator](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/getting-started.html)
-  - [Dask Operator](https://kubernetes.dask.org/en/latest/operator_installation.html)
-  - [kubectl](https://kubernetes.io/docs/tasks/tools) configured with cluster access
-  - ReadWriteMany StorageClass for shared storage
-- **Slurm**: For Slurm deployment
-  - Slurm cluster with job submission permissions
-  - Shared filesystem mounted on all compute nodes
 
 ## Network Requirements
 - Reliable network connectivity between nodes
@@ -74,17 +62,7 @@ This page details the comprehensive system, hardware, and software requirements 
 
 ## Deployment-Specific Requirements
 
-### Kubernetes Deployment
-- Kubernetes cluster with GPU support
-- Persistent Volume Claims (PVC) with ReadWriteMany access mode
-- Network policies allowing inter-pod communication
 - Resource quotas configured for GPU and memory allocation
-
-### Slurm Deployment
-- Slurm workload manager configured and running
-- Job submission permissions (`sbatch`, `srun`)
-- Module system for environment management (optional but recommended)
-- Batch job script templates and container runtime support
 
 ## Performance Considerations
 

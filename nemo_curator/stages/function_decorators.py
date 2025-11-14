@@ -124,10 +124,6 @@ def processing_stage(
         # Dynamically create a subclass of ProcessingStage whose *process* method
         # delegates directly to the user function.
         class _FunctionProcessingStage(ProcessingStage[TIn, TOut]):
-            _name: str = str(name)
-            _resources: Resources = resources  # type: ignore[assignment]
-            _batch_size: int | None = batch_size  # type: ignore[assignment]
-
             # Keep a reference to the original function for introspection /
             # debugging.
             _fn: Callable[[TIn], TOut | list[TOut]] = staticmethod(func)  # type: ignore[assignment]
@@ -146,6 +142,11 @@ def processing_stage(
 
             # The user requested to "not worry about inputs/outputs", so we leave
             # them as the base-class defaults (empty lists).
+
+        # Assign after definition
+        _FunctionProcessingStage.name = str(name)
+        _FunctionProcessingStage.resources = resources  # type: ignore[assignment]
+        _FunctionProcessingStage.batch_size = batch_size  # type: ignore[assignment]
 
         # Give the dynamically-created class a *nice* __name__ so that logs and
         # error messages are meaningful.  We purposefully use the *stage* name

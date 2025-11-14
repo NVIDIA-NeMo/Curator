@@ -240,8 +240,8 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         pool: bool = True,
     ):
         # Set ProcessingStage attributes
-        self._name = self.__class__.__name__
-        self._resources = Resources(gpus=1.0)  # Requires 1 GPU
+        self.name = self.__class__.__name__
+        self.resources = Resources(gpus=1.0)  # Requires 1 GPU
 
         self.text_field = text_field
         self.minhash_field = minhash_field
@@ -258,7 +258,7 @@ class MinHashStage(ProcessingStage[FileGroupTask, FileGroupTask], DeduplicationI
         self.id_generator = None
 
         self.output_fs = get_fs(output_path, self.write_kwargs.get("storage_options", {}))
-        self.output_path = self.output_fs.sep.join([output_path, self._name])
+        self.output_path = self.output_fs.sep.join([output_path, self.name])
         create_or_overwrite_dir(self.output_path, storage_options=self.write_kwargs.get("storage_options", {}))
 
     def setup(self, _worker_metadata: "WorkerMetadata | None" = None) -> None:

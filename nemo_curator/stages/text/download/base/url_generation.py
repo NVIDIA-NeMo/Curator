@@ -39,10 +39,10 @@ class URLGenerationStage(ProcessingStage[_EmptyTask, FileGroupTask]):
 
     url_generator: URLGenerator
     limit: int | None = None
-    _resources = Resources(cpus=0.5)
+    resources = Resources(cpus=0.5)
 
     def __post_init__(self):
-        self._name = f"url_generation_{self.url_generator.__class__.__name__.lower()}"
+        self.name = f"url_generation_{self.url_generator.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects empty task."""

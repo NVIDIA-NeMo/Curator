@@ -79,6 +79,7 @@ def init_cluster(  # noqa: PLR0913
     num_cpus: int | None = None,
     enable_object_spilling: bool = False,
     block: bool = True,
+    ip_address: str | None = None,
 ) -> subprocess.Popen:
     """Initialize a new local Ray cluster or connects to an existing one."""
     # Turn off serization for loguru. This is needed as loguru is not serializable in general.
@@ -88,7 +89,7 @@ def init_cluster(  # noqa: PLR0913
         deserializer=_logger_custom_deserializer,
     )
 
-    ip_address = socket.gethostbyname(socket.gethostname())
+    ip_address = ip_address or socket.gethostbyname(socket.gethostname())
     ray_command = ["ray", "start", "--head"]
     ray_command.extend(["--node-ip-address", ip_address])
     ray_command.extend(["--port", str(ray_port)])
@@ -122,5 +123,4 @@ def init_cluster(  # noqa: PLR0913
 
     proc = subprocess.Popen(ray_command, shell=False)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
-    os.environ["RAY_ADDRESS"] = f"{ip_address}:{ray_port}"
     return proc

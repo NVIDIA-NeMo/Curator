@@ -215,7 +215,7 @@ myst_substitutions = {
     "company": "NVIDIA",
     "version": release,  # Uses the release variable from conf.py
     "current_year": "2025",
-    "github_repo": "https://github.com/NVIDIA/NeMo-Curator",
+    "github_repo": "https://github.com/NVIDIA-NeMo/Curator",
     "docs_url": "https://docs.nvidia.com/nemo-curator",
     "support_email": "nemo-curator-support@nvidia.com",
     "min_python_version": "3.8",
@@ -282,7 +282,7 @@ image:
 
 # Documentation URLs using MyST substitutions  
 downloads:
-  releaseUrl: "https://github.com/NVIDIA/NeMo-Curator/releases/download/v{{ version }}/nemo-curator.tar.gz"  # ← MyST substitution
+  releaseUrl: "https://github.com/NVIDIA-NeMo/Curator/releases/download/v{{ version }}/nemo-curator.tar.gz"  # ← MyST substitution
   docsUrl: "{{ docs_url }}"                              # ← MyST substitution
   supportEmail: "{{ support_email }}"                    # ← MyST substitution
 

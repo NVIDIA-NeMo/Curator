@@ -87,7 +87,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     model_does_preprocess: bool = False
     preprocess_dtype: str = "float32"
     generate_previews: bool = True
-    _name: str = "caption_preparation"
+    name: str = "caption_preparation"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

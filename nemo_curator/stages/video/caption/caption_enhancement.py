@@ -52,7 +52,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
     fp8: bool = False
     max_output_tokens: int = 512
     verbose: bool = False
-    _name: str = "caption_enhancement"
+    name: str = "caption_enhancement"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["clips"]
@@ -61,7 +61,7 @@ class CaptionEnhancementStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpus=1)
+        self.resources = Resources(gpus=1)
         self.prompt = _get_enhance_prompt(
             self.prompt_variant,
             self.prompt_text,

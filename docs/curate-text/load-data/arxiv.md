@@ -47,9 +47,8 @@ Create and run an ArXiv processing pipeline and write outputs to JSONL:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna.executor import XennaExecutor
 from nemo_curator.stages.text.download import ArxivDownloadExtractStage
-from nemo_curator.stages.io.writer import JsonlWriter
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def main():
     pipeline = Pipeline(
@@ -72,8 +71,7 @@ def main():
     pipeline.add_stage(writer)
 
     # Execute
-    executor = XennaExecutor()
-    results = pipeline.run(executor)
+    results = pipeline.run()
     print(f"Completed with {len(results) if results else 0} output files")
 
 if __name__ == "__main__":

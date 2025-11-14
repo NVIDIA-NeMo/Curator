@@ -148,7 +148,7 @@ def split_video_into_windows(  # noqa: PLR0913
 
             for window in windows:
                 with make_pipeline_named_temporary_file(sub_dir="windowing") as tmp_file:
-                    # Use ffmpeg to split the file on the frames.
+                    # Use FFmpeg to split the file on the frames.
                     command = [
                         "ffmpeg",
                         "-threads",

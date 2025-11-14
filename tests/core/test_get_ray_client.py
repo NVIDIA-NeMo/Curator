@@ -79,3 +79,30 @@ def test_get_ray_client_multiple_start():
             os.environ["RAY_ADDRESS"] = initial_address
         else:
             os.environ.pop("RAY_ADDRESS", None)
+
+
+def wait_for_ray_cluster_start(client: RayClient, timeout: int = 30):
+    t_start = time.perf_counter()
+    while True:
+        fn = os.path.join(client.ray_temp_dir, "ray_current_cluster")
+        if os.path.exists(fn):
+            # Cluster is up and running
+            break
+        elif time.perf_counter() - t_start > timeout:
+            msg = f"Ray cluster didn't start after {timeout} seconds"
+            raise RuntimeError(msg)
+        else:
+            time.sleep(1)
+
+
+def test_ray_client_context_manager(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("RAY_ADDRESS")
+    with tempfile.TemporaryDirectory(prefix="ray_test_ctx_manager_") as ray_tmp:
+        with RayClient(ray_temp_dir=ray_tmp) as client:
+            wait_for_ray_cluster_start(client)
+
+            with open(os.path.join(ray_tmp, "ray_current_cluster")) as f:
+                content = f.read()
+                assert content.split(":")[1].strip() == str(client.ray_port)
+
+        assert client.ray_process is None

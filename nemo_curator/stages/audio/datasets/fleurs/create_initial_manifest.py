@@ -81,8 +81,8 @@ class CreateInitialManifestFleursStage(ProcessingStage[_EmptyTask, AudioBatch]):
     raw_data_dir: str
     filepath_key: str = "audio_filepath"
     text_key: str = "text"
-    _name: str = "CreateInitialManifestFleurs"
-    _batch_size: int = 1
+    name: str = "CreateInitialManifestFleurs"
+    batch_size: int = 1
 
     def process_transcript(self, file_path: str) -> list[AudioBatch]:
         """

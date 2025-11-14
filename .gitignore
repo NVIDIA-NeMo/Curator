@@ -152,3 +152,9 @@ data/
 
 # Text Editor / IDE Files
 .vscode
+
+# macOS Files
+.DS_Store
+
+# InternVideo2 dependency (cloned by installation script)
+InternVideo/

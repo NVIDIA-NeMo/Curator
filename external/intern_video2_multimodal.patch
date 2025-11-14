@@ -1,0 +1,411 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+diff --git a/InternVideo2/multi_modality/__init__.py b/InternVideo2/multi_modality/__init__.py
+index 8b13789..dcbf4ed 100644
+--- a/InternVideo2/multi_modality/__init__.py
++++ b/InternVideo2/multi_modality/__init__.py
+@@ -1 +1,22 @@
+ 
++# Import main models
++from .models.internvideo2_stage2_visual import InternVideo2_Stage2_visual
++from .models.internvideo2_stage2_audiovisual import InternVideo2_Stage2_audiovisual
++from .models.internvideo2_clip import InternVideo2_CLIP
++from .models.internvideo2_clip_small import InternVideo2_CLIP_small
++
++# Import backbone components
++from .models.backbones.internvideo2 import pretrain_internvideo2_1b_patch14_224, pretrain_internvideo2_6b_patch14_224
++from .models.backbones.bert.builder import build_bert
++from .models.backbones.internvideo2.pos_embed import interpolate_pos_embed_internvideo2_new
++
++__all__ = [
++    'InternVideo2_Stage2_visual',
++    'InternVideo2_Stage2_audiovisual', 
++    'InternVideo2_CLIP',
++    'InternVideo2_CLIP_small',
++    'interpolate_pos_embed_internvideo2_new',
++    'pretrain_internvideo2_1b_patch14_224',
++    'pretrain_internvideo2_6b_patch14_224',
++    'build_bert'
++]
+\ No newline at end of file
+diff --git a/InternVideo2/multi_modality/configs/internvideo2_mm_config_model.json b/InternVideo2/multi_modality/configs/internvideo2_mm_config_model.json
+new file mode 100644
+index 0000000..40d0640
+--- /dev/null
++++ b/InternVideo2/multi_modality/configs/internvideo2_mm_config_model.json
+@@ -0,0 +1,145 @@
++{
++    "criterion": {
++        "loss_weight": 1,
++        "distill_final_features": true,
++        "clip_loss_ratio": 1,
++        "vtm_hard_neg": true,
++        "mlm_masking_prob": 0.15
++    },
++    "VisionEncoders": {},
++    "TextEncoders": {
++        "bert": {
++            "name": "bert_base",
++            "pretrained": "bert-base-uncased",
++            "config": "configs/config_bert.json",
++            "d_model": 768,
++            "fusion_layer": 9
++        },
++        "bert_large": {
++            "name": "bert_large",
++            "pretrained": "bert-large-uncased",
++            "config": "configs/config_bert_large.json",
++            "d_model": 1024,
++            "fusion_layer": 19
++        },
++        "med_bert": {
++            "name": "med_bert_base",
++            "pretrained": "bert-base-uncased",
++            "config": "configs/med_config.json",
++            "d_model": 768
++        },
++        "med_bert_large": {
++            "name": "med_bert_large",
++            "pretrained": "bert-base-uncased",
++            "config": "configs/med_large_config.json",
++            "d_model": 768
++        }
++    },
++    "num_workers": 6,
++    "num_frames": 4,
++    "num_frames_test": 4,
++    "batch_size": 8,
++    "batch_size_test": 4,
++    "size_t": 224,
++    "max_txt_l": 40,
++    "origin_num_frames": 4,
++    "use_half_precision": false,
++    "use_bf16": false,
++    "inputs": {
++        "image_res": 224,
++        "video_input": {
++            "num_frames": 4,
++            "sample_type": "rand",
++            "num_frames_test": 4,
++            "sample_type_test": "middle",
++            "random_aug": false
++        },
++        "max_txt_l": {
++            "image": 40,
++            "video": 40
++        },
++        "batch_size": {
++            "image": 8,
++            "video": 8
++        },
++        "batch_size_test": {
++            "image": 4,
++            "video": 4
++        }
++    },
++    "text_enc": "bert_large",
++    "model": {
++        "model_cls": "InternVideo2_Stage2",
++        "vision_encoder": {
++            "name": "pretrain_internvideo2_1b_patch14_224",
++            "img_size": 224,
++            "num_frames": 4,
++            "tubelet_size": 1,
++            "patch_size": 14,
++            "d_model": 1408,
++            "clip_embed_dim": 768,
++            "clip_teacher_embed_dim": 3200,
++            "clip_teacher_final_dim": 768,
++            "clip_norm_type": "l2",
++            "clip_return_layer": 6,
++            "clip_student_return_interval": 1,
++            "pretrained": "your_model_path/1B_stage2_pt.pth",
++            "use_checkpoint": true,
++            "checkpoint_num": 40,
++            "use_flash_attn": false,
++            "use_fused_rmsnorm": false,
++            "use_fused_mlp": false,
++            "clip_teacher": null,
++            "clip_input_resolution": 224,
++            "clip_teacher_return_interval": 1,
++            "video_mask_type": "random",
++            "video_mask_ratio": 0.8,
++            "image_mask_type": "random",
++            "image_mask_ratio": 0.5,
++            "sep_image_video_pos_embed": true,
++            "keep_temporal": false,
++            "only_mask": true
++        },
++        "text_encoder": {
++            "name": "bert_large",
++            "pretrained": "bert-large-uncased",
++            "config": "configs/config_bert_large.json",
++            "d_model": 1024,
++            "fusion_layer": 19
++        },
++        "multimodal": {
++            "enable": true
++        },
++        "embed_dim": 512,
++        "temp": 0.07,
++        "find_unused_parameters": false
++    },
++    "evaluate": true,
++    "deep_fusion": false,
++    "evaluation": {
++        "eval_frame_ensemble": "concat",
++        "eval_x_only": false,
++        "k_test": 128,
++        "eval_offload": true
++    },
++    "gradient_checkpointing": true,
++    "use_flash_sdp": false,
++    "use_mem_efficient_sdp": false,
++    "compile_model": false,
++    "dist_url": "env://",
++    "device": "cuda",
++    "mode": "pt",
++    "output_dir": null,
++    "resume": false,
++    "debug": false,
++    "log_freq": 100,
++    "seed": 42,
++    "save_latest": false,
++    "auto_resume": true,
++    "jump_evaluate": false,
++    "pretrained_path": "",
++    "deepspeed": {
++        "enable": true,
++        "stage": 1
++    }
++}
+diff --git a/InternVideo2/multi_modality/models/backbones/internvideo2/flash_attention_class.py b/InternVideo2/multi_modality/models/backbones/internvideo2/flash_attention_class.py
+index 04edd18..51fe5e1 100644
+--- a/InternVideo2/multi_modality/models/backbones/internvideo2/flash_attention_class.py
++++ b/InternVideo2/multi_modality/models/backbones/internvideo2/flash_attention_class.py
+@@ -3,8 +3,13 @@ import torch.nn as nn
+ 
+ from einops import rearrange
+ 
+-from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func
+-from flash_attn.bert_padding import unpad_input, pad_input
++try:
++    from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func
++    from flash_attn.bert_padding import unpad_input, pad_input
++    FLASH_ATTN_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_AVAILABLE = False
++    print("Warning: flash_attn not installed. FlashAttention will not be available.")
+ 
+ 
+ class FlashAttention(nn.Module):
+@@ -20,6 +25,9 @@ class FlashAttention(nn.Module):
+ 
+     def __init__(self, softmax_scale=None, attention_dropout=0.0, device=None, dtype=None):
+         super().__init__()
++        if not FLASH_ATTN_AVAILABLE:
++            raise ImportError("FlashAttention requires flash_attn to be installed. Please install it with: pip install flash-attn")
++        
+         self.softmax_scale = softmax_scale
+         self.dropout_p = attention_dropout
+ 
+@@ -32,6 +40,9 @@ class FlashAttention(nn.Module):
+                 if unpadded: (nnz, 3, h, d)
+             key_padding_mask: a bool tensor of shape (B, S)
+         """
++        if not FLASH_ATTN_AVAILABLE:
++            raise ImportError("FlashAttention requires flash_attn to be installed. Please install it with: pip install flash-attn")
++            
+         assert not need_weights
+         assert qkv.dtype in [torch.float16, torch.bfloat16]
+         assert qkv.is_cuda
+diff --git a/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2.py b/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2.py
+index fa09ad0..039fd28 100644
+--- a/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2.py
++++ b/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2.py
+@@ -16,13 +16,17 @@ logger = logging.getLogger(__name__)
+ 
+ try:
+     from flash_attn.modules.mlp import FusedMLP
+-except:
+-    logger.warn(f'FusedMLP of flash_attn is not installed!!!')
++    FLASH_ATTN_MLP_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_MLP_AVAILABLE = False
++    logger.warn(f'FusedMLP of flash_attn is not installed!!! Will use standard MLP.')
+ 
+ try:
+     from flash_attn.ops.rms_norm import DropoutAddRMSNorm
+-except:
+-    logger.warn(f'DropoutAddRMSNorm of flash_attn is not installed!!!')
++    FLASH_ATTN_RMSNORM_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_RMSNORM_AVAILABLE = False
++    logger.warn(f'DropoutAddRMSNorm of flash_attn is not installed!!! Will use standard RMSNorm.')
+ 
+ 
+ class CrossAttention(nn.Module):
+@@ -276,7 +280,7 @@ class Block(nn.Module):
+         
+         self.norm2 = norm_layer(dim)
+         mlp_hidden_dim = int(dim * mlp_ratio)
+-        if use_fused_mlp:
++        if use_fused_mlp and FLASH_ATTN_MLP_AVAILABLE:
+             self.mlp = FusedMLP(in_features=dim, hidden_features=mlp_hidden_dim, heuristic=fused_mlp_heuristic)
+         else:
+             self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+@@ -429,7 +433,7 @@ class PretrainInternVideo2(nn.Module):
+         logger.info(f'Normalization Type: {clip_norm_type}')
+         logger.info(f'Strudent Return Index: {self.return_index}')
+         
+-        if use_fused_rmsnorm:
++        if use_fused_rmsnorm and FLASH_ATTN_RMSNORM_AVAILABLE:
+             norm_layer_for_blocks = partial(DropoutAddRMSNorm, eps=1e-6, prenorm=True)
+         else:
+             norm_layer_for_blocks = partial(RMSNorm, eps=1e-6)
+diff --git a/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2_clip_vision.py b/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2_clip_vision.py
+index 37625a9..d08d100 100644
+--- a/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2_clip_vision.py
++++ b/InternVideo2/multi_modality/models/backbones/internvideo2/internvideo2_clip_vision.py
+@@ -12,8 +12,20 @@ from einops import rearrange
+ 
+ from .pos_embed import get_3d_sincos_pos_embed, get_2d_sincos_pos_embed, get_1d_sincos_pos_embed
+ from .flash_attention_class import FlashAttention
+-from flash_attn.modules.mlp import FusedMLP
+-from flash_attn.ops.rms_norm import DropoutAddRMSNorm
++
++try:
++    from flash_attn.modules.mlp import FusedMLP
++    FLASH_ATTN_MLP_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_MLP_AVAILABLE = False
++    print("Warning: FusedMLP of flash_attn is not installed! Will use standard MLP.")
++
++try:
++    from flash_attn.ops.rms_norm import DropoutAddRMSNorm
++    FLASH_ATTN_RMSNORM_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_RMSNORM_AVAILABLE = False
++    print("Warning: DropoutAddRMSNorm of flash_attn is not installed! Will use standard RMSNorm.")
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -270,7 +282,7 @@ class Block(nn.Module):
+         
+         self.norm2 = norm_layer(dim)
+         mlp_hidden_dim = int(dim * mlp_ratio)
+-        if use_fused_mlp:
++        if use_fused_mlp and FLASH_ATTN_MLP_AVAILABLE:
+             self.mlp = FusedMLP(in_features=dim, hidden_features=mlp_hidden_dim, heuristic=fused_mlp_heuristic)
+         else:
+             self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+@@ -375,7 +387,7 @@ class InternVideo2(nn.Module):
+         self.embed_dim = embed_dim
+         self.T = num_frames // tubelet_size
+         
+-        if use_fused_rmsnorm:
++        if use_fused_rmsnorm and FLASH_ATTN_RMSNORM_AVAILABLE:
+             norm_layer_for_blocks = partial(DropoutAddRMSNorm, eps=1e-6, prenorm=True)
+         else:
+             norm_layer_for_blocks = partial(RMSNorm, eps=1e-6)
+diff --git a/InternVideo2/multi_modality/models/backbones/internvideo2/internvl_clip_vision.py b/InternVideo2/multi_modality/models/backbones/internvideo2/internvl_clip_vision.py
+index 67cd1b7..aa4efa8 100644
+--- a/InternVideo2/multi_modality/models/backbones/internvideo2/internvl_clip_vision.py
++++ b/InternVideo2/multi_modality/models/backbones/internvideo2/internvl_clip_vision.py
+@@ -8,12 +8,21 @@ import torch.utils.checkpoint as checkpoint
+ from functools import partial
+ from einops import rearrange
+ 
++from .flash_attention_class import FlashAttention
++
++try:
++    from flash_attn.modules.mlp import FusedMLP
++    FLASH_ATTN_MLP_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_MLP_AVAILABLE = False
++    print("Warning: FusedMLP of flash_attn is not installed! Will use standard MLP.")
++
+ try:
+-    from .flash_attention_class import FlashAttention
+-except:
+-    from flash_attention_class import FlashAttention
+-from flash_attn.modules.mlp import FusedMLP
+-from flash_attn.ops.rms_norm import DropoutAddRMSNorm
++    from flash_attn.ops.rms_norm import DropoutAddRMSNorm
++    FLASH_ATTN_RMSNORM_AVAILABLE = True
++except ImportError:
++    FLASH_ATTN_RMSNORM_AVAILABLE = False
++    print("Warning: DropoutAddRMSNorm of flash_attn is not installed! Will use standard RMSNorm.")
+ 
+ 
+ MODEL_PATH = 'your_model_path/internvl'
+@@ -275,7 +284,7 @@ class Block(nn.Module):
+         
+         self.norm2 = norm_layer(dim)
+         mlp_hidden_dim = int(dim * mlp_ratio)
+-        if use_fused_mlp:
++        if use_fused_mlp and FLASH_ATTN_MLP_AVAILABLE:
+             self.mlp = FusedMLP(in_features=dim, hidden_features=mlp_hidden_dim, heuristic=fused_mlp_heuristic)
+         else:
+             self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+@@ -382,7 +391,7 @@ class InternVL_CLIP(nn.Module):
+         print(f'Teacher Return Interval: {self.return_index}')
+         
+         """ only use image encoder of InternVL """
+-        if use_fused_rmsnorm:
++        if use_fused_rmsnorm and FLASH_ATTN_RMSNORM_AVAILABLE:
+             norm_layer_for_blocks = partial(DropoutAddRMSNorm, eps=1e-6, prenorm=True)
+         else:
+             norm_layer_for_blocks = partial(RMSNorm, eps=1e-6)
+diff --git a/InternVideo2/multi_modality/pyproject.toml b/InternVideo2/multi_modality/pyproject.toml
+index 3281a0e..8b71ba4 100644
+--- a/InternVideo2/multi_modality/pyproject.toml
++++ b/InternVideo2/multi_modality/pyproject.toml
+@@ -16,12 +16,9 @@ classifiers = [
+ ]
+ 
+ dependencies = [
+-    "apex>=0.9.10dev",
+     "av>=13.0.0",
+-    "decord>=0.6.0",
+     "deepspeed>=0.15.1",
+     "einops>=0.8.0",
+-    "flash_attn>=2.6.3",
+     "fvcore>=0.1.5.post20221221",
+     "imageio>=2.35.1",
+     "librosa>=0.10.2.post1",
+@@ -48,10 +45,10 @@ dependencies = [
+ [project.optional-dependencies]
+ # These dependencies require building a lot of CUDA files, so it's best to run with many pip workers:
+ #   MAX_JOBS=24 pip install internvideo2_multi_modality[extra-git-deps]
+-extra-git-deps = [
+-    "dropout_layer_norm @ git+https://github.com/Dao-AILab/flash-attention.git@v2.6.3#subdirectory=csrc/layer_norm",
+-    "fused_dense_lib @ git+https://github.com/Dao-AILab/flash-attention.git@v2.6.3#subdirectory=csrc/fused_dense_lib/"
+-]
++# extra-git-deps = [
++#     "dropout_layer_norm @ git+https://github.com/Dao-AILab/flash-attention.git@v2.6.3#subdirectory=csrc/layer_norm",
++#     "fused_dense_lib @ git+https://github.com/Dao-AILab/flash-attention.git@v2.6.3#subdirectory=csrc/fused_dense_lib/"
++# ]
+ 
+ # Map the current directory to the package name `internvideo2_multi_modality`
+ [tool.setuptools]
+@@ -68,3 +65,7 @@ packages = [
+     "internvideo2_multi_modality.utils",
+ ]
+ package-dir = { "internvideo2_multi_modality" = "." }
++include-package-data = true
++
++[tool.setuptools.package-data]
++internvideo2_multi_modality = ["configs/*.json"]

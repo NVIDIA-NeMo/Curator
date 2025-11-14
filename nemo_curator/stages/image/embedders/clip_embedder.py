@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import torch
 from loguru import logger
 
-from nemo_curator.backends.base import WorkerMetadata
+from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.models.clip import CLIPImageEmbeddings
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
@@ -38,19 +38,23 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
     remove_image_data: bool = False
-    _name: str = "image_embedding"
+    name: str = "image_embedding"
 
     def __post_init__(self) -> None:
         if torch.cuda.is_available():
-            self._resources = Resources(gpus=self.num_gpus_per_worker)
+            self.resources = Resources(gpus=self.num_gpus_per_worker)
         else:
-            self._resources = Resources()
+            self.resources = Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
+
+    def setup_on_node(self, node_info: NodeInfo, worker_metadata: WorkerMetadata) -> None:  # noqa: ARG002
+        """Download the weights for the CLIP model on the node."""
+        CLIPImageEmbeddings.download_weights_on_node(self.model_dir)
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Initialize the CLIP image embedding model."""

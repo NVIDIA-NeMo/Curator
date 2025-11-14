@@ -9,13 +9,15 @@ modality: "universal"
 ---
 
 (reference-infra-resumable-processing)=
+
 # Resumable Processing
 
-This guide explains how to implement resumable processing for large-scale data operations that may be interrupted.
+This guide explains strategies to make large-scale data operations resumable.
 
 ## Why Resumable Processing Matters
 
-When processing large datasets, operations can be interrupted due to:
+Large datasets can trigger interruptions due to:
+
 - System timeouts
 - Hardware failures
 - Network issues
@@ -24,66 +26,95 @@ When processing large datasets, operations can be interrupted due to:
 
 NeMo Curator provides built-in functionality for resuming operations from where they left off.
 
-## Key Utilities for Resumable Processing
+## How it Works
 
-### 1. `get_remaining_files`
+The resumption approach works by:
 
-This function identifies files that haven't been processed yet:
-
-```python
-from nemo_curator.utils.file_utils import get_remaining_files
-
-# Get only files that haven't been processed yet
-files = get_remaining_files("input_directory/", "output_directory/", "jsonl")
-dataset = DocumentDataset.read_json(files, add_filename=True)
-
-# Continue processing with unprocessed files only
-processed_dataset = my_processor(dataset)
-processed_dataset.to_json("output_directory/", write_to_filename=True)
-```
-
-### 2. `get_batched_files`
-
-This function returns an iterator that yields batches of unprocessed files:
-
-```python
-from nemo_curator.utils.file_utils import get_batched_files
-
-# Process files in batches of 64
-for file_batch in get_batched_files("input_directory/", "output_directory/", "jsonl", batch_size=64):
-    dataset = DocumentDataset.read_json(file_batch, add_filename=True)
-    
-    # Process batch
-    processed_batch = my_processor(dataset)
-    
-    # Write results for this batch
-    processed_batch.to_json("output_directory/", write_to_filename=True)
-```
-
-## How Resumable Processing Works
-
-The resumption system works by:
-
-1. Examining filenames in the input directory
+1. Examining filenames in the input directory using `get_all_file_paths_under()`
 2. Comparing them with filenames in the output directory
-3. Identifying files that exist in the input but not in the output directory
-4. Processing only those unprocessed files
+3. Identifying unprocessed files by comparing file counts or specific file lists
+4. Rerunning the pipeline on remaining files
 
-This approach requires:
-- Using `add_filename=True` when reading files
-- Using `write_to_filename=True` when writing files
-- Maintaining consistent filename patterns between input and output
+This approach works best when you:
 
-## Best Practices for Resumable Processing
+- Use consistent directory structures for input and output
+- Process files in batches using `files_per_partition` to manage memory usage
+- Create checkpoints by writing intermediate results to disk
 
-1. **Preserve filenames**: Use `add_filename=True` when reading files and `write_to_filename=True` when writing.
+## Practical Patterns for Resumable Processing
 
-2. **Batch appropriately**: Choose batch sizes that balance memory usage and processing efficiency.
+### 1. Process remaining files using directory comparison
 
-3. **Use checkpointing**: For complex pipelines, consider writing intermediate results to disk.
+Use file listing utilities to identify unprocessed files and process them directly:
 
-4. **Test resumability**: Verify that your process can resume correctly after simulated interruptions.
+```python
+from nemo_curator.utils.file_utils import get_all_file_paths_under
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
-5. **Monitor disk space**: Ensure sufficient storage for both input and output files.
+# Get all input files
+input_files = get_all_file_paths_under(
+    "input_directory/", 
+    recurse_subdirectories=True, 
+    keep_extensions=[".jsonl"]
+)
 
-6. **Log progress**: Maintain logs of processed files to help diagnose issues.
+# Get already processed output files
+output_files = get_all_file_paths_under(
+    "output_directory/", 
+    recurse_subdirectories=True, 
+    keep_extensions=[".jsonl"]
+)
+
+# Simple approach: if output directory has fewer files than input, 
+# process all remaining inputs
+if len(output_files) < len(input_files):
+    # Process remaining files
+    pipeline = Pipeline(name="resumable_processing")
+    
+    # Read input files
+    reader = JsonlReader(file_paths=input_files, fields=["text", "id"])
+    pipeline.add_stage(reader)
+    
+    # Add your processing stages here
+    # pipeline.add_stage(your_processing_stage)
+    
+    # Write results
+    writer = JsonlWriter(path="output_directory/")
+    pipeline.add_stage(writer)
+    
+    # Execute pipeline
+    pipeline.run()
+```
+
+### 2. Batch processing with file partitioning
+
+Control memory usage and enable checkpoint creation by using NeMo Curator's built-in file partitioning:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+
+# Process files in smaller batches using files_per_partition
+pipeline = Pipeline(name="batch_processing")
+
+# JsonlReader automatically handles file partitioning
+reader = JsonlReader(
+    file_paths="input_directory/", 
+    files_per_partition=64,  # Process 64 files at a time
+    fields=["text", "id"]
+)
+pipeline.add_stage(reader)
+
+# Add your processing stages here
+# pipeline.add_stage(your_processing_stage)
+
+# Write results
+writer = JsonlWriter(path="output_directory/")
+pipeline.add_stage(writer)
+
+# Execute pipeline - processes files in batches automatically
+pipeline.run()
+```

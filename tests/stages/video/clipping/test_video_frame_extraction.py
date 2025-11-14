@@ -140,7 +140,7 @@ class TestGetFramesFromFfmpeg:
 
         # Verify warning was logged
         mock_logger.warning.assert_called_once_with(
-            "Caught ffmpeg runtime error with `use_gpu=True` option, falling back to CPU."
+            "Caught FFmpeg runtime error with `use_gpu=True` option, falling back to CPU."
         )
 
         # Verify result
@@ -455,7 +455,7 @@ class TestVideoFrameExtractionStage:
 
         # Verify warning was logged
         mock_logger.warning.assert_called_once_with(
-            "Got exception PyNvCodec error with PyNvVideoCodec decode, trying ffmpeg CPU fallback"
+            "Got exception PyNvCodec error with PyNvVideoCodec decode, trying FFmpeg CPU fallback"
         )
 
         # Verify FFmpeg was called with CPU fallback

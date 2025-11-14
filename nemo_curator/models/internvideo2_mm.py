@@ -20,15 +20,15 @@ from typing import Final
 import cv2
 
 # Load config from the internvideo2_multi_modality package
+import internvideo2_multi_modality
 import numpy as np
 import numpy.typing as npt
 import torch
 from easydict import EasyDict
+from internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from loguru import logger
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from nemo_curator import internvideo2_multi_modality
-from nemo_curator.internvideo2_multi_modality import InternVideo2_Stage2_visual, interpolate_pos_embed_internvideo2_new
 from nemo_curator.models.base import ModelInterface
 from nemo_curator.utils.hf_download_utils import download_model_from_hf
 

@@ -24,7 +24,6 @@ import torch
 from loguru import logger
 
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
@@ -113,8 +112,8 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         check_disallowed_kwargs(self.write_kwargs, ["index"])
         self.input_storage_options = self.read_kwargs.pop("storage_options", None) if self.read_kwargs else None
         self.output_storage_options = self.write_kwargs.pop("storage_options", None) if self.write_kwargs else None
-        self._name = "PairwiseCosineSimilarityStage"
-        self._resources = Resources(cpus=1.0, gpus=1.0)
+        self.name = "PairwiseCosineSimilarityStage"
+        self.resources = Resources(cpus=1.0, gpus=1.0)
 
     def process(self, task: FileGroupTask) -> FileGroupTask:
         """Process a PairwiseFileGroupTask to compute pairwise similarities."""
@@ -166,7 +165,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
                 data=[],
             )
 
-        has_curator_id = CURATOR_DEDUP_ID_STR in dfs[0].columns
         num_rows = sum(len(df) for df in dfs)
 
         # Handle single item clusters
@@ -225,7 +223,6 @@ class PairwiseCosineSimilarityStage(ProcessingStage[FileGroupTask, FileGroupTask
         # Create result dataframe
         points_to_remove_df = cudf.DataFrame(
             {
-                **({CURATOR_DEDUP_ID_STR: ids} if has_curator_id else {}),
                 "id": ids,
                 "max_id": max_indices_id,
                 "cosine_sim_score": max_similarity,

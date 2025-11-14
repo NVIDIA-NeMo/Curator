@@ -49,8 +49,8 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
         """
         self.input_path = input_path
         self.storage_options = storage_options
-        self._name = "pairwise_file_partitioning"
-        self._resources = Resources(cpus=0.5)
+        self.name = "pairwise_file_partitioning"
+        self.resources = Resources(cpus=0.5)
         self.fs: AbstractFileSystem | None = None
 
     def inputs(self) -> tuple[list[str], list[str]]:

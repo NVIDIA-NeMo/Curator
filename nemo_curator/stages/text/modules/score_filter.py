@@ -14,7 +14,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 from loguru import logger
@@ -49,10 +49,10 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
     score_fn: Callable[[str], float | str] | DocumentFilter | list[DocumentFilter]
     score_field: str | list[str]
     text_field: str | list[str] = "text"
-    _name: str = "score_fn"
+    name: str = "score_fn"
 
     def __post_init__(self):
-        self._name, self.score_fn, self.text_field, _, self.score_field = _validate_and_normalize_filters(
+        self.name, self.score_fn, self.text_field, _, self.score_field = _validate_and_normalize_filters(
             self.score_fn, self.text_field, None, self.score_field, "score"
         )
 
@@ -61,6 +61,14 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.text_field + self.score_field
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        requires_setup = any(
+            hasattr(score_fn, "load_model") or hasattr(score_fn, "load_tokenizer")
+            for score_fn in self.score_fn
+            if isinstance(score_fn, DocumentFilter)
+        )
+        return {"is_actor_stage": requires_setup}
 
     def setup_on_node(
         self,
@@ -90,8 +98,11 @@ class Score(ProcessingStage[DocumentBatch, DocumentBatch]):
             DocumentBatch: A batch with the new score
 
         """
-
         df = batch.to_pandas()
+
+        if df.empty:
+            logger.info(f"Empty dataset for batch {batch.task_id}")
+            return batch
 
         for score_fn_i, text_field_i, score_field_i in zip(
             self.score_fn, self.text_field, self.score_field, strict=True
@@ -133,10 +144,10 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
     filter_fn: Callable | DocumentFilter | list[DocumentFilter]
     filter_field: str | list[str]
     invert: bool | list[bool] = False
-    _name: str = "filter_fn"
+    name: str = "filter_fn"
 
     def __post_init__(self):
-        self._name, self.filter_fn, self.filter_field, self.invert, _ = _validate_and_normalize_filters(
+        self.name, self.filter_fn, self.filter_field, self.invert, _ = _validate_and_normalize_filters(
             self.filter_fn, self.filter_field, self.invert, None, "filter"
         )
 
@@ -185,6 +196,10 @@ class Filter(ProcessingStage[DocumentBatch, DocumentBatch]):
         """
         df = batch.to_pandas()
 
+        if df.empty:
+            logger.info(f"Empty dataset for batch {batch.task_id}")
+            return batch
+
         for filter_fn_i, filter_field_i, invert_i in zip(self.filter_fn, self.filter_field, self.invert, strict=True):
             bool_mask = self.compute_filter_mask(df, filter_fn_i, filter_field_i, invert_i)
             df = df[bool_mask]
@@ -229,10 +244,10 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
     text_field: str | list[str] = "text"
     score_field: str | list[str] | None = None
     invert: bool | list[bool] = False
-    _name: str = "score_filter"
+    name: str = "score_filter"
 
     def __post_init__(self):
-        self._name, self.filter_obj, self.text_field, self.invert, self.score_field = _validate_and_normalize_filters(
+        self.name, self.filter_obj, self.text_field, self.invert, self.score_field = _validate_and_normalize_filters(
             self.filter_obj, self.text_field, self.invert, self.score_field, "score_filter"
         )
 
@@ -241,6 +256,14 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], self.text_field + self.score_field if self.score_field is not None else []
+
+    def ray_stage_spec(self) -> dict[str, Any]:
+        requires_setup = any(
+            hasattr(filter_obj, "load_model") or hasattr(filter_obj, "load_tokenizer")
+            for filter_obj in self.filter_obj
+            if isinstance(filter_obj, DocumentFilter)
+        )
+        return {"is_actor_stage": requires_setup}
 
     def setup_on_node(
         self,
@@ -300,6 +323,10 @@ class ScoreFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         """
         df = batch.to_pandas()
+
+        if df.empty:
+            logger.info(f"Empty dataset for batch {batch.task_id}")
+            return batch
 
         for filter_obj_i, text_field_i, score_field_i, invert_i in zip(
             self.filter_obj, self.text_field, self.score_field, self.invert, strict=True

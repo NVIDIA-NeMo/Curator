@@ -10,9 +10,11 @@
 #   make docs-html DOCS_ENV=ga         # Build docs for GA
 #   make docs-html                     # Build docs with no special tag
 #   make docs-live DOCS_ENV=draft      # Live server with draft tag
+#   make docs-live SPHINX_AUTOBUILD_FLAGS="--port 8080 --host 0.0.0.0"  # Custom flags
 #   make docs-publish DOCS_ENV=ga      # Production build (fails on warnings)
 
 DOCS_ENV ?=
+SPHINX_AUTOBUILD_FLAGS ?=
 
 # Detect OS for cross-platform compatibility
 ifeq ($(OS),Windows_NT)
@@ -47,7 +49,7 @@ docs-clean:
 
 docs-live:
 	@echo "Starting live-reload server (sphinx-autobuild)..."
-	cd docs && $(VENV_PYTHON) -m sphinx_autobuild $(if $(DOCS_ENV),-t $(DOCS_ENV)) . _build/html
+	cd docs && $(VENV_PYTHON) -m sphinx_autobuild $(if $(DOCS_ENV),-t $(DOCS_ENV)) $(SPHINX_AUTOBUILD_FLAGS) . _build/html
 
 docs-env:
 	@echo "Setting up docs virtual environment with uv..."
@@ -101,4 +103,4 @@ docs-live-ea:
 	$(MAKE) docs-live DOCS_ENV=ea
 
 docs-live-draft:
-	$(MAKE) docs-live DOCS_ENV=draft 
+	$(MAKE) docs-live DOCS_ENV=draft

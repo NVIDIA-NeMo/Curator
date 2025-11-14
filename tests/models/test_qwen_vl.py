@@ -128,7 +128,6 @@ class TestQwenVL:
             model=self.qwen_vl.weight_file,
             limit_mm_per_prompt={"image": 0, "video": 1},
             quantization="fp8",
-            max_seq_len_to_capture=32768,
             max_model_len=32768,
             gpu_memory_utilization=0.85,
             mm_processor_kwargs=expected_mm_processor_kwargs,

@@ -68,7 +68,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     gpu_memory_gb: int = 10
     limit_clips: int = -1
     verbose: bool = False
-    _name: str = "transnetv2_clip_extraction"
+    name: str = "transnetv2_clip_extraction"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -85,7 +85,7 @@ class TransNetV2ClipExtractionStage(ProcessingStage[VideoTask, VideoTask]):
         self._model.setup()
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
+        self.resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def process(self, task: VideoTask) -> VideoTask:  # noqa: C901
         video: Video = task.data

@@ -16,17 +16,15 @@ import math
 from typing import TYPE_CHECKING, Any
 
 import cudf
-from cugraph.dask.comms.comms_wrapper import init_subcomms as c_init_subcomms
 from loguru import logger
 from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
+from pylibcugraph.comms.comms_wrapper import init_subcomms as c_init_subcomms
 
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.fuzzy.utils import CURATOR_FUZZY_DUPLICATE_GROUP_FIELD
-from nemo_curator.stages.deduplication.id_generator import (
-    CURATOR_DEDUP_ID_STR,
-)
+from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks.file_group import FileGroupTask
@@ -40,8 +38,8 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
     def __init__(
         self,
         output_path: str,
-        source_field: str = f"{CURATOR_DEDUP_ID_STR}_x",
-        destination_field: str = f"{CURATOR_DEDUP_ID_STR}_y",
+        source_field: str | None = None,
+        destination_field: str | None = None,
         read_kwargs: dict | None = None,
         write_kwargs: dict | None = None,
     ):
@@ -54,14 +52,14 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
             write_kwargs: Keyword arguments to pass for writing the output files.
         """
 
-        self.source_field = source_field
-        self.destination_field = destination_field
+        self.source_field = source_field or f"{CURATOR_DEDUP_ID_STR}_x"
+        self.destination_field = destination_field or f"{CURATOR_DEDUP_ID_STR}_y"
         self.read_kwargs = read_kwargs if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
-        self._name = self.__class__.__name__
-        self._resources = Resources(cpus=1.0, gpus=1.0)
-        self._batch_size = None
+        self.name = self.__class__.__name__
+        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.batch_size = None
 
         # Handle output directory cleanup logic
         self.output_fs = get_fs(output_path, self.write_kwargs.get("storage_options"))

@@ -21,10 +21,10 @@ import pytest
 
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import (
-    ATTENTION_MASK_COLUMN,
-    INPUT_ID_COLUMN,
-    SEQ_ORDER_COLUMN,
-    TOKEN_LENGTH_COLUMN,
+    ATTENTION_MASK_FIELD,
+    INPUT_ID_FIELD,
+    SEQ_ORDER_FIELD,
+    TOKEN_LENGTH_FIELD,
 )
 from nemo_curator.tasks import DocumentBatch
 
@@ -128,23 +128,23 @@ def test_tokenizer_stage_sort_by_length_enabled(sample_document_batch: DocumentB
     stage.setup()
     result = stage.process(sample_document_batch).to_pandas()
 
-    assert INPUT_ID_COLUMN in result.columns
-    assert ATTENTION_MASK_COLUMN in result.columns
-    assert SEQ_ORDER_COLUMN in result.columns
+    assert INPUT_ID_FIELD in result.columns
+    assert ATTENTION_MASK_FIELD in result.columns
+    assert SEQ_ORDER_FIELD in result.columns
     assert "text" in result.columns
 
-    # Verify that TOKEN_LENGTH_COLUMN was removed after sorting
-    assert TOKEN_LENGTH_COLUMN not in result.columns
+    # Verify that TOKEN_LENGTH_FIELD was removed after sorting
+    assert TOKEN_LENGTH_FIELD not in result.columns
 
     # Verify that data is sorted by token length (ascending order)
     token_lengths = []
-    for mask in result[ATTENTION_MASK_COLUMN]:
+    for mask in result[ATTENTION_MASK_FIELD]:
         token_lengths.append(sum(mask))
     assert token_lengths == sorted(token_lengths)
 
-    # Verify that SEQ_ORDER_COLUMN preserves original order information
-    assert len(set(result[SEQ_ORDER_COLUMN])) == len(result)
-    assert all(0 <= order < len(sample_document_batch.to_pandas()) for order in result[SEQ_ORDER_COLUMN])
+    # Verify that SEQ_ORDER_FIELD preserves original order information
+    assert len(set(result[SEQ_ORDER_FIELD])) == len(result)
+    assert all(0 <= order < len(sample_document_batch.to_pandas()) for order in result[SEQ_ORDER_FIELD])
 
 
 def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: DocumentBatch):
@@ -153,15 +153,15 @@ def test_tokenizer_stage_sort_by_length_disabled(sample_document_batch: Document
     stage.setup()
     result = stage.process(sample_document_batch).to_pandas()
 
-    assert INPUT_ID_COLUMN in result.columns
-    assert ATTENTION_MASK_COLUMN in result.columns
+    assert INPUT_ID_FIELD in result.columns
+    assert ATTENTION_MASK_FIELD in result.columns
     assert "text" in result.columns
 
-    # Verify that SEQ_ORDER_COLUMN does NOT exist when sorting is disabled
-    assert SEQ_ORDER_COLUMN not in result.columns
+    # Verify that SEQ_ORDER_FIELD does NOT exist when sorting is disabled
+    assert SEQ_ORDER_FIELD not in result.columns
 
-    # Verify that TOKEN_LENGTH_COLUMN does NOT exist when sorting is disabled
-    assert TOKEN_LENGTH_COLUMN not in result.columns
+    # Verify that TOKEN_LENGTH_FIELD does NOT exist when sorting is disabled
+    assert TOKEN_LENGTH_FIELD not in result.columns
 
     # Verify that the order is preserved (same as input)
     original_texts = sample_document_batch.to_pandas()["text"].tolist()

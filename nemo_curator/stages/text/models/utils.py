@@ -18,10 +18,10 @@ from typing import Literal
 os.environ["RAPIDS_NO_INITIALIZE"] = "1"
 import torch
 
-INPUT_ID_COLUMN = "input_ids"
-ATTENTION_MASK_COLUMN = "attention_mask"
-SEQ_ORDER_COLUMN = "_curator_seq_order"
-TOKEN_LENGTH_COLUMN = "_curator_token_length"  # noqa: S105
+INPUT_ID_FIELD = "input_ids"
+ATTENTION_MASK_FIELD = "attention_mask"
+SEQ_ORDER_FIELD = "_curator_seq_order"
+TOKEN_LENGTH_FIELD = "_curator_token_length"  # noqa: S105
 
 
 def format_name_with_suffix(model_identifier: str, suffix: str = "_classifier") -> str:
@@ -40,14 +40,14 @@ def clip_tokens(token_o: dict, padding_side: Literal["left", "right"] = "right")
         The clipped tokens (input_ids, attention_mask).
 
     """
-    clip_len = token_o[ATTENTION_MASK_COLUMN].sum(axis=1).max()
+    clip_len = token_o[ATTENTION_MASK_FIELD].sum(axis=1).max()
 
     if padding_side == "right":
-        token_o[INPUT_ID_COLUMN] = token_o[INPUT_ID_COLUMN][:, :clip_len]
-        token_o[ATTENTION_MASK_COLUMN] = token_o[ATTENTION_MASK_COLUMN][:, :clip_len]
+        token_o[INPUT_ID_FIELD] = token_o[INPUT_ID_FIELD][:, :clip_len]
+        token_o[ATTENTION_MASK_FIELD] = token_o[ATTENTION_MASK_FIELD][:, :clip_len]
     else:
-        token_o[INPUT_ID_COLUMN] = token_o[INPUT_ID_COLUMN][:, -clip_len:]
-        token_o[ATTENTION_MASK_COLUMN] = token_o[ATTENTION_MASK_COLUMN][:, -clip_len:]
+        token_o[INPUT_ID_FIELD] = token_o[INPUT_ID_FIELD][:, -clip_len:]
+        token_o[ATTENTION_MASK_FIELD] = token_o[ATTENTION_MASK_FIELD][:, -clip_len:]
 
     token_o.pop("metadata", None)
 

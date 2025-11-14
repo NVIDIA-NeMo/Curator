@@ -35,7 +35,7 @@ class Repeat(ProcessingStage[SimpleTask, SimpleTask]):
     """
 
     times: int = 3
-    _name: str = "repeat"
+    name: str = "repeat"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []

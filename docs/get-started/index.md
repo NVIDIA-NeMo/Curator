@@ -39,7 +39,7 @@ The following quickstarts enable you to test out NeMo Curator for a given modali
 :::{grid-item-card} {octicon}`typography;1.5em;sd-mr-1` Text Curation Quickstart
 :link: gs-text
 :link-type: ref
-Set up your environment and run your first text curation pipeline with NeMo Curator. Learn how to install the toolkit, prepare your data, and use the `DocumentDataset` and modular filters to curate large-scale text datasets efficiently.
+Set up your environment and run your first text curation pipeline with NeMo Curator. Learn how to install the toolkit, prepare your data, and use the pipeline architecture with modular stages to curate large-scale text datasets efficiently.
 
 :::
 
@@ -47,6 +47,13 @@ Set up your environment and run your first text curation pipeline with NeMo Cura
 :link: gs-image
 :link-type: ref
 Set up your environment and install NeMo Curator's image modules. Learn about prerequisites, installation methods, and how to use the toolkit to curate large-scale image-text datasets for generative model training.
+
+:::
+
+:::{grid-item-card} {octicon}`video;1.5em;sd-mr-1` Video Curation Quickstart
+:link: gs-video
+:link-type: ref
+Set up your environment and run your first video curation pipeline. Learn about prerequisites, installation options, and how to split, encode, embed, and export curated clips at scale.
 
 :::
 

@@ -9,6 +9,7 @@ modality: "universal"
 ---
 
 (reference-infra-gpu-processing)=
+
 # GPU Processing Guide
 
 This guide explains how to use GPU acceleration in NVIDIA NeMo Curator for faster text data processing.
@@ -16,71 +17,77 @@ This guide explains how to use GPU acceleration in NVIDIA NeMo Curator for faste
 ## Setting Up GPU Support
 
 To use GPU acceleration, you'll need:
+
 1. NVIDIA GPU with CUDA support
 2. RAPIDS libraries installed (cuDF, RMM)
-3. GPU-enabled Dask cluster
+3. PyTorch with CUDA support for model inference
 
-### Initializing GPU Support
+### Example: GPU-Accelerated Text Classification
 
 ```python
-from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.stages.text.classifiers import QualityClassifier
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.tasks import DocumentBatch
+import pandas as pd
 
-# Set up GPU-enabled Dask client
-client = get_client(cluster_type="gpu")
+# Create sample data
+data = pd.DataFrame({
+    "text": ["This is high quality text.", "Poor quality text here."]
+})
+batch = DocumentBatch(data=data, task_id="test_task", dataset_name="test_dataset")
+
+# Set up GPU-accelerated classifier
+classifier = QualityClassifier(
+    model_inference_batch_size=256,
+    autocast=True  # Enable mixed precision for faster inference
+)
+
+# Create and run pipeline
+pipeline = Pipeline(name="test_pipeline")
+pipeline.add_stage(classifier)
+result = pipeline.run(initial_tasks=[batch])
+
+print(result)
 ```
 
-The `get_client` function automatically:
-- Creates one worker per available GPU
-- Sets up GPU memory management
-- Configures RAPIDS memory manager (RMM)
+### Example: GPU-Accelerated Fuzzy Deduplication
+
+```python
+from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+
+# Set up GPU-accelerated fuzzy deduplication
+workflow = FuzzyDeduplicationWorkflow(
+    input_path="/path/to/input/data",
+    cache_path="/path/to/cache",
+    output_path="/path/to/output",
+    text_field="text",
+    # GPU-accelerated MinHash parameters
+    char_ngrams=24,
+    num_bands=20,
+    minhashes_per_band=13,
+    use_64_bit_hash=False
+)
+
+# Run deduplication workflow
+workflow.run()
+```
 
 ## GPU-Accelerated Modules
 
 NVIDIA NeMo Curator provides these GPU-accelerated modules:
 
-### Deduplication
-- Exact deduplication using GPU hashing
-- Fuzzy deduplication with GPU-accelerated similarity
-- Semantic deduplication using GPU embeddings
+### Data Processing
 
-### Classification
-- Domain classification (English and multilingual)
-- Quality classification
-- Safety models (AEGIS, Instruction Data Guard)
-- Educational content (FineWeb models)
-- Content type classification
-- Task and complexity classification
+- **Exact deduplication**: GPU-optimized processing for duplicate detection
+- **Fuzzy deduplication**: GPU-accelerated MinHash computation for approximate duplicates
+- **Semantic deduplication**: GPU embeddings and similarity calculations for content-based deduplication
 
-## Managing GPU Memory
+### Text Classification
 
-### Moving Data Between CPU and GPU
+- **Domain classification**: English and multilingual content categorization
+- **Quality classification**: Content quality assessment using GPU-accelerated models
+- **Safety models**: AEGIS and Instruction Data Guard for content safety evaluation
+- **Educational content**: FineWeb models for educational value scoring
+- **Content type classification**: Automatic content type detection
+- **Task and complexity classification**: Instruction complexity assessment
 
-Use the `ToBackend` module to move data:
-```python
-from nemo_curator import Sequential, ToBackend
-
-pipeline = Sequential([
-    cpu_operation,          # Runs on CPU
-    ToBackend("cudf"),     # Moves to GPU
-    gpu_operation,         # Runs on GPU
-    ToBackend("pandas"),   # Moves back to CPU
-    cpu_operation_2        # Runs on CPU
-])
-```
-
-### Memory Optimization Tips
-
-1. **Batch Processing**
-   - Process data in smaller batches
-   - Release GPU memory between operations
-   - Monitor GPU memory usage
-
-2. **Strategic Data Movement**
-   - Keep data on GPU for multiple GPU operations
-   - Move to CPU for memory-intensive operations
-   - Use lazy evaluation when possible
-
-3. **Resource Management**
-   - Monitor GPU memory with `nvidia-smi`
-   - Use RMM memory pools for efficiency
-   - Clean up unused GPU objects

@@ -10,7 +10,7 @@ modality: "universal"
 
 # Infrastructure References
 
-This section provides technical reference documentation for NeMo Curator's infrastructure components that are used across all modalities (text, image, video). For deployment and operational configuration, see the [Admin Configuration Guide](admin-config).
+This section provides technical reference documentation for NeMo Curator's infrastructure components that are used across all modalities (text, image, video).
 
 ---
 
@@ -18,16 +18,6 @@ This section provides technical reference documentation for NeMo Curator's infra
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`server;1.5em;sd-mr-1` Distributed Computing
-:link: reference-infra-dist-computing
-:link-type: ref
-Configure and manage distributed processing across multiple machines
-+++
-{bdg-secondary}`dask`
-{bdg-secondary}`clusters`
-{bdg-secondary}`scaling`
-:::
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management
 :link: reference-infra-memory-management
@@ -62,11 +52,10 @@ Continue interrupted operations across large datasets
 :::{grid-item-card} {octicon}`container;1.5em;sd-mr-1` Container Environments
 :link: reference-infrastructure-container-environments
 :link-type: ref
-Available environments and configurations in NeMo Curator containers. Includes Slurm environment variables, build arguments, and video-specific environments.
+Available environments and configurations in NeMo Curator containers. Includes build arguments and video-specific environments.
 +++
 {bdg-secondary}`docker`
 {bdg-secondary}`conda`
-{bdg-secondary}`slurm`
 {bdg-secondary}`environments`
 :::
 
@@ -76,7 +65,6 @@ Available environments and configurations in NeMo Curator containers. Includes S
 :maxdepth: 2
 :hidden:
 
-distributed-computing
 memory-management
 gpu-processing
 resumable-processing

@@ -13,14 +13,12 @@
 # limitations under the License.
 
 import contextlib
-import importlib.metadata
 import json
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
 import pytest
-from packaging.version import Version
 
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
@@ -32,10 +30,6 @@ from nemo_curator.stages.deduplication.id_generator import (
 )
 from nemo_curator.stages.text.io.reader.jsonl import JsonlReader
 from nemo_curator.tasks import DocumentBatch
-
-ray_version = Version(importlib.metadata.version("ray"))
-# TODO: Some Ray Data tests are skipped because they require ray >= 2.49.0 see https://github.com/ray-project/ray/issues/54841
-
 
 # File format configurations
 FILE_FORMAT_CONFIGS = {
@@ -147,7 +141,6 @@ def create_reader_pipeline(
         pytest.param(
             ((RayDataExecutor, {}), "jsonl"),
             id="ray_data_jsonl",
-            marks=pytest.mark.skipif(ray_version < Version("2.49.0"), reason="Requires ray >= 2.49"),
         ),
         pytest.param(((XennaExecutor, {"execution_mode": "streaming"}), "jsonl"), id="xenna_streaming_jsonl"),
     ],
@@ -230,7 +223,6 @@ class TestReaderIntegrationWithoutIdGenerator:
         pytest.param(
             ((RayDataExecutor, {}), "jsonl"),
             id="ray_data_jsonl",
-            marks=pytest.mark.skipif(ray_version < Version("2.49.0"), reason="Requires ray >= 2.49"),
         ),
         pytest.param(((XennaExecutor, {"execution_mode": "streaming"}), "jsonl"), id="xenna_streaming_jsonl"),
         # Future formats can be added here:

@@ -27,7 +27,7 @@ from transformers import AutoConfig, AutoModel, AutoTokenizer
 
 from nemo_curator.stages.text.embedders.base import EmbeddingCreatorStage, EmbeddingModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -88,8 +88,8 @@ class TestEmbeddingModelStage:
 
         # Check that the required columns are present in inputs
         assert inputs[0] == ["data"]
-        assert INPUT_ID_COLUMN in inputs[1]
-        assert ATTENTION_MASK_COLUMN in inputs[1]
+        assert INPUT_ID_FIELD in inputs[1]
+        assert ATTENTION_MASK_FIELD in inputs[1]
         assert outputs == (["data"], ["embeddings"])
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
@@ -138,8 +138,8 @@ class TestEmbeddingModelStage:
             data=pd.DataFrame(
                 {
                     "text": ["Hello world", "Test text"],
-                    INPUT_ID_COLUMN: [[1, 2, 3, 0], [4, 5, 0, 0]],  # Second sequence shorter
-                    ATTENTION_MASK_COLUMN: [[1, 1, 1, 0], [1, 1, 0, 0]],  # Corresponding masks
+                    INPUT_ID_FIELD: [[1, 2, 3, 0], [4, 5, 0, 0]],  # Second sequence shorter
+                    ATTENTION_MASK_FIELD: [[1, 1, 1, 0], [1, 1, 0, 0]],  # Corresponding masks
                 }
             ),
         )
@@ -292,15 +292,17 @@ class TestEmbeddingCreatorStage:
         assert embedding_stage.pooling == stage.embedding_pooling
 
     @pytest.mark.parametrize("pooling_strategy", ["mean_pooling", "last_token"])
+    @pytest.mark.parametrize("autocast", [True, False])
     @pytest.mark.gpu
     def test_embedding_creator_stage_with_reference_embeddings(
-        self, pooling_strategy: str, sample_data: DocumentBatch
+        self, pooling_strategy: str, sample_data: DocumentBatch, autocast: bool
     ) -> None:
         """Test embeddings match reference implementation (requires GPU and model download)."""
         stage = EmbeddingCreatorStage(
             model_identifier="sentence-transformers/all-MiniLM-L6-v2",
             embedding_pooling=pooling_strategy,
             model_inference_batch_size=32,
+            autocast=autocast,
         )
 
         # Decompose and setup stages
@@ -362,7 +364,7 @@ class TestEmbeddingCreatorStage:
             )
             inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
-            with torch.no_grad(), torch.autocast(device_type="cuda"):
+            with torch.no_grad():
                 outputs = model(**inputs)
 
             if pooling_strategy == "last_token":

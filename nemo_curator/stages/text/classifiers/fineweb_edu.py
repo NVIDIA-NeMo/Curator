@@ -25,7 +25,7 @@ from transformers import AutoModelForSequenceClassification
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
@@ -44,9 +44,9 @@ class FineWebModelStage(ModelStage):
     Args:
         model_identifier: The identifier of the Hugging Face model.
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column.
-        float_score_column: The name of the float score column.
-        int_score_column: The name of the integer score column.
+        label_field: The name of the prediction column.
+        float_score_field: The name of the float score column.
+        int_score_field: The name of the integer score column.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
@@ -59,9 +59,9 @@ class FineWebModelStage(ModelStage):
         self,
         model_identifier: str,
         cache_dir: str | None = None,
-        pred_column: str = "preds",
-        float_score_column: str = "float_score",
-        int_score_column: str = "int_score",
+        label_field: str = "preds",
+        float_score_field: str = "float_score",
+        int_score_field: str = "int_score",
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         autocast: bool = True,
@@ -75,28 +75,22 @@ class FineWebModelStage(ModelStage):
             unpack_inference_batch=True,
         )
 
-        self.pred_column = pred_column
-        self.float_score_column = float_score_column
-        self.int_score_column = int_score_column
+        self.label_field = label_field
+        self.float_score_field = float_score_field
+        self.int_score_field = int_score_field
         self.autocast = autocast
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column, self.float_score_column, self.int_score_column]
+        return ["data"], [self.label_field, self.float_score_field, self.int_score_field]
 
     @staticmethod
-    def configure_forward(model: torch.nn.Module, autocast: bool = True) -> torch.nn.Module:
+    def configure_forward(model: torch.nn.Module) -> torch.nn.Module:
         original_forward = model.forward
 
         @torch.no_grad()
         def custom_forward(*args, **kwargs) -> torch.Tensor:
-            if autocast:
-                with torch.autocast(device_type="cuda"):
-                    output = original_forward(*args, **kwargs)
-            else:
-                output = original_forward(*args, **kwargs)
-
+            output = original_forward(*args, **kwargs)
             del args, kwargs
-
             return output.logits.squeeze(-1).float()
 
         model.forward = custom_forward
@@ -108,9 +102,11 @@ class FineWebModelStage(ModelStage):
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
         ).cuda()
-        self.model = self.configure_forward(model, self.autocast)
+        self.model = self.configure_forward(model)
 
-    def process_model_output(self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None) -> dict[str, np.ndarray]:
+    def process_model_output(
+        self, outputs: torch.Tensor, _: dict[str, torch.Tensor] | None = None
+    ) -> dict[str, np.ndarray]:
         logits = outputs.cpu().numpy()
 
         float_scores = logits.tolist()
@@ -119,17 +115,17 @@ class FineWebModelStage(ModelStage):
         pred_labels = ["high_quality" if score >= 2.5 else "low_quality" for score in logits]  # noqa: PLR2004
 
         return {
-            self.float_score_column: float_scores,
-            self.int_score_column: int_scores,
-            self.pred_column: pred_labels,
+            self.float_score_field: float_scores,
+            self.int_score_field: int_scores,
+            self.label_field: pred_labels,
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
-        df_cpu[self.float_score_column] = collected_output[self.float_score_column]
-        df_cpu[self.int_score_column] = collected_output[self.int_score_column]
-        df_cpu[self.pred_column] = collected_output[self.pred_column]
+        df_cpu[self.float_score_field] = collected_output[self.float_score_field]
+        df_cpu[self.int_score_field] = collected_output[self.int_score_field]
+        df_cpu[self.label_field] = collected_output[self.label_field]
 
         return df_cpu
 
@@ -143,9 +139,9 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     Args:
         model_identifier: The identifier of the Hugging Face model.
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column.
-        float_score_column: The name of the float score column.
-        int_score_column: The name of the integer score column.
+        label_field: The name of the prediction column.
+        float_score_field: The name of the float score column.
+        int_score_field: The name of the integer score column.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -162,9 +158,9 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
     model_identifier: str
     cache_dir: str | None = None
-    pred_column: str = "preds"
-    float_score_column: str = "float_score"
-    int_score_column: str = "int_score"
+    label_field: str = "preds"
+    float_score_field: str = "float_score"
+    int_score_field: str = "int_score"
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int | None = None
@@ -189,9 +185,9 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             FineWebModelStage(
                 model_identifier=self.model_identifier,
                 cache_dir=self.cache_dir,
-                pred_column=self.pred_column,
-                float_score_column=self.float_score_column,
-                int_score_column=self.int_score_column,
+                label_field=self.label_field,
+                float_score_field=self.float_score_field,
+                int_score_field=self.int_score_field,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 autocast=self.autocast,
@@ -199,7 +195,7 @@ class _FineWebBaseClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()
@@ -222,9 +218,9 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column. Defaults to "fineweb-edu-score-label".
-        float_score_column: The name of the float score column. Defaults to "fineweb-edu-score-float".
-        int_score_column: The name of the integer score column. Defaults to "fineweb-edu-score-int".
+        label_field: The name of the prediction column. Defaults to "fineweb-edu-score-label".
+        float_score_field: The name of the float score column. Defaults to "fineweb-edu-score-float".
+        int_score_field: The name of the integer score column. Defaults to "fineweb-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -240,9 +236,9 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
     def __init__(  # noqa: PLR0913
         self,
         cache_dir: str | None = None,
-        pred_column: str = "fineweb-edu-score-label",
-        float_score_column: str = "fineweb-edu-score-float",
-        int_score_column: str = "fineweb-edu-score-int",
+        label_field: str = "fineweb-edu-score-label",
+        float_score_field: str = "fineweb-edu-score-float",
+        int_score_field: str = "fineweb-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_chars: int | None = None,
@@ -253,9 +249,9 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
         super().__init__(
             model_identifier=FINEWEB_EDU_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
-            pred_column=pred_column,
-            float_score_column=float_score_column,
-            int_score_column=int_score_column,
+            label_field=label_field,
+            float_score_field=float_score_field,
+            int_score_field=int_score_field,
             text_field=text_field,
             filter_by=filter_by,
             max_chars=max_chars,
@@ -265,7 +261,7 @@ class FineWebEduClassifier(_FineWebBaseClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(FINEWEB_EDU_MODEL_IDENTIFIER)
 
 
 class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
@@ -277,9 +273,9 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column. Defaults to "fineweb-mixtral-edu-score-label".
-        float_score_column: The name of the float score column. Defaults to "fineweb-mixtral-edu-score-float".
-        int_score_column: The name of the integer score column. Defaults to "fineweb-mixtral-edu-score-int".
+        label_field: The name of the prediction column. Defaults to "fineweb-mixtral-edu-score-label".
+        float_score_field: The name of the float score column. Defaults to "fineweb-mixtral-edu-score-float".
+        int_score_field: The name of the integer score column. Defaults to "fineweb-mixtral-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -295,9 +291,9 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
     def __init__(  # noqa: PLR0913
         self,
         cache_dir: str | None = None,
-        pred_column: str = "fineweb-mixtral-edu-score-label",
-        float_score_column: str = "fineweb-mixtral-edu-score-float",
-        int_score_column: str = "fineweb-mixtral-edu-score-int",
+        label_field: str = "fineweb-mixtral-edu-score-label",
+        float_score_field: str = "fineweb-mixtral-edu-score-float",
+        int_score_field: str = "fineweb-mixtral-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_chars: int | None = None,
@@ -308,9 +304,9 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
         super().__init__(
             model_identifier=FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
-            pred_column=pred_column,
-            float_score_column=float_score_column,
-            int_score_column=int_score_column,
+            label_field=label_field,
+            float_score_field=float_score_field,
+            int_score_field=int_score_field,
             text_field=text_field,
             filter_by=filter_by,
             max_chars=max_chars,
@@ -320,7 +316,7 @@ class FineWebMixtralEduClassifier(_FineWebBaseClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(FINEWEB_MIXTRAL_EDU_MODEL_IDENTIFIER)
 
 
 class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
@@ -332,9 +328,9 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column. Defaults to "fineweb-nemotron-edu-score-label".
-        float_score_column: The name of the float score column. Defaults to "fineweb-nemotron-edu-score-float".
-        int_score_column: The name of the integer score column. Defaults to "fineweb-nemotron-edu-score-int".
+        label_field: The name of the prediction column. Defaults to "fineweb-nemotron-edu-score-label".
+        float_score_field: The name of the float score column. Defaults to "fineweb-nemotron-edu-score-float".
+        int_score_field: The name of the integer score column. Defaults to "fineweb-nemotron-edu-score-int".
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -350,9 +346,9 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
     def __init__(  # noqa: PLR0913
         self,
         cache_dir: str | None = None,
-        pred_column: str = "fineweb-nemotron-edu-score-label",
-        float_score_column: str = "fineweb-nemotron-edu-score-float",
-        int_score_column: str = "fineweb-nemotron-edu-score-int",
+        label_field: str = "fineweb-nemotron-edu-score-label",
+        float_score_field: str = "fineweb-nemotron-edu-score-float",
+        int_score_field: str = "fineweb-nemotron-edu-score-int",
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_chars: int | None = None,
@@ -363,9 +359,9 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
         super().__init__(
             model_identifier=FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
-            pred_column=pred_column,
-            float_score_column=float_score_column,
-            int_score_column=int_score_column,
+            label_field=label_field,
+            float_score_field=float_score_field,
+            int_score_field=int_score_field,
             text_field=text_field,
             filter_by=filter_by,
             max_chars=max_chars,
@@ -375,4 +371,4 @@ class FineWebNemotronEduClassifier(_FineWebBaseClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(FINEWEB_NEMOTRON_EDU_MODEL_IDENTIFIER)
