@@ -117,7 +117,6 @@ class VLLMModel(ModelInterface):
 
         model_spec = _MODELS.get(self.model)
 
-        # Determine max_model_len: cap user-provided value at model spec's max
         if model_spec:
             final_max_model_len = (
                 min(self.max_model_len, model_spec.max_model_len)
@@ -125,10 +124,8 @@ class VLLMModel(ModelInterface):
                 else model_spec.max_model_len
             )
         else:
-            # Model not in spec, use provided max_model_len or let vLLM auto-detect
             final_max_model_len = self.max_model_len
 
-        # Build vLLM engine kwargs with model-specific optimizations
         llm_kwargs: dict[str, Any] = {
             "model": self.model,
             "enforce_eager": False,
@@ -138,7 +135,6 @@ class VLLMModel(ModelInterface):
         if final_max_model_len is not None:
             llm_kwargs["max_model_len"] = final_max_model_len
 
-        # Add model-specific optimizations if available
         if model_spec:
             llm_kwargs["tensor_parallel_size"] = model_spec.tensor_parallel_size
             llm_kwargs["max_num_batched_tokens"] = model_spec.max_num_batched_tokens
@@ -146,7 +142,6 @@ class VLLMModel(ModelInterface):
         self._llm = LLM(**llm_kwargs)
         self._final_max_model_len = final_max_model_len
 
-        # Use model_spec.max_model_len for max_tokens default if max_tokens not specified
         max_gen_tokens = (
             self.max_tokens
             if self.max_tokens is not None

@@ -111,7 +111,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Check if cache directory is empty (recommended)
     cache_files = list(Path(args.cache_dir).glob("*"))
     if cache_files:
         logger.warning(
@@ -119,7 +118,6 @@ def main() -> None:
             "It's recommended to clear it between runs to avoid conflicts."
         )
 
-    # Get the input file extensions based on the input filetype
     if args.input_filetype == "parquet":
         input_file_extensions = [".parquet"]
     elif args.input_filetype == "jsonl":
@@ -129,7 +127,6 @@ def main() -> None:
     ray_client.start()
 
     try:
-        # Step 1: Run fuzzy deduplication to identify duplicates
         logger.info("Running fuzzy deduplication workflow to identify duplicate IDs...")
         fuzzy_workflow = FuzzyDeduplicationWorkflow(
             input_path=args.input,
@@ -139,7 +136,7 @@ def main() -> None:
             input_file_extensions=input_file_extensions,
             input_blocksize=args.input_blocksize,
             text_field=args.text_field,
-            perform_removal=False,  # Only identification, not removal
+            perform_removal=False,
             char_ngrams=args.char_ngrams,
             num_bands=args.num_bands,
             minhashes_per_band=args.minhashes_per_band,
@@ -149,10 +146,6 @@ def main() -> None:
         )
         fuzzy_workflow.run()
 
-        # Step 2: Remove duplicates using the identified duplicate IDs
-        # Fuzzy deduplication outputs:
-        # - Duplicate IDs: {output_path}/FuzzyDuplicateIds/ (parquet files with "id" column)
-        # - ID generator: {output_path}/fuzzy_id_generator.json
         duplicate_ids_path = os.path.join(args.duplicate_ids_dir, "FuzzyDuplicateIds")
         id_generator_path = os.path.join(args.duplicate_ids_dir, "fuzzy_id_generator.json")
 
