@@ -13,7 +13,7 @@ source .venv/bin/activate
 - GPU detection: if `nvidia-smi` shows GPUs but the example logs "No gpus found", install `pynvml` so the backend can discover GPUs:
 
 ```bash
-pip install pynvml
+uv pip install pynvml
 ```
 
 - For LLM cleanup pipeline, install vLLM:
@@ -76,10 +76,10 @@ Run fuzzy deduplication on Parquet or JSONL files:
 
 ```bash
 python examples/math/run_deduplication.py \
-  --input_path "DATA_PATH/*.jsonl" \
+  --input DATA_DIR \
   --cache_dir CACHE_DIR \
-  --duplicate_ids_output_path DUPLICATE_IDS_OUTPUT_PATH \
-  --deduplicated_output_path DEDUPLICATED_OUTPUT_PATH \
+  --duplicate_ids_dir DUPLICATE_IDS_DIR \
+  --output_path OUTPUT_PATH \
   --input_filetype jsonl
 ```
 
@@ -87,10 +87,10 @@ Deduplication takes place in two stages.
 1. In the first stage, the duplicate ids are identified and saved to disk.
 2. In the second stage, the duplicate ids are removed from the dataset
 
-- `--input_path`: Input directory or glob pattern for Parquet/JSONL files
+- `--input`: Input directory path for Parquet/JSONL files
 - `--cache_dir`: Cache directory for deduplication intermediates (must be empty between runs)
-- `--duplicate_ids_output_path`: Output directory for duplicate IDs and id generator mapping
-- `--deduplicated_output_path`: Output directory for deduplicated data
+- `--duplicate_ids_dir`: Output directory for duplicate IDs and id generator mapping
+- `--output_path`: Output directory for deduplicated data
 - `--input_filetype`: Input file type (`jsonl` or `parquet`)
 
 ## LLM Cleanup Pipeline
