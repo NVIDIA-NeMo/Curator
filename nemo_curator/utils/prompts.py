@@ -58,7 +58,7 @@ Your output should be only 1 word. Finish your response right after category and
 """
 
 CODE_QUALITY_PROMPT_SIMPLIFIED = """
-Evaluate the following text for relevance to computer programming and software development using the 0–2 scale below. Assign one of the following labels:
+Evaluate the following text for relevance to computer programming and software development using the 0-2 scale below. Assign one of the following labels:
 
 - Score 0: No code related documents: The text does not contain programming-related material. No code, no programming concepts, no mention of programming languages, APIs, tools, or configurations.
 - Score 1: Code with limited code snippet: The text contains some programming-related material (e.g., code snippets, configuration fragments, API mentions, programming concepts), but it is incomplete, unclear, or lacks substantial context or explanation.
@@ -73,15 +73,15 @@ Generate one label using the format: Final score: <total points> where <total po
 
 
 CODE_QUALITY_PROMPT = """
-Evaluate the following text for relevance to computer programming and software development using the 0–5 scale below. Points are cumulative—start at 0 and add points as criteria are met:
+Evaluate the following text for relevance to computer programming and software development using the 0-5 scale below. Points are cumulative-start at 0 and add points as criteria are met:
 - Score 0: No programming-related content. No code, and no mention of programming languages, APIs, tools, configurations, or programming concepts.
-- Score 1: Mentions any programming-related material—such as code snippets, configuration files, function definitions, API usage, or discussion of tools or programming concepts—even if low-quality, auto-generated, or boilerplate.
-- Score 2: Refers to specific programming topics or tasks, such as languages, libraries, data structures, file formats, or tools—even if off-topic, unclear, or confusing.
+- Score 1: Mentions any programming-related material-such as code snippets, configuration files, function definitions, API usage, or discussion of tools or programming concepts-even if low-quality, auto-generated, or boilerplate.
+- Score 2: Refers to specific programming topics or tasks, such as languages, libraries, data structures, file formats, or tools-even if off-topic, unclear, or confusing.
 - Score 3: Shows problem-solving or implementation details (e.g., full functions, configuration examples, tool usage steps or command-line workflows). Code related forum answers or walkthroughs qualify even without code, if implementation is clearly described.
 - Score 4: Contains actual, clear, and reasonably complete code (e.g., functions, scripts, configurations) with some explanatory context. Resembles a tutorial or how-to guide with working code.
-- Score 5: High-quality educational material—such as tutorials or documentation—with clean code, useful context, clear structure, and easy-to-follow explanations.
+- Score 5: High-quality educational material-such as tutorials or documentation-with clean code, useful context, clear structure, and easy-to-follow explanations.
 
-Question–answer formats (e.g., StackOverflow posts) are acceptable if they meet the criteria.
+Question-answer formats (e.g., StackOverflow posts) are acceptable if they meet the criteria.
 
 Text:
 {text}

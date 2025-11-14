@@ -26,20 +26,19 @@ def mock_tokenizer():
     """Create a mock tokenizer that simulates tokenization."""
     tokenizer = Mock()
 
-    def mock_encode(text, add_special_tokens=False):
+    def mock_encode(text: str, add_special_tokens: bool = False) -> list[int]:  # noqa: ARG001
         # Simple tokenization: each word = 1 token, spaces = 0 tokens
         # This is a simplified approximation
         words = text.split()
         # Add some base tokens for special characters
-        tokens = list(range(100, 100 + len(words)))
-        return tokens
+        return list(range(100, 100 + len(words)))
 
     tokenizer.encode = mock_encode
     return tokenizer
 
 
 @pytest.fixture(autouse=True)
-def setup_mocks(mock_tokenizer):
+def setup_mocks(mock_tokenizer: Mock) -> None:  # type: ignore[no-untyped-def]
     """Automatically setup mocks for AutoTokenizer."""
     with patch("nemo_curator.stages.math.modifiers.chunking.AutoTokenizer") as mock_auto_tokenizer:
         mock_auto_tokenizer.from_pretrained.return_value = mock_tokenizer
@@ -197,7 +196,7 @@ class TestTokenSplitterStage:
         # Should create chunks based on single newline separator
         assert len(result.data) > 0
         # Verify separator is preserved in chunks (except last)
-        for idx, row in result.data.iterrows():
+        for _, row in result.data.iterrows():
             if row["chunk_id"] < len(result.data) - 1:
                 # Non-last chunks should end with separator
                 assert row["text"].endswith("\n") or len(result.data) == 1

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytest
@@ -32,11 +32,11 @@ class MockLLMOutput:
 class MockLLM:
     """Mock vLLM LLM class."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):  # noqa: ARG002
         self.model = kwargs.get("model", "test-model")
         self.max_model_len = kwargs.get("max_model_len", 32000)
 
-    def generate(self, prompts, sampling_params=None, use_tqdm=False):
+    def generate(self, prompts: list[str], sampling_params=None, use_tqdm=False):  # noqa: ARG002, ANN001
         """Mock generate method that returns cleaned text."""
         results = []
         for prompt in prompts:
@@ -59,10 +59,7 @@ class MockLLM:
                     parts = last_line.split(":")
                     if len(parts) > 1:
                         original_text = parts[-1].strip()
-                        if original_text:  # Only use if non-empty
-                            cleaned_text = f"Cleaned: {original_text}"
-                        else:
-                            cleaned_text = "Cleaned output"
+                        cleaned_text = f"Cleaned: {original_text}" if original_text else "Cleaned output"
                     else:
                         cleaned_text = "Cleaned output"
                 else:
@@ -78,24 +75,24 @@ class MockSamplingParams:
     def __init__(self, **kwargs):
         self.temperature = kwargs.get("temperature", 0.7)
         self.top_p = kwargs.get("top_p", 0.8)
-        self.top_k = kwargs.get("top_k", None)
-        self.min_p = kwargs.get("min_p", None)
-        self.max_tokens = kwargs.get("max_tokens", None)
+        self.top_k = kwargs.get("top_k")
+        self.min_p = kwargs.get("min_p")
+        self.max_tokens = kwargs.get("max_tokens")
 
 
 class MockVLLMModel:
     """Mock VLLMModel class that prevents real vLLM initialization."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs):  # noqa: ARG002
         # Store all kwargs as attributes
         self.model = kwargs.get("model", "test-model")
-        self.max_model_len = kwargs.get("max_model_len", None)
+        self.max_model_len = kwargs.get("max_model_len")
         self.temperature = kwargs.get("temperature", 0.7)
         self.top_p = kwargs.get("top_p", 0.8)
         self.top_k = kwargs.get("top_k", 20)
         self.min_p = kwargs.get("min_p", 0.0)
-        self.max_tokens = kwargs.get("max_tokens", None)
-        self.cache_dir = kwargs.get("cache_dir", None)
+        self.max_tokens = kwargs.get("max_tokens")
+        self.cache_dir = kwargs.get("cache_dir")
         self._llm = None
         self._sampling_params = None
 
@@ -122,7 +119,7 @@ class MockVLLMModel:
             sampling_kwargs["top_p"] = self.top_p
         self._sampling_params = MockSamplingParams(**sampling_kwargs)
 
-    def generate(self, prompts):
+    def generate(self, prompts: list[str]) -> list[str]:
         """Mock generate method that returns cleaned text."""
         if self._llm is None or self._sampling_params is None:
             msg = "Model not initialized. Call setup() first."
@@ -135,14 +132,14 @@ class MockVLLMModel:
 def setup_mocks():
     """Automatically setup mocks for VLLMModel."""
     # Patch VLLMModel where it's imported in llm_cleanup module
-    with patch("nemo_curator.stages.math.modifiers.llm_cleanup.VLLMModel", MockVLLMModel):
-        # Also patch vLLM classes to prevent any real initialization attempts
-        with (
-            patch("nemo_curator.models.vllm_model.LLM", MockLLM),
-            patch("nemo_curator.models.vllm_model.SamplingParams", MockSamplingParams),
-            patch("nemo_curator.models.vllm_model.VLLM_AVAILABLE", True),
-        ):
-            yield
+    # Also patch vLLM classes to prevent any real initialization attempts
+    with (
+        patch("nemo_curator.stages.math.modifiers.llm_cleanup.VLLMModel", MockVLLMModel),
+        patch("nemo_curator.models.vllm_model.LLM", MockLLM),
+        patch("nemo_curator.models.vllm_model.SamplingParams", MockSamplingParams),
+        patch("nemo_curator.models.vllm_model.VLLM_AVAILABLE", True),
+    ):
+        yield
 
 
 class TestLLMCleanupStage:
@@ -450,13 +447,13 @@ class TestLLMCleanupStage:
         original_generate = stage._model.generate
         captured_prompts = []
 
-        def capture_prompts(prompts):
+        def capture_prompts(prompts: list[str]) -> list[str]:
             captured_prompts.extend(prompts)
             return original_generate(prompts)
 
         stage._model.generate = capture_prompts
 
-        result = stage.process(batch)
+        stage.process(batch)
 
         # Verify prompt was formatted correctly
         assert len(captured_prompts) == 1
@@ -469,8 +466,10 @@ class TestLLMCleanupStage:
         stage.setup()
 
         # Make generate raise an exception
-        def failing_generate(prompts):
-            raise RuntimeError("LLM generation failed")
+        error_msg = "LLM generation failed"
+
+        def failing_generate(prompts: list[str]) -> None:  # noqa: ARG001
+            raise RuntimeError(error_msg)
 
         stage._model.generate = failing_generate
 
@@ -500,7 +499,7 @@ class TestLLMCleanupStage:
         stage.setup()
 
         # Mock generate to return empty outputs (as strings, not MockLLMOutput objects)
-        def empty_generate(prompts):
+        def empty_generate(prompts: list[str]) -> list[str]:  # noqa: ARG001
             return [""]
 
         stage._model.generate = empty_generate
