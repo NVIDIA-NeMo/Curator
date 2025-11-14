@@ -30,7 +30,7 @@ from nemo_curator.stages.text.modules.modifier import Modify
 from nemo_curator.utils import prompts
 
 
-def fill_null_text(text):
+def fill_null_text(text: str | None) -> str:
     """Fill null/NaN text values with empty string."""
     import pandas as pd
 
@@ -39,7 +39,7 @@ def fill_null_text(text):
     return str(text)
 
 
-def build_pipeline(
+def build_pipeline(  # noqa: PLR0913
     input_files: list[str],
     reader_type: str,
     output_dir: str,
@@ -206,7 +206,7 @@ def main() -> None:
     logger.info(f"Found {len(input_files)} input files")
 
     # Create timestamped output directory
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # noqa: DTZ005
     output_dir = os.path.join(args.output, f"cleanup_{timestamp}")
 
     ray_client = RayClient()
