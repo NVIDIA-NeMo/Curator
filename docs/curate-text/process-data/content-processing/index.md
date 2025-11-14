@@ -1,7 +1,7 @@
 ---
-description: "Clean, normalize, and transform text content to meet specific requirements including PII removal and text cleaning"
+description: "Clean, normalize, and transform text content to meet specific requirements including text cleaning and normalization"
 categories: ["workflows"]
-tags: ["content-processing", "text-cleaning", "pii-removal", "unicode", "normalization"]
+tags: ["content-processing", "text-cleaning", "unicode", "normalization"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "workflow"
@@ -13,13 +13,13 @@ modality: "text-only"
 
 Clean, normalize, and transform text content to meet specific requirements for training language models using NeMo Curator's tools and utilities.
 
-Content processing involves transforming your text data while preserving essential information. This includes fixing encoding issues, removing sensitive information, and standardizing text format to ensure high-quality input for model training.
+Content processing involves transforming your text data while preserving essential information. This includes fixing encoding issues and standardizing text format to ensure high-quality input for model training.
 
 ## How it Works
 
 Content processing transformations typically modify documents in place or create new versions with specific changes. Most processing tools follow this pattern:
 
-1. Load your dataset using `DocumentDataset`
+1. Load your dataset using pipeline readers (JsonlReader, ParquetReader)
 2. Configure and apply the appropriate processor
 3. Save the transformed dataset for further processing
 
@@ -32,15 +32,15 @@ You can combine processing tools in sequence or use them alongside other curatio
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 
-:::{grid-item-card} {octicon}`shield-lock;1.5em;sd-mr-1` PII Removal
-:link: pii
+:::{grid-item-card} {octicon}`number;1.5em;sd-mr-1` Document IDs
+:link: add-id
 :link-type: doc
-Identify and remove personal identifiable information from text
+Add unique identifiers to documents for tracking and deduplication
 +++
-{bdg-secondary}`privacy`
-{bdg-secondary}`regex`
-{bdg-secondary}`masking`
-{bdg-secondary}`compliance`
+{bdg-secondary}`identifiers`
+{bdg-secondary}`tracking`
+{bdg-secondary}`preprocessing`
+{bdg-secondary}`deduplication`
 :::
 
 :::{grid-item-card} {octicon}`typography;1.5em;sd-mr-1` Text Cleaning
@@ -61,38 +61,43 @@ Fix Unicode issues, standardize spacing, and remove URLs
 Here's an example of a typical content processing pipeline:
 
 ```python
-from nemo_curator import Sequential, Modify
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
-from nemo_curator.modifiers.pii_modifier import PiiModifier
-
-# Load your dataset
-dataset = DocumentDataset.read_json("input_data/*.jsonl")
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
+from nemo_curator.stages.text.modules import Modify
 
 # Create a comprehensive cleaning pipeline
-processing_pipeline = Sequential([
-    # Fix Unicode encoding issues
-    Modify(UnicodeReformatter()),
-    
-    # Standardize newlines
-    Modify(NewlineNormalizer()),
-    
-    # Remove URLs
-    Modify(UrlRemover()),
-    
-    # Remove PII (optional)
-    Modify(PiiModifier(
-        language="en",
-        supported_entities=["PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER"],
-        anonymize_action="redact"
-    ))
-])
+processing_pipeline = Pipeline(
+    name="content_processing_pipeline",
+    description="Comprehensive text cleaning and processing"
+)
 
-# Apply the processing pipeline
-cleaned_dataset = processing_pipeline(dataset)
+# Load dataset
+reader = JsonlReader(file_paths="input_data/*.jsonl")
+processing_pipeline.add_stage(reader)
+
+# Fix Unicode encoding issues
+processing_pipeline.add_stage(
+    Modify(modifier=UnicodeReformatter(), text_field="text")
+)
+
+# Standardize newlines
+processing_pipeline.add_stage(
+    Modify(modifier=NewlineNormalizer(), text_field="text")
+)
+
+# Remove URLs
+processing_pipeline.add_stage(
+    Modify(modifier=UrlRemover(), text_field="text")
+)
 
 # Save the processed dataset
-cleaned_dataset.to_json("processed_output/", write_to_filename=True)
+writer = JsonlWriter(path="processed_output/")
+processing_pipeline.add_stage(writer)
+
+# Execute pipeline
+results = processing_pipeline.run()
 ```
 
 ## Common Processing Tasks
@@ -103,7 +108,6 @@ cleaned_dataset.to_json("processed_output/", write_to_filename=True)
 - Remove or normalize special characters
 
 ### Content Sanitization
-- Remove personally identifiable information (PII)
 - Strip unwanted URLs or links
 - Remove boilerplate text or headers
 
@@ -117,6 +121,6 @@ cleaned_dataset.to_json("processed_output/", write_to_filename=True)
 :titlesonly:
 :hidden:
 
-PII Removal <pii>
+Document IDs <add-id>
 Text Cleaning <text-cleaning>
-``` 
+```

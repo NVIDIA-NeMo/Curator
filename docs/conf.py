@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.abspath("_extensions"))
 project = "NeMo-Curator"
 project_copyright = "2025, NVIDIA Corporation"
 author = "NVIDIA Corporation"
-release = "0.25.7"
+release = "25.09"
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -47,6 +47,7 @@ extensions = [
     "myst_codeblock_substitutions",  # Our custom MyST substitutions in code blocks
     "json_output",  # Generate JSON output for each page
     "search_assets",  # Enhanced search assets extension
+    "rich_metadata",  # SEO metadata injection from frontmatter
     # "ai_assistant",  # AI assistant extension
     # "swagger_plugin_for_sphinx",  # For Swagger API documentation
     "sphinxcontrib.mermaid",  # For Mermaid diagrams
@@ -115,11 +116,13 @@ myst_substitutions = {
     "company": "NVIDIA",
     "version": release,
     "current_year": "2025",
-    "github_repo": "https://github.com/NVIDIA/NeMo-Curator",
+    "github_repo": "https://github.com/NVIDIA-NeMo/Curator",
     "docs_url": "https://docs.nvidia.com/nemo-curator",
     "support_email": "nemo-curator-support@nvidia.com",
     "min_python_version": "3.8",
     "recommended_cuda": "12.0+",
+    "current_release": release,
+    "container_version": "25.09",
 }
 
 # Enable figure numbering
@@ -315,3 +318,10 @@ html_extra_path = ["project.json", "versions1.json"]
 
 # Note: JSON output configuration has been moved to the consolidated
 # json_output_settings dictionary above for better organization and new features!
+
+# Github and K8s links are now getting rate limited from the Github Actions
+linkcheck_ignore = [
+    ".*github\\.com.*",
+    ".*githubusercontent\\.com.*",
+    ".*kubernetes\\.io*",
+]

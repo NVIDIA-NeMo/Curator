@@ -52,10 +52,10 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     max_workers: int = 6
     log_stats: bool = False
-    _name: str = "clip_writer"
+    name: str = "clip_writer"
 
     def __post_init__(self):
-        self._resources = Resources(cpus=0.25)
+        self.resources = Resources(cpus=0.25)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -332,33 +332,6 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
             logger.warning(f"Clip {clip.uuid} from {clip.source_video} has no buffer, skip uploading to s3")
         if not filtered:
             clip_stats.num_passed += 1
-        return clip_stats
-
-    def _write_clip_embedding_to_buffer(self, clip: Clip) -> ClipStats:
-        clip_stats = ClipStats()
-        if clip.intern_video_2_embedding is not None:
-            self._iv2_embedding_buffer.append(
-                {
-                    "id": str(clip.uuid),
-                    "embedding": clip.intern_video_2_embedding.reshape(-1).tolist(),
-                },
-            )
-        elif self.generate_embeddings and self.embedding_algorithm == "internvideo2":
-            logger.error(
-                f"Clip {clip.uuid} from {clip.source_video} has no InternVideo2 embedding, skip adding to buffer"
-            )
-        if clip.cosmos_embed1_embedding is not None:
-            self._ce1_embedding_buffer.append(
-                {
-                    "id": str(clip.uuid),
-                    "embedding": clip.cosmos_embed1_embedding.reshape(-1).tolist(),
-                },
-            )
-        elif self.generate_embeddings and self.embedding_algorithm == "cosmos-embed1":
-            logger.error(
-                f"Clip {clip.uuid} from {clip.source_video} has no Cosmos-Embed1 embedding, skip adding to buffer"
-            )
-
         return clip_stats
 
     def _write_clip_embedding(self, clip: Clip) -> ClipStats:

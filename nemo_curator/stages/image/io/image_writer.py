@@ -44,7 +44,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
     verbose: bool = False
     deterministic_name: bool = True
     remove_image_data: bool = False
-    _name: str = "image_writer"
+    name: str = "image_writer"
 
     def __post_init__(self) -> None:
         os.makedirs(self.output_dir, exist_ok=True)

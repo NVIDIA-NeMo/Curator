@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (gs-text)=
+
 # Get Started with Text Curation
 
 This guide helps you set up and get started with NeMo Curator's text curation capabilities. Follow these steps to prepare your environment and run your first text curation pipeline.
@@ -17,12 +18,23 @@ This guide helps you set up and get started with NeMo Curator's text curation ca
 
 To use NeMo Curator's text curation modules, ensure you meet the following requirements:
 
-* Python 3.10 or 3.12
+* Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
+* uv (for package management and installation)
 * Ubuntu 22.04/20.04
-* NVIDIA GPU (optional for many text modules, required for GPU-accelerated operations)
+* NVIDIA GPU (optional for most text modules, required for GPU-accelerated operations)
   * Volta™ or higher (compute capability 7.0+)
   * CUDA 12 (or above)
+
+:::{tip}
+If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+
+```bash
+curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
+source $HOME/.local/bin/env
+```
+
+:::
 
 ---
 
@@ -37,19 +49,13 @@ You can install NeMo Curator in three ways:
 The simplest way to install NeMo Curator:
 
 ```bash
-# CPU-only text curation modules
-pip install nemo-curator
-
-# CPU + GPU text curation modules
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[cuda12x]
-
-# Text curation with bitext processing
-pip install --extra-index-url https://pypi.nvidia.com nemo-curator[bitext]
+uv pip install "nemo-curator[text_cuda12]"
 ```
 
 ```{note}
 For other modalities (image, video) or all modules, see the [Installation Guide](../admin/installation.md).
 ```
+
 :::
 
 :::{tab-item} Source Installation
@@ -57,104 +63,108 @@ For other modalities (image, video) or all modules, see the [Installation Guide]
 Install the latest version directly from GitHub:
 
 ```bash
-git clone https://github.com/NVIDIA/NeMo-Curator.git
-cd NeMo-Curator
-pip install --extra-index-url https://pypi.nvidia.com ".[cuda12x]"
+git clone https://github.com/NVIDIA-NeMo/Curator.git
+cd Curator
+uv sync --extra text_cuda12 --all-groups
+source .venv/bin/activate 
 ```
 
 ```{note}
-Replace `cuda12x` with your desired extras: use `.` for CPU-only, `.[bitext]` for bitext processing, or `.[all]` for all modules.
+Replace `text_cuda12` with your desired extras: use `.` for CPU-only, `.[text_cpu]` for text processing only, or `.[all]` for all modules.
 ```
+
 :::
 
 :::{tab-item} NeMo Curator Container
 
 NeMo Curator is available as a standalone container:
 
-```{warning}
-**Container Availability**: The standalone NeMo Curator container is currently in development. Check the [NGC Catalog](https://catalog.ngc.nvidia.com/orgs/nvidia/containers) for the latest availability and container path.
-```
-
 ```bash
 # Pull the container
-docker pull nvcr.io/nvidia/nemo-curator:latest
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
 
 # Run the container
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:latest
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
 ```
 
 ```{seealso}
 For details on container environments and configurations, see [Container Environments](reference-infrastructure-container-environments-main).
 ```
+
 :::
 ::::
 
-## Download Sample Configuration
+## Prepare Your Environment
 
-NeMo Curator provides default configurations for common curation tasks. You can download a sample configuration for English text filtering:
-
-```bash
-mkdir -p ~/nemo_curator/configs
-wget -O ~/nemo_curator/configs/heuristic_filter_en.yaml https://raw.githubusercontent.com/NVIDIA/NeMo-Curator/main/config/heuristic_filter_en.yaml
-```
-
-This configuration file contains a comprehensive set of heuristic filters for English text, including filters for word count, non-alphanumeric content, repeated patterns, and content quality metrics.
+NeMo Curator uses a pipeline-based architecture for processing text data. Before running your first pipeline, ensure you have a proper directory structure:
 
 ## Set Up Data Directory
 
-Create a directory to store your text datasets:
+Create a directory structure for your text datasets:
 
 ```bash
-mkdir -p ~/nemo_curator/data
+mkdir -p ~/nemo_curator/data/sample
+mkdir -p ~/nemo_curator/data/curated
+```
+
+```{note}
+For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to {ref}`Read Existing Data <text-load-data-read-existing>` and {ref}`Data Loading <text-load-data>` for information on downloading data.
 ```
 
 ## Basic Text Curation Example
 
-Here's a simple example to get started with NeMo Curator:
+Here's a simple example to get started with NeMo Curator's pipeline-based architecture:
 
 ```python
-import nemo_curator as nc
-from nemo_curator.datasets import DocumentDataset
-from nemo_curator.filters import WordCountFilter, NonAlphaNumericFilter
-from nemo_curator.utils.distributed_utils import get_client
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules.score_filter import ScoreFilter
+from nemo_curator.stages.text.filters import WordCountFilter, NonAlphaNumericFilter
 
-# Initialize a Dask client for distributed processing (CPU or GPU)
-client = get_client(cluster_type="cpu")  # Use "gpu" for GPU-accelerated processing
+# Create a pipeline for text curation
+pipeline = Pipeline(
+    name="text_curation_pipeline",
+    description="Basic text quality filtering pipeline"
+)
 
-# Load sample text data
-dataset = DocumentDataset.read_json("~/nemo_curator/data/sample/*.jsonl")
-
-# Create a simple curation pipeline
-curation_pipeline = nc.Sequential([
-    # Filter documents with 50-10000 words
-    nc.ScoreFilter(
-        WordCountFilter(min_words=50, max_words=10000),
-        text_field="text",
-        score_field="word_count"
-    ),
-    # Filter documents with excessive non-alphanumeric content  
-    nc.ScoreFilter(
-        NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.25),
-        text_field="text",
-        score_field="non_alpha_score"
+# Add stages to the pipeline
+pipeline.add_stage(
+    JsonlReader(
+        file_paths="~/nemo_curator/data/sample/",
+        files_per_partition=4,
+        fields=["text", "id"]  # Only read required columns for efficiency
     )
-])
+)
 
-# Apply the curation pipeline
-curated_dataset = curation_pipeline(dataset)
+# Add quality filtering stages
+pipeline.add_stage(
+    ScoreFilter(
+        score_fn=WordCountFilter(min_words=50, max_words=100000),
+        text_field="text",
+        score_field="word_count"  # Optional: save scores for analysis
+    )
+)
 
-# Save the curated dataset
-curated_dataset.to_json("~/nemo_curator/data/curated")
+pipeline.add_stage(
+    ScoreFilter(
+        score_fn=NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.25),
+        text_field="text",
+        score_field="non_alpha_score"  # Optional: save scores for analysis
+    )
+)
+
+# Write the curated results
+pipeline.add_stage(
+    JsonlWriter("~/nemo_curator/data/curated")
+)
+
+# Execute the pipeline
+results = pipeline.run()  # Uses XennaExecutor by default for distributed processing
+
+print(f"Pipeline completed successfully! Processed {len(results) if results else 0} tasks.")
 ```
 
 ## Next Steps
 
 Explore the [Text Curation documentation](text-overview) for more advanced filtering techniques, GPU acceleration options, and large-scale processing workflows.
-
-Key areas to explore next:
-
-- **Advanced Filtering**: Learn about the 30+ built-in filters for quality assessment
-- **GPU Acceleration**: Scale your processing with RAPIDS and GPU clusters  
-- **Configuration Files**: Use YAML configurations for complex filter pipelines
-- **Distributed Processing**: Process datasets across multiple machines
-- **Quality Classification**: Use machine learning models for document scoring

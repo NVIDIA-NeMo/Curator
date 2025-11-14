@@ -46,7 +46,7 @@ class JsonlReaderStage(BaseReader):
             are required.
     """
 
-    _name: str = "jsonl_reader"
+    name: str = "jsonl_reader"
 
     def read_data(
         self,
@@ -98,7 +98,7 @@ class JsonlReader(CompositeStage[_EmptyTask, DocumentBatch]):
     file_extensions: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["jsonl"])
     _generate_ids: bool = False
     _assign_ids: bool = False
-    _name: str = "jsonl_reader"
+    name: str = "jsonl_reader"
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""

@@ -15,13 +15,7 @@
 from dataclasses import dataclass, field
 from typing import Any
 
-from loguru import logger
-
-try:
-    import nemo.collections.asr as nemo_asr
-except ImportError:
-    logger.warning("Cannot import NeMo speech")
-
+import nemo.collections.asr as nemo_asr
 import torch
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -46,9 +40,9 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
     asr_model: Any | None = None
     filepath_key: str = "audio_filepath"
     pred_text_key: str = "pred_text"
-    _name: str = "ASR_inference"
-    _batch_size: int = 16
-    _resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
+    name: str = "ASR_inference"
+    batch_size: int = 16
+    resources: Resources = field(default_factory=lambda: Resources(cpus=1.0))
 
     def check_cuda(self) -> torch.device:
         return torch.device("cuda") if self.resources.gpus > 0 else torch.device("cpu")
@@ -95,7 +89,19 @@ class InferenceAsrNemoStage(ProcessingStage[FileGroupTask | DocumentBatch | Audi
         Returns:
             list of predicted texts.
         """
+
         outputs = self.asr_model.transcribe(files)
+
+        # Tuple (hyps, all_hyps) noqa: ERA001
+        if isinstance(outputs, tuple):
+            outputs = outputs[0]
+
+        # list[list[Hypothesis]] noqa: ERA001
+        if outputs and isinstance(outputs[0], list):
+            if outputs[0] and hasattr(outputs[0][0], "text"):
+                return [inner[0].text for inner in outputs]
+            return [inner[0] for inner in outputs]
+
         return [output.text for output in outputs]
 
     def process(self, task: FileGroupTask | DocumentBatch | AudioBatch) -> AudioBatch:

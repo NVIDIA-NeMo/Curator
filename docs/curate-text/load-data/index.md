@@ -10,7 +10,7 @@ modality: "text-only"
 
 (text-load-data)=
 
-# Text Data Loading
+# Download Data
 
 Load text data from ArXiv, Common Crawl, Wikipedia, and custom sources using Curator.
 
@@ -18,18 +18,7 @@ Curator provides a task-centric pipeline for downloading and processing large-sc
 
 ## How it Works
 
-Curator pipelines use a **4-step pattern** where data flows through stages as tasks:
-
-1. **URL Generation**: Generate URLs from configuration (`URLGenerationStage`)
-2. **Download**: Retrieve files from URLs to local storage (`DocumentDownloadStage`)
-3. **Iteration**: Parse downloaded files to extract raw records (`DocumentIterateStage`)
-4. **Extraction**: Extract and clean structured content from raw records (`DocumentExtractStage`)
-
-Each step uses a `ProcessingStage` that transforms tasks. The pipeline flow is:
-
-```text
-Start → FileGroupTask(URLs) → FileGroupTask(Files) → DocumentBatch → DocumentBatch
-```
+Curator uses the {ref}`4-step pipeline pattern <about-concepts-text-data-acquisition>` where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to the {ref}`pipeline-based architecture <about-concepts-text-data-loading>`.
 
 Data sources provide composite stages that combine these steps into complete download-extract pipelines, producing `DocumentBatch` tasks for further processing.
 
@@ -39,9 +28,8 @@ Data sources provide composite stages that combine these steps into complete dow
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna.executor import XennaExecutor
 from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
-from nemo_curator.stages.io.writer import JsonlWriter
+from nemo_curator.stages.text.io.writer import JsonlWriter
 
 # Create a pipeline for downloading Common Crawl data
 pipeline = Pipeline(
@@ -65,8 +53,7 @@ pipeline.add_stage(writer)
 
 # Build and execute pipeline
 pipeline.build()
-executor = XennaExecutor()
-results = pipeline.run(executor)
+results = pipeline.run()
 ```
 
 :::
@@ -81,6 +68,15 @@ Load data from public datasets and custom data sources using Curator stages.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
+
+:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data
+:link: text-load-data-read-existing
+:link-type: ref
+Read existing JSONL and Parquet datasets using Curator's reader stages
++++
+{bdg-secondary}`jsonl`
+{bdg-secondary}`parquet`
+:::
 
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Common Crawl
 :link: text-load-data-common-crawl
@@ -112,14 +108,6 @@ Read and process your own text datasets in standard formats
 {bdg-secondary}`file-partitioning`
 :::
 
-:::{grid-item-card} {octicon}`file;1.5em;sd-mr-1` Read Existing Data (JSONL)
-:link: text-load-data-read-existing
-:link-type: ref
-Read existing JSONL datasets using Curator's reader stage
-+++
-{bdg-secondary}`jsonl`
-:::
-
 ::::
 
 ```{toctree}
@@ -127,9 +115,9 @@ Read existing JSONL datasets using Curator's reader stage
 :titlesonly:
 :hidden:
 
+Read Existing Data <read-existing>
 arxiv
 common-crawl
 wikipedia
 Custom Data <custom.md>
-Read Existing Data (JSONL) <read-existing>
 ```

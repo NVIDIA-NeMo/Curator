@@ -39,7 +39,7 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
 
     fields: list[str] | None = None
     read_kwargs: dict[str, Any] = field(default_factory=dict)
-    _name: str = ""
+    name: str = ""
     _generate_ids: bool = False
     _assign_ids: bool = False
 
@@ -52,7 +52,12 @@ class BaseReader(ProcessingStage[FileGroupTask, DocumentBatch]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], self.fields or []
+        output_fields = self.fields or []
+        if self._generate_ids or self._assign_ids:
+            from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+
+            output_fields.append(CURATOR_DEDUP_ID_STR)
+        return ["data"], output_fields
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         if self._generate_ids or self._assign_ids:

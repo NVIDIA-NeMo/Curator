@@ -33,8 +33,8 @@ class QualityClassifier(DistributedDataClassifier):
 
     Attributes:
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column. Defaults to "quality_pred".
-        prob_column: The name of the probability column. Defaults to None.
+        label_field: The name of the prediction column. Defaults to "quality_pred".
+        score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -50,8 +50,8 @@ class QualityClassifier(DistributedDataClassifier):
     def __init__(  # noqa: PLR0913
         self,
         cache_dir: str | None = None,
-        pred_column: str = "quality_pred",
-        prob_column: str | None = None,
+        label_field: str = "quality_pred",
+        score_field: str | None = None,
         text_field: str = "text",
         filter_by: list[str] | None = None,
         max_chars: int = 6000,
@@ -62,8 +62,8 @@ class QualityClassifier(DistributedDataClassifier):
         super().__init__(
             model_identifier=QUALITY_CLASSIFIER_MODEL_IDENTIFIER,
             cache_dir=cache_dir,
-            pred_column=pred_column,
-            prob_column=prob_column,
+            label_field=label_field,
+            score_field=score_field,
             text_field=text_field,
             filter_by=filter_by,
             max_chars=max_chars,
@@ -74,4 +74,4 @@ class QualityClassifier(DistributedDataClassifier):
             autocast=autocast,
         )
 
-        self._name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(QUALITY_CLASSIFIER_MODEL_IDENTIFIER)

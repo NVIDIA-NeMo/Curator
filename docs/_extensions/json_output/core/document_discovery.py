@@ -97,8 +97,14 @@ class DocumentDiscovery:
             ("troubleshooting", lambda: "troubleshoot" in docname_lower or "faq" in docname_lower),
             ("installation", lambda: "install" in docname_lower or "setup" in docname_lower),
             ("overview", lambda: docname.endswith("/index")),
-            ("tutorial", lambda: any(word in content_lower for word in ["$ ", "pip install", "docker run", "git clone"])),
-            ("reference", lambda: any(word in content_lower for word in ["class ", "def ", "function", "method", "parameter"])),
+            (
+                "tutorial",
+                lambda: any(word in content_lower for word in ["$ ", "pip install", "docker run", "git clone"]),
+            ),
+            (
+                "reference",
+                lambda: any(word in content_lower for word in ["class ", "def ", "function", "method", "parameter"]),
+            ),
         ]
 
         # Check each type in order and return the first match

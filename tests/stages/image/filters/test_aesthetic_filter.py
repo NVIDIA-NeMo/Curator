@@ -531,3 +531,16 @@ def test_image_aesthetic_filter_on_gpu() -> None:
     assert isinstance(out, ImageBatch)
     assert 1 <= len(out.data) <= len(batch.data)
     assert all(hasattr(img, "aesthetic_score") for img in batch.data)
+
+
+@patch("nemo_curator.stages.image.filters.aesthetic_filter.AestheticScorer")
+def test_setup_on_node_triggers_weight_download(mock_aesthetic_scorer: Mock) -> None:
+    """Verify setup_on_node requests weight download via AestheticScorer."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        stage = ImageAestheticFilterStage(model_dir=tmp_dir)
+
+        stage.setup_on_node()
+
+        mock_aesthetic_scorer.download_weights_on_node.assert_called_once_with(tmp_dir)

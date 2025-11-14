@@ -107,46 +107,6 @@ def create_clustered_dataset(  # noqa: PLR0913
     return input_dir, y_true
 
 
-def create_kmeans_pipeline(
-    input_dir: Path,
-    output_dir: Path,
-    n_clusters: int = N_CLUSTERS,
-    embedding_dim: int = EMBEDDING_DIM,
-    file_format: str = "parquet",
-) -> Pipeline:
-    """Create a KMeans pipeline for testing.
-
-    Args:
-        input_dir: Input directory containing test data
-        output_dir: Output directory for results
-        n_clusters: Number of clusters
-        embedding_dim: Embedding dimensionality
-        file_format: Input file format
-
-    Returns:
-        Configured pipeline
-    """
-    pipeline = Pipeline(name="kmeans_integration_test")
-
-    kmeans_stage = KMeansStage(
-        id_field="id",
-        embedding_field="embeddings",
-        n_clusters=n_clusters,
-        input_path=str(input_dir),
-        output_path=str(output_dir),
-        metadata_fields=["random_col", "true_cluster"],
-        embedding_dim=embedding_dim,
-        input_filetype=file_format,
-        verbose=True,
-        random_state=RANDOM_STATE,
-        max_iter=300,
-        tol=1e-4,
-    )
-
-    pipeline.add_stage(kmeans_stage)
-    return pipeline
-
-
 def run_single_gpu_baseline(
     input_dir: Path,
     n_clusters: int = N_CLUSTERS,
@@ -154,7 +114,7 @@ def run_single_gpu_baseline(
 ) -> np.ndarray:
     single_gpu_kmeans = cuml.KMeans(
         n_clusters=n_clusters,
-        init="k-means++",
+        init="k-means||",
         max_iter=300,
         tol=1e-4,
         random_state=RANDOM_STATE,
@@ -417,7 +377,7 @@ class TestKMeansReadFitWriteStage:
 
         # Only mock the essential parts that can't run without RAFT setup
         mock_kmeans = Mock()
-        mock_kmeans.fit = Mock()
+        mock_kmeans._fit = Mock()
         mock_kmeans.predict = Mock(return_value=cp.zeros(40, dtype=cp.int32))
         mock_kmeans.cluster_centers_ = cp.random.random((2, 32), dtype=cp.float32)
         stage.kmeans = mock_kmeans
@@ -479,11 +439,11 @@ class TestKMeansReadFitWriteStage:
                 assert call_kwargs["assign_id"] is False
 
             # Verify KMeans operations
-            mock_kmeans.fit.assert_called_once()
+            mock_kmeans._fit.assert_called_once()
             mock_kmeans.predict.assert_called_once()
 
             # Check the concatenated embeddings shape
-            fit_call_args = mock_kmeans.fit.call_args[0]
+            fit_call_args = mock_kmeans._fit.call_args[0]
             embeddings_passed_to_fit = fit_call_args[0]
             assert embeddings_passed_to_fit.shape == (40, 32), "Should concatenate embeddings from all groups"
 

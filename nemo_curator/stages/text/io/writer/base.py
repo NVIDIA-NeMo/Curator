@@ -40,7 +40,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     fields: list[str] | None = None
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
-    _name: str = "BaseWriter"
+    name: str = "BaseWriter"
     _fs_path: str = field(init=False, repr=False, default="")
     _protocol: str = field(init=False, repr=False, default="file")
     _has_explicit_protocol: bool = field(init=False, repr=False, default=False)
@@ -95,12 +95,11 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
         file_extension = self.get_file_extension()
         file_path = self.fs.sep.join([self._fs_path, f"{filename}.{file_extension}"])
 
-        # Skip if file already exists (idempotent writes)
         if self.fs.exists(file_path):
-            logger.debug(f"File {file_path} already exists, skipping")
-        else:
-            self.write_data(task, file_path)
-            logger.debug(f"Written {task.num_items} records to {file_path}")
+            logger.debug(f"File {file_path} already exists, overwriting it")
+
+        self.write_data(task, file_path)
+        logger.debug(f"Written {task.num_items} records to {file_path}")
 
         # Create FileGroupTask with written files
         return FileGroupTask(

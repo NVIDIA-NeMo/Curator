@@ -30,7 +30,7 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import DocumentBatch
 
-from .utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, SEQ_ORDER_COLUMN, clip_tokens, format_name_with_suffix
+from .utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, SEQ_ORDER_FIELD, clip_tokens, format_name_with_suffix
 
 
 class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
@@ -46,6 +46,8 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         padding_side: The side to pad the input tokens. Defaults to "right".
         unpack_inference_batch: Whether to unpack the inference batch with **kwargs. Defaults to False.
+        autocast: Whether to use autocast. When True, we trade off minor accuracy for faster inference.
+            Defaults to True.
 
     """
 
@@ -58,10 +60,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         unpack_inference_batch: bool = False,
+        autocast: bool = True,
     ):
-        self._name = format_name_with_suffix(model_identifier, suffix="_model")
+        self.name = format_name_with_suffix(model_identifier, suffix="_model")
         # Assume that the model can fit on a single GPU
-        self._resources = Resources(cpus=1, gpus=1)
+        self.resources = Resources(cpus=1, gpus=1)
 
         self.model_identifier = model_identifier
         self.cache_dir = cache_dir
@@ -70,9 +73,10 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.has_seq_order = has_seq_order
         self.padding_side = padding_side
         self.unpack_inference_batch = unpack_inference_batch
+        self.autocast = autocast
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN] + ([SEQ_ORDER_COLUMN] if self.has_seq_order else [])
+        return ["data"], [INPUT_ID_FIELD, ATTENTION_MASK_FIELD] + ([SEQ_ORDER_FIELD] if self.has_seq_order else [])
 
     def outputs(self) -> tuple[list[str], list[str]]:
         msg = "Subclasses must implement this method"
@@ -121,11 +125,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         for i in range(0, len(df), self.model_inference_batch_size):
             yield clip_tokens(
                 {
-                    INPUT_ID_COLUMN: torch.tensor(
-                        df[INPUT_ID_COLUMN][i : i + self.model_inference_batch_size].tolist()
+                    INPUT_ID_FIELD: torch.tensor(
+                        df[INPUT_ID_FIELD][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
-                    ATTENTION_MASK_COLUMN: torch.tensor(
-                        df[ATTENTION_MASK_COLUMN][i : i + self.model_inference_batch_size].tolist()
+                    ATTENTION_MASK_FIELD: torch.tensor(
+                        df[ATTENTION_MASK_FIELD][i : i + self.model_inference_batch_size].tolist()
                     ).to(self.model.device),
                 },
                 padding_side=self.padding_side,
@@ -147,6 +151,12 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         msg = "Subclasses must implement this method"
         raise NotImplementedError(msg)
 
+    def _model_forward(self, model_input_batch: dict[str, torch.Tensor]) -> torch.Tensor:
+        if self.unpack_inference_batch:
+            return self.model(**model_input_batch)
+        else:
+            return self.model(model_input_batch)
+
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df_cpu = batch.to_pandas()
 
@@ -154,10 +164,11 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         for model_input_batch in self.yield_next_batch(df_cpu):
             # Forward pass
             with torch.no_grad():
-                if self.unpack_inference_batch:
-                    outputs = self.model(**model_input_batch)
+                if self.autocast:
+                    with torch.autocast(device_type="cuda"):
+                        outputs = self._model_forward(model_input_batch)
                 else:
-                    outputs = self.model(model_input_batch)
+                    outputs = self._model_forward(model_input_batch)
 
             processed_output = self.process_model_output(outputs, model_input_batch)
             del model_input_batch
@@ -171,7 +182,7 @@ class ModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         # Sort by seq_order to preserve original order from tokenizer
         if self.has_seq_order:
-            df_cpu = df_cpu.sort_values(by=SEQ_ORDER_COLUMN, ignore_index=True).drop(columns=[SEQ_ORDER_COLUMN])
+            df_cpu = df_cpu.sort_values(by=SEQ_ORDER_FIELD, ignore_index=True).drop(columns=[SEQ_ORDER_FIELD])
 
         return DocumentBatch(
             task_id=batch.task_id,
