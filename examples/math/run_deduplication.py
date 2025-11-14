@@ -47,7 +47,7 @@ def main() -> None:
         help="Output directory for duplicate IDs and id generator mapping",
     )
     parser.add_argument(
-        "--output_path",
+        "--output",
         type=str,
         required=True,
         help="Output directory for deduplicated data",
@@ -160,7 +160,7 @@ def main() -> None:
         removal_workflow = TextDuplicatesRemovalWorkflow(
             input_path=args.input,
             ids_to_remove_path=duplicate_ids_path,
-            output_path=args.output_path,
+            output_path=args.output,
             input_filetype=args.input_filetype,
             input_file_extensions=input_file_extensions,
             input_id_field="_curator_dedup_id",
@@ -171,7 +171,7 @@ def main() -> None:
         removal_workflow.run()
 
         logger.info("Pipeline completed successfully.")
-        logger.info(f"Deduplication complete! Deduplicated output: {args.output_path}")
+        logger.info(f"Deduplication complete! Deduplicated output: {args.output}")
 
     finally:
         ray_client.stop()

@@ -79,7 +79,7 @@ python examples/math/run_deduplication.py \
   --input DATA_DIR \
   --cache_dir CACHE_DIR \
   --duplicate_ids_dir DUPLICATE_IDS_DIR \
-  --output_path OUTPUT_PATH \
+  --output OUTPUT_DIR \
   --input_filetype jsonl
 ```
 
@@ -90,7 +90,7 @@ Deduplication takes place in two stages.
 - `--input`: Input directory path for Parquet/JSONL files
 - `--cache_dir`: Cache directory for deduplication intermediates (must be empty between runs)
 - `--duplicate_ids_dir`: Output directory for duplicate IDs and id generator mapping
-- `--output_path`: Output directory for deduplicated data
+- `--output`: Output directory for deduplicated data
 - `--input_filetype`: Input file type (`jsonl` or `parquet`)
 
 ## LLM Cleanup Pipeline

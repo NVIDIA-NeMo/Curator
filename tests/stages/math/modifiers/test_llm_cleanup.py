@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pandas as pd
@@ -118,6 +119,7 @@ class MockVLLMModel:
         else:
             sampling_kwargs["top_p"] = self.top_p
         self._sampling_params = MockSamplingParams(**sampling_kwargs)
+        self._final_max_model_len = self.max_model_len
 
     def generate(self, prompts: list[str]) -> list[str]:
         """Mock generate method that returns cleaned text."""
@@ -126,6 +128,24 @@ class MockVLLMModel:
             raise RuntimeError(msg)
         outputs = self._llm.generate(prompts, self._sampling_params, use_tqdm=False)
         return [out.outputs[0].text for out in outputs]
+
+    def get_tokenizer(self):
+        """Mock get_tokenizer method that returns a mock tokenizer."""
+        if self._llm is None:
+            msg = "Model not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        # Return a mock tokenizer with apply_chat_template method
+        # The template should extract the user message content for the mock to work correctly
+        def mock_apply_chat_template(messages: list[dict[str, str]], **kwargs: Any) -> str:  # noqa: ARG001, ANN401
+            # Extract user message content if available, otherwise return formatted string
+            for msg in messages:
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    return msg.get("content", "")
+            return str(messages)
+
+        mock_tokenizer = Mock()
+        mock_tokenizer.apply_chat_template = Mock(side_effect=mock_apply_chat_template)
+        return mock_tokenizer
 
 
 @pytest.fixture(autouse=True)
@@ -155,7 +175,6 @@ class TestLLMCleanupStage:
         assert stage.output_field == "cleaned_text"
         assert stage.max_model_len is None
         assert stage.classification is False
-        assert stage.filter_by_n_tokens is False
         assert stage.n_tokens_field == "n_tokens"
 
     def test_init_custom_values(self):
@@ -173,7 +192,6 @@ class TestLLMCleanupStage:
             min_p=0.1,
             max_tokens=1000,
             cache_dir="/custom/cache",
-            filter_by_n_tokens=True,
             n_tokens_field="custom_n_tokens",
         )
 
@@ -189,7 +207,6 @@ class TestLLMCleanupStage:
         assert stage._model.min_p == 0.1
         assert stage._model.max_tokens == 1000
         assert stage._model.cache_dir == "/custom/cache"
-        assert stage.filter_by_n_tokens is True
         assert stage.n_tokens_field == "custom_n_tokens"
 
     def test_inputs_outputs_cleanup_mode(self):
@@ -199,7 +216,7 @@ class TestLLMCleanupStage:
         inputs = stage.inputs()
         outputs = stage.outputs()
 
-        assert inputs == (["data"], ["text"])
+        assert inputs == (["data"], ["text", "n_tokens"])
         assert outputs == (["data"], ["cleaned_text"])
 
     def test_inputs_outputs_classification_mode(self):
@@ -211,18 +228,8 @@ class TestLLMCleanupStage:
         inputs = stage.inputs()
         outputs = stage.outputs()
 
-        assert inputs == (["data"], ["text"])
-        assert outputs == (["data"], ["label"])
-
-    def test_inputs_with_filter_by_n_tokens(self):
-        """Test inputs method when filter_by_n_tokens is enabled."""
-        stage = LLMCleanupStage(
-            model="test-model", system_prompt="Clean: {text}", filter_by_n_tokens=True
-        )
-
-        inputs = stage.inputs()
-
         assert inputs == (["data"], ["text", "n_tokens"])
+        assert outputs == (["data"], ["label"])
 
     def test_setup_initializes_llm(self):
         """Test that setup method initializes LLM and sampling params."""
@@ -368,17 +375,18 @@ class TestLLMCleanupStage:
         result = stage.process(batch)
 
         assert len(result.data) == 3
-        # Null values should be converted to empty strings
+        # Null values should be converted to empty strings, which result in "Cleaned output"
+        # The mock tokenizer extracts user message content, which for null text would be empty
         assert result.data["cleaned_text"].iloc[0] == "Cleaned output"
         assert result.data["cleaned_text"].iloc[1] == "Cleaned output"
+        assert result.data["cleaned_text"].iloc[2] == "Cleaned: Valid text"
 
     def test_process_filter_by_n_tokens(self):
-        """Test process method with filter_by_n_tokens enabled."""
+        """Test process method with n_tokens filtering enabled."""
         stage = LLMCleanupStage(
             model="test-model",
             system_prompt="Clean: {text}",
             max_model_len=1000,
-            filter_by_n_tokens=True,
         )
         stage.setup()
 
@@ -401,13 +409,12 @@ class TestLLMCleanupStage:
             model="test-model",
             system_prompt="Clean: {text}",
             max_model_len=1000,
-            filter_by_n_tokens=True,
         )
         stage.setup()
 
         df = pd.DataFrame({
             "text": ["Very long text 1", "Very long text 2"],
-            "n_tokens": [900, 950],  # Both exceed threshold
+            "n_tokens": [900, 950],
         })
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
@@ -420,7 +427,11 @@ class TestLLMCleanupStage:
 
     def test_process_sort_by_n_tokens(self):
         """Test that process sorts by n_tokens when available."""
-        stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}")
+        stage = LLMCleanupStage(
+            model="test-model",
+            system_prompt="Clean: {text}",
+            max_model_len=1000,  # Required when n_tokens field is present
+        )
         stage.setup()
 
         df = pd.DataFrame({
@@ -432,8 +443,9 @@ class TestLLMCleanupStage:
         result = stage.process(batch)
 
         # Should be sorted by n_tokens (ascending)
-        n_tokens_order = result.data["n_tokens"].tolist()
-        assert n_tokens_order == [100, 200, 300]
+        # Note: n_tokens column is dropped after filtering/sorting, so we check text order instead
+        text_order = result.data["text"].tolist()
+        assert text_order == ["Text 2", "Text 3", "Text 1"]
 
     def test_process_prompt_formatting(self):
         """Test that prompts are correctly formatted with text."""
@@ -476,16 +488,12 @@ class TestLLMCleanupStage:
         df = pd.DataFrame({"text": ["Some text"]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
-        # The error is raised directly from the mocked generate method
-        # Since we're mocking stage._model.generate directly, it bypasses VLLMModel.generate()
-        # which would wrap the error. So we just check for the original error message.
         with pytest.raises(RuntimeError, match="LLM generation failed"):
             stage.process(batch)
 
     def test_process_not_initialized(self):
         """Test process method when LLM is not initialized."""
         stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}")
-        # Don't call setup()
 
         df = pd.DataFrame({"text": ["Some text"]})
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
