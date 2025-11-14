@@ -29,10 +29,10 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--input_path",
+        "--input",
         type=str,
         required=True,
-        help="Input directory or glob pattern for Parquet/JSONL files",
+        help="Input directory path for Parquet/JSONL files",
     )
     parser.add_argument(
         "--cache_dir",
@@ -41,16 +41,16 @@ def main() -> None:
         help="Cache directory for deduplication intermediates (must be empty between runs)",
     )
     parser.add_argument(
-        "--duplicate_ids_output_path",
+        "--duplicate_ids_dir",
         type=str,
         required=True,
         help="Output directory for duplicate IDs and id generator mapping",
     )
     parser.add_argument(
-        "--deduplicated_output_path",
+        "--output_path",
         type=str,
-        default=None,
-        help="Output directory for deduplicated data (default: {output_path}/deduplicated)",
+        required=True,
+        help="Output directory for deduplicated data",
     )
     parser.add_argument(
         "--text_field",
@@ -132,9 +132,9 @@ def main() -> None:
         # Step 1: Run fuzzy deduplication to identify duplicates
         logger.info("Running fuzzy deduplication workflow to identify duplicate IDs...")
         fuzzy_workflow = FuzzyDeduplicationWorkflow(
-            input_path=args.input_path,
+            input_path=args.input,
             cache_path=args.cache_dir,
-            output_path=args.duplicate_ids_output_path,
+            output_path=args.duplicate_ids_dir,
             input_filetype=args.input_filetype,
             input_file_extensions=input_file_extensions,
             input_blocksize=args.input_blocksize,
@@ -153,14 +153,14 @@ def main() -> None:
         # Fuzzy deduplication outputs:
         # - Duplicate IDs: {output_path}/FuzzyDuplicateIds/ (parquet files with "id" column)
         # - ID generator: {output_path}/fuzzy_id_generator.json
-        duplicate_ids_path = os.path.join(args.duplicate_ids_output_path, "FuzzyDuplicateIds")
-        id_generator_path = os.path.join(args.duplicate_ids_output_path, "fuzzy_id_generator.json")
+        duplicate_ids_path = os.path.join(args.duplicate_ids_dir, "FuzzyDuplicateIds")
+        id_generator_path = os.path.join(args.duplicate_ids_dir, "fuzzy_id_generator.json")
 
         logger.info("Running text duplicates removal workflow to remove duplicates...")
         removal_workflow = TextDuplicatesRemovalWorkflow(
-            input_path=args.input_path,
+            input_path=args.input,
             ids_to_remove_path=duplicate_ids_path,
-            output_path=args.deduplicated_output_path,
+            output_path=args.output_path,
             input_filetype=args.input_filetype,
             input_file_extensions=input_file_extensions,
             input_id_field="_curator_dedup_id",
@@ -171,7 +171,7 @@ def main() -> None:
         removal_workflow.run()
 
         logger.info("Pipeline completed successfully.")
-        logger.info(f"Deduplication complete! Deduplicated output: {args.deduplicated_output_path}")
+        logger.info(f"Deduplication complete! Deduplicated output: {args.output_path}")
 
     finally:
         ray_client.stop()
