@@ -16,7 +16,7 @@ modality: "universal"
 Welcome to NeMo Curator! This framework streamlines the curation and pre-processing of large-scale datasets for training generative AI models across text, image, audio and video modalities.
 
 **Who are these quickstarts for?**
-- AI/ ML engineers and researchers who want to quickly test NeMo Curator's capabilities
+- AI/ML engineers and researchers who want to quickly test NeMo Curator's capabilities
 - Users looking to run an initial curation pipeline with minimal setup
 - Individuals exploring NeMo Curator prior to a full production deployment
 
