@@ -9,6 +9,7 @@ modality: "text-only"
 ---
 
 (about-concepts-text-data-processing)=
+
 # Text Processing Concepts
 
 This guide covers the most common text processing workflows in NVIDIA NeMo Curator, based on real-world usage patterns from production data curation pipelines.
@@ -55,7 +56,7 @@ For production datasets, fuzzy deduplication is essential to remove near-duplica
 
 #### Exact Deduplication
 
-Remove identical documents, especially useful for smaller datasets:
+Remove identical documents, useful for datasets of any size:
 
 **Implementation:**
 
@@ -164,6 +165,7 @@ writer = JsonlWriter(path="filtered_data/")
 pipeline.add_stage(writer)
 
 # Execute pipeline
+# Note: run() uses default executor if none specified
 results = pipeline.run()
 ```
 
@@ -193,8 +195,8 @@ pipeline.add_stage(reader)
 # Essential cleaning steps
 # Normalize unicode characters (very common)
 unicode_modifier = Modify(
-    modifier=UnicodeReformatter(),
-    text_field="text"
+    modifier_fn=UnicodeReformatter(),
+    input_fields="text"
 )
 pipeline.add_stage(unicode_modifier)
 
@@ -205,6 +207,7 @@ writer = JsonlWriter(path="cleaned_data/")
 pipeline.add_stage(writer)
 
 # Execute pipeline
+# Note: run() uses default executor if none specified
 results = pipeline.run()
 ```
 
@@ -231,7 +234,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     cache_path="./cache",
     output_path="./output",
     text_field="text",
-    perform_removal=False,  # Currently only identification supported
+    perform_removal=False,  # Set to True to remove duplicates (False only identifies them)
     # LSH parameters for ~80% similarity threshold
     num_bands=20,           # Number of LSH bands
     minhashes_per_band=13,  # Hashes per band
@@ -268,7 +271,7 @@ exact_workflow = ExactDeduplicationWorkflow(
     input_path="/path/to/input/data",
     output_path="/path/to/output",
     text_field="text",
-    perform_removal=False,  # Currently only identification supported
+    perform_removal=False,  # Set to True to remove duplicates (False only identifies them)
     assign_id=True,         # Automatically assign unique IDs
     input_filetype="parquet"
 )
@@ -300,8 +303,8 @@ def build_production_pipeline():
     
     # 1. Content cleaning first
     unicode_modifier = Modify(
-        modifier=UnicodeReformatter(),
-        text_field="text"
+        modifier_fn=UnicodeReformatter(),
+        input_fields="text"
     )
     pipeline.add_stage(unicode_modifier)
     
