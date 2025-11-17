@@ -272,6 +272,13 @@ def main() -> int:
     for sink in config.sinks:
         sink.initialize(session_name=session_name, matrix_config=config, env_dict=env_dict)
 
+    # Print a summary of the entries that will be run in the for loop below
+    # Disabled entries will not be printed
+    # TODO: should entries be created unconditionally and have an "enabled" field instead?
+    logger.info("Benchmark entries to be run in this session:")
+    for idx, entry in enumerate(config.entries, start=1):
+        logger.info(f"\t{idx}. {entry.name}")
+
     for entry in config.entries:
         run_success = False
         run_id = f"{entry.name}-{int(time.time())}"
