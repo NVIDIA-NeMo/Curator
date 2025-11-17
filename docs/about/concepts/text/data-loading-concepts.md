@@ -27,7 +27,6 @@ Both readers support optimization through:
 
 - **Field selection** - Reading specified columns to reduce memory usage
 - **Partitioning control** - Using `blocksize` or `files_per_partition` to optimize `DocumentBatch` sizes during distributed processing
-- **Recommended block size** - Use ~128MB for optimal object store performance with smaller data chunks
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -39,7 +38,7 @@ pipeline = Pipeline(name="data_processing")
 # JSONL reader with field selection and partitioning
 jsonl_reader = JsonlReader(
     file_paths="/path/to/jsonl_directory",
-    blocksize="128MB",  # Recommended for object store optimization
+    blocksize="128MB",  # Moderate block size balances memory vs task overhead
     fields=["text", "id"]  # Column selection for efficiency
 )
 pipeline.add_stage(jsonl_reader)
@@ -70,7 +69,7 @@ from nemo_curator.stages.text.io.reader import JsonlReader
 # Optimized JSONL reading
 reader = JsonlReader(
     file_paths="data_directory/",
-    blocksize="128MB",  # Optimal for distributed processing
+    blocksize="128MB",  # Moderate block size for distributed processing
     fields=["text", "id"]  # Read only required columns
 )
 ```
@@ -113,7 +112,7 @@ reader = ParquetReader(
 # Option 1: Size-based partitioning (recommended)
 reader = JsonlReader(
     file_paths="/path/to/data",
-    blocksize="128MB"  # Optimal for object store performance
+    blocksize="128MB"  # Moderate size balances memory vs task overhead
 )
 
 # Option 2: File count-based partitioning  
@@ -123,10 +122,23 @@ reader = ParquetReader(
 )
 ```
 
+```{tip}
+The `blocksize` parameter controls how files are grouped into partitions for distributed processing. See {py:class}`~nemo_curator.stages.file_partitioning.FilePartitioningStage` for implementation details.
+```
+
 ### Performance Recommendations
 
-- **Block size and files per partition**: Use ~128MB for optimal performance. Very large batches lead to memory overheads when passing data between stages through the object store, while very small batches induce overhead from processing many more tasks. We recommend ~128MB as a good balance. Try to avoid going below 32MB or above 1GiB partition sizes.
-- **Field selection**: Specify `fields` parameter to read required columns
+```{tip}
+**Partition Sizing Best Practices**
+
+Finding the right partition size balances two competing factors:
+- **Very large partitions** (>1GiB): Lead to memory overheads when passing data between stages through the object store
+- **Very small partitions** (<32MB): Induce overhead from processing many more tasks
+
+**Recommended range**: 64MB-256MB per partition, with 128MB as a good starting point for most workloads. Adjust based on your cluster resources and data characteristics.
+```
+
+- **Field selection**: Specify `fields` parameter to read only required columns and reduce memory usage
 - **Engine choice**: ParquetReader defaults to PyArrow with `dtype_backend="pyarrow"` for optimal performance and memory efficiency. If you encounter compatibility issues with certain data types or schemas, you can override these defaults through `read_kwargs`:
   ```python
   # Remove PyArrow dtype backend if compatibility issues arise
