@@ -102,9 +102,9 @@ entries:
       --model-inference-batch-size=1024
     timeout_s: 20000
 
-  - name: duplicate_identification_raydata
+  - name: fuzzy_dedup_identification_raydata
     enabled: true
-    script: duplicate_identification_benchmark.py
+    script: fuzzy_dedup_identification_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
       --cache-path={session_entry_dir}/scratch/cache
@@ -120,23 +120,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
 
-  - name: duplicate_identification_xenna
+  - name: dedup_removal_raydata
     enabled: true
-    script: duplicate_identification_benchmark.py
-    args: >-
-      --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
-      --cache-path={session_entry_dir}/scratch/cache
-      --output-path={session_entry_dir}/output
-      --executor=xenna
-      --input-filetype=jsonl
-      --bands-per-iteration=20
-      --text-field=text
-      --input-blocksize=1.5GiB
-    timeout_s: 20000
-
-  - name: duplicate_removal_raydata
-    enabled: true
-    script: duplicate_removal_benchmark.py
+    script: dedup_removal_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
       --id-generator-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
@@ -154,9 +140,9 @@ entries:
       num_gpus: 4
       enable_object_spilling: false
 
-  - name: duplicate_removal_xenna
+  - name: dedup_removal_xenna
     enabled: true
-    script: duplicate_removal_benchmark.py
+    script: dedup_removal_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
       --id-generator-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json

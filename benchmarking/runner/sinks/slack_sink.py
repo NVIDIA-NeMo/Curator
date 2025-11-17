@@ -19,7 +19,8 @@ from typing import Any
 
 import requests
 from loguru import logger
-from runner.matrix import MatrixConfig, MatrixEntry
+from runner.entry import Entry
+from runner.session import Session
 from runner.sinks.sink import Sink
 from runner.utils import find_result, get_obj_for_json
 
@@ -76,7 +77,7 @@ class SlackSink(Sink):
         self.sink_config = sink_config
         self.enabled = self.sink_config.get("enabled", True)
         self.session_name: str = None
-        self.matrix_config: MatrixConfig = None
+        self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
 
         self.results_to_report: list[tuple[list[str], dict[str, Any]]] = []  # list of tuples of (metrics, result_dict)
@@ -89,13 +90,13 @@ class SlackSink(Sink):
             msg = "SlackSink: No default metrics configured"
             raise ValueError(msg)
 
-    def initialize(self, session_name: str, matrix_config: MatrixConfig, env_dict: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, matrix_config: Session, env_dict: dict[str, Any]) -> None:
         # Initializes the sink for the session.
         self.session_name = session_name
         self.env_dict = env_dict
         self.matrix_config = matrix_config
 
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
+    def process_result(self, result_dict: dict[str, Any], matrix_entry: Entry) -> None:
         # Use the matrix_entry to get any entry-specific settings for the Slack report
         # such as additional metrics to include in the report.
         if matrix_entry:
@@ -275,7 +276,7 @@ if __name__ == "__main__":
                     yield json.load(f)
 
     sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
-    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_path=results_root_path)
+    matrix_config = Session(results_path=results_root_path, artifacts_path=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)
@@ -283,9 +284,7 @@ if __name__ == "__main__":
     slack_sink = SlackSink(sink_config=sink_config)
     slack_sink.initialize(session_name="test", matrix_config=matrix_config, env_dict=env_data)
 
-    matrix_entry = MatrixEntry(
-        name="test", sink_data=[{"name": "slack", "additional_metrics": args.additional_metrics}]
-    )
+    matrix_entry = Entry(name="test", sink_data=[{"name": "slack", "additional_metrics": args.additional_metrics}])
     for result in collect_results_from_dir(results_root_path):
         slack_sink.process_result(result_dict=result, matrix_entry=matrix_entry)
     slack_sink.finalize()

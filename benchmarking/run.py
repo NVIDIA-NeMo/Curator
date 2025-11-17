@@ -38,14 +38,15 @@ sys.path.insert(0, _this_script_dir)
 
 # ruff: noqa: E402
 from runner.datasets import DatasetResolver
+from runner.entry import Entry
 from runner.env_capture import dump_env
-from runner.matrix import MatrixConfig, MatrixEntry
 from runner.path_resolver import PathResolver
 from runner.process import run_command_with_timeout
 from runner.ray_cluster import (
     setup_ray_cluster_and_env,
     teardown_ray_cluster_and_env,
 )
+from runner.session import Session
 from runner.utils import find_result, get_obj_for_json, resolve_env_vars
 
 
@@ -131,7 +132,7 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
 
 
 def run_entry(
-    entry: MatrixEntry,
+    entry: Entry,
     path_resolver: PathResolver,
     dataset_resolver: DatasetResolver,
     session_path: Path,
@@ -252,34 +253,34 @@ def main() -> int:
                 config_dict.update(d)
     # Preprocess the config dict prior to creating objects from it
     try:
-        MatrixConfig.assert_valid_config_dict(config_dict)
+        Session.assert_valid_config_dict(config_dict)
         config_dict = resolve_env_vars(config_dict)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    config = MatrixConfig.create_from_dict(config_dict)
+    session = Session.create_from_dict(config_dict)
 
     # Create session folder under results_dir
     session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d__%H-%M-%S")
-    session_path = (config.results_path / session_name).absolute()
+    session_path = (session.results_path / session_name).absolute()
     ensure_dir(session_path)
 
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
     env_dict = dump_env(session_path)
 
-    for sink in config.sinks:
-        sink.initialize(session_name=session_name, matrix_config=config, env_dict=env_dict)
+    for sink in session.sinks:
+        sink.initialize(session_name=session_name, matrix_config=session, env_dict=env_dict)
 
     # Print a summary of the entries that will be run in the for loop below
     # Disabled entries will not be printed
     # TODO: should entries be created unconditionally and have an "enabled" field instead?
     logger.info("Benchmark entries to be run in this session:")
-    for idx, entry in enumerate(config.entries, start=1):
+    for idx, entry in enumerate(session.entries, start=1):
         logger.info(f"\t{idx}. {entry.name}")
 
-    for entry in config.entries:
+    for entry in session.entries:
         run_success = False
         run_id = f"{entry.name}-{int(time.time())}"
         result_data = {
@@ -287,12 +288,12 @@ def main() -> int:
             "run_id": run_id,
             "success": run_success,
         }
-        logger.info(f"\tRunning {entry.name} (run ID: {run_id})")
+        logger.info(f"🚀 Running {entry.name} (run ID: {run_id})")
         try:
             run_success = run_entry(
                 entry=entry,
-                path_resolver=config.path_resolver,
-                dataset_resolver=config.dataset_resolver,
+                path_resolver=session.path_resolver,
+                dataset_resolver=session.dataset_resolver,
                 session_path=session_path,
                 result_data=result_data,
             )
@@ -312,10 +313,10 @@ def main() -> int:
 
         finally:
             session_overall_success &= run_success
-            for sink in config.sinks:
+            for sink in session.sinks:
                 sink.process_result(result_dict=result_data, matrix_entry=entry)
 
-    for sink in config.sinks:
+    for sink in session.sinks:
         sink.finalize()
     logger.info(f"Session {session_name} completed with overall success: {session_overall_success}")
     return 0 if session_overall_success else 1
