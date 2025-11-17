@@ -27,7 +27,7 @@ To use NeMo Curator’s text curation modules, ensure your system meets the foll
   * CUDA 12 (or later)
 
 :::{tip}
-If `uv` is not installed, refer to the [installation Guide](../admin/installation.md) for setup instructions, or install it quickly using:
+If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly using:
 
 ```bash
 curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
