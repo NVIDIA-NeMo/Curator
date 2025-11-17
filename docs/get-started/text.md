@@ -122,11 +122,13 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 from nemo_curator.stages.text.filters import WordCountFilter, NonAlphaNumericFilter
 
+# Create a pipeline for text curation
 pipeline = Pipeline(
     name="text_curation_pipeline",
     description="Basic text quality filtering pipeline"
 )
 
+# Add stages to the pipeline
 pipeline.add_stage(
     JsonlReader(
         file_paths="~/nemo_curator/data/sample/",
@@ -135,6 +137,7 @@ pipeline.add_stage(
     )
 )
 
+# Add quality filtering stages
 pipeline.add_stage(
     ScoreFilter(
         filter_obj=WordCountFilter(min_words=50, max_words=100000),
@@ -151,11 +154,13 @@ pipeline.add_stage(
     )
 )
 
+# Write the curated results
 pipeline.add_stage(
     JsonlWriter("~/nemo_curator/data/curated")
 )
-
+# Execute the pipeline
 results = pipeline.run()
+
 print(f"Pipeline completed successfully! Processed {len(results) if results else 0} tasks.")
 ```
 
