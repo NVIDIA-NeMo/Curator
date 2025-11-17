@@ -140,7 +140,7 @@ entries:
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
       --id-generator-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
-      --ids-to-remove-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_path/FuzzyDuplicateIds/
+      --ids-to-remove-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-filetype=jsonl
@@ -160,7 +160,7 @@ entries:
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
       --id-generator-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
-      --ids-to-remove-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_path/FuzzyDuplicateIds/
+      --ids-to-remove-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-filetype=jsonl
