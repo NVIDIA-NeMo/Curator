@@ -105,7 +105,7 @@ Load images from tar archives and extract metadata.
 
 ```python
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=100,  # Images per batch
+    batch_size=100,  # Images per batch
     verbose=True,
     num_threads=16,       # I/O threads
     num_gpus_per_worker=0.25,
@@ -216,7 +216,7 @@ def create_image_curation_pipeline():
     ))
     
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100,
+        batch_size=100,
         verbose=True,
         num_threads=16,
         num_gpus_per_worker=0.25,

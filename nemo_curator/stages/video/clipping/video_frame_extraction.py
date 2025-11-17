@@ -107,7 +107,7 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     pyncv_batch_size: int = 64
     decoder_mode: str = "pynvc"
     verbose: bool = False
-    _name: str = "video_frame_extraction"
+    name: str = "video_frame_extraction"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -135,9 +135,9 @@ class VideoFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
 
     def __post_init__(self) -> None:
         if self.decoder_mode == "pynvc":
-            self._resources = Resources(gpu_memory_gb=10)
+            self.resources = Resources(gpu_memory_gb=10)
         else:
-            self._resources = Resources(cpus=4.0)
+            self.resources = Resources(cpus=4.0)
 
     def process(self, task: VideoTask) -> VideoTask:
         width, height = self.output_hw

@@ -40,8 +40,8 @@ class TestExecuteSetupOnNode:
         """Test execute_setup_on_node with two stages on the Ray cluster."""
 
         class MockStage1(ProcessingStage):
-            _name = "mock_stage_1"
-            _resources = Resources(cpus=1.0, gpus=0.0)
+            name = "mock_stage_1"
+            resources = Resources(cpus=1.0, gpus=0.0)
 
             def process(self, task: "Task") -> "Task":
                 return task

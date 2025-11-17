@@ -46,7 +46,7 @@ class PreviewStage(ProcessingStage[VideoTask, VideoTask]):
         return ["data"], ["clips"]
 
     def __post_init__(self) -> None:
-        self._resources = Resources(cpus=self.num_cpus_per_worker)
+        self.resources = Resources(cpus=self.num_cpus_per_worker)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data

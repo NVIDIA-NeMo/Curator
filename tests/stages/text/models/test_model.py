@@ -22,7 +22,7 @@ from torch import nn
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.text.models.model import ModelStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, SEQ_ORDER_COLUMN
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, SEQ_ORDER_FIELD
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -33,8 +33,8 @@ class MockTorchModel(nn.Module):
         self.device_name = device
 
     def forward(self, inputs: dict[str, torch.Tensor]) -> torch.Tensor:
-        batch_size = inputs[INPUT_ID_COLUMN].shape[0]
-        seq_len = inputs[INPUT_ID_COLUMN].shape[1]
+        batch_size = inputs[INPUT_ID_FIELD].shape[0]
+        seq_len = inputs[INPUT_ID_FIELD].shape[1]
         return torch.randn(batch_size, seq_len, 2, device=self.device_name)
 
     @property
@@ -43,13 +43,13 @@ class MockTorchModel(nn.Module):
 
 
 class MockModelStage(ModelStage):
-    def __init__(self, pred_column: str = "predictions", **kwargs):
+    def __init__(self, label_field: str = "predictions", **kwargs):
         super().__init__(**kwargs)
-        self.pred_column = pred_column
+        self.label_field = label_field
         self.model = None
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column]
+        return ["data"], [self.label_field]
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         self.model = MockTorchModel(device="cpu")
@@ -59,15 +59,15 @@ class MockModelStage(ModelStage):
     ) -> dict[str, np.ndarray]:
         # Simple processing: take mean across sequence dimension
         processed = outputs.mean(dim=1).cpu().numpy()
-        return {self.pred_column: processed}
+        return {self.label_field: processed}
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
         result = df_cpu.copy()
-        result[self.pred_column] = None
+        result[self.label_field] = None
 
         if collected_output:
-            result[self.pred_column] = collected_output[self.pred_column].tolist()
+            result[self.label_field] = collected_output[self.label_field].tolist()
 
         return result
 
@@ -100,13 +100,13 @@ class TestModelStage:
 
     def create_sample_dataframe(self, num_rows: int = 4, include_seq_order: bool = True) -> pd.DataFrame:
         data = {
-            INPUT_ID_COLUMN: [[1, 2, 3, 0], [4, 5, 0, 0], [6, 7, 8, 9], [10, 11, 0, 0]],
-            ATTENTION_MASK_COLUMN: [[1, 1, 1, 0], [1, 1, 0, 0], [1, 1, 1, 1], [1, 1, 0, 0]],
+            INPUT_ID_FIELD: [[1, 2, 3, 0], [4, 5, 0, 0], [6, 7, 8, 9], [10, 11, 0, 0]],
+            ATTENTION_MASK_FIELD: [[1, 1, 1, 0], [1, 1, 0, 0], [1, 1, 1, 1], [1, 1, 0, 0]],
             "text": ["sample text 1", "sample text 2", "sample text 3", "sample text 4"],
         }
 
         if include_seq_order:
-            data[SEQ_ORDER_COLUMN] = [2, 0, 3, 1]
+            data[SEQ_ORDER_FIELD] = [2, 0, 3, 1]
 
         df = pd.DataFrame(data)
         return df.iloc[:num_rows]
@@ -121,11 +121,11 @@ class TestModelStage:
         assert len(batches) == 1
         batch = batches[0]
 
-        assert INPUT_ID_COLUMN in batch
-        assert ATTENTION_MASK_COLUMN in batch
-        assert isinstance(batch[INPUT_ID_COLUMN], torch.Tensor)
-        assert isinstance(batch[ATTENTION_MASK_COLUMN], torch.Tensor)
-        assert batch[INPUT_ID_COLUMN].shape[0] == 4
+        assert INPUT_ID_FIELD in batch
+        assert ATTENTION_MASK_FIELD in batch
+        assert isinstance(batch[INPUT_ID_FIELD], torch.Tensor)
+        assert isinstance(batch[ATTENTION_MASK_FIELD], torch.Tensor)
+        assert batch[INPUT_ID_FIELD].shape[0] == 4
 
     def test_yield_next_batch_multiple_batches(self):
         stage = MockModelStage(model_identifier="test/model", model_inference_batch_size=2)
@@ -137,12 +137,12 @@ class TestModelStage:
         assert len(batches) == 2
 
         # Check first batch
-        assert batches[0][INPUT_ID_COLUMN].shape[0] == 2
-        assert batches[0][ATTENTION_MASK_COLUMN].shape[0] == 2
+        assert batches[0][INPUT_ID_FIELD].shape[0] == 2
+        assert batches[0][ATTENTION_MASK_FIELD].shape[0] == 2
 
         # Check second batch
-        assert batches[1][INPUT_ID_COLUMN].shape[0] == 2
-        assert batches[1][ATTENTION_MASK_COLUMN].shape[0] == 2
+        assert batches[1][INPUT_ID_FIELD].shape[0] == 2
+        assert batches[1][ATTENTION_MASK_FIELD].shape[0] == 2
 
     def test_collect_outputs(self):
         stage = MockModelStage(model_identifier="test/model")
@@ -170,7 +170,7 @@ class TestModelStage:
         result = stage.process(batch).to_pandas()
 
         # Check that seq_order column is removed and data is sorted
-        assert SEQ_ORDER_COLUMN not in result.columns
+        assert SEQ_ORDER_FIELD not in result.columns
         assert "predictions" in result.columns
 
         # Check that the original order is restored (based on seq_order)
@@ -187,7 +187,7 @@ class TestModelStage:
         result = stage.process(batch).to_pandas()
 
         # Check that seq_order column is not present and data order is preserved
-        assert SEQ_ORDER_COLUMN not in result.columns
+        assert SEQ_ORDER_FIELD not in result.columns
         assert "predictions" in result.columns
 
         # Order should be preserved as-is
@@ -215,8 +215,8 @@ class TestModelStage:
         # Check that model was called with unpacked arguments
         assert stage.model.call_count == 1
         args, kwargs = stage.model.call_args
-        assert INPUT_ID_COLUMN in kwargs
-        assert ATTENTION_MASK_COLUMN in kwargs
+        assert INPUT_ID_FIELD in kwargs
+        assert ATTENTION_MASK_FIELD in kwargs
 
     @patch("nemo_curator.stages.text.models.model.torch.cuda.empty_cache")
     @patch("nemo_curator.stages.text.models.model.gc.collect")
