@@ -39,7 +39,7 @@ The following quickstarts allow you to test NeMo Curator using a selected data m
 :::{grid-item-card} {octicon}`typography;1.5em;sd-mr-1` Text Curation Quickstart
 :link: gs-text
 :link-type: ref
-Set up your environment and execute your first text curation pipeline with NeMo Curator. Instructions cover  installation, data preparation, and use of the modular pipeline architecture for efficient large-scale text dataset curation.
+Set up your environment and execute your first text curation pipeline with NeMo Curator. Instructions cover installation, data preparation, and use of the modular pipeline architecture for efficient large-scale text dataset curation.
 
 :::
 
