@@ -28,6 +28,7 @@ RUN apt-get update \
 
 # Add dependencies for benchmarking to the Curator Python environment
 RUN cd /opt/Curator \
+ && uv sync --extra deduplication_cuda12 \
  && uv add \
     GitPython \
     oauth2client \

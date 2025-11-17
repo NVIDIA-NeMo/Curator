@@ -123,6 +123,7 @@ class SlackSink(Sink):
             "GOOGLE_DRIVE_LINK": "https://google.com",
             "EXECUTIVE_SUMMARY": " ",
         }
+        indent = "-    "  # start with a dash since leading whitespace is stripped
 
         # Create REPORT_JSON_TEXT: Build the report data as a Python data structure which maps to JSON,
         # then call json.dumps() to convert to a string.
@@ -138,7 +139,7 @@ class SlackSink(Sink):
         rows.append(self._two_column_row_bold("OVERALL STATUS", overall_status))
         for _, results in self.results_to_report:
             # Name and success icon row
-            entry_name = find_result(results, "name")
+            entry_name = f"{indent}{find_result(results, 'name')}"
             success_str = "✅ success" if find_result(results, "success") else "❌ FAILED"
             rows.append(self._two_column_row_bold(entry_name, success_str))
 
@@ -150,7 +151,7 @@ class SlackSink(Sink):
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
-            rows.append(self._two_column_row(str(var), str(val)))
+            rows.append(self._two_column_row(f"{indent}{var}", str(val)))
 
         rows.append(_blank_row)
         # Results header row
@@ -179,7 +180,7 @@ class SlackSink(Sink):
                     data.append(("All requirements met", "❌"))
 
             for var, val in data:
-                rows.append(self._two_column_row(str(var), str(val)))
+                rows.append(self._two_column_row(f"{indent}{var}", str(val)))
             # Add a blank row between entry results
             rows.append(_blank_row)
 
