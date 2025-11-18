@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: ARG001
+
 import os
 import tempfile
 import time
@@ -39,15 +41,39 @@ def _assert_ray_cluster_started(client: RayClient, timeout: int = 30) -> None:
         assert content.split(":")[1].strip() == str(client.ray_port)
 
 
+def _assert_ray_stdouterr_output(stdouterr_capture_file: str) -> None:
+    """Assert that the expected output is in capture file."""
+    # stdout/stderr output may not always appear immediately, hence the loop.
+    timeout = 30
+    elapsed = 0
+    while elapsed < timeout:
+        if os.path.exists(stdouterr_capture_file):
+            with open(stdouterr_capture_file) as f:
+                if "Ray runtime started." in f.read():
+                    break
+        if elapsed >= timeout:
+            msg = f"Expected output not found in {stdouterr_capture_file} after {timeout} seconds"
+            raise AssertionError(msg)
+        time.sleep(1)
+        elapsed += 1
+
+
+@pytest.fixture(scope="module")
+def clean_env():
+    initial_address = os.environ.pop("RAY_ADDRESS", None)
+    yield
+    if initial_address:
+        os.environ["RAY_ADDRESS"] = initial_address
+    else:
+        os.environ.pop("RAY_ADDRESS", None)
+
+
 # -----------------------------------------------------------------------------
 # Tests
 # -----------------------------------------------------------------------------
 
 
-# This test should be allowed to fail since it's not deterministic.
-@pytest.mark.xfail(strict=False, reason="Non-deterministic test due to Ray startup timing")
-def test_get_ray_client_single_start():
-    initial_address = os.environ.pop("RAY_ADDRESS", None)
+def test_get_ray_client_single_start(clean_env: pytest.fixture):
     client = None
     try:
         with tempfile.TemporaryDirectory(prefix="ray_test_single_") as ray_tmp:
@@ -58,15 +84,9 @@ def test_get_ray_client_single_start():
     finally:
         if client:
             client.stop()
-        if initial_address:
-            os.environ["RAY_ADDRESS"] = initial_address
-        else:
-            os.environ.pop("RAY_ADDRESS", None)
 
 
-@pytest.mark.xfail(strict=False, reason="Non-deterministic test due to Ray startup timing")
-def test_get_ray_client_multiple_start():
-    initial_address = os.environ.pop("RAY_ADDRESS", None)
+def test_get_ray_client_multiple_start(clean_env: pytest.fixture):
     client1 = None
     client2 = None
     try:
@@ -87,14 +107,9 @@ def test_get_ray_client_multiple_start():
             client1.stop()
         if client2:
             client2.stop()
-        if initial_address:
-            os.environ["RAY_ADDRESS"] = initial_address
-        else:
-            os.environ.pop("RAY_ADDRESS", None)
 
 
-def test_ray_client_context_manager(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("RAY_ADDRESS")
+def test_ray_client_context_manager(clean_env: pytest.fixture):
     with tempfile.TemporaryDirectory(prefix="ray_test_ctx_manager_") as ray_tmp:
         with RayClient(ray_temp_dir=ray_tmp) as client:
             _assert_ray_cluster_started(client)
@@ -102,35 +117,30 @@ def test_ray_client_context_manager(monkeypatch: pytest.MonkeyPatch):
         assert client.ray_process is None
 
 
-@pytest.mark.xfail(strict=False, reason="Non-deterministic test due to Ray startup timing")
-def test_get_ray_client_single_start_with_stdouterr_capture():
-    initial_address = os.environ.pop("RAY_ADDRESS", None)
+def test_get_ray_client_single_start_with_stdouterr_capture(clean_env: pytest.fixture):
     client = None
     try:
         with tempfile.TemporaryDirectory(prefix="ray_test_single_") as ray_tmp:
+            # Check that stdout/stderr is captured after calling start()
             stdouterr_capture_file = os.path.join(ray_tmp, "ray_stdouterr.log")
-            client = RayClient(ray_temp_dir=ray_tmp)
-            client.start(stdouterr_capture_file=stdouterr_capture_file)
+            client = RayClient(ray_temp_dir=ray_tmp, ray_stdouterr_capture_file=stdouterr_capture_file)
+            client.start()
             _assert_ray_cluster_started(client)
+            _assert_ray_stdouterr_output(stdouterr_capture_file)
+            client.stop()
+            os.environ.pop("RAY_ADDRESS", None)
 
-            # Check for expected output in capture file.
-            # stdout/stderr output does not always appear immediately.
-            timeout = 30
-            elapsed = 0
-            while elapsed < timeout:
-                if os.path.exists(stdouterr_capture_file):
-                    with open(stdouterr_capture_file) as f:
-                        if "Ray runtime started." in f.read():
-                            break
-                if elapsed >= timeout:
-                    msg = f"Expected output not found in {stdouterr_capture_file} after {timeout} seconds"
-                    raise AssertionError(msg)
-                time.sleep(1)
-                elapsed += 1
+            # Check that an error is raised if the capture file already exists
+            with pytest.raises(FileExistsError):
+                RayClient(ray_temp_dir=ray_tmp, ray_stdouterr_capture_file=stdouterr_capture_file)
+
+        with tempfile.TemporaryDirectory(prefix="ray_test_single_") as ray_tmp:
+            # Check that stdout/stderr is captured if the client is used with a context manager
+            stdouterr_capture_file = os.path.join(ray_tmp, "ray_stdouterr.log")
+            with RayClient(ray_temp_dir=ray_tmp, ray_stdouterr_capture_file=stdouterr_capture_file) as client:
+                _assert_ray_cluster_started(client)
+                _assert_ray_stdouterr_output(stdouterr_capture_file)
+
     finally:
         if client:
             client.stop()
-        if initial_address:
-            os.environ["RAY_ADDRESS"] = initial_address
-        else:
-            os.environ.pop("RAY_ADDRESS", None)

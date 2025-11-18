@@ -16,8 +16,7 @@ import atexit
 import os
 import socket
 import subprocess
-from dataclasses import dataclass
-from typing import TextIO
+from dataclasses import dataclass, field
 
 from loguru import logger
 
@@ -74,11 +73,16 @@ class RayClient:
     num_gpus: int | None = None
     num_cpus: int | None = None
     enable_object_spilling: bool = False
+    ray_stdouterr_capture_file: str | None = None
 
-    ray_process: subprocess.Popen | None = None
-    ray_stdouterr_capture_file_obj: TextIO | None = None
+    ray_process: subprocess.Popen | None = field(init=False)
 
-    def start(self, stdouterr_capture_file: str | None = None) -> None:
+    def __post_init__(self) -> None:
+        if self.ray_stdouterr_capture_file and os.path.exists(self.ray_stdouterr_capture_file):
+            msg = f"Capture file {self.ray_stdouterr_capture_file} already exists."
+            raise FileExistsError(msg)
+
+    def start(self) -> None:
         """Start the Ray cluster, optionally capturing stdout/stderr to a file."""
         if self.include_dashboard:
             # Add Ray metrics service discovery to existing Prometheus configuration
@@ -113,12 +117,6 @@ class RayClient:
                 get_next_free_port=(self.ray_client_server_port == DEFAULT_RAY_CLIENT_SERVER_PORT),
             )
             ip_address = socket.gethostbyname(socket.gethostname())
-            # Open the stdouterr capture file if provided.
-            # This will be closed when the Ray client is stopped.
-            if stdouterr_capture_file:
-                self.ray_stdouterr_capture_file_obj = open(stdouterr_capture_file, "w")  # noqa: SIM115
-            else:
-                self.ray_stdouterr_capture_file_obj = None
 
             self.ray_process = init_cluster(
                 self.ray_port,
@@ -132,7 +130,7 @@ class RayClient:
                 self.enable_object_spilling,
                 block=True,
                 ip_address=ip_address,
-                stdouterr_capture_file_obj=self.ray_stdouterr_capture_file_obj,
+                stdouterr_capture_file=self.ray_stdouterr_capture_file,
             )
             # Set environment variable for RAY_ADDRESS
 
@@ -154,10 +152,6 @@ class RayClient:
             logger.info(msg)
             # Clear the process to prevent double execution (atexit handler)
             self.ray_process = None
-            # Close the stdouterr capture file if one was opened.
-            if self.ray_stdouterr_capture_file_obj:
-                self.ray_stdouterr_capture_file_obj.close()
-                self.ray_stdouterr_capture_file_obj = None
 
     def __enter__(self):
         self.start()
