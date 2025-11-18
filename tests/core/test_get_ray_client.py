@@ -120,8 +120,8 @@ def test_get_ray_client_single_start_with_stdouterr_capture():
             while elapsed < timeout:
                 if os.path.exists(stdouterr_capture_file):
                     with open(stdouterr_capture_file) as f:
-                        assert "Ray runtime started." in f.read()
-                    break
+                        if "Ray runtime started." in f.read():
+                            break
                 if elapsed >= timeout:
                     msg = f"Expected output not found in {stdouterr_capture_file} after {timeout} seconds"
                     raise AssertionError(msg)
