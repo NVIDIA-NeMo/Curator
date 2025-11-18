@@ -46,7 +46,6 @@ class GdriveSink(Sink):
         # Retry and progress tracking configuration
         self.max_retries: int = self.sink_config.get("max_retries", 3)
         self.retry_delay_base: float = self.sink_config.get("retry_delay_base", 2.0)
-        self.timeout_seconds: int = self.sink_config.get("timeout_seconds", 300)
 
         # Metadata and organization configuration
         self.include_metadata: bool = self.sink_config.get("include_metadata", True)
@@ -76,8 +75,6 @@ class GdriveSink(Sink):
         # Note: Unlike SlackSink which uses list[str] for additional_metrics (simple metric selection),
         # GDrive sink uses dict[str, Any] for complex configuration supporting multiple data types:
         # - custom_folder_id: str (folder routing)
-        # - include_logs: bool (component control)
-        # - include_ray_cluster: bool (component control)
         # - description: str (metadata)
         # - Any custom fields: various types (extensibility)
         # This reflects the different purposes: Slack does simple metric selection,
@@ -134,7 +131,7 @@ class GdriveSink(Sink):
             # Log configuration summary for debugging
             logger.debug(
                 f"GdriveSink: Configuration - Max retries: {self.max_retries}, "
-                f"Retry delay base: {self.retry_delay_base}s, Timeout: {self.timeout_seconds}s, "
+                f"Retry delay base: {self.retry_delay_base}s, "
                 f"Metadata: {self.include_metadata}, Organization: {self.organize_by_date}, "
                 f"Enhanced naming: {self.enhanced_naming}"
             )
@@ -191,7 +188,6 @@ class GdriveSink(Sink):
                 "sink_settings": {
                     "max_retries": self.max_retries,
                     "retry_delay_base": self.retry_delay_base,
-                    "timeout_seconds": self.timeout_seconds,
                     "include_metadata": self.include_metadata,
                     "organize_by_date": self.organize_by_date,
                 },
@@ -225,14 +221,9 @@ class GdriveSink(Sink):
 
         return "_".join(filename_parts) + ".tar.gz"
 
-    def _get_benchmark_config(self, entry: dict, key: str, default=None):
+    def _get_benchmark_config(self, entry: dict, key: str, default: object | None = None) -> object | None:
         """Get benchmark-specific configuration value with fallback to default."""
         return entry.get("config", {}).get(key, default)
-
-    def _should_include_component(self, entry: dict, component: str) -> bool:
-        """Check if a specific component should be included for this benchmark."""
-        include_key = f"include_{component}"
-        return self._get_benchmark_config(entry, include_key, True)  # Default to True
 
     def _tar_results_and_artifacts(self) -> Path:
         """Create enhanced archive with session results, artifacts, and metadata."""
@@ -321,11 +312,11 @@ class GdriveSink(Sink):
                 folder_id = date_folder["id"]
                 logger.info(f"GdriveSink: Created new date folder: {date_string} (ID: {folder_id})")
 
-            return folder_id
-
-        except Exception as e:
+        except ApiRequestError as e:
             logger.warning(f"GdriveSink: Failed to create folder structure, using root folder: {e}")
             return self.drive_folder_id
+        else:
+            return folder_id
 
     def _upload_to_gdrive(self, tar_path: Path) -> str:
         """Upload archive to Google Drive with enhanced organization and retry logic."""
@@ -387,9 +378,9 @@ class GdriveSink(Sink):
                     logger.info(f"GdriveSink: File organized in date folder: {self._generate_date_string()}")
                 logger.info(f"GdriveSink: Shareable link: {shareable_link}")
 
-                return shareable_link
+                return shareable_link  # noqa: TRY300
 
-            except Exception as e:
+            except (ApiRequestError, OSError, ValueError) as e:
                 error_type = self._categorize_error(e)
                 logger.warning(f"GdriveSink: Upload attempt {attempt} failed - {error_type}: {e}")
 
@@ -407,7 +398,8 @@ class GdriveSink(Sink):
                 time.sleep(retry_delay)
 
         # This should never be reached, but just in case
-        raise RuntimeError("GdriveSink: Upload failed after all retry attempts")
+        msg = "GdriveSink: Upload failed after all retry attempts"
+        raise RuntimeError(msg)
 
     def _categorize_error(self, error: Exception) -> str:
         """Categorize errors for better retry logic and user feedback."""
@@ -459,5 +451,5 @@ class GdriveSink(Sink):
             try:
                 tar_path.unlink()
                 logger.debug(f"GdriveSink: Cleaned up temporary file: {tar_path.name}")
-            except Exception as e:
+            except OSError as e:
                 logger.warning(f"GdriveSink: Failed to delete temporary file {tar_path.name}: {e}")
