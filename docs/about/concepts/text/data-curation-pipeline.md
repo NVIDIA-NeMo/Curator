@@ -17,6 +17,18 @@ This guide provides a comprehensive overview of NeMo Curator's text curation pip
 
 The following diagram provides a high-level outline of NeMo Curator's text curation architecture:
 
+<!--
+TODO:
+Architecture diagram is out of date
+- Mentions Dask
+- Does not mention Ray
+- Mentions LLM NIM/Generate Synthetic Data which are not supported in 25.09 (but will be supported in 26.01)
+- Mentions PII removal which is not supported in 25.09
+- Mentions Task Decontamination which is not supported in 25.09
+- Mentions LLM/Reward Model/Embedding NIM which is not supported in 25.09
+- Mentions Blending/Shuffling which is not supported in 25.09
+-->
+
 ```{image} _images/text-processing-diagram.png
 :alt: High-level outline of NeMo Curator's text curation architecture
 ```
@@ -29,8 +41,8 @@ NeMo Curator's text curation pipeline consists of several key stages that work t
 
 Multiple input sources provide the foundation for text curation:
 
-- **Cloud storage**: (S3, GCS, Azure)
-- **Local workstation**: files (JSONL, Parquet)
+- **Cloud storage**: Amazon S3, Azure
+- **Local workstation**: JSONL, Parquet
 
 ### 2. Data Acquisition & Processing
 
