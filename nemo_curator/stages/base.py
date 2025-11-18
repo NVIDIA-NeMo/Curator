@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 from abc import ABC, ABCMeta, abstractmethod
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, final
 
 from loguru import logger
 
@@ -80,22 +80,37 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
     """
 
     _is_abstract_root = True  # prevent base from registering itself
-    _name = "ProcessingStage"
-    _resources = Resources(cpus=1.0)
-    _batch_size = 1
+    name = "ProcessingStage"
+    resources = Resources(cpus=1.0)
+    batch_size = 1
 
     @property
-    def name(self) -> str:
-        return self._name
+    @final
+    def _name(self) -> str:
+        return self.name
 
     @property
-    def resources(self) -> Resources:
-        return self._resources
+    @final
+    def _resources(self) -> Resources:
+        return self.resources
 
     @property
-    def batch_size(self) -> int | None:
+    @final
+    def _batch_size(self) -> int | None:
         """Number of tasks to process in a batch."""
-        return self._batch_size
+        return self.batch_size
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "_name" in cls.__dict__:
+            msg = f"{cls.__name__} must not override '_name'"
+            raise TypeError(msg)
+        if "_resources" in cls.__dict__:
+            msg = f"{cls.__name__} must not override '_resources'"
+            raise TypeError(msg)
+        if "_batch_size" in cls.__dict__:
+            msg = f"{cls.__name__} must not override '_batch_size'"
+            raise TypeError(msg)
 
     def num_workers(self) -> int | None:
         """Number of workers required. If None, then executor will determine the number of workers."""
@@ -251,11 +266,11 @@ class ProcessingStage(ABC, Generic[X, Y], metaclass=StageMeta):
 
         # Override the instance attributes directly
         if name is not None:
-            new_instance._name = name
+            new_instance.name = name
         if resources is not None:
-            new_instance._resources = resources
+            new_instance.resources = resources
         if batch_size is not None:
-            new_instance._batch_size = batch_size
+            new_instance.batch_size = batch_size
 
         return new_instance
 

@@ -26,14 +26,14 @@ from transformers import AutoModel
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
 from nemo_curator.tasks import DocumentBatch
 
 from .constants import DEBERTA_TOKENIZER_PADDING_SIDE
 
 PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER = "nvidia/prompt-task-and-complexity-classifier"
 MAX_SEQ_LENGTH = 512
-OUTPUT_COLUMNS = [
+OUTPUT_FIELDS = [
     "prompt_complexity_score",
     "task_type_1",
     "task_type_2",
@@ -126,7 +126,7 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
             scores = weighted_sum / self.divisor_map[target]
 
             scores = [round(value, decimal) for value in scores]
-            if target == OUTPUT_COLUMNS[7]:
+            if target == OUTPUT_FIELDS[7]:
                 scores = [x if x >= 0.05 else 0 for x in scores]  # noqa: PLR2004
             return scores
 
@@ -136,40 +136,40 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
         # Round 1: "task_type"
         task_type_logits = logits[0]
         task_type_results = self.compute_results(task_type_logits, target="task_type")
-        result[OUTPUT_COLUMNS[1]] = task_type_results[0]
-        result[OUTPUT_COLUMNS[2]] = task_type_results[1]
-        result[OUTPUT_COLUMNS[3]] = task_type_results[2]
+        result[OUTPUT_FIELDS[1]] = task_type_results[0]
+        result[OUTPUT_FIELDS[2]] = task_type_results[1]
+        result[OUTPUT_FIELDS[3]] = task_type_results[2]
 
         # Round 2: "creativity_scope"
         creativity_scope_logits = logits[1]
-        result[OUTPUT_COLUMNS[4]] = self.compute_results(creativity_scope_logits, target=OUTPUT_COLUMNS[4])
+        result[OUTPUT_FIELDS[4]] = self.compute_results(creativity_scope_logits, target=OUTPUT_FIELDS[4])
 
         # Round 3: "reasoning"
         reasoning_logits = logits[2]
-        result[OUTPUT_COLUMNS[5]] = self.compute_results(reasoning_logits, target=OUTPUT_COLUMNS[5])
+        result[OUTPUT_FIELDS[5]] = self.compute_results(reasoning_logits, target=OUTPUT_FIELDS[5])
 
         # Round 4: "contextual_knowledge"
         contextual_knowledge_logits = logits[3]
-        result[OUTPUT_COLUMNS[6]] = self.compute_results(contextual_knowledge_logits, target=OUTPUT_COLUMNS[6])
+        result[OUTPUT_FIELDS[6]] = self.compute_results(contextual_knowledge_logits, target=OUTPUT_FIELDS[6])
 
         # Round 5: "number_of_few_shots"
         number_of_few_shots_logits = logits[4]
-        result[OUTPUT_COLUMNS[7]] = self.compute_results(number_of_few_shots_logits, target=OUTPUT_COLUMNS[7])
+        result[OUTPUT_FIELDS[7]] = self.compute_results(number_of_few_shots_logits, target=OUTPUT_FIELDS[7])
 
         # Round 6: "domain_knowledge"
         domain_knowledge_logits = logits[5]
-        result[OUTPUT_COLUMNS[8]] = self.compute_results(domain_knowledge_logits, target=OUTPUT_COLUMNS[8])
+        result[OUTPUT_FIELDS[8]] = self.compute_results(domain_knowledge_logits, target=OUTPUT_FIELDS[8])
 
         # Round 7: "no_label_reason"
         no_label_reason_logits = logits[6]
-        result[OUTPUT_COLUMNS[9]] = self.compute_results(no_label_reason_logits, target=OUTPUT_COLUMNS[9])
+        result[OUTPUT_FIELDS[9]] = self.compute_results(no_label_reason_logits, target=OUTPUT_FIELDS[9])
 
         # Round 8: "constraint_ct"
         constraint_ct_logits = logits[7]
-        result[OUTPUT_COLUMNS[10]] = self.compute_results(constraint_ct_logits, target=OUTPUT_COLUMNS[10])
+        result[OUTPUT_FIELDS[10]] = self.compute_results(constraint_ct_logits, target=OUTPUT_FIELDS[10])
 
         # Round 9: "prompt_complexity_score"
-        result[OUTPUT_COLUMNS[0]] = torch.tensor(
+        result[OUTPUT_FIELDS[0]] = torch.tensor(
             [
                 round(
                     0.35 * creativity
@@ -181,12 +181,12 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
                     5,
                 )
                 for creativity, reasoning, constraint, domain_knowledge, contextual_knowledge, few_shots in zip(
-                    result[OUTPUT_COLUMNS[4]],
-                    result[OUTPUT_COLUMNS[5]],
-                    result[OUTPUT_COLUMNS[10]],
-                    result[OUTPUT_COLUMNS[8]],
-                    result[OUTPUT_COLUMNS[6]],
-                    result[OUTPUT_COLUMNS[7]],
+                    result[OUTPUT_FIELDS[4]],
+                    result[OUTPUT_FIELDS[5]],
+                    result[OUTPUT_FIELDS[10]],
+                    result[OUTPUT_FIELDS[8]],
+                    result[OUTPUT_FIELDS[6]],
+                    result[OUTPUT_FIELDS[7]],
                     strict=False,
                 )
             ],
@@ -207,8 +207,8 @@ class CustomDeberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        input_ids = batch[INPUT_ID_COLUMN]
-        attention_mask = batch[ATTENTION_MASK_COLUMN]
+        input_ids = batch[INPUT_ID_FIELD]
+        attention_mask = batch[ATTENTION_MASK_FIELD]
 
         return self._forward(input_ids, attention_mask)
 
@@ -246,7 +246,7 @@ class PromptTaskComplexityModelStage(ModelStage):
         self.autocast = autocast
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], OUTPUT_COLUMNS
+        return ["data"], OUTPUT_FIELDS
 
     def _setup(self, local_files_only: bool = True) -> None:
         self.model = (
@@ -263,9 +263,9 @@ class PromptTaskComplexityModelStage(ModelStage):
         return outputs
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
-        for column in OUTPUT_COLUMNS:
+        for column in OUTPUT_FIELDS:
             df_cpu[column] = collected_output[column]
 
         return df_cpu
@@ -306,7 +306,7 @@ class PromptTaskComplexityClassifier(CompositeStage[DocumentBatch, DocumentBatch
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = format_name_with_suffix(PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(PROMPT_TASK_COMPLEXITY_MODEL_IDENTIFIER)
 
         if self.filter_by is not None and len(self.filter_by) > 0:
             msg = "filter_by not supported with PromptTaskComplexityClassifier"

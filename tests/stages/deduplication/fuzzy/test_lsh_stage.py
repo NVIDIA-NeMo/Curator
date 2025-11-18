@@ -119,7 +119,7 @@ class TestLSHStage:
         """Test that LSH stage overwrites existing output directory."""
         output_dir = str(tmp_path / "lsh_output")
 
-        stage_name = LSHStage._name
+        stage_name = LSHStage.name
 
         # Create the output subdirectory structure and add some dummy files
         output_base_dir = os.path.join(output_dir, stage_name)

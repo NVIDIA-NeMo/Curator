@@ -36,7 +36,7 @@ class ImageAestheticFilterStage(BaseFilterStage):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     score_threshold: float = 0.5
     verbose: bool = False
-    _name: str = "image_aesthetic_filter"
+    name: str = "image_aesthetic_filter"
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata | None = None) -> None:
         """Download aesthetic model weights from HF"""

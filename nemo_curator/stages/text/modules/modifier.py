@@ -54,13 +54,13 @@ class Modify(ProcessingStage[DocumentBatch, DocumentBatch]):
     modifier_fn: Callable | DocumentModifier | list[DocumentModifier | Callable]
     input_fields: str | list[str] | list[list[str]] = "text"
     output_fields: str | list[str | None] | None = None
-    _name: str = "modifier_fn"
+    name: str = "modifier_fn"
 
     def __post_init__(self):
         self.modifier_fn = _validate_and_normalize_modifiers(self.modifier_fn, self.input_fields)
         self._input_fields = _normalize_input_fields(self.input_fields, self.modifier_fn)
         self._output_fields = _normalize_output_fields(self.output_fields, self._input_fields, self.modifier_fn)
-        self._name = _get_modifier_stage_name(self.modifier_fn)
+        self.name = _get_modifier_stage_name(self.modifier_fn)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         required_cols = sorted({c for cols in self._input_fields for c in cols})

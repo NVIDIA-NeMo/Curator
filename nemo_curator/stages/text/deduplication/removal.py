@@ -55,7 +55,7 @@ class TextDuplicatesRemovalStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
         super().__init__()
-        self._name = "DuplicatesRemovalStage"
+        self.name = "DuplicatesRemovalStage"
         self.read_kwargs = self.read_kwargs.copy() if self.read_kwargs else {}
 
     def process(self, task: DocumentBatch) -> DocumentBatch:

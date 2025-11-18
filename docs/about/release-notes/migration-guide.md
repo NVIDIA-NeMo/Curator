@@ -247,7 +247,7 @@ In the new version, data loading is encapsulated in a dedicated pipeline stage (
 ```python
 # New: Read images from webdataset tar files
 read_stage = ImageReaderStage(
-    task_batch_size=args.task_batch_size,
+    batch_size=args.batch_size,
     num_threads=16,
     num_gpus_per_worker=0.25,
 )

@@ -76,7 +76,7 @@ class DocumentDownloadExtractStage(CompositeStage[_EmptyTask, DocumentBatch]):
 
         url_generator_name = self.url_generator.__class__.__name__.lower()
         downloader_name = self.downloader.__class__.__name__.lower()
-        self._name = f"document_download_extract_{url_generator_name}_{downloader_name}_composite"
+        self.name = f"document_download_extract_{url_generator_name}_{downloader_name}_composite"
         super().__init__()
 
     def decompose(self) -> list[ProcessingStage]:

@@ -38,13 +38,13 @@ class ImageEmbeddingStage(ProcessingStage[ImageBatch, ImageBatch]):
     model_inference_batch_size: int = 32  # Number of images to process through model at once
     verbose: bool = False
     remove_image_data: bool = False
-    _name: str = "image_embedding"
+    name: str = "image_embedding"
 
     def __post_init__(self) -> None:
         if torch.cuda.is_available():
-            self._resources = Resources(gpus=self.num_gpus_per_worker)
+            self.resources = Resources(gpus=self.num_gpus_per_worker)
         else:
-            self._resources = Resources()
+            self.resources = Resources()
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

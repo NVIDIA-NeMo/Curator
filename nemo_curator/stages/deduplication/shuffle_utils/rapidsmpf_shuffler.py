@@ -20,7 +20,12 @@ import cudf
 import rmm.mr
 from rapidsmpf.buffer.buffer import MemoryType
 from rapidsmpf.buffer.resource import BufferResource, LimitAvailableMemory
-from rapidsmpf.shuffler import partition_and_pack, unpack_and_concat
+from rapidsmpf.integrations.cudf.partition import (
+    partition_and_pack,
+    unpack_and_concat,
+    unspill_partitions,
+)
+from rapidsmpf.rmm_resource_adaptor import RmmResourceAdaptor
 from rapidsmpf.statistics import Statistics
 from rapidsmpf.utils.cudf import cudf_to_pylibcudf_table, pylibcudf_to_cudf_dataframe
 from rapidsmpf.utils.ray_utils import BaseShufflingActor
@@ -34,7 +39,8 @@ if TYPE_CHECKING:
     from rapidsmpf.shuffler import Shuffler
 
 
-class BulkRapidsMPFShuffler(BaseShufflingActor):
+# Exempt this class from coverage is it's indirectly tested by the ShuffleStage which coverage tools don't pick up.
+class BulkRapidsMPFShuffler(BaseShufflingActor):  # pragma: no cover
     """
     Class that performs a bulk shuffle operation.
     This class is compatible with Ray Actors communicating with each other using UCXX communication.
@@ -120,7 +126,7 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
         super().setup_worker(root_address_bytes)
 
         # Initialize the RMM memory resource
-        mr = rmm.mr.StatisticsResourceAdaptor(
+        mr = RmmResourceAdaptor(
             rmm.mr.PoolMemoryResource(
                 rmm.mr.CudaMemoryResource(),
                 initial_pool_size=self.rmm_pool_size,
@@ -134,14 +140,14 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
             if self.spill_memory_limit is None
             else {MemoryType.DEVICE: LimitAvailableMemory(mr, limit=self.spill_memory_limit)}
         )
-        br = BufferResource(mr, memory_available)
+        self.br = BufferResource(device_mr=mr, memory_available=memory_available)
         # Create a statistics object
-        self.stats = Statistics(self.enable_statistics)
+        self.stats = Statistics(enable=self.enable_statistics, mr=mr)
         # Create a shuffler
         self.shuffler: Shuffler = self.create_shuffler(
             0,
             total_num_partitions=self.total_nparts,
-            buffer_resource=br,
+            buffer_resource=self.br,
             statistics=self.stats,
         )
 
@@ -216,11 +222,11 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
             table = cudf_to_pylibcudf_table(table)
         columns_to_hash = tuple(column_names.index(val) for val in self.shuffle_on)
         packed_inputs = partition_and_pack(
-            table,
+            table=table,
+            br=self.br,
             columns_to_hash=columns_to_hash,
             num_partitions=self.total_nparts,
             stream=DEFAULT_STREAM,
-            device_mr=rmm.mr.get_current_device_resource(),
         )
         self.shuffler.insert_chunks(packed_inputs)
 
@@ -269,9 +275,14 @@ class BulkRapidsMPFShuffler(BaseShufflingActor):
             partition_id = self.shuffler.wait_any()
             packed_chunks = self.shuffler.extract(partition_id)
             partition = unpack_and_concat(
-                packed_chunks,
+                unspill_partitions(
+                    packed_chunks,
+                    br=self.br,
+                    allow_overbooking=True,
+                    statistics=self.stats,
+                ),
+                br=self.br,
                 stream=DEFAULT_STREAM,
-                device_mr=rmm.mr.get_current_device_resource(),
             )
             yield partition_id, partition
 

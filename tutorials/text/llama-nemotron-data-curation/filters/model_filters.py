@@ -34,7 +34,7 @@ class NonEnglishFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         output_field: str = "output",
         system_prompt_field: str = "system_prompt",
     ):
-        self._name = "non_english_filter"
+        self.name = "non_english_filter"
         self.tokenizer_identifier = tokenizer_identifier
         self.hf_token = hf_token
         self.lang_id_model_path = lang_id_model_path
@@ -116,7 +116,7 @@ class TokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         output_field: str = "output",
         system_prompt_field: str = "system_prompt",
     ):
-        self._name = "token_count_filter"
+        self.name = "token_count_filter"
         self.tokenizer_identifier = tokenizer_identifier
         self.hf_token = hf_token
         self.max_token_count = max_token_count
@@ -196,7 +196,7 @@ class CompletionTokenCountFilter(ProcessingStage[DocumentBatch, DocumentBatch]):
         max_completion_token_count: int = 8192,
         output_field: str = "output",
     ):
-        self._name = "completion_token_count_filter"
+        self.name = "completion_token_count_filter"
         self.tokenizer_identifier = tokenizer_identifier
         self.hf_token = hf_token
         self.max_completion_token_count = max_completion_token_count
@@ -273,7 +273,7 @@ class ApplyChatTemplate(ProcessingStage[DocumentBatch, DocumentBatch]):
         output_field: str = "output",
         system_prompt_field: str = "system_prompt",
     ):
-        self._name = "apply_chat_template"
+        self.name = "apply_chat_template"
 
         self.tokenizer_identifier = tokenizer_identifier
         self.hf_token = hf_token

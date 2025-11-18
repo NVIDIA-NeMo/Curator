@@ -24,7 +24,7 @@ from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -67,9 +67,9 @@ class EmbeddingModelStage(ModelStage):
     ) -> torch.Tensor:
         """Process model outputs to create embeddings."""
         if self.pooling == "mean_pooling":
-            return self._mean_pooling(outputs, model_input_batch[ATTENTION_MASK_COLUMN]).cpu()
+            return self._mean_pooling(outputs, model_input_batch[ATTENTION_MASK_FIELD]).cpu()
         else:
-            return self._get_last_token(outputs, model_input_batch[ATTENTION_MASK_COLUMN]).cpu()
+            return self._get_last_token(outputs, model_input_batch[ATTENTION_MASK_FIELD]).cpu()
 
     def collect_outputs(self, processed_outputs: list[torch.Tensor]) -> list[list[float]]:
         return torch.cat(processed_outputs, dim=0).numpy().tolist()

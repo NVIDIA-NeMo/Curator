@@ -67,7 +67,7 @@ class TestFilePartitioningStage:
         assert stage.file_extensions == [".jsonl", ".json", ".parquet"]
         assert stage.storage_options == {}
         assert stage.limit is None
-        assert stage._name == "file_partitioning"
+        assert stage.name == "file_partitioning"
 
     def test_initialization_custom_values(self):
         """Test initialization with custom parameter values."""

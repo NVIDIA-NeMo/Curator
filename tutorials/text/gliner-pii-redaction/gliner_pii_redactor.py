@@ -106,16 +106,16 @@ class GlinerPiiRedactor(ProcessingStage[DocumentBatch, DocumentBatch]):
     threshold: float = 0.5
     use_gpu: bool = True
     model_inference_batch_size: int = 128
-    _name: str = "gliner_pii_redactor"
+    name: str = "gliner_pii_redactor"
 
     def __post_init__(self):
         if self.labels is None:
             self.labels = PII_LABELS
         if self.use_gpu:
-            self._resources = Resources(cpus=1, gpus=1)
+            self.resources = Resources(cpus=1, gpus=1)
             self.device = "cuda"
         else:
-            self._resources = Resources(cpus=1)
+            self.resources = Resources(cpus=1)
             self.device = "cpu"
 
     def inputs(self) -> tuple[list[str], list[str]]:
