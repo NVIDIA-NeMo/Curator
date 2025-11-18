@@ -44,10 +44,10 @@ class ClipFrameExtractionStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     num_cpus: int = 3
     target_fps: list[float | int] | None = None
-    _name: str = "clip_frame_extraction"
+    name: str = "clip_frame_extraction"
 
     def __post_init__(self) -> None:
-        self._resources = Resources(cpus=self.num_cpus)
+        self.resources = Resources(cpus=self.num_cpus)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

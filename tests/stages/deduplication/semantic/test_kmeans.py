@@ -114,7 +114,7 @@ def run_single_gpu_baseline(
 ) -> np.ndarray:
     single_gpu_kmeans = cuml.KMeans(
         n_clusters=n_clusters,
-        init="k-means++",
+        init="k-means||",
         max_iter=300,
         tol=1e-4,
         random_state=RANDOM_STATE,
@@ -377,7 +377,7 @@ class TestKMeansReadFitWriteStage:
 
         # Only mock the essential parts that can't run without RAFT setup
         mock_kmeans = Mock()
-        mock_kmeans.fit = Mock()
+        mock_kmeans._fit = Mock()
         mock_kmeans.predict = Mock(return_value=cp.zeros(40, dtype=cp.int32))
         mock_kmeans.cluster_centers_ = cp.random.random((2, 32), dtype=cp.float32)
         stage.kmeans = mock_kmeans
@@ -439,11 +439,11 @@ class TestKMeansReadFitWriteStage:
                 assert call_kwargs["assign_id"] is False
 
             # Verify KMeans operations
-            mock_kmeans.fit.assert_called_once()
+            mock_kmeans._fit.assert_called_once()
             mock_kmeans.predict.assert_called_once()
 
             # Check the concatenated embeddings shape
-            fit_call_args = mock_kmeans.fit.call_args[0]
+            fit_call_args = mock_kmeans._fit.call_args[0]
             embeddings_passed_to_fit = fit_call_args[0]
             assert embeddings_passed_to_fit.shape == (40, 32), "Should concatenate embeddings from all groups"
 

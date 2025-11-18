@@ -39,7 +39,7 @@ class CosmosEmbed1FrameCreationStage(ProcessingStage[VideoTask, VideoTask]):
     target_fps: float = 2.0
     verbose: bool = False
     num_cpus: int = 3
-    _name: str = "cosmos_embed1"
+    name: str = "cosmos_embed1"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -119,7 +119,7 @@ class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
     texts_to_verify: list[str] | None = None
     gpu_memory_gb: int = 20
     verbose: bool = False
-    _name: str = "cosmos_embed1_embedding"
+    name: str = "cosmos_embed1_embedding"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -132,7 +132,7 @@ class CosmosEmbed1EmbeddingStage(ProcessingStage[VideoTask, VideoTask]):
         self.model.setup()
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
+        self.resources = Resources(gpu_memory_gb=self.gpu_memory_gb)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data

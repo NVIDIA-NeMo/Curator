@@ -80,7 +80,7 @@ class CommonCrawlDownloadExtractStage(DocumentDownloadExtractStage):
             record_limit=record_limit,
             add_filename_column=add_filename_column,
         )
-        self._name = f"common_crawl_{self.crawl_type}_pipeline"
+        self.name = f"common_crawl_{self.crawl_type}_pipeline"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose this composite stage into its constituent stages."""

@@ -48,11 +48,11 @@ processors:
     lang: "hy_am"
     split: ${data_split}
     raw_data_dir: ${raw_data_dir}
-    _batch_size: 4
+    batch_size: 4
 
   - _target_: nemo_curator.stages.audio.inference.asr_nemo.InferenceAsrNemoStage
     model_name: nvidia/stt_hy_fastconformer_hybrid_large_pc
-    _resources:
+    resources:
       _target_: nemo_curator.stages.resources.Resources
       gpus: 1.0
 

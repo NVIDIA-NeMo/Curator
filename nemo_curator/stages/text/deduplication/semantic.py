@@ -160,9 +160,9 @@ class TextSemanticDeduplicationWorkflow:
         input_blocksize: Blocksize for reading files
         input_filetype: Type of input files ("jsonl" or "parquet")
         input_file_extensions: List of file extensions to process
-        output_filetype: Type of output files ("jsonl" or "parquet")
-        output_file_extension: File extension for output files (None for default)
-        output_fields: List of fields to include in final output (None for all fields)
+        output_filetype: Type of deduplicated output files ("jsonl" or "parquet")
+        output_file_extension: File extension for deduplicated output files (None for default)
+        output_fields: List of fields to include in final deduplicated output (None for all fields)
         read_kwargs: Keyword arguments for reading files
         cache_kwargs: Keyword arguments for cache operations and storage
         write_kwargs: Keyword arguments for writing files
@@ -282,16 +282,11 @@ class TextSemanticDeduplicationWorkflow:
         pipeline.add_stage(embedding_stage)
 
         # Writer stage
-        if self.output_filetype == "parquet":
-            writer = ParquetWriter(
-                path=self.embeddings_path,
-                fields=[self.id_field, self.embedding_field] + (self.metadata_fields or []),
-                write_kwargs=self.cache_kwargs,
-            )
-        else:
-            msg = f"Output filetype {self.output_filetype} not supported yet"
-            raise NotImplementedError(msg)
-
+        writer = ParquetWriter(
+            path=self.embeddings_path,
+            fields=[self.id_field, self.embedding_field] + (self.metadata_fields or []),
+            write_kwargs=self.cache_kwargs,
+        )
         pipeline.add_stage(writer)
 
         return pipeline.run(executor)
