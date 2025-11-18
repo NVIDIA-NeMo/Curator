@@ -121,7 +121,7 @@ entries:
       enable_object_spilling: false
 
   - name: dedup_removal_raydata
-    enabled: true
+    enabled: false
     script: dedup_removal_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
@@ -141,7 +141,7 @@ entries:
       enable_object_spilling: false
 
   - name: dedup_removal_xenna
-    enabled: true
+    enabled: false
     script: dedup_removal_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
