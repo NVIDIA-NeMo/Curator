@@ -74,6 +74,7 @@ class SlackSink(Sink):
     def __init__(self, sink_config: dict[str, Any]):
         super().__init__(sink_config)
         self.sink_config = sink_config
+        self.name = sink_config.get("name", "slack")
         self.enabled = self.sink_config.get("enabled", True)
         self.session_name: str = None
         self.matrix_config: MatrixConfig = None
