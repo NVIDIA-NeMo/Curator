@@ -20,7 +20,6 @@ import asyncio
 from dataclasses import dataclass
 
 import pandas as pd
-from loguru import logger
 
 from nemo_curator.backends.base import WorkerMetadata
 from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConfig, LLMClient
@@ -79,8 +78,7 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _process_llm_response(self, response: list[str]) -> str:
         """Process a single response from the LLM."""
         # Extract only the generated text content (first element of the response list)
-        generated_text = response[0] if response else ""
-        return generated_text
+        return response[0] if response else ""
 
     def _process_sync(self, df: pd.DataFrame) -> list[str]:
         """Process DataFrame using synchronous sequential processing."""
@@ -96,8 +94,8 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                     {"role": "user", "content": prompt}
                 ]
             response = self.client.query_model(
-                model=self.model_name, 
-                messages=messages, 
+                model=self.model_name,
+                messages=messages,
                 generation_config=self.generation_config,
             )
             return self._process_llm_response(response)

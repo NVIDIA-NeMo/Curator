@@ -1,3 +1,25 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+import asyncio
+import random
+from dataclasses import dataclass
+
+import pandas as pd
+from transformers import AutoTokenizer
+
 from nemo_curator.stages.synthetic.nemotron_cc.base import BaseSyntheticStage
 from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     DISTILL_PROMPT_TEMPLATE,
@@ -8,11 +30,6 @@ from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     NEMOTRON_CC_SYSTEM_PROMPT,
     WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
 )
-from dataclasses import dataclass
-from transformers import AutoTokenizer
-import random
-import pandas as pd
-import asyncio
 
 
 @dataclass
@@ -83,8 +100,8 @@ class DiverseQAStage(BaseSyntheticStage):
                     {"role": "user", "content": prompt}
                 ]
             response = self.client.query_model(
-                model=self.model_name, 
-                messages=messages, 
+                model=self.model_name,
+                messages=messages,
                 generation_config=self.generation_config,
             )
             original_text = row[self.input_field]
