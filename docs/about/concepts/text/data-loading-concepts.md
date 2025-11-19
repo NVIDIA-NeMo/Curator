@@ -41,6 +41,9 @@ ray_client.start()
 # Basic usage with optimization
 pipeline = Pipeline(name="data_processing")
 
+# Define file type (example)
+file_type = "jsonl"  # or "parquet" based on your data
+
 if file_type == "jsonl":
     # JSONL reader with field selection and partitioning
     jsonl_reader = JsonlReader(

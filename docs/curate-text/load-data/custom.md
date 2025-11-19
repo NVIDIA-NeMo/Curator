@@ -171,7 +171,7 @@ class CustomDataStage(DocumentDownloadExtractStage):
         record_limit: int | None = None,
         add_filename_column: bool | str = True,
     ):
-        self.url_generator = CustomUrlGenerator()
+        self.url_generator = CustomURLGenerator()
         self.downloader = CustomDownloader(download_dir=download_dir)
         self.iterator = CustomIterator()
         self.extractor = CustomExtractor()

@@ -173,7 +173,7 @@ from nemo_curator.stages.deduplication.semantic.identify_duplicates import Ident
 
 ## Integration with Pipeline Architecture
 
-Deduplication workflows should be run separately traditional pipelines in Curator. While other Curator modules are purely map-style operations, meaning that they run on chunks of the data at a time, deduplication workflows identify duplicates across the entire dataset. Thus, special logic is needed outside of Curator's map-style functions, and the deduplication modules are implemented as separate workflows.
+Deduplication workflows should be run separately from traditional pipelines in Curator. While other Curator modules are purely map-style operations, meaning that they run on chunks of the data at a time, deduplication workflows identify duplicates across the entire dataset. Thus, special logic is needed outside of Curator's map-style functions, and the deduplication modules are implemented as separate workflows.
 
 Each deduplication workflow expects input and output file path parameters, making them more self-contained than other Curator modules. The input and output of a deduplication workflow can be JSONL or Parquet files, meaning that they are compatible with Curator's traditional pipeline-based read and write stages. Thus, the user may write out intermediate results of a pipeline to be used as input to a deduplication workflow, then read the deduplicated output and resume curation.
 

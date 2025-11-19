@@ -183,6 +183,7 @@ from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import DocumentDownloadExtractStage
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
+from nemo_curator.stages.base import ProcessingStage
 
 # Create composite stage
 class CustomDownloadExtractStage(DocumentDownloadExtractStage):
@@ -194,7 +195,7 @@ class CustomDownloadExtractStage(DocumentDownloadExtractStage):
         add_filename_column: bool | str = True,
     ):
         # Create the URL generator
-        self.url_generator = CustomUrlGenerator()
+        self.url_generator = CustomURLGenerator()
 
         # Create the downloader
         self.downloader = CustomDownloader(download_dir=download_dir)

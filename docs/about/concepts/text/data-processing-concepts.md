@@ -299,7 +299,7 @@ ray_client.stop()
 
 The identified duplicates can be removed using a separate workflow:
 
-:::{dropdown} Fuzzy Deduplication Code Example
+:::{dropdown} Duplicate Removal Code Example
 :icon: code-square
 
 ```python
