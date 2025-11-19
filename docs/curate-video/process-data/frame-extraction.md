@@ -23,7 +23,7 @@ Extract frames from clips or full videos at target rates and resolutions. Use fr
 
 ## Before You Start
 
-[Embeddings](video-process-embeddings) and [aesthetic filtering](video-process-filtering-aesthetic) require frames. If you need saved media files, frame extraction is optional.
+If you need saved media files, frame extraction is optional. [Embeddings](video-process-embeddings) and [aesthetic filtering](video-process-filtering-aesthetic) require frames.
 
 ---
 
