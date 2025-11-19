@@ -92,7 +92,7 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         # We read file by file since list[files] when files are remote urls can fail
         # See https://github.com/pandas-dev/pandas/issues/62922
         df: pd.DataFrame = pd.concat(
-            [
+            (
                 pd.read_parquet(
                     f,
                     storage_options=self.input_storage_options,
@@ -102,7 +102,7 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
                     engine="pyarrow",
                 )
                 for f in all_files
-            ],
+            ),
             ignore_index=True,
         )
         # Write out sorted and with multiple row groups
