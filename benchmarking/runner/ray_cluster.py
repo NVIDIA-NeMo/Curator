@@ -90,35 +90,8 @@ def start_ray_head(
         enable_object_spilling=enable_object_spilling,
         ray_dashboard_host="0.0.0.0",  # noqa: S104
     )
-    # Redirect Ray startup output to log file if provided, otherwise suppress it
-    import sys
-
-    if ray_log_path:
-        with open(ray_log_path, "w") as f:
-            # Save original stdout/stderr
-            original_stdout = sys.stdout
-            original_stderr = sys.stderr
-            try:
-                # Redirect to log file
-                sys.stdout = f
-                sys.stderr = f
-                client.start()
-            finally:
-                # Restore original stdout/stderr
-                sys.stdout = original_stdout
-                sys.stderr = original_stderr
-    else:
-        # Suppress Ray startup output by redirecting to devnull
-        with open(os.devnull, "w") as devnull:
-            original_stdout = sys.stdout
-            original_stderr = sys.stderr
-            try:
-                sys.stdout = devnull
-                sys.stderr = devnull
-                client.start()
-            finally:
-                sys.stdout = original_stdout
-                sys.stderr = original_stderr
+    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
+    client.start(stdouterr_capture_file=ray_stdouterr_capture_file)
     # Wait for Ray client to start, no longer than timeout
     wait_for_ray_client_start(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
     logger.debug(f"RayClient started successfully: pid={client.ray_process.pid}, port={client.ray_port}")

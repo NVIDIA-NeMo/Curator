@@ -80,6 +80,7 @@ def init_cluster(  # noqa: PLR0913
     enable_object_spilling: bool = False,
     block: bool = True,
     ip_address: str | None = None,
+    stdouterr_capture_file: str | None = None,
 ) -> subprocess.Popen:
     """Initialize a new local Ray cluster or connects to an existing one."""
     # Turn off serization for loguru. This is needed as loguru is not serializable in general.
@@ -121,6 +122,10 @@ def init_cluster(  # noqa: PLR0913
     os.environ["XENNA_RAY_METRICS_PORT"] = str(ray_metrics_port)
     os.environ["XENNA_RESPECT_CUDA_VISIBLE_DEVICES"] = "1"
 
-    proc = subprocess.Popen(ray_command, shell=False)  # noqa: S603
+    if stdouterr_capture_file:
+        with open(stdouterr_capture_file, "w") as f:
+            proc = subprocess.Popen(ray_command, shell=False, stdout=f, stderr=subprocess.STDOUT)  # noqa: S603
+    else:
+        proc = subprocess.Popen(ray_command, shell=False)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
     return proc
