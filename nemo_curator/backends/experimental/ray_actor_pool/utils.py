@@ -36,10 +36,11 @@ def calculate_optimal_actors_for_stage(
     num_tasks: int,
     reserved_cpus: float = 0.0,
     reserved_gpus: float = 0.0,
+    ignore_head_node: bool = False,
 ) -> int:
     """Calculate optimal number of actors for a stage."""
     # Get available resources (not total cluster resources)
-    available_cpus, available_gpus = get_available_cpu_gpu_resources()
+    available_cpus, available_gpus = get_available_cpu_gpu_resources(ignore_head_node=ignore_head_node)
     # Reserve resources for system overhead
     available_cpus = max(0, available_cpus - reserved_cpus)
     available_gpus = max(0, available_gpus - reserved_gpus)
