@@ -71,7 +71,7 @@ class MegatronTokenizerWriter(BaseWriter):
     # MegatronTokenWriterStage arguments
     append_eod: bool = False
 
-    _name: str = "megatron_tokenizer_writer"
+    name: str = "megatron_tokenizer_writer"
     file_extension: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["megatron"])
 
     def __post_init__(self):
@@ -151,7 +151,7 @@ class MegatronTokenizerWriter(BaseWriter):
                     batch,
                     padding=False,
                     truncation=False,
-                    add_special_tokens=True,  # TODO(asolergi-nv): Check megatron special tokens
+                    add_special_tokens=False,  # TODO(asolergi-nv): Check megatron special tokens
                     return_token_type_ids=False,
                     return_attention_mask=False,
                 ).input_ids  # TODO(asolergi-nv): Drop everything, get length from numpy shape. Finally no numpy, get length from sum attention mask
