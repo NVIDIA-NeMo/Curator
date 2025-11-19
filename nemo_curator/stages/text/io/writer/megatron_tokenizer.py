@@ -37,16 +37,9 @@ class MegatronTokenWriterStage(BaseWriter):
 
     append_eod: bool = False
     file_extension: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["megatron"])
-    _document_indices: list[int] = field(default_factory=lambda: [0])
-    _sequence_lengths: list[int] = field(default_factory=list)
 
-    @property
-    def num_tokens(self) -> int:
-        return sum(self._sequence_lengths)
-
-    @property
-    def num_documents(self) -> int:
-        return len(self._document_indices)
+    def num_workers(self) -> int | None:
+        return 1
 
     @staticmethod
     def _sequence_pointers(sequence_lengths: list[int], token_size: int) -> list[int]:
@@ -95,8 +88,9 @@ class MegatronTokenWriterStage(BaseWriter):
             if self.fs.exists(file_path):
                 logger.debug(f"File {file_path} already exists, overwriting it")
 
+        num_docs = task.num_items  # Number of documents in this batch
         self.write_data(task, file_prefix, token_size, eod_token_id)
-        logger.debug(f"Written {self.num_tokens} tokens ({self.num_documents} documents) to {file_prefix}")
+        logger.debug(f"Written batch with {num_docs} documents to {file_prefix}")  # TODO(asolergi-nv): Add token count
 
         # Create FileGroupTask with written files
         return FileGroupTask(
@@ -117,30 +111,65 @@ class MegatronTokenWriterStage(BaseWriter):
         token_dtype = np.int32 if token_size == 4 else np.uint16  # noqa: PLR2004
         token_dtype_code = (
             4 if token_size == 4 else 8  # noqa: PLR2004
-        )  # NOTE(asolergi-nv): From https://github.com/NVIDIA/Megatron-LM/blob/d6979d6cceb0007eec7c8960738f4dc0276bb540/megatron/core/datasets/indexed_dataset.py#L49-L59
-
-        df = task.to_pandas()  # Convert to pandas DataFrame if needed # TODO(asolergi-nv): Check with curator if needed or if we should do this after computing the lengths of each document
-
-        # Compute length of each sample with the attention mask
-        df[TOKEN_LENGTH_COLUMN] = df[ATTENTION_MASK_COLUMN].apply(np.sum)
-        # Drop attention mask
-        df = df.drop(columns=[ATTENTION_MASK_COLUMN])  # TODO(asolergi-nv): Optional
-        # Write tokens to disk
+        )  # NOTE(asolergi-nv): Megatron needs this dtype code in the .idx file | https://github.com/NVIDIA/Megatron-LM/blob/64cbae55ac85cd73fbadbc3c0d715c8123c5e13b/megatron/core/datasets/indexed_dataset.py#L41
+        # NOTE(asolergi-nv): From https://github.com/NVIDIA/Megatron-LM/blob/d6979d6cceb0007eec7c8960738f4dc0276bb540/megatron/core/datasets/indexed_dataset.py#L49-L59
 
         """
-        for document_tokens in df[INPUT_ID_COLUMN].tolist():
-            self._sequence_lengths.append(len(document_tokens))
-            self._document_indices.append(len(self._sequence_lengths))
+        # Calculate token lengths by summing attention mask vectors and assign to new column
+        # This works for both pandas DataFrame and pyarrow Table
+        attn_masks = task.data[ATTENTION_MASK_COLUMN]
+        if isinstance(attn_masks, np.ndarray):
+            # If stored as array of arrays, sum along axis 1
+            token_lengths = [int(np.sum(mask)) for mask in attn_masks]
+        else:
+            try:
+                # Try to sum as if it's a list of arrays/lists
+                token_lengths = [int(np.sum(mask)) for mask in attn_masks]
+            except Exception:
+                # Fallback for pandas/pyarrow: extract as list first, and sum
+                if hasattr(attn_masks, "tolist"):
+                    token_lengths = [int(np.sum(mask)) for mask in attn_masks.tolist()]
+                else:
+                    token_lengths = [int(np.sum(mask)) for mask in list(attn_masks)]
+        # Add new column to task data with the calculated lengths
+        task.data[TOKEN_LENGTH_COLUMN] = token_lengths
         """
-        with open(file_prefix + ".bin", "wb") as f:
-            for document_tokens in df[INPUT_ID_COLUMN].tolist():
+
+        task.data[TOKEN_LENGTH_COLUMN] = task.data[ATTENTION_MASK_COLUMN].sum(axis=1)
+
+        # CRITICAL: Process data WITHOUT converting to pandas to save memory
+        # Access data directly from task structure
+        num_docs = task.num_items
+
+        # Pre-allocate lists with known size for better memory efficiency
+        sequence_lengths = [10]
+        document_indices = [0, 1]
+
+        # Write tokens to .bin file - using 'wb' mode for clean write per batch
+        with self.fs.open(file_prefix + ".bin", "wb") as f:
+            # Stream through documents without creating intermediate data structures
+            for i in range(num_docs):
+                # Get tokens directly - check if it's already numpy array
+                document_tokens = task.data[INPUT_ID_COLUMN][i]
+
+                # Convert to numpy array if it's a list
+                if not isinstance(document_tokens, np.ndarray):
+                    document_tokens = np.array(document_tokens, dtype=token_dtype)
+                # Ensure correct dtype
+                elif document_tokens.dtype != token_dtype:
+                    document_tokens = document_tokens.astype(token_dtype)
+
+                # Append EOD token if needed
                 if self.append_eod:
-                    document_tokens.append(eod_token_id)
-                f.write(
-                    np.array(document_tokens, dtype=token_dtype).tobytes(order="C")
-                )  # TODO(asolergi-nv): Check if document_tokens is already a np array + which dtype
-                self._sequence_lengths.append(len(document_tokens))
-                self._document_indices.append(len(self._sequence_lengths))
+                    document_tokens = np.append(document_tokens, eod_token_id)
+
+                # Write directly to disk - this is the actual disk write
+                token_bytes = document_tokens.tobytes(order="C")
+                f.write(token_bytes)
+
+                # Store metadata
+                sequence_lengths.append(len(document_tokens))
+                document_indices.append(len(sequence_lengths))
 
         # Write index file to disk
         # Save .idx file
@@ -157,7 +186,7 @@ class MegatronTokenWriterStage(BaseWriter):
         ### 8 Bytes from the document index
         # So, if the .bin contains tokens from 35000 text sequences/documents, the .idx will have
         # 9+8+1+8+8+8+20*35000 = 700042 Bytes
-        with open(file_prefix + ".idx", "wb") as f:
+        with self.fs.open(file_prefix + ".idx", "wb") as f:
             # Index Header
             f.write(_INDEX_HEADER)
             # Version
@@ -165,29 +194,30 @@ class MegatronTokenWriterStage(BaseWriter):
             # Numeric code for the DType
             f.write(struct.pack("<B", token_dtype_code))
 
-            sequence_pointers = self._sequence_pointers(self._sequence_lengths, token_size)
+            sequence_pointers = self._sequence_pointers(sequence_lengths, token_size)
 
             # Number of sequences in the dataset
-            sequence_count = len(self._sequence_lengths)
+            sequence_count = len(sequence_lengths)
             f.write(struct.pack("<Q", sequence_count))
 
             # Number of documents in the dataset
-            document_count = len(self._document_indices)
+            document_count = len(document_indices)
             f.write(struct.pack("<Q", document_count))
 
             # Number of tokens per sequence
-            sequence_lengths = np.array(self._sequence_lengths, dtype=np.int32)
-            f.write(sequence_lengths.tobytes(order="C"))
-            del sequence_lengths
+            sequence_lengths_array = np.array(sequence_lengths, dtype=np.int32)
+            f.write(sequence_lengths_array.tobytes(order="C"))
+            del sequence_lengths_array
 
             # Byte offsets for all sequences
-            sequence_pointers = np.array(sequence_pointers, dtype=np.int64)
-            f.write(sequence_pointers.tobytes(order="C"))
-            del sequence_pointers
+            sequence_pointers_array = np.array(sequence_pointers, dtype=np.int64)
+            f.write(sequence_pointers_array.tobytes(order="C"))
+            del sequence_pointers_array
 
             # Sequence indices marking the end of each document
-            document_indices = np.array(self._document_indices, dtype=np.int64)
-            f.write(document_indices.tobytes(order="C"))
+            document_indices_array = np.array(document_indices, dtype=np.int64)
+            f.write(document_indices_array.tobytes(order="C"))
+            del document_indices_array
 
 
 @dataclass
