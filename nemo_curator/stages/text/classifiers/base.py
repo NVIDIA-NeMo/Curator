@@ -28,7 +28,7 @@ from transformers import AutoConfig, AutoModel
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
@@ -54,7 +54,7 @@ class Deberta(nn.Module, PyTorchModelHubMixin):
 
     @torch.no_grad()
     def forward(self, batch: dict[str, torch.Tensor]) -> torch.Tensor:
-        features = self.model(batch[INPUT_ID_COLUMN], batch[ATTENTION_MASK_COLUMN]).last_hidden_state
+        features = self.model(batch[INPUT_ID_FIELD], batch[ATTENTION_MASK_FIELD]).last_hidden_state
         dropped = self.dropout(features)
         outputs = self.fc(dropped)
 
@@ -69,8 +69,8 @@ class ClassifierModelStage(ModelStage):
 
     Args:
         model_identifier: The identifier of the Hugging Face model.
-        pred_column: The name of the prediction column.
-        prob_column: The name of the probability column. Defaults to None.
+        label_field: The name of the prediction column.
+        score_field: The name of the probability column. Defaults to None.
         model_inference_batch_size: The size of the batch for model inference. Defaults to 256.
         has_seq_order: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
@@ -84,8 +84,8 @@ class ClassifierModelStage(ModelStage):
         self,
         model_identifier: str,
         cache_dir: str | None = None,
-        pred_column: str = "preds",
-        prob_column: str | None = None,
+        label_field: str = "preds",
+        score_field: str | None = None,
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
@@ -101,16 +101,16 @@ class ClassifierModelStage(ModelStage):
             autocast=autocast,
         )
 
-        self.pred_column = pred_column
-        if prob_column is not None:
-            self.prob_column = prob_column
-            self.keep_prob_column = True
+        self.label_field = label_field
+        if score_field is not None:
+            self.score_field = score_field
+            self.keep_score_field = True
         else:
-            self.prob_column = "probs"
-            self.keep_prob_column = False
+            self.score_field = "probs"
+            self.keep_score_field = False
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.prob_column] if self.keep_prob_column else [])
+        return ["data"], [self.label_field] + ([self.score_field] if self.keep_score_field else [])
 
     def _setup(self, local_files_only: bool = True) -> None:
         self.model = (
@@ -134,16 +134,16 @@ class ClassifierModelStage(ModelStage):
         pred_labels = [self.labels[idx] for idx in preds]
 
         return {
-            self.prob_column: probs,
-            self.pred_column: np.array(pred_labels),
+            self.score_field: probs,
+            self.label_field: np.array(pred_labels),
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
-        df_cpu[self.pred_column] = collected_output[self.pred_column]
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
+        df_cpu[self.label_field] = collected_output[self.label_field]
 
-        if self.keep_prob_column:
-            df_cpu[self.prob_column] = collected_output[self.prob_column].tolist()
+        if self.keep_score_field:
+            df_cpu[self.score_field] = collected_output[self.score_field].tolist()
 
         return df_cpu
 
@@ -158,8 +158,8 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     Args:
         model_identifier: The identifier of the Hugging Face model.
         cache_dir: The Hugging Face cache directory. Defaults to None.
-        pred_column: The name of the prediction column. Defaults to "preds".
-        prob_column: The name of the probability column. Defaults to None.
+        label_field: The name of the prediction column. Defaults to "preds".
+        score_field: The name of the probability column. Defaults to None.
         text_field: The name of the text field in the input data. Defaults to "text".
         filter_by: For categorical classifiers, the list of labels to filter the data by. Defaults to None.
         max_chars: Limits the total number of characters that can be fed to the tokenizer.
@@ -177,8 +177,8 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
 
     model_identifier: str
     cache_dir: str | None = None
-    pred_column: str = "preds"
-    prob_column: str | None = None
+    label_field: str = "preds"
+    score_field: str | None = None
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int | None = None
@@ -204,8 +204,8 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             ClassifierModelStage(
                 model_identifier=self.model_identifier,
                 cache_dir=self.cache_dir,
-                pred_column=self.pred_column,
-                prob_column=self.prob_column,
+                label_field=self.label_field,
+                score_field=self.score_field,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
@@ -214,7 +214,7 @@ class DistributedDataClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()

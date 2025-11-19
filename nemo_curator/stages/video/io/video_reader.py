@@ -49,7 +49,7 @@ class VideoReaderStage(ProcessingStage[FileGroupTask, VideoTask]):
 
     input_path: str | None = None
     verbose: bool = False
-    _name: str = "video_reader"
+    name: str = "video_reader"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define the input attributes required by this stage.
@@ -254,7 +254,7 @@ class VideoReader(CompositeStage[_EmptyTask, VideoTask]):
     def __post_init__(self):
         """Initialize the parent CompositeStage after dataclass initialization."""
         super().__init__()
-        self._name = "video_reader"
+        self.name = "video_reader"
 
     def decompose(self) -> list[ProcessingStage]:
         """Decompose into constituent execution stages.

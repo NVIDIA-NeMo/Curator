@@ -68,7 +68,7 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Load images with DALI
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=100,
+    batch_size=100,
     verbose=True,
     num_threads=8,
     num_gpus_per_worker=0.25,

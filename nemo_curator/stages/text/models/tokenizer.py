@@ -28,10 +28,10 @@ from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch
 
 from .utils import (
-    ATTENTION_MASK_COLUMN,
-    INPUT_ID_COLUMN,
-    SEQ_ORDER_COLUMN,
-    TOKEN_LENGTH_COLUMN,
+    ATTENTION_MASK_FIELD,
+    INPUT_ID_FIELD,
+    SEQ_ORDER_FIELD,
+    TOKEN_LENGTH_FIELD,
     format_name_with_suffix,
 )
 
@@ -68,7 +68,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         sort_by_length: bool = True,
         unk_token: bool = False,
     ):
-        self._name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
+        self.name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
 
         self.model_identifier = model_identifier
         self.cache_dir = cache_dir
@@ -84,8 +84,8 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.text_field, INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN] + (
-            [SEQ_ORDER_COLUMN] if self.sort_by_length else []
+        return ["data"], [self.text_field, INPUT_ID_FIELD, ATTENTION_MASK_FIELD] + (
+            [SEQ_ORDER_FIELD] if self.sort_by_length else []
         )
 
     def ray_stage_spec(self) -> dict[str, Any]:
@@ -150,15 +150,15 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
         output = df.copy()
-        output[INPUT_ID_COLUMN] = tokens.input_ids.tolist()
-        output[ATTENTION_MASK_COLUMN] = tokens.attention_mask.tolist()
+        output[INPUT_ID_FIELD] = tokens.input_ids.tolist()
+        output[ATTENTION_MASK_FIELD] = tokens.attention_mask.tolist()
 
         if self.sort_by_length:
             # Add column to preserve original order
-            output[SEQ_ORDER_COLUMN] = np.arange(len(df))
-            output[TOKEN_LENGTH_COLUMN] = tokens.attention_mask.sum(axis=1)
-            output = output.sort_values(by=TOKEN_LENGTH_COLUMN, kind="stable", ignore_index=True).drop(
-                columns=[TOKEN_LENGTH_COLUMN]
+            output[SEQ_ORDER_FIELD] = np.arange(len(df))
+            output[TOKEN_LENGTH_FIELD] = tokens.attention_mask.sum(axis=1)
+            output = output.sort_values(by=TOKEN_LENGTH_FIELD, kind="stable", ignore_index=True).drop(
+                columns=[TOKEN_LENGTH_FIELD]
             )
 
         return DocumentBatch(

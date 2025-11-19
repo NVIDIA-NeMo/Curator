@@ -67,8 +67,8 @@ class LSHStage(ProcessingStage[FileGroupTask, FileGroupTask]):
         If None, the number of partitions will be decided automatically by the executor as the closest power of 2 <= number of input tasks.
     """
 
-    _name = "LSHStage"
-    _resources = Resources(gpus=1.0)
+    name = "LSHStage"
+    resources = Resources(gpus=1.0)
 
     # Core Algo objects
     actor_class = LSHActor

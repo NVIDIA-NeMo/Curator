@@ -61,7 +61,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
     num_clips_per_chunk: int = 32
     ffmpeg_verbose: bool = False
     verbose: bool = False
-    _name: str = "clip_transcoding"
+    name: str = "clip_transcoding"
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
         """Setup method called once before processing begins.
@@ -82,13 +82,13 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
                 gpu_info = _get_local_gpu_info()[0]
                 nvencs = _make_gpu_resources_from_gpu_name(gpu_info.name).num_nvencs
                 gpu_memory_gb = _get_gpu_memory_gb()
-                self._resources = Resources(
+                self.resources = Resources(
                     nvencs=nvencs // self.nb_streams_per_gpu, gpu_memory_gb=gpu_memory_gb // self.nb_streams_per_gpu
                 )
             else:
-                self._resources = Resources(gpus=1)
+                self.resources = Resources(gpus=1)
         else:
-            self._resources = Resources(cpus=self.num_cpus_per_worker)
+            self.resources = Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], ["source_bytes"]
@@ -356,7 +356,7 @@ class FixedStrideExtractorStage(ProcessingStage[VideoTask, VideoTask]):
     min_clip_length_s: float
     limit_clips: int
     verbose: bool = False
-    _name: str = "fixed_stride_extractor"
+    name: str = "fixed_stride_extractor"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

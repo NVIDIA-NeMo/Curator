@@ -58,7 +58,7 @@ def create_image_embedding_pipeline(input_dir, embeddings_dir, model_dir):
     
     # Read images from tar archives
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100,
+        batch_size=100,
         verbose=True,
         num_threads=16,
         num_gpus_per_worker=0.25,
@@ -250,7 +250,7 @@ def create_image_removal_pipeline(input_dir, removal_dir, output_dir):
     
     # Read original images
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100,
+        batch_size=100,
         verbose=True,
         num_threads=16,
         num_gpus_per_worker=0.25,
@@ -395,7 +395,7 @@ def run_image_deduplication_workflow():
         file_paths=INPUT_WDS_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
     embedding_pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
+        batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
     ))
     embedding_pipeline.add_stage(ImageEmbeddingStage(
         model_dir=MODEL_DIR, num_gpus_per_worker=0.25, 
@@ -431,7 +431,7 @@ def run_image_deduplication_workflow():
         file_paths=INPUT_WDS_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
     removal_pipeline.add_stage(ImageReaderStage(
-        task_batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
+        batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
     ))
     removal_pipeline.add_stage(ImageDuplicatesRemovalStage(
         removal_parquets_dir=REMOVAL_DIR + "/duplicates",

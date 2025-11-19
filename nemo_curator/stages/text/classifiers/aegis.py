@@ -31,7 +31,7 @@ from nemo_curator.backends.base import NodeInfo, WorkerMetadata
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
-from nemo_curator.stages.text.models.utils import ATTENTION_MASK_COLUMN, INPUT_ID_COLUMN, format_name_with_suffix
+from nemo_curator.stages.text.models.utils import ATTENTION_MASK_FIELD, INPUT_ID_FIELD, format_name_with_suffix
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks import DocumentBatch
 
@@ -43,7 +43,7 @@ AEGIS_VARIANTS = [
     "nvidia/Aegis-AI-Content-Safety-LlamaGuard-Permissive-1.0",
 ]
 INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER = "nvidia/instruction-data-guard"
-HIDDEN_TEXT_COLUMN = "_curator_hidden_text"
+HIDDEN_TEXT_FIELD = "_curator_hidden_text"
 MAX_SEQ_LENGTH = 4096
 TOKENIZER_PADDING_SIDE = "left"
 TORCH_DTYPE = torch.bfloat16
@@ -154,8 +154,8 @@ class AegisModelStage(ModelStage):
         model_identifier: str,
         cache_dir: str | None = None,
         hf_token: str | None = None,
-        pred_column: str = "preds",
-        prob_column: str = "probs",
+        label_field: str = "preds",
+        score_field: str = "probs",
         model_inference_batch_size: int = 256,
         has_seq_order: bool = True,
         add_instruction_data_guard: bool = False,
@@ -173,11 +173,11 @@ class AegisModelStage(ModelStage):
         )
 
         self.add_instruction_data_guard = add_instruction_data_guard
-        self.pred_column = pred_column
-        self.prob_column = prob_column
+        self.label_field = label_field
+        self.score_field = score_field
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.prob_column] if self.add_instruction_data_guard else [])
+        return ["data"], [self.label_field] + ([self.score_field] if self.add_instruction_data_guard else [])
 
     # We use the _setup function to ensure that everything needed for Aegis is downloaded and loaded properly
     def _setup(self, local_files_only: bool = True) -> None:
@@ -214,17 +214,17 @@ class AegisModelStage(ModelStage):
     ) -> dict[str, np.ndarray]:
         preds = outputs.cpu().numpy()
         return {
-            self.pred_column: preds,
+            self.label_field: preds,
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
 
         if self.add_instruction_data_guard:
-            df_cpu[self.prob_column] = collected_output[self.pred_column].tolist()
-            df_cpu[self.pred_column] = (collected_output[self.pred_column] >= 0.5).tolist()  # noqa: PLR2004
+            df_cpu[self.score_field] = collected_output[self.label_field].tolist()
+            df_cpu[self.label_field] = (collected_output[self.label_field] >= 0.5).tolist()  # noqa: PLR2004
         else:
-            df_cpu[self.pred_column] = collected_output[self.pred_column].tolist()
+            df_cpu[self.label_field] = collected_output[self.label_field].tolist()
 
         return df_cpu
 
@@ -237,18 +237,18 @@ class FormatAegisPromptStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     text_field: str
     max_chars: int
-    _name = "format_aegis_prompt"
+    name = "format_aegis_prompt"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [HIDDEN_TEXT_COLUMN]
+        return ["data"], [HIDDEN_TEXT_FIELD]
 
     def _wrap_in_prompt(self, df: pd.DataFrame) -> pd.DataFrame:
         documents = df[self.text_field].tolist()
         prompts = [format_aegis(doc[: self.max_chars]) for doc in documents]
-        df[HIDDEN_TEXT_COLUMN] = prompts
+        df[HIDDEN_TEXT_FIELD] = prompts
         return df
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
@@ -272,16 +272,16 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
 
     cache_dir: str | None = None
     hf_token: str | None = None
-    pred_column: str = "aegis_pred"
-    raw_pred_column: str = "_aegis_raw_pred"
-    keep_raw_pred: bool = False
-    _name = "postprocess_aegis_responses"
+    label_field: str = "aegis_pred"
+    raw_output_field: str = "_aegis_raw_pred"
+    keep_raw_output: bool = False
+    name = "postprocess_aegis_responses"
 
     def inputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.raw_pred_column, HIDDEN_TEXT_COLUMN]
+        return ["data"], [self.raw_output_field, HIDDEN_TEXT_FIELD]
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        return ["data"], [self.pred_column] + ([self.raw_pred_column] if self.keep_raw_pred else [])
+        return ["data"], [self.label_field] + ([self.raw_output_field] if self.keep_raw_output else [])
 
     def ray_stage_spec(self) -> dict[str, Any]:
         return {"is_actor_stage": True}
@@ -331,27 +331,27 @@ class PostProcessAegisResponsesStage(ProcessingStage[DocumentBatch, DocumentBatc
             return "unknown"
 
     def _postprocess_responses(self, df: pd.DataFrame) -> pd.DataFrame:
-        generated_tokens = df[self.raw_pred_column].tolist()
+        generated_tokens = df[self.raw_output_field].tolist()
 
         generated_tokens = self.tokenizer.batch_decode(
             generated_tokens,
             skip_special_tokens=True,
         )
 
-        original_lengths = df[HIDDEN_TEXT_COLUMN].str.len().tolist()
+        original_lengths = df[HIDDEN_TEXT_FIELD].str.len().tolist()
         generated_tokens = [
             chars[original_length:] for chars, original_length in zip(generated_tokens, original_lengths, strict=False)
         ]
         parsed_response = [self._parse_response(response) for response in generated_tokens]
 
-        if self.keep_raw_pred:
-            df[self.raw_pred_column] = pd.Series(generated_tokens)
+        if self.keep_raw_output:
+            df[self.raw_output_field] = pd.Series(generated_tokens)
         else:
-            df = df.drop(columns=[self.raw_pred_column])
+            df = df.drop(columns=[self.raw_output_field])
 
-        df[self.pred_column] = pd.Series(parsed_response)
+        df[self.label_field] = pd.Series(parsed_response)
 
-        return df.drop(columns=[HIDDEN_TEXT_COLUMN])
+        return df.drop(columns=[HIDDEN_TEXT_FIELD])
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -388,10 +388,10 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
         hf_token (Optional[Union[str, bool]]): A HuggingFace user access token. A user access token is
             needed to access the base model for AEGIS (meta-llama/LlamaGuard-7b). You can get access to
             Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
-        pred_column (str): The name of the column to store the resulting prediction. Defaults to "aegis_pred".
-        raw_pred_column (str): The name of the column to store the raw output of the AEGIS LLM before
+        label_field (str): The name of the column to store the resulting prediction. Defaults to "aegis_pred".
+        raw_output_field (str): The name of the column to store the raw output of the AEGIS LLM before
             the prediction is extracted from it. Defaults to "_aegis_raw_pred".
-        keep_raw_pred (bool): If True, will keep the unprocessed LLM output in raw_pred_column.
+        keep_raw_output (bool): If True, will keep the unprocessed LLM output in raw_output_field.
             Useful for debugging when "unknown" shows up a lot in your dataset. Defaults to False.
         text_field (str): The field in the dataset that should be classified. Defaults to "text".
         filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
@@ -407,9 +407,9 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     aegis_variant: Literal[AEGIS_VARIANTS] = AEGIS_VARIANTS[0]
     cache_dir: str | None = None
     hf_token: str | bool | None = None
-    pred_column: str = "aegis_pred"
-    raw_pred_column: str = "_aegis_raw_pred"
-    keep_raw_pred: bool = False
+    label_field: str = "aegis_pred"
+    raw_output_field: str = "_aegis_raw_pred"
+    keep_raw_output: bool = False
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int = 6000
@@ -420,7 +420,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = format_name_with_suffix(self.aegis_variant)
+        self.name = format_name_with_suffix(self.aegis_variant)
 
         self.stages = [
             FormatAegisPromptStage(
@@ -431,7 +431,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=PRETRAINED_MODEL_NAME_OR_PATH,
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
-                text_field=HIDDEN_TEXT_COLUMN,
+                text_field=HIDDEN_TEXT_FIELD,
                 max_seq_length=MAX_SEQ_LENGTH,
                 padding_side=TOKENIZER_PADDING_SIDE,
                 sort_by_length=self.sort_by_length,
@@ -441,7 +441,7 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
                 model_identifier=self.aegis_variant,
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
-                pred_column=self.raw_pred_column,
+                label_field=self.raw_output_field,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=False,
@@ -450,14 +450,14 @@ class AegisClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             PostProcessAegisResponsesStage(
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
-                pred_column=self.pred_column,
-                raw_pred_column=self.raw_pred_column,
-                keep_raw_pred=self.keep_raw_pred,
+                label_field=self.label_field,
+                raw_output_field=self.raw_output_field,
+                keep_raw_output=self.keep_raw_output,
             ),
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()
@@ -519,8 +519,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         hf_token (Optional[Union[str, bool]]): A HuggingFace user access token. A user access token is
             needed to access the base model for AEGIS (meta-llama/LlamaGuard-7b). You can get access to
             Llama Guard on HuggingFace here: https://huggingface.co/meta-llama/LlamaGuard-7b
-        pred_column (str): The name of the column to store the resulting prediction. Defaults to "is_poisoned".
-        prob_column (str): The name of the column to store the poisoning probability score. Defaults to "instruction_data_guard_poisoning_score".
+        label_field (str): The name of the column to store the resulting prediction. Defaults to "is_poisoned".
+        score_field (str): The name of the column to store the poisoning probability score. Defaults to "instruction_data_guard_poisoning_score".
         text_field (str): The field in the dataset that should be classified. Defaults to "text".
         filter_by (Optional[List[str]]): If specified, the resulting dataset will remove all values
             expect those specified in this list. Defaults to None.
@@ -534,8 +534,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
 
     cache_dir: str | None = None
     hf_token: str | bool | None = None
-    pred_column: str = "is_poisoned"
-    prob_column: str = "instruction_data_guard_poisoning_score"
+    label_field: str = "is_poisoned"
+    score_field: str = "instruction_data_guard_poisoning_score"
     text_field: str = "text"
     filter_by: list[str] | None = None
     max_chars: int = 6000
@@ -546,7 +546,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
     def __post_init__(self) -> None:
         super().__init__()
 
-        self._name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
+        self.name = format_name_with_suffix(INSTRUCTION_DATA_GUARD_MODEL_IDENTIFIER)
 
         self.stages = [
             TokenizerStage(
@@ -564,8 +564,8 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
                 model_identifier=AEGIS_VARIANTS[0],
                 cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
-                pred_column=self.pred_column,
-                prob_column=self.prob_column,
+                label_field=self.label_field,
+                score_field=self.score_field,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 add_instruction_data_guard=True,
@@ -574,7 +574,7 @@ class InstructionDataGuardClassifier(CompositeStage[DocumentBatch, DocumentBatch
         ]
 
         if self.filter_by is not None and len(self.filter_by) > 0:
-            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.pred_column))
+            self.stages.append(Filter(filter_fn=self.filter_by_category, filter_field=self.label_field))
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()

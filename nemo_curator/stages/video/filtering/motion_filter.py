@@ -35,10 +35,10 @@ class MotionVectorDecodeStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     target_fps: float = 2.0
     target_duration_ratio: float = 0.5
-    _name: str = "motion_vector_decoding"
+    name: str = "motion_vector_decoding"
 
     def __post_init__(self) -> None:
-        self._resources = Resources(cpus=self.num_cpus_per_worker)
+        self.resources = Resources(cpus=self.num_cpus_per_worker)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -101,7 +101,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
     num_gpus_per_worker: float = 0
     motion_filter_batch_size: int = 256
     verbose: bool = False
-    _name: str = "motion_filter"
+    name: str = "motion_filter"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -116,7 +116,7 @@ class MotionFilterStage(ProcessingStage[VideoTask, VideoTask]):
         ]
 
     def __post_init__(self) -> None:
-        self._resources = Resources(gpus=self.num_gpus_per_worker)
+        self.resources = Resources(gpus=self.num_gpus_per_worker)
 
     def process(self, task: VideoTask) -> VideoTask:
         video: Video = task.data

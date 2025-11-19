@@ -51,7 +51,7 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Stage 2: Read images
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=100,
+    batch_size=100,
     num_gpus_per_worker=0.25,
 ))
 
