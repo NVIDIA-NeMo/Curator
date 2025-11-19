@@ -22,17 +22,22 @@ Use Curator's `JsonlReader` and `ParquetReader` to read existing datasets into a
 ## Example: Read JSONL and Filter
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import WordCountFilter
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Create pipeline for processing existing JSONL files
 pipeline = Pipeline(name="jsonl_data_processing")
 
 # Read JSONL files
 reader = JsonlReader(
-    file_paths="/path/to/data/*.jsonl",
+    file_paths="/path/to/data",
     files_per_partition=4,
     fields=["text", "url"]  # Only read specific columns
 )
@@ -45,8 +50,13 @@ word_filter = ScoreFilter(
 )
 pipeline.add_stage(word_filter)
 
+# Add more stages to pipeline...
+
 # Execute pipeline
 results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 :::
@@ -57,10 +67,15 @@ results = pipeline.run()
 ## Example: Read Parquet and Filter
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import WordCountFilter
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Create pipeline for processing existing Parquet files
 pipeline = Pipeline(name="parquet_data_processing")
@@ -80,8 +95,13 @@ word_filter = ScoreFilter(
 )
 pipeline.add_stage(word_filter)
 
+# Add more stages to pipeline...
+
 # Execute pipeline
 results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 :::
@@ -108,11 +128,11 @@ Both `JsonlReader` and `ParquetReader` support these configuration options:
   - Required
 * - `files_per_partition`
   - int | None
-  - Number of files per partition
+  - Number of files per partition. Overrides `blocksize` if both are provided.
   - None
 * - `blocksize`
   - int | str | None
-  - Target partition size (e.g., "128MB")
+  - Target partition size (e.g., "128MB"). Ignored if `files_per_partition` is provided.
   - None
 * - `fields`
   - list[str] | None
@@ -137,7 +157,6 @@ Both `JsonlReader` and `ParquetReader` support these configuration options:
 
 - Use `fields` parameter to read required columns for better performance
 - Set `files_per_partition` based on your cluster size and memory constraints
-- For cloud storage, configure `storage_options` in `read_kwargs`
 - Use `blocksize` for fine-grained control over partition sizes
 
 ## Output Integration

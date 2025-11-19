@@ -39,6 +39,7 @@ Generates URLs for downloading from minimal input configuration. You need to ove
 from dataclasses import dataclass
 from nemo_curator.stages.text.download import URLGenerator
 
+@dataclass
 class CustomURLGenerator(URLGenerator):
     def generate_urls(self):
         # Custom URL generation logic
@@ -178,13 +179,15 @@ The data acquisition process seamlessly integrates with NeMo Curator's pipeline-
 ### Acquisition Workflow
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import DocumentDownloadExtractStage
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 
 # Create composite stage
 class CustomDownloadExtractStage(DocumentDownloadExtractStage):
-    def __init__(self,
+    def __init__(
+        self,
         download_dir: str = "./custom_downloads",
         url_limit: int | None = None,
         record_limit: int | None = None,
@@ -222,6 +225,10 @@ class CustomDownloadExtractStage(DocumentDownloadExtractStage):
         """Get a description of this composite stage."""
         return "Custom pipeline"
 
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
+
 # Define acquisition pipeline
 pipeline = Pipeline(name="data_acquisition")
 
@@ -235,6 +242,8 @@ pipeline.add_stage(JsonlWriter(...))
 # Execute acquisition pipeline
 results = pipeline.run()
 
+# Stop Ray client
+ray_client.stop()
 ```
 
 ## Performance Optimization
