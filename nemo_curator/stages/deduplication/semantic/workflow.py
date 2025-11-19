@@ -340,6 +340,9 @@ class SemanticDeduplicationWorkflow:
             Dictionary with results and timing information
         """
         total_start_time = time.time()
+        if kmeans_executor is not None and not isinstance(kmeans_executor, RayActorPoolExecutor):
+            msg = "kmeans_executor must be an instance of RayActorPoolExecutor."
+            raise ValueError(msg)
         kmeans_executor = kmeans_executor or RayActorPoolExecutor()
         pairwise_executor = pairwise_executor or XennaExecutor()
 

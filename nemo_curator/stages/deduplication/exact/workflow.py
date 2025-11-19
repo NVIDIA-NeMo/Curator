@@ -179,6 +179,9 @@ class ExactDeduplicationWorkflow:
         if executor is None:
             executor = RayActorPoolExecutor(config=self.executor_config)
         else:
+            if not isinstance(executor, RayActorPoolExecutor):
+                msg = "Executor must be an instance of RayActorPoolExecutor."
+                raise ValueError(msg)
             previous_config = executor.config
             executor.config = merge_executor_configs(executor.config, self.executor_config)
             warn_on_env_var_override(previous_config, executor.config)
