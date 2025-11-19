@@ -269,19 +269,6 @@ cc_stage = CommonCrawlDownloadExtractStage(
 
 ## Advanced Usage
 
-### Using Different Executors
-
-Curator supports several execution backends:
-
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-executor = XennaExecutor()
-
-# Experimental Ray Data executor (optional)
-from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
-executor = RayDataExecutor()
-```
-
 ### Processing CC-NEWS Data
 
 For Common Crawl News data, use the `news` crawl type with month-based snapshots:

@@ -30,8 +30,13 @@ Both readers support optimization through:
 - **Recommended block size** - Use ~128MB for optimal object store performance with smaller data chunks
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Basic usage with optimization
 pipeline = Pipeline(name="data_processing")
@@ -55,6 +60,9 @@ else:
 
 # Execute pipeline
 results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 ## Optimization Strategies
@@ -103,9 +111,6 @@ from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 pipeline.add_stage(JsonlWriter(path="output_directory/"))
 # or
 pipeline.add_stage(ParquetWriter(path="output_directory/"))
-
-# Execute pipeline to write results
-results = pipeline.run()
 ```
 
 ## Common Loading Patterns

@@ -68,6 +68,7 @@ corpus_v1_a1b2c3d4-e5f6-7890-abcd-ef1234567890_1
 ### Complete Example
 
 ```python
+# TODO: RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.modules import AddId

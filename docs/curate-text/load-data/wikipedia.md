@@ -42,6 +42,7 @@ Curator uses `wget` to download Wikipedia dumps. You must have `wget` installed 
 Here's how to download and extract Wikipedia data using Curator:
 
 ```python
+# TODO: RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import WikipediaDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter

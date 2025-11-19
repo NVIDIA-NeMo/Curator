@@ -61,6 +61,7 @@ Fix Unicode issues, standardize spacing, and remove URLs
 Here's an example of a typical content processing pipeline:
 
 ```python
+# TODO: RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter

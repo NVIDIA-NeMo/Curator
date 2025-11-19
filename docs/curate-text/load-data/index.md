@@ -26,12 +26,15 @@ Data sources provide composite stages that combine these steps into complete dow
 
 :::{tab-item} Python
 
-<!-- TODO: Add RayClient to code snippets -->
-
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Create a pipeline for downloading Common Crawl data
 pipeline = Pipeline(
@@ -55,6 +58,9 @@ pipeline.add_stage(writer)
 
 # Execute pipeline
 results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 :::
