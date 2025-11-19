@@ -138,7 +138,7 @@ class TinyStoriesDownloadExtractStage(DocumentDownloadExtractStage):
         split: str,
         verbose: bool = True,
     ):
-        self._name = "tinystories_download_extract_pipeline"
+        self.name = "tinystories_download_extract_pipeline"
         self.split = split
 
         self.url_generator = TinyStoriesURLGenerator(split=split)

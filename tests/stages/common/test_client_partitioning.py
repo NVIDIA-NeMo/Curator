@@ -45,7 +45,7 @@ class TestClientPartitioningStage:
         stage = ClientPartitioningStage(file_paths="/test/path")
         assert stage.file_paths == "/test/path"
         assert stage.input_list_json_path is None
-        assert stage._name == "client_partitioning"
+        assert stage.name == "client_partitioning"
         assert stage.files_per_partition is None
         assert stage.file_extensions == [".jsonl", ".json", ".parquet"]
         assert stage.storage_options == {}

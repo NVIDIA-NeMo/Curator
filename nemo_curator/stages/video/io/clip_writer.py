@@ -52,10 +52,10 @@ class ClipWriterStage(ProcessingStage[VideoTask, VideoTask]):
     verbose: bool = False
     max_workers: int = 6
     log_stats: bool = False
-    _name: str = "clip_writer"
+    name: str = "clip_writer"
 
     def __post_init__(self):
-        self._resources = Resources(cpus=0.25)
+        self.resources = Resources(cpus=0.25)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []

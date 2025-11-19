@@ -37,7 +37,7 @@ class ParquetReaderStage(BaseReader):
         read_kwargs (dict[str, Any], optional): Keyword arguments for the underlying reader. Defaults to {}.
     """
 
-    _name: str = "parquet_reader"
+    name: str = "parquet_reader"
 
     def read_data(
         self,
@@ -80,7 +80,7 @@ class ParquetReader(CompositeStage[_EmptyTask, DocumentBatch]):
     task_type: Literal["document", "image", "video", "audio"] = "document"
     _generate_ids: bool = False
     _assign_ids: bool = False
-    _name: str = "parquet_reader"
+    name: str = "parquet_reader"
 
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""

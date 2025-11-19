@@ -1,10 +1,6 @@
 # Getting Started with Video Curation
 
-The Python scripts in this directory contain examples for how to run video curation workflows with NeMo Curator.
-
-## Scripts Overview
-
-- **`video_split_clip_example.py`**: Complete pipeline that reads videos, splits into clips, transcodes, filters, generates embeddings/captions, and saves results
+The Python script in this directory contains examples for how to run video curation workflows with NeMo Curator. See **`video_split_clip_example.py`** for a complete pipeline that reads videos, splits into clips, transcodes, filters, generates embeddings/captions, and saves the results.
 
 ## Quick Start
 
@@ -12,20 +8,24 @@ The Python scripts in this directory contain examples for how to run video curat
 
 1. **Set up directories**:
    ```bash
-   export VIDEO_DIR="/path/to/your/videos" # Video to be processed
-   export OUTPUT_DIR="/path/to/output" 
+   export VIDEO_DIR="/path/to/your/videos"  # Video data to be processed
+   export OUTPUT_DIR="/path/to/output"
    export MODEL_DIR="./models"  # Will download models if not exist
    ```
 
 2. **Minimal working example**:
    ```bash
-   python video_split_clip_example.py \
+   LOGURU_LEVEL="ERROR" python video_split_clip_example.py \
      --video-dir "$VIDEO_DIR" \
      --output-clip-path "$OUTPUT_DIR" \
      --splitting-algorithm fixed_stride \
      --fixed-stride-split-duration 10.0
    ```
 The example above demonstrates how to run a minimal video curation pipeline using NeMo Curator. It processes all videos in the specified `VIDEO_DIR`, splits each video into fixed-length clips (10 seconds each, as set by `--fixed-stride-split-duration 10.0`), and saves the resulting clips to `OUTPUT_DIR`. This is a basic workflow to get started with automated video splitting and curation, and can be extended with additional options for embedding, captioning, filtering, and transcoding as shown in later sections.
+
+**Note: Controlling Verbosity**
+
+The `--verbose` boolean argument allows the user to enable stage-specific verbose logging for all stages of the video curation pipeline, which can be useful for debugging. However, even with the `--verbose` argument disabled, the output verbosity will still contain detailed information about the user environment, resource allocations, and pipeline setup. We recommend using `LOGURU_LEVEL="ERROR" python video_split_clip_example.py ...` to minimize logging even further for the most straightforward experience possible.
 
 ### Common Use Cases
 
@@ -38,7 +38,7 @@ python video_split_clip_example.py \
   --fixed-stride-split-duration 10.0 \
   --embedding-algorithm cosmos-embed1-224p
 ```
-This example extends from the above example and adds an additional embedding stages using cosmos-embed1-224p model.
+This example extends from the above example and adds an additional embedding stages using `cosmos-embed1-224p` model. Use `--model-dir "$MODEL_DIR"` if the model is predownloaded.
 
 **Scene-aware splitting with TransNetV2**:
 ```bash
@@ -53,7 +53,7 @@ python video_split_clip_example.py \
   --transcode-encoder libopenh264 \
   --verbose
 ```
-This example demonstrates a more advanced workflow than the minimal example by using scene-aware splitting with the TransNetV2 algorithm (which detects scene boundaries instead of fixed intervals), applies the InternVideo2 embedding model to each clip, transcodes the output using the libopenh264 encoder, and enables verbose logging for more detailed output.
+This example demonstrates a more advanced workflow than the minimal example by using scene-aware splitting with the TransNetV2 algorithm (which detects scene boundaries instead of fixed intervals), applies the InternVideo2 embedding model to each clip, transcodes the output using the `libopenh264` encoder, and enables verbose logging for more detailed output.
 
 **Note: Choosing Between InternVideo2 and Cosmos-Embed1 for Embeddings**
 
@@ -72,8 +72,6 @@ uv add InternVideo/InternVideo2/multi_modality
 ```
 
 After running this script, InternVideo2 will be available when you use `--embedding-algorithm internvideo2` in your video curation pipelines.
-
-
 
 **Full pipeline with captions and filtering**:
 ```bash

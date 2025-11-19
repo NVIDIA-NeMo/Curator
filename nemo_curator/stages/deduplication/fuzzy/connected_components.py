@@ -16,10 +16,10 @@ import math
 from typing import TYPE_CHECKING, Any
 
 import cudf
-from cugraph.dask.comms.comms_wrapper import init_subcomms as c_init_subcomms
 from loguru import logger
 from pylibcugraph import GraphProperties, MGGraph, ResourceHandle
 from pylibcugraph import weakly_connected_components as pylibcugraph_wcc
+from pylibcugraph.comms.comms_wrapper import init_subcomms as c_init_subcomms
 
 from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
@@ -57,9 +57,9 @@ class ConnectedComponentsStage(ProcessingStage[FileGroupTask, FileGroupTask], De
         self.read_kwargs = read_kwargs if read_kwargs is not None else {}
         self.write_kwargs = write_kwargs if write_kwargs is not None else {}
 
-        self._name = self.__class__.__name__
-        self._resources = Resources(cpus=1.0, gpus=1.0)
-        self._batch_size = None
+        self.name = self.__class__.__name__
+        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.batch_size = None
 
         # Handle output directory cleanup logic
         self.output_fs = get_fs(output_path, self.write_kwargs.get("storage_options"))
