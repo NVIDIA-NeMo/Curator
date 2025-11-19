@@ -76,11 +76,6 @@ Learn prerequisites, setup instructions, and initial configuration for text cura
 
 Download text data from remote sources and import existing datasets into NeMo Curator's processing pipeline.
 
-<!--
-TODO: Check that the Read Existing Data, arXiv, Common Crawl, Wikipedia, and Custom Data Sources
-      names and descriptions are consistent across pages
--->
-
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
 

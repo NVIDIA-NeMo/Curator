@@ -161,7 +161,7 @@ Download and extract Wikipedia articles from Wikipedia dumps
 {bdg-secondary}`encyclopedic` {bdg-secondary}`structured`
 :::
 
-:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Custom Sources
+:::{grid-item-card} {octicon}`gear;1.5em;sd-mr-1` Custom Data Sources
 :link: text-load-data-custom
 :link-type: ref
 
