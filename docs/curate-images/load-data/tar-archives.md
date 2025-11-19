@@ -63,7 +63,7 @@ pipeline.add_stage(FilePartitioningStage(
 
 # Stage 2: Read JPEG images from tar files using DALI
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=100,
+    batch_size=100,
     verbose=True,
     num_threads=16,
     num_gpus_per_worker=0.25,
@@ -77,7 +77,7 @@ results = pipeline.run()
 
 - `file_paths`: Path to directory containing tar files
 - `files_per_partition`: Number of tar files to process per partition (controls parallelism)
-- `task_batch_size`: Number of images per ImageBatch for processing
+- `batch_size`: Number of images per ImageBatch for processing
 
 ---
 
@@ -152,7 +152,7 @@ The `ImageReaderStage` is the core component that handles tar archive loading wi
   - Type
   - Default
   - Description
-* - `task_batch_size`
+* - `batch_size`
   - int
   - 100
   - Number of images per ImageBatch for processing
@@ -205,7 +205,7 @@ ImageObject(
 ```python
 # Optimal configuration for GPU acceleration
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=256,        # Larger batches for GPU throughput
+    batch_size=256,        # Larger batches for GPU throughput
     num_threads=16,             # More threads for I/O parallelism
     num_gpus_per_worker=0.5,    # Allocate more GPU memory
     verbose=True,
@@ -217,7 +217,7 @@ pipeline.add_stage(ImageReaderStage(
 ```python
 # Optimized for CPU decoding
 pipeline.add_stage(ImageReaderStage(
-    task_batch_size=64,         # Smaller batches to avoid memory pressure
+    batch_size=64,         # Smaller batches to avoid memory pressure
     num_threads=8,              # Fewer threads for CPU processing
     num_gpus_per_worker=0,      # No GPU allocation
     verbose=True,
@@ -228,7 +228,7 @@ pipeline.add_stage(ImageReaderStage(
 
 - **GPU Acceleration**: Use a GPU-enabled environment for optimal performance. The stage automatically detects CUDA availability and uses GPU decoding when possible.
 - **Parallelism Control**: Adjust `files_per_partition` to control how many tar files are processed together. Lower values increase parallelism but may increase overhead.
-- **Batch Size Tuning**: Increase `task_batch_size` for better throughput, but ensure sufficient memory is available.
+- **Batch Size Tuning**: Increase `batch_size` for better throughput, but ensure sufficient memory is available.
 - **Thread Configuration**: Adjust `num_threads` for I/O operations based on your storage system's characteristics.
 
 ---

@@ -61,7 +61,7 @@ class DocumentExtractStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
-        self._name = f"extract_{self.extractor.__class__.__name__.lower()}"
+        self.name = f"extract_{self.extractor.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects DocumentBatch with dict records."""

@@ -59,7 +59,7 @@ class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
     def __post_init__(self):
         """Initialize the stage."""
         self.filename_col = resolve_filename_column(self.add_filename_column)
-        self._name = f"iterate_{self.iterator.__class__.__name__.lower()}"
+        self.name = f"iterate_{self.iterator.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects FileGroupTask with local file paths."""

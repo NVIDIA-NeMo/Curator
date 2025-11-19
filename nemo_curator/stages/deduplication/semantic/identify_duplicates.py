@@ -45,9 +45,9 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
         super().__init__()
-        self._name = "RemovalStage"
+        self.name = "RemovalStage"
 
-        self._batch_size = 10  # We want to load multiple clusters at once
+        self.batch_size = 10  # We want to load multiple clusters at once
 
         # Storage options
         self.read_kwargs = self.read_kwargs.copy() if self.read_kwargs is not None else {}
