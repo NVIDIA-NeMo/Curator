@@ -165,14 +165,6 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             task_id=batch.task_id,
             dataset_name=batch.dataset_name,
             data=output,
-            _metadata={
-                **batch._metadata,
-                "token_size": (
-                    -1
-                    if self.tokenizer.vocab_size is None
-                    else (4 if self.tokenizer.vocab_size > np.iinfo(np.uint16).max + 1 else 2)
-                ),
-                "eod_token_id": self.tokenizer.eos_token_id if self.tokenizer.eos_token_id is not None else -1,
-            },
+            _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
