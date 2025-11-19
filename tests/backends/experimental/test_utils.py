@@ -128,8 +128,8 @@ class TestExecuteSetupOnNode:
         """Test execute_setup_on_node with ignore_head_node=True to skip head node."""
 
         class MockStage1(ProcessingStage):
-            _name = "mock_stage_ignore_head"
-            _resources = Resources(cpus=1.0, gpus=0.0)
+            name = "mock_stage_ignore_head"
+            resources = Resources(cpus=1.0, gpus=0.0)
 
             def process(self, task: "Task") -> "Task":
                 return task
