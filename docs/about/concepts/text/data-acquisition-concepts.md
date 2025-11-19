@@ -59,7 +59,7 @@ from nemo_curator.stages.text.download import DocumentDownloader
 
 class CustomDownloader(DocumentDownloader):
     def __init__(self, download_dir: str):
-        super().__init__()
+        super().__init__(download_dir=download_dir)
     
     def _get_output_filename(self, url: str) -> str:
         # Custom logic to extract filename from URL
