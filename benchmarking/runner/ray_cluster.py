@@ -78,10 +78,14 @@ def start_ray_head(
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
 
+    # Capture stdout/stderr to a file if provided, otherwise suppress it
+    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
+
     # Check environment variables that might interfere
     ray_address_env = os.environ.get("RAY_ADDRESS")
     if ray_address_env:
         logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
+
     client = RayClient(
         ray_temp_dir=str(short_temp_path),
         include_dashboard=include_dashboard,
@@ -89,9 +93,10 @@ def start_ray_head(
         num_cpus=num_cpus,
         enable_object_spilling=enable_object_spilling,
         ray_dashboard_host="0.0.0.0",  # noqa: S104
+        ray_stdouterr_capture_file=ray_stdouterr_capture_file,
     )
-    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
-    client.start(stdouterr_capture_file=ray_stdouterr_capture_file)
+    client.start()
+
     # Wait for Ray client to start, no longer than timeout
     wait_for_ray_client_start(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
     logger.debug(f"RayClient started successfully: pid={client.ray_process.pid}, port={client.ray_port}")
