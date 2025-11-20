@@ -18,7 +18,7 @@ import os
 import time
 
 import pandas as pd
-
+ 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.models.client.llm_client import GenerationConfig
@@ -26,11 +26,11 @@ from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
     DistillStage,
-    DiverseQAPostProcessingStage,
     DiverseQAStage,
+    DiverseQAPostProcessingStage,
     ExtractKnowledgeStage,
-    KnowledgeListPostProcessingStage,
     KnowledgeListStage,
+    KnowledgeListPostProcessingStage,
 )
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import Filter
@@ -108,7 +108,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915
     """Main function to run the synthetic data generation pipeline."""
     client = RayClient(include_dashboard=False)
     client.start()
@@ -271,7 +271,6 @@ def main() -> None:
     # Print pipeline description
     print(pipeline.describe())
     print("\n" + "=" * 50 + "\n")
-
 
     # Create executor
     executor = XennaExecutor()
