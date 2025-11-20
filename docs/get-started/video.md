@@ -16,19 +16,51 @@ This guide shows how to install Curator and run your first video curation pipeli
 
 The [example pipeline](#run-the-splitting-pipeline-example) processes a list of videos, splitting each into 10‑second clips using a fixed stride. It then generates clip‑level embeddings for downstream tasks such as duplicate removal and similarity search.
 
+## Overview
+
+This quickstart guide demonstrates how to:
+
+1. **Install NeMo Curator** with video processing support
+2. **Set up FFmpeg** with GPU-accelerated encoding
+3. **Configure embedding models** (Cosmos-Embed1 or InternVideo2)
+4. **Process videos** through a complete splitting and embedding pipeline
+5. **Generate outputs** ready for duplicate removal, captioning, and model training
+
+**What you'll build:** A video processing pipeline that:
+- Splits videos into 10-second clips using fixed stride or scene detection
+- Generates clip-level embeddings for similarity search and deduplication
+- Optionally creates captions and preview images
+- Outputs results in formats compatible with multimodal training workflows
+
 ## Prerequisites
 
-To use NeMo Curator's video curation modules, ensure you meet the following requirements:
+### System Requirements
 
-- **OS**: Ubuntu 24.04/22.04/20.04 (required for GPU-accelerated processing)
-- **Python**: 3.10, 3.11, or 3.12
-- **uv** (for package management and installation)
-- **NVIDIA GPU** (required)
-  - Volta™ or higher (compute capability 7.0+)
-  - CUDA 12 or above
-  - With defaults, the full splitting plus captioning example can use up to 38 GB of VRAM. Reduce VRAM to about 21 GB by lowering batch sizes and using FP8 where available.
-- **FFmpeg** 7+ on your system path. For H.264, ensure an encoder is available: `h264_nvenc` (GPU) or `libopenh264`/`libx264` (CPU).
-- **Git** (required for some model dependencies)
+To use NeMo Curator's video curation capabilities, ensure your system meets these requirements:
+
+#### Operating System
+* **Ubuntu 24.04, 22.04, or 20.04** (required for GPU-accelerated video processing)
+* Other Linux distributions may work but are not officially supported
+
+#### Python Environment
+* **Python 3.10, 3.11, or 3.12**
+* **uv package manager** for dependency management
+* **Git** for model and repository dependencies
+
+#### GPU Requirements
+* **NVIDIA GPU required** (CPU-only mode not supported for video processing)
+* **Architecture**: Volta™ or newer (compute capability 7.0+)
+  - Examples: V100, T4, RTX 2080+, A100, H100
+* **CUDA**: Version 12.0 or above
+* **VRAM**: Minimum requirements by configuration:
+  - Basic splitting + embedding: ~16GB VRAM
+  - Full pipeline (splitting + embedding + captioning): ~38GB VRAM
+  - Reduced configuration (lower batch sizes, FP8): ~21GB VRAM
+
+#### Software Dependencies
+* **FFmpeg 7.0+** with H.264 encoding support
+  - GPU encoder: `h264_nvenc` (recommended for performance)
+  - CPU encoders: `libopenh264` or `libx264` (fallback options)
 
 :::{tip}
 If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
@@ -165,7 +197,8 @@ If encoders are missing, reinstall `FFmpeg` with the required options or use the
 
 Refer to [Clip Encoding](video-process-transcoding) to choose encoders and verify NVENC support on your system.
 
-## Choose Embedding Model
+### Available Models
+
 
 Embeddings convert each video clip into a numeric vector that captures visual and semantic content. Curator uses these vectors to:
 
@@ -173,14 +206,27 @@ Embeddings convert each video clip into a numeric vector that captures visual an
 - Enable similarity search and clustering
 - Support downstream analysis such as caption verification
 
-You can choose between two embedding models:
+NeMo Curator supports two embedding model families:
 
-- **Cosmos-Embed1 (default)**: Available in three variants—**cosmos-embed1-224p**, **cosmos-embed1-336p**, and **cosmos-embed1-448p**—which differ in input resolution and accuracy/VRAM tradeoff. All variants are automatically downloaded to `MODEL_DIR` on first run.  
-  - [cosmos-embed1-224p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-224p)
-  - [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-336p)
-  - [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/Cosmos-Embed1-448p)
-- **InternVideo2 (IV2)**: Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage. 
-  - [InternVideo Official Github Page](https://github.com/OpenGVLab/InternVideo)
+#### Cosmos-Embed1 (Recommended)
+
+**Cosmos-Embed1 (default)**: Available in three variants—**cosmos-embed1-224p**, **cosmos-embed1-336p**, and **cosmos-embed1-448p**—which differ in input resolution and accuracy/VRAM tradeoff. All variants are automatically downloaded to `MODEL_DIR` on first run.
+
+| Model Variant | Resolution | VRAM Usage | Speed | Accuracy | Best For |
+|---------------|------------|------------|-------|----------|----------|
+| **cosmos-embed1-224p** | 224×224 | ~8GB | Fastest | Good | Large-scale processing, initial curation |
+| **cosmos-embed1-336p** | 336×336 | ~12GB | Medium | Better | Balanced performance and quality |
+| **cosmos-embed1-448p** | 448×448 | ~16GB | Slower | Best | High-quality embeddings, fine-grained matching |
+
+**Model links:**
+- [cosmos-embed1-224p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-224p)
+- [cosmos-embed1-336p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-336p)
+- [cosmos-embed1-448p on Hugging Face](https://huggingface.co/nvidia/cosmos-embed1-448p)
+
+#### InternVideo2 (IV2)
+
+Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage. 
+- [InternVideo Official Github Page](https://github.com/OpenGVLab/InternVideo)
 
 For this quickstart, we're going to set up support for **Cosmos-Embed1-224p**.
 
@@ -200,9 +246,9 @@ For most use cases, you only need to create a model directory. The required mode
 
 ## Set Up Data Directories
 
-Store input videos locally or on S3-compatible storage.
+Organize input videos and output locations before running the pipeline.
 
-- **Local**: Define paths like:
+- **Local**: For local file processing. Define paths like:
 
   ```bash
   DATA_DIR=/path/to/videos
@@ -210,7 +256,13 @@ Store input videos locally or on S3-compatible storage.
   MODEL_DIR=/path/to/models
   ```
 
-- **S3**: Configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-clip-path`.
+- **S3**: For cloud storage (AWS S3, MinIO, etc.). Configure credentials in `~/.aws/credentials` and use `s3://` paths for `--video-dir` and `--output-clip-path`.
+
+**S3 usage notes:**
+- Input videos can be read from S3 paths
+- Output clips can be written to S3 paths
+- Model directory should remain local for performance
+- Ensure IAM permissions allow read/write access to specified buckets
 
 ## Run the Splitting Pipeline Example
 
@@ -228,30 +280,97 @@ python -m nemo_curator.examples.video.video_split_clip_example \
   --verbose
 ```
 
-### Options
+**What this command does:**
+1. Reads all video files from `$DATA_DIR`
+2. Splits each video into 10-second clips using fixed stride
+3. Generates embeddings using Cosmos-Embed1-224p model
+4. Encodes clips using libopenh264 codec
+5. Writes output clips and metadata to `$OUT_DIR`
 
-The example script supports the following options:
+### Configuration Options Reference
 
-```{list-table} Common Options
-:header-rows: 1
-
-* - Option
-  - Values or Description
-* - `--splitting-algorithm`
-  - `fixed_stride` | `transnetv2`
-* - `--transnetv2-frame-decoder-mode`
-  - `pynvc` | `ffmpeg_gpu` | `ffmpeg_cpu`
-* - `--embedding-algorithm`
-  - `cosmos-embed1-224p` | `cosmos-embed1-336p` | `cosmos-embed1-448p` | `internvideo2`
-* - `--generate-captions`, `--generate-previews`
-  - Enable captioning and preview generation
-* - `--transcode-use-hwaccel`, `--transcode-encoder`
-  - Use NVENC when available (for example, `h264_nvenc`). Refer to [Clip Encoding](video-process-transcoding) to verify NVENC support and choose encoders.
-```
+| Option | Values | Description |
+|--------|--------|-------------|
+| **Splitting** |
+| `--splitting-algorithm` | `fixed_stride`, `transnetv2` | Method for dividing videos into clips |
+| `--fixed-stride-split-duration` | Float (seconds) | Clip length for fixed stride (default: 10.0) |
+| `--transnetv2-frame-decoder-mode` | `pynvc`, `ffmpeg_gpu`, `ffmpeg_cpu` | Frame decoding method for TransNetV2 |
+| **Embedding** |
+| `--embedding-algorithm` | `cosmos-embed1-224p`, `cosmos-embed1-336p`, `cosmos-embed1-448p`, `internvideo2` | Embedding model to use |
+| **Encoding** |
+| `--transcode-encoder` | `h264_nvenc`, `libopenh264`, `libx264` | Video encoder for output clips |
+| `--transcode-use-hwaccel` | Flag | Enable hardware acceleration for encoding |
+| **Optional Features** |
+| `--generate-captions` | Flag | Generate text captions for each clip |
+| `--generate-previews` | Flag | Create preview images for each clip |
+| `--verbose` | Flag | Enable detailed logging output |
 
 :::{tip}
 To use InternVideo2 instead, set `--embedding-algorithm internvideo2`.
 :::
+
+### Understanding Pipeline Output
+
+After successful execution, the output directory will contain:
+
+```
+$OUT_DIR/
+├── clips/
+│   ├── video1_clip_0000.mp4
+│   ├── video1_clip_0001.mp4
+│   └── ...
+├── embeddings/
+│   ├── video1_clip_0000.npy
+│   ├── video1_clip_0001.npy
+│   └── ...
+├── metadata/
+│   └── manifest.jsonl
+└── previews/  (if --generate-previews enabled)
+    ├── video1_clip_0000.jpg
+    └── ...
+```
+
+**File descriptions:**
+- **clips/**: Encoded video clips (MP4 format)
+- **embeddings/**: Numpy arrays containing clip embeddings (for similarity search)
+- **metadata/manifest.jsonl**: JSONL file with clip metadata (paths, timestamps, embeddings)
+- **previews/**: Thumbnail images for each clip (optional)
+
+**Example manifest entry:**
+```json
+{
+  "video_path": "/data/input_videos/video1.mp4",
+  "clip_path": "/data/output_clips/clips/video1_clip_0000.mp4",
+  "start_time": 0.0,
+  "end_time": 10.0,
+  "embedding_path": "/data/output_clips/embeddings/video1_clip_0000.npy",
+  "preview_path": "/data/output_clips/previews/video1_clip_0000.jpg"
+}
+```
+
+## Best Practices
+
+### Data Preparation
+- **Validate input videos**: Ensure videos are not corrupted before processing
+- **Consistent formats**: Convert videos to a standard format (MP4 with H.264) for consistent results
+- **Organize by content**: Group similar videos together for efficient processing
+
+### Model Selection
+- **Start with Cosmos-Embed1-224p**: Best balance of speed and quality for initial experiments
+- **Upgrade resolution as needed**: Use 336p or 448p only when higher precision is required
+- **Monitor VRAM usage**: Check GPU memory with `nvidia-smi` during processing
+
+### Pipeline Configuration
+- **Enable verbose logging**: Use `--verbose` flag for debugging and monitoring
+- **Test on small subset**: Run pipeline on 5-10 videos before processing large datasets
+- **Use GPU encoding**: Enable NVENC for significant performance improvements
+- **Save intermediate results**: Keep embeddings and metadata for downstream tasks
+
+### Infrastructure
+- **Use shared storage**: Mount shared filesystem for multi-node processing
+- **Allocate sufficient VRAM**: Plan for peak usage (captioning + embedding)
+- **Monitor GPU utilization**: Use `nvidia-smi dmon` to track GPU usage during processing
+- **Schedule long-running jobs**: Process large video datasets in batch jobs overnight
 
 ## Next Steps
 
