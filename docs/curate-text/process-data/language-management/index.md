@@ -10,52 +10,213 @@ modality: "text-only"
 
 (text-process-data-languages)=
 
-# Language Management
+Identify document languages, filter multilingual content, and apply language-specific processing to create high-quality monolingual or multilingual text datasets.
 
-Handle multilingual content and language-specific processing requirements using NeMo Curator's tools and utilities.
+## Overview
 
-NeMo Curator provides robust tools for managing multilingual text datasets through language detection, stop word management, and specialized handling for non-spaced languages. These tools are essential for creating high-quality monolingual datasets and applying language-specific processing.
+NeMo Curator provides robust tools for managing multilingual text datasets through language detection, stop word management, and specialized handling for language-specific requirements. These capabilities are essential for:
 
-## Before You Start
+- **Monolingual Dataset Creation**: Filter documents by language to create single-language training datasets
+- **Multilingual Dataset Curation**: Identify and tag languages for balanced multilingual corpora
+- **Quality Filtering**: Apply language-specific quality checks and stop word filtering
+- **Non-Spaced Language Support**: Handle Chinese, Japanese, Thai, and Korean text with specialized tokenization
 
-- The `FastTextLangId` filter (used with the `ScoreFilter` stage) requires a FastText language identification model file. Download `lid.176.bin` (or `lid.176.ftz`) from FastText: [Language identification](https://fasttext.cc/docs/en/language-identification.html).
-- On a cluster, ensure the FastText model file is accessible to all workers (for example, a shared filesystem or object storage path).
-- Provide newline-delimited JSON (`.jsonl`) with a `text` field, or set `text_field` in `ScoreFilter(...)`.
-- For HTML extraction workflows (for example, Common Crawl), Curator uses CLD2 to provide language hints.
+## Language Processing Capabilities
 
----
+### Language Detection
 
-## How it Works
+- **FastText Model**: Supports 176 languages with confidence scores
+- **CLD2 Integration**: Used automatically in HTML extraction pipelines (Common Crawl, web scraping)
+- **Configurable Thresholds**: Filter documents by minimum confidence scores
 
-Language management in NeMo Curator typically follows this pattern using the Pipeline API:
+### Stop Word Management
+
+- **Built-in Stop Word Lists**: Pre-configured lists for common languages
+- **Customizable Filtering**: Adjust thresholds for stop word density
+- **Content Quality Enhancement**: Remove low-information documents
+
+### Special Language Handling
+
+- **Non-Spaced Languages**: Specialized tokenization for Chinese, Japanese, Thai, Korean
+- **Script Detection**: Identify and process different writing systems
+- **Language-Specific Processing**: Apply custom rules per language
+
+## Prerequisites
+
+Before implementing language management in your pipeline:
+
+### Required Resources
+
+* **FastText Model File**: Download the language identification model
+  - Model options: `lid.176.bin` (full model, ~131MB) or `lid.176.ftz` (compressed model, ~917KB)
+  - Download from: [FastText Language Identification](https://fasttext.cc/docs/en/language-identification.html)
+  - Save to an accessible location (local path or shared storage)
+
+* **Data Format**: JSONL (JSON Lines) input with text content
+  - Default field name: `text`
+  - Custom field support: Specify with `text_field` parameter
+
+* **Cluster Setup** (if applicable):
+  - Ensure FastText model file is accessible to all workers
+  - Use shared filesystem, network storage, or object storage (S3, GCS, etc.)
+
+### Installation Dependencies
+
+```bash
+# Install FastText for language detection
+pip install fasttext
+
+# Optional: CLD2 for HTML extraction (automatically used by Common Crawl stages)
+pip install pycld2
+```
+
+## Basic Language Filtering
+
+### Quick Start Example
+
+Filter documents by language using FastText:
 
 ```python
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import FastTextLangId
 
-# 1) Build the pipeline
-pipeline = Pipeline(name="language_management")
+# Create language filtering pipeline
+pipeline = Pipeline(name="language_filtering")
 
-# Read JSONL files into document batches
+# 1. Read JSONL input files
 pipeline.add_stage(
-    JsonlReader(file_paths="input_data/*.jsonl", files_per_partition=2)
-)
-
-# Identify languages and keep docs above a confidence threshold
-pipeline.add_stage(
-    ScoreFilter(
-        FastTextLangId(model_path="/path/to/lid.176.bin", min_langid_score=0.3),
-        score_field="language",
+    JsonlReader(
+        file_paths="input_data/*.jsonl",
+        files_per_partition=2  # Process 2 files per partition
     )
 )
 
-# 2) Execute
-results = pipeline.run()
+# 2. Identify languages and filter by confidence threshold
+pipeline.add_stage(
+    ScoreFilter(
+        FastTextLangId(
+            model_path="/path/to/lid.176.bin",  # Path to FastText model
+            min_langid_score=0.3                # Minimum confidence (0.0-1.0)
+        ),
+        score_field="language",  # Output field for language code
+        score_type="langid"      # Score type for filtering
+    )
+)
+
+# 3. Write filtered results
+pipeline.add_stage(
+    JsonlWriter(path="output_filtered/")
+)
+
+# Execute pipeline
+executor = XennaExecutor()
+results = pipeline.run(executor)
+```
+**Parameters explained:**
+- `model_path`: Absolute path to FastText model file (`lid.176.bin` or `lid.176.ftz`)
+- `min_langid_score`: Minimum confidence score (0.0 to 1.0). Documents below this threshold are filtered out
+- `score_field`: Field name to store detected language code (e.g., "en", "es", "zh")
+- `files_per_partition`: Number of files to process per partition (tune based on file sizes)
+
+**Output format:**
+Each document will include a `language` field with the detected language code:
+```json
+{"text": "This is an English document.", "language": "en"}
+{"text": "Este es un documento en español.", "language": "es"}
+```
+## Integration with HTML Extraction
+
+When processing HTML content (e.g., Common Crawl), CLD2 provides language hints automatically:
+
+```python
+from nemo_curator.stages.text.download import CommonCrawlWarcDownloader
+from nemo_curator.stages.text.filters import UrlFilter
+
+# HTML extraction automatically uses CLD2 for language hints
+pipeline.add_stage(CommonCrawlWarcDownloader(...))
+
+# Additional FastText filtering for refined language detection
+pipeline.add_stage(
+    ScoreFilter(
+        FastTextLangId(model_path="/path/to/lid.176.bin", min_langid_score=0.5),
+        score_field="language"
+    )
+)
 ```
 
----
+**CLD2 vs FastText:**
+- **CLD2**: Fast, lightweight, used for initial hints during HTML extraction
+- **FastText**: More accurate, supports 176 languages, recommended for final filtering
+
+## Complete Language Management Example
+
+Here's a comprehensive pipeline demonstrating language detection, filtering, and stop word removal:
+
+```python
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import FastTextLangId, StopWordsFilter
+from nemo_curator.stages.function_decorators import processing_stage
+from nemo_curator.tasks import DocumentBatch
+
+# Create comprehensive language management pipeline
+pipeline = Pipeline(name="language_management_complete")
+
+# 1. Load input data
+pipeline.add_stage(
+    JsonlReader(file_paths="raw_data/*.jsonl", files_per_partition=4)
+)
+
+# 2. Detect languages with FastText
+pipeline.add_stage(
+    ScoreFilter(
+        FastTextLangId(
+            model_path="/models/lid.176.bin",
+            min_langid_score=0.6  # Medium-high confidence
+        ),
+        score_field="language"
+    )
+)
+
+# 3. Filter to English documents only
+@processing_stage(name="keep_english")
+def filter_english(batch: DocumentBatch) -> DocumentBatch:
+    df = batch.data
+    df = df[df['language'] == 'en']
+    return DocumentBatch(data=df, task_id=batch.task_id, dataset_name=batch.dataset_name)
+
+pipeline.add_stage(filter_english)
+
+# 4. Remove documents with excessive stop words
+pipeline.add_stage(
+    ScoreFilter(
+        StopWordsFilter(lang="en", max_stopword_ratio=0.45),
+        score_field="stopword_ratio"
+    )
+)
+
+# 5. Export filtered, high-quality English documents
+pipeline.add_stage(JsonlWriter(path="curated_english/"))
+
+# Execute pipeline
+executor = XennaExecutor()
+results = pipeline.run(executor)
+print("Language management pipeline completed!")
+```
+
+**Expected workflow:**
+1. Load multilingual JSONL documents
+2. Detect language with 60% minimum confidence
+3. Keep only English documents
+4. Remove documents with >45% stop words
+5. Export high-quality English dataset
 
 ## Language Processing Capabilities
 
@@ -63,6 +224,34 @@ results = pipeline.run()
 - **Stop word management** with built-in lists and customizable thresholds
 - **Special handling** for non-spaced languages (Chinese, Japanese, Thai, Korean)
 - **Language-specific** text processing and quality filtering
+
+## Troubleshooting
+
+### Common Issues
+
+**FastText model not found:**
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/path/to/lid.176.bin'
+```
+**Solution:** Download the model from [FastText Language Identification](https://fasttext.cc/docs/en/language-identification.html) and provide the correct absolute path.
+
+**Low detection accuracy:**
+```
+Many documents classified incorrectly
+```
+**Solution:** 
+- Increase `min_langid_score` to filter low-confidence predictions
+- Ensure input text is clean (remove HTML tags, special characters)
+- Check for very short documents (<50 chars) which are harder to classify
+
+**Out of memory errors:**
+```
+MemoryError during language detection
+```
+**Solution:**
+- Reduce `files_per_partition` to process fewer files per worker
+- Use the compressed model (`lid.176.ftz`) instead of full model
+- Increase worker memory allocation
 
 ## Available Tools
 
