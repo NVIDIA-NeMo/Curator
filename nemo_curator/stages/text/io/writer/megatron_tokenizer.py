@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import struct
 import uuid
 from dataclasses import dataclass, field
@@ -88,17 +87,17 @@ class MegatronTokenizerWriter(BaseWriter):
             if self.fs.exists(file_path):
                 logger.debug(f"File {file_path} already exists, overwriting it")
 
-        token_size = (
+        self.token_size = (
             -1
             if self.tokenizer.vocab_size is None
             else (4 if self.tokenizer.vocab_size > np.iinfo(np.uint16).max + 1 else 2)
         )
-        if token_size == -1:
+        if self.token_size == -1:
             logger.warning("tokenizer.vocab_size is not set, assuming 4 bytes per token (vocab_size > 65536)")
-            token_size = 4
-        self.token_dtype = np.int32 if token_size == 4 else np.uint16  # noqa: PLR2004
+            self.token_size = 4
+        self.token_dtype = np.int32 if self.token_size == 4 else np.uint16  # noqa: PLR2004
         self.token_dtype_code = (
-            4 if token_size == 4 else 8  # noqa: PLR2004
+            4 if self.token_size == 4 else 8  # noqa: PLR2004
         )  # NOTE(asolergi-nv): Megatron needs this dtype code in the .idx file | https://github.com/NVIDIA/Megatron-LM/blob/64cbae55ac85cd73fbadbc3c0d715c8123c5e13b/megatron/core/datasets/indexed_dataset.py#L41
 
         self.eod_token_id = self.tokenizer.eos_token_id if self.tokenizer.eos_token_id is not None else -1
@@ -108,7 +107,7 @@ class MegatronTokenizerWriter(BaseWriter):
 
         num_docs = task.num_items
 
-        df = task.to_pandas()  # TODO(asolergi-nv): Why pandas and not arrow? .to_pylist()
+        df = task.to_pandas()
 
         self.bin_file = self.fs.open(file_prefix + ".bin", "wb")
 
@@ -123,7 +122,7 @@ class MegatronTokenizerWriter(BaseWriter):
             ).input_ids  # TODO(asolergi-nv): Drop everything, get length from numpy shape. Finally no numpy, get length from sum attention mask
             self.write_data(tokens_batch)
 
-        self.close(file_prefix, token_size)
+        self.close(file_prefix)
 
         logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(self.sequence_lengths)} tokens)")
 
@@ -150,7 +149,7 @@ class MegatronTokenizerWriter(BaseWriter):
         tokens_batch = np.concatenate([np.array(tokens, dtype=self.token_dtype) for tokens in tokens_batch])
         self.bin_file.write(tokens_batch.tobytes(order="C"))
 
-    def close(self, file_prefix: str, token_size: int) -> None:
+    def close(self, file_prefix: str) -> None:
         """Close the files and save the .bin & .idx files"""
 
         self.bin_file.close()
@@ -193,7 +192,9 @@ class MegatronTokenizerWriter(BaseWriter):
             idx_file.write(sequence_lengths.tobytes(order="C"))
 
             # Byte offsets for all sequences
-            sequence_pointers = np.array(self._sequence_pointers(self.sequence_lengths, token_size), dtype=np.int64)
+            sequence_pointers = np.array(
+                self._sequence_pointers(self.sequence_lengths, self.token_size), dtype=np.int64
+            )
             idx_file.write(sequence_pointers.tobytes(order="C"))
 
             # Sequence indices marking the end of each document
