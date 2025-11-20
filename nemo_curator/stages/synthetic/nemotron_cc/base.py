@@ -52,10 +52,12 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
+        assert self.output_field is not None
         return ["data"], [self.output_field]
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        self.client.setup()
+        if self.client is not None:
+            self.client.setup()
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
@@ -73,6 +75,7 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def _process_llm_prompt(self, sample: dict) -> str:
         """Process the input sample to create the LLM prompt."""
+        assert self.input_field in sample
         return self.prompt.format(document=sample[self.input_field])
 
     def _process_llm_response(self, response: list[str]) -> str:

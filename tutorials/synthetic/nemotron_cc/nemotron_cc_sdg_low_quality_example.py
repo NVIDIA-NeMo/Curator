@@ -18,7 +18,7 @@ import os
 import time
 
 import pandas as pd
- 
+
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.models.client.llm_client import GenerationConfig
@@ -60,16 +60,6 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="meta/llama-3.3-70b-instruct",
         help="Name of the model to use for generation",
-    )
-
-    # Generation Configuration
-    parser.add_argument("--num-samples", type=int, default=100, help="Number of samples to generate")
-    parser.add_argument("--no-filter-languages", action="store_true", help="Do not filter languages")
-    parser.add_argument(
-        "--output-path",
-        type=str,
-        default="./synthetic_output",
-        help="Directory path to save the generated synthetic data in JSONL format",
     )
 
     # LLM Sampling Parameters (for diversity)
