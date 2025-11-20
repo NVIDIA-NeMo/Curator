@@ -57,7 +57,7 @@ pip install -r requirements.txt
 
 ## Prerequisites
 
-* NeMo Curator installed (see [Installation Guide](../../setup-deployment/install-curator.md))
+* NeMo Curator installed (see [Installation Guide](docs/admin/installation.md))
 * NVIDIA GPU (required for ASR inference, minimum 16GB VRAM recommended)
 * Internet connection for dataset download
 * Basic Python knowledge
@@ -355,7 +355,7 @@ OSError: Model 'nvidia/stt_...' not found
 - **Increase batch size** for faster processing (if GPU memory allows)
 - **Use multiple GPUs** by setting `Resources(gpus=2.0)` or higher
 - **Process subset of data** by using `split="dev"` (smaller than "train")
-- **Skip ASR inference** if you already have transcriptions (remove InferenceAsrNemoStage)
+- **Skip ASR inference** if you already have both predicted and target transcriptions. (remove InferenceAsrNemoStage)
 
 ## Next Steps
 
@@ -364,7 +364,7 @@ After completing this tutorial, explore:
 - **[Custom Manifests](../load-data/custom-manifests.md)**: Process your own audio datasets
 - **[WER Filtering](../process-data/quality-assessment/wer-filtering.md)**: Advanced quality filtering techniques
 - **[Duration Filtering](../process-data/quality-assessment/duration-filtering.md)**: Filter by audio length and speech rate
-- **[NeMo ASR Models](../process-data/asr-inference/nemo-asr-models.md)**: Explore available ASR models for different languages
+- **[NeMo ASR Models](../process-data/asr-inference/nemo-models.md)**: Explore available ASR models for different languages
 
 ## Best Practices
 
@@ -376,7 +376,7 @@ After completing this tutorial, explore:
 
 ## Related Topics
 
-- **[Audio Curation Quickstart](../../get-started/audio-curation-quickstart.md)**: Quick introduction to audio curation
+- **[Audio Curation Quickstart](docs/get-started/audio.md)**: Quick introduction to audio curation
 - **[FLEURS Dataset](../load-data/fleurs-dataset.md)**: Detailed FLEURS dataset documentation
 - **[Quality Assessment](../process-data/quality-assessment/index.md)**: Comprehensive quality metrics guide
 - **[Save & Export](../save-export.md)**: Advanced export options and formats
