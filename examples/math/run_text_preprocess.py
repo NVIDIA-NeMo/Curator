@@ -23,7 +23,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math import MathContentExtractor
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
-from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWarcReader
+from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWARCReader
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
@@ -48,9 +48,9 @@ def build_pipeline(
     )
 
     if fetch_cc:
-        logger.info("Adding CommonCrawlWarcReader stage to fetch content from S3.")
+        logger.info("Adding CommonCrawlWARCReader stage to fetch content from S3.")
         p.add_stage(
-            CommonCrawlWarcReader(
+            CommonCrawlWARCReader(
                 warc_filename_col=warc_filename_col,
                 warc_record_offset_col=warc_record_offset_col,
                 warc_record_length_col=warc_record_length_col,

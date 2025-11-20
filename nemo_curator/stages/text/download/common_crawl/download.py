@@ -102,7 +102,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
             return False, error_msg
 
 
-class CommonCrawlWarcReader(ProcessingStage[DocumentBatch, DocumentBatch]):
+class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
     """
     Reads WARC records directly from Common Crawl S3 bucket using offset and length metadata.
     Uses s5cmd via subprocess to fetch specific byte ranges.
@@ -115,12 +115,14 @@ class CommonCrawlWarcReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         warc_record_length_col: str = "warc_record_length",
         binary_content_col: str = "binary_content",
         s3_bucket: str = "commoncrawl",
+        drop_failed: bool = True,
     ):
         self.warc_filename_col = warc_filename_col
         self.warc_record_offset_col = warc_record_offset_col
         self.warc_record_length_col = warc_record_length_col
         self.binary_content_col = binary_content_col
         self.s3_bucket = s3_bucket
+        self.drop_failed = drop_failed
         self._name = "CommonCrawlWarcReader"
         if not _check_s5cmd_installed():
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
@@ -209,6 +211,14 @@ class CommonCrawlWarcReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         if self.warc_filename_col in df.columns:
             # Use batched/parallel processing for the partition
             df[self.binary_content_col] = self._read_warc_records_batch(df)
+            
+            if self.drop_failed:
+                # Drop rows where binary_content is None
+                initial_count = len(df)
+                df = df.dropna(subset=[self.binary_content_col])
+                dropped_count = initial_count - len(df)
+                if dropped_count > 0:
+                    logger.warning(f"Dropped {dropped_count} rows due to failed WARC fetch.")
             
         return DocumentBatch(
             task_id=batch.task_id,
