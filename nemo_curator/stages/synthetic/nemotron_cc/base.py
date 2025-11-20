@@ -52,7 +52,8 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         return [], []
 
     def outputs(self) -> tuple[list[str], list[str]]:
-        assert self.output_field is not None
+        if self.output_field is None:
+            raise ValueError("output_field must be set before calling outputs().")
         return ["data"], [self.output_field]
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -75,7 +76,8 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def _process_llm_prompt(self, sample: dict) -> str:
         """Process the input sample to create the LLM prompt."""
-        assert self.input_field in sample
+        if self.input_field not in sample:
+            raise KeyError(f"Expected input field '{self.input_field}' in sample.")
         return self.prompt.format(document=sample[self.input_field])
 
     def _process_llm_response(self, response: list[str]) -> str:
