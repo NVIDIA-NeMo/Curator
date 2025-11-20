@@ -19,22 +19,26 @@ import time
 
 import pandas as pd
 
-from nemo_curator.core.client import RayClient
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
+    DistillStage,
+    DiverseQAPostProcessingStage,
     DiverseQAStage,
     ExtractKnowledgeStage,
-    KnowledgeListStage,
-    DistillStage,
     KnowledgeListPostProcessingStage,
-    DiverseQAPostProcessingStage,
+    KnowledgeListStage,
 )
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-from nemo_curator.tasks.document import DocumentBatch
 from nemo_curator.stages.text.modules.score_filter import Filter
+from nemo_curator.tasks.document import DocumentBatch
+
+
+# Threshold used to bucket and filter input examples
+BUCKETED_RESULTS_THRESHOLD = 11
 
 
 def parse_args() -> argparse.Namespace:
@@ -184,7 +188,7 @@ def main() -> None:
     # Divide input_data into batches of 20 each
     batch_size = 20
     input_batches = [input_data[i:i + batch_size] for i in range(0, len(input_data), batch_size)]
-    input_tasks = []
+    input_tasks: list[DocumentBatch] = []
     for i, batch in enumerate(input_batches):
         df = pd.DataFrame(batch)
         input_task = DocumentBatch(
@@ -197,12 +201,11 @@ def main() -> None:
     # Filtering the input data, only run with high quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: int(x) > 11,
+            filter_fn=lambda x: int(x) > BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )
 
-    ### Add the synthetic data generation stage
     # Diverse QA
     pipeline.add_stage(
         DiverseQAStage(
@@ -284,10 +287,6 @@ def main() -> None:
     # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
-
-    # DEBUGGING
-    print("results: ", results)
-    # print(stop_here)
 
     # Collect output file paths and read generated data
     output_files = []

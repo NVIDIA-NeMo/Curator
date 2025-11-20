@@ -19,17 +19,19 @@ import time
 
 import pandas as pd
 
-from nemo_curator.core.client import RayClient
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.core.client import RayClient
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
-    WikipediaParaphrasingStage,
-)
+from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import WikipediaParaphrasingStage
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
-from nemo_curator.tasks.document import DocumentBatch
 from nemo_curator.stages.text.modules.score_filter import Filter
+from nemo_curator.tasks.document import DocumentBatch
+
+
+# Threshold used to bucket and filter input examples
+BUCKETED_RESULTS_THRESHOLD = 11
 
 
 def parse_args() -> argparse.Namespace:
@@ -193,7 +195,7 @@ def main() -> None:
     # Filtering the input data, only run with low quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: int(x) <= 11,
+            filter_fn=lambda x: int(x) <= BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )
@@ -235,10 +237,6 @@ def main() -> None:
     # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
-
-    # DEBUGGING
-    print("results: ", results)
-    # print(stop_here)
 
     # Collect output file paths and read generated data
     output_files = []
