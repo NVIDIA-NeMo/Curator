@@ -34,6 +34,11 @@ cache_path: ???
 input_filetype: jsonl
 text_field: "text"
 
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  num_cpus: null  # if null, will use all available CPUs
+  num_gpus: 4  # deduplication workflow requires at least 1 GPU
+
 workflow:
   - _target_: nemo_curator.stages.deduplication.fuzzy.workflow.FuzzyDeduplicationWorkflow
     input_path: ${input_path}

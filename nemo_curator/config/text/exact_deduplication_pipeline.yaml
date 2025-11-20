@@ -34,6 +34,11 @@ input_filetype: jsonl
 text_field: "text"
 id_field: null  # id_field should be None if assign_id is True
 
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  num_cpus: null  # if null, will use all available CPUs
+  num_gpus: 4  # deduplication workflow requires at least 1 GPU
+
 workflow:
   - _target_: nemo_curator.stages.deduplication.exact.workflow.ExactDeduplicationWorkflow
     # I/O config

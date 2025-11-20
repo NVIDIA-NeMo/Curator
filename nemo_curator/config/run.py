@@ -24,6 +24,15 @@ from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 
+def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
+    if "ray_client" in cfg:
+        return hydra.utils.instantiate(cfg.ray_client)
+    else:
+        msg = "No Ray client defined in the YAML configuration. Using default Ray client."
+        logger.warning(msg)
+        return RayClient()
+
+
 def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN401
     logger.info(f"Hydra config: {OmegaConf.to_yaml(cfg)}")
 
@@ -76,7 +85,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN40
 
 @hydra.main(version_base=None)
 def main(cfg: DictConfig) -> None:
-    ray_client = RayClient()
+    ray_client = create_ray_client_from_yaml(cfg)
     ray_client.start()
 
     pipeline = create_pipeline_from_yaml(cfg)
