@@ -138,4 +138,4 @@ The architecture scales from single machines to large clusters:
 
 ---
 
-For hands-on experience, see the {ref}`Text Curation Getting Started Guide <gs-text>`.
+For hands-on experience, refer to the {ref}`Text Curation Getting Started Guide <gs-text>`.
