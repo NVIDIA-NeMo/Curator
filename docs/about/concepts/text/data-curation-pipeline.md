@@ -29,31 +29,31 @@ NeMo Curator's text curation pipeline consists of several key stages that work t
 
 Multiple input sources provide the foundation for text curation:
 
-- **Cloud storage**: (S3, GCS, Azure)
-- **Local workstation**: files (JSONL, Parquet)
+- **Cloud storage**: S3, GCS, Azure (via `s3://`, `gcs://`, `az://` protocols)
+- **Local workstation**: JSONL and Parquet files
 
 ### 2. Data Acquisition & Processing
 
 Raw data is downloaded, extracted, and converted into standardized formats:
 
-- **Download & Extraction**: Retrieve and process remote data sources
-- **Cleaning & Pre-processing**: Convert formats and normalize text
-- **DocumentBatch Creation**: Standardize data into NeMo Curator's core data structure
+- **Download & Extraction**: Retrieve and process remote data sources using source-specific downloaders
+- **Cleaning & Pre-processing**: Convert formats and normalize text during extraction
+- **DocumentBatch Creation**: Standardize data into `DocumentBatch`, NeMo Curator's core data structure that wraps PyArrow tables or Pandas DataFrames
 
 ### 3. Quality Assessment & Filtering
 
 Multiple filtering stages ensure data quality:
 
-- **Heuristic Quality Filtering**: Rule-based filters for basic quality checks
-- **Model-based Quality Filtering**: Classification models trained to identify high vs. low quality text
+- **Heuristic Quality Filtering**: Rule-based filters such as token count, substring matching, and pattern detection
+- **Model-based Quality Filtering**: ML classification models (like FastText) trained to score and identify high-quality text
 
 ### 4. Deduplication
 
-Remove duplicate and near-duplicate content:
+Remove duplicate and near-duplicate content at scale:
 
-- **Exact Deduplication**: Remove identical documents using MD5 hashing
-- **Fuzzy Deduplication**: Remove near-duplicates using MinHash and LSH similarity
-- **Semantic Deduplication**: Remove semantically similar content using embeddings
+- **Exact Deduplication**: Identify identical documents using MD5 hashing for fast exact matching
+- **Fuzzy Deduplication**: Detect near-duplicates using MinHash signatures with Locality-Sensitive Hashing (LSH) for efficient similarity search
+- **Semantic Deduplication**: Find semantically similar content using text embeddings with K-means clustering and pairwise similarity comparison
 
 ### 5. Final Preparation
 
@@ -65,9 +65,9 @@ Prepare the curated dataset for training:
 
 The entire pipeline runs on a robust, scalable infrastructure:
 
-- **Ray**: Distributed computing framework for parallelization
-- **RAPIDS**: GPU-accelerated data processing (cuDF, cuGraph, cuML)
-- **Flexible Deployment**: CPU and GPU acceleration support
+- **Ray**: Primary distributed computing framework for parallelization across nodes
+- **RAPIDS**: GPU-accelerated data processing libraries (cuDF for DataFrames, cuGraph for graph operations, cuML for machine learning)
+- **Flexible Deployment**: CPU-only and GPU-accelerated modes supported
 
 ## Key Components
 
@@ -120,9 +120,9 @@ The pipeline supports different processing approaches:
 The architecture scales from single machines to large clusters:
 
 - **Single Node**: Process datasets on laptops or workstations
-- **Multi-Node**: Distribute processing across cluster resources
-- **Cloud Native**: Deploy on cloud platforms
-- **HPC Integration**: Run on HPC supercomputing clusters
+- **Multi-Node**: Distribute processing across Ray clusters with multiple worker nodes
+- **Cloud Native**: Deploy on cloud platforms (AWS, GCP, Azure) with cloud storage integration
+- **On-Premises Clusters**: Run on GPU clusters and data center infrastructure
 
 ---
 

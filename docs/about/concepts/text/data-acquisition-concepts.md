@@ -52,7 +52,7 @@ class CustomURLGenerator(URLGenerator):
 
 ### DocumentDownloader
 
-Connects to and downloads data from remote repositories. You must override `_get_output_filename` and `_download_to_path` which are called by function called `download` which tries to be idempotent.
+Connects to and downloads data from remote repositories. You must override `_get_output_filename` and `_download_to_path`, which are called by the public `download()` method. The `download()` method handles idempotent downloads by checking if files already exist before downloading, and should not be overridden.
 
 **Example Implementation**:
 
@@ -78,7 +78,7 @@ class CustomDownloader(DocumentDownloader):
 
 ### DocumentIterator
 
-Extracts individual records from downloaded containers. You should only override `iterate` and `output_columns` where `iterate` must have logic to load the local file path and return bunch of documents. The list[dict] is finally considered to a pd.DataFrame which is passed to Extractor.
+Extracts individual records from downloaded containers. You need to override `iterate` and `output_columns`. The `iterate` method loads the local file and yields individual document records. The yielded records are collected as a list[dict], converted to a pd.DataFrame, wrapped in a DocumentBatch, and passed to the Extractor (if provided).
 
 **Example Implementation**:
 
@@ -99,7 +99,7 @@ class CustomIterator(DocumentIterator):
 
 ### DocumentExtractor (Optional)
 
-DocumentExtractor works on the pd.DataFrame and is optional.
+DocumentExtractor is an abstract base class that processes records from the DocumentBatch (which contains a pd.DataFrame). This component is optional and can be omitted if no extraction or transformation is needed after iteration.
 
 **Example Implementation**:
 
@@ -230,7 +230,7 @@ Data acquisition leverages distributed computing frameworks for scalable process
 Data acquisition produces standardized output that integrates seamlessly with {ref}`Data Loading Concepts <about-concepts-text-data-loading>`:
 
 ```{note}
-Data acquisition includes basic content-level deduplication during extraction (e.g., removing duplicate HTML content within individual web pages). This is separate from the main deduplication pipeline stages (exact, fuzzy, and semantic deduplication) that operate on the full dataset after acquisition.
+Some data source implementations include basic content-level deduplication during extraction (for example, the Common Crawl extractor can remove duplicate HTML content within individual web pages). This is implementation-specific and separate from the main deduplication pipeline stages (exact, fuzzy, and semantic deduplication) that operate on the full dataset after acquisition.
 ```
 
 ```python
