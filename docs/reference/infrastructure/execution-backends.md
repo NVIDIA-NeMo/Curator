@@ -14,11 +14,27 @@ modality: "universal"
 
 # Pipeline Execution Backends
 
-Executors run NeMo Curator `Pipeline` workflows across your compute resources. This reference explains the available backends and how to configure them. It applies to all modalities (text, image, video, and audio).
+Configure and optimize execution backends to run NeMo Curator pipelines efficiently across single machines, multi-GPU systems, and distributed clusters.
 
-## How it Works
+## Overview
 
-Build your pipeline by adding stages, then run it with an executor:
+Execution backends (executors) are the engines that run NeMo Curator `Pipeline` workflows across your compute resources. They handle:
+
+- **Task Distribution**: Distribute pipeline stages across available workers and GPUs
+- **Resource Management**: Allocate CPU, GPU, and memory resources to processing tasks
+- **Scaling**: Automatically or manually scale processing based on workload
+- **Data Movement**: Optimize data transfer between pipeline stages
+
+**Choosing the right executor** impacts:
+- Pipeline performance and throughput
+- Resource utilization efficiency
+- Ease of deployment and monitoring
+
+This guide covers all execution backends available in NeMo Curator and applies to all modalities: text, image, video, and audio curation.
+
+## Basic Usage Pattern
+
+All pipelines follow this standard execution pattern:
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -30,9 +46,18 @@ pipeline.add_stage(...)
 results = pipeline.run(executor)
 ```
 
+**Key points:**
+- The same pipeline definition works with any executor
+- Executor choice is independent of pipeline stages
+- Switch executors without changing pipeline code
+
 ## Available Backends
 
 ### `XennaExecutor` (recommended)
+
+The default production-ready executor powered by NVIDIA Cosmos-Xenna, optimized for multimodal data curation.
+
+#### Basic Configuration
 
 ```python
 from nemo_curator.backends.xenna import XennaExecutor
@@ -58,21 +83,25 @@ results = pipeline.run(executor)
 - Pass options via `config`; they map to the executor's pipeline configuration.
 - For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
-### `RayDataExecutor` (experimental)
+### `RayActorPoolExecutor`
 
-```python
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-executor = RayDataExecutor()
-results = pipeline.run(executor)
-```
-
-### `RayActorPoolExecutor` (experimental)
+Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
 
 ```python
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 
 executor = RayActorPoolExecutor()
+results = pipeline.run(executor)
+```
+
+### `RayDataExecutor` (experimental)
+
+Experimental executor using Ray Data API for distributed data processing.
+
+```python
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+
+executor = RayDataExecutor()
 results = pipeline.run(executor)
 ```
 
