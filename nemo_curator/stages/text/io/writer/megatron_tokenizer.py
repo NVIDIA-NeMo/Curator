@@ -33,7 +33,7 @@ _INDEX_HEADER = b"MMIDIDX\x00\x00"
 
 @dataclass
 class MegatronTokenizerWriter(BaseWriter):
-    """Writer that tokenizes and creates Megatron ready tokenized files"""
+    """Writer that writes a DocumentBatch to Megatron ready tokenized files."""
 
     model_identifier: str | None = None
     cache_dir: str | None = None

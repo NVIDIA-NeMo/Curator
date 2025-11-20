@@ -23,7 +23,6 @@ from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import MegatronTokenizerWriter
 
 
-# uv run python tokenize_dataset.py --output-dir /localhome/local-asolergibert/datasets/output/tokens
 def main(args: argparse.Namespace) -> None:
     # Initialize and start the Ray client
     ray_client = RayClient()
@@ -50,8 +49,8 @@ def main(args: argparse.Namespace) -> None:
 
     # Create a pipeline with the stages
     pipeline = Pipeline(
-        name="parquet-tokenize",
-        description="Tokenize the Nemotron-CC-v2 dataset.",
+        name="megatron-tokenize",
+        description="Tokenize dataset for Megatron-LM.",
         stages=stages,
     )
 
