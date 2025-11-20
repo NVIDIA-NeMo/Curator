@@ -46,7 +46,7 @@ from nemo_curator.backends.xenna import XennaExecutor
 executor = XennaExecutor(
     config={
         # Execution mode: 'streaming' (default) or 'batch'
-        # Streaming processes data incrementally; batch processes entire dataset
+        # Batch processes all data for a stage before moving to the next; streaming runs stages concurrently.
         "execution_mode": "streaming",
         
         # Logging interval: seconds between status logs (default: 60)
@@ -54,7 +54,7 @@ executor = XennaExecutor(
         "logging_interval": 60,
         
         # Ignore failures: whether to continue on failures (default: False)
-        # If True, pipeline continues even if individual stages fail
+        # When True, the pipeline continues execution instead of failing fast when stages raise errors.
         "ignore_failures": False,
         
         # CPU allocation percentage: ratio of CPU to allocate (0-1, default: 0.95)
@@ -62,12 +62,12 @@ executor = XennaExecutor(
         "cpu_allocation_percentage": 0.95,
         
         # Autoscale interval: seconds between auto-scaling checks (default: 180)
-        # How often the executor evaluates whether to scale workers up or down
+        # How often to run the stage auto-scaler.
         "autoscale_interval_s": 180,
         
         # Max workers per stage: maximum number of workers (optional)
         # Limits worker count per stage; None means no limit
-        # "max_workers_per_stage": None,
+        "max_workers_per_stage": None,
     }
 )
 

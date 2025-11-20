@@ -30,12 +30,12 @@ This method targets character-for-character duplicates and is recommended for re
 **Prerequisites**:
 
 - Ray cluster with GPU support (required for distributed processing)
-- Each document must have a unique identifier
+- Stable document identifiers for removal (either existing IDs or IDs assigned by the workflow)
 
 :::{dropdown} Adding Document IDs
 :icon: gear
 
-If your documents don't have IDs, use the `AddId` stage:
+If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
 
 ```python
 from nemo_curator.stages.text.modules import AddId
@@ -50,7 +50,7 @@ pipeline.add_stage(
 )
 ```
 
-For more details, see {ref}`text-process-data-add-id`.
+For more details, refer to {ref}`text-process-data-add-id`.
 :::
 
 ## Quick Start

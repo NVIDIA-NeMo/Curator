@@ -40,12 +40,12 @@ Based on [SemDeDup: Data-efficient learning at web-scale through semantic dedupl
 **Prerequisites**:
 
 - GPU acceleration (required for embedding generation and clustering)
-- Each document must have a unique identifier
+- Stable document identifiers for removal (either existing IDs or IDs managed by the workflow and removal stages)
 
 :::{dropdown} Adding Document IDs
 :icon: gear
 
-If your documents don't have IDs, use the `AddId` stage:
+If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
 
 ```python
 from nemo_curator.stages.text.modules import AddId
@@ -60,7 +60,7 @@ pipeline.add_stage(
 )
 ```
 
-For more details, see {ref}`text-process-data-add-id`.
+For more details, refer to {ref}`text-process-data-add-id`.
 :::
 
 ## Quick Start
@@ -75,7 +75,7 @@ Complete deduplication in a single step:
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
 workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
@@ -101,7 +101,7 @@ Identify duplicates first, then remove them:
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
 # Step 1: Identify duplicates
 workflow = TextSemanticDeduplicationWorkflow(
@@ -129,7 +129,7 @@ results = workflow.run(executor)
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends import RayDataExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
 workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
@@ -215,13 +215,13 @@ Compare semantic deduplication with other methods:
   - perform_removal Parameter
   - Workflow
 * - ExactDuplicates
-  - Duplicates or Clean Dataset
-  - ✅ Available
-  - One-step or two-step
+  - Duplicates (ID list only)
+  - ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`)
+  - Two-step (identification + removal workflow)
 * - FuzzyDuplicates
-  - Duplicates or Clean Dataset  
-  - ✅ Available
-  - One-step or two-step
+  - Duplicates (ID list only)  
+  - ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`)
+  - Two-step (identification + removal workflow)
 * - TextSemanticDeduplicationWorkflow
   - Duplicates or Clean Dataset
   - ✅ Available
