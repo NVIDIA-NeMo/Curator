@@ -23,11 +23,19 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math import MathContentExtractor
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
+from nemo_curator.stages.text.download.common_crawl.download import CommonCrawlWarcReader
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
-def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
+def build_pipeline(
+    input_glob: str,
+    output_dir: str,
+    fetch_cc: bool = False,
+    warc_filename_col: str = "warc_filename",
+    warc_record_offset_col: str = "warc_record_offset",
+    warc_record_length_col: str = "warc_record_length",
+) -> Pipeline:
     p = Pipeline(name="math_text_preprocess", description="Decode (binary) → type → html via lynx → text")
 
     p.add_stage(
@@ -38,6 +46,16 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
             }
         )
     )
+
+    if fetch_cc:
+        logger.info("Adding CommonCrawlWarcReader stage to fetch content from S3.")
+        p.add_stage(
+            CommonCrawlWarcReader(
+                warc_filename_col=warc_filename_col,
+                warc_record_offset_col=warc_record_offset_col,
+                warc_record_length_col=warc_record_length_col,
+            ).with_(resources=Resources(cpus=0.5))  # Lightweight network op
+        )
 
     p.add_stage(
         DocumentExtractStage(extractor=MathContentExtractor(), add_filename_column=False).with_(
@@ -72,12 +90,40 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Glob or directory for Parquet input files")
     parser.add_argument("--output", required=True, help="Output directory for JSONL results")
     parser.add_argument("--report-stats", action="store_true", help="Report extraction statistics after processing")
+    parser.add_argument(
+        "--fetch-cc",
+        action="store_true",
+        help="Fetch raw content from Common Crawl S3 using WARC metadata (requires 'warc_filename', 'warc_record_offset', 'warc_record_length' columns).",
+    )
+    parser.add_argument(
+        "--warc-filename-col",
+        default="warc_filename",
+        help="Column name for WARC filename (default: 'warc_filename')",
+    )
+    parser.add_argument(
+        "--offset-col",
+        default="warc_record_offset",
+        help="Column name for WARC record offset (default: 'warc_record_offset')",
+    )
+    parser.add_argument(
+        "--length-col",
+        default="warc_record_length",
+        help="Column name for WARC record length (default: 'warc_record_length')",
+    )
+
     args = parser.parse_args()
 
     ray_client = RayClient()
     ray_client.start()
 
-    pipeline = build_pipeline(args.input, args.output)
+    pipeline = build_pipeline(
+        args.input,
+        args.output,
+        fetch_cc=args.fetch_cc,
+        warc_filename_col=args.warc_filename_col,
+        warc_record_offset_col=args.offset_col,
+        warc_record_length_col=args.length_col,
+    )
     logger.info(pipeline.describe())
 
     executor = XennaExecutor()
