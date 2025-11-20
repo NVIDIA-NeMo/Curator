@@ -12,12 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import itertools
 import struct
 import uuid
-from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
 from huggingface_hub import snapshot_download
@@ -30,29 +27,9 @@ from nemo_curator.tasks import DocumentBatch, FileGroupTask
 from nemo_curator.utils.file_utils import FILETYPE_TO_DEFAULT_EXTENSIONS
 
 from .base import BaseWriter
+from .utils import batched
 
 _INDEX_HEADER = b"MMIDIDX\x00\x00"
-
-
-def batched(iterable: Iterable[Any], n: int) -> list[list[Any]]:
-    """In python 3.12+ we could use itertools.batched instead
-
-    One difference with itertools.batched: we return a list instead of a tuple
-
-    Args:
-      iterable:
-      n:
-
-    Returns:
-        list[list[Any]]: A list of lists, each containing n elements from the iterable
-    """
-    # batched('ABCDEFG', 3) --> ABC DEF G
-    if n < 1:
-        msg = "n must be at least one"
-        raise ValueError(msg)
-    it = iter(iterable)
-    while batch := list(itertools.islice(it, n)):
-        yield batch
 
 
 @dataclass

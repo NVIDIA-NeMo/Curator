@@ -13,6 +13,28 @@
 # limitations under the License.
 
 import hashlib
+import itertools
+from collections.abc import Iterable
+from typing import Any
+
+
+def batched(iterable: Iterable[Any], n: int) -> list[list[Any]]:
+    """
+    Batch an iterable into lists of size n.
+
+    Args:
+      iterable (Iterable[Any]): The iterable to batch
+      n (int): The size of the batch
+
+    Returns:
+        list[list[Any]]: A list of lists, each containing n elements from the iterable
+    """
+    if n < 1:
+        msg = "n must be at least one"
+        raise ValueError(msg)
+    it = iter(iterable)
+    while batch := list(itertools.islice(it, n)):
+        yield batch
 
 
 def get_deterministic_hash(inputs: list[str], seed: str = "") -> str:
