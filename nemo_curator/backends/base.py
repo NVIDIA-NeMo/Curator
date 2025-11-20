@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -46,8 +47,12 @@ class WorkerMetadata:
 class BaseExecutor(ABC):
     """Executor for a pipeline."""
 
-    def __init__(self, config: dict[str, Any] | None = None):
+    def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         self.config = config or {}
+        if os.environ.get("CURATOR_IGNORE_RAY_HEAD_NODE", "").lower() in ("1", "true", "yes"):
+            self.ignore_head_node = True
+        else:
+            self.ignore_head_node = ignore_head_node
 
     @abstractmethod
     def execute(self, stages: list["ProcessingStage"], initial_tasks: list[Task] | None = None) -> None:
