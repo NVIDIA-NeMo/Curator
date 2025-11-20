@@ -139,7 +139,7 @@ class MegatronTokenizerWriter(BaseWriter):
         )
 
     def write_data(self, tokens_batch: list[list[int]]) -> None:
-        """Write the tokens to the .bin file
+        """Write tokens to the .bin file
         Args:
             tokens_batch (list[list[int]]): The batch of tokens to write
         """
@@ -150,7 +150,7 @@ class MegatronTokenizerWriter(BaseWriter):
         self.bin_file.write(tokens_batch.tobytes(order="C"))
 
     def close(self, file_prefix: str) -> None:
-        """Close the files and save the .bin & .idx files"""
+        """Close and save the .bin & .idx files"""
 
         self.bin_file.close()
 
@@ -180,9 +180,7 @@ class MegatronTokenizerWriter(BaseWriter):
             sequence_count = len(self.sequence_lengths)
             idx_file.write(struct.pack("<Q", sequence_count))
 
-            document_indices = np.arange(
-                len(self.sequence_lengths) + 1, dtype=np.int64
-            )  # NOTE(asolergi-nv): Megatron needs this document_indices field
+            document_indices = np.arange(len(self.sequence_lengths) + 1, dtype=np.int64)
             # Number of documents in the dataset
             document_count = len(document_indices)
             idx_file.write(struct.pack("<Q", document_count))
