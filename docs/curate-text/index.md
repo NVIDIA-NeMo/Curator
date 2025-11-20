@@ -24,74 +24,25 @@ NeMo Curator provides comprehensive text curation capabilities to prepare high-q
 The following diagram provides a high-level outline of NeMo Curator's text curation architecture.
 
 ```{mermaid}
-flowchart TB
-    subgraph Sources["Data Sources"]
-        S1["Cloud Storage<br/>(S3, Azure)"]
-        S2["Local Files<br/>(JSONL, Parquet)"]
-        S3["Common Crawl<br/>(WARC)"]
-        S4["arXiv<br/>(PDF, LaTeX)"]
-        S5["Wikipedia<br/>(Dumps)"]
-    end
+flowchart LR
+    A["Data Sources<br/>(Cloud, Local,<br/>Common Crawl, arXiv,<br/>Wikipedia)"] --> B["Data Acquisition<br/>& Loading"]
+    B --> C["Content Processing<br/>& Cleaning"]
+    C --> D["Quality Assessment<br/>& Filtering"]
+    D --> E["Deduplication<br/>(Exact, Fuzzy,<br/>Semantic)"]
+    E --> F["Curated Dataset<br/>(JSONL/Parquet)"]
+    
+    G["Ray + RAPIDS<br/>(GPU-accelerated)"] -.->|"Distributed Execution"| B
+    G -.->|"GPU Acceleration"| C
+    G -.->|"GPU Acceleration"| D
+    G -.->|"GPU Acceleration"| E
 
-    subgraph Acquisition["Data Acquisition & Loading"]
-        A1["Download & Extract"]
-        A2["JSONL/Parquet Reader"]
-        A3["DocumentBatch Creation"]
-    end
+    classDef stage fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef infra fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#000
 
-    subgraph Processing["Content Processing"]
-        P1["Text Cleaning<br/>& Normalization"]
-        P2["Language Detection<br/>& Management"]
-        P3["Code Processing<br/>(Optional)"]
-    end
-
-    subgraph Quality["Quality Assessment & Filtering"]
-        Q1["Heuristic Filtering<br/>(Rules-based)"]
-        Q2["Classifier Filtering<br/>(ML Models)"]
-        Q3["Distributed Classification<br/>(GPU-accelerated)"]
-    end
-
-    subgraph Dedup["Deduplication"]
-        D1["Exact Deduplication<br/>(MD5 Hashing)"]
-        D2["Fuzzy Deduplication<br/>(MinHash/LSH)"]
-        D3["Semantic Deduplication<br/>(Embeddings)"]
-    end
-
-    subgraph Output["Final Output"]
-        O1["Format Standardization"]
-        O2["Curated Dataset<br/>(JSONL/Parquet)"]
-    end
-
-    subgraph Infrastructure["Infrastructure Layer"]
-        I1["Ray<br/>(Distributed Computing)"]
-        I2["RAPIDS<br/>(cuDF, cuGraph, cuML)"]
-        I3["XennaExecutor<br/>(Auto-scaling)"]
-    end
-
-    Sources --> Acquisition
-    Acquisition --> Processing
-    Processing --> Quality
-    Quality --> Dedup
-    Dedup --> Output
-
-    Infrastructure -.->|"Execution Backend"| Acquisition
-    Infrastructure -.->|"GPU Acceleration"| Processing
-    Infrastructure -.->|"GPU Acceleration"| Quality
-    Infrastructure -.->|"GPU Acceleration"| Dedup
-
-    classDef source fill:#e1f5fe,stroke:#0277bd,stroke-width:2px,color:#000
-    classDef process fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
-    classDef quality fill:#fff3e0,stroke:#ef6c00,stroke-width:2px,color:#000
-    classDef dedup fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#000
-    classDef output fill:#e8f5e9,stroke:#1b5e20,stroke-width:3px,color:#000
-    classDef infra fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
-
-    class S1,S2,S3,S4,S5 source
-    class A1,A2,A3,P1,P2,P3 process
-    class Q1,Q2,Q3 quality
-    class D1,D2,D3 dedup
-    class O1,O2 output
-    class I1,I2,I3 infra
+    class A,B,C,D,E stage
+    class F output
+    class G infra
 ```
 
 ---
