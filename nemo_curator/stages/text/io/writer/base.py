@@ -39,6 +39,7 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     file_extension: str
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     fields: list[str] | None = None
+    name: str = "BaseWriter"
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
     append_mode_implemented: bool = False
 
