@@ -54,7 +54,6 @@ class MegatronTokenizerWriter(BaseWriter):
             raise ValueError(msg)
         super().__post_init__()
         self.sequence_lengths = []
-        self.document_indices = [0]  # NOTE(asolergi-nv): Megatron needs this document_indices field
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
@@ -150,10 +149,6 @@ class MegatronTokenizerWriter(BaseWriter):
                 tokens_sample.append(self.eod_token_id)
             self.bin_file.write(np.array(tokens_sample, dtype=self.token_dtype).tobytes(order="C"))
             self.sequence_lengths.append(len(tokens_sample))
-            self.document_indices.append(
-                len(self.sequence_lengths)
-            )  # NOTE(tj.solergibert) Megatron needs this document_indices field
-            # TODO(asolergi-nv): range directly in close with the sequence_lengths
 
     def close(self, file_prefix: str, token_size: int) -> None:
         """Close the files and save the .bin & .idx files"""
@@ -182,14 +177,15 @@ class MegatronTokenizerWriter(BaseWriter):
             # Numeric code for the DType
             idx_file.write(struct.pack("<B", self.token_dtype_code))
 
-            sequence_pointers = self._sequence_pointers(self.sequence_lengths, token_size)
-
             # Number of sequences in the dataset
             sequence_count = len(self.sequence_lengths)
             idx_file.write(struct.pack("<Q", sequence_count))
 
+            document_indices = np.arange(
+                len(self.sequence_lengths) + 1, dtype=np.int64
+            )  # NOTE(asolergi-nv): Megatron needs this document_indices field
             # Number of documents in the dataset
-            document_count = len(self.document_indices)
+            document_count = len(document_indices)
             idx_file.write(struct.pack("<Q", document_count))
 
             # Number of tokens per sequence
@@ -197,11 +193,10 @@ class MegatronTokenizerWriter(BaseWriter):
             idx_file.write(sequence_lengths.tobytes(order="C"))
 
             # Byte offsets for all sequences
-            sequence_pointers = np.array(sequence_pointers, dtype=np.int64)
+            sequence_pointers = np.array(self._sequence_pointers(self.sequence_lengths, token_size), dtype=np.int64)
             idx_file.write(sequence_pointers.tobytes(order="C"))
 
             # Sequence indices marking the end of each document
-            document_indices = np.array(self.document_indices, dtype=np.int64)
             idx_file.write(document_indices.tobytes(order="C"))
 
     @staticmethod
