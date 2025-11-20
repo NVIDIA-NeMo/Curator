@@ -35,7 +35,7 @@ _INDEX_HEADER = b"MMIDIDX\x00\x00"
 class MegatronTokenizerWriter(BaseWriter):
     """Writer that tokenizes and creates Megatron ready tokenized files"""
 
-    model_identifier: str | None = None  # Required field, validated in __post_init__
+    model_identifier: str | None = None
     cache_dir: str | None = None
     hf_token: str | None = None
     text_field: str = "text"
@@ -119,7 +119,7 @@ class MegatronTokenizerWriter(BaseWriter):
                 add_special_tokens=self.add_special_tokens,
                 return_token_type_ids=False,
                 return_attention_mask=False,
-            ).input_ids  # TODO(asolergi-nv): Drop everything, get length from numpy shape. Finally no numpy, get length from sum attention mask
+            ).input_ids
             self.write_data(tokens_batch)
 
         self.close(file_prefix)
