@@ -29,7 +29,6 @@ from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks.document import DocumentBatch
 
-
 # Threshold used to bucket and filter input examples
 BUCKETED_RESULTS_THRESHOLD = 11
 

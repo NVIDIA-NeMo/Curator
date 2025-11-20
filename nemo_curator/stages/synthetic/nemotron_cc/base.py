@@ -17,6 +17,7 @@ This module contains a simple stage for generating synthetic data. It takes in E
 """
 
 import asyncio
+import concurrent.futures
 from dataclasses import dataclass
 
 import pandas as pd
@@ -53,7 +54,8 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def outputs(self) -> tuple[list[str], list[str]]:
         if self.output_field is None:
-            raise ValueError("output_field must be set before calling outputs().")
+            msg = "output_field must be set before calling outputs()."
+            raise ValueError(msg)
         return ["data"], [self.output_field]
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
@@ -77,7 +79,8 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def _process_llm_prompt(self, sample: dict) -> str:
         """Process the input sample to create the LLM prompt."""
         if self.input_field not in sample:
-            raise KeyError(f"Expected input field '{self.input_field}' in sample.")
+            msg = f"Expected input field '{self.input_field}' in sample."
+            raise KeyError(msg)
         return self.prompt.format(document=sample[self.input_field])
 
     def _process_llm_response(self, response: list[str]) -> str:
@@ -126,7 +129,6 @@ class BaseSyntheticStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         # If we get here, there's already a loop running
         # This is an edge case (e.g., Ray async actors), but we can handle it
         # by running in a new thread with its own loop
-        import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(asyncio.run, self._generate_responses_async(df))
