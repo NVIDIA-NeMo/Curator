@@ -60,7 +60,7 @@ class ParquetReaderStage(BaseReader):
             update_kwargs["dtype_backend"] = "pyarrow"
         read_kwargs.update(update_kwargs)
         return pd.concat(
-            [pd.read_parquet(path, **read_kwargs) for path in paths],
+            (pd.read_parquet(path, **read_kwargs) for path in paths),
             ignore_index=True,
         )
 
