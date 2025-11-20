@@ -141,7 +141,9 @@ def run_dataset(
     logger.info(f"Running command: {' '.join(cmd)}")
 
     try:
-        subprocess.run(cmd, check=True)
+        # S603: Untrusted input is minimal risk here as paths are user-controlled config.
+        # We assume users of this script are running it in a trusted environment.
+        subprocess.run(cmd, check=True)  # noqa: S603
         logger.success(f"Successfully processed {name}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to process {name}: {e}")
@@ -149,7 +151,7 @@ def run_dataset(
             raise
 
 
-def main():
+def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Run preprocessing for all configured math datasets")
     parser.add_argument("--output-base", required=True, help="Base directory for all outputs")
