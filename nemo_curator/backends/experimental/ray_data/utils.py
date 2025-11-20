@@ -16,7 +16,9 @@ from nemo_curator.backends.experimental.utils import get_available_cpu_gpu_resou
 from nemo_curator.stages.base import ProcessingStage
 
 
-def calculate_concurrency_for_actors_for_stage(stage: ProcessingStage) -> tuple[int, int] | int:
+def calculate_concurrency_for_actors_for_stage(
+    stage: ProcessingStage, ignore_head_node: bool = False
+) -> tuple[int, int] | int:
     """
     Calculate concurrency if we want to spin up actors based on available resources and stage requirements.
 
@@ -31,7 +33,9 @@ def calculate_concurrency_for_actors_for_stage(stage: ProcessingStage) -> tuple[
         return max(1, num_workers)
 
     # Get available resources from Ray
-    available_cpus, available_gpus = get_available_cpu_gpu_resources(init_and_shudown=False)
+    available_cpus, available_gpus = get_available_cpu_gpu_resources(
+        init_and_shutdown=False, ignore_head_node=ignore_head_node
+    )
     # Calculate based on CPU and GPU requirements
     max_cpu_actors = float("inf")
     max_gpu_actors = float("inf")
