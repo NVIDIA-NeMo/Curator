@@ -20,7 +20,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
-import torch
 from huggingface_hub import snapshot_download
 from loguru import logger
 from transformers import AutoTokenizer
@@ -60,16 +59,14 @@ def batched(iterable: Iterable[Any], n: int) -> list[list[Any]]:
 class MegatronTokenizerWriter(BaseWriter):
     """Writer that tokenizes and creates Megatron ready tokenized files"""
 
-    # TokenizerStage arguments
     model_identifier: str | None = None  # Required field, validated in __post_init__
     cache_dir: str | None = None
     hf_token: str | None = None
     text_field: str = "text"
-    max_seq_length: int | None = None  # TODO(asolergi-nv): This should be infinite. Also, handle PADDING & TRUNCATION
-    unk_token: bool = False  # TODO(asolergi-nv): UNK or PAD?
     batch_size: int = 1000
-    # MegatronTokenWriterStage arguments
     append_eod: bool = False
+    local_files_only: bool = True
+    add_special_tokens: bool = False
 
     name: str = "megatron_tokenizer_writer"
     file_extension: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["megatron"])
@@ -80,7 +77,7 @@ class MegatronTokenizerWriter(BaseWriter):
             raise ValueError(msg)
         super().__post_init__()
         self.sequence_lengths = []
-        self.document_indices = [0]  # NOTE(tj.solergibert) Megatron needs this document_indices field
+        self.document_indices = [0]  # NOTE(asolergi-nv): Megatron needs this document_indices field
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
@@ -94,20 +91,14 @@ class MegatronTokenizerWriter(BaseWriter):
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
-    # TODO(asolergi-nv): Change name
-    # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
-    def _setup(self, local_files_only: bool = True) -> None:
+    def process(self, task: DocumentBatch) -> FileGroupTask:
+        # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
-            local_files_only=local_files_only,
+            local_files_only=self.local_files_only,
         )
-        if self.unk_token:
-            self.tokenizer.pad_token = self.tokenizer.unk_token
 
-    def process(self, task: DocumentBatch) -> FileGroupTask:
-        self._setup()
-        # TODO(asolergi-nv): Check output folder!
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
             filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
@@ -132,30 +123,29 @@ class MegatronTokenizerWriter(BaseWriter):
         self.token_dtype = np.int32 if token_size == 4 else np.uint16  # noqa: PLR2004
         self.token_dtype_code = (
             4 if token_size == 4 else 8  # noqa: PLR2004
-        )  # NOTE(tj.solergibert) Megatron needs this dtype code in the .idx file | https://github.com/NVIDIA/Megatron-LM/blob/64cbae55ac85cd73fbadbc3c0d715c8123c5e13b/megatron/core/datasets/indexed_dataset.py#L41
+        )  # NOTE(asolergi-nv): Megatron needs this dtype code in the .idx file | https://github.com/NVIDIA/Megatron-LM/blob/64cbae55ac85cd73fbadbc3c0d715c8123c5e13b/megatron/core/datasets/indexed_dataset.py#L41
 
         self.eod_token_id = self.tokenizer.eos_token_id if self.tokenizer.eos_token_id is not None else -1
         if self.eod_token_id == -1:
             logger.warning("tokenizer.eos_token_id is not set, disabling append_eod")
             self.append_eod = False
 
-        num_docs = task.num_items  # Number of documents in this batch
+        num_docs = task.num_items
 
         df = task.to_pandas()  # TODO(asolergi-nv): Why pandas and not arrow? .to_pylist()
 
         self.bin_file = self.fs.open(file_prefix + ".bin", "wb")
 
-        with torch.no_grad():  # TODO(asolergi-nv): Batch size ? !!!!! Torch import needed here?
-            for batch in batched(df[self.text_field], self.batch_size):
-                tokens_batch = self.tokenizer.batch_encode_plus(
-                    batch,
-                    padding=False,
-                    truncation=False,
-                    add_special_tokens=False,  # TODO(asolergi-nv): Check megatron special tokens
-                    return_token_type_ids=False,
-                    return_attention_mask=False,
-                ).input_ids  # TODO(asolergi-nv): Drop everything, get length from numpy shape. Finally no numpy, get length from sum attention mask
-                self.write_data(tokens_batch)
+        for batch in batched(df[self.text_field], self.batch_size):
+            tokens_batch = self.tokenizer.batch_encode_plus(
+                batch,
+                padding=False,
+                truncation=False,
+                add_special_tokens=self.add_special_tokens,
+                return_token_type_ids=False,
+                return_attention_mask=False,
+            ).input_ids  # TODO(asolergi-nv): Drop everything, get length from numpy shape. Finally no numpy, get length from sum attention mask
+            self.write_data(tokens_batch)
 
         self.close(file_prefix, token_size)
 
@@ -186,13 +176,12 @@ class MegatronTokenizerWriter(BaseWriter):
             self.document_indices.append(
                 len(self.sequence_lengths)
             )  # NOTE(tj.solergibert) Megatron needs this document_indices field
+            # TODO(asolergi-nv): range directly in close with the sequence_lengths
 
     def close(self, file_prefix: str, token_size: int) -> None:
         """Close the files and save the .bin & .idx files"""
 
         self.bin_file.close()
-
-        # TODO(asolergi-nv): Create the .idx file
 
         # Save .idx file
         # This file has:
