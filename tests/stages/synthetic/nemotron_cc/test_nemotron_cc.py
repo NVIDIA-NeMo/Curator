@@ -13,8 +13,10 @@ from nemo_curator.models.client.llm_client import AsyncLLMClient, GenerationConf
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
     DistillStage,
     DiverseQAStage,
+    DiverseQAPostProcessingStage,
     ExtractKnowledgeStage,
     KnowledgeListStage,
+    KnowledgeListPostProcessingStage,
     WikipediaParaphrasingStage,
 )
 from nemo_curator.tasks import DocumentBatch
@@ -94,38 +96,45 @@ def _build_diverseqa_response(prefix: str) -> str:
     return "\n".join(lines)
 
 
-def test_diverseqa_process_llm_response_basic() -> None:
-    stage = DiverseQAStage(client=MockSyncLLMClient(), model_name="m", input_field="text", output_field="diverse_qa")
-    generated_text = _build_diverseqa_response(stage.prefix)
+def test_diverseqa_post_processing_basic() -> None:
+    # Create batch with raw QA output and run post-processing
+    pp = DiverseQAPostProcessingStage()
+    generated_text = _build_diverseqa_response(pp.prefix)
+    df = pd.DataFrame([{"text": "DOC", "diverse_qa": generated_text}])
+    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t0")
     # Deterministic behavior: no shuffle and pick 2 pairs
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(
+    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(  # noqa: B011
         "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=2
     ):
-        out = stage._process_llm_response(text="DOC", response=[generated_text])
+        out_batch = pp.process(batch)
+    out = out_batch.data["diverse_qa"].iloc[0]
     expected = "DOC\n\nQuestion: Q1?\nAnswer: A1.\n\nQuestion: Q2?\nAnswer: A2."
     assert out == expected
 
 
 def test_diverseqa_sync_end_to_end() -> None:
+    raw = _build_diverseqa_response(DiverseQAPostProcessingStage.prefix)
     stage = DiverseQAStage(
-        client=MockSyncLLMClient(responses=[[ _build_diverseqa_response(DiverseQAStage.prefix) ]]),
+        client=MockSyncLLMClient(responses=[[raw]]),
         model_name="m",
         input_field="text",
         output_field="diverse_qa",
     )
+    pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "DOC"}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t1")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(
+    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(  # noqa: B011
         "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
     ):
-        out_batch = stage.process(batch)
+        raw_batch = stage.process(batch)
+        out_batch = pp.process(raw_batch)
     val = out_batch.data["diverse_qa"].iloc[0]
     assert val.startswith("DOC\n\nQuestion: Q1?")
     assert "Answer: A1." in val
 
 
 def test_diverseqa_async_multiple_rows() -> None:
-    resp = _build_diverseqa_response(DiverseQAStage.prefix)
+    resp = _build_diverseqa_response(DiverseQAPostProcessingStage.prefix)
     client = MockAsyncLLMClient(responses=[[resp], [resp], [resp]], delay=0.01)
     stage = DiverseQAStage(
         client=client,
@@ -133,12 +142,14 @@ def test_diverseqa_async_multiple_rows() -> None:
         input_field="text",
         output_field="diverse_qa",
     )
+    pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "D1"}, {"text": "D2"}, {"text": "D3"}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t2")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(
+    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(  # noqa: B011
         "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
     ):
-        out_batch = stage.process(batch)
+        raw_batch = stage.process(batch)
+        out_batch = pp.process(raw_batch)
     assert len(out_batch.data) == 3
     texts = out_batch.data["diverse_qa"].tolist()
     assert all("Question:" in t for t in texts)
@@ -146,7 +157,7 @@ def test_diverseqa_async_multiple_rows() -> None:
 
 
 def test_knowledge_list_process_llm_response() -> None:
-    stage = KnowledgeListStage(client=MockSyncLLMClient(), model_name="m", input_field="text", output_field="klist")
+    pp = KnowledgeListPostProcessingStage()
     # First line not starting with "-" should be skipped
     generated = "\n".join(
         [
@@ -156,8 +167,10 @@ def test_knowledge_list_process_llm_response() -> None:
             "- item two",
         ]
     )
-    out = stage._process_llm_response([generated])
-    assert out == "item one\ncontinuation\nitem two"
+    df = pd.DataFrame([{"knowledge_list": generated}])
+    batch = DocumentBatch(data=df, dataset_name="ds", task_id="tkl")
+    out_batch = pp.process(batch)
+    assert out_batch.data["knowledge_list"].iloc[0] == "item one\ncontinuation\nitem two"
 
 
 def test_wikipedia_paraphrasing_smoke() -> None:

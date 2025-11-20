@@ -29,6 +29,8 @@ from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
     ExtractKnowledgeStage,
     KnowledgeListStage,
     DistillStage,
+    KnowledgeListPostProcessingStage,
+    DiverseQAPostProcessingStage,
 )
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.tasks.document import DocumentBatch
@@ -177,25 +179,8 @@ def main() -> None:
         {"text": "Koalas are marsupials native to Australia that primarily eat eucalyptus leaves.", "bucketed_results": 1},
         {"text": "The Andes form the longest continental mountain range on the planet.", "bucketed_results": 16},
         {"text": "The Moon orbits Earth and influences ocean tides through gravitational forces.", "bucketed_results": 8},
-        {"text": "Titan is Saturn's largest moon and possesses a thick nitrogen-rich atmosphere.", "bucketed_results": 4},
-        {"text": "The Pyramids of Giza stand as monumental tombs from ancient Egypt's Old Kingdom.", "bucketed_results": 12},
-        {"text": "The Industrial Revolution marked a major transition to mechanized manufacturing.", "bucketed_results": 6},
-        {"text": "The Arctic Circle is a region characterized by extreme seasonal variations in daylight.", "bucketed_results": 9},
-        {"text": "The Galápagos Islands are renowned for their unique species and role in evolutionary theory.", "bucketed_results": 14},
-        {"text": "The Sun is a G-type main-sequence star that provides energy necessary for life on Earth.", "bucketed_results": 5},
-        {"text": "Bacteria are microscopic organisms that exist in virtually every environment on Earth.", "bucketed_results": 7},
-        {"text": "The Ottoman Empire spanned Europe, Asia, and Africa for over six hundred years.", "bucketed_results": 13},
-        {"text": "The Voyager probes continue to send data from the outer reaches of the Solar System.", "bucketed_results": 17},
-        {"text": "The Korean Peninsula has been divided between North and South since the mid-20th century.", "bucketed_results": 2},
-        {"text": "Rhinos are large herbivorous mammals known for their distinctive horns.", "bucketed_results": 1},
-        {"text": "The Gutenberg Bible was among the first major books printed using movable type.", "bucketed_results": 15},
-        {"text": "Europa, one of Jupiter's moons, may contain a subsurface ocean beneath its icy surface.", "bucketed_results": 18},
-        {"text": "The Fibonacci sequence appears in various natural and mathematical patterns.", "bucketed_results": 3},
-        {"text": "The Dead Sea is a hypersaline lake located at the lowest land elevation on Earth.", "bucketed_results": 10},
-        {"text": "The Milky Way is a barred spiral galaxy containing billions of stars.", "bucketed_results": 16},
-        {"text": "Tornadoes are violently rotating columns of air associated with severe thunderstorms.", "bucketed_results": 4},
-        {"text": "Whales communicate over long distances using low-frequency vocalizations.", "bucketed_results": 12}
     ]
+
     # Divide input_data into batches of 20 each
     batch_size = 20
     input_batches = [input_data[i:i + batch_size] for i in range(0, len(input_data), batch_size)]
@@ -217,7 +202,8 @@ def main() -> None:
         ),
     )
 
-    # Add the synthetic data generation stage
+    ### Add the synthetic data generation stage
+    # Diverse QA
     pipeline.add_stage(
         DiverseQAStage(
             client=llm_client,
@@ -228,6 +214,14 @@ def main() -> None:
         )
     )
     pipeline.add_stage(
+        DiverseQAPostProcessingStage(
+            input_field="text",
+            qa_field="diverse_qa",
+        )
+    )
+
+    # Distill
+    pipeline.add_stage(
         DistillStage(
             client=llm_client,
             model_name=args.model_name,
@@ -236,6 +230,19 @@ def main() -> None:
             output_field="distill",
         )
     )
+
+    # Extract Knowledge
+    pipeline.add_stage(
+        ExtractKnowledgeStage(
+            client=llm_client,
+            model_name=args.model_name,
+            generation_config=generation_config,
+            input_field="text",
+            output_field="extract_knowledge",
+        )
+    )
+
+    # Knowledge List
     pipeline.add_stage(
         KnowledgeListStage(
             client=llm_client,
@@ -246,12 +253,8 @@ def main() -> None:
         )
     )
     pipeline.add_stage(
-        ExtractKnowledgeStage(
-            client=llm_client,
-            model_name=args.model_name,
-            generation_config=generation_config,
-            input_field="text",
-            output_field="extract_knowledge",
+        KnowledgeListPostProcessingStage(
+            input_field="knowledge_list",
         )
     )
 

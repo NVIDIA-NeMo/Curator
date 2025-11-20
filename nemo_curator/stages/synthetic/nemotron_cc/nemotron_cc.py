@@ -21,6 +21,8 @@ import pandas as pd
 from transformers import AutoTokenizer
 
 from nemo_curator.stages.synthetic.nemotron_cc.base import BaseSyntheticStage
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.tasks import DocumentBatch
 from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     DISTILL_PROMPT_TEMPLATE,
     DIVERSE_QA_PROMPT_TEMPLATE,
@@ -49,92 +51,75 @@ class DiverseQAStage(BaseSyntheticStage):
     prefix: str = "Here are the questions and answers based on the provided text:"
     max_num_pairs: int = 10
 
-    def _process_llm_response(self, text: str, response: list[str]) -> str:
-        generated_text = response[0] if response else ""
-        lines = [line.strip() for line in generated_text.split("\n") if line.strip()]
-        if not lines:
-            return ""
 
-        # Remove the "- " prefix
-        lines = [line[2:].strip() if line.startswith("- ") else line for line in lines]
+@dataclass
+class DiverseQAPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """
+    Post-processing stage for DiverseQA outputs. It parses the raw generated QA list,
+    normalizes bullets, optionally samples pairs based on input length/tokenizer,
+    and concatenates the original document text with the selected QA pairs.
+    """
 
-        if lines[0] == self.prefix:
-            lines = lines[1:]
+    input_field: str = "text"
+    qa_field: str = "diverse_qa"
+    tokenizer: AutoTokenizer | None = None
+    prefix: str = "Here are the questions and answers based on the provided text:"
+    max_num_pairs: int = 10
 
-        # Merge question and answer lines
-        qa_pairs = []
-        for line in lines:
-            if line.startswith("Question:"):
-                qa_pairs.append(line)
-            elif qa_pairs:
-                qa_pairs[-1] += "\n" + line
-            else:
+    @property
+    def name(self) -> str:
+        return "DiverseQAPostProcessing"
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+
+        def _format_row(row: pd.Series) -> str:
+            text = row[self.input_field]
+            generated_text = row[self.qa_field]
+            lines = [line.strip() for line in generated_text.split("\n") if line.strip()]
+            if not lines:
                 return ""
 
-        if len(qa_pairs) == 0:
-            return ""
+            # Remove the "- " prefix
+            lines = [line[2:].strip() if line.startswith("- ") else line for line in lines]
 
-        # Shuffle the QA pairs and sample up to max_num_pairs
-        random.shuffle(qa_pairs)
-        if self.tokenizer is not None:
-            num_tokens = len(self.tokenizer.tokenize(text))
-            qa_pairs = qa_pairs[: random.randint(1, max(1, int(self.max_num_pairs * num_tokens / 150)))]  # noqa: S311
-        else:
-            qa_pairs = qa_pairs[: random.randint(1, self.max_num_pairs)]  # noqa: S311
-        qa_pairs_str = "\n\n".join(qa_pairs)
+            if lines[0] == self.prefix:
+                lines = lines[1:]
 
-        # Concatenate the document and the QA pairs
-        return f"{text}\n\n{qa_pairs_str}"
+            # Merge question and answer lines
+            qa_pairs = []
+            for line in lines:
+                if line.startswith("Question:"):
+                    qa_pairs.append(line)
+                elif qa_pairs:
+                    qa_pairs[-1] += "\n" + line
+                else:
+                    return ""
 
-    def _process_sync(self, df: pd.DataFrame) -> list[str]:
-        """Process DataFrame using synchronous sequential processing."""
-        def generate_response(row: pd.Series) -> str:
-            prompt = self._process_llm_prompt(row)
-            if self.system_prompt:
-                messages = [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ]
+            if len(qa_pairs) == 0:
+                return ""
+
+            # Shuffle the QA pairs and sample up to max_num_pairs
+            random.shuffle(qa_pairs)
+            if self.tokenizer is not None:
+                num_tokens = len(self.tokenizer.tokenize(text))
+                qa_pairs = qa_pairs[: random.randint(1, max(1, int(self.max_num_pairs * num_tokens / 150)))]  # noqa: S311
             else:
-                messages = [
-                    {"role": "user", "content": prompt}
-                ]
-            response = self.client.query_model(
-                model=self.model_name,
-                messages=messages,
-                generation_config=self.generation_config,
-            )
-            original_text = row[self.input_field]
-            return self._process_llm_response(text=original_text, response=response)
+                qa_pairs = qa_pairs[: random.randint(1, self.max_num_pairs)]  # noqa: S311
+            qa_pairs_str = "\n\n".join(qa_pairs)
 
-        # Sequential processing row by row
-        return df.apply(generate_response, axis=1).tolist()
+            # Concatenate the document and the QA pairs
+            return f"{text}\n\n{qa_pairs_str}"
 
-    async def _generate_responses_async(self, df: pd.DataFrame) -> list[str]:
-        """Generate responses asynchronously using concurrent requests."""
+        df[self.qa_field] = df.apply(_format_row, axis=1)
 
-        async def generate_response_async(row: pd.Series) -> str:
-            prompt = self._process_llm_prompt(row)
-            if self.system_prompt:
-                messages = [
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": prompt},
-                ]
-            else:
-                messages = [
-                    {"role": "user", "content": prompt}
-                ]
-            response = await self.client.query_model(
-                model=self.model_name,
-                messages=messages,
-                generation_config=self.generation_config,
-            )
-            original_text = row[self.input_field]
-            return self._process_llm_response(text=original_text, response=response)
-
-        # Create tasks for all rows and execute concurrently
-        tasks = [generate_response_async(row) for _, row in df.iterrows()]
-        return await asyncio.gather(*tasks)
+        return DocumentBatch(
+            data=df,
+            dataset_name=batch.dataset_name,
+            task_id=f"{batch.task_id}_{self.name}",
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
 
 @dataclass
 class DistillStage(BaseSyntheticStage):
@@ -157,15 +142,40 @@ class KnowledgeListStage(BaseSyntheticStage):
     input_field: str = "text"
     output_field: str = "knowledge_list"
 
-    def _process_llm_response(self, response: list[str]) -> str:
-        generated_text = response[0] if response else ""
-        lines = []
-        for idx, line in enumerate(generated_text.split("\n")):
-            if idx == 0 and not line.startswith("-"):
-                continue
+@dataclass
+class KnowledgeListPostProcessingStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    """
+    Post-processing stage that formats knowledge list outputs generated by the LLM.
+    It normalizes leading bullet markers and trims indentation, producing a clean newline-separated list.
+    """
 
-            if line.startswith(("  ", "- ")):
-                lines.append(line[2:].strip())
-            else:
-                lines.append(line)
-        return "\n".join(lines)
+    input_field: str = "knowledge_list"
+
+    @property
+    def name(self) -> str:
+        return "KnowledgeListPostProcessing"
+
+    def process(self, batch: DocumentBatch) -> DocumentBatch:
+        df = batch.to_pandas()
+
+        def _format_text(generated_text: str) -> str:
+            lines: list[str] = []
+            for idx, line in enumerate(generated_text.split("\n")):
+                if idx == 0 and not line.startswith("-"):
+                    continue
+                if line.startswith(("  ", "- ")):
+                    lines.append(line[2:].strip())
+                else:
+                    lines.append(line)
+            return "\n".join(lines)
+
+        # Read from knowledge_list, process, and write back to knowledge_list
+        df[self.input_field] = df[self.input_field].fillna("").apply(_format_text)
+
+        return DocumentBatch(
+            data=df,
+            dataset_name=batch.dataset_name,
+            task_id=f"{batch.task_id}_{self.name}",
+            _metadata=batch._metadata,
+            _stage_perf=batch._stage_perf,
+        )
