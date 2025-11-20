@@ -144,11 +144,11 @@ class MegatronTokenizerWriter(BaseWriter):
         Args:
             tokens_batch (list[list[int]]): The batch of tokens to write
         """
-        for tokens_sample in tokens_batch:
-            if self.append_eod:
-                tokens_sample.append(self.eod_token_id)
-            self.bin_file.write(np.array(tokens_sample, dtype=self.token_dtype).tobytes(order="C"))
-            self.sequence_lengths.append(len(tokens_sample))
+        if self.append_eod:
+            tokens_batch = [[*tokens, self.eod_token_id] for tokens in tokens_batch]
+        self.sequence_lengths.extend([len(tokens) for tokens in tokens_batch])
+        tokens_batch = np.concatenate([np.array(tokens, dtype=self.token_dtype) for tokens in tokens_batch])
+        self.bin_file.write(tokens_batch.tobytes(order="C"))
 
     def close(self, file_prefix: str, token_size: int) -> None:
         """Close the files and save the .bin & .idx files"""
