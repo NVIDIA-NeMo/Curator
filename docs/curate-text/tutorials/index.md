@@ -21,7 +21,7 @@ Before diving into the tutorials, familiarize yourself with these essential NeMo
 :gutter: 1 1 1 2
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Pipeline Architecture
-:link: about-concepts-text  <!-- TODO: Update link: https://docs.nvidia.com/nemo/curator/25.09/about/concepts/text/data-curation-pipeline.html -->
+:link: about-concepts-text-data-curation-pipeline
 :link-type: ref
 Core processing stages and pipeline concepts for text curation workflows
 +++
