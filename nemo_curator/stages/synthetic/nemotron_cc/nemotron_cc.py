@@ -13,16 +13,14 @@
 # limitations under the License.
 
 
-import asyncio
 import random
 from dataclasses import dataclass
 
 import pandas as pd
 from transformers import AutoTokenizer
 
-from nemo_curator.stages.synthetic.nemotron_cc.base import BaseSyntheticStage
 from nemo_curator.stages.base import ProcessingStage
-from nemo_curator.tasks import DocumentBatch
+from nemo_curator.stages.synthetic.nemotron_cc.base import BaseSyntheticStage
 from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     DISTILL_PROMPT_TEMPLATE,
     DIVERSE_QA_PROMPT_TEMPLATE,
@@ -32,6 +30,7 @@ from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
     NEMOTRON_CC_SYSTEM_PROMPT,
     WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
 )
+from nemo_curator.tasks import DocumentBatch
 
 
 @dataclass

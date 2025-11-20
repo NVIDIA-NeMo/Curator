@@ -4,7 +4,6 @@ Unit tests for nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc module.
 
 import asyncio
 from collections.abc import Iterable
-from typing import Any
 from unittest.mock import patch
 
 import pandas as pd
@@ -40,7 +39,7 @@ class MockSyncLLMClient(LLMClient):
         messages: Iterable,
         model: str,
         generation_config: GenerationConfig | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[str]:
         del model, generation_config, kwargs
         msgs = list(messages)
@@ -70,7 +69,7 @@ class MockAsyncLLMClient(AsyncLLMClient):
         messages: Iterable,
         model: str,
         generation_config: GenerationConfig | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[str]:
         del model, generation_config, kwargs
         msgs = list(messages)
@@ -103,7 +102,7 @@ def test_diverseqa_post_processing_basic() -> None:
     df = pd.DataFrame([{"text": "DOC", "diverse_qa": generated_text}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t0")
     # Deterministic behavior: no shuffle and pick 2 pairs
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(  # noqa: B011
+    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
         "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=2
     ):
         out_batch = pp.process(batch)
@@ -123,7 +122,7 @@ def test_diverseqa_sync_end_to_end() -> None:
     pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "DOC"}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t1")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(  # noqa: B011
+    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
         "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
     ):
         raw_batch = stage.process(batch)
@@ -145,7 +144,7 @@ def test_diverseqa_async_multiple_rows() -> None:
     pp = DiverseQAPostProcessingStage()
     df = pd.DataFrame([{"text": "D1"}, {"text": "D2"}, {"text": "D3"}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="t2")
-    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda x: None), patch(  # noqa: B011
+    with patch("nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.shuffle", lambda _: None), patch(
         "nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc.random.randint", return_value=1
     ):
         raw_batch = stage.process(batch)
@@ -159,13 +158,11 @@ def test_diverseqa_async_multiple_rows() -> None:
 def test_knowledge_list_process_llm_response() -> None:
     pp = KnowledgeListPostProcessingStage()
     # First line not starting with "-" should be skipped
-    generated = "\n".join(
-        [
-            "Header line",
-            "- item one",
-            "  continuation",
-            "- item two",
-        ]
+    generated = (
+        "Header line\n"
+        "- item one\n"
+        "  continuation\n"
+        "- item two"
     )
     df = pd.DataFrame([{"knowledge_list": generated}])
     batch = DocumentBatch(data=df, dataset_name="ds", task_id="tkl")
@@ -202,3 +199,13 @@ def test_extract_knowledge_stage_smoke() -> None:
     out_batch = stage.process(batch)
     assert out_batch.data["extract_knowledge"].iloc[0] == "facts"
 
+
+def test_knowledge_list_stage_smoke() -> None:
+    # Stage should pass through raw LLM output; post-processing is covered separately
+    generated = "- item one\n  continuation\n- item two"
+    client = MockSyncLLMClient(responses=[[generated]])
+    stage = KnowledgeListStage(client=client, model_name="m")
+    df = pd.DataFrame([{"text": "doc"}])
+    batch = DocumentBatch(data=df, dataset_name="ds", task_id="t6")
+    out_batch = stage.process(batch)
+    assert out_batch.data["knowledge_list"].iloc[0] == generated

@@ -4,7 +4,6 @@ Unit tests for nemo_curator.stages.synthetic.nemotron_cc.base module.
 
 import asyncio
 from collections.abc import Iterable
-from typing import Any
 
 import pandas as pd
 
@@ -31,7 +30,7 @@ class MockSyncLLMClient(LLMClient):
         messages: Iterable,
         model: str,
         generation_config: GenerationConfig | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[str]:
         del model, generation_config, kwargs
         msgs = list(messages)
@@ -61,7 +60,7 @@ class MockAsyncLLMClient(AsyncLLMClient):
         messages: Iterable,
         model: str,
         generation_config: GenerationConfig | None = None,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> list[str]:
         del model, generation_config, kwargs
         msgs = list(messages)
@@ -129,7 +128,8 @@ def test_process_sync_single_row_no_system_prompt() -> None:
     # Ensure user-only message when no system prompt
     assert client.call_count == 1
     msgs = client.received_messages[0]
-    assert len(msgs) == 1 and msgs[0]["role"] == "user"
+    assert len(msgs) == 1
+    assert msgs[0]["role"] == "user"
     assert msgs[0]["content"] == "Echo: hello"
 
 
@@ -151,8 +151,10 @@ def test_process_sync_with_system_prompt() -> None:
     # Ensure system + user messages
     msgs = client.received_messages[0]
     assert len(msgs) == 2
-    assert msgs[0]["role"] == "system" and msgs[0]["content"] == "SYS"
-    assert msgs[1]["role"] == "user" and msgs[1]["content"] == "Doc: abc"
+    assert msgs[0]["role"] == "system"
+    assert msgs[0]["content"] == "SYS"
+    assert msgs[1]["role"] == "user"
+    assert msgs[1]["content"] == "Doc: abc"
 
 
 def test_process_async_multiple_rows() -> None:
@@ -173,4 +175,3 @@ def test_process_async_multiple_rows() -> None:
     assert len(out_batch.data) == 3
     assert set(out_batch.data["out"].tolist()) == {"a", "b", "c"}
     assert client.call_count == 3
-
