@@ -1,0 +1,17 @@
+# Ruff configuration for llm_txt_output extension
+
+[lint]
+# Ignore complexity warnings for grid card extraction functions
+# These functions handle complex nested structures from MyST markdown
+# and are difficult to simplify further without losing functionality
+ignore = [
+    "C901",    # Complex function
+    "PLR0912", # Too many branches
+    "PLR0915", # Too many statements
+    "PLC0415", # Import not at top-level (conditional imports for optional dependencies)
+]
+
+[lint.per-file-ignores]
+# Allow complex functions in content_extractor.py for parsing logic
+"content_extractor.py" = ["C901", "PLR0912", "PLR0915", "PLC0415"]
+
