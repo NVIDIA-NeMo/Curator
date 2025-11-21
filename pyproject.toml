@@ -62,7 +62,7 @@ dependencies = [
     "pyarrow",
     "ray[default,data]>=2.50",
     "torch",
-    "transformers==4.55.2",
+    "transformers",
     "openai>=1.0.0",
 ]
 
@@ -145,6 +145,7 @@ video_cuda12 = [
     "torch<=2.8.0",
     "torchaudio",
     "vllm==0.11.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "transformers==4.55.2",
 ]
 
 # All dependencies
