@@ -10,6 +10,20 @@ modality: "text-only"
 
 (text-process-data-languages)=
 
+---
+description: "Handle multilingual content and language-specific processing including language identification and stop word management"
+categories: ["workflows"]
+tags: ["language-management", "multilingual", "fasttext", "stop-words", "language-detection"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "intermediate"
+content_type: "workflow"
+modality: "text-only"
+---
+
+(text-process-data-languages)=
+
+# Language Management
+
 Identify document languages, filter multilingual content, and apply language-specific processing to create high-quality monolingual or multilingual text datasets.
 
 ## Overview
