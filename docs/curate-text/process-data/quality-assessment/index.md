@@ -45,7 +45,7 @@ pipeline.add_stage(reader)
 
 # Create and apply filter
 filter_stage = ScoreFilter(
-    score_fn=WordCountFilter(min_words=80),
+    filter_obj=WordCountFilter(min_words=80),
     text_field="text",
     score_field="word_count",
 )
@@ -211,7 +211,7 @@ pipeline.add_stage(reader)
 
 # Add filtering stage
 filter_stage = ScoreFilter(
-    score_fn=WordCountFilter(min_words=80),
+    filter_obj=WordCountFilter(min_words=80),
     text_field="text",
     score_field="word_count"
 )
