@@ -78,7 +78,7 @@ graph TD
 **Batch Processing**: Supports processing audio files together
 
 - Audio files process together in a single call to the NeMo ASR model
-- Batch size configuration controls task grouping for processing using `.with_(batch_size=..., resources=Resources(...))`
+- Batch size configuration controls task grouping for processing using `.with_(batch_size=16, resources=Resources(gpus=1.0))`
 - Internal batching and optimization handled by the NeMo framework
 
 **Output Generation**: Structured transcription results
@@ -103,7 +103,7 @@ fleurs_stage = CreateInitialManifestFleursStage(
 
 # Or load from custom manifest files
 manifest_reader = JsonlReader(
-    input_file_path="/path/to/manifest.jsonl"
+    file_paths="/path/to/manifest.jsonl"
 )
 
 # Stages automatically create AudioBatch objects from loaded data
@@ -196,7 +196,7 @@ duration_stage = GetAudioDurationStage(
 ```python
 # Optimize for memory-constrained environments
 asr_stage = InferenceAsrNemoStage(
-    model_name="nvidia/stt_en_fastconformer_hybrid_small"  # Smaller model
+    model_name="nvidia/parakeet-tdt-0.6b-v2"  # Smaller model
 ).with_(
     resources=Resources(gpus=0.5)  # Request fractional GPU via executor/backends
 )

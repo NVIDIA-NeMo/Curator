@@ -76,7 +76,7 @@ Use audio characteristics to enhance text quality assessment:
 
 - Short audio with long text: Potential transcription errors
 - Long audio with short text: Potential missing content
-- Optimal ratio: ~3-5 characters per second of audio
+- Suggested heuristic: ~3-5 characters per second of audio (varies by language and speaking style)
 
 ### Text-Informed Audio Quality
 
@@ -268,7 +268,7 @@ from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
-from nemo_curator.filters import WordCountFilter  # Example filter
+from nemo_curator.stages.text.filters import WordCountFilter  # Example filter
 
 # Define a text quality filter
 text_quality_filter = WordCountFilter(min_words=10)
@@ -277,7 +277,7 @@ text_quality_filter = WordCountFilter(min_words=10)
 audio_pipeline = Pipeline(
     name="audio_processing",
     stages=[
-        InferenceAsrNemoStage(model_name="stt_en_fastconformer_transducer_large"),
+        InferenceAsrNemoStage(model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"),
         AudioToDocumentStage()
     ]
 )
@@ -300,7 +300,7 @@ final_results = text_pipeline.run(executor, initial_tasks=audio_results)
 from nemo_curator.pipeline import Pipeline
 
 pipeline = Pipeline(name="audio_text", stages=[
-    InferenceAsrNemoStage(model_name="stt_en_fastconformer_transducer_large"),
+    InferenceAsrNemoStage(model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"),
     GetPairwiseWerStage(),
     AudioToDocumentStage(),
     ScoreFilter(filter_obj=text_quality_filter)

@@ -30,21 +30,21 @@ graph TD
 
 **Data Ingestion and Validation**:
 
-- `AudioBatch` file existence checks using `validate()` and `validate_item()`
-- Manifest format validation and metadata consistency
-- Recommended JSONL manifest format
+- `AudioBatch` file existence validation using `validate()` and `validate_item()`
+- Recommended JSONL manifest format with audio file paths
 
 **Optional ASR Inference**:
 
 - `InferenceAsrNemoStage` for automatic speech recognition
 - Configurable batch processing with `batch_size` and `resources` parameters
-- Support for multiple NeMo ASR models
+- Support for various NeMo ASR models
 
 **Quality Assessment**:
 
 - Audio duration analysis with `GetAudioDurationStage`
-- Word Error Rate (WER) and Character Error Rate (CER) calculation
-- Speech rate metrics including words per second and characters per second
+- Word Error Rate (WER) calculation with `GetPairwiseWerStage`
+- Character Error Rate (CER) calculation using `get_cer()` function
+- Speech rate metrics: `get_wordrate()` (words per second) and `get_charrate()` (characters per second)
 
 **Filtering and Quality Control**:
 
@@ -59,14 +59,16 @@ graph TD
 ## Common Workflows
 
 **ASR-First Workflow** (Most Common):
+
 1. Load audio files into `AudioBatch` format
-2. Apply ASR inference to generate transcriptions
-3. Calculate quality metrics (WER, duration, speech rate)
-4. Apply threshold-based filtering
-5. Convert to `DocumentBatch` for text processing integration
+2. Apply ASR inference with `InferenceAsrNemoStage` to generate transcriptions
+3. Calculate quality metrics: duration (`GetAudioDurationStage`), WER (`GetPairwiseWerStage`), speech rate
+4. Apply threshold-based filtering with `PreserveByValueStage`
+5. Convert to `DocumentBatch` with `AudioToDocumentStage` for text processing integration
 6. Export filtered, high-quality audio-text pairs
 
 **Quality-First Workflow** (No ASR Required):
+
 1. Load audio files with existing transcriptions
 2. Extract audio characteristics (duration, format, sample rate)
 3. Apply basic quality filters
