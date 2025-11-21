@@ -12,11 +12,11 @@ modality: "text-only"
 
 # Get Started with Text Curation
 
-This guide helps you set up and get started with NeMo Curator's text curation capabilities. Follow these steps to prepare your environment and run your first text curation pipeline.
+This guide provides step-by-step instructions for setting up NeMo Curator’s text curation capabilities. Follow these instructions to prepare your environment and execute your first text curation pipeline.
 
 ## Prerequisites
 
-To use NeMo Curator's text curation modules, ensure you meet the following requirements:
+To use NeMo Curator’s text curation modules, ensure your system meets the following requirements:
 
 * Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
@@ -24,10 +24,10 @@ To use NeMo Curator's text curation modules, ensure you meet the following requi
 * Ubuntu 22.04/20.04
 * NVIDIA GPU (optional for most text modules, required for GPU-accelerated operations)
   * Volta™ or higher (compute capability 7.0+)
-  * CUDA 12 (or above)
+  * CUDA 12 (or later)
 
 :::{tip}
-If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly using:
 
 ```bash
 curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
@@ -40,7 +40,7 @@ source $HOME/.local/bin/env
 
 ## Installation Options
 
-You can install NeMo Curator in three ways:
+You can install NeMo Curator using one of the following methods:
 
 ::::{tab-set}
 
@@ -100,7 +100,7 @@ NeMo Curator uses a pipeline-based architecture for processing text data. Before
 
 ## Set Up Data Directory
 
-Create a directory structure for your text datasets:
+Create the following directories for your text datasets:
 
 ```bash
 mkdir -p ~/nemo_curator/data/sample
@@ -133,24 +133,24 @@ pipeline.add_stage(
     JsonlReader(
         file_paths="~/nemo_curator/data/sample/",
         files_per_partition=4,
-        fields=["text", "id"]  # Only read required columns for efficiency
+        fields=["text", "id"]
     )
 )
 
 # Add quality filtering stages
 pipeline.add_stage(
     ScoreFilter(
-        score_fn=WordCountFilter(min_words=50, max_words=100000),
+        filter_obj=WordCountFilter(min_words=50, max_words=100000),
         text_field="text",
-        score_field="word_count"  # Optional: save scores for analysis
+        score_field="word_count"
     )
 )
 
 pipeline.add_stage(
     ScoreFilter(
-        score_fn=NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.25),
+        filter_obj=NonAlphaNumericFilter(max_non_alpha_numeric_to_text_ratio=0.25),
         text_field="text",
-        score_field="non_alpha_score"  # Optional: save scores for analysis
+        score_field="non_alpha_score"
     )
 )
 
@@ -158,9 +158,8 @@ pipeline.add_stage(
 pipeline.add_stage(
     JsonlWriter("~/nemo_curator/data/curated")
 )
-
 # Execute the pipeline
-results = pipeline.run()  # Uses XennaExecutor by default for distributed processing
+results = pipeline.run()
 
 print(f"Pipeline completed successfully! Processed {len(results) if results else 0} tasks.")
 ```
