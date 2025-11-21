@@ -178,39 +178,45 @@ class MegatronTokenizerWriter(BaseWriter):
         ## 8 Bytes from the number of sequences
         ## 8 Bytes from the number of documents
         ## 8 Bytes from the initial document index
-        ## 20 Bytes for every sequence/document
-        ### 4 Bytes from the sequence length
-        ### 8 bytes from the sequence offset
-        ### 8 Bytes from the document index
+        ## 20 Bytes for every sequence/document:
+        ### - 4 Bytes from the sequence length
+        ### - 8 bytes from the sequence offset
+        ### - 8 Bytes from the document index
         # So, if the .bin contains tokens from 35000 text sequences/documents, the .idx will have
         # 9+8+1+8+8+8+20*35000 = 700042 Bytes
-        with self.fs.open(file_prefix + ".idx", "wb") as idx_file:
-            # Index Header
-            idx_file.write(_INDEX_HEADER)
-            # Version
-            idx_file.write(struct.pack("<Q", 1))
-            # Numeric code for the DType
-            idx_file.write(struct.pack("<B", token_dtype_code))
+        try:
+            with self.fs.open(file_prefix + ".idx", "wb") as idx_file:
+                # Index Header
+                idx_file.write(_INDEX_HEADER)
+                # Version
+                idx_file.write(struct.pack("<Q", 1))
+                # Numeric code for the DType
+                idx_file.write(struct.pack("<B", token_dtype_code))
 
-            # Number of sequences in the dataset
-            sequence_count = len(sequence_lengths)
-            idx_file.write(struct.pack("<Q", sequence_count))
+                # Number of sequences in the dataset
+                sequence_count = len(sequence_lengths)
+                idx_file.write(struct.pack("<Q", sequence_count))
 
-            document_indices = np.arange(len(sequence_lengths) + 1, dtype=np.int64)
-            # Number of documents in the dataset
-            document_count = len(document_indices)
-            idx_file.write(struct.pack("<Q", document_count))
+                document_indices = np.arange(len(sequence_lengths) + 1, dtype=np.int64)
+                # Number of documents in the dataset
+                document_count = len(document_indices)
+                idx_file.write(struct.pack("<Q", document_count))
 
-            # Number of tokens per sequence
-            sequence_lengths = np.array(sequence_lengths, dtype=np.int32)
-            idx_file.write(sequence_lengths.tobytes(order="C"))
+                # Number of tokens per sequence
+                sequence_lengths = np.array(sequence_lengths, dtype=np.int32)
+                idx_file.write(sequence_lengths.tobytes(order="C"))
 
-            # Byte offsets for all sequences
-            sequence_pointers = np.array(self._sequence_pointers(sequence_lengths, token_size), dtype=np.int64)
-            idx_file.write(sequence_pointers.tobytes(order="C"))
+                # Byte offsets for all sequences
+                sequence_pointers = np.array(self._sequence_pointers(sequence_lengths, token_size), dtype=np.int64)
+                idx_file.write(sequence_pointers.tobytes(order="C"))
 
-            # Sequence indices marking the end of each document
-            idx_file.write(document_indices.tobytes(order="C"))
+                # Sequence indices marking the end of each document
+                idx_file.write(document_indices.tobytes(order="C"))
+        except Exception as e:
+            logger.error(f"Error while writing idx data to {file_prefix}: {e}")
+            if self.fs.exists(file_prefix + ".idx"):
+                self.fs.remove(file_prefix + ".idx")
+            raise
 
     @staticmethod
     def _sequence_pointers(sequence_lengths: list[int], token_size: int) -> list[int]:
