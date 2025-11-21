@@ -32,7 +32,7 @@ flowchart LR
     E --> F["Curated Dataset<br/>(JSONL/Parquet)"]
     
     G["Ray + RAPIDS<br/>(GPU-accelerated)"] -.->|"Distributed Execution"| B
-    G -.->|"GPU Acceleration"| C
+    G -.->|"Distributed Execution"| C
     G -.->|"GPU Acceleration"| D
     G -.->|"GPU Acceleration"| E
 
