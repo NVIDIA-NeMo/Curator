@@ -39,10 +39,8 @@ class MegatronTokenizerWriter(BaseWriter):
     cache_dir: str | None = None
     hf_token: str | None = None
     text_field: str = "text"
-    batch_size: int = 1000
+    tokenization_batch_size: int = 1000  # Renamed from batch_size to avoid shadowing ProcessingStage.batch_size
     append_eod: bool = False
-    local_files_only: bool = True
-    add_special_tokens: bool = False
 
     # Disable the inherited fields attribute
     fields: list[str] | None = field(default=None, init=False, repr=False)
@@ -62,7 +60,6 @@ class MegatronTokenizerWriter(BaseWriter):
                 repo_id=self.model_identifier,
                 cache_dir=self.cache_dir,
                 token=self.hf_token,
-                local_files_only=False,
             )
         except Exception as e:
             msg = f"Failed to download {self.model_identifier}"
@@ -73,7 +70,6 @@ class MegatronTokenizerWriter(BaseWriter):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
-            local_files_only=self.local_files_only,
         )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
@@ -115,12 +111,12 @@ class MegatronTokenizerWriter(BaseWriter):
 
         self.bin_file = self.fs.open(file_prefix + ".bin", "wb")
 
-        for batch in batched(df[self.text_field], self.batch_size):
+        for batch in batched(df[self.text_field], self.tokenization_batch_size):
             tokens_batch = self.tokenizer.batch_encode_plus(
                 batch,
                 padding=False,
                 truncation=False,
-                add_special_tokens=self.add_special_tokens,
+                add_special_tokens=False,
                 return_token_type_ids=False,
                 return_attention_mask=False,
             ).input_ids

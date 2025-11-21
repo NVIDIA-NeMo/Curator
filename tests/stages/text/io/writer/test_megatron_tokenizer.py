@@ -318,36 +318,38 @@ class TestMegatronTokenizerWriter:
             f"Index file sizes should be equal independent of append_eod since we have the same number of documents, got {os.path.getsize(result1.data[1])} and {os.path.getsize(result2.data[1])}"
         )
 
-    @pytest.mark.parametrize("batch_size", [1, 2, 3])
-    def test_megatron_tokenizer_writer_batch_size(
+    @pytest.mark.parametrize("tokenization_batch_size", [1, 2, 3])
+    def test_megatron_tokenizer_writer_tokenization_batch_size(
         self,
         pandas_document_batch: DocumentBatch,
-        batch_size: int,
+        tokenization_batch_size: int,
         tmpdir: str,
     ):
         """Test that MegatronTokenizerWriter is not affected by the batch size."""
 
         # Create writer with specific output directory for this test
-        output_dir_default_batch_size = os.path.join(
-            tmpdir, f"megatron_{pandas_document_batch.task_id}_default_batch_size"
+        output_dir_default_tokenization_batch_size = os.path.join(
+            tmpdir, f"megatron_{pandas_document_batch.task_id}_default_tokenization_batch_size"
         )
-        output_dir_modified_batch_size = os.path.join(
-            tmpdir, f"megatron_{pandas_document_batch.task_id}_modified_batch_size"
+        output_dir_modified_tokenization_batch_size = os.path.join(
+            tmpdir, f"megatron_{pandas_document_batch.task_id}_modified_tokenization_batch_size"
         )
-        writer_default_batch_size = MegatronTokenizerWriter(
-            path=output_dir_default_batch_size, model_identifier="test/model"
+        writer_default_tokenization_batch_size = MegatronTokenizerWriter(
+            path=output_dir_default_tokenization_batch_size, model_identifier="test/model"
         )
-        writer_modified_batch_size = MegatronTokenizerWriter(
-            path=output_dir_modified_batch_size, model_identifier="test/model", batch_size=batch_size
+        writer_modified_tokenization_batch_size = MegatronTokenizerWriter(
+            path=output_dir_modified_tokenization_batch_size,
+            model_identifier="test/model",
+            tokenization_batch_size=tokenization_batch_size,
         )
 
         # Setup
-        writer_default_batch_size.setup()
-        writer_modified_batch_size.setup()
+        writer_default_tokenization_batch_size.setup()
+        writer_modified_tokenization_batch_size.setup()
 
         # Process
-        result1 = writer_default_batch_size.process(pandas_document_batch)
-        result2 = writer_modified_batch_size.process(pandas_document_batch)
+        result1 = writer_default_tokenization_batch_size.process(pandas_document_batch)
+        result2 = writer_modified_tokenization_batch_size.process(pandas_document_batch)
 
         assert os.path.getsize(result1.data[0]) == os.path.getsize(result2.data[0]), (
             f"File sizes should be equal independent of batch size, got {os.path.getsize(result1.data[0])} and {os.path.getsize(result2.data[0])}"
