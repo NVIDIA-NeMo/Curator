@@ -71,6 +71,7 @@ class MegatronTokenizerWriter(BaseWriter):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
+            local_files_only=True,
         )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
