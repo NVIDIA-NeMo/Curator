@@ -34,6 +34,7 @@ RUN cd /opt/Curator \
     oauth2client \
     pydrive2 \
     pynvml \
+    pyyaml \
     rich \
   && uv cache prune
 

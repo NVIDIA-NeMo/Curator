@@ -32,6 +32,7 @@ def setup_ray_cluster_and_env(
     num_gpus: int,
     enable_object_spilling: bool,
     ray_log_path: Path,
+    object_store_memory: int | None = None,
 ) -> tuple[RayClient, Path, dict[str, str]]:
     """Setup Ray cluster and environment variables."""
     ray_client, ray_temp_path = start_ray_head(
@@ -39,6 +40,7 @@ def setup_ray_cluster_and_env(
         num_gpus=num_gpus,
         enable_object_spilling=enable_object_spilling,
         ray_log_path=ray_log_path,
+        object_store_memory=object_store_memory,
     )
     verify_ray_responsive(ray_client)
 
@@ -67,13 +69,15 @@ def teardown_ray_cluster_and_env(
             logger.debug("Cleaned up RAY_ADDRESS environment variable")
 
 
-def start_ray_head(
+def start_ray_head(  # noqa: PLR0913
     num_cpus: int,
     num_gpus: int,
     include_dashboard: bool = True,
     enable_object_spilling: bool = False,
     ray_log_path: Path | None = None,
+    object_store_memory: int | None = None,
 ) -> tuple[RayClient, Path]:
+    """Start a Ray head node and return the Ray client and temporary directory."""
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
@@ -94,6 +98,7 @@ def start_ray_head(
         enable_object_spilling=enable_object_spilling,
         ray_dashboard_host="0.0.0.0",  # noqa: S104
         ray_stdouterr_capture_file=ray_stdouterr_capture_file,
+        object_store_memory=object_store_memory,
     )
     client.start()
 

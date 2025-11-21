@@ -56,6 +56,7 @@ class RayClient:
         ray_dashboard_host: The host of the Ray dashboard.
         num_gpus: The number of GPUs to use.
         num_cpus: The number of CPUs to use.
+        object_store_memory: The amount of memory to use for the object store.
         enable_object_spilling: Whether to enable object spilling.
 
     Note:
@@ -72,6 +73,7 @@ class RayClient:
     ray_dashboard_host: str = DEFAULT_RAY_DASHBOARD_HOST
     num_gpus: int | None = None
     num_cpus: int | None = None
+    object_store_memory: int | None = None
     enable_object_spilling: bool = False
     ray_stdouterr_capture_file: str | None = None
 
@@ -119,15 +121,16 @@ class RayClient:
             ip_address = socket.gethostbyname(socket.gethostname())
 
             self.ray_process = init_cluster(
-                self.ray_port,
-                self.ray_temp_dir,
-                self.ray_dashboard_port,
-                self.ray_metrics_port,
-                self.ray_client_server_port,
-                self.ray_dashboard_host,
-                self.num_gpus,
-                self.num_cpus,
-                self.enable_object_spilling,
+                ray_port=self.ray_port,
+                ray_temp_dir=self.ray_temp_dir,
+                ray_dashboard_port=self.ray_dashboard_port,
+                ray_metrics_port=self.ray_metrics_port,
+                ray_client_server_port=self.ray_client_server_port,
+                ray_dashboard_host=self.ray_dashboard_host,
+                num_gpus=self.num_gpus,
+                num_cpus=self.num_cpus,
+                object_store_memory=self.object_store_memory,
+                enable_object_spilling=self.enable_object_spilling,
                 block=True,
                 ip_address=ip_address,
                 stdouterr_capture_file=self.ray_stdouterr_capture_file,
