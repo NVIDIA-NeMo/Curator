@@ -167,7 +167,8 @@ class SlackSink(Sink):
             # Remaining rows are metrics and values
             data = []
             for metric in metrics:
-                data.append((metric, find_result(results, metric, 0)))
+                result = find_result(results, metric, 0)
+                data.append(self._get_formatted_metric_value_tuple(metric, result))
 
             # Requirements checks - add a row for each requirement that was not met
             if "requirements_not_met" in results:
@@ -251,6 +252,20 @@ class SlackSink(Sink):
                 "elements": [{"type": "rich_text_section", "elements": [{"type": "text", "text": right_text}]}],
             },
         ]
+
+    @staticmethod
+    def _get_formatted_metric_value_tuple(metric: str, result: Any) -> tuple[str, str]:  # noqa: ANN401
+        if metric == "exec_time_s":
+            try:
+                hours = int(result // 3600)
+                minutes = int((result % 3600) // 60)
+                seconds = result % 60
+            except (ValueError, TypeError):
+                return (metric, str(result))
+            else:
+                return (metric, f"{hours:02}:{minutes:02}:{seconds:06.3f}")
+        else:
+            return (metric, str(result))
 
 
 # Run SlackSink from the command line to post a summary of the results to Slack.
