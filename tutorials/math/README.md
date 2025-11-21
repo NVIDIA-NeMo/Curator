@@ -44,13 +44,13 @@ mkdir -p $MATH_DATA_DIR/{preprocessed,classified,dedup_cache,dedup_ids,deduplica
 Extract and preprocess text from raw web data:
 
 ```bash
-python examples/math/run_text_preprocess.py \
-  --input "examples/math/data/*.parquet" \
+python tutorials/math/run_text_preprocess.py \
+  --input "tutorials/math/data/*.parquet" \
   --output $MATH_DATA_DIR/preprocessed
 
 # Optional: Add --report-stats to see extraction statistics
-python examples/math/run_text_preprocess.py \
-  --input "examples/math/data/*.parquet" \
+python tutorials/math/run_text_preprocess.py \
+  --input "tutorials/math/data/*.parquet" \
   --output $MATH_DATA_DIR/preprocessed \
   --report-stats
 ```
@@ -64,7 +64,7 @@ python examples/math/run_text_preprocess.py \
 Classify mathematical content quality using the FineMath model:
 
 ```bash
-python examples/math/run_quality_classifier.py \
+python tutorials/math/run_quality_classifier.py \
   --input "$MATH_DATA_DIR/preprocessed/*.jsonl" \
   --output $MATH_DATA_DIR/classified
 ```
@@ -88,7 +88,7 @@ python examples/math/run_quality_classifier.py \
 Remove duplicate content using fuzzy deduplication:
 
 ```bash
-python examples/math/run_deduplication.py \
+python tutorials/math/run_deduplication.py \
   --input $MATH_DATA_DIR/classified \
   --cache_dir $MATH_DATA_DIR/dedup_cache \
   --duplicate_ids_dir $MATH_DATA_DIR/dedup_ids \
@@ -115,7 +115,7 @@ Clean and refine text using a large language model (optional chunking for long t
 For long texts that exceed model context limits, chunk first then clean each chunk:
 
 ```bash
-python examples/math/run_cleanup_webpages_with_llm.py \
+python tutorials/math/run_cleanup_webpages_with_llm.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned \
   --model microsoft/phi-4 \
@@ -138,7 +138,7 @@ python examples/math/run_cleanup_webpages_with_llm.py \
 For texts that fit within model context limits, clean directly:
 
 ```bash
-python examples/math/run_cleanup_webpages_with_llm.py \
+python tutorials/math/run_cleanup_webpages_with_llm.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned \
   --model microsoft/phi-4 \
@@ -163,7 +163,7 @@ The LLM cleanup step supports various specialized prompts for different mathemat
 **`HTML_TO_TEXT_PROMPT_CODE`**: For pages mixing math and significant code (e.g., computational math tutorials)
 
 ```bash
-python examples/math/run_cleanup_webpages_with_llm.py \
+python tutorials/math/run_cleanup_webpages_with_llm.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned_code \
   --model microsoft/phi-4 \

@@ -100,12 +100,13 @@ DATASETS = {
         "output": "fineweb_math_processed",
         "fetch_cc": True,
         "columns": {
-            "warc_filename": "file_path", # FineWeb typically uses file_path or warc_filename
+            "warc_filename": "file_path",  # FineWeb typically uses file_path or warc_filename
             "offset": "offset",
             "length": "length",
         },
-     }
+    },
 }
+
 
 def run_dataset(
     name: str,
@@ -123,8 +124,10 @@ def run_dataset(
     cmd = [
         sys.executable,
         str(script_path),
-        "--input", config["input"],
-        "--output", str(output_path),
+        "--input",
+        config["input"],
+        "--output",
+        str(output_path),
         "--report-stats",
     ]
 
@@ -153,9 +156,12 @@ def run_dataset(
 
 def main() -> None:
     import argparse
+
     parser = argparse.ArgumentParser(description="Run preprocessing for all configured math datasets")
     parser.add_argument("--output-base", required=True, help="Base directory for all outputs")
-    parser.add_argument("--datasets", nargs="+", help="Specific datasets to run (default: all)", choices=DATASETS.keys())
+    parser.add_argument(
+        "--datasets", nargs="+", help="Specific datasets to run (default: all)", choices=DATASETS.keys()
+    )
     parser.add_argument(
         "--continue-on-error",
         action="store_true",
@@ -171,6 +177,7 @@ def main() -> None:
             run_dataset(name, DATASETS[name], args.output_base, continue_on_error=args.continue_on_error)
         else:
             logger.warning(f"Dataset {name} not found in configuration. Skipping.")
+
 
 if __name__ == "__main__":
     main()
