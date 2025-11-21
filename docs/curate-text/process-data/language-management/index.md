@@ -26,7 +26,7 @@ NeMo Curator provides robust tools for managing multilingual text datasets throu
 ### Language Detection
 
 - **FastText Model**: Supports 176 languages with confidence scores
-- **CLD2 Integration**: Used automatically in HTML extraction pipelines (Common Crawl, web scraping)
+- **CLD2 Integration**: Used automatically in Common Crawl text extraction pipeline
 - **Configurable Thresholds**: Filter documents by minimum confidence scores
 
 ### Stop Word Management
