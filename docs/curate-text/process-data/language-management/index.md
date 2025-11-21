@@ -104,7 +104,7 @@ pipeline = Pipeline(name="language_filtering")
 # 1. Read JSONL input files
 pipeline.add_stage(
     JsonlReader(
-        file_paths="input_data/*.jsonl",
+        file_paths="input_data/",
         files_per_partition=2  # Process 2 files per partition
     )
 )
