@@ -1,11 +1,14 @@
-# Ray start
+# Megatron Tokenization Pipeline
+This tutorial demonstrates how to tokenize the TinyStories dataset from Parquet files using `MegatronTokenizerWriter` for training with [Megatron-LM](https://github.com/NVIDIA/Megatron-LM).
 
-RAY_MAX_LIMIT_FROM_API_SERVER=40000 RAY_MAX_LIMIT_FROM_DATA_SOURCE=40000 ray start --head --node-ip-address 10.57.203.156 --port 6379 --metrics-export-port 8080 --dashboard-port 8265 --dashboard-host 127.0.0.1 --ray-client-server-port 10001 --temp-dir /tmp/ray --disable-usage-stats --include-dashboard=True
+## Usage
+After installing the NeMo Curator package, you can simply run the following command:
+```
+LOGURU_LEVEL="ERROR" python tutorials/text/megatron-tokenizer/main.py
+```
 
-# Run tutorial
+We use LOGURU_LEVEL="ERROR" to help minimize console output and produce cleaner logs for the user.
 
-RAY_ADDRESS=10.57.203.156:6379 DASHBOARD_METRIC_PORT=44227 AUTOSCALER_METRIC_PORT=44217 XENNA_RAY_METRICS_PORT=8080 XENNA_RESPECT_CUDA_VISIBLE_DEVICES=1 python3 main.py --input-path /localhome/local-asolergibert/Curator/tutorials/text/megatron-tokenizer/datasets/tinystories --output-path /localhome/local-asolergibert/Curator/tutorials/text/megatron-tokenizer/datasets/tinystories-tokens
+The script first checks whether the Tinystories dataset is already prepared; if not, it downloads it and saves it into ten parquet files. Using the `--input-path` and `--output-path` flags, you can configure where the tokenized files are read from and written to, while the `--tokenizer-model` flag specifies which tokenizer will be used to process the data. The `--append-eod` option allows you to add an end-of-document token to each processed document.
 
-# Check Ray
-
-RAY_ADDRESS=10.57.203.156:6379 ray status
+The pipeline generates pairs of files—one with the `.bin` extension and another with `.idx`. Megatron refers to these paired outputs as file prefixes: the `.bin` files contain the tokenized documents, and the `.idx` files store metadata about the corresponding `.bin` files.

@@ -51,14 +51,12 @@ def main(args: argparse.Namespace) -> None:
         # Read the data from the Parquet files
         ParquetReader(
             file_paths=args.input_path,
-            fields=[args.text_field],
         ),
         # Tokenize the data
         MegatronTokenizerWriter(
             path=args.output_path,
             model_identifier=args.tokenizer_model,
             append_eod=args.append_eod,
-            text_field=args.text_field,
         ),
     ]
 
@@ -87,10 +85,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     group = parser.add_argument_group(title="input data")
     group.add_argument(
-        "--input-path", type=str, default="./datasets/tinystories", help="Path to folder containing Parquet files"
+        "--input-path",
+        type=str,
+        default="tutorials/text/megatron-tokenizer/datasets/tinystories",
+        help="Path to folder containing Parquet files",
     )
     group.add_argument(
-        "--output-path", type=str, default="./datasets/tinystories-tokens", help="Path to output directory"
+        "--output-path",
+        type=str,
+        default="tutorials/text/megatron-tokenizer/datasets/tinystories-tokens",
+        help="Path to output directory",
     )
     group.add_argument(
         "--tokenizer-model",
@@ -99,9 +103,6 @@ if __name__ == "__main__":
         help="Hugging Face model identifier for the tokenizer",
     )
     group.add_argument("--append-eod", action="store_true", help="Append an <eod> token to the end of a document.")
-    group.add_argument(
-        "--text-field", type=str, default="text", help="Name of the column containing the text to tokenize"
-    )
 
     args = parser.parse_args()
     main(args)
