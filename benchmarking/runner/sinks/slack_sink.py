@@ -263,7 +263,7 @@ class SlackSink(Sink):
             except (ValueError, TypeError):
                 return (metric, str(result))
             else:
-                return (metric, f"{hours:02}:{minutes:02}:{seconds:06.3f}")
+                return (metric, f"{result:.3f}s  ({hours:02}h : {minutes:02}m : {seconds:06.3f}s)")
         else:
             return (metric, str(result))
 
