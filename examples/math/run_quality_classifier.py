@@ -19,7 +19,7 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.math import FineMathClassifier
+from nemo_curator.stages.math.classifiers.finemath import FineMathClassifier
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -32,8 +32,8 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
     p.add_stage(
         JsonlReader(file_paths=input_glob).with_(
             {
-                "file_partitioning": {"resources": Resources(cpus=0.5)},
-                "jsonl_reader": {"resources": Resources(cpus=0.5)},
+                "file_partitioning": {"resources": Resources(cpus=1.0)},
+                "jsonl_reader": {"resources": Resources(cpus=1.0)},
             }
         )
     )
@@ -42,14 +42,14 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
     p.add_stage(
         FineMathClassifier().with_(
             {
-                "finemath_classifier_tokenizer": {"resources": Resources(cpus=0.5)},
-                "finemath_classifier_model": {"resources": Resources(cpus=1, gpus=1)},
+                "finemath_classifier_tokenizer": {"resources": Resources(cpus=1.0)},
+                "finemath_classifier_model": {"resources": Resources(cpus=1.0, gpus=1.0)},
             }
         )
     )
 
     # Writer (single stage)
-    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=0.5)))
+    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=1.0)))
 
     return p
 

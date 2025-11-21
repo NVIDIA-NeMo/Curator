@@ -26,8 +26,8 @@ from nemo_curator.stages.text.classifiers.constants import (
 from nemo_curator.stages.text.models.model import ModelStage
 from nemo_curator.stages.text.models.tokenizer import TokenizerStage
 from nemo_curator.stages.text.models.utils import (
-    ATTENTION_MASK_COLUMN,
-    INPUT_ID_COLUMN,
+    ATTENTION_MASK_FIELD,
+    INPUT_ID_FIELD,
     format_name_with_suffix,
 )
 from nemo_curator.tasks import DocumentBatch
@@ -45,7 +45,7 @@ class CenterCropTextStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     def __init__(self, text_field: str = "text", center_crop_chars: int = 10_000):
         self.text_field = text_field
         self.center_crop_chars = max(0, int(center_crop_chars))
-        self._name = format_name_with_suffix(FINEMATH_MODEL_ID, suffix="_center_crop")
+        self.name = format_name_with_suffix(FINEMATH_MODEL_ID, suffix="_center_crop")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
@@ -148,7 +148,7 @@ class FineMathModelStage(ModelStage):
         }
 
     def create_output_dataframe(self, df_cpu: pd.DataFrame, collected_output: dict[str, np.ndarray]) -> pd.DataFrame:
-        df_cpu = df_cpu.drop(columns=[INPUT_ID_COLUMN, ATTENTION_MASK_COLUMN])
+        df_cpu = df_cpu.drop(columns=[INPUT_ID_FIELD, ATTENTION_MASK_FIELD])
         df_cpu[self.float_score_column] = collected_output[self.float_score_column]
         df_cpu[self.int_score_column] = collected_output[self.int_score_column]
         return df_cpu
@@ -201,7 +201,7 @@ class FineMathClassifier(CompositeStage[DocumentBatch, DocumentBatch]):
             ]
         )
         self.stages = stages
-        self._name = format_name_with_suffix(FINEMATH_MODEL_ID)
+        self.name = format_name_with_suffix(FINEMATH_MODEL_ID)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return self.stages[0].inputs()

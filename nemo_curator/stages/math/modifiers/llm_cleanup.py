@@ -86,13 +86,12 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.max_model_len = max_model_len
         self.classification = classification
         self.n_tokens_field = n_tokens_field
-        self._resources = Resources(cpus=1, gpus=1)
-        self._name = format_name_with_suffix(model_name, suffix="_llm_cleanup")
+        self.resources = Resources(cpus=1.0, gpus=1.0)
+        self.name = format_name_with_suffix(model_name, suffix="_llm_cleanup")
         self._tokenizer = None
         self._final_max_model_len = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
-
         return ["data"], [self.text_field, self.n_tokens_field]
 
     def outputs(self) -> tuple[list[str], list[str]]:
@@ -119,9 +118,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
         if self.n_tokens_field in df.columns:
             final_max_model_len = (
-                self._final_max_model_len
-                if self._final_max_model_len is not None
-                else self.max_model_len
+                self._final_max_model_len if self._final_max_model_len is not None else self.max_model_len
             )
             if final_max_model_len is None:
                 msg = "max_model_len must be set when processing chunked data (n_tokens field present)"
@@ -164,9 +161,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
                         messages,
                         tokenize=False,
                         add_generation_prompt=True,
-                        chat_template_kwargs=(
-                            {"enable_thinking": False} if is_qwen3_30b_a3b else {}
-                        ),
+                        chat_template_kwargs=({"enable_thinking": False} if is_qwen3_30b_a3b else {}),
                     )
                     prompts.append(formatted_prompt)
                 except (AttributeError, ValueError, TypeError, KeyError):

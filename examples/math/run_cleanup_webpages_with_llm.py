@@ -24,7 +24,8 @@ from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.models.vllm_model import _MODELS
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.math import LLMCleanupStage, TokenSplitterStage
+from nemo_curator.stages.math.modifiers.chunking import TokenSplitterStage
+from nemo_curator.stages.math.modifiers.llm_cleanup import LLMCleanupStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -67,8 +68,8 @@ def build_pipeline(  # noqa: PLR0913
         p.add_stage(
             ParquetReader(file_paths=input_files).with_(
                 {
-                    "file_partitioning": {"resources": Resources(cpus=0.5)},
-                    "parquet_reader": {"resources": Resources(cpus=0.5)},
+                    "file_partitioning": {"resources": Resources(cpus=1.0)},
+                    "parquet_reader": {"resources": Resources(cpus=1.0)},
                 }
             )
         )
@@ -76,15 +77,15 @@ def build_pipeline(  # noqa: PLR0913
         p.add_stage(
             JsonlReader(file_paths=input_files).with_(
                 {
-                    "file_partitioning": {"resources": Resources(cpus=0.5)},
-                    "jsonl_reader": {"resources": Resources(cpus=0.5)},
+                    "file_partitioning": {"resources": Resources(cpus=1.0)},
+                    "jsonl_reader": {"resources": Resources(cpus=1.0)},
                 }
             )
         )
 
     p.add_stage(
         Modify(modifier_fn=fill_null_text, input_fields="text", output_fields="text").with_(
-            resources=Resources(cpus=0.5)
+            resources=Resources(cpus=1.0)
         )
     )
 
@@ -95,7 +96,7 @@ def build_pipeline(  # noqa: PLR0913
                 model_name=model,
                 text_field="text",
                 max_length_tokens=chunk_length,
-            ).with_(resources=Resources(cpus=1))
+            ).with_(resources=Resources(cpus=1.0))
         )
 
     # Get prompt from prompts module
@@ -119,11 +120,11 @@ def build_pipeline(  # noqa: PLR0913
             min_p=min_p,
             max_tokens=max_tokens,
             cache_dir=cache_dir,
-        ).with_(resources=Resources(cpus=1, gpus=1))
+        ).with_(resources=Resources(cpus=1.0, gpus=1.0))
     )
 
     # Writer stage
-    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=0.5)))
+    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=1.0)))
 
     return p
 

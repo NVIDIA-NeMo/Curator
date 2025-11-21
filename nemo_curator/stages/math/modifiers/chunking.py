@@ -42,7 +42,7 @@ class TokenSplitterStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.chunk_id_field = chunk_id_field
         self.n_tokens_field = n_tokens_field
         self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._name = format_name_with_suffix(self.model_name, suffix="_token_splitter")
+        self.name = format_name_with_suffix(self.model_name, suffix="_token_splitter")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
