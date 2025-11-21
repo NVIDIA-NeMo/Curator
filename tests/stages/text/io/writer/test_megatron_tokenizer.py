@@ -189,6 +189,8 @@ class TestMegatronTokenizerWriter:
         # Process
         result = writer.process(pandas_document_batch)
 
+        token_dtype_code = 4 if result._metadata["token_size"] == 4 else 8
+
         with open(result.data[1], "rb") as f:
             # Check the header
             header = f.read(9)
@@ -200,7 +202,7 @@ class TestMegatronTokenizerWriter:
 
             # Check the dtype code
             code = struct.unpack("<B", f.read(1))[0]
-            assert code == writer.token_dtype_code, f"bad dtype code, {writer.token_dtype_code} expected, {code} found"
+            assert code == token_dtype_code, f"bad dtype code, {token_dtype_code} expected, {code} found"
 
             # Check the sequence count
             sequence_count = struct.unpack("<Q", f.read(8))[0]
@@ -310,7 +312,7 @@ class TestMegatronTokenizerWriter:
         )
 
         # We are appending 1 EOD token per document and we need to account for the token size
-        eod_tokens_bytes_size = pandas_document_batch.num_items * writer_append_eod.token_size
+        eod_tokens_bytes_size = pandas_document_batch.num_items * result2._metadata["token_size"]
         assert os.path.getsize(result1.data[0]) - os.path.getsize(result2.data[0]) == eod_tokens_bytes_size, (
             f"File size difference should be equal to the number of documents * token size, got {os.path.getsize(result1.data[0]) - os.path.getsize(result2.data[0])} and the expected size is {eod_tokens_bytes_size}"
         )

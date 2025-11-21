@@ -14,6 +14,7 @@
 import struct
 import uuid
 from dataclasses import dataclass, field
+from typing import BinaryIO
 
 import numpy as np
 from huggingface_hub import snapshot_download
@@ -87,21 +88,21 @@ class MegatronTokenizerWriter(BaseWriter):
             if self.fs.exists(file_path):
                 logger.debug(f"File {file_path} already exists, overwriting it")
 
-        self.token_size = (
+        token_size = (
             -1
             if self.tokenizer.vocab_size is None
             else (4 if self.tokenizer.vocab_size > np.iinfo(np.uint16).max + 1 else 2)
         )
-        if self.token_size == -1:
+        if token_size == -1:
             logger.warning("tokenizer.vocab_size is not set, assuming 4 bytes per token (vocab_size > 65536)")
-            self.token_size = 4
-        self.token_dtype = np.int32 if self.token_size == 4 else np.uint16  # noqa: PLR2004
-        self.token_dtype_code = (
-            4 if self.token_size == 4 else 8  # noqa: PLR2004
+            token_size = 4
+        token_dtype = np.int32 if token_size == 4 else np.uint16  # noqa: PLR2004
+        token_dtype_code = (
+            4 if token_size == 4 else 8  # noqa: PLR2004
         )  # NOTE(asolergi-nv): Megatron needs this dtype code in the .idx file | https://github.com/NVIDIA/Megatron-LM/blob/64cbae55ac85cd73fbadbc3c0d715c8123c5e13b/megatron/core/datasets/indexed_dataset.py#L41
 
-        self.eod_token_id = self.tokenizer.eos_token_id if self.tokenizer.eos_token_id is not None else -1
-        if self.eod_token_id == -1:
+        eod_token_id = self.tokenizer.eos_token_id if self.tokenizer.eos_token_id is not None else -1
+        if eod_token_id == -1:
             logger.warning("tokenizer.eos_token_id is not set, disabling append_eod")
             self.append_eod = False
 
@@ -109,25 +110,25 @@ class MegatronTokenizerWriter(BaseWriter):
 
         df = task.to_pandas()
 
-        self.bin_file = self.fs.open(file_prefix + ".bin", "wb")
-
         try:
-            for batch in batched(df[self.text_field], self.tokenization_batch_size):
-                tokens_batch = self.tokenizer.batch_encode_plus(
-                    batch,
-                    padding=False,
-                    truncation=False,
-                    add_special_tokens=False,
-                    return_token_type_ids=False,
-                    return_attention_mask=False,
-                ).input_ids
-                self.write_data(tokens_batch, sequence_lengths)
+            with self.fs.open(file_prefix + ".bin", "wb") as bin_file:
+                for batch in batched(df[self.text_field], self.tokenization_batch_size):
+                    tokens_batch = self.tokenizer.batch_encode_plus(
+                        batch,
+                        padding=False,
+                        truncation=False,
+                        add_special_tokens=False,
+                        return_token_type_ids=False,
+                        return_attention_mask=False,
+                    ).input_ids
+                    self.write_data(bin_file, token_dtype, eod_token_id, tokens_batch, sequence_lengths)
         except Exception as e:
             logger.error(f"Error while writing tokens to {file_prefix}: {e}")
-            self.bin_file.close()
+            if self.fs.exists(file_prefix + ".bin"):
+                self.fs.remove(file_prefix + ".bin")
             raise
 
-        self.close(file_prefix, sequence_lengths)
+        self.write_idx_data(file_prefix, token_size, token_dtype_code, sequence_lengths)
 
         logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(sequence_lengths)} tokens)")
 
@@ -140,32 +141,39 @@ class MegatronTokenizerWriter(BaseWriter):
                 "format": "megatron",
                 "file_prefix": file_prefix,
                 "num_tokens": sum(sequence_lengths),
-                "token_size": self.token_size,
-                "eod_token_id": self.eod_token_id,
+                "token_size": token_size,
+                "eod_token_id": eod_token_id,
             },
             _stage_perf=task._stage_perf,
         )
 
-    def write_data(self, tokens_batch: list[list[int]], sequence_lengths: list[int]) -> None:
+    def write_data(
+        self,
+        bin_file: BinaryIO,
+        token_dtype: np.dtype,
+        eod_token_id: int,
+        tokens_batch: list[list[int]],
+        sequence_lengths: list[int],
+    ) -> None:
         """Write tokens to the .bin file
         Args:
             tokens_batch (list[list[int]]): The batch of tokens to write
         """
         if self.append_eod:
-            tokens_batch = [[*tokens, self.eod_token_id] for tokens in tokens_batch]
+            tokens_batch = [[*tokens, eod_token_id] for tokens in tokens_batch]
         sequence_lengths.extend([len(tokens) for tokens in tokens_batch])
-        tokens_batch = np.concatenate([np.array(tokens, dtype=self.token_dtype) for tokens in tokens_batch])
-        self.bin_file.write(tokens_batch.tobytes(order="C"))
+        tokens_batch = np.concatenate([np.array(tokens, dtype=token_dtype) for tokens in tokens_batch])
+        bin_file.write(tokens_batch.tobytes(order="C"))
 
-    def close(self, file_prefix: str, sequence_lengths: list[int]) -> None:
-        """Close and save the .bin & .idx files"""
-
-        self.bin_file.close()
+    def write_idx_data(
+        self, file_prefix: str, token_size: int, token_dtype_code: int, sequence_lengths: list[int]
+    ) -> None:
+        """Write the .idx file data"""
 
         # Save .idx file
         # This file has:
         ## 9 Bytes from the _INDEX_HEADER
-        ## 8 Byte of metadata (Just a "1")
+        ## 8 Bytes from the version (Just a "1")
         ## 1 Byte from the token_dtype_code
         ## 8 Bytes from the number of sequences
         ## 8 Bytes from the number of documents
@@ -182,7 +190,7 @@ class MegatronTokenizerWriter(BaseWriter):
             # Version
             idx_file.write(struct.pack("<Q", 1))
             # Numeric code for the DType
-            idx_file.write(struct.pack("<B", self.token_dtype_code))
+            idx_file.write(struct.pack("<B", token_dtype_code))
 
             # Number of sequences in the dataset
             sequence_count = len(sequence_lengths)
@@ -198,7 +206,7 @@ class MegatronTokenizerWriter(BaseWriter):
             idx_file.write(sequence_lengths.tobytes(order="C"))
 
             # Byte offsets for all sequences
-            sequence_pointers = np.array(self._sequence_pointers(sequence_lengths, self.token_size), dtype=np.int64)
+            sequence_pointers = np.array(self._sequence_pointers(sequence_lengths, token_size), dtype=np.int64)
             idx_file.write(sequence_pointers.tobytes(order="C"))
 
             # Sequence indices marking the end of each document
