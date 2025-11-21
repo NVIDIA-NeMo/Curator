@@ -78,14 +78,7 @@ Fix Unicode issues, standardize spacing, and remove URLs
 
 ## Deduplication
 
-<!--
-TODO: Deduplication links to "Exact Duplicate Removal," "Fuzzy Duplicate Removal," and "Semantic Deduplication" pages.
-They are a bit inconsistent from each other.
-The exact and fuzzy pages only show how to run the duplicate identification portion of the pipeline (not how to remove the duplicates) and are pretty minimal,
-while the semantic page is much more in depth and includes both identification and removal of duplicates.
--->
-
-Remove duplicate and near-duplicate documents efficiently from your text datasets.
+Remove duplicate and near-duplicate documents efficiently from your text datasets. All deduplication methods support both identification (finding duplicates) and removal (filtering them out) workflows.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
@@ -93,16 +86,17 @@ Remove duplicate and near-duplicate documents efficiently from your text dataset
 :::{grid-item-card} {octicon}`git-pull-request;1.5em;sd-mr-1` Exact Duplicate Removal
 :link: deduplication/exact
 :link-type: doc
-Identify character-for-character duplicates using hashing
+Identify and remove character-for-character duplicates using MD5 hashing
 +++
 {bdg-secondary}`hashing`
 {bdg-secondary}`fast`
+{bdg-secondary}`gpu-accelerated`
 :::
 
 :::{grid-item-card} {octicon}`git-compare;1.5em;sd-mr-1` Fuzzy Duplicate Removal
 :link: deduplication/fuzzy
 :link-type: doc
-Identify near-duplicates using MinHash and LSH
+Identify and remove near-duplicates using MinHash and LSH similarity
 +++
 {bdg-secondary}`minhash`
 {bdg-secondary}`lsh`
@@ -112,7 +106,7 @@ Identify near-duplicates using MinHash and LSH
 :::{grid-item-card} {octicon}`repo-clone;1.5em;sd-mr-1` Semantic Deduplication
 :link: deduplication/semdedup
 :link-type: doc
-Remove semantically similar documents using embeddings
+Identify and remove semantically similar documents using embeddings and clustering
 +++
 {bdg-secondary}`embeddings`
 {bdg-secondary}`meaning-based`

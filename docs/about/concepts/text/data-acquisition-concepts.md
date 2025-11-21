@@ -262,7 +262,7 @@ Data acquisition leverages distributed computing frameworks for scalable process
 Data acquisition produces a standardized output that integrates seamlessly with Curator's {ref}`Data Loading Concepts <about-concepts-text-data-loading>`:
 
 ```{note}
-Data acquisition includes basic content-level deduplication during extraction (e.g., removing duplicate HTML content within individual web pages). This is separate from the main deduplication pipeline stages (exact, fuzzy, and semantic deduplication) that operate on the full dataset after acquisition.
+Data acquisition includes basic content-level deduplication during extraction (such as removing duplicate HTML content within individual web pages). This is separate from the main deduplication pipeline stages (exact, fuzzy, and semantic deduplication) that operate on the full dataset after acquisition.
 ```
 
 ```python

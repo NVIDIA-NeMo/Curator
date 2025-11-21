@@ -23,20 +23,26 @@ NeMo Curator provides comprehensive text curation capabilities to prepare high-q
 
 The following diagram provides a high-level outline of NeMo Curator's text curation architecture.
 
-<!--
-TODO:
-Architecture diagram is out of date
-- Mentions Dask
-- Does not mention Ray
-- Mentions LLM NIM/Generate Synthetic Data which are not supported in 25.09 (but will be supported in 26.01)
-- Mentions PII removal which is not supported in 25.09
-- Mentions Task Decontamination which is not supported in 25.09
-- Mentions LLM/Reward Model/Embedding NIM which is not supported in 25.09
-- Mentions Blending/Shuffling which is not supported in 25.09
--->
+```{mermaid}
+flowchart LR
+    A["Data Sources<br/>(Cloud, Local,<br/>Common Crawl, arXiv,<br/>Wikipedia)"] --> B["Data Acquisition<br/>& Loading"]
+    B --> C["Content Processing<br/>& Cleaning"]
+    C --> D["Quality Assessment<br/>& Filtering"]
+    D --> E["Deduplication<br/>(Exact, Fuzzy,<br/>Semantic)"]
+    E --> F["Curated Dataset<br/>(JSONL/Parquet)"]
+    
+    G["Ray + RAPIDS<br/>(GPU-accelerated)"] -.->|"Distributed Execution"| B
+    G -.->|"Distributed Execution"| C
+    G -.->|"GPU Acceleration"| D
+    G -.->|"GPU Acceleration"| E
 
-```{image} ../about/concepts/text/_images/text-processing-diagram.png
-:alt: High-level outline of NeMo Curator's text curation architecture
+    classDef stage fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef infra fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#000
+
+    class A,B,C,D,E stage
+    class F output
+    class G infra
 ```
 
 ---
