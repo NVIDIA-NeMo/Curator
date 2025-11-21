@@ -125,12 +125,14 @@ class TestTokenSplitterStage:
         """Test that process preserves original metadata fields."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
 
-        df = pd.DataFrame({
-            "text": ["Some text"],
-            "url": ["https://example.com"],
-            "title": ["Test Title"],
-            "metadata": ["extra info"],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["Some text"],
+                "url": ["https://example.com"],
+                "title": ["Test Title"],
+                "metadata": ["extra info"],
+            }
+        )
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
         result = stage.process(batch)
@@ -146,10 +148,12 @@ class TestTokenSplitterStage:
         """Test process method with multiple documents."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)
 
-        df = pd.DataFrame({
-            "text": ["First document text", "Second document text", "Third document text"],
-            "doc_id": [1, 2, 3],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["First document text", "Second document text", "Third document text"],
+                "doc_id": [1, 2, 3],
+            }
+        )
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
         result = stage.process(batch)

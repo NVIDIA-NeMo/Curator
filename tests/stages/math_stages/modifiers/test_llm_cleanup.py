@@ -111,11 +111,13 @@ class MockVLLMModel:
         }
         is_qwen3 = "Qwen3" in self.model or "qwen3" in self.model.lower()
         if is_qwen3:
-            sampling_kwargs.update({
-                "top_p": self.top_p,
-                "top_k": self.top_k,
-                "min_p": self.min_p,
-            })
+            sampling_kwargs.update(
+                {
+                    "top_p": self.top_p,
+                    "top_k": self.top_k,
+                    "min_p": self.min_p,
+                }
+            )
         else:
             sampling_kwargs["top_p"] = self.top_p
         self._sampling_params = MockSamplingParams(**sampling_kwargs)
@@ -134,6 +136,7 @@ class MockVLLMModel:
         if self._llm is None:
             msg = "Model not initialized. Call setup() first."
             raise RuntimeError(msg)
+
         # Return a mock tokenizer with apply_chat_template method
         # The template should extract the user message content for the mock to work correctly
         def mock_apply_chat_template(messages: list[dict[str, str]], **kwargs: Any) -> str:  # noqa: ARG001, ANN401
@@ -221,9 +224,7 @@ class TestLLMCleanupStage:
 
     def test_inputs_outputs_classification_mode(self):
         """Test inputs and outputs methods in classification mode."""
-        stage = LLMCleanupStage(
-            model="test-model", system_prompt="Classify: {text}", classification=True
-        )
+        stage = LLMCleanupStage(model="test-model", system_prompt="Classify: {text}", classification=True)
 
         inputs = stage.inputs()
         outputs = stage.outputs()
@@ -244,9 +245,7 @@ class TestLLMCleanupStage:
 
     def test_setup_qwen3_model(self):
         """Test setup method with Qwen3 model (special sampling params)."""
-        stage = LLMCleanupStage(
-            model="Qwen/Qwen3-30B-A3B", system_prompt="Clean: {text}", top_k=10, min_p=0.1
-        )
+        stage = LLMCleanupStage(model="Qwen/Qwen3-30B-A3B", system_prompt="Clean: {text}", top_k=10, min_p=0.1)
 
         stage.setup()
 
@@ -268,9 +267,7 @@ class TestLLMCleanupStage:
 
     def test_setup_with_cache_dir(self):
         """Test setup method with cache_dir specified."""
-        stage = LLMCleanupStage(
-            model="test-model", system_prompt="Clean: {text}", cache_dir="/test/cache"
-        )
+        stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}", cache_dir="/test/cache")
 
         stage.setup()
 
@@ -279,9 +276,7 @@ class TestLLMCleanupStage:
 
     def test_setup_with_max_tokens(self):
         """Test setup method with max_tokens specified."""
-        stage = LLMCleanupStage(
-            model="test-model", system_prompt="Clean: {text}", max_tokens=500
-        )
+        stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}", max_tokens=500)
 
         stage.setup()
 
@@ -316,9 +311,7 @@ class TestLLMCleanupStage:
 
     def test_process_classification_mode(self):
         """Test process method in classification mode."""
-        stage = LLMCleanupStage(
-            model="test-model", system_prompt="Classify: {text}", classification=True
-        )
+        stage = LLMCleanupStage(model="test-model", system_prompt="Classify: {text}", classification=True)
         stage.setup()
 
         df = pd.DataFrame({"text": ["Some text to classify"]})
@@ -349,12 +342,14 @@ class TestLLMCleanupStage:
         stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}")
         stage.setup()
 
-        df = pd.DataFrame({
-            "text": ["Some text"],
-            "url": ["https://example.com"],
-            "title": ["Test Title"],
-            "metadata": ["extra info"],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["Some text"],
+                "url": ["https://example.com"],
+                "title": ["Test Title"],
+                "metadata": ["extra info"],
+            }
+        )
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
         result = stage.process(batch)
@@ -391,10 +386,12 @@ class TestLLMCleanupStage:
         stage.setup()
 
         # Create data with n_tokens field
-        df = pd.DataFrame({
-            "text": ["Short text", "Very long text that exceeds threshold"],
-            "n_tokens": [100, 900],  # Second exceeds 80% of 1000 = 800
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["Short text", "Very long text that exceeds threshold"],
+                "n_tokens": [100, 900],  # Second exceeds 80% of 1000 = 800
+            }
+        )
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
         result = stage.process(batch)
@@ -412,10 +409,12 @@ class TestLLMCleanupStage:
         )
         stage.setup()
 
-        df = pd.DataFrame({
-            "text": ["Very long text 1", "Very long text 2"],
-            "n_tokens": [900, 950],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["Very long text 1", "Very long text 2"],
+                "n_tokens": [900, 950],
+            }
+        )
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
         result = stage.process(batch)
@@ -434,10 +433,12 @@ class TestLLMCleanupStage:
         )
         stage.setup()
 
-        df = pd.DataFrame({
-            "text": ["Text 1", "Text 2", "Text 3"],
-            "n_tokens": [300, 100, 200],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["Text 1", "Text 2", "Text 3"],
+                "n_tokens": [300, 100, 200],
+            }
+        )
         batch = DocumentBatch(data=df, task_id="test", dataset_name="test")
 
         result = stage.process(batch)

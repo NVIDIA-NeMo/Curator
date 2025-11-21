@@ -20,7 +20,7 @@ from loguru import logger
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.math import MathContentExtractor
+from nemo_curator.stages.math.download.extract import MathContentExtractor
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.download.base.extract import DocumentExtractStage
 from nemo_curator.stages.text.io.reader import ParquetReader
@@ -33,19 +33,22 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
     p.add_stage(
         ParquetReader(file_paths=input_glob).with_(
             {
-                "file_partitioning": {"resources": Resources(cpus=0.1)},
-                "parquet_reader": {"resources": Resources(cpus=0.1)},
+                "file_partitioning": {"resources": Resources(cpus=1.0)},
+                "parquet_reader": {"resources": Resources(cpus=1.0)},
             }
         )
     )
 
     p.add_stage(
-        DocumentExtractStage(extractor=MathContentExtractor(), add_filename_column=False).with_(
-            resources=Resources(cpus=1)
-        )
+        DocumentExtractStage(
+            extractor=MathContentExtractor(
+                binary_column="binary_content", url_column="url", mime_type_column="content_mime_type"
+            ),
+            add_filename_column=False,
+        ).with_(resources=Resources(cpus=1.0))
     )
 
-    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=0.1)))
+    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=1.0)))
 
     return p
 
@@ -53,7 +56,14 @@ def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
 def report_extraction_stats(output_dir: str) -> None:
     """Optional: Report extraction statistics by reading output with Ray Data."""
     try:
-        ds = ray.data.read_json(f"{output_dir}/*.jsonl")
+        from nemo_curator.utils.file_utils import get_all_file_paths_under
+
+        jsonl_files = get_all_file_paths_under(output_dir, keep_extensions=[".jsonl"])
+        if not jsonl_files:
+            logger.debug(f"No JSONL files found in {output_dir}")
+            return
+
+        ds = ray.data.read_json(jsonl_files)
         total = ds.count()
         html_docs = ds.filter(lambda row: row.get("type") == "html").count()
         html_failed = ds.filter(

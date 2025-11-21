@@ -149,25 +149,36 @@ def main() -> None:
         duplicate_ids_path = os.path.join(args.duplicate_ids_dir, "FuzzyDuplicateIds")
         id_generator_path = os.path.join(args.duplicate_ids_dir, "fuzzy_id_generator.json")
 
-        logger.info("Running text duplicates removal workflow to remove duplicates...")
-        removal_workflow = TextDuplicatesRemovalWorkflow(
-            input_path=args.input,
-            ids_to_remove_path=duplicate_ids_path,
-            output_path=args.output,
-            input_filetype=args.input_filetype,
-            input_file_extensions=input_file_extensions,
-            input_id_field="_curator_dedup_id",
-            ids_to_remove_duplicate_id_field="_curator_dedup_id",
-            input_blocksize=args.input_blocksize,
-            id_generator_path=id_generator_path,
-        )
-        removal_workflow.run()
+        # Check if duplicates were found
+        if not os.path.exists(id_generator_path):
+            logger.info("No duplicates found. Copying input to output directory...")
+            import shutil
+
+            if os.path.exists(args.output):
+                shutil.rmtree(args.output)
+            shutil.copytree(args.input, args.output)
+            logger.info(f"All documents are unique. Copied {args.input} → {args.output}")
+        else:
+            logger.info("Running text duplicates removal workflow to remove duplicates...")
+            removal_workflow = TextDuplicatesRemovalWorkflow(
+                input_path=args.input,
+                ids_to_remove_path=duplicate_ids_path,
+                output_path=args.output,
+                input_filetype=args.input_filetype,
+                input_file_extensions=input_file_extensions,
+                input_id_field="_curator_dedup_id",
+                ids_to_remove_duplicate_id_field="_curator_dedup_id",
+                input_blocksize=args.input_blocksize,
+                id_generator_path=id_generator_path,
+            )
+            removal_workflow.run()
 
         logger.info("Pipeline completed successfully.")
         logger.info(f"Deduplication complete! Deduplicated output: {args.output}")
 
     finally:
         ray_client.stop()
+
 
 if __name__ == "__main__":
     main()
