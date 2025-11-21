@@ -111,16 +111,21 @@ class MegatronTokenizerWriter(BaseWriter):
 
         self.bin_file = self.fs.open(file_prefix + ".bin", "wb")
 
-        for batch in batched(df[self.text_field], self.tokenization_batch_size):
-            tokens_batch = self.tokenizer.batch_encode_plus(
-                batch,
-                padding=False,
-                truncation=False,
-                add_special_tokens=False,
-                return_token_type_ids=False,
-                return_attention_mask=False,
-            ).input_ids
-            self.write_data(tokens_batch, sequence_lengths)
+        try:
+            for batch in batched(df[self.text_field], self.tokenization_batch_size):
+                tokens_batch = self.tokenizer.batch_encode_plus(
+                    batch,
+                    padding=False,
+                    truncation=False,
+                    add_special_tokens=False,
+                    return_token_type_ids=False,
+                    return_attention_mask=False,
+                ).input_ids
+                self.write_data(tokens_batch, sequence_lengths)
+        except Exception as e:
+            logger.error(f"Error while writing tokens to {file_prefix}: {e}")
+            self.bin_file.close()
+            raise
 
         self.close(file_prefix, sequence_lengths)
 
