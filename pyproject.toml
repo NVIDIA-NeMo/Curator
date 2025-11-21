@@ -187,7 +187,6 @@ override-dependencies = [
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "transformers==4.55.2",
 ]
 
 
