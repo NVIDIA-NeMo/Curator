@@ -13,12 +13,12 @@
 # limitations under the License.
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from itertools import islice
 from typing import Any
 
 
-def batched(iterable: Iterable[Any], n: int) -> tuple[list[Any]]:
+def batched(iterable: Iterable[Any], n: int) -> Iterator[tuple[Any, ...]]:
     """
     Batch an iterable into lists of size n.
 
@@ -27,7 +27,7 @@ def batched(iterable: Iterable[Any], n: int) -> tuple[list[Any]]:
       n (int): The size of the batch
 
     Returns:
-        tuple[list[Any]]: A tuple of lists, each containing n elements from the iterable
+        Iterator[tuple[...]]: An iterator of tuples, each containing n elements from the iterable
     """
     if n < 1:
         msg = "n must be at least one"

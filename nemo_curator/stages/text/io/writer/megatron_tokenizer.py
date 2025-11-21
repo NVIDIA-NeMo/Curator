@@ -44,6 +44,9 @@ class MegatronTokenizerWriter(BaseWriter):
     local_files_only: bool = True
     add_special_tokens: bool = False
 
+    # Disable the inherited fields attribute
+    fields: list[str] | None = field(default=None, init=False, repr=False)
+
     name: str = "megatron_tokenizer_writer"
     file_extension: list[str] = field(default_factory=lambda: FILETYPE_TO_DEFAULT_EXTENSIONS["megatron"])
 
@@ -52,7 +55,6 @@ class MegatronTokenizerWriter(BaseWriter):
             msg = "model_identifier is required and must be provided"
             raise ValueError(msg)
         super().__post_init__()
-        self.sequence_lengths = []
 
     def setup_on_node(self, _node_info: NodeInfo | None = None, _worker_metadata: WorkerMetadata = None) -> None:
         try:
@@ -66,7 +68,7 @@ class MegatronTokenizerWriter(BaseWriter):
             msg = f"Failed to download {self.model_identifier}"
             raise RuntimeError(msg) from e
 
-    def process(self, task: DocumentBatch) -> FileGroupTask:
+    def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
@@ -74,6 +76,8 @@ class MegatronTokenizerWriter(BaseWriter):
             local_files_only=self.local_files_only,
         )
 
+    def process(self, task: DocumentBatch) -> FileGroupTask:
+        sequence_lengths: list[int] = []
         # Get source files from metadata for deterministic naming
         if source_files := task._metadata.get("source_files"):
             filename = writer_utils.get_deterministic_hash(source_files, task.task_id)
@@ -120,11 +124,11 @@ class MegatronTokenizerWriter(BaseWriter):
                 return_token_type_ids=False,
                 return_attention_mask=False,
             ).input_ids
-            self.write_data(tokens_batch)
+            self.write_data(tokens_batch, sequence_lengths)
 
-        self.close(file_prefix)
+        self.close(file_prefix, sequence_lengths)
 
-        logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(self.sequence_lengths)} tokens)")
+        logger.debug(f"Written batch to {file_prefix} with {num_docs} documents ({sum(sequence_lengths)} tokens)")
 
         return FileGroupTask(
             task_id=task.task_id,
@@ -134,22 +138,25 @@ class MegatronTokenizerWriter(BaseWriter):
                 **task._metadata,
                 "format": "megatron",
                 "file_prefix": file_prefix,
+                "num_tokens": sum(sequence_lengths),
+                "token_size": self.token_size,
+                "eod_token_id": self.eod_token_id,
             },
             _stage_perf=task._stage_perf,
         )
 
-    def write_data(self, tokens_batch: list[list[int]]) -> None:
+    def write_data(self, tokens_batch: list[list[int]], sequence_lengths: list[int]) -> None:
         """Write tokens to the .bin file
         Args:
             tokens_batch (list[list[int]]): The batch of tokens to write
         """
         if self.append_eod:
             tokens_batch = [[*tokens, self.eod_token_id] for tokens in tokens_batch]
-        self.sequence_lengths.extend([len(tokens) for tokens in tokens_batch])
+        sequence_lengths.extend([len(tokens) for tokens in tokens_batch])
         tokens_batch = np.concatenate([np.array(tokens, dtype=self.token_dtype) for tokens in tokens_batch])
         self.bin_file.write(tokens_batch.tobytes(order="C"))
 
-    def close(self, file_prefix: str) -> None:
+    def close(self, file_prefix: str, sequence_lengths: list[int]) -> None:
         """Close and save the .bin & .idx files"""
 
         self.bin_file.close()
@@ -177,22 +184,20 @@ class MegatronTokenizerWriter(BaseWriter):
             idx_file.write(struct.pack("<B", self.token_dtype_code))
 
             # Number of sequences in the dataset
-            sequence_count = len(self.sequence_lengths)
+            sequence_count = len(sequence_lengths)
             idx_file.write(struct.pack("<Q", sequence_count))
 
-            document_indices = np.arange(len(self.sequence_lengths) + 1, dtype=np.int64)
+            document_indices = np.arange(len(sequence_lengths) + 1, dtype=np.int64)
             # Number of documents in the dataset
             document_count = len(document_indices)
             idx_file.write(struct.pack("<Q", document_count))
 
             # Number of tokens per sequence
-            sequence_lengths = np.array(self.sequence_lengths, dtype=np.int32)
+            sequence_lengths = np.array(sequence_lengths, dtype=np.int32)
             idx_file.write(sequence_lengths.tobytes(order="C"))
 
             # Byte offsets for all sequences
-            sequence_pointers = np.array(
-                self._sequence_pointers(self.sequence_lengths, self.token_size), dtype=np.int64
-            )
+            sequence_pointers = np.array(self._sequence_pointers(sequence_lengths, self.token_size), dtype=np.int64)
             idx_file.write(sequence_pointers.tobytes(order="C"))
 
             # Sequence indices marking the end of each document
