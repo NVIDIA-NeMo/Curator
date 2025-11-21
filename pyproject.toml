@@ -145,7 +145,6 @@ video_cuda12 = [
     "torch<=2.8.0",
     "torchaudio",
     "vllm==0.11.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "transformers==4.55.2",
 ]
 
 # All dependencies
@@ -187,6 +186,7 @@ override-dependencies = [
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
+    "transformers>=4.55.2",
 ]
 
 
