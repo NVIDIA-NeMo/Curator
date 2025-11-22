@@ -205,34 +205,34 @@ def add_extract_knowledge_postprocessing_pipeline(pipeline: Pipeline, llm_respon
         ),
     )
 
-    # # Remove markdown formatting
-    # pipeline.add_stage(
-    #     Modify(
-    #         modifier_fn=MarkdownRemover(),
-    #         input_fields=llm_response_field,
-    #     ),
-    # )
+    # Remove markdown formatting
+    pipeline.add_stage(
+        Modify(
+            modifier_fn=MarkdownRemover(),
+            input_fields=llm_response_field,
+        ),
+    )
 
-    # # Remove passage lines
-    # pipeline.add_stage(
-    #     Modify(
-    #         modifier_fn=LineRemover(patterns=["Passage:", "Passage 1:", "Passage 2:", "Passage 3:"]),
-    #         input_fields=llm_response_field,
-    #     ),
-    # )
+    # Remove passage lines
+    pipeline.add_stage(
+        Modify(
+            modifier_fn=LineRemover(patterns=["Passage:", "Passage 1:", "Passage 2:", "Passage 3:"]),
+            input_fields=llm_response_field,
+        ),
+    )
 
-    # # Filter out documents that are too short (document level)
-    # pipeline.add_stage(
-    #     ScoreFilter(
-    #         TokenCountFilter(
-    #             tokenizer=args.tokenizer,
-    #             hf_token=args.hf_token,
-    #             min_tokens=min_document_tokens,
-    #         ),
-    #         text_field=llm_response_field,
-    #         score_field="rephrased_document_token_count",
-    #     ),
-    # )
+    # Filter out documents that are too short (document level)
+    pipeline.add_stage(
+        ScoreFilter(
+            TokenCountFilter(
+                tokenizer=args.tokenizer,
+                hf_token=args.hf_token,
+                min_tokens=min_document_tokens,
+            ),
+            text_field=llm_response_field,
+            score_field="rephrased_document_token_count",
+        ),
+    )
 
     return pipeline
 

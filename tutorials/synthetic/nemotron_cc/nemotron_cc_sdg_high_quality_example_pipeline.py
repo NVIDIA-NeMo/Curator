@@ -308,15 +308,16 @@ def main() -> None:
         text_field="text",
         system_prompt=task_config["system_prompt"],
         user_prompt_template=task_config["prompt_template"],
-        min_document_tokens=task_config["min_document_tokens"],
         # DEBUGGING
+        # min_document_tokens=task_config["min_document_tokens"],
         # min_segment_tokens=task_config["min_segment_tokens"],
+        min_document_tokens=5,
         min_segment_tokens=5,
         max_input_tokens=task_config["max_input_tokens"],
         args=args,
     )
 
-    ######################## QA Stage ########################
+    ######################## Diverse QA Stage ########################
     if args.task == "diverse_qa":
         # Add diverse QA stage
         pipeline.add_stage(
@@ -336,7 +337,7 @@ def main() -> None:
             args=args,
         )
 
-    ######################## QA Stage ########################
+    ######################## Distill Stage ########################
     elif args.task == "distill":
         # Add distill stage
         pipeline.add_stage(
@@ -349,12 +350,12 @@ def main() -> None:
             )
         )
 
-        # # Add distill postprocessing stages
-        # pipeline = add_distill_postprocessing_pipeline(
-        #     pipeline=pipeline, 
-        #     llm_response_field="distill", 
-        #     args=args,
-        # )
+        # Add distill postprocessing stages
+        pipeline = add_distill_postprocessing_pipeline(
+            pipeline=pipeline, 
+            llm_response_field="distill", 
+            args=args,
+        )
 
     # ######################## Extract Knowledge Stage ########################
     elif args.task == "extract_knowledge":
@@ -376,25 +377,25 @@ def main() -> None:
             args=args,
         )
 
-    # ######################## Knowledge List Stage ########################
-    # elif args.task == "knowledge_list":
-    #     # Add knowledge list stage
-    #     pipeline.add_stage(
-    #         KnowledgeListStage(
-    #             client=llm_client,
-    #             model_name=args.model_name,
-    #             generation_config=generation_config,
-    #             input_field="text",
-    #             output_field="knowledge_list",
-    #         )
-    #     )
+    ######################## Knowledge List Stage ########################
+    elif args.task == "knowledge_list":
+        # Add knowledge list stage
+        pipeline.add_stage(
+            KnowledgeListStage(
+                client=llm_client,
+                model_name=args.model_name,
+                generation_config=generation_config,
+                input_field="text",
+                output_field="knowledge_list",
+            )
+        )
 
-    #     # Add knowledge list postprocessing stages
-    #     pipeline = add_knowledge_list_postprocessing_pipeline(
-    #         pipeline=pipeline, 
-    #         llm_response_field="knowledge_list", 
-    #         args=args,
-    #     )
+        # Add knowledge list postprocessing stages
+        pipeline = add_knowledge_list_postprocessing_pipeline(
+            pipeline=pipeline, 
+            llm_response_field="knowledge_list", 
+            args=args,
+        )
 
     ### Write output
     # Add JSONL writer to save the generated data
