@@ -14,6 +14,7 @@
 
 import atexit
 import os
+import signal
 import socket
 import subprocess
 from dataclasses import dataclass, field
@@ -143,8 +144,17 @@ class RayClient:
 
     def stop(self) -> None:
         if self.ray_process:
-            self.ray_process.kill()
-            self.ray_process.wait()
+            # Kill the entire process group to ensure child processes are terminated
+            try:
+                os.killpg(os.getpgid(self.ray_process.pid), signal.SIGTERM)
+                self.ray_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Force kill if graceful termination doesn't work
+                os.killpg(os.getpgid(self.ray_process.pid), signal.SIGKILL)
+                self.ray_process.wait()
+            except ProcessLookupError:
+                # Process or process group already terminated
+                pass
             # Reset the environment variable for RAY_ADDRESS
             os.environ.pop("RAY_ADDRESS", None)
             # Currently there is no good way of stopping a particular Ray cluster. https://github.com/ray-project/ray/issues/54989

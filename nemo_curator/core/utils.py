@@ -127,8 +127,10 @@ def init_cluster(  # noqa: PLR0913
 
     if stdouterr_capture_file:
         with open(stdouterr_capture_file, "w") as f:
-            proc = subprocess.Popen(ray_command, shell=False, stdout=f, stderr=subprocess.STDOUT)  # noqa: S603
+            proc = subprocess.Popen(  # noqa: S603
+                ray_command, shell=False, stdout=f, stderr=subprocess.STDOUT, start_new_session=True
+            )
     else:
-        proc = subprocess.Popen(ray_command, shell=False)  # noqa: S603
+        proc = subprocess.Popen(ray_command, shell=False, start_new_session=True)  # noqa: S603
     logger.info(f"Ray start command: {' '.join(ray_command)}")
     return proc
