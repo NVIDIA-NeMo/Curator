@@ -32,6 +32,7 @@ def setup_ray_cluster_and_env(
     num_gpus: int,
     enable_object_spilling: bool,
     ray_log_path: Path,
+    object_store_memory: int | None = None,
 ) -> tuple[RayClient, Path, dict[str, str]]:
     """Setup Ray cluster and environment variables."""
     ray_client, ray_temp_path = start_ray_head(
@@ -39,6 +40,7 @@ def setup_ray_cluster_and_env(
         num_gpus=num_gpus,
         enable_object_spilling=enable_object_spilling,
         ray_log_path=ray_log_path,
+        object_store_memory=object_store_memory,
     )
     verify_ray_responsive(ray_client)
 
@@ -67,21 +69,27 @@ def teardown_ray_cluster_and_env(
             logger.debug("Cleaned up RAY_ADDRESS environment variable")
 
 
-def start_ray_head(
+def start_ray_head(  # noqa: PLR0913
     num_cpus: int,
     num_gpus: int,
     include_dashboard: bool = True,
     enable_object_spilling: bool = False,
     ray_log_path: Path | None = None,
+    object_store_memory: int | None = None,
 ) -> tuple[RayClient, Path]:
+    """Start a Ray head node and return the Ray client and temporary directory."""
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
+
+    # Capture stdout/stderr to a file if provided, otherwise suppress it
+    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
 
     # Check environment variables that might interfere
     ray_address_env = os.environ.get("RAY_ADDRESS")
     if ray_address_env:
         logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
+
     client = RayClient(
         ray_temp_dir=str(short_temp_path),
         include_dashboard=include_dashboard,
@@ -89,9 +97,11 @@ def start_ray_head(
         num_cpus=num_cpus,
         enable_object_spilling=enable_object_spilling,
         ray_dashboard_host="0.0.0.0",  # noqa: S104
+        ray_stdouterr_capture_file=ray_stdouterr_capture_file,
+        object_store_memory=object_store_memory,
     )
-    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
-    client.start(stdouterr_capture_file=ray_stdouterr_capture_file)
+    client.start()
+
     # Wait for Ray client to start, no longer than timeout
     wait_for_ray_client_start(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
     logger.debug(f"RayClient started successfully: pid={client.ray_process.pid}, port={client.ray_port}")

@@ -28,11 +28,13 @@ RUN apt-get update \
 
 # Add dependencies for benchmarking to the Curator Python environment
 RUN cd /opt/Curator \
+ && uv sync --extra all \
  && uv add \
     GitPython \
     oauth2client \
     pydrive2 \
     pynvml \
+    pyyaml \
     rich \
   && uv cache prune
 

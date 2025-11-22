@@ -14,6 +14,7 @@
 
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 
@@ -78,3 +79,29 @@ def find_result(results: dict[str, Any], key: str, default_value: Any = None) ->
         return results["metrics"].get(key, results.get(key, default_value))
     else:
         return results.get(key, default_value)
+
+
+def get_total_memory_bytes() -> int:
+    """
+    Get the memory limit, respecting Docker/container constraints.
+    Tries cgroup limits first, falls back to system memory.
+    """
+
+    def read_int_from_file(path: str) -> int | None:
+        try:
+            return int(Path(path).read_text().strip())
+        except (FileNotFoundError, ValueError, PermissionError):
+            return None
+
+    # Try cgroup v2 (unified hierarchy)
+    limit = read_int_from_file("/sys/fs/cgroup/memory.max")
+    if limit is not None:
+        return limit
+
+    # Try cgroup v1
+    limit = read_int_from_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+    if limit is not None and limit < (1 << 62):  # Check if it's not "unlimited"
+        return limit
+
+    # Fallback: get total physical memory
+    return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
