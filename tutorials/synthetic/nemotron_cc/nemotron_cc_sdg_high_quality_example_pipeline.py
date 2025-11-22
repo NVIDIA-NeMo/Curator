@@ -18,7 +18,14 @@ import os
 import time
 
 import pandas as pd
-from nemotroncc_pipelines import add_preprocessing_pipeline, add_wikipedia_postprocessing_pipeline
+from nemotron_cc_pipelines import (
+    add_distill_postprocessing_pipeline,
+    add_diverse_qa_postprocessing_pipeline,
+    add_extract_knowledge_postprocessing_pipeline,
+    add_knowledge_list_postprocessing_pipeline,
+    add_preprocessing_pipeline,
+)
+from transformers import AutoTokenizer
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
@@ -26,11 +33,69 @@ from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
-    WikipediaParaphrasingStage,
+    DistillStage,
+    DiverseQAStage,
+    ExtractKnowledgeStage,
+    KnowledgeListStage,
+)
+from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
+    DISTILL_PROMPT_TEMPLATE,
+    DIVERSE_QA_PROMPT_TEMPLATE,
+    EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
+    KNOWLEDGE_LIST_PROMPT_TEMPLATE,
+    NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
+    NEMOTRON_CC_SYSTEM_PROMPT,
 )
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks.document import DocumentBatch
+
+# Threshold used to bucket and filter input examples
+BUCKETED_RESULTS_THRESHOLD = 11
+
+TASK_CONFIGS = {
+    "diverse_qa": {
+        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "prompt_template": DIVERSE_QA_PROMPT_TEMPLATE,
+        "min_document_tokens": 30,
+        "min_segment_tokens": 30,
+        "max_input_tokens": 1000,
+        "max_output_tokens": 600,
+    },
+    "distill": {
+        "system_prompt": NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
+        "prompt_template": DISTILL_PROMPT_TEMPLATE,
+        "min_document_tokens": 30,
+        "min_segment_tokens": 10,
+        "max_input_tokens": 2000,
+        "max_output_tokens": 1600,
+    },
+    "extract_knowledge": {
+        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "prompt_template": EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
+        "min_document_tokens": 30,
+        "min_segment_tokens": 30,
+        "max_input_tokens": 1400,
+        "max_output_tokens": 1400,
+    },
+    "knowledge_list": {
+        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "prompt_template": KNOWLEDGE_LIST_PROMPT_TEMPLATE,
+        "min_document_tokens": 30,
+        "min_segment_tokens": 30,
+        "max_input_tokens": 1000,
+        "max_output_tokens": 600,
+    },
+}
+
+GENERATION_CONFIG = {
+    "MAX_INPUT_TOKENS": 2000,
+    "MAX_OUTPUT_TOKENS": 1600,
+    "TOP_K": 0,
+    "TOP_P": 0.9,
+    "END_STRINGS": "['</s>']",
+    "TEMPERATURE": 0.5,
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,6 +118,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-retries", type=int, default=3, help="Maximum number of retries for failed requests")
     parser.add_argument("--base-delay", type=float, default=1.0, help="Base delay between retries (in seconds)")
 
+    # Task settings
+    # Model Configuration
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="diverse_qa",
+        help="Task to run",
+        choices=["diverse_qa", "distill", "extract_knowledge", "knowledge_list"],
+    )
+
     # Model Configuration
     parser.add_argument(
         "--model-name",
@@ -60,15 +135,11 @@ def parse_args() -> argparse.Namespace:
         default="meta/llama-3.3-70b-instruct",
         help="Name of the model to use for generation",
     )
-
-    # Generation Configuration
-    parser.add_argument("--num-samples", type=int, default=100, help="Number of samples to generate")
-    parser.add_argument("--no-filter-languages", action="store_true", help="Do not filter languages")
     parser.add_argument(
-        "--output-path",
+        "--tokenizer",
         type=str,
-        default="./synthetic_output",
-        help="Directory path to save the generated synthetic data in JSONL format",
+        default=None,
+        help="Name of the tokenizer to use for generation",
     )
 
     # Generation Configuration
@@ -83,14 +154,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.9,
+        default=None,
         help="Sampling temperature (higher = more random/diverse, lower = more deterministic). Range: 0.0-2.0",
     )
     parser.add_argument(
         "--top-p",
         type=float,
-        default=0.95,
+        default=None,
         help="Nucleus sampling parameter (considers tokens with cumulative probability top_p). Range: 0.0-1.0",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="Top k tokens to consider for sampling. Range: 0-1000",
     )
     parser.add_argument(
         "--seed",
@@ -101,8 +178,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=2048,
+        default=None,
         help="Maximum number of tokens to generate per sample",
+    )
+    parser.add_argument(
+        "--end-strings",
+        type=str,
+        default=None,
+        help="End strings to stop generation",
     )
 
     return parser.parse_args()
@@ -115,6 +198,11 @@ def main() -> None:
 
     args = parse_args()
 
+    # Set tokenizer
+    assert args.tokenizer is not None, "Tokenizer is required"
+    args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    args.hf_token = os.environ.get("HF_TOKEN", "")
+
     # Validate API key
     if not args.api_key:
         msg = (
@@ -123,8 +211,11 @@ def main() -> None:
         )
         raise ValueError(msg)
 
+    # Set task config
+    task_config = TASK_CONFIGS[args.task]
+
     # Create pipeline
-    pipeline = Pipeline(name="wikipedia_paraphrasing", description="Paraphrase the Wikipedia data using Nemotron-CC")
+    pipeline = Pipeline(name=f"nemotron_cc_{args.task}", description=f"Generate {args.task} data using Nemotron-CC")
 
     # Create NeMo Curator Async LLM client for faster concurrent generation
     llm_client = AsyncOpenAIClient(
@@ -136,10 +227,12 @@ def main() -> None:
     )
 
     generation_config = GenerationConfig(
-        temperature=args.temperature,
-        top_p=args.top_p,
+        temperature=args.temperature if args.temperature is not None else GENERATION_CONFIG["TEMPERATURE"],
+        top_p=args.top_p if args.top_p is not None else GENERATION_CONFIG["TOP_P"],
+        top_k=args.top_k if args.top_k is not None else GENERATION_CONFIG["TOP_K"],
+        max_tokens=args.max_tokens if args.max_tokens is not None else GENERATION_CONFIG["MAX_OUTPUT_TOKENS"],
+        stop=args.end_strings if args.end_strings is not None else GENERATION_CONFIG["END_STRINGS"],
         seed=args.seed,
-        max_tokens=args.max_tokens,
     )
 
     input_data = [
@@ -199,41 +292,111 @@ def main() -> None:
         input_tasks.append(input_task)
 
 
+    ### Extract high quality data
     # Filtering the input data, only run with low quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: int(x) <= 11,
+            filter_fn=lambda x: int(x) > BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )
 
+    ### Preprocessing Stages
     # Add preprocessing stages
     pipeline = add_preprocessing_pipeline(
-        pipeline=pipeline, 
-        text_field="text", 
-        min_document_tokens=30, 
-        min_segment_tokens=10, 
+        pipeline=pipeline,
+        text_field="text",
+        system_prompt=task_config["system_prompt"],
+        user_prompt_template=task_config["prompt_template"],
+        min_document_tokens=task_config["min_document_tokens"],
+        # DEBUGGING
+        # min_segment_tokens=task_config["min_segment_tokens"],
+        min_segment_tokens=5,
+        max_input_tokens=task_config["max_input_tokens"],
         args=args,
     )
 
-    # Add wikipedia paraphrasing stage
-    pipeline.add_stage(
-        WikipediaParaphrasingStage(
-            client=llm_client,
-            model_name=args.model_name,
-            generation_config=generation_config,
-            input_field="text",
-            output_field="rephrased",
+    ######################## QA Stage ########################
+    if args.task == "diverse_qa":
+        # Add diverse QA stage
+        pipeline.add_stage(
+            DiverseQAStage(
+                client=llm_client,
+                model_name=args.model_name,
+                generation_config=generation_config,
+                input_field="text",
+                output_field="diverse_qa",
+            )
         )
-    )
 
-    # Add postprocessing stages
-    pipeline = add_wikipedia_postprocessing_pipeline(
-        pipeline=pipeline, 
-        text_field="rephrased", 
-        args=args,
-    )
+        # Add diverse QA postprocessing stages
+        pipeline = add_diverse_qa_postprocessing_pipeline(
+            pipeline=pipeline,
+            llm_response_field="diverse_qa",
+            args=args,
+        )
 
+    ######################## QA Stage ########################
+    elif args.task == "distill":
+        # Add distill stage
+        pipeline.add_stage(
+            DistillStage(
+                client=llm_client,
+                model_name=args.model_name,
+                generation_config=generation_config,
+                input_field="text",
+                output_field="distill",
+            )
+        )
+
+        # # Add distill postprocessing stages
+        # pipeline = add_distill_postprocessing_pipeline(
+        #     pipeline=pipeline, 
+        #     llm_response_field="distill", 
+        #     args=args,
+        # )
+
+    # ######################## Extract Knowledge Stage ########################
+    elif args.task == "extract_knowledge":
+        # Add knowledge extraction stage
+        pipeline.add_stage(
+            ExtractKnowledgeStage(
+                client=llm_client,
+                model_name=args.model_name,
+                generation_config=generation_config,
+                input_field="text",
+                output_field="extract_knowledge",
+            )
+        )
+
+        # Add extract knowledge postprocessing stages
+        pipeline = add_extract_knowledge_postprocessing_pipeline(
+            pipeline=pipeline,
+            llm_response_field="extract_knowledge",
+            args=args,
+        )
+
+    # ######################## Knowledge List Stage ########################
+    # elif args.task == "knowledge_list":
+    #     # Add knowledge list stage
+    #     pipeline.add_stage(
+    #         KnowledgeListStage(
+    #             client=llm_client,
+    #             model_name=args.model_name,
+    #             generation_config=generation_config,
+    #             input_field="text",
+    #             output_field="knowledge_list",
+    #         )
+    #     )
+
+    #     # Add knowledge list postprocessing stages
+    #     pipeline = add_knowledge_list_postprocessing_pipeline(
+    #         pipeline=pipeline, 
+    #         llm_response_field="knowledge_list", 
+    #         args=args,
+    #     )
+
+    ### Write output
     # Add JSONL writer to save the generated data
     pipeline.add_stage(
         JsonlWriter(
@@ -263,7 +426,6 @@ def main() -> None:
 
     # DEBUGGING
     print("results: ", results)
-    # print(stop_here)
 
     # Collect output file paths and read generated data
     output_files = []

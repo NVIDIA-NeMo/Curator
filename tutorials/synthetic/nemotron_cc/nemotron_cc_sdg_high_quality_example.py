@@ -68,6 +68,14 @@ def parse_args() -> argparse.Namespace:
         help="Name of the model to use for generation",
     )
 
+    # Generation Configuration
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default="./synthetic_output",
+        help="Directory path to save the generated synthetic data in JSONL format",
+    )
+
     # LLM Sampling Parameters (for diversity)
     parser.add_argument(
         "--temperature",
