@@ -149,6 +149,7 @@ def run_entry(
     ]
     cmd = entry.get_command_to_run(session_entry_path, benchmark_results_path, path_resolver, dataset_resolver)
     run_id = result_data.get("run_id", f"{entry.name}-{int(time.time())}")
+    ray_client = ray_temp_dir = None
 
     try:
         # Create directories individually
@@ -158,7 +159,7 @@ def run_entry(
         # Set object store memory to 50% of total system memory
         object_store_memory = int(get_total_memory_bytes() * 0.5)
 
-        ray_client, ray_temp_dir, ray_env = setup_ray_cluster_and_env(
+        ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=entry.ray.get("num_cpus", os.cpu_count() or 1),
             num_gpus=entry.ray.get("num_gpus", 0),
             enable_object_spilling=bool(entry.ray.get("enable_object_spilling", False)),
@@ -173,7 +174,6 @@ def run_entry(
             command=cmd,
             timeout=entry.timeout_s,
             stdouterr_path=logs_path / "stdouterr.log",
-            env=ray_env,
             run_id=run_id,
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
