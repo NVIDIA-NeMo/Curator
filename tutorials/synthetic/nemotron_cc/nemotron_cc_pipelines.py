@@ -63,11 +63,8 @@ def add_wikipedia_postprocessing_pipeline(
 
 def add_diverse_qa_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
     """Add DiverseQA postprocessing pipeline."""
-    # DEBUGGING
-    # max_rephrased_tokens = 598
-    # min_document_tokens = 100
     max_rephrased_tokens = 598
-    min_document_tokens = 5
+    min_document_tokens = 100
 
     # Filter by token count (segment level)
     pipeline.add_stage(
@@ -116,11 +113,8 @@ def add_diverse_qa_postprocessing_pipeline(pipeline: Pipeline, llm_response_fiel
 
 def add_distill_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
     """Add Distill postprocessing pipeline."""
-    # DEBUGGING
-    # max_rephrased_tokens = 1598
-    # min_document_tokens = 50
     max_rephrased_tokens = 1598
-    min_document_tokens = 5
+    min_document_tokens = 50
 
     # Filter by token count (segment level)
     pipeline.add_stage(
@@ -189,11 +183,8 @@ def add_distill_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: 
 
 def add_extract_knowledge_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
     """Add ExtractKnowledge postprocessing pipeline."""
-    # DEBUGGING
-    # max_rephrased_tokens = 1398
-    # min_document_tokens = 50
     max_rephrased_tokens = 1398
-    min_document_tokens = 5
+    min_document_tokens = 50
 
     # Filter by token count (segment level)
     pipeline.add_stage(
@@ -241,11 +232,8 @@ def add_extract_knowledge_postprocessing_pipeline(pipeline: Pipeline, llm_respon
 
 def add_knowledge_list_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
     """Add KnowledgeList postprocessing pipeline."""
-    # DEBUGGING
-    # max_rephrased_tokens = 598
-    # min_document_tokens = 50
     max_rephrased_tokens = 598
-    min_document_tokens = 5
+    min_document_tokens = 50
 
     # Filter by token count (segment level)
     pipeline.add_stage(
