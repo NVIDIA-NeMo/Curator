@@ -27,6 +27,7 @@ from nemo_curator.stages.text.modifiers.slicer import Slicer
 from nemo_curator.stages.text.modules.modifier import Modify
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 
+
 def add_preprocessing_pipeline(  # noqa: PLR0913
     pipeline: Pipeline,
     text_field: str,

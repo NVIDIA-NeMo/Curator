@@ -279,7 +279,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             { "text": "The Roman Empire was one of the most powerful civilizations of the ancient world. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 10 },
             { "text": "The Hubble Space Telescope has captured detailed images of distant galaxies. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 15 },
             { "text": "The Eiffel Tower was constructed for the 1889 Exposition Universelle in Paris. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 4 },
-            { "text": "Antarctica contains the vast majority of the Earth’s freshwater ice. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 9 },
+            { "text": "Antarctica contains the vast majority of the Earth's freshwater ice. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 9 },
         ]
         # Divide input_data into batches of 20 each
         batch_size = 5
@@ -308,7 +308,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         )
 
     ### Extract high quality data
-    # Filtering the input data, only run with low quality data
+    # Filtering the input data, only run with high quality data
     pipeline.add_stage(
         Filter(
             filter_fn=lambda x: int(x) > BUCKETED_RESULTS_THRESHOLD,
@@ -436,9 +436,6 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
 
-    # DEBUGGING
-    print("results: ", results)
-
     # Collect output file paths and read generated data
     output_files = []
     all_data_frames = []
@@ -466,7 +463,7 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         print(f"\nFile {i + 1}: {output_files[i]}")
         print(f"Number of documents: {len(df)}")
         print("\nGenerated text (showing first 5):")
-        for j, text in enumerate(df["text"].head(5)):
+        for j, text in enumerate(df.head(5)):
             print(f"Document {j + 1}:")
             print(f"'{text}'")
             print("-" * 40)
