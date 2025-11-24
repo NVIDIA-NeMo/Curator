@@ -42,7 +42,7 @@ pipeline.add_stage(ImageWriterStage(
 ```
 
 - The writer stage creates tar files with curated images
-- Metadata (if updated during curation pipeline) is stored in separate Parquet files alongside tar archives
+- Metadata for each image (including paths, IDs, scores, and processing metadata) is always stored in separate Parquet files alongside tar archives
 - Configurable images per tar file for optimal sharding
 - `deterministic_name=True` ensures reproducible file naming based on input content
 
@@ -64,26 +64,55 @@ from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 # Complete pipeline with filtering
 pipeline = Pipeline(name="image_curation")
 
-# Load images
-pipeline.add_stage(FilePartitioningStage(...))
-pipeline.add_stage(ImageReaderStage(...))
+# Load images from tar archives
+pipeline.add_stage(FilePartitioningStage(
+    file_paths="/input/image_dataset",
+    files_per_partition=1,
+    file_extensions=[".tar"],
+))
 
-# Generate embeddings
-pipeline.add_stage(ImageEmbeddingStage(...))
+pipeline.add_stage(ImageReaderStage(
+    batch_size=100,
+    num_threads=16,
+    num_gpus_per_worker=0.25,
+))
 
-# Filter by quality (removes low aesthetic scores)
-pipeline.add_stage(ImageAestheticFilterStage(score_threshold=0.5))
+# Generate CLIP embeddings (required for filters)
+pipeline.add_stage(ImageEmbeddingStage(
+    model_dir="/models",
+    model_inference_batch_size=32,
+    num_gpus_per_worker=0.25,
+))
 
-# Filter NSFW content (removes high NSFW scores)
-pipeline.add_stage(ImageNSFWFilterStage(score_threshold=0.5))
+# Filter by quality (keeps images with aesthetic_score >= 0.5)
+pipeline.add_stage(ImageAestheticFilterStage(
+    model_dir="/models",
+    score_threshold=0.5,
+    num_gpus_per_worker=0.25,
+))
+
+# Filter NSFW content (keeps images with nsfw_score < 0.5)
+pipeline.add_stage(ImageNSFWFilterStage(
+    model_dir="/models",
+    score_threshold=0.5,
+    num_gpus_per_worker=0.25,
+))
 
 # Save curated results
-pipeline.add_stage(ImageWriterStage(output_dir="/output/curated"))
+pipeline.add_stage(ImageWriterStage(
+    output_dir="/output/curated",
+    images_per_tar=1000,
+    remove_image_data=True,
+))
+
+# Execute the pipeline
+results = pipeline.run()
 ```
 
 - Filtering is built into the stages - no separate filtering step needed
 - Images passing all filters reach the output
 - Thresholds are configurable per stage
+- **Note:** Aesthetic filter keeps images with `score >= threshold` (higher is better), while NSFW filter keeps images with `score < threshold` (lower is safer)
 
 ## Output Format
 

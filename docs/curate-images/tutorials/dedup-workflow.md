@@ -351,7 +351,7 @@ def count_tar_files(directory):
     tar_files = glob(os.path.join(directory, "*.tar"))
     return len(tar_files)
 
-original_count = count_tar_files(INPUT_WDS_DIR)
+original_count = count_tar_files(INPUT_TAR_DIR)
 deduplicated_count = count_tar_files(OUTPUT_DIR)
 
 print(f"Original dataset: {original_count} tar files")
@@ -392,7 +392,7 @@ def run_image_deduplication_workflow():
     embedding_pipeline = Pipeline(name="embedding", description="Generate embeddings")
     
     embedding_pipeline.add_stage(FilePartitioningStage(
-        file_paths=INPUT_WDS_DIR, files_per_partition=1, file_extensions=[".tar"]
+        file_paths=INPUT_TAR_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
     embedding_pipeline.add_stage(ImageReaderStage(
         batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
@@ -428,7 +428,7 @@ def run_image_deduplication_workflow():
     removal_pipeline = Pipeline(name="removal", description="Remove duplicates")
     
     removal_pipeline.add_stage(FilePartitioningStage(
-        file_paths=INPUT_WDS_DIR, files_per_partition=1, file_extensions=[".tar"]
+        file_paths=INPUT_TAR_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
     removal_pipeline.add_stage(ImageReaderStage(
         batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25

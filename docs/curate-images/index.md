@@ -130,6 +130,16 @@ Generate image embeddings using CLIP models.
 
 :::
 
+:::{grid-item-card} {octicon}`versions;1.5em;sd-mr-1` Deduplication
+:link: image-tutorials-dedup
+:link-type: ref
+
+Remove duplicate images using semantic similarity and clustering.
++++
+{bdg-secondary}`deduplication` {bdg-secondary}`semantic` {bdg-secondary}`clustering`
+
+:::
+
 ::::
 
 ### Pipeline Management
