@@ -27,7 +27,7 @@ from nemo_curator.stages.text.modifiers.slicer import Slicer
 from nemo_curator.stages.text.modules.modifier import Modify
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
 
-def add_preprocessing_pipeline(
+def add_preprocessing_pipeline(  # noqa: PLR0913
     pipeline: Pipeline,
     text_field: str,
     system_prompt: str,
@@ -38,6 +38,12 @@ def add_preprocessing_pipeline(
     args: argparse.Namespace,
 ) -> Pipeline:
     """Add Nemotron-CC preprocessing pipeline."""
+
+    # TODO: add coressponding support for add_preprocessing_pipeline
+    print("Unused system_prompt: ", system_prompt)
+    print("Unused user_prompt_template: ", user_prompt_template)
+    print("Unused min_segment_tokens: ", min_segment_tokens)
+    print("Unused max_input_tokens: ", max_input_tokens)
 
     # Filter out documents that are too short
     pipeline.add_stage(
