@@ -281,18 +281,21 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
             { "text": "The Eiffel Tower was constructed for the 1889 Exposition Universelle in Paris. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 4 },
             { "text": "Antarctica contains the vast majority of the Earth's freshwater ice. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields. This topic is widely studied and holds significant relevance in scientific and historical contexts. It illustrates important principles, involves complex interactions, and helps researchers develop a deeper understanding of natural systems and cultural developments. Over many years, scholars, explorers, and scientists have contributed insights that enrich our collective knowledge, enabling future generations to continue studying and appreciating its broader importance across different fields.", "bucketed_results": 9 },
         ]
-        # Divide input_data into batches of 20 each
-        batch_size = 5
+        # Divide input_data into batches of `batch_size` each
+        # Simulate `num_input_tasks` input tasks
+        batch_size = 10
+        num_input_tasks = 100
         input_batches = [input_data[i:i + batch_size] for i in range(0, len(input_data), batch_size)]
         input_tasks = []
-        for i, batch in enumerate(input_batches):
-            df = pd.DataFrame(batch)
-            input_task = DocumentBatch(
-                data=df,
-                task_id=f"input_batch_{i}",
-                dataset_name="data_for_sdg",
-            )
-            input_tasks.append(input_task)
+        for i in range(num_input_tasks // batch_size):
+            for j, batch in enumerate(input_batches):
+                df = pd.DataFrame(batch)
+                input_task = DocumentBatch(
+                    data=df,
+                    task_id=f"input_batch_{i * batch_size + j}",
+                    dataset_name="data_for_sdg",
+                )
+                input_tasks.append(input_task)
     else:
         if not args.input_parquet_path:
             msg = "When not using --mock, you must provide --input-parquet-path to read inputs."
@@ -460,12 +463,12 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     print("Sample of generated documents:")
     print("=" * 50)
     for i, df in enumerate(all_data_frames):
-        print(f"\nFile {i + 1}: {output_files[i]}")
+        out_path = output_files[i]
+        print(f"\nFile {i + 1}: {out_path}")
         print(f"Number of documents: {len(df)}")
-        print("\nGenerated text (showing first 5):")
-        for j, text in enumerate(df.head(5)):
-            print(f"Document {j + 1}:")
-            print(f"'{text}'")
+        print("\nFirst 5 rows:")
+        for j, row in enumerate(df.head(5).to_dict(orient="records")):
+            print(f"Document {j + 1}: {row}")
             print("-" * 40)
 
     client.stop()
