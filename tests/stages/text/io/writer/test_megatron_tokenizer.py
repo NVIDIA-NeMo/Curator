@@ -219,20 +219,20 @@ class TestMegatronTokenizerWriter:
             # Get the offset
             offset = f.tell()
 
-        bin_buffer_mmap = np.memmap(result.data[1], mode="r", order="C")
-        bin_buffer = memoryview(bin_buffer_mmap.data)
+        idx_buffer_mmap = np.memmap(result.data[1], mode="r", order="C")
+        idx_buffer = memoryview(idx_buffer_mmap.data)
 
-        sequence_lengths = np.frombuffer(bin_buffer, dtype=np.int32, count=sequence_count, offset=offset)
+        sequence_lengths = np.frombuffer(idx_buffer, dtype=np.int32, count=sequence_count, offset=offset)
 
         sequence_pointers = np.frombuffer(
-            bin_buffer,
+            idx_buffer,
             dtype=np.int64,
             count=sequence_count,
             offset=offset + sequence_lengths.nbytes,
         )
 
         document_indices = np.frombuffer(
-            bin_buffer,
+            idx_buffer,
             dtype=np.int64,
             count=document_count,
             offset=offset + sequence_lengths.nbytes + sequence_pointers.nbytes,
