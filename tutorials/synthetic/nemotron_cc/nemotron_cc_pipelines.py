@@ -15,16 +15,17 @@
 import argparse
 
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.filters.heuristic_filter import SubstringFilter
+from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
+    DiverseQAPostProcessingStage,
+    KnowledgeListPostProcessingStage,
+)
+from nemo_curator.stages.text.filters.heuristic_filter import SubstringFilter, TokenCountFilter
 from nemo_curator.stages.text.modifiers.line_remover import LineRemover
 from nemo_curator.stages.text.modifiers.markdown_remover import MarkdownRemover
 from nemo_curator.stages.text.modifiers.quotation_remover import QuotationRemover
 from nemo_curator.stages.text.modifiers.slicer import Slicer
 from nemo_curator.stages.text.modules.modifier import Modify
 from nemo_curator.stages.text.modules.score_filter import ScoreFilter
-from nemo_curator.stages.text.filters.heuristic_filter import TokenCountFilter
-from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import DiverseQAPostProcessingStage
-from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import KnowledgeListPostProcessingStage
 
 def add_preprocessing_pipeline(
     pipeline: Pipeline,
@@ -53,7 +54,9 @@ def add_preprocessing_pipeline(
 
     return pipeline
 
-def add_wikipedia_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
+def add_wikipedia_postprocessing_pipeline(
+    pipeline: Pipeline, _llm_response_field: str, _args: argparse.Namespace
+) -> Pipeline:
     """Add Wikipedia postprocessing pipeline."""
 
     return pipeline

@@ -18,19 +18,19 @@ import os
 import time
 
 import pandas as pd
-from nemotroncc_pipelines import add_preprocessing_pipeline, add_wikipedia_postprocessing_pipeline
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
-    WikipediaParaphrasingStage,
-)
+from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import WikipediaParaphrasingStage
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks.document import DocumentBatch
+
+# Threshold used to bucket and filter input examples
+BUCKETED_RESULTS_THRESHOLD = 11
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,24 +59,6 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="meta/llama-3.3-70b-instruct",
         help="Name of the model to use for generation",
-    )
-
-    # Generation Configuration
-    parser.add_argument("--num-samples", type=int, default=100, help="Number of samples to generate")
-    parser.add_argument("--no-filter-languages", action="store_true", help="Do not filter languages")
-    parser.add_argument(
-        "--output-path",
-        type=str,
-        default="./synthetic_output",
-        help="Directory path to save the generated synthetic data in JSONL format",
-    )
-
-    # Generation Configuration
-    parser.add_argument(
-        "--output-path",
-        type=str,
-        default="./synthetic_output",
-        help="Directory path to save the generated synthetic data in JSONL format",
     )
 
     # LLM Sampling Parameters (for diversity)
@@ -124,7 +106,7 @@ def main() -> None:
         raise ValueError(msg)
 
     # Create pipeline
-    pipeline = Pipeline(name="wikipedia_paraphrasing", description="Paraphrase the Wikipedia data using Nemotron-CC")
+    pipeline = Pipeline(name="nemotron_cc_sdg_example", description="Generate synthetic text data using Nemotron-CC")
 
     # Create NeMo Curator Async LLM client for faster concurrent generation
     llm_client = AsyncOpenAIClient(
@@ -202,21 +184,12 @@ def main() -> None:
     # Filtering the input data, only run with low quality data
     pipeline.add_stage(
         Filter(
-            filter_fn=lambda x: int(x) <= 11,
+            filter_fn=lambda x: int(x) <= BUCKETED_RESULTS_THRESHOLD,
             filter_field="bucketed_results",
         ),
     )
 
-    # Add preprocessing stages
-    pipeline = add_preprocessing_pipeline(
-        pipeline=pipeline, 
-        text_field="text", 
-        min_document_tokens=30, 
-        min_segment_tokens=10, 
-        args=args,
-    )
-
-    # Add wikipedia paraphrasing stage
+    # Add the synthetic data generation stage
     pipeline.add_stage(
         WikipediaParaphrasingStage(
             client=llm_client,
@@ -225,13 +198,6 @@ def main() -> None:
             input_field="text",
             output_field="rephrased",
         )
-    )
-
-    # Add postprocessing stages
-    pipeline = add_wikipedia_postprocessing_pipeline(
-        pipeline=pipeline, 
-        text_field="rephrased", 
-        args=args,
     )
 
     # Add JSONL writer to save the generated data
@@ -260,10 +226,6 @@ def main() -> None:
     # Print results
     print("\nPipeline completed!")
     print(f"Total execution time: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
-
-    # DEBUGGING
-    print("results: ", results)
-    # print(stop_here)
 
     # Collect output file paths and read generated data
     output_files = []

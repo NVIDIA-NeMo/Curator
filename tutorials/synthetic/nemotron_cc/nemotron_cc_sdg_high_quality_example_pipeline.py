@@ -191,7 +191,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+def main() -> None:  # noqa: C901, PLR0915
     """Main function to run the synthetic data generation pipeline."""
     client = RayClient(include_dashboard=False)
     client.start()
@@ -199,7 +199,9 @@ def main() -> None:
     args = parse_args()
 
     # Set tokenizer
-    assert args.tokenizer is not None, "Tokenizer is required"
+    if args.tokenizer is None:
+        msg = "Tokenizer is required"
+        raise ValueError(msg)
     args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     args.hf_token = os.environ.get("HF_TOKEN", "")
 
@@ -290,7 +292,8 @@ def main() -> None:
             dataset_name="data_for_sdg",
         )
         input_tasks.append(input_task)
-
+    # simulate larger data size
+    input_tasks = input_tasks * 1000
 
     ### Extract high quality data
     # Filtering the input data, only run with low quality data
@@ -309,10 +312,8 @@ def main() -> None:
         system_prompt=task_config["system_prompt"],
         user_prompt_template=task_config["prompt_template"],
         # DEBUGGING
-        # min_document_tokens=task_config["min_document_tokens"],
-        # min_segment_tokens=task_config["min_segment_tokens"],
-        min_document_tokens=5,
-        min_segment_tokens=5,
+        min_document_tokens=task_config["min_document_tokens"],
+        min_segment_tokens=task_config["min_segment_tokens"],
         max_input_tokens=task_config["max_input_tokens"],
         args=args,
     )
@@ -352,8 +353,8 @@ def main() -> None:
 
         # Add distill postprocessing stages
         pipeline = add_distill_postprocessing_pipeline(
-            pipeline=pipeline, 
-            llm_response_field="distill", 
+            pipeline=pipeline,
+            llm_response_field="distill",
             args=args,
         )
 
@@ -392,8 +393,8 @@ def main() -> None:
 
         # Add knowledge list postprocessing stages
         pipeline = add_knowledge_list_postprocessing_pipeline(
-            pipeline=pipeline, 
-            llm_response_field="knowledge_list", 
+            pipeline=pipeline,
+            llm_response_field="knowledge_list",
             args=args,
         )
 
