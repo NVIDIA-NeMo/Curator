@@ -167,6 +167,7 @@ test = [
     "pytest-cov",
     "pytest-loguru",
     "scikit-learn",
+    "s3fs", # added for testing cloud fs
 ]
 
 [tool.uv]
