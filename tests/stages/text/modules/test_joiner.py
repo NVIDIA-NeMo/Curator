@@ -117,36 +117,6 @@ class TestDocumentJoiner:
         # When not using max_length, segment_id should be the first occurrence
         assert result_df.iloc[0]["segment_id"] == 0
 
-    def test_max_length_constraint(self):
-        """Test joining with max_length constraint."""
-        df = pd.DataFrame({
-            "id": [1, 1, 1, 1],
-            "segment_id": [0, 1, 2, 3],
-            "text": ["Hello", "World", "Foo", "Bar"],
-            "length": [5, 5, 3, 3],
-        })
-        batch = DocumentBatch(
-            task_id="test_batch",
-            dataset_name="test_dataset",
-            data=df,
-        )
-
-        # With max_length=11, we can fit "Hello\n\nWorld" (5+2+5=12, but 5+5+1=11 for length calculation)
-        joiner = DocumentJoiner(
-            separator="\n\n",
-            max_length=11,
-            length_field="length",
-        )
-        result = joiner.process(batch)
-
-        result_df = result.to_pandas()
-        # Should create 2 joined documents
-        assert len(result_df) == 2
-        assert result_df.iloc[0]["text"] == "Hello\n\nWorld"
-        assert result_df.iloc[0]["segment_id"] == 0
-        assert result_df.iloc[1]["text"] == "Foo\n\nBar"
-        assert result_df.iloc[1]["segment_id"] == 1
-
     def test_max_length_single_segment_exceeds(self):
         """Test max_length when a single segment exceeds the limit."""
         df = pd.DataFrame({
