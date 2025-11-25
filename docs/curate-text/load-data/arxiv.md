@@ -21,7 +21,7 @@ ArXiv hosts millions of scholarly papers, typically distributed as LaTeX source 
 The ArXiv pipeline in Curator consists of four stages:
 
 1. **URL Generation**: Lists available ArXiv source tar files from the S3 bucket
-2. **Download**: Downloads `.tar` archives using s5cmd (Requester Pays)
+2. **Download**: Downloads tar archives using `s5cmd` (Requester Pays)
 3. **Iteration**: Extracts LaTeX projects and yields per-paper records
 4. **Extraction**: Cleans LaTeX and produces plain text
 
@@ -37,7 +37,7 @@ You must have:
 pip install s5cmd
 ```
 
-The examples on this page use `s5cmd`, which supports Requester Pays automatically.
+The examples on this page use `s5cmd` and include Requester Pays when running the pipeline.
 
 ---
 
@@ -46,11 +46,16 @@ The examples on this page use `s5cmd`, which supports Requester Pays automatical
 Create and run an ArXiv processing pipeline and write outputs to JSONL:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import ArxivDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def main():
+    # Initialize Ray client
+    ray_client = RayClient()
+    ray_client.start()
+
     pipeline = Pipeline(
         name="arxiv_pipeline",
         description="Download and process ArXiv LaTeX sources"
@@ -73,6 +78,9 @@ def main():
     # Execute
     results = pipeline.run()
     print(f"Completed with {len(results) if results else 0} output files")
+
+    # Stop Ray client
+    ray_client.stop()
 
 if __name__ == "__main__":
     main()
