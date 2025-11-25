@@ -123,6 +123,7 @@ class TestSemanticDeduplicationWorkflow:
             executor = RayDataExecutor()
 
         results = pipeline.run(pairwise_executor=executor)
+        assert "pipeline_tasks" in results
 
         # Validate basic execution
         assert results["total_execution_time"] > 0

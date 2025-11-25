@@ -37,12 +37,25 @@ FILETYPE_TO_DEFAULT_EXTENSIONS = {
     "jsonl": [".jsonl", ".json"],
 }
 
+_GCS_PROTOCOLS = {"gs", "gcs"}
+_GCS_DEFAULT_STORAGE_OPTIONS = {
+    # gcsfs async uploads rely on a shared background loop/thread that does not
+    # survive process forks (Ray actors). Force synchronous writes per worker.
+    "asynchronous": False,
+    # Disable fsspec's global FS cache so each worker gets its own GCS client.
+    "skip_instance_cache": True,
+}
+
 
 def get_fs(path: str, storage_options: dict[str, str] | None = None) -> fsspec.AbstractFileSystem:
-    if not storage_options:
-        storage_options = {}
-    protocol, path = split_protocol(path)
-    return get_filesystem_class(protocol)(**storage_options)
+    protocol, _ = split_protocol(path)
+    storage_kwargs: dict[str, str] = storage_options.copy() if storage_options else {}
+
+    if protocol in _GCS_PROTOCOLS:
+        for key, value in _GCS_DEFAULT_STORAGE_OPTIONS.items():
+            storage_kwargs.setdefault(key, value)
+
+    return get_filesystem_class(protocol)(**storage_kwargs)
 
 
 def is_not_empty(

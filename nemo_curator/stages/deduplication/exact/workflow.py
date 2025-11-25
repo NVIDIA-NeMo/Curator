@@ -20,7 +20,7 @@ from loguru import logger
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.utils import merge_executor_configs, warn_on_env_var_override
-from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline import Pipeline, WorkflowRunResult
 from nemo_curator.stages.deduplication.exact.identification import ExactDuplicateIdentification
 from nemo_curator.stages.deduplication.id_generator import (
     create_id_generator_actor,
@@ -165,9 +165,9 @@ class ExactDeduplicationWorkflow:
             msg = "input_path to the dataset must be provided if initial_tasks are not provided manually."
             raise ValueError(msg)
 
-    def run(
+    def run(  # noqa: PLR0915
         self, initial_tasks: list[FileGroupTask] | None = None, executor: RayActorPoolExecutor | None = None
-    ) -> None:
+    ) -> dict[str, Any]:
         """Run the deduplication pipeline.
 
         Args:
@@ -176,6 +176,11 @@ class ExactDeduplicationWorkflow:
             If not provided, the pipeline will generate the input tasks based on the input_dir and input_file_extensions.
         """
         self._validate_initial_tasks(initial_tasks)
+        workflow_result = WorkflowRunResult(workflow_name="exact_deduplication")
+        input_filegroups_time = 0.0
+        identification_time = 0.0
+        num_duplicates = 0
+
         if executor is None:
             executor = RayActorPoolExecutor(config=self.executor_config)
         else:
@@ -185,6 +190,8 @@ class ExactDeduplicationWorkflow:
             previous_config = executor.config
             executor.config = merge_executor_configs(executor.config, self.executor_config)
             warn_on_env_var_override(previous_config, executor.config)
+        total_start_time = time.time()
+
         if self.assign_id:
             try:
                 create_id_generator_actor()
@@ -197,24 +204,24 @@ class ExactDeduplicationWorkflow:
                 raise RuntimeError(err_msg) from None
 
         try:
-            start_time = time.time()
             if initial_tasks is None:
                 input_filegroups_pipeline = self._create_input_filegroups()
-                initial_tasks = input_filegroups_pipeline.run(executor=executor, initial_tasks=initial_tasks)
-                initial_filegroups_end_time = time.time()
-                logger.info(
-                    f"Created input tasks from {self.input_path} in {(initial_filegroups_end_time - start_time):.2f} seconds"
-                )
+                input_start_time = time.time()
+                initial_tasks = input_filegroups_pipeline.run(executor=executor, initial_tasks=None)
+                input_filegroups_time = time.time() - input_start_time
+                workflow_result.add_pipeline_tasks(input_filegroups_pipeline.name, initial_tasks)
+                logger.info(f"Created input tasks from {self.input_path} in {input_filegroups_time:.2f} seconds")
 
+            initial_tasks = initial_tasks or []
             identification_pipeline = self._create_identification_pipeline(num_input_tasks=len(initial_tasks))
             identification_start_time = time.time()
             removal_id_tasks = identification_pipeline.run(executor=executor, initial_tasks=initial_tasks)
             identification_end_time = time.time()
-            logger.info(
-                f"Exact duplicate identification pipeline completed in {(identification_end_time - identification_start_time):.2f} seconds"
-            )
+            identification_time = identification_end_time - identification_start_time
+            workflow_result.add_pipeline_tasks(identification_pipeline.name, removal_id_tasks)
+            logger.info(f"Exact duplicate identification pipeline completed in {identification_time:.2f} seconds")
 
-            num_duplicates = sum(task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks)
+            num_duplicates = sum(task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks or [])
             if num_duplicates == 0:
                 logger.info("No exact duplicates found in the dataset.")
 
@@ -227,8 +234,18 @@ class ExactDeduplicationWorkflow:
                     else None,
                 )
                 logger.info(f"Id generator written to {id_generator_path}")
-            end_time = time.time()
-            logger.info(f"Exact deduplication pipeline completed in {(end_time - start_time):.2f} seconds")
         finally:
             if self.assign_id:
                 kill_id_generator_actor()
+
+        total_end_time = time.time()
+        total_time = total_end_time - total_start_time
+        workflow_summary = {
+            "total_execution_time": total_time,
+            "input_filegroups_execution_time": input_filegroups_time,
+            "identification_execution_time": identification_time,
+            "num_duplicates": num_duplicates,
+        }
+        workflow_result.extend_metadata(workflow_summary)
+        logger.info(f"Exact deduplication pipeline completed in {total_time:.2f} seconds")
+        return {**workflow_result.to_dict(), **workflow_summary}

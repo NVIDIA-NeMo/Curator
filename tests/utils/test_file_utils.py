@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
+from nemo_curator.utils import file_utils
 from nemo_curator.utils.file_utils import (
     get_all_file_paths_and_size_under,
     get_all_file_paths_under,
@@ -49,6 +50,47 @@ class TestInferDatasetNameFromPath:
         """Test that results are converted to lowercase."""
         assert infer_dataset_name_from_path("s3://bucket/MyDataSet") == "mydataset"
         assert infer_dataset_name_from_path("/home/user/MyDataSet/file.txt") == "mydataset"
+
+
+class TestGetFs:
+    """Test cases for get_fs helper."""
+
+    def test_gcs_defaults_applied(self, monkeypatch: pytest.MonkeyPatch):
+        """Ensure we disable async + cache when talking to GCS."""
+        captured = {}
+
+        class _DummyFS:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr(file_utils, "get_filesystem_class", lambda _protocol: _DummyFS)
+
+        file_utils.get_fs(
+            "gs://bucket/path/file.parquet",
+            storage_options={"token": "cloud"},
+        )
+
+        assert captured["token"] == "cloud"  # noqa: S105
+        assert captured["asynchronous"] is False
+        assert captured["skip_instance_cache"] is True
+
+    def test_user_overrides_respected(self, monkeypatch: pytest.MonkeyPatch):
+        """Existing storage options should not be overwritten."""
+        captured = {}
+
+        class _DummyFS:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr(file_utils, "get_filesystem_class", lambda _protocol: _DummyFS)
+
+        file_utils.get_fs(
+            "gcs://bucket/path/file.parquet",
+            storage_options={"asynchronous": True, "skip_instance_cache": False},
+        )
+
+        assert captured["asynchronous"] is True
+        assert captured["skip_instance_cache"] is False
 
 
 def _write_test_file(path: Path, content: str = "test", size_bytes: int | None = None) -> None:

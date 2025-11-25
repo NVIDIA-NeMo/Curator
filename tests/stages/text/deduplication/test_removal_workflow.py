@@ -84,6 +84,7 @@ class TestTextDuplicateRemovalWorkflowIntegration:
     output_dir: Path | None = None
     expected_input_df: pd.DataFrame | None = None
     ids_to_remove: list[int] | None = None
+    workflow_output: dict[str, Any] | None = None
     output_tasks: list[DocumentBatch] | None = None
 
     @pytest.fixture
@@ -121,12 +122,16 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         )
 
         executor = executor_cls(config)
-        self.output_tasks = workflow.run(executor)
+        workflow_output = workflow.run(executor)
+        self.workflow_output = workflow_output
+        self.output_tasks = workflow_output["output_tasks"]
 
         return self
 
     def test_output_correctness_and_files(self, test_config: "TestTextDuplicateRemovalWorkflowIntegration"):
         """Test output correctness and file system integrity."""
+        assert test_config.workflow_output is not None
+        assert "pipeline_tasks" in test_config.workflow_output
         assert test_config.output_tasks is not None
         assert test_config.expected_input_df is not None
         assert test_config.ids_to_remove is not None
@@ -237,7 +242,8 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         )
 
         executor = test_config.executor_cls(test_config.config)
-        output_tasks = workflow.run(executor, initial_tasks=initial_tasks)
+        workflow_output = workflow.run(executor, initial_tasks=initial_tasks)
+        output_tasks = workflow_output["output_tasks"]
 
         # Verify we get 20 output tasks (one per input task)
         assert len(output_tasks) == 10, (

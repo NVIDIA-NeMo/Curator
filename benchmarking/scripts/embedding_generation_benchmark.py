@@ -21,6 +21,7 @@ using various executors and logs results to configured sinks.
 
 import argparse
 import json
+import os
 import pickle
 import time
 import traceback
@@ -32,9 +33,11 @@ from loguru import logger
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
+from nemo_curator.stages.text.models.utils import format_name_with_suffix
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
@@ -47,6 +50,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     dataset_size_gb: float,
     model_identifier: str,
     model_inference_batch_size: int,
+    files_per_partition: int,
+    use_id_generator: bool,
     benchmark_results_path: Path,
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
@@ -74,29 +79,44 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
 
     try:
         logger.info("Running embedding generation pipeline...")
+        if use_id_generator:
+            from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor
+
+            create_id_generator_actor()
 
         input_files = load_dataset_files(input_path, dataset_size_gb)
 
         executor = RayDataExecutor() if executor_name == "ray_data" else XennaExecutor()
+        model_name = "sentence-transformers/all-MiniLM-L6-v2"
+        embedding_creator = EmbeddingCreatorStage(
+            text_field="raw_content", model_identifier=model_name, model_inference_batch_size=256
+        ).with_({format_name_with_suffix(model_name, "_model"): {"resources": Resources(gpus=0.5)}})
 
         pipeline = Pipeline(
             name="embedding_generation_pipeline",
             stages=[
-                ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False),
-                EmbeddingCreatorStage(
-                    model_identifier=model_identifier,
-                    text_field="text",
-                    max_seq_length=None,
-                    max_chars=None,
-                    embedding_pooling="mean_pooling",
-                    model_inference_batch_size=model_inference_batch_size,
+                ParquetReader(
+                    file_paths=input_files,
+                    files_per_partition=files_per_partition,
+                    fields=["id", "raw_content"],
+                    _generate_ids=use_id_generator,
                 ),
-                ParquetWriter(path=str(output_path), fields=["embeddings"]),
+                embedding_creator,
+                ParquetWriter(path=str(os.path.join(output_path, "embeddings"))),
             ],
         )
 
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
+
+        if use_id_generator:
+            from nemo_curator.stages.deduplication.id_generator import write_id_generator_to_disk
+
+            id_generator_path = str(
+                os.path.join(output_path, f"id_generator_{files_per_partition}fpp_{dataset_size_gb}gb.json")
+            )
+            logger.info(f"Writing ID generator to {id_generator_path}")
+            write_id_generator_to_disk(id_generator_path)
 
         # task._metadata is a dictionary of metadata for the task, but will not be used here.
         # Instead simply use the num_items property of the task to get the number of documents processed.
@@ -128,6 +148,9 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
             "model_identifier": model_identifier,
             "model_inference_batch_size": model_inference_batch_size,
             "benchmark_results_path": str(benchmark_results_path),
+            "files_per_partition": files_per_partition,
+            "use_id_generator": use_id_generator,
+            **({"id_generator_path": id_generator_path} if use_id_generator else {}),
         },
         "metrics": {
             "is_success": success,
@@ -151,8 +174,10 @@ def write_results(results: dict[str, Any], output_path: Path) -> None:
     (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 
 
-def load_dataset_files(dataset_path: Path, dataset_size_gb: float) -> list[str]:
+def load_dataset_files(dataset_path: Path, dataset_size_gb: float | None = None) -> list[str] | str:
     """Load the dataset files at the given path and return a subset of the files whose combined size is approximately the given size in GB."""
+    if dataset_size_gb is None:
+        return str(dataset_path)
     input_files = get_all_file_paths_and_size_under(
         dataset_path, recurse_subdirectories=True, keep_extensions="parquet"
     )
@@ -188,6 +213,8 @@ def main() -> int:
         help="Model identifier (e.g., sentence-transformers/all-MiniLM-L6-v2)",
     )
     parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
+    parser.add_argument("--files-per-partition", type=int, default=1, help="Files per partition")
+    parser.add_argument("--use-id-generator", action="store_true", help="Use ID generator")
 
     args = parser.parse_args()
 
@@ -203,6 +230,8 @@ def main() -> int:
             model_identifier=args.model_identifier,
             model_inference_batch_size=args.model_inference_batch_size,
             benchmark_results_path=args.benchmark_results_path,
+            files_per_partition=args.files_per_partition,
+            use_id_generator=args.use_id_generator,
         )
 
     except Exception as e:  # noqa: BLE001

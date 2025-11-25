@@ -127,6 +127,7 @@ class TestTextSemanticDeduplicationWorkflow:
 
         # Run the workflow
         request.cls.results = workflow.run(executor_cls(config))
+        assert "pipeline_tasks" in request.cls.results
 
         # Read the final deduplicated output for use in tests
         final_output_path = request.cls.results["final_output_path"]

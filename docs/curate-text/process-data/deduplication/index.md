@@ -24,8 +24,8 @@ NeMo Curator provides three deduplication approaches, each optimized for differe
 
 ::::{tab-item} Exact
 
-**Method**: MD5 hashing  
-**Detects**: Character-for-character identical documents  
+**Method**: MD5 hashing
+**Detects**: Character-for-character identical documents
 **Speed**: Fastest
 
 Computes MD5 hashes for each document's text content and groups documents with identical hashes. Best for removing exact copies.
@@ -44,7 +44,9 @@ exact_workflow = ExactDeduplicationWorkflow(
     assign_id=True,
     input_filetype="parquet"
 )
-exact_workflow.run()
+result = exact_workflow.run()
+print(f"Exact pipelines: {list(result['pipeline_tasks'].keys())}")
+print(f"Duplicates detected: {result['num_duplicates']}")
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See {ref}`Exact Duplicate Removal <text-process-data-dedup-exact>` for details.
@@ -54,8 +56,8 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 ::::{tab-item} Fuzzy
 
-**Method**: MinHash + Locality Sensitive Hashing (LSH)  
-**Detects**: Near-duplicates with minor edits (~80% similarity)  
+**Method**: MinHash + Locality Sensitive Hashing (LSH)
+**Detects**: Near-duplicates with minor edits (~80% similarity)
 **Speed**: Fast
 
 Generates MinHash signatures and uses LSH to find similar documents. Best for detecting documents with small formatting differences or typos.
@@ -78,7 +80,9 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     num_bands=20,
     minhashes_per_band=13
 )
-fuzzy_workflow.run()
+result = fuzzy_workflow.run()
+print(f"Fuzzy pipelines: {list(result['pipeline_tasks'].keys())}")
+print(f"Removed documents: {result['num_removed_documents']}")
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See {ref}`Fuzzy Duplicate Removal <text-process-data-dedup-fuzzy>` for details.
@@ -88,8 +92,8 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 ::::{tab-item} Semantic
 
-**Method**: Embeddings + clustering + pairwise similarity  
-**Detects**: Semantically similar content (paraphrases, translations)  
+**Method**: Embeddings + clustering + pairwise similarity
+**Detects**: Semantically similar content (paraphrases, translations)
 **Speed**: Moderate
 
 Generates embeddings using transformer models, clusters them, and computes pairwise similarities. Best for meaning-based deduplication.
@@ -102,7 +106,7 @@ from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplic
 
 text_workflow = TextSemanticDeduplicationWorkflow(
     input_path="/path/to/input/data",
-    output_path="/path/to/output", 
+    output_path="/path/to/output",
     cache_path="/path/to/cache",
     text_field="text",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
@@ -110,7 +114,9 @@ text_workflow = TextSemanticDeduplicationWorkflow(
     eps=0.01,  # Similarity threshold
     perform_removal=True  # Complete deduplication
 )
-text_workflow.run()
+results = text_workflow.run()
+print(f"Workflow outputs: {list(results['pipeline_tasks'].keys())}")
+print(f"Final path: {results['final_output_path']}")
 ```
 
 **Note**: Two workflows available:
@@ -168,6 +174,18 @@ This approach enables analysis of intermediate results and fine-grained control.
 ::::
 
 :::::
+
+
+> **Workflow outputs**
+> Every deduplication workflow now returns a dictionary with the keys `workflow_name`, `pipeline_tasks`, and `metadata` alongside method-specific metrics (e.g., `num_removed_documents`). The `pipeline_tasks` mapping exposes the raw `Task` objects emitted by each internal pipeline, which you can feed to `TaskPerfUtils` for custom metric aggregation.
+
+```python
+from nemo_curator.tasks.utils import TaskPerfUtils
+
+result = fuzzy_workflow.run()
+minhash_tasks = result["pipeline_tasks"]["minhash_pipeline"]
+metrics = TaskPerfUtils.aggregate_task_metrics(result)
+```
 
 ---
 
@@ -418,7 +436,7 @@ For large-scale duplicate removal, persist the ID Generator for consistent docum
 
 ```python
 from nemo_curator.stages.deduplication.id_generator import (
-    create_id_generator_actor, 
+    create_id_generator_actor,
     write_id_generator_to_disk,
     kill_id_generator_actor
 )

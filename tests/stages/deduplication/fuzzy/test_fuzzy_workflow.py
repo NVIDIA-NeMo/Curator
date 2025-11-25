@@ -192,7 +192,8 @@ class TestFuzzyDuplicates:
             bands_per_iteration=5,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.get("pipeline_tasks")
 
         # Verify the duplicate groups found match expected
         connected_components_df = cudf.read_parquet(cache_path / "ConnectedComponentsStage")
@@ -243,7 +244,8 @@ class TestFuzzyDuplicates:
             bands_per_iteration=10,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result["num_removed_documents"] == 0
 
         assert not (cache_path / "ConnectedComponentsStage").exists()
         assert not (cache_path / "BucketsToEdgesStage").exists()

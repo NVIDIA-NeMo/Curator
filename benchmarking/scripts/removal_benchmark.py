@@ -115,7 +115,8 @@ def run_removal_benchmark(  # noqa: PLR0913
                 log_msg += f" (limited to {limit})"
             logger.info(log_msg)
 
-        output_tasks = workflow.run(executor, initial_tasks=initial_tasks)
+        removal_output = workflow.run(executor, initial_tasks=initial_tasks)
+        output_tasks = removal_output.get("output_tasks", [])
         run_time_taken = time.perf_counter() - run_start_time
 
         # Calculate removal statistics
