@@ -71,18 +71,18 @@ class DocumentSplitter(ProcessingStage[DocumentBatch, DocumentBatch]):
         df["_split_text"] = df[self.text_field].str.split(self.separator)
 
         # Explode the list so that each segment becomes a separate row.
-        # Reset index to preserve the original document identifier
-        df = df.explode("_split_text").reset_index(drop=False)
+        # The index is preserved and duplicated for each segment from the same document
+        df = df.explode("_split_text")
 
-        # For each original document (grouped by the original index), assign a segment id.
-        # The 'index' column contains the original row numbers before explosion
-        df[self.segment_id_field] = df.groupby("index").cumcount()
+        # For each original document (grouped by index level 0), assign a segment id.
+        # level=0 refers to the (duplicated) index after explode
+        df[self.segment_id_field] = df.groupby(level=0).cumcount()
 
         # Replace the original text field with the split segment.
         df[self.text_field] = df["_split_text"]
 
-        # Drop the temporary columns.
-        df = df.drop(columns=["_split_text", "index"])
+        # Drop the temporary column and reset index to sequential
+        df = df.drop(columns=["_split_text"]).reset_index(drop=True)
 
         return DocumentBatch(
             task_id=f"{batch.task_id}_{self.name}",
