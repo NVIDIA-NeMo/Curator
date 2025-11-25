@@ -69,9 +69,6 @@ uv sync --extra text --extra video
 uv sync --extra all
 ```
 
-### Dev Pattern
-
-- Sign and signoff commits with `git commit -sS`. (May be relaxed in the future)
 - If project dependencies are updated a new uv lock file needs to be generated. Run `uv lock` and add the changes of the new uv.lock file.
 
 ## Unit tests
