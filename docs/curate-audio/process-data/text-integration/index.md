@@ -138,7 +138,7 @@ executor = XennaExecutor()
 pipeline.run(executor)}
 ```
 
-**Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with all fields:**
+**Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with all fields:
 
 ```json
 {"audio_filepath": "/data/audio/sample1.wav", "text": "hello world", "pred_text": "hello world", "wer": 0.0, "duration": 1.5}
