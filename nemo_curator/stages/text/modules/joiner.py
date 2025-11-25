@@ -152,7 +152,7 @@ class DocumentJoiner(ProcessingStage[DocumentBatch, DocumentBatch]):
         if self.max_length is None:
             # Sort the segments by the segment_id_field to maintain proper order before aggregating.
             df_sorted = df.sort_values(self.segment_id_field)
-            
+
             # Build aggregation functions to preserve all original columns:
             # - For self.text_field, join all segments using the separator.
             # - For all other columns (except self.document_id_field, which is our grouping key), take the first occurrence.
@@ -162,20 +162,17 @@ class DocumentJoiner(ProcessingStage[DocumentBatch, DocumentBatch]):
                     agg_funcs[col] = lambda texts: self.separator.join(texts.astype(str))
                 elif col != self.document_id_field:
                     agg_funcs[col] = "first"
-            
+
             # Group by document_id_field while keeping the key as a column.
             joined = df_sorted.groupby(self.document_id_field, as_index=False).agg(agg_funcs)
         else:
             # Use the more complex joining logic with max_length constraint
             joined_groups = []
-            for doc_id, group in df.groupby(self.document_id_field):
+            for _doc_id, group in df.groupby(self.document_id_field):
                 joined_group = self._join_segments(group)
                 joined_groups.append(joined_group)
-            
-            if joined_groups:
-                joined = pd.concat(joined_groups, ignore_index=True)
-            else:
-                joined = pd.DataFrame(columns=df.columns)
+
+            joined = pd.concat(joined_groups, ignore_index=True) if joined_groups else pd.DataFrame(columns=df.columns)
 
         if self.drop_segment_id_field and self.segment_id_field in joined.columns:
             joined = joined.drop(columns=self.segment_id_field)
