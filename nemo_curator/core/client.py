@@ -165,11 +165,11 @@ class RayClient:
                 try:
                     os.killpg(os.getpgid(self.ray_process.pid), signal.SIGKILL)
                     self.ray_process.wait()
-                except ProcessLookupError:
-                    # Process terminated between timeout and SIGKILL
+                except (ProcessLookupError, OSError):
+                    # Process group not found or process group already terminated
                     pass
-            except ProcessLookupError:
-                # Process or process group already terminated
+            except (ProcessLookupError, OSError):
+                # Process group not found or process group already terminated
                 pass
             # Reset the environment variable for RAY_ADDRESS
             os.environ.pop("RAY_ADDRESS", None)
