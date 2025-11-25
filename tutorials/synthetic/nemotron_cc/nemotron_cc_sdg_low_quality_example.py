@@ -18,6 +18,11 @@ import os
 import time
 
 import pandas as pd
+from nemotron_cc_pipelines import (
+    add_preprocessing_pipeline,
+    add_wikipedia_postprocessing_pipeline,
+)
+from transformers import AutoTokenizer
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
@@ -25,6 +30,10 @@ from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.models.client.openai_client import AsyncOpenAIClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import WikipediaParaphrasingStage
+from nemo_curator.stages.synthetic.nemotron_cc.prompts import (
+    NEMOTRON_CC_SYSTEM_PROMPT,
+    WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
+)
 from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 from nemo_curator.stages.text.modules.score_filter import Filter
 from nemo_curator.tasks.document import DocumentBatch
@@ -59,6 +68,44 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="meta/llama-3.3-70b-instruct",
         help="Name of the model to use for generation",
+    )
+    parser.add_argument(
+        "--tokenizer",
+        type=str,
+        default=None,
+        help="Name of the tokenizer to use for preprocessing and postprocessing",
+    )
+
+    # Output Configuration
+    parser.add_argument(
+        "--output-path",
+        type=str,
+        default="./synthetic_output",
+        help="Directory path to save the generated synthetic data in JSONL format",
+    )
+
+    # Pipeline Configuration
+    parser.add_argument(
+        "--skip-preprocessing",
+        action="store_true",
+        help="Skip preprocessing pipeline (useful for debugging)",
+    )
+    parser.add_argument(
+        "--skip-postprocessing",
+        action="store_true",
+        help="Skip postprocessing pipeline (useful for debugging)",
+    )
+    parser.add_argument(
+        "--min-document-tokens",
+        type=int,
+        default=5,
+        help="Minimum tokens for document filtering in preprocessing",
+    )
+    parser.add_argument(
+        "--min-segment-tokens",
+        type=int,
+        default=5,
+        help="Minimum tokens for segment filtering after joining",
     )
 
     # LLM Sampling Parameters (for diversity)
@@ -97,6 +144,14 @@ def main() -> None:
 
     args = parse_args()
 
+    # Set tokenizer (only required if using preprocessing/postprocessing)
+    if not args.skip_preprocessing or not args.skip_postprocessing:
+        if args.tokenizer is None:
+            msg = "Tokenizer is required when using preprocessing/postprocessing. Use --tokenizer argument with a HuggingFace tokenizer name, or use --skip-preprocessing and --skip-postprocessing"
+            raise ValueError(msg)
+        args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+        args.hf_token = os.environ.get("HF_TOKEN", "")
+
     # Validate API key
     if not args.api_key:
         msg = (
@@ -125,46 +180,46 @@ def main() -> None:
     )
 
     input_data = [
-        {"text": "The Amazon rainforest contains an unparalleled diversity of plant and animal species.", "bucketed_results": 12},
-        {"text": "Isaac Newton formulated the laws of motion and universal gravitation.", "bucketed_results": 4},
-        {"text": "The Great Wall of China is a historic fortification built to protect ancient Chinese states.", "bucketed_results": 17},
-        {"text": "Mercury is the smallest planet in the Solar System and orbits closest to the Sun.", "bucketed_results": 1},
-        {"text": "The Parthenon is a classical Greek temple dedicated to the goddess Athena.", "bucketed_results": 9},
-        {"text": "Giraffes are the tallest living terrestrial animals, native to African savannas.", "bucketed_results": 6},
-        {"text": "Marie Curie made pioneering contributions to the study of radioactivity.", "bucketed_results": 14},
-        {"text": "The Pacific Ocean covers more area than all landmasses combined.", "bucketed_results": 3},
-        {"text": "The Rosetta Stone provided the key to deciphering ancient Egyptian hieroglyphs.", "bucketed_results": 18},
-        {"text": "The cheetah is capable of reaching speeds over 100 kilometers per hour.", "bucketed_results": 8},
-        {"text": "Mount Everest is the highest peak on Earth, located in the Himalayas.", "bucketed_results": 2},
-        {"text": "The Sahara Desert spans much of North Africa and is the largest hot desert in the world.", "bucketed_results": 5},
-        {"text": "Leonardo da Vinci was an influential artist and inventor during the Italian Renaissance.", "bucketed_results": 19},
-        {"text": "Photosynthesis enables plants to convert sunlight into chemical energy.", "bucketed_results": 7},
-        {"text": "The Taj Mahal is an iconic mausoleum built by Mughal emperor Shah Jahan.", "bucketed_results": 0},
-        {"text": "The human brain contains billions of neurons that communicate through electrical signals.", "bucketed_results": 11},
-        {"text": "The Roman Empire was one of the most powerful civilizations of the ancient world.", "bucketed_results": 10},
-        {"text": "The Hubble Space Telescope has captured detailed images of distant galaxies.", "bucketed_results": 15},
-        {"text": "The Eiffel Tower was constructed for the 1889 Exposition Universelle in Paris.", "bucketed_results": 4},
-        {"text": "Antarctica contains the vast majority of the Earth's freshwater ice.", "bucketed_results": 9},
-        {"text": "The Library of Alexandria was a major center of scholarship in the ancient world.", "bucketed_results": 13},
-        {"text": "Saturn is distinguished by its extensive system of icy rings.", "bucketed_results": 2},
-        {"text": "The Nile River is often considered the longest river in the world.", "bucketed_results": 16},
-        {"text": "Penguins are flightless birds that are highly adapted to marine life.", "bucketed_results": 3},
-        {"text": "The Maya civilization developed advanced knowledge of astronomy and mathematics.", "bucketed_results": 18},
-        {"text": "Pluto is a dwarf planet located in the Kuiper Belt beyond Neptune.", "bucketed_results": 6},
-        {"text": "The Andes Mountains stretch along the western edge of South America.", "bucketed_results": 12},
-        {"text": "The Renaissance was a cultural movement that profoundly influenced European art and science.", "bucketed_results": 8},
-        {"text": "The Blue Whale is the largest known animal to have lived on Earth.", "bucketed_results": 14},
-        {"text": "The Silk Road connected merchants and cultures across Asia, Africa, and Europe.", "bucketed_results": 5},
-        {"text": "Gravity is a fundamental force that governs the attraction between masses.", "bucketed_results": 3},
-        {"text": "The Mona Lisa is a celebrated portrait painted by Leonardo da Vinci.", "bucketed_results": 17},
-        {"text": "Jupiter is the largest planet in the Solar System and has dozens of known moons.", "bucketed_results": 7},
-        {"text": "The Colosseum in Rome hosted gladiatorial contests and public spectacles.", "bucketed_results": 10},
-        {"text": "DNA contains the hereditary information necessary for biological development.", "bucketed_results": 15},
-        {"text": "The Mariana Trench is the deepest known region of the Earth's oceans.", "bucketed_results": 19},
-        {"text": "The Great Barrier Reef is the world's largest coral reef system.", "bucketed_results": 11},
-        {"text": "Koalas are marsupials native to Australia that primarily eat eucalyptus leaves.", "bucketed_results": 1},
-        {"text": "The Andes form the longest continental mountain range on the planet.", "bucketed_results": 16},
-        {"text": "The Moon orbits Earth and influences ocean tides through gravitational forces.", "bucketed_results": 8},
+        {"id": 0, "text": "The Amazon rainforest contains an unparalleled diversity of plant and animal species.", "bucketed_results": 12},
+        {"id": 1, "text": "Isaac Newton formulated the laws of motion and universal gravitation.", "bucketed_results": 4},
+        {"id": 2, "text": "The Great Wall of China is a historic fortification built to protect ancient Chinese states.", "bucketed_results": 17},
+        {"id": 3, "text": "Mercury is the smallest planet in the Solar System and orbits closest to the Sun.", "bucketed_results": 1},
+        {"id": 4, "text": "The Parthenon is a classical Greek temple dedicated to the goddess Athena.", "bucketed_results": 9},
+        {"id": 5, "text": "Giraffes are the tallest living terrestrial animals, native to African savannas.", "bucketed_results": 6},
+        {"id": 6, "text": "Marie Curie made pioneering contributions to the study of radioactivity.", "bucketed_results": 14},
+        {"id": 7, "text": "The Pacific Ocean covers more area than all landmasses combined.", "bucketed_results": 3},
+        {"id": 8, "text": "The Rosetta Stone provided the key to deciphering ancient Egyptian hieroglyphs.", "bucketed_results": 18},
+        {"id": 9, "text": "The cheetah is capable of reaching speeds over 100 kilometers per hour.", "bucketed_results": 8},
+        {"id": 10, "text": "Mount Everest is the highest peak on Earth, located in the Himalayas.", "bucketed_results": 2},
+        {"id": 11, "text": "The Sahara Desert spans much of North Africa and is the largest hot desert in the world.", "bucketed_results": 5},
+        {"id": 12, "text": "Leonardo da Vinci was an influential artist and inventor during the Italian Renaissance.", "bucketed_results": 19},
+        {"id": 13, "text": "Photosynthesis enables plants to convert sunlight into chemical energy.", "bucketed_results": 7},
+        {"id": 14, "text": "The Taj Mahal is an iconic mausoleum built by Mughal emperor Shah Jahan.", "bucketed_results": 0},
+        {"id": 15, "text": "The human brain contains billions of neurons that communicate through electrical signals.", "bucketed_results": 11},
+        {"id": 16, "text": "The Roman Empire was one of the most powerful civilizations of the ancient world.", "bucketed_results": 10},
+        {"id": 17, "text": "The Hubble Space Telescope has captured detailed images of distant galaxies.", "bucketed_results": 15},
+        {"id": 18, "text": "The Eiffel Tower was constructed for the 1889 Exposition Universelle in Paris.", "bucketed_results": 4},
+        {"id": 19, "text": "Antarctica contains the vast majority of the Earth's freshwater ice.", "bucketed_results": 9},
+        {"id": 20, "text": "The Library of Alexandria was a major center of scholarship in the ancient world.", "bucketed_results": 13},
+        {"id": 21, "text": "Saturn is distinguished by its extensive system of icy rings.", "bucketed_results": 2},
+        {"id": 22, "text": "The Nile River is often considered the longest river in the world.", "bucketed_results": 16},
+        {"id": 23, "text": "Penguins are flightless birds that are highly adapted to marine life.", "bucketed_results": 3},
+        {"id": 24, "text": "The Maya civilization developed advanced knowledge of astronomy and mathematics.", "bucketed_results": 18},
+        {"id": 25, "text": "Pluto is a dwarf planet located in the Kuiper Belt beyond Neptune.", "bucketed_results": 6},
+        {"id": 26, "text": "The Andes Mountains stretch along the western edge of South America.", "bucketed_results": 12},
+        {"id": 27, "text": "The Renaissance was a cultural movement that profoundly influenced European art and science.", "bucketed_results": 8},
+        {"id": 28, "text": "The Blue Whale is the largest known animal to have lived on Earth.", "bucketed_results": 14},
+        {"id": 29, "text": "The Silk Road connected merchants and cultures across Asia, Africa, and Europe.", "bucketed_results": 5},
+        {"id": 30, "text": "Gravity is a fundamental force that governs the attraction between masses.", "bucketed_results": 3},
+        {"id": 31, "text": "The Mona Lisa is a celebrated portrait painted by Leonardo da Vinci.", "bucketed_results": 17},
+        {"id": 32, "text": "Jupiter is the largest planet in the Solar System and has dozens of known moons.", "bucketed_results": 7},
+        {"id": 33, "text": "The Colosseum in Rome hosted gladiatorial contests and public spectacles.", "bucketed_results": 10},
+        {"id": 34, "text": "DNA contains the hereditary information necessary for biological development.", "bucketed_results": 15},
+        {"id": 35, "text": "The Mariana Trench is the deepest known region of the Earth's oceans.", "bucketed_results": 19},
+        {"id": 36, "text": "The Great Barrier Reef is the world's largest coral reef system.", "bucketed_results": 11},
+        {"id": 37, "text": "Koalas are marsupials native to Australia that primarily eat eucalyptus leaves.", "bucketed_results": 1},
+        {"id": 38, "text": "The Andes form the longest continental mountain range on the planet.", "bucketed_results": 16},
+        {"id": 39, "text": "The Moon orbits Earth and influences ocean tides through gravitational forces.", "bucketed_results": 8},
     ]
 
     # Divide input_data into batches of 20 each
@@ -189,6 +244,23 @@ def main() -> None:
         ),
     )
 
+    # Add preprocessing pipeline stages (optional)
+    # These stages prepare the text by splitting, filtering, and joining segments
+    if not args.skip_preprocessing:
+        print(f"Adding preprocessing pipeline (min_document_tokens={args.min_document_tokens}, min_segment_tokens={args.min_segment_tokens})...")
+        pipeline = add_preprocessing_pipeline(
+            pipeline=pipeline,
+            text_field="text",
+            system_prompt=NEMOTRON_CC_SYSTEM_PROMPT,
+            user_prompt_template=WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
+            min_document_tokens=args.min_document_tokens,
+            min_segment_tokens=args.min_segment_tokens,
+            max_input_tokens=512,
+            args=args,
+        )
+    else:
+        print("Skipping preprocessing pipeline (--skip-preprocessing enabled)")
+
     # Add the synthetic data generation stage
     pipeline.add_stage(
         WikipediaParaphrasingStage(
@@ -199,6 +271,18 @@ def main() -> None:
             output_field="rephrased",
         )
     )
+
+    # Add postprocessing pipeline stages (optional)
+    # These stages clean and filter the LLM-generated rephrased text
+    if not args.skip_postprocessing:
+        print("Adding postprocessing pipeline...")
+        pipeline = add_wikipedia_postprocessing_pipeline(
+            pipeline=pipeline,
+            llm_response_field="rephrased",
+            args=args,
+        )
+    else:
+        print("Skipping postprocessing pipeline (--skip-postprocessing enabled)")
 
     # Add JSONL writer to save the generated data
     pipeline.add_stage(
