@@ -32,6 +32,12 @@ class DocumentJoiner(ProcessingStage[DocumentBatch, DocumentBatch]):
     This stage performs the inverse operation of DocumentSplitter, allowing you
     to reconstruct documents from their segments.
 
+    Important:
+        This stage assumes that all segments belonging to the same document are
+        contained within a single DocumentBatch. Segments from the same document
+        split across multiple batches will NOT be joined together. Ensure your
+        batching logic keeps all segments of a document together.
+
     Example:
         If you have segments with document_id=1, segment_id=[0,1] and text=["Hello", "World"],
         they will be joined into a single row with document_id=1 and text="Hello\\n\\nWorld"
