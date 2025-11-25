@@ -185,7 +185,7 @@ pipeline = Pipeline(name="language_management_complete")
 
 # 1. Load input data
 pipeline.add_stage(
-    JsonlReader(file_paths="raw_data/*.jsonl", files_per_partition=4)
+    JsonlReader(file_paths="raw_data/", files_per_partition=4)
 )
 
 # 2. Detect languages with FastText
