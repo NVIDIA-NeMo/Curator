@@ -110,7 +110,7 @@ class RayClient:
         #   RAY_ADDRESS will be set below when the Ray cluster is started and self.ray_process
         #   will be assigned the cluster process
         # If a Ray cluster is already running:
-        #   RAY_ADDRESS will have been set prior to calling start(), presumabley by a user starting
+        #   RAY_ADDRESS will have been set prior to calling start(), presumably by a user starting
         #   it externally, which means a cluster was already running and self.ray_process will be None.
         #
         # Note that the stop() method will stop the cluster only if it was started here and
