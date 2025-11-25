@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from nemo_curator.pipeline import WorkflowRunResult
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 
 from .tasks import Task
 

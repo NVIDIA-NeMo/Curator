@@ -147,6 +147,15 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
 
         return stages
 
+    @staticmethod
+    def _count_removed_duplicates(tasks: list[FileGroupTask] | None) -> int:
+        """Sum num_removed metadata reported by downstream stages."""
+        total_removed = 0
+        for task in tasks or []:
+            metadata = getattr(task, "_metadata", {}) or {}
+            total_removed += metadata.get("num_removed", 0)
+        return total_removed
+
     def run(
         self, executor: Optional["BaseExecutor"] = None, initial_tasks: list[FileGroupTask] | None = None
     ) -> WorkflowRunResult:
@@ -169,6 +178,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
 
         output_tasks: list[FileGroupTask] | None = None
         execution_time = 0.0
+        num_removed_duplicates = 0
 
         if self.id_generator_path is not None:
             from nemo_curator.stages.deduplication.id_generator import (
@@ -181,6 +191,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                 start_time = time.time()
                 output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
                 execution_time = time.time() - start_time
+                num_removed_duplicates = self._count_removed_duplicates(output_tasks)
             except Exception as e:
                 logger.error(f"Error running pipeline: {e}")
                 raise
@@ -190,7 +201,10 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
             start_time = time.time()
             output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
             execution_time = time.time() - start_time
+            num_removed_duplicates = self._count_removed_duplicates(output_tasks)
 
         workflow_result.add_pipeline_tasks("removal", output_tasks)
         workflow_result.add_metadata("total_time", execution_time)
+        workflow_result.add_metadata("num_duplicates", num_removed_duplicates)
+        workflow_result.add_metadata("num_output_tasks", len(output_tasks or []))
         return workflow_result

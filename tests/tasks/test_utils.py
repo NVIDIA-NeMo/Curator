@@ -1,6 +1,6 @@
 import numpy as np
 
-from nemo_curator.pipeline import WorkflowRunResult
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks import _EmptyTask
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.performance_utils import StagePerfStats
