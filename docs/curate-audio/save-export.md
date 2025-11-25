@@ -26,11 +26,11 @@ After processing your audio data through NeMo Curator's pipeline, export the res
 
 ## Output Formats
 
-NeMo Curator's audio curation pipeline supports ++JSONL (JSON Lines) format, the standard for NeMo ASR training and audio dataset distribution.
+NeMo Curator's audio curation pipeline supports JSONL (JSON Lines) format, the standard for NeMo ASR training and audio dataset distribution.
 
 ### JSONL Manifests
 
-The primary output format for audio curation is JSONL (JSON Lines){++, where each line represents one audio sample:
+The primary output format for audio curation is JSONL (JSON Lines), where each line represents one audio sample:
 
 ```json
 {"audio_filepath": "/data/audio/sample_001.wav", "text": "hello world", "pred_text": "hello world", "wer": 0.0, "duration": 2.1}
@@ -40,7 +40,7 @@ The primary output format for audio curation is JSONL (JSON Lines){++, where eac
 - One JSON object per line (newline-delimited)
 - Human-readable and machine-parseable
 - Compatible with NeMo ASR training pipelines
-- Easy to process with standard tools (jq, pandas, etc.
+- Easy to process with standard tools (jq, pandas, etc.)
 
 ### Metadata Fields
 
@@ -147,26 +147,26 @@ from nemo_curator.stages.audio.common import PreserveByValueStage
 
 # Filter by quality thresholds
 quality_filters = [
-    # Keep samples with WER <= 50%
+    # Keep samples with WER <= 30%
     PreserveByValueStage(
         input_value_key="wer",
-        target_value=50.0,
+        target_value=30.0,
         operator="le"
     ),
-    # Keep samples with duration 1-30 seconds
+    # Keep samples with duration 0.1-20.0 seconds
     PreserveByValueStage(
         input_value_key="duration", 
-        target_value=1.0,
+        target_value=0.1,
         operator="ge"
     ),
     PreserveByValueStage(
         input_value_key="duration",
-        target_value=30.0, 
+        target_value=20.0, 
         operator="le"
     )
 ]
 
-# Add quality filters before conversion and export++}
+# Add quality filters before conversion and export
 for filter_stage in quality_filters:
     pipeline.add_stage(filter_stage)
 
@@ -233,8 +233,8 @@ pipeline.add_stage(PreserveByValueStage(
 
 pipeline.add_stage(PreserveByValueStage(
     input_value_key="duration",
-    target_value=1.0,
-    operator="ge"  # Keep duration >= 1s
+    target_value=0.1,
+    operator="ge"  # Keep duration >= 0.1s
 ))
 
 pipeline.add_stage(PreserveByValueStage(
@@ -259,7 +259,7 @@ print("Audio curation complete. Results saved to ./curated_audio_dataset/")
 **Expected output:**
 - JSONL files in `./curated_audio_dataset/` directory
 - Each file contains filtered, high-quality audio samples
-- All samples have WER ≤ 30% and duration between 1-20 seconds
+- All samples have WER ≤ 30% and duration between 0.1-20.0 seconds
 
 ## Best Practices
 
