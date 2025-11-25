@@ -49,11 +49,16 @@ pip install s5cmd
 Here's how to create and run a Common Crawl processing pipeline:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def main():
+    # Initialize Ray client
+    ray_client = RayClient()
+    ray_client.start()
+
     # Create pipeline
     pipeline = Pipeline(
         name="common_crawl_pipeline",
@@ -79,16 +84,18 @@ def main():
     # Run pipeline
     results = pipeline.run()
 
+    # Stop Ray client
+    ray_client.stop()
 
 if __name__ == "__main__":
     main()
 ```
 
-For how pipelines execute across backends (`XennaExecutor`, `RayDataExecutor`), refer to {ref}`reference-execution-backends`.
+For executor options and configuration, refer to {ref}`reference-execution-backends`.
 
 ### Writing to Parquet
 
-To write Parquet instead of JSONL, use `ParquetWriter`:
+To write to Parquet files instead of JSONL, use `ParquetWriter`:
 
 ```python
 from nemo_curator.stages.text.io.writer import ParquetWriter
@@ -110,11 +117,11 @@ pipeline.add_stage(writer)
   - Default
 * - `start_snapshot`
   - str
-  - First snapshot to include (format: "YYYY-WW" for main, "YYYY-MM" for news). Not every year and week has a snapshot; refer to the official list at `https://data.commoncrawl.org/`.
+  - First snapshot to include (format: "YYYY-WW" for main, "YYYY-MM" for news). Not every year and week has a snapshot; refer to the official list at [https://data.commoncrawl.org/](https://data.commoncrawl.org/).
   - Required
 * - `end_snapshot`
   - str
-  - Last snapshot to include (same format as start_snapshot). Ensure your range includes at least one valid snapshot.
+  - Last snapshot to include (same format as `start_snapshot`). Ensure your range includes at least one valid snapshot.
   - Required
 * - `download_dir`
   - str
@@ -262,19 +269,6 @@ cc_stage = CommonCrawlDownloadExtractStage(
 
 ## Advanced Usage
 
-### Using Different Executors
-
-Curator supports several execution backends:
-
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-executor = XennaExecutor()
-
-# Experimental Ray Data executor (optional)
-from nemo_curator.backends.experimental.ray_data.executor import RayDataExecutor
-executor = RayDataExecutor()
-```
-
 ### Processing CC-NEWS Data
 
 For Common Crawl News data, use the `news` crawl type with month-based snapshots:
@@ -288,6 +282,8 @@ cc_stage = CommonCrawlDownloadExtractStage(
 )
 ```
 
+See [https://data.commoncrawl.org/crawl-data/CC-NEWS/index.html](https://data.commoncrawl.org/crawl-data/CC-NEWS/index.html) for more information.
+
 ### Large-Scale Processing
 
 For production workloads, consider these optimizations:
@@ -295,7 +291,7 @@ For production workloads, consider these optimizations:
 ```python
 cc_stage = CommonCrawlDownloadExtractStage(
     start_snapshot="2020-50",
-    end_snapshot="2020-52", 
+    end_snapshot="2020-50", 
     download_dir="/fast_storage/cc_downloads",
     use_aws_to_download=True,  # Faster S3 downloads
     verbose=False,  # Reduce logging overhead
