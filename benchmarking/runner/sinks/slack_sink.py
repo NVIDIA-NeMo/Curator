@@ -263,7 +263,13 @@ class SlackSink(Sink):
             except (ValueError, TypeError):
                 return (metric, str(result))
             else:
-                return (metric, f"{result:.3f}s  ({hours:02}h : {minutes:02}m : {seconds:06.3f}s)")
+                formatted_str = f"{result:.2f}s"
+                if hours > 0 or minutes > 0:
+                    formatted_str += " ("
+                    if hours > 0:
+                        formatted_str += f"{hours:02}h : "
+                    formatted_str += f"{minutes:02}m : {seconds:05.2f}s)"
+                return (metric, formatted_str)
         else:
             return (metric, str(result))
 
@@ -271,12 +277,17 @@ class SlackSink(Sink):
 # Run SlackSink from the command line to post a summary of the results to Slack.
 if __name__ == "__main__":
     import argparse
+    import os
     from pathlib import Path
 
     parser = argparse.ArgumentParser(description="Post benchmark results to Slack via webhook.")
-    parser.add_argument("--webhook-url", help="Slack webhook URL")
-    parser.add_argument("--results-root-dir", help="Path to the directory containing result subdirectories")
-    parser.add_argument("--additional-metrics", help="Additional metrics to include in the report", nargs="+")
+    parser.add_argument(
+        "--results-root-dir", required=True, help="Path to the directory containing result subdirectories"
+    )
+    parser.add_argument("--webhook-url", default=os.getenv("SLACK_WEBHOOK_URL"), help="Slack webhook URL")
+    parser.add_argument(
+        "--additional-metrics", default=[], help="Additional metrics to include in the report", nargs="+"
+    )
     args = parser.parse_args()
 
     webhook_url = args.webhook_url
