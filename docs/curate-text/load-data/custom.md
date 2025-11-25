@@ -45,12 +45,11 @@ your_data_source/
 #### URL Generator (`url_generation.py`)
 
 ```python
-from nemo_curator.stages.text.download.base.url_generation import URLGenerator
+from dataclasses import dataclass
+from nemo_curator.stages.text.download import URLGenerator
 
+@dataclass
 class CustomURLGenerator(URLGenerator):
-    def __init__(self, config_param: str):
-        self.config_param = config_param
-
     def generate_urls(self) -> list[str]:
         """Generate list of URLs to download."""
         # Your URL generation logic here
@@ -60,30 +59,25 @@ class CustomURLGenerator(URLGenerator):
         ]
 ```
 
-#### Document Download Handler (`download.py`)
+#### Document Downloader (`download.py`)
 
 ```python
-import requests
-from nemo_curator.stages.text.download.base.download import DocumentDownloader
+from nemo_curator.stages.text.download import DocumentDownloader
 
 class CustomDownloader(DocumentDownloader):
-    def __init__(self, download_dir: str, verbose: bool = False):
-        super().__init__(download_dir, verbose)
+    def __init__(self, download_dir: str):
+        super().__init__(download_dir=download_dir)
 
     def _get_output_filename(self, url: str) -> str:
         """Extract filename from URL."""
-        return url.split('/')[-1]
+        return url.split("/")[-1]
 
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
         """Download file from URL to local path."""
+        # Custom download logic
+        # Return (success_bool, error_message)
         try:
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-
-            with open(path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-
+            # ... download implementation ...
             return True, None
         except Exception as e:
             return False, str(e)
@@ -95,20 +89,18 @@ class CustomDownloader(DocumentDownloader):
 import json
 from collections.abc import Iterator
 from typing import Any
-from nemo_curator.stages.text.download.base.iterator import DocumentIterator
+from nemo_curator.stages.text.download import DocumentIterator
 
 class CustomIterator(DocumentIterator):
-    def __init__(self, record_format: str = "jsonl"):
-        self.record_format = record_format
+    def __init__(self, log_frequency: int = 1000):
+        super().__init__()
+        self._log_frequency = log_frequency
 
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         """Iterate over records in a file."""
-        if self.record_format == "jsonl":
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        yield json.loads(line)
-        # Add other format handlers as needed
+        # Custom iteration logic to load local file and return documents
+        for record in load_local_file_fn(file_path):
+            yield {"content": record_content, "metadata": record_metadata, "id": record_id}
 
     def output_columns(self) -> list[str]:
         """Define output columns."""
@@ -119,9 +111,12 @@ class CustomIterator(DocumentIterator):
 
 ```python
 from typing import Any
-from nemo_curator.stages.text.download.base.extract import DocumentExtractor
+from nemo_curator.stages.text.download import DocumentExtractor
 
 class CustomExtractor(DocumentExtractor):
+    def __init__(self):
+        super().__init__()
+
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
         """Transform raw record to final format."""
         # Skip invalid records
@@ -160,7 +155,8 @@ class CustomExtractor(DocumentExtractor):
 ### 3. Create Composite Stage (`stage.py`)
 
 ```python
-from nemo_curator.stages.text.download.base.stage import DocumentDownloadExtractStage
+from nemo_curator.stages.text.download import DocumentDownloadExtractStage
+from nemo_curator.stages.base import ProcessingStage
 from .url_generation import CustomURLGenerator
 from .download import CustomDownloader
 from .iterator import CustomIterator
@@ -171,22 +167,35 @@ class CustomDataStage(DocumentDownloadExtractStage):
 
     def __init__(
         self,
-        config_param: str,
-        download_dir: str,
-        record_format: str = "jsonl",
+        download_dir: str = "./custom_downloads",
         url_limit: int | None = None,
         record_limit: int | None = None,
-        **kwargs
+        add_filename_column: bool | str = True,
     ):
+        self.url_generator = CustomURLGenerator()
+        self.downloader = CustomDownloader(download_dir=download_dir)
+        self.iterator = CustomIterator()
+        self.extractor = CustomExtractor()
+
+        # Initialize the parent composite stage
         super().__init__(
-            url_generator=CustomURLGenerator(config_param),
-            downloader=CustomDownloader(download_dir),
-            iterator=CustomIterator(record_format),
-            extractor=CustomExtractor(),  # Optional - remove if not needed
+            url_generator=self.url_generator,
+            downloader=self.downloader,
+            iterator=self.iterator,
+            extractor=self.extractor,  # Optional - remove if not needed
             url_limit=url_limit,
             record_limit=record_limit,
-            **kwargs
+            add_filename_column=add_filename_column,
         )
+        self.name = "custom_data"
+
+    def decompose(self) -> list[ProcessingStage]:
+        """Decompose this composite stage into its constituent stages."""
+        return self.stages
+
+    def get_description(self) -> str:
+        """Get a description of this composite stage."""
+        return "Custom data"
 ```
 
 ---
@@ -196,71 +205,42 @@ class CustomDataStage(DocumentDownloadExtractStage):
 ### Basic Pipeline
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from your_data_source.stage import CustomDataStage
+from nemo_curator.stages.text.io.writer.jsonl import JsonlWriter
 
 def main():
-    # Create custom data loading stage
-    data_stage = CustomDataStage(
-        config_param="production",
-        download_dir="/tmp/downloads",
-        record_limit=1000  # Limit for testing
-    )
+    # Initialize Ray client
+    ray_client = RayClient()
+    ray_client.start()
 
     # Create pipeline
     pipeline = Pipeline(
         name="custom_data_pipeline",
         description="Load and process custom dataset"
     )
+
+    # Create custom data loading stage
+    data_stage = CustomDataStage(...)
+
     pipeline.add_stage(data_stage)
+
+    # Save the results to JSONL
+    pipeline.add_stage(JsonlWriter(...))
 
     # Run pipeline
     print("Starting pipeline...")
     results = pipeline.run()
 
-    # Process results
-    if results:
-        for task in results:
-            print(f"Processed {task.num_items} documents")
-            # Access data as Pandas DataFrame
-            df = task.to_pandas()
-            print(df.head())
+    # Stop Ray client
+    ray_client.stop()
 
 if __name__ == "__main__":
     main()
 ```
 
 For executor options and configuration, refer to {ref}`reference-execution-backends`.
-
-<!-- move the following to concepts / general docs on pipelines in separate PR -->
-<!-- ### Adding Processing Stages
-
-```python
-from nemo_curator.stages.modules import ScoreFilter
-from nemo_curator.stages.filters import WordCountFilter
-from nemo_curator.stages.text.io.writer import JsonlWriter
-
-def create_full_pipeline():
-    pipeline = Pipeline(name="full_processing")
-
-    # Data loading
-    pipeline.add_stage(CustomDataStage(
-        config_param="production",
-        download_dir="/tmp/downloads"
-    ))
-
-    # Text filtering
-    pipeline.add_stage(ScoreFilter(
-        filter_obj=WordCountFilter(min_words=10, max_words=1000),
-        text_field="text"
-    ))
-
-    # Output
-    pipeline.add_stage(JsonlWriter(path="/output/processed"))
-
-    return pipeline
-``` -->
-
 
 ---
 
