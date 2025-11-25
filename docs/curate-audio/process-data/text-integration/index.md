@@ -114,7 +114,7 @@ pipeline.add_stage(InferenceAsrNemoStage(
 ).with_(resources=Resources(gpus=1.0)))
 
 # 3. Calculate quality metrics
-# 3. Calculate quality metrics
+pipeline.add_stage(GetPairwiseWerStage(
 pipeline.add_stage(GetPairwiseWerStage(
     text_key="text",
     pred_text_key="pred_text",
