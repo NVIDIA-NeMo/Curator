@@ -10,18 +10,6 @@ modality: "text-only"
 
 (text-process-data-languages)=
 
----
-description: "Handle multilingual content and language-specific processing including language identification and stop word management"
-categories: ["workflows"]
-tags: ["language-management", "multilingual", "fasttext", "stop-words", "language-detection"]
-personas: ["data-scientist-focused", "mle-focused"]
-difficulty: "intermediate"
-content_type: "workflow"
-modality: "text-only"
----
-
-(text-process-data-languages)=
-
 # Language Management
 
 Identify document languages, filter multilingual content, and apply language-specific processing to create high-quality monolingual or multilingual text datasets.
@@ -92,7 +80,6 @@ Filter documents by language using FastText:
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modules import ScoreFilter
@@ -116,8 +103,7 @@ pipeline.add_stage(
             model_path="/path/to/lid.176.bin",  # Path to FastText model
             min_langid_score=0.3                # Minimum confidence (0.0-1.0)
         ),
-        score_field="language",  # Output field for language code
-        score_type="langid"      # Score type for filtering
+        score_field="language"  # Output field for language code
     )
 )
 
@@ -126,9 +112,8 @@ pipeline.add_stage(
     JsonlWriter(path="output_filtered/")
 )
 
-# Execute pipeline
-executor = XennaExecutor()
-results = pipeline.run(executor)
+# Execute pipeline (uses XennaExecutor by default)
+results = pipeline.run()
 ```
 **Parameters explained:**
 - `model_path`: Absolute path to FastText model file (`lid.176.bin` or `lid.176.ftz`)
@@ -172,11 +157,10 @@ Here's a comprehensive pipeline demonstrating language detection, filtering, and
 
 ```python
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modules import ScoreFilter
-from nemo_curator.stages.text.filters import FastTextLangId, StopWordsFilter
+from nemo_curator.stages.text.filters import FastTextLangId
 from nemo_curator.stages.function_decorators import processing_stage
 from nemo_curator.tasks import DocumentBatch
 
@@ -208,20 +192,11 @@ def filter_english(batch: DocumentBatch) -> DocumentBatch:
 
 pipeline.add_stage(filter_english)
 
-# 4. Remove documents with excessive stop words
-pipeline.add_stage(
-    ScoreFilter(
-        StopWordsFilter(lang="en", max_stopword_ratio=0.45),
-        score_field="stopword_ratio"
-    )
-)
-
-# 5. Export filtered, high-quality English documents
+# 4. Export filtered, high-quality English documents
 pipeline.add_stage(JsonlWriter(path="curated_english/"))
 
-# Execute pipeline
-executor = XennaExecutor()
-results = pipeline.run(executor)
+# Execute pipeline (uses XennaExecutor by default)
+results = pipeline.run()
 print("Language management pipeline completed!")
 ```
 
@@ -229,15 +204,7 @@ print("Language management pipeline completed!")
 1. Load multilingual JSONL documents
 2. Detect language with 60% minimum confidence
 3. Keep only English documents
-4. Remove documents with >45% stop words
-5. Export high-quality English dataset
-
-## Language Processing Capabilities
-
-- **Language detection** using FastText (176 languages) and CLD2 (used in HTML extraction pipelines)
-- **Stop word management** with built-in lists and customizable thresholds
-- **Special handling** for non-spaced languages (Chinese, Japanese, Thai, Korean)
-- **Language-specific** text processing and quality filtering
+4. Export high-quality English dataset
 
 ## Troubleshooting
 
@@ -257,15 +224,6 @@ Many documents classified incorrectly
 - Increase `min_langid_score` to filter low-confidence predictions
 - Ensure input text is clean (remove HTML tags, special characters)
 - Check for very short documents (<50 chars) which are harder to classify
-
-**Out of memory errors:**
-```
-MemoryError during language detection
-```
-**Solution:**
-- Reduce `files_per_partition` to process fewer files per worker
-- Use the compressed model (`lid.176.ftz`) instead of full model
-- Increase worker memory allocation
 
 ## Available Tools
 
