@@ -108,66 +108,47 @@ Character error rate (CER) is available as a utility function and typically requ
 
 ## Error Handling
 
-### Graceful Failure Modes
+### Validation Behavior
 
-AudioBatch handles various error conditions:
+AudioBatch validates audio file paths automatically during initialization:
 
 ```python
-# Missing files
+# Missing files trigger validation warnings
+audio_batch = AudioBatch(
+    data=[{"audio_filepath": "/missing/file.wav", "text": "sample"}],
+    filepath_key="audio_filepath"
+)
+# Logs: "File /missing/file.wav does not exist"
+# The AudioBatch object is still created, but validate() returns False
+```
+
+**Key behaviors**:
+
+- **File existence check**: When `filepath_key` is provided, AudioBatch checks if files exist during initialization
+- **Warning logging**: Missing files trigger `logger.warning()` messages
+- **Non-blocking**: Validation failures do not prevent AudioBatch creation
+- **Validation result**: Call `audio_batch.validate()` to check if all files exist
+- **Downstream impact**: Processing stages may fail if they attempt to read missing files
+
+### Error Handling in Stages
+
+Individual processing stages handle errors differently:
+
+```python
+# Corrupted audio files in GetAudioDurationStage
+# Duration calculation returns -1.0 for corrupted or unreadable files
 audio_batch = AudioBatch(data=[
-    {"audio_filepath": "/missing/file.wav", "text": "sample"}
+    {"audio_filepath": "/corrupted/audio.wav", "text": "sample"}
 ])
-# Validation fails, but processing continues with warnings
-
-# Corrupted audio files  
-corrupted_sample = {
-    "audio_filepath": "/corrupted/audio.wav",
-    "text": "sample text"
-}
-# Duration calculation returns -1.0 for corrupted files
-
-# Invalid metadata
-invalid_sample = {
-    "audio_filepath": "/valid/audio.wav",
-    # Missing "text" field - needed for WER calculation but not enforced by AudioBatch
-}
-# AudioBatch does not enforce metadata field requirements. Add a validation stage if required.
+duration_stage = GetAudioDurationStage(
+    audio_filepath_key="audio_filepath",
+    duration_key="duration"
+)
+result = duration_stage.process(audio_batch)
+# result.data[0]["duration"] == -1.0 for corrupted files
 ```
 
-### Error Recovery Strategies
-
-```python
-def robust_audiobatch_creation(raw_data: list) -> AudioBatch:
-    """Create AudioBatch with error recovery."""
-    
-    valid_data = []
-    error_count = 0
-    
-    for item in raw_data:
-        try:
-            # Validate required fields
-            if "audio_filepath" not in item or "text" not in item:
-                error_count += 1
-                continue
-            
-            # Validate file existence
-            if not os.path.exists(item["audio_filepath"]):
-                error_count += 1
-                continue
-                
-            valid_data.append(item)
-            
-        except Exception as e:
-            logger.warning(f"Error processing item: {e}")
-            error_count += 1
-    
-    logger.info(f"Created AudioBatch with {len(valid_data)} valid items, {error_count} errors")
-    
-    return AudioBatch(
-        data=valid_data,
-        filepath_key="audio_filepath"
-    )
-```
+**Note**: AudioBatch itself does not enforce metadata field requirements. Fields like `"text"` are needed by specific stages (such as GetPairwiseWerStage) but are not validated by AudioBatch. Add custom validation stages if your pipeline requires specific metadata fields.
 
 ## Performance Characteristics
 
@@ -175,29 +156,12 @@ def robust_audiobatch_creation(raw_data: list) -> AudioBatch:
 
 AudioBatch memory footprint depends on these factors:
 
-- **Number of samples**: Memory usage scales linearly with batch size
-- **Metadata complexity**: Additional metadata fields increase memory consumption
+- **Number of samples**: Memory usage scales linearly with batch size (standard Python list behavior)
+- **Metadata complexity**: Additional metadata fields in the dictionary increase memory consumption
 - **File path lengths**: Longer file paths consume more memory
-- **Audio file loading**: Audio files are loaded on-demand and not cached in the batch
+- **Audio file loading**: Audio files are **not** stored in AudioBatch. Audio data is loaded on-demand by processing stages (such as GetAudioDurationStage or InferenceAsrNemoStage)
 
-### Processing Efficiency
-
-**Batch Size Impact**:
-
-**Small batches**:
-- Lower memory usage
-- Higher overhead per sample
-- Better for memory-constrained environments
-
-**Medium batches**:
-- Balanced memory and performance
-- Good for most use cases
-- Optimal for CPU processing
-
-**Large batches**:
-- Higher memory usage
-- Better GPU utilization
-- Optimal for GPU processing with sufficient VRAM
+Since AudioBatch stores only metadata and file paths (not audio data), memory usage is typically modest. The actual memory requirements depend more on the processing stages and model inference than on the AudioBatch itself.
 
 ## Integration with Processing Stages
 
