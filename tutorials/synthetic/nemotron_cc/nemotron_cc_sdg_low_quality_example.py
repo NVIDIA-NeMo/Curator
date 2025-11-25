@@ -41,6 +41,17 @@ from nemo_curator.tasks.document import DocumentBatch
 # Threshold used to bucket and filter input examples
 BUCKETED_RESULTS_THRESHOLD = 11
 
+TASK_CONFIGS = {
+    "wikipedia_paraphrasing": {
+        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "prompt_template": WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
+        "min_document_tokens": 5,
+        "min_segment_tokens": 5,
+        "max_input_tokens": 512,
+        "max_output_tokens": 2048,
+    },
+}
+
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
@@ -72,7 +83,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--tokenizer",
         type=str,
-        default=None,
+        default="meta-llama/Llama-3.1-8B-Instruct",
         help="Name of the tokenizer to use for preprocessing and postprocessing",
     )
 
@@ -82,30 +93,6 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="./synthetic_output",
         help="Directory path to save the generated synthetic data in JSONL format",
-    )
-
-    # Pipeline Configuration
-    parser.add_argument(
-        "--skip-preprocessing",
-        action="store_true",
-        help="Skip preprocessing pipeline (useful for debugging)",
-    )
-    parser.add_argument(
-        "--skip-postprocessing",
-        action="store_true",
-        help="Skip postprocessing pipeline (useful for debugging)",
-    )
-    parser.add_argument(
-        "--min-document-tokens",
-        type=int,
-        default=5,
-        help="Minimum tokens for document filtering in preprocessing",
-    )
-    parser.add_argument(
-        "--min-segment-tokens",
-        type=int,
-        default=5,
-        help="Minimum tokens for segment filtering after joining",
     )
 
     # LLM Sampling Parameters (for diversity)
@@ -137,20 +124,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:  # noqa: C901, PLR0912,PLR0915
+def main() -> None:  # noqa: PLR0915
     """Main function to run the synthetic data generation pipeline."""
     client = RayClient(include_dashboard=False)
     client.start()
 
     args = parse_args()
 
-    # Set tokenizer (only required if using preprocessing/postprocessing)
-    if not args.skip_preprocessing or not args.skip_postprocessing:
-        if args.tokenizer is None:
-            msg = "Tokenizer is required when using preprocessing/postprocessing. Use --tokenizer argument with a HuggingFace tokenizer name, or use --skip-preprocessing and --skip-postprocessing"
-            raise ValueError(msg)
-        args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
-        args.hf_token = os.environ.get("HF_TOKEN", "")
+    # Set tokenizer
+    if args.tokenizer is None:
+        msg = "Tokenizer is required"
+        raise ValueError(msg)
+    args.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    args.hf_token = os.environ.get("HF_TOKEN", "")
+
+    # Set task config
+    task_config = TASK_CONFIGS["wikipedia_paraphrasing"]
 
     # Validate API key
     if not args.api_key:
@@ -391,24 +380,21 @@ def main() -> None:  # noqa: C901, PLR0912,PLR0915
         ),
     )
 
-    # Add preprocessing pipeline stages (optional)
+    # Add preprocessing pipeline stages
     # These stages prepare the text by splitting, filtering, and joining segments
-    if not args.skip_preprocessing:
-        print(
-            f"Adding preprocessing pipeline (min_document_tokens={args.min_document_tokens}, min_segment_tokens={args.min_segment_tokens})..."
-        )
-        pipeline = add_preprocessing_pipeline(
-            pipeline=pipeline,
-            text_field="text",
-            system_prompt=NEMOTRON_CC_SYSTEM_PROMPT,
-            user_prompt_template=WIKIPEDIA_REPHRASING_PROMPT_TEMPLATE,
-            min_document_tokens=args.min_document_tokens,
-            min_segment_tokens=args.min_segment_tokens,
-            max_input_tokens=512,
-            args=args,
-        )
-    else:
-        print("Skipping preprocessing pipeline (--skip-preprocessing enabled)")
+    print(
+        f"Adding preprocessing pipeline (min_document_tokens={task_config['min_document_tokens']}, min_segment_tokens={task_config['min_segment_tokens']})..."
+    )
+    pipeline = add_preprocessing_pipeline(
+        pipeline=pipeline,
+        text_field="text",
+        system_prompt=task_config["system_prompt"],
+        user_prompt_template=task_config["prompt_template"],
+        min_document_tokens=task_config["min_document_tokens"],
+        min_segment_tokens=task_config["min_segment_tokens"],
+        max_input_tokens=task_config["max_input_tokens"],
+        args=args,
+    )
 
     # Add the synthetic data generation stage
     pipeline.add_stage(
@@ -421,17 +407,14 @@ def main() -> None:  # noqa: C901, PLR0912,PLR0915
         )
     )
 
-    # Add postprocessing pipeline stages (optional)
+    # Add postprocessing pipeline stages
     # These stages clean and filter the LLM-generated rephrased text
-    if not args.skip_postprocessing:
-        print("Adding postprocessing pipeline...")
-        pipeline = add_wikipedia_postprocessing_pipeline(
-            pipeline=pipeline,
-            llm_response_field="rephrased",
-            args=args,
-        )
-    else:
-        print("Skipping postprocessing pipeline (--skip-postprocessing enabled)")
+    print("Adding postprocessing pipeline...")
+    pipeline = add_wikipedia_postprocessing_pipeline(
+        pipeline=pipeline,
+        llm_response_field="rephrased",
+        args=args,
+    )
 
     # Add JSONL writer to save the generated data
     pipeline.add_stage(
