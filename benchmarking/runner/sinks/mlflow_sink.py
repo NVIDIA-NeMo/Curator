@@ -16,7 +16,8 @@ import traceback
 from typing import Any
 
 from loguru import logger
-from runner.matrix import MatrixConfig, MatrixEntry
+from runner.entry import Entry
+from runner.session import Session
 from runner.sinks.sink import Sink
 
 
@@ -35,15 +36,15 @@ class MlflowSink(Sink):
         self.enabled = self.sink_config.get("enabled", True)
         self.results: list[dict[str, Any]] = []
         self.session_name: str = None
-        self.matrix_config: MatrixConfig = None
+        self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
 
-    def initialize(self, session_name: str, matrix_config: MatrixConfig, env_dict: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, matrix_config: Session, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name
         self.matrix_config = matrix_config
         self.env_dict = env_dict
 
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
+    def process_result(self, result_dict: dict[str, Any], matrix_entry: Entry) -> None:
         # Use the matrix_entry to get any entry-specific settings for the Slack report
         # such as additional metrics to include in the report.
         if matrix_entry:
