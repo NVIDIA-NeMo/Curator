@@ -23,11 +23,13 @@ class TestDocumentJoiner:
     def test_basic_join(self):
         """Test basic document joining functionality."""
         # Create test data with split segments
-        df = pd.DataFrame({
-            "id": [1, 1, 2, 2, 2],
-            "segment_id": [0, 1, 0, 1, 2],
-            "text": ["Hello", "World", "First", "Second", "Third"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1, 2, 2, 2],
+                "segment_id": [0, 1, 0, 1, 2],
+                "text": ["Hello", "World", "First", "Second", "Third"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -53,11 +55,13 @@ class TestDocumentJoiner:
 
     def test_custom_separator(self):
         """Test joining with a custom separator."""
-        df = pd.DataFrame({
-            "id": [1, 1, 1],
-            "segment_id": [0, 1, 2],
-            "text": ["apple", "banana", "cherry"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1, 1],
+                "segment_id": [0, 1, 2],
+                "text": ["apple", "banana", "cherry"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -73,11 +77,13 @@ class TestDocumentJoiner:
 
     def test_custom_fields(self):
         """Test joining with custom field names."""
-        df = pd.DataFrame({
-            "doc_id": [1, 1],
-            "chunk_id": [0, 1],
-            "content": ["Part1", "Part2"],
-        })
+        df = pd.DataFrame(
+            {
+                "doc_id": [1, 1],
+                "chunk_id": [0, 1],
+                "content": ["Part1", "Part2"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -98,11 +104,13 @@ class TestDocumentJoiner:
 
     def test_keep_segment_id_field(self):
         """Test keeping the segment_id field after joining."""
-        df = pd.DataFrame({
-            "id": [1, 1],
-            "segment_id": [0, 1],
-            "text": ["A", "B"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1],
+                "segment_id": [0, 1],
+                "text": ["A", "B"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -119,12 +127,14 @@ class TestDocumentJoiner:
 
     def test_max_length_single_segment_exceeds(self):
         """Test max_length when a single segment exceeds the limit."""
-        df = pd.DataFrame({
-            "id": [1, 1, 1],
-            "segment_id": [0, 1, 2],
-            "text": ["Short", "VeryLongSegmentThatExceedsLimit", "AlsoShort"],
-            "length": [5, 30, 9],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1, 1],
+                "segment_id": [0, 1, 2],
+                "text": ["Short", "VeryLongSegmentThatExceedsLimit", "AlsoShort"],
+                "length": [5, 30, 9],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -147,11 +157,13 @@ class TestDocumentJoiner:
 
     def test_multiple_documents(self):
         """Test joining multiple documents in one batch."""
-        df = pd.DataFrame({
-            "id": [1, 1, 2, 2, 3, 3, 3],
-            "segment_id": [0, 1, 0, 1, 0, 1, 2],
-            "text": ["A", "B", "C", "D", "E", "F", "G"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1, 2, 2, 3, 3, 3],
+                "segment_id": [0, 1, 0, 1, 0, 1, 2],
+                "text": ["A", "B", "C", "D", "E", "F", "G"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -169,13 +181,15 @@ class TestDocumentJoiner:
 
     def test_preserve_additional_columns(self):
         """Test that additional columns are preserved during joining."""
-        df = pd.DataFrame({
-            "id": [1, 1, 2, 2],
-            "segment_id": [0, 1, 0, 1],
-            "text": ["Hello", "World", "Foo", "Bar"],
-            "author": ["John", "John", "Jane", "Jane"],
-            "date": ["2023-01-01", "2023-01-01", "2023-01-02", "2023-01-02"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1, 2, 2],
+                "segment_id": [0, 1, 0, 1],
+                "text": ["Hello", "World", "Foo", "Bar"],
+                "author": ["John", "John", "Jane", "Jane"],
+                "date": ["2023-01-01", "2023-01-01", "2023-01-02", "2023-01-02"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -196,11 +210,13 @@ class TestDocumentJoiner:
 
     def test_out_of_order_segments(self):
         """Test that segments are correctly ordered even if input is out of order."""
-        df = pd.DataFrame({
-            "id": [1, 1, 1],
-            "segment_id": [2, 0, 1],  # Out of order
-            "text": ["Third", "First", "Second"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1, 1],
+                "segment_id": [2, 0, 1],  # Out of order
+                "text": ["Third", "First", "Second"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -230,11 +246,13 @@ class TestDocumentJoiner:
 
     def test_single_segment_document(self):
         """Test document with only one segment."""
-        df = pd.DataFrame({
-            "id": [1],
-            "segment_id": [0],
-            "text": ["OnlySegment"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1],
+                "segment_id": [0],
+                "text": ["OnlySegment"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -294,11 +312,13 @@ class TestDocumentJoiner:
 
     def test_metadata_preservation(self):
         """Test that metadata is preserved through the join."""
-        df = pd.DataFrame({
-            "id": [1, 1],
-            "segment_id": [0, 1],
-            "text": ["Part1", "Part2"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 1],
+                "segment_id": [0, 1],
+                "text": ["Part1", "Part2"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -316,11 +336,13 @@ class TestDocumentJoiner:
         from nemo_curator.stages.text.modules.splitter import DocumentSplitter
 
         # Original data
-        original_df = pd.DataFrame({
-            "doc_id": ["doc1", "doc2"],
-            "text": ["Hello\n\nWorld", "Foo\n\nBar\n\nBaz"],
-            "author": ["Alice", "Bob"],
-        })
+        original_df = pd.DataFrame(
+            {
+                "doc_id": ["doc1", "doc2"],
+                "text": ["Hello\n\nWorld", "Foo\n\nBar\n\nBaz"],
+                "author": ["Alice", "Bob"],
+            }
+        )
         original_batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -347,4 +369,3 @@ class TestDocumentJoiner:
         assert len(joined_df) == len(original_sorted)
         assert list(joined_df["text"]) == list(original_sorted["text"])
         assert list(joined_df["author"]) == list(original_sorted["author"])
-

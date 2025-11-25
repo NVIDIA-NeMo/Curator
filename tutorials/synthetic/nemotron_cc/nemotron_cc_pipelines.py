@@ -14,6 +14,8 @@
 
 import argparse
 
+from transformers import AutoTokenizer
+
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import (
     DiverseQAPostProcessingStage,
@@ -30,18 +32,18 @@ from nemo_curator.stages.text.modules.score_filter import Filter, ScoreFilter
 from nemo_curator.stages.text.modules.splitter import DocumentSplitter
 
 
-def get_prefix_token_count(tokenizer, system_prompt: str, user_prompt_template: str) -> int:
+def get_prefix_token_count(tokenizer: AutoTokenizer, system_prompt: str, user_prompt_template: str) -> int:
     """
     Calculate the number of tokens in the prompt prefix.
-    
+
     This is used to determine how many tokens are taken up by the system prompt
     and user prompt template, so we can calculate the maximum segment size.
-    
+
     Args:
         tokenizer: The tokenizer to use for counting tokens
         system_prompt: The system prompt string
         user_prompt_template: The user prompt template string (e.g., "Summarize: {text}")
-    
+
     Returns:
         Number of tokens in the prefix
     """
@@ -51,10 +53,10 @@ def get_prefix_token_count(tokenizer, system_prompt: str, user_prompt_template: 
         template_without_text = user_prompt_template.replace("{text}", "")
     else:
         template_without_text = user_prompt_template
-    
+
     # Combine system prompt and template
     full_prefix = f"{system_prompt}\n{template_without_text}"
-    
+
     # Count tokens
     tokens = tokenizer.encode(full_prefix)
     return len(tokens)
@@ -72,14 +74,14 @@ def add_preprocessing_pipeline(  # noqa: PLR0913
 ) -> Pipeline:
     """
     Add Nemotron-CC preprocessing pipeline.
-    
+
     This pipeline performs the following operations:
     1. Filter out documents that are too short
     2. Split documents into segments by newline
     3. Filter out segments that are too long for the model
     4. Join adjacent short segments to maximize input utilization
     5. Filter out segments that are still too short after joining
-    
+
     Args:
         pipeline: The pipeline to add stages to
         text_field: The field containing the text to process
@@ -89,7 +91,7 @@ def add_preprocessing_pipeline(  # noqa: PLR0913
         min_segment_tokens: Minimum tokens for a segment after joining
         max_input_tokens: Maximum input tokens the model can handle
         args: Command line arguments containing tokenizer info
-    
+
     Returns:
         Updated pipeline with preprocessing stages added
     """
@@ -156,12 +158,13 @@ def add_preprocessing_pipeline(  # noqa: PLR0913
 
     return pipeline
 
+
 def add_wikipedia_postprocessing_pipeline(
     pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace
 ) -> Pipeline:
     """
     Add Wikipedia postprocessing pipeline.
-    
+
     This pipeline performs the following operations:
     1. Filter segments by maximum token count
     2. Remove markdown formatting
@@ -170,12 +173,12 @@ def add_wikipedia_postprocessing_pipeline(
     5. Remove quotation marks
     6. Join paragraphs belonging to the same document
     7. Filter out documents that are too short
-    
+
     Args:
         pipeline: The pipeline to add stages to
         llm_response_field: The field containing the LLM response
         args: Command line arguments containing tokenizer info
-    
+
     Returns:
         Updated pipeline with Wikipedia postprocessing stages added
     """
@@ -258,7 +261,10 @@ def add_wikipedia_postprocessing_pipeline(
 
     return pipeline
 
-def add_diverse_qa_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
+
+def add_diverse_qa_postprocessing_pipeline(
+    pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace
+) -> Pipeline:
     """Add DiverseQA postprocessing pipeline."""
     max_rephrased_tokens = 598
     min_document_tokens = 100
@@ -308,7 +314,10 @@ def add_diverse_qa_postprocessing_pipeline(pipeline: Pipeline, llm_response_fiel
 
     return pipeline
 
-def add_distill_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
+
+def add_distill_postprocessing_pipeline(
+    pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace
+) -> Pipeline:
     """Add Distill postprocessing pipeline."""
     max_rephrased_tokens = 1598
     min_document_tokens = 50
@@ -378,7 +387,10 @@ def add_distill_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: 
 
     return pipeline
 
-def add_extract_knowledge_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
+
+def add_extract_knowledge_postprocessing_pipeline(
+    pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace
+) -> Pipeline:
     """Add ExtractKnowledge postprocessing pipeline."""
     max_rephrased_tokens = 1398
     min_document_tokens = 50
@@ -427,7 +439,10 @@ def add_extract_knowledge_postprocessing_pipeline(pipeline: Pipeline, llm_respon
 
     return pipeline
 
-def add_knowledge_list_postprocessing_pipeline(pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace) -> Pipeline:
+
+def add_knowledge_list_postprocessing_pipeline(
+    pipeline: Pipeline, llm_response_field: str, args: argparse.Namespace
+) -> Pipeline:
     """Add KnowledgeList postprocessing pipeline."""
     max_rephrased_tokens = 598
     min_document_tokens = 50

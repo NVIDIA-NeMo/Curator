@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import pandas as pd
-import pytest
 
 from nemo_curator.stages.text.modules.splitter import DocumentSplitter
 from nemo_curator.tasks import DocumentBatch
@@ -23,10 +22,12 @@ class TestDocumentSplitter:
     def test_basic_split(self):
         """Test basic document splitting functionality."""
         # Create test data
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "text": ["Hello\n\nWorld", "First\n\nSecond\n\nThird"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "text": ["Hello\n\nWorld", "First\n\nSecond\n\nThird"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -62,9 +63,11 @@ class TestDocumentSplitter:
 
     def test_custom_separator(self):
         """Test splitting with a custom separator."""
-        df = pd.DataFrame({
-            "text": ["apple|banana|cherry"],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["apple|banana|cherry"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -82,10 +85,12 @@ class TestDocumentSplitter:
 
     def test_custom_text_field(self):
         """Test splitting with a custom text field."""
-        df = pd.DataFrame({
-            "content": ["Part1\n\nPart2"],
-            "metadata": ["some_metadata"],
-        })
+        df = pd.DataFrame(
+            {
+                "content": ["Part1\n\nPart2"],
+                "metadata": ["some_metadata"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -104,9 +109,11 @@ class TestDocumentSplitter:
 
     def test_custom_segment_id_field(self):
         """Test splitting with a custom segment ID field name."""
-        df = pd.DataFrame({
-            "text": ["A\n\nB"],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["A\n\nB"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -124,10 +131,12 @@ class TestDocumentSplitter:
 
     def test_no_split_needed(self):
         """Test documents that don't contain the separator."""
-        df = pd.DataFrame({
-            "id": [1, 2],
-            "text": ["NoSeparatorHere", "AlsoNoSeparator"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1, 2],
+                "text": ["NoSeparatorHere", "AlsoNoSeparator"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -143,9 +152,11 @@ class TestDocumentSplitter:
 
     def test_empty_segments(self):
         """Test handling of empty segments from consecutive separators."""
-        df = pd.DataFrame({
-            "text": ["A\n\n\n\nB"],  # Double separator creates empty segment
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["A\n\n\n\nB"],  # Double separator creates empty segment
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -164,11 +175,13 @@ class TestDocumentSplitter:
 
     def test_metadata_preservation(self):
         """Test that metadata is preserved through the split."""
-        df = pd.DataFrame({
-            "id": [1],
-            "text": ["Part1\n\nPart2"],
-            "author": ["John Doe"],
-        })
+        df = pd.DataFrame(
+            {
+                "id": [1],
+                "text": ["Part1\n\nPart2"],
+                "author": ["John Doe"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -202,9 +215,11 @@ class TestDocumentSplitter:
 
     def test_validate_input(self):
         """Test input validation."""
-        df = pd.DataFrame({
-            "text": ["Hello World"],
-        })
+        df = pd.DataFrame(
+            {
+                "text": ["Hello World"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -215,9 +230,11 @@ class TestDocumentSplitter:
         assert splitter.validate_input(batch) is True
 
         # Test with missing text field
-        df_missing = pd.DataFrame({
-            "other_field": ["Hello"],
-        })
+        df_missing = pd.DataFrame(
+            {
+                "other_field": ["Hello"],
+            }
+        )
         batch_missing = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -227,10 +244,12 @@ class TestDocumentSplitter:
 
     def test_reconstruction_with_unique_ids(self):
         """Test that documents can be reconstructed using unique IDs."""
-        df = pd.DataFrame({
-            "doc_id": ["doc1", "doc2"],
-            "text": ["Hello\n\nWorld", "Foo\n\nBar"],
-        })
+        df = pd.DataFrame(
+            {
+                "doc_id": ["doc1", "doc2"],
+                "text": ["Hello\n\nWorld", "Foo\n\nBar"],
+            }
+        )
         batch = DocumentBatch(
             task_id="test_batch",
             dataset_name="test_dataset",
@@ -251,4 +270,3 @@ class TestDocumentSplitter:
         doc2_segments = result_df[result_df["doc_id"] == "doc2"].sort_values("segment_id")
         reconstructed_doc2 = "\n\n".join(doc2_segments["text"].tolist())
         assert reconstructed_doc2 == "Foo\n\nBar"
-
