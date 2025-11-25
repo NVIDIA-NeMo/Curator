@@ -21,7 +21,7 @@ Welcome to NeMo Curator! This framework streamlines the curation and pre-process
 - Individuals exploring NeMo Curator prior to a full production deployment
 
 **What you'll Find Here:**
-Each quickstart enables you to get started with a specific domain in less than 30 minutes. Quickstarts provide basic installation steps, sample data, and a working example
+Each quickstart enables you to get started with a specific domain in less than 30 minutes. Quickstarts provide basic installation steps, sample data, and a working example.
 
 :::{tip}
 For production deployments, cluster configurations, or detailed system requirements, refer to the [Setup & Deployment documentation](admin-overview).
