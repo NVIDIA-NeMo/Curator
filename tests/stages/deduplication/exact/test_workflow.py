@@ -127,6 +127,8 @@ class TestExactDuplicatesWorkflow:
         )
         result = workflow.run(initial_tasks=exact_dedup_data_parquet)
         assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert (result.get_metadata("num_duplicates") or 0) > 0
 
         original_df_with_curator_ids = (
             get_original_df_with_curator_ids(
@@ -160,6 +162,8 @@ class TestExactDuplicatesWorkflow:
         )
         result = workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
         assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert (result.get_metadata("num_duplicates") or 0) == 0
 
         removal_ids_df = cudf.read_parquet(tmpdir / "ExactDuplicateIds")
         assert len(removal_ids_df) == 0
