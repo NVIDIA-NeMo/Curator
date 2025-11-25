@@ -299,7 +299,7 @@ if __name__ == "__main__":
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
             "Example: --model-dir /path/to/models or --model-dir ./models"
-        ),
+        )
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
