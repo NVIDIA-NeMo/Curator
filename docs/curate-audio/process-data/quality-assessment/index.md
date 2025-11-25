@@ -47,21 +47,21 @@ WER measures the percentage of words that differ between ground truth and predic
 
 ### Character Error Rate (CER)
 
-More granular accuracy measurement at the character level:
+More granular accuracy measurement at the character level.  The `get_cer()` function is a utility for calculating CER programmatically::
 
 ```python
 from nemo_curator.stages.audio.metrics.get_wer import get_cer
 
-# Calculate CER programmatically
+# Calculate CER between two strings (for testing/validation)
 cer_value = get_cer("hello world", "helo world")  # Returns 9.09
 ```
 
-:::{note} The WER and CER utilities depend on the `editdistance` package.
+:::{note} The WER and CER utilities depend on the `editdistance` package. These are utility functions typically used within custom stages rather than directly in pipelines.
 :::
 
 ### Speech Rate Metrics
 
-Analyze speaking speed and content density:
+NeMo Curator provides utility functions for analyzing speaking speed and content density. These functions are designed for use in custom processing stages:
 
 ```python
 from nemo_curator.stages.audio.metrics.get_wer import get_wordrate, get_charrate
@@ -72,6 +72,9 @@ word_rate = get_wordrate("hello world example", 2.5)  # 1.2 words/second
 # Calculate characters per second  
 char_rate = get_charrate("hello world", 2.0)  # 5.5 chars/second
 ```
+:::{seealso}
+For a complete example of using speech rate metrics in a pipeline, see the **[Duration Filtering](duration-filtering.md)** guide.
+:::
 
 ## Filtering Strategies
 
@@ -187,7 +190,7 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 # 2. ASR inference
 pipeline.add_stage(InferenceAsrNemoStage(
     model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc"
-))
+).with_(resources=Resources(gpus=1.0)))
 
 # 3. Calculate quality metrics
 pipeline.add_stage(GetPairwiseWerStage())
