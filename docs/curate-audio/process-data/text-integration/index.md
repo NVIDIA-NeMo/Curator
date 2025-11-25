@@ -125,9 +125,8 @@ pipeline.add_stage(GetAudioDurationStage(
     duration_key="duration"
 ))
 
-#4. Convert to DocumentBatch for export
-
-#Convert to DocumentBatch for export
+# 4. Convert to DocumentBatch for export
+pipeline.add_stage(AudioToDocumentStage())
 pipeline.add_stage(AudioToDocumentStage())
 
 # 5. Export to JSONL format
