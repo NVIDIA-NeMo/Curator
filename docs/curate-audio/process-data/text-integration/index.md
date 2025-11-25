@@ -135,7 +135,7 @@ pipeline.add_stage(JsonlWriter(path="/output/processed_audio_results"))
 
 # Execute pipeline
 executor = XennaExecutor()
-pipeline.run(executor)}
+pipeline.run(executor)
 ```
 
 **Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with all fields:
