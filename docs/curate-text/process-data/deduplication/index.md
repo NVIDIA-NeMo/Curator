@@ -44,9 +44,7 @@ exact_workflow = ExactDeduplicationWorkflow(
     assign_id=True,
     input_filetype="parquet"
 )
-result = exact_workflow.run()
-print(f"Exact pipelines: {list(result['pipeline_tasks'].keys())}")
-print(f"Duplicates detected: {result['num_duplicates']}")
+exact_workflow.run()
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See {ref}`Exact Duplicate Removal <text-process-data-dedup-exact>` for details.
@@ -80,9 +78,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
     num_bands=20,
     minhashes_per_band=13
 )
-result = fuzzy_workflow.run()
-print(f"Fuzzy pipelines: {list(result['pipeline_tasks'].keys())}")
-print(f"Removed documents: {result['num_removed_documents']}")
+fuzzy_workflow.run()
 ```
 
 For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See {ref}`Fuzzy Duplicate Removal <text-process-data-dedup-fuzzy>` for details.
@@ -114,9 +110,7 @@ text_workflow = TextSemanticDeduplicationWorkflow(
     eps=0.01,  # Similarity threshold
     perform_removal=True  # Complete deduplication
 )
-results = text_workflow.run()
-print(f"Workflow outputs: {list(results['pipeline_tasks'].keys())}")
-print(f"Final path: {results['final_output_path']}")
+text_workflow.run()
 ```
 
 **Note**: Two workflows available:
@@ -174,18 +168,6 @@ This approach enables analysis of intermediate results and fine-grained control.
 ::::
 
 :::::
-
-
-> **Workflow outputs**
-> Every deduplication workflow now returns a dictionary with the keys `workflow_name`, `pipeline_tasks`, and `metadata` alongside method-specific metrics (e.g., `num_removed_documents`). The `pipeline_tasks` mapping exposes the raw `Task` objects emitted by each internal pipeline, which you can feed to `TaskPerfUtils` for custom metric aggregation.
-
-```python
-from nemo_curator.tasks.utils import TaskPerfUtils
-
-result = fuzzy_workflow.run()
-minhash_tasks = result["pipeline_tasks"]["minhash_pipeline"]
-metrics = TaskPerfUtils.aggregate_task_metrics(result)
-```
 
 ---
 
