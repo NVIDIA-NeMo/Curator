@@ -14,6 +14,7 @@
 
 import atexit
 import os
+import signal
 import socket
 import subprocess
 from dataclasses import dataclass, field
@@ -57,6 +58,7 @@ class RayClient:
         num_gpus: The number of GPUs to use.
         num_cpus: The number of CPUs to use.
         enable_object_spilling: Whether to enable object spilling.
+        ray_stdouterr_capture_file: The file to capture stdout/stderr to.
 
     Note:
         To start monitoring services (Prometheus and Grafana), use the standalone
@@ -75,7 +77,7 @@ class RayClient:
     enable_object_spilling: bool = False
     ray_stdouterr_capture_file: str | None = None
 
-    ray_process: subprocess.Popen | None = field(init=False)
+    ray_process: subprocess.Popen | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         if self.ray_stdouterr_capture_file and os.path.exists(self.ray_stdouterr_capture_file):
@@ -83,7 +85,7 @@ class RayClient:
             raise FileExistsError(msg)
 
     def start(self) -> None:
-        """Start the Ray cluster, optionally capturing stdout/stderr to a file."""
+        """Start the Ray cluster if not already started, optionally capturing stdout/stderr to a file."""
         if self.include_dashboard:
             # Add Ray metrics service discovery to existing Prometheus configuration
             if is_prometheus_running() and is_grafana_running():
@@ -101,6 +103,17 @@ class RayClient:
                 )
                 logger.warning(msg)
 
+        # Use the RAY_ADDRESS environment variable to determine if Ray is already running.
+        # If a Ray cluster is not running:
+        #   RAY_ADDRESS will be set below when the Ray cluster is started and self.ray_process
+        #   will be assigned the cluster process
+        # If a Ray cluster is already running:
+        #   RAY_ADDRESS will have been set prior to calling start(), presumabley by a user starting
+        #   it externally, which means a cluster was already running and self.ray_process will be None.
+        #
+        # Note that the stop() method will stop the cluster only if it was started here and
+        # self.ray_process was assigned, otherwise it leaves it running with the assumption it
+        # was started externally and should not be stopped.
         if os.environ.get("RAY_ADDRESS"):
             logger.info("Ray is already running. Skipping the setup.")
         else:
@@ -140,8 +153,21 @@ class RayClient:
 
     def stop(self) -> None:
         if self.ray_process:
-            self.ray_process.kill()
-            self.ray_process.wait()
+            # Kill the entire process group to ensure child processes are terminated
+            try:
+                os.killpg(os.getpgid(self.ray_process.pid), signal.SIGTERM)
+                self.ray_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Force kill if graceful termination doesn't work
+                try:
+                    os.killpg(os.getpgid(self.ray_process.pid), signal.SIGKILL)
+                    self.ray_process.wait()
+                except ProcessLookupError:
+                    # Process terminated between timeout and SIGKILL
+                    pass
+            except ProcessLookupError:
+                # Process or process group already terminated
+                pass
             # Reset the environment variable for RAY_ADDRESS
             os.environ.pop("RAY_ADDRESS", None)
             # Currently there is no good way of stopping a particular Ray cluster. https://github.com/ray-project/ray/issues/54989
