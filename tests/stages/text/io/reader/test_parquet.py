@@ -13,6 +13,7 @@
 # limitations under the License.
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 import pyarrow as pa
@@ -77,13 +78,29 @@ def test_parquet_reader_stage_pandas_reads_and_concatenates(sample_parquet_files
     task = _make_file_group_task(sample_parquet_files[:2])
     stage = ParquetReaderStage(fields=None)
 
-    out = stage.process(task)
-    assert isinstance(out, DocumentBatch)
+    # Track calls to pd.read_parquet and pd.concat using mock.patch with wraps
+    with (
+        patch(
+            "nemo_curator.stages.text.io.reader.parquet.pd.read_parquet", wraps=pd.read_parquet
+        ) as mock_read_parquet,
+        patch("nemo_curator.stages.text.io.reader.parquet.pd.concat", wraps=pd.concat) as mock_concat,
+    ):
+        out = stage.process(task)
+        assert isinstance(out, DocumentBatch)
 
-    df = out.to_pandas()
-    assert isinstance(df, pd.DataFrame)
-    assert len(df) == 4  # 2 files * 2 records each = 4 records
-    assert {"text", "category", "score"}.issubset(set(df.columns))
+        df = out.to_pandas()
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 4  # 2 files * 2 records each = 4 records
+        assert {"text", "category", "score"}.issubset(set(df.columns))
+
+        # Verify pd.read_parquet was called once per file
+        assert mock_read_parquet.call_count == 2
+        assert mock_read_parquet.call_args_list[0][0][0] == sample_parquet_files[0]
+        assert mock_read_parquet.call_args_list[1][0][0] == sample_parquet_files[1]
+
+        # Verify pd.concat was called once with ignore_index=True
+        assert mock_concat.call_count == 1
+        assert mock_concat.call_args[1].get("ignore_index") is True
 
 
 class TestParquetReaderStorageOptionsAndColumns:
@@ -150,11 +167,29 @@ def test_parquet_reader_stage_pyarrow_reads_and_concatenates(tmp_path: Path):
     task = _make_file_group_task([str(f1), str(f2)])
     stage = ParquetReaderStage(read_kwargs={"engine": "pyarrow"}, fields=None)
 
-    out = stage.process(task)
-    table = out.to_pyarrow()
-    assert isinstance(table, pa.Table)
-    assert table.num_rows == 3
-    assert {"text", "category", "score"}.issubset(set(table.column_names))
+    # Track calls to pd.read_parquet and pd.concat using mock.patch with wraps
+    with (
+        patch(
+            "nemo_curator.stages.text.io.reader.parquet.pd.read_parquet", wraps=pd.read_parquet
+        ) as mock_read_parquet,
+        patch("nemo_curator.stages.text.io.reader.parquet.pd.concat", wraps=pd.concat) as mock_concat,
+    ):
+        out = stage.process(task)
+        table = out.to_pyarrow()
+        assert isinstance(table, pa.Table)
+        assert table.num_rows == 3
+        assert {"text", "category", "score"}.issubset(set(table.column_names))
+
+        # Verify pd.read_parquet was called once per file
+        assert mock_read_parquet.call_count == 2
+        assert mock_read_parquet.call_args_list[0][0][0] == str(f1)
+        assert mock_read_parquet.call_args_list[1][0][0] == str(f2)
+        # Verify engine was passed correctly
+        assert mock_read_parquet.call_args_list[0][1].get("engine") == "pyarrow"
+
+        # Verify pd.concat was called once with ignore_index=True
+        assert mock_concat.call_count == 1
+        assert mock_concat.call_args[1].get("ignore_index") is True
 
 
 def test_parquet_reader_stage_pyarrow_errors_when_some_columns_missing(tmp_path: Path):
