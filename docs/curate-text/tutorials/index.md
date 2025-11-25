@@ -11,7 +11,7 @@ modality: "text-only"
 (text-tutorials)=
 # Text Curation Tutorials
 
-Hands-on tutorials for text curation workflows are available in the [Tutorials directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/text) of the NeMo Curator GitHub repository.
+Hands-on tutorials for text curation workflows are available in the [`tutorials/text` directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/text) of the NeMo Curator GitHub repository.
 
 ## Key Concepts for Tutorial Success
 
@@ -21,7 +21,7 @@ Before diving into the tutorials, familiarize yourself with these essential NeMo
 :gutter: 1 1 1 2
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Pipeline Architecture
-:link: about-concepts-text
+:link: about-concepts-text-data-curation-pipeline
 :link-type: ref
 Core processing stages and pipeline concepts for text curation workflows
 +++
