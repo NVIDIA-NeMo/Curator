@@ -24,8 +24,8 @@ NeMo Curator provides three deduplication approaches, each optimized for differe
 
 ::::{tab-item} Exact
 
-**Method**: MD5 hashing
-**Detects**: Character-for-character identical documents
+**Method**: MD5 hashing  
+**Detects**: Character-for-character identical documents  
 **Speed**: Fastest
 
 Computes MD5 hashes for each document's text content and groups documents with identical hashes. Best for removing exact copies.
@@ -54,8 +54,8 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 ::::{tab-item} Fuzzy
 
-**Method**: MinHash + Locality Sensitive Hashing (LSH)
-**Detects**: Near-duplicates with minor edits (~80% similarity)
+**Method**: MinHash + Locality Sensitive Hashing (LSH)  
+**Detects**: Near-duplicates with minor edits (~80% similarity)  
 **Speed**: Fast
 
 Generates MinHash signatures and uses LSH to find similar documents. Best for detecting documents with small formatting differences or typos.
@@ -88,8 +88,8 @@ For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate ID
 
 ::::{tab-item} Semantic
 
-**Method**: Embeddings + clustering + pairwise similarity
-**Detects**: Semantically similar content (paraphrases, translations)
+**Method**: Embeddings + clustering + pairwise similarity  
+**Detects**: Semantically similar content (paraphrases, translations)  
 **Speed**: Moderate
 
 Generates embeddings using transformer models, clusters them, and computes pairwise similarities. Best for meaning-based deduplication.
@@ -102,7 +102,7 @@ from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplic
 
 text_workflow = TextSemanticDeduplicationWorkflow(
     input_path="/path/to/input/data",
-    output_path="/path/to/output",
+    output_path="/path/to/output", 
     cache_path="/path/to/cache",
     text_field="text",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
@@ -418,7 +418,7 @@ For large-scale duplicate removal, persist the ID Generator for consistent docum
 
 ```python
 from nemo_curator.stages.deduplication.id_generator import (
-    create_id_generator_actor,
+    create_id_generator_actor, 
     write_id_generator_to_disk,
     kill_id_generator_actor
 )
