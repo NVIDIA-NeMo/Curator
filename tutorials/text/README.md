@@ -15,6 +15,7 @@ Hands-on tutorials for curating text data with NeMo Curator. Complete working ex
 | **[Classification](distributed-data-classification/)** | Quality assessment and categorization | `quality-classification.ipynb`, `domain-classification.ipynb`, `aegis-classification.ipynb`, `fineweb-edu-classification.ipynb` |
 | **[PEFT Curation](peft-curation/)** | Instruction-tuning data preparation | `main.py`, `stages.py` |
 | **[TinyStories](tinystories/)** | End-to-end processing pipeline | `main.py`, `stages.py` |
+| **[Megatron Tokenizing](megatron-tokenizer/)** | Tokenization pipeline that produces Megatron-LM ready files | `main.py` |
 
 ## Documentation Links
 
