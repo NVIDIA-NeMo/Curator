@@ -18,7 +18,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from loguru import logger
 
-from nemo_curator.pipeline import Pipeline, WorkflowRunResult
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class TextDuplicatesRemovalWorkflow:
+class TextDuplicatesRemovalWorkflow(WorkflowBase):
     # required args
     input_path: str | None
     ids_to_remove_path: str
@@ -148,7 +149,7 @@ class TextDuplicatesRemovalWorkflow:
 
     def run(
         self, executor: Optional["BaseExecutor"] = None, initial_tasks: list[FileGroupTask] | None = None
-    ) -> dict[str, Any]:
+    ) -> WorkflowRunResult:
         pipeline = Pipeline(
             name="text_duplicates_removal_workflow",
             description="Text duplicates removal workflow",
@@ -190,6 +191,6 @@ class TextDuplicatesRemovalWorkflow:
             output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
             execution_time = time.time() - start_time
 
-        workflow_result.add_pipeline_tasks(pipeline.name, output_tasks)
-        workflow_result.extend_metadata({"execution_time": execution_time})
-        return {**workflow_result.to_dict(), "output_tasks": output_tasks, "execution_time": execution_time}
+        workflow_result.add_pipeline_tasks("removal", output_tasks)
+        workflow_result.add_metadata("total_time", execution_time)
+        return workflow_result

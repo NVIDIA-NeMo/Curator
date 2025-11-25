@@ -126,7 +126,7 @@ class TestExactDuplicatesWorkflow:
             perform_removal=False,
         )
         result = workflow.run(initial_tasks=exact_dedup_data_parquet)
-        assert result.get("pipeline_tasks")
+        assert result.pipeline_tasks
 
         original_df_with_curator_ids = (
             get_original_df_with_curator_ids(
@@ -159,7 +159,7 @@ class TestExactDuplicatesWorkflow:
             input_path=str(tmpdir),
         )
         result = workflow.run(initial_tasks=exact_no_dedup_data_jsonl)
-        assert "pipeline_tasks" in result
+        assert result.pipeline_tasks
 
         removal_ids_df = cudf.read_parquet(tmpdir / "ExactDuplicateIds")
         assert len(removal_ids_df) == 0

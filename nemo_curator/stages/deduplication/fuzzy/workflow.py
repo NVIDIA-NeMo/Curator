@@ -19,7 +19,8 @@ from loguru import logger
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.utils import merge_executor_configs, warn_on_env_var_override
-from nemo_curator.pipeline import Pipeline, WorkflowRunResult
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
 from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
 from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import IdentifyDuplicatesStage
@@ -37,7 +38,7 @@ from nemo_curator.utils.file_utils import get_fs
 ID_GENERATOR_OUTPUT_FILENAME = "fuzzy_id_generator.json"
 
 
-class FuzzyDeduplicationWorkflow:
+class FuzzyDeduplicationWorkflow(WorkflowBase):
     """
     A pipeline that performs fuzzy deduplication of a dataset.
     It consists of the following stages:
@@ -269,7 +270,7 @@ class FuzzyDeduplicationWorkflow:
 
     def run(  # noqa: PLR0915
         self, initial_tasks: list[FileGroupTask] | None = None, executor: RayActorPoolExecutor | None = None
-    ) -> dict[str, Any]:
+    ) -> WorkflowRunResult:
         """Run the deduplication pipeline.
 
         Args:
@@ -315,6 +316,7 @@ class FuzzyDeduplicationWorkflow:
             minhash_end_time = time.time()
             minhash_time = minhash_end_time - minhash_start_time
             workflow_result.add_pipeline_tasks(minhash_pipeline.name, minhash_tasks)
+            workflow_result.add_metadata("minhash_time", minhash_time)
             logger.info(f"Minhash pipeline completed in {minhash_time:.2f} seconds")
 
             lsh_pipeline = self._create_lsh_pipeline()
@@ -324,11 +326,11 @@ class FuzzyDeduplicationWorkflow:
             lsh_end_time = time.time()
             lsh_time = lsh_end_time - lsh_start_time
             workflow_result.add_pipeline_tasks(lsh_pipeline.name, lsh_tasks)
+            workflow_result.add_metadata("lsh_time", lsh_time)
             logger.info(f"LSH pipeline completed in {lsh_time:.2f} seconds")
 
             valid_lsh_tasks = [task for task in lsh_tasks or [] if task._metadata.get("num_docs", 0) > 0]
             connected_components_pipeline = self._create_connected_components_pipeline()
-            workflow_result.add_pipeline_tasks(connected_components_pipeline.name, [])
 
             if len(valid_lsh_tasks) == 0:
                 logger.info("No potential duplicates found in the dataset. Skipping connected components pipeline.")
@@ -340,10 +342,12 @@ class FuzzyDeduplicationWorkflow:
                 connected_components_end_time = time.time()
                 connected_components_time = connected_components_end_time - connected_components_start_time
                 workflow_result.add_pipeline_tasks(connected_components_pipeline.name, connected_components_tasks)
+                workflow_result.add_metadata("connected_components_time", connected_components_time)
                 logger.info(f"Connected components pipeline completed in {connected_components_time:.2f} seconds")
                 num_removed_documents = sum(
                     task._metadata.get("num_removal_ids", 0) for task in connected_components_tasks or []
                 )
+                workflow_result.add_metadata("num_duplicates", num_removed_documents)
                 logger.info(f"Number of documents removed: {num_removed_documents}")
                 output_fs = get_fs(
                     self.output_path,
@@ -362,13 +366,6 @@ class FuzzyDeduplicationWorkflow:
 
         total_end_time = time.time()
         total_time = total_end_time - total_start_time
-        workflow_summary = {
-            "total_execution_time": total_time,
-            "minhash_execution_time": minhash_time,
-            "lsh_execution_time": lsh_time,
-            "connected_components_execution_time": connected_components_time,
-            "num_removed_documents": num_removed_documents,
-        }
-        workflow_result.extend_metadata(workflow_summary)
+        workflow_result.add_metadata("total_time", total_time)
         logger.info(f"Fuzzy deduplication pipeline completed in {total_time:.2f} seconds")
-        return {**workflow_result.to_dict(), **workflow_summary}
+        return workflow_result

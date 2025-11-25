@@ -193,7 +193,7 @@ class TestFuzzyDuplicates:
         )
 
         result = workflow.run(initial_tasks=tasks)
-        assert result.get("pipeline_tasks")
+        assert result.pipeline_tasks
 
         # Verify the duplicate groups found match expected
         connected_components_df = cudf.read_parquet(cache_path / "ConnectedComponentsStage")

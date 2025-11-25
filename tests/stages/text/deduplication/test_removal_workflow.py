@@ -124,14 +124,15 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         executor = executor_cls(config)
         workflow_output = workflow.run(executor)
         self.workflow_output = workflow_output
-        self.output_tasks = workflow_output["output_tasks"]
+        # Extract tasks from the "removal" pipeline
+        self.output_tasks = workflow_output.pipeline_tasks.get("removal", [])
 
         return self
 
     def test_output_correctness_and_files(self, test_config: "TestTextDuplicateRemovalWorkflowIntegration"):
         """Test output correctness and file system integrity."""
         assert test_config.workflow_output is not None
-        assert "pipeline_tasks" in test_config.workflow_output
+        assert test_config.workflow_output.pipeline_tasks
         assert test_config.output_tasks is not None
         assert test_config.expected_input_df is not None
         assert test_config.ids_to_remove is not None
