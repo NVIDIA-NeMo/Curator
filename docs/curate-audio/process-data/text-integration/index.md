@@ -108,7 +108,8 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 
 # 2. Run ASR inference
 pipeline.add_stage(InferenceAsrNemoStage(
-{   model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
+pipeline.add_stage(InferenceAsrNemoStage(
+    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
     pred_text_key="pred_text"
 ).with_(resources=Resources(gpus=1.0)))
 
