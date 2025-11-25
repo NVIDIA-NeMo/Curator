@@ -274,5 +274,5 @@ print("Audio curation complete. Results saved to ./curated_audio_dataset/")
 
 - **[Text Integration](process-data/text-integration/index.md)** - Convert audio data to document format for export
 - **[Quality Assessment](process-data/quality-assessment/index.md)** - Filter audio by WER, duration, and quality metrics
-- **[Audio Curation Quickstart](../get-started/audio-curation-quickstart.md)** - End-to-end audio curation tutorial
+- **[Audio Curation Quickstart](../get-started/audio.md)** - End-to-end audio curation tutorial
 - **[FLEURS Dataset](load-data/fleurs-dataset.md)** - Load and process FLEURS audio data
