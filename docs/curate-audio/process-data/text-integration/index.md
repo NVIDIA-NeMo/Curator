@@ -15,7 +15,7 @@ Convert processed audio data from `AudioBatch` to `DocumentBatch` format using t
 
 ## How it Works
 
-The `AudioToDocumentStage` provides traightforward format conversion between NeMo Curator's audio and text data structures:
+The `AudioToDocumentStage` provides straightforward format conversion between NeMo Curator's audio and text data structures:
 
 1. **Format Conversion**: Transform `AudioBatch` objects to `DocumentBatch` format
 2. **Metadata Preservation**: All fields from the audio data are preserved in the conversion
