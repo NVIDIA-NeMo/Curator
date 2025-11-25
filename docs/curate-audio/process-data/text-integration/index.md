@@ -195,7 +195,7 @@ document_batch.data  # pandas DataFrame with columns:
 
 ## Limitations
 
-:::{note}:::{important}
+:::{important}
 **Text Processing Integration**: NeMo Curator's text processing stages are designed for `DocumentBatch` inputs (text documents such as articles, web pages), but they are not designed for audio-derived transcriptions. You should implement custom processing stages for audio-specific workflows.
 
 **Reasons for incompatibility:**
@@ -204,7 +204,6 @@ document_batch.data  # pandas DataFrame with columns:
 - Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
 
 **Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
-:::
 :::
 
 ## Related Topics
