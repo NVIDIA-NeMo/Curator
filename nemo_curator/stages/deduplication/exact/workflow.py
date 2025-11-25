@@ -217,7 +217,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
                 initial_tasks = input_filegroups_pipeline.run(executor=executor, initial_tasks=None)
                 input_filegroups_time = time.time() - input_start_time
                 workflow_result.add_metadata("input_filegroups_time", input_filegroups_time)
-                workflow_result.add_pipeline_tasks(input_filegroups_pipeline.name, initial_tasks)
+                workflow_result.add_pipeline_tasks("input_filegroups", initial_tasks)
                 logger.info(f"Created input tasks from {self.input_path} in {input_filegroups_time:.2f} seconds")
 
             initial_tasks = initial_tasks or []
@@ -227,7 +227,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             identification_end_time = time.time()
             identification_time = identification_end_time - identification_start_time
             workflow_result.add_metadata("identification_time", identification_time)
-            workflow_result.add_pipeline_tasks(identification_pipeline.name, removal_id_tasks)
+            workflow_result.add_pipeline_tasks("identification", removal_id_tasks)
             logger.info(f"Exact duplicate identification pipeline completed in {identification_time:.2f} seconds")
 
             num_duplicates = sum(task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks or [])

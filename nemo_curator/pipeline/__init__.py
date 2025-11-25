@@ -13,5 +13,6 @@
 # limitations under the License.
 
 from nemo_curator.pipeline.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 
-__all__ = ["Pipeline"]
+__all__ = ["Pipeline", "WorkflowBase", "WorkflowRunResult"]

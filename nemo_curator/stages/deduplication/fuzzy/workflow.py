@@ -315,7 +315,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             minhash_tasks = minhash_pipeline.run(executor=executor, initial_tasks=initial_tasks)
             minhash_end_time = time.time()
             minhash_time = minhash_end_time - minhash_start_time
-            workflow_result.add_pipeline_tasks(minhash_pipeline.name, minhash_tasks)
+            workflow_result.add_pipeline_tasks("minhash", minhash_tasks)
             workflow_result.add_metadata("minhash_time", minhash_time)
             logger.info(f"Minhash pipeline completed in {minhash_time:.2f} seconds")
 
@@ -325,7 +325,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             lsh_tasks = lsh_pipeline.run(executor=executor, initial_tasks=None)
             lsh_end_time = time.time()
             lsh_time = lsh_end_time - lsh_start_time
-            workflow_result.add_pipeline_tasks(lsh_pipeline.name, lsh_tasks)
+            workflow_result.add_pipeline_tasks("lsh", lsh_tasks)
             workflow_result.add_metadata("lsh_time", lsh_time)
             logger.info(f"LSH pipeline completed in {lsh_time:.2f} seconds")
 
@@ -341,7 +341,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 )
                 connected_components_end_time = time.time()
                 connected_components_time = connected_components_end_time - connected_components_start_time
-                workflow_result.add_pipeline_tasks(connected_components_pipeline.name, connected_components_tasks)
+                workflow_result.add_pipeline_tasks("connected_components", connected_components_tasks)
                 workflow_result.add_metadata("connected_components_time", connected_components_time)
                 logger.info(f"Connected components pipeline completed in {connected_components_time:.2f} seconds")
                 num_removed_documents = sum(
