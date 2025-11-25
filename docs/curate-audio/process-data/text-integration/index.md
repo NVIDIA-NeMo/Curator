@@ -114,6 +114,7 @@ pipeline.add_stage(InferenceAsrNemoStage(
 ).with_(resources=Resources(gpus=1.0)))
 
 # 3. Calculate quality metrics
+# 3. Calculate quality metrics
 pipeline.add_stage(GetPairwiseWerStage(
     text_key="text",
     pred_text_key="pred_text",
@@ -124,9 +125,7 @@ pipeline.add_stage(GetAudioDurationStage(
     duration_key="duration"
 ))
 
-# 4.model_name=="nvidia/stt_en_fastconformer_hybrid_large_pc"
-pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text"))
-pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
+#4. Convert to DocumentBatch for export
 
 #Convert to DocumentBatch for export
 pipeline.add_stage(AudioToDocumentStage())
