@@ -212,7 +212,7 @@ wget -O ~/nemo_curator/image_curation_example.py https://raw.githubusercontent.c
 
 # Run with your data
 python ~/nemo_curator/image_curation_example.py \
-    --input-wds-dataset-dir ~/nemo_curator/data/tar_archives \ \
+    --input-wds-dataset-dir ~/nemo_curator/data/tar_archives \
     --output-dataset-dir ~/nemo_curator/data/curated \
     --model-dir ~/nemo_curator/models \
     --aesthetic-threshold 0.5 \
