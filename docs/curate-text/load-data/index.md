@@ -18,18 +18,23 @@ Curator provides a task-centric pipeline for downloading and processing large-sc
 
 ## How it Works
 
-Curator uses the {ref}`4-step pipeline pattern <about-concepts-text-data-acquisition>` where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to the {ref}`pipeline-based architecture <about-concepts-text-data-loading>`.
+Curator uses a {ref}`4-step pipeline pattern <about-concepts-text-data-acquisition>` where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to Curator's {ref}`pipeline-based architecture <about-concepts-text-data-loading>`.
 
-Data sources provide composite stages that combine these steps into complete download-extract pipelines, producing `DocumentBatch` tasks for further processing.
+Data sources provide composite stages that combine these steps into complete download-and-extract pipelines, producing `DocumentBatch` tasks for further processing.
 
 ::::{tab-set}
 
 :::{tab-item} Python
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Create a pipeline for downloading Common Crawl data
 pipeline = Pipeline(
@@ -51,9 +56,11 @@ pipeline.add_stage(cc_stage)
 writer = JsonlWriter(path="/output/folder")
 pipeline.add_stage(writer)
 
-# Build and execute pipeline
-pipeline.build()
+# Execute pipeline
 results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 :::
@@ -81,7 +88,7 @@ Read existing JSONL and Parquet datasets using Curator's reader stages
 :::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Common Crawl
 :link: text-load-data-common-crawl
 :link-type: ref
-Download and process web archive data from Common Crawl
+Download and extract web archive data from Common Crawl
 +++
 {bdg-secondary}`web-data`
 {bdg-secondary}`warc`
@@ -98,10 +105,10 @@ Download and extract Wikipedia articles from Wikipedia dumps
 {bdg-secondary}`xml-dumps`
 :::
 
-:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Custom Data
+:::{grid-item-card} {octicon}`download;1.5em;sd-mr-1` Custom Data Sources
 :link: text-load-data-custom
 :link-type: ref
-Read and process your own text datasets in standard formats
+Implement a download and extract pipeline for a custom data source
 +++
 {bdg-secondary}`jsonl`
 {bdg-secondary}`parquet`
@@ -119,5 +126,5 @@ Read Existing Data <read-existing>
 arxiv
 common-crawl
 wikipedia
-Custom Data <custom.md>
+Custom Data Sources <custom.md>
 ```

@@ -22,6 +22,7 @@ import pytest
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.text.io.writer import base as writer_base
 from nemo_curator.tasks import DocumentBatch
 
 
@@ -266,3 +267,26 @@ class TestJsonlWriter:
         pd.testing.assert_frame_equal(
             pd.read_json(result1.data[0], lines=True), pd.read_json(result2.data[0], lines=True)
         )
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "s3://test-bucket/output",
+            "/local/path",
+        ],
+    )
+    def test_jsonl_writer_write_data_path_protocol_handling(self, pandas_document_batch: DocumentBatch, path: str):
+        """Test that write_data is called with correct protocol handling for cloud and local paths."""
+        with mock.patch.object(writer_base, "check_output_mode", return_value=None):
+            writer = JsonlWriter(path=path)
+            writer.setup()
+
+        with (
+            mock.patch.object(writer.fs, "exists", return_value=False),
+            mock.patch.object(writer, "write_data") as mock_write_data,
+        ):
+            writer.process(pandas_document_batch)
+
+            mock_write_data.assert_called_once()
+            file_path = mock_write_data.call_args[0][1]
+            assert file_path.startswith(path), f"Path should start with {path}"
