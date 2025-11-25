@@ -63,7 +63,7 @@ Fields marked as "optional" depend on which processing stages you included in yo
 
 ::::{tab-set}
 
-:::{tab-item} ### Basic Export Setup
+:::{tab-item} Basic Export Setup
 
 To export audio curation results, you must first convert `AudioBatch` to `DocumentBatch` format, then use `JsonlWriter`:
 
