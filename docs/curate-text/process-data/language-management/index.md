@@ -153,7 +153,7 @@ pipeline.add_stage(
 
 ## Complete Language Management Example
 
-Here's a comprehensive pipeline demonstrating language detection, filtering, and stop word removal:
+Here's a comprehensive pipeline demonstrating language detection and filtering:
 
 ```python
 from nemo_curator.pipeline import Pipeline
