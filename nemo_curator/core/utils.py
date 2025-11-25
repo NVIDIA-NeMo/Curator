@@ -77,6 +77,7 @@ def init_cluster(  # noqa: PLR0913
     ray_dashboard_host: str,
     num_gpus: int | None = None,
     num_cpus: int | None = None,
+    object_store_memory: int | None = None,
     enable_object_spilling: bool = False,
     block: bool = True,
     ip_address: str | None = None,
@@ -99,6 +100,8 @@ def init_cluster(  # noqa: PLR0913
     ray_command.extend(["--dashboard-port", str(ray_dashboard_port)])
     ray_command.extend(["--ray-client-server-port", str(ray_client_server_port)])
     ray_command.extend(["--temp-dir", ray_temp_dir])
+    if object_store_memory is not None:
+        ray_command.extend(["--object-store-memory", str(object_store_memory)])
     ray_command.extend(["--disable-usage-stats"])
     if enable_object_spilling:
         ray_command.extend(
