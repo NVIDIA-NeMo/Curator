@@ -284,10 +284,10 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         # Divide input_data into batches of `batch_size` each
         # Simulate `num_input_tasks` input tasks
         batch_size = 10
-        num_input_tasks = 100
+        num_input_tasks = 1000
         input_batches = [input_data[i:i + batch_size] for i in range(0, len(input_data), batch_size)]
         input_tasks = []
-        for i in range(num_input_tasks // batch_size):
+        for i in range(num_input_tasks // len(input_batches)):
             for j, batch in enumerate(input_batches):
                 df = pd.DataFrame(batch)
                 input_task = DocumentBatch(
@@ -296,6 +296,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                     dataset_name="data_for_sdg",
                 )
                 input_tasks.append(input_task)
+        print("Number of input tasks: ", len(input_tasks))
+        print("Size of each input task: ", input_tasks[0].data.shape)
     else:
         if not args.input_parquet_path:
             msg = "When not using --mock, you must provide --input-parquet-path to read inputs."
