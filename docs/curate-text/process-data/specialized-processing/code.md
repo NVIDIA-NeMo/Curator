@@ -82,7 +82,7 @@ NeMo Curator offers several specialized filters for code content:
 | **PythonCommentToCodeFilter** | Filters Python files based on comment-to-code ratio | `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 | **GeneralCommentToCodeFilter** | Similar filter for other languages | `language`, `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 
-The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials. These ratios should be adjusted based on specific programming language:
+The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials. These ratios should be adjusted based on specific programming languages:
 
 ```python
 # For Python files with docstrings
@@ -120,7 +120,7 @@ The `GeneralCommentToCodeFilter` supports various language MIME types:
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
 | **NumberOfLinesOfCodeFilter** | Filters based on the number of lines | `min_lines`, `max_lines` | min_lines=10, max_lines=20000 |
-| **AlphaFilter** | Ensures code has sufficient alphabetic content | `min_alpha_ratio` | min_alpha_ratio0.25 |
+| **AlphaFilter** | Ensures code has sufficient alphabetic content | `min_alpha_ratio` | min_alpha_ratio=0.25 |
 | **TokenizerFertilityFilter** | Measures token efficiency | `path_to_tokenizer` (required), `min_char_to_token_ratio` | min_char_to_token_ratio=2.5 |
 
 Code structure filters help identify problematic patterns:
