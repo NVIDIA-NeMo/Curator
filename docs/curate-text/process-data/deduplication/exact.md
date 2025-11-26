@@ -1,3 +1,4 @@
+---
 description: "Identify and remove exact duplicates using MD5 hashing in a Ray-based workflow"
 categories: ["how-to-guides"]
 tags: ["exact-dedup", "hashing", "md5", "gpu", "ray"]
@@ -109,6 +110,8 @@ exact_workflow = ExactDeduplicationWorkflow(
 )
 exact_workflow.run()
 ```
+
+**Note**: `perform_removal` is reserved for future feature, always set to `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`.
 
 :::
 
