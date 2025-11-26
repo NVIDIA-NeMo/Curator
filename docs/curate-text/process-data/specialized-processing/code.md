@@ -82,7 +82,7 @@ NeMo Curator offers several specialized filters for code content:
 | **PythonCommentToCodeFilter** | Filters Python files based on comment-to-code ratio | `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 | **GeneralCommentToCodeFilter** | Similar filter for other languages | `language`, `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 
-The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials. These ratios should be adjusted based on specific progamming language:
+The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials. These ratios should be adjusted based on specific programming language:
 
 ```python
 # For Python files with docstrings

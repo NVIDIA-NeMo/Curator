@@ -29,7 +29,7 @@ A pipeline orchestrates stages into an end-to-end workflow. Key characteristics:
 - **Stage Sequence**: Stages must follow a logical order where each stage's output feeds into the next
 - **Input Configuration**: Specify the data source location
 - **Stage Configuration**: Stages accept their own parameters, including model paths and algorithm settings
-- **Execution Mode**: Supports streaming and batch processing through the executor
+- **Execution Mode**: Support streaming and batch processing through the executor
 
 ## Stages
 
@@ -49,7 +49,7 @@ Each processing stage:
 
 1. Inherits from `ProcessingStage`
 2. Declares a stable `name` and `resources: Resources` (CPU cores, GPU memory, optional NVDEC/NVENC, or more than one GPU)
-3. Defines `inputs()`/`outputs()` to document required attributes and produced attributes on tasks
+3. Defines `inputs()`/`outputs()` to document that requires attributes or produces attributes on tasks
 4. Implements `setup(worker_metadata)` for model initialization and `process(task)` to transform tasks
 
 This design enables map-style execution with executor-managed fault tolerance and dynamic scaling per stage. Stages can optionally provide `process_batch()` to support vectorized batch processing.
