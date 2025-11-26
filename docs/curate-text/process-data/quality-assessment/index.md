@@ -112,7 +112,7 @@ You can combine these modules in pipelines:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import Score, Filter
-
+# Assume `word_counter` and `symbol_counter` are callables that return numeric scores
 pipeline = Pipeline(name="multi_stage_filtering")
 pipeline.add_stage(Score(word_counter, score_field="word_count"))
 pipeline.add_stage(Score(symbol_counter, score_field="symbol_ratio"))
