@@ -38,6 +38,7 @@ You can use these modules individually or sequentially in a cleaning pipeline.
 Consider the following example, which loads a dataset from a directory (`books/`), steps through each module in a cleaning pipeline, and outputs the processed dataset to `cleaned_books/`:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
@@ -45,6 +46,10 @@ from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, N
 from nemo_curator.stages.text.modules import Modify
 
 def main():
+    # Initialize Ray client
+    ray_client = RayClient()
+    ray_client.start()
+
     # Create processing pipeline
     pipeline = Pipeline(
         name="text_cleaning_pipeline",
@@ -64,45 +69,39 @@ def main():
 
     # Execute pipeline
     results = pipeline.run()
+
+    # Stop Ray client
+    ray_client.stop()
     
 if __name__ == "__main__":
     main()
 ```
 :::
 
-:::{tab-item} CLI
-
-You can also perform text cleaning operations using the CLI by running the `text_cleaning` command:
-
-```bash
-text_cleaning \
-  --input-data-dir=/path/to/input/ \
-  --output-clean-dir=/path/to/output/ \
-  --normalize-newlines \
-  --remove-urls
-```
-
-By default, the CLI will only perform Unicode reformatting. Appending the `--normalize-newlines` and `--remove-urls` options adds the other text cleaning options.
-:::
-
 ::::
 
 ## Custom Text Cleaner
 
-You can create your own custom text cleaner by extending the `DocumentModifier` class. The implementation of `UnicodeReformatter` demonstrates this approach:
+You can create your own custom text cleaner by extending the `DocumentModifier` class. The implementation of `UrlRemover` demonstrates this approach:
 
 ```python
-import ftfy
+import re
 
-from nemo_curator.stages.text.modifiers import DocumentModifier
+from nemo_curator.stages.text.modifiers.doc_modifier import DocumentModifier
+
+URL_REGEX = re.compile(r"https?://\S+|www\.\S+", flags=re.IGNORECASE)
 
 
-class UnicodeReformatter(DocumentModifier):
+class UrlRemover(DocumentModifier):
+    """
+    Removes all URLs in a document.
+    """
+
     def __init__(self):
         super().__init__()
 
     def modify_document(self, text: str) -> str:
-        return ftfy.fix_text(text)
+        return URL_REGEX.sub("", text)
 ```
 
 To create a custom text cleaner, inherit from the `DocumentModifier` class and implement the constructor and `modify_document` method.

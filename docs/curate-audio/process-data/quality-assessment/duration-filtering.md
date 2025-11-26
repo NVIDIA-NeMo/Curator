@@ -106,9 +106,11 @@ def create_use_case_duration_filter(use_case: str) -> list[PreserveByValueStage]
 
 ## Speech Rate Analysis
 
+Speech rate metrics (words per second, characters per second) help identify samples with speaking speeds appropriate for your use case.
+
 ### Calculate Speech Rate Metrics
 
-The built-in speech rate calculation functions can be used within custom processing stages to analyze speaking speed and add metrics to your pipeline data.
+The built-in speech rate calculation functions can be used within custom processing stages to analyze speaking speed and add metrics to your pipeline data. 
 
 ### Speech Rate Filtering
 
@@ -144,7 +146,9 @@ This example assumes you have already calculated and stored speech rate metrics 
 :::
 
 
-## Speech Rate Filtering
+## Filtering by Speech Rate
+
+Once you've calculated speech rate metrics, filter samples to keep those with appropriate speaking speeds:
 
 ### Normal Speech Rate Range
 
@@ -181,6 +185,17 @@ char_rate_max_filter = PreserveByValueStage(
 :::{note}
 These examples assume you have pre-calculated speech rate metrics in your audio data. Use the `get_wordrate()` and `get_charrate()` utility functions to calculate these values in a custom processing stage.
 :::
+
+### Normal Speech Rate Ranges
+
+Typical speech rates for different contexts:
+
+| Context | Words/Second | Characters/Second | Use Case |
+|---------|--------------|-------------------|----------|
+| Slow/Clear Speech | 1.5 - 2.5 | 8 - 15 | Educational content, accessibility |
+| Normal Conversation | 2.5 - 4.0 | 15 - 24 | General ASR training |
+| Fast Speech | 4.0 - 5.0 | 24 - 30 | News, presentations |
+| Very Fast | > 5.0 | > 30 | May indicate errors or problematic samples |
 
 
 ## Best Practices

@@ -12,12 +12,11 @@ modality: "text-only"
 
 # Adding Document IDs
 
-Add unique identifiers to each document in your text dataset for tracking and deduplication workflows.
+Add unique identifiers to each document in your text dataset.
 
 ## How It Works
 
-Document IDs are required for:
-- **Deduplication workflows** - Track which documents are duplicates
+Document IDs are useful for:
 - **Pipeline tracking** - Monitor documents through processing stages
 - **Dataset versioning** - Identify documents across different versions
 
@@ -29,6 +28,8 @@ Document IDs are required for:
 
 ```python
 from nemo_curator.stages.text.modules import AddId
+
+# Initialize pipeline, read stage, etc.
 
 # Add to your pipeline
 pipeline.add_stage(AddId(id_field="doc_id"))
@@ -59,48 +60,68 @@ Generated IDs follow this pattern:
 - Without prefix: `{task_uuid}_{index}`
 - With prefix: `{prefix}_{task_uuid}_{index}`
 
-**Examples:**
-```text
-a1b2c3d4-e5f6-7890-abcd-ef1234567890_0
-corpus_v1_a1b2c3d4-e5f6-7890-abcd-ef1234567890_1
-```
-
 ### Complete Example
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.modules import AddId
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
+
 # Create pipeline
 pipeline = Pipeline(name="add_ids")
 
 # Add stages
-pipeline.add_stage(JsonlReader(file_paths="input/*.jsonl"))
+pipeline.add_stage(JsonlReader(file_paths="input/"))
 pipeline.add_stage(AddId(id_field="doc_id", id_prefix="v1"))
 pipeline.add_stage(JsonlWriter("output/"))
 
 # Run pipeline
 result = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 ### Alternative: Reader-Based ID Generation
 
-For deduplication workflows, you can generate IDs during data loading:
+For deduplication workflows, unique IDs are generated during data loading:
 
 ```python
-from nemo_curator.stages.text.io.reader import JsonlReader
+from nemo_curator.core.client import RayClient
+from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor
+from nemo_curator.stages.text.io.reader import JsonlReader
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
+
+pipeline = Pipeline(name="id_generator_example")
 
 # Create ID generator
 create_id_generator_actor()
 
 # Reader generates IDs automatically
 reader = JsonlReader(
-    file_paths="data/*.jsonl",
+    file_paths="data/",
     _generate_ids=True  # Adds '_curator_dedup_id' field
 )
+pipeline.add_stage(reader)
+
+# Run pipeline
+results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
+
+# Examine the first 5 rows of the first DocumentBatch
+print(results[0].data.head())
 ```
 
 This approach:
@@ -129,7 +150,7 @@ AddId(id_field="doc_id", overwrite=True)
 - **Use descriptive field names** - `doc_id`, `document_id`, `unique_id`
 - **Choose appropriate method**:
   - Use `AddId` for general document tracking
-  - Use reader-based generation for deduplication workflows
+  - Use ID generator for deduplication workflows
 
 ---
 

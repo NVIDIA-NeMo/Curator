@@ -61,11 +61,16 @@ Fix Unicode issues, standardize spacing, and remove URLs
 Here's an example of a typical content processing pipeline:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 from nemo_curator.stages.text.modifiers import UnicodeReformatter, UrlRemover, NewlineNormalizer
 from nemo_curator.stages.text.modules import Modify
+
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Create a comprehensive cleaning pipeline
 processing_pipeline = Pipeline(
@@ -74,22 +79,22 @@ processing_pipeline = Pipeline(
 )
 
 # Load dataset
-reader = JsonlReader(file_paths="input_data/*.jsonl")
+reader = JsonlReader(file_paths="input_data/")
 processing_pipeline.add_stage(reader)
 
 # Fix Unicode encoding issues
 processing_pipeline.add_stage(
-    Modify(modifier=UnicodeReformatter(), text_field="text")
+    Modify(modifier_fn=UnicodeReformatter(), input_fields="text")
 )
 
 # Standardize newlines
 processing_pipeline.add_stage(
-    Modify(modifier=NewlineNormalizer(), text_field="text")
+    Modify(modifier_fn=NewlineNormalizer(), input_fields="text")
 )
 
 # Remove URLs
 processing_pipeline.add_stage(
-    Modify(modifier=UrlRemover(), text_field="text")
+    Modify(modifier_fn=UrlRemover(), input_fields="text")
 )
 
 # Save the processed dataset
@@ -98,6 +103,9 @@ processing_pipeline.add_stage(writer)
 
 # Execute pipeline
 results = processing_pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 ## Common Processing Tasks

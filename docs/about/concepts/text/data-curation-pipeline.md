@@ -17,8 +17,26 @@ This guide provides a comprehensive overview of NeMo Curator's text curation pip
 
 The following diagram provides a high-level outline of NeMo Curator's text curation architecture:
 
-```{image} _images/text-processing-diagram.png
-:alt: High-level outline of NeMo Curator's text curation architecture
+```{mermaid}
+flowchart LR
+    A["Data Sources<br/>(Cloud, Local,<br/>Common Crawl, arXiv,<br/>Wikipedia)"] --> B["Data Acquisition<br/>& Loading"]
+    B --> C["Content Processing<br/>& Cleaning"]
+    C --> D["Quality Assessment<br/>& Filtering"]
+    D --> E["Deduplication<br/>(Exact, Fuzzy,<br/>Semantic)"]
+    E --> F["Curated Dataset<br/>(JSONL/Parquet)"]
+    
+    G["Ray + RAPIDS<br/>(GPU-accelerated)"] -.->|"Distributed Execution"| B
+    G -.->|"Distributed Execution"| C
+    G -.->|"GPU Acceleration"| D
+    G -.->|"GPU Acceleration"| E
+
+    classDef stage fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef infra fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef output fill:#e8f5e9,stroke:#2e7d32,stroke-width:3px,color:#000
+
+    class A,B,C,D,E stage
+    class F output
+    class G infra
 ```
 
 ## Pipeline Stages
@@ -29,8 +47,8 @@ NeMo Curator's text curation pipeline consists of several key stages that work t
 
 Multiple input sources provide the foundation for text curation:
 
-- **Cloud storage**: (S3, GCS, Azure)
-- **Local workstation**: files (JSONL, Parquet)
+- **Cloud storage**: Amazon S3, Azure
+- **Local workstation**: JSONL, Parquet
 
 ### 2. Data Acquisition & Processing
 
@@ -126,4 +144,4 @@ The architecture scales from single machines to large clusters:
 
 ---
 
-For hands-on experience, see the {ref}`Text Curation Getting Started Guide <gs-text>`.
+For hands-on experience, refer to the {ref}`Text Curation Getting Started Guide <gs-text>`.

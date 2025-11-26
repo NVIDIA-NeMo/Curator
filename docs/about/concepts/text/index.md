@@ -15,7 +15,7 @@ This document covers the essential concepts for text data curation in NVIDIA NeM
 
 ## Core Concept Areas
 
-Text curation in NVIDIA NeMo Curator focuses on these key areas:
+Text curation in NeMo Curator focuses on these key areas:
 
 ::::{grid} 1 1 2 2
 :gutter: 1 1 1 2
