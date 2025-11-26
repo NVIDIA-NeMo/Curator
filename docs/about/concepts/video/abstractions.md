@@ -27,7 +27,7 @@ NeMo Curator introduces core abstractions to organize and scale video curation w
 A pipeline orchestrates stages into an end-to-end workflow. Key characteristics:
 
 - **Stage Sequence**: Stages must follow a logical order where each stage's output feeds into the next
-- **Input Configuration**: Specifies the data source location
+- **Input Configuration**: Specify the data source location
 - **Stage Configuration**: Stages accept their own parameters, including model paths and algorithm settings
 - **Execution Mode**: Supports streaming and batch processing through the executor
 

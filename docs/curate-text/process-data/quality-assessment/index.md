@@ -14,7 +14,7 @@ modality: "text-only"
 
 Score and remove low-quality content using heuristics and ML classifiers to prepare your data for model training using NeMo Curator's tools and utilities.
 
-Large datasets often contain many documents considered to be "low quality." In this context, "low quality" data simply means data we don't want a downstream model to learn from, and "high quality" data is data that we do want a downstream model to learn from. The metrics that define quality can vary widely.
+Large datasets often contain many documents considered "low quality." In this context, "low quality" means data we do not want downstream models to learn from, and "high quality" is data we do want them to learn from. The metrics that define quality can vary widely.
 
 ## How It Works
 

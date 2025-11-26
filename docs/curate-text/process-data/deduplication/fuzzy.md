@@ -187,7 +187,7 @@ Configure fuzzy deduplication using these key parameters:
 
 ### Similarity Threshold
 
-Control the strictness of matching with `num_bands` and `minhashes_per_band`:
+Control matching strictness with `num_bands` and `minhashes_per_band`:
 
 - **More strict matching**: Increase `num_bands` or decrease `minhashes_per_band`
 - **Less strict matching**: Decrease `num_bands` or increase `minhashes_per_band`
