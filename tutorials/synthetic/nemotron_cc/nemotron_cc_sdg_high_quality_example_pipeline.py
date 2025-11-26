@@ -287,9 +287,13 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
         num_input_tasks = 100
         input_batches = [input_data[i:i + batch_size] for i in range(0, len(input_data), batch_size)]
         input_tasks = []
+        id_counter = 0
         for i in range(num_input_tasks // len(input_batches)):
             for j, batch in enumerate(input_batches):
                 df = pd.DataFrame(batch)
+                # Ensure a stable document identifier required by DocumentJoiner
+                df["id"] = [id_counter + j for j in range(len(df))]
+                id_counter += len(df)
                 input_task = DocumentBatch(
                     data=df,
                     task_id=f"input_batch_{i * batch_size + j}",
