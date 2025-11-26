@@ -538,12 +538,12 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
     print("Sample of generated documents:")
     print("=" * 50)
     for i, df in enumerate(all_data_frames):
-        print(f"\nFile {i + 1}: {output_files[i]}")
+        out_path = output_files[i]
+        print(f"\nFile {i + 1}: {out_path}")
         print(f"Number of documents: {len(df)}")
-        print("\nGenerated text (showing first 5):")
-        for j, row in enumerate(df.head(5).iterrows()):
-            print(f"Document {j + 1}:")
-            print(f"'{row[1]}'")
+        print("\nFirst 5 rows:")
+        for j, row in enumerate(df.head(5).to_dict(orient="records")):
+            print(f"Document {j + 1}: {row}")
             print("-" * 40)
 
     client.stop()

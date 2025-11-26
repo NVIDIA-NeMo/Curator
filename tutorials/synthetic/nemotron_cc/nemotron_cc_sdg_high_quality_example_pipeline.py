@@ -18,6 +18,7 @@ import os
 import time
 
 import pandas as pd
+from loguru import logger
 from nemotron_cc_pipelines import (
     add_distill_postprocessing_pipeline,
     add_diverse_qa_postprocessing_pipeline,
@@ -300,8 +301,8 @@ def main() -> None:  # noqa: C901, PLR0912, PLR0915
                     dataset_name="data_for_sdg",
                 )
                 input_tasks.append(input_task)
-        print("Number of input tasks: ", len(input_tasks))
-        print("Size of each input task: ", input_tasks[0].data.shape)
+        logger.info("Number of input tasks: ", len(input_tasks))
+        logger.info("Size of each input task: ", input_tasks[0].data.shape)
     else:
         if not args.input_parquet_path:
             msg = "When not using --mock, you must provide --input-parquet-path to read inputs."
