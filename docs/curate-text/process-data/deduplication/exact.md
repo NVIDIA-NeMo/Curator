@@ -110,6 +110,8 @@ exact_workflow = ExactDeduplicationWorkflow(
 exact_workflow.run()
 ```
 
+**Note**: `perform_removal` is reserved for future feature, always set to `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`.
+
 :::
 
 ::::

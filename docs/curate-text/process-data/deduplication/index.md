@@ -418,7 +418,7 @@ For large-scale duplicate removal, persist the ID Generator for consistent docum
 
 ```python
 from nemo_curator.stages.deduplication.id_generator import (
-    create_id_generator_actor, 
+    create_id_generator_actor,
     write_id_generator_to_disk,
     kill_id_generator_actor
 )

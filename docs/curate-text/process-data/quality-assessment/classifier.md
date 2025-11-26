@@ -28,47 +28,47 @@ NeMo Curator supports a variety of classifier models for different filtering and
 * - FastTextQualityFilter
   - fastText (binary classifier)
   - Quality filtering, high/low quality document classification (available as filter, not distributed classifier)
-  - https://fasttext.cc/
+  - [fastText](https://fasttext.cc/)
 * - FastTextLangId
   - fastText (language identification)
   - Language identification (available as filter, not distributed classifier)
-  - https://fasttext.cc/docs/en/language-identification.html
+  - [fastText LangID](https://fasttext.cc/docs/en/language-identification.html)
 * - QualityClassifier
   - DeBERTa (transformers, HF)
   - Document quality classification (multi-class, e.g., for curation)
-  - https://huggingface.co/nvidia/quality-classifier-deberta
+  - [nvidia/quality-classifier-deberta](https://huggingface.co/nvidia/quality-classifier-deberta)
 * - DomainClassifier
   - DeBERTa (transformers, HF)
   - Domain classification (English)
-  - https://huggingface.co/nvidia/domain-classifier
+  - [nvidia/domain-classifier](https://huggingface.co/nvidia/domain-classifier)
 * - MultilingualDomainClassifier
   - mDeBERTa (transformers, HF)
   - Domain classification (multilingual, 52 languages)
-  - https://huggingface.co/nvidia/multilingual-domain-classifier
+  - [nvidia/multilingual-domain-classifier](https://huggingface.co/nvidia/multilingual-domain-classifier)
 * - ContentTypeClassifier
   - DeBERTa (transformers, HF)
   - Content type classification (11 speech types)
-  - https://huggingface.co/nvidia/content-type-classifier-deberta
+  - [nvidia/content-type-classifier-deberta](https://huggingface.co/nvidia/content-type-classifier-deberta)
 * - AegisClassifier
   - LlamaGuard-7b (LLM, PEFT, HF)
   - Safety classification (AI content safety, requires access to LlamaGuard-7b)
-  - https://huggingface.co/meta-llama/LlamaGuard-7b
+  - [meta-llama/LlamaGuard-7b](https://huggingface.co/meta-llama/LlamaGuard-7b)
 * - InstructionDataGuardClassifier
   - Custom neural net (used with Aegis)
   - Detects instruction data poisoning
-  - https://huggingface.co/nvidia/instruction-data-guard
+  - [nvidia/instruction-data-guard](https://huggingface.co/nvidia/instruction-data-guard)
 * - FineWebEduClassifier
   - SequenceClassification (transformers, HF)
   - Educational content quality scoring (FineWeb)
-  - https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier
+  - [HuggingFaceFW/fineweb-edu-classifier](https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier)
 * - FineWebMixtralEduClassifier
   - SequenceClassification (transformers, HF)
   - Educational content quality scoring (Mixtral variant)
-  - https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier
+  - [nvidia/nemocurator-fineweb-mixtral-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier)
 * - FineWebNemotronEduClassifier
   - SequenceClassification (transformers, HF)
   - Educational content quality scoring (Nemotron-4 variant)
-  - https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier
+  - [nvidia/nemocurator-fineweb-nemotron-4-edu-classifier](https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier)
 ```
 
 ## How It Works
@@ -109,7 +109,6 @@ You can prepare training data using Python scripts:
 ```python
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.pipeline import Pipeline
-import random
 
 # Sample from low-quality dataset (e.g., raw Common Crawl)
 def sample_documents(input_path, output_path, num_samples, label):

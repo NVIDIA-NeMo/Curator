@@ -11,7 +11,7 @@ only: not ga
 
 (about-concepts-video-abstractions)=
 
-# Key Abstractions (Start reviewing)
+# Key Abstractions
 
 NeMo Curator introduces core abstractions to organize and scale video curation workflows:
 

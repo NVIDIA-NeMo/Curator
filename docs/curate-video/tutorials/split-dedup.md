@@ -149,6 +149,12 @@ pipe.add_stage(
 pipe.run()
 ```
 
+`which_to_keep` selects the representative within each cluster: "hard" keeps outliers far from the centroid, "easy" keeps the nearest to the centroid, and "random" ignores distance and picks randomly.
+
+`sim_metric` sets the distance used for similarity: "cosine" uses cosine distance (1 − cosine similarity), while "l2" uses Euclidean distance.
+
+`pairwise_batch_size` controls how many items are processed per GPU batch during pairwise similarity; larger values can be faster but require more GPU memory.
+
 ---
 
 ## 3. Inspect Results
@@ -167,8 +173,8 @@ After duplicate removal, export curated clips and metadata for training. Common 
 Video-specific pointers:
 
 - Use `ClipWriterStage` path helpers to locate outputs: `nemo_curator/stages/video/io/clip_writer.py`.
-  - Processed videos: `get_output_path_processed_videos(OUT_DIR)`
-  - Clip chunks and previews: `get_output_path_processed_clip_chunks(OUT_DIR)`, `get_output_path_previews(OUT_DIR)`
+  - Processed videos: `get_output_path_processed_videos(${OUT_DIR})`
+  - Clip chunks and previews: `get_output_path_processed_clip_chunks(${OUT_DIR})`, `get_output_path_previews(${OUT_DIR})`
   - Embeddings parquet: `${OUT_DIR}/iv2_embd_parquet` (or `${OUT_DIR}/ce1_embd_parquet`)
 
 ### Example Export

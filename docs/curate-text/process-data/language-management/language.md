@@ -203,7 +203,7 @@ pipeline.add_stage(create_extract_language_fields_stage(min_confidence=0.7))
 A higher confidence score indicates greater certainty in the language identification. The `ScoreFilter` automatically filters documents below your specified `min_langid_score` threshold. The `extract_language_fields` stage shows how to further parse results and apply a higher threshold if needed.
 
 :::{note}
-Pipeline outputs may use the `language` field differently depending on the stage:
+Pipeline outputs may use the `language` field differently depending on different stage. For example:
 
 - In the FastText classification path (`ScoreFilter(FastTextLangId)`), the selected `score_field` (often `language`) stores a string representation of a list: `[score, code]`.
 - In HTML extraction pipelines (for example, Common Crawl), CLD2 assigns a language name (for example, "ENGLISH") to the `language` column.

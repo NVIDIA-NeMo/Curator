@@ -122,7 +122,7 @@ results = pipeline.run()  # Uses XennaExecutor by default
 The exact label categories returned by the Quality Classifier depend on the model configuration. Check the prediction column in your results to see the available labels for filtering with the `filter_by` parameter.
 :::
 
-### AEGIS Safety Model
+### AEGIS Safety Classifier
 
 The AEGIS classifier detects unsafe content across 13 critical risk categories. It requires a HuggingFace token for access to Llama Guard.
 
