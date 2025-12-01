@@ -15,15 +15,22 @@ Convert processed audio data from `AudioBatch` to `DocumentBatch` format using t
 
 ## How it Works
 
-The `AudioToDocumentStage` provides basic format conversion:
+The `AudioToDocumentStage` provides straightforward format conversion between NeMo Curator's audio and text data structures:
 
 1. **Format Conversion**: Transform `AudioBatch` objects to `DocumentBatch` format
 2. **Metadata Preservation**: All fields from the audio data are preserved in the conversion
 3. **Export Ready**: Convert audio processing results to pandas DataFrame format for analysis or export
 
+**Common use cases:**
+- Export ASR results and quality metrics for analysis
+- Save filtered audio datasets with transcriptions
+- Integrate audio processing outputs with downstream text workflows
+
 ## Basic Conversion
 
 ### AudioBatch to DocumentBatch
+
+Use `AudioToDocumentStage` to convert audio processing results to document format:
 
 ```python
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
@@ -51,6 +58,12 @@ document_batch = document_batches[0]
 print(f"Converted {len(document_batch.data)} audio records to DocumentBatch")
 ```
 
+**Parameters:**
+- `AudioToDocumentStage()` has no configuration parameters; it performs direct format conversion
+
+**Returns:**
+- List of `DocumentBatch` objects containing a pandas DataFrame with all original audio fields
+
 ### What Gets Preserved
 
 The conversion preserves all fields from your audio processing pipeline:
@@ -65,9 +78,15 @@ The conversion preserves all fields from your audio processing pipeline:
 # - Any other metadata fields you've added
 ```
 
+:::{note}
+Field names and values are preserved exactly as they appear in the `AudioBatch`. No data transformation or cleaning is performed during conversion.
+:::
+
 ## Integration in Pipelines
 
 ### Complete Audio Processing with Export
+
+The most common use case is adding `AudioToDocumentStage` at the end of your audio pipeline to enable result export:
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -80,23 +99,57 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 # Create pipeline that processes audio and exports results
 pipeline = Pipeline(name="audio_processing_with_export")
 
-# Audio processing stages
-pipeline.add_stage(InferenceAsrNemoStage(model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"))
-pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text"))
-pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
+# 1. Load audio data
+pipeline.add_stage(CreateInitialManifestFleursStage(
+    lang="en_us",
+    split="test",
+    raw_data_dir="./audio_data"
+).with_(batch_size=8))
 
-# Convert to DocumentBatch for export
+# 2. Run ASR inference
+pipeline.add_stage(InferenceAsrNemoStage(
+pipeline.add_stage(InferenceAsrNemoStage(
+    model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
+    pred_text_key="pred_text"
+).with_(resources=Resources(gpus=1.0)))
+
+# 3. Calculate quality metrics
+pipeline.add_stage(GetPairwiseWerStage(
+pipeline.add_stage(GetPairwiseWerStage(
+    text_key="text",
+    pred_text_key="pred_text",
+    wer_key="wer"
+))
+pipeline.add_stage(GetAudioDurationStage(
+    audio_filepath_key="audio_filepath",
+    duration_key="duration"
+))
+
+# 4. Convert to DocumentBatch for export
+pipeline.add_stage(AudioToDocumentStage())
 pipeline.add_stage(AudioToDocumentStage())
 
-# Export results
+# 5. Export to JSONL format
 pipeline.add_stage(JsonlWriter(path="/output/processed_audio_results"))
+
+# Execute pipeline
+executor = XennaExecutor()
+pipeline.run(executor)
+```
+
+**Output format:** The `JsonlWriter` creates a JSONL file where each line contains one audio sample with all fields:
+
+```json
+{"audio_filepath": "/data/audio/sample1.wav", "text": "hello world", "pred_text": "hello world", "wer": 0.0, "duration": 1.5}
+{"audio_filepath": "/data/audio/sample2.wav", "text": "test audio", "pred_text": "test odio", "wer": 50.0, "duration": 2.1}
 ```
 
 ## Custom Integration
 
-If you need to apply text processing to your ASR transcriptions, you will need to implement custom stages. The `AudioToDocumentStage` provides the foundation for this by converting to the standard `DocumentBatch` format.
+While `AudioToDocumentStage` converts audio data to `DocumentBatch` format, NeMo Curator's built-in text processing stages (filters, classifiers, etc.) are designed for text documents, not audio transcriptions. For audio-specific text processing, implement custom stages that operate on the converted `DocumentBatch` data.
 
 ### Example: Custom Text Processing
+
 
 ```python
 from nemo_curator.stages.function_decorators import processing_stage
@@ -141,8 +194,15 @@ document_batch.data  # pandas DataFrame with columns:
 
 ## Limitations
 
-:::{note}
-**Text Processing Integration**: NeMo Curator's text processing stages are designed for `DocumentBatch` inputs, but they may not be optimized for audio-derived transcriptions. You may need to implement custom processing for audio-specific workflows.
+:::{important}
+**Text Processing Integration**: NeMo Curator's text processing stages are designed for `DocumentBatch` inputs (text documents such as articles, web pages), but they are not designed for audio-derived transcriptions. You should implement custom processing stages for audio-specific workflows.
+
+**Reasons for incompatibility:**
+- Text filters assume document-level content (e.g., paragraph structure, word count thresholds designed for articles)
+- ASR transcriptions have different characteristics (shorter, may contain recognition errors, conversational language)
+- Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
+
+**Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
 :::
 
 ## Related Topics
