@@ -42,7 +42,7 @@ overrides = [
     { name = "distance", marker = "sys_platform == 'never'" },
     { name = "kaldiio", marker = "sys_platform == 'never'" },
     { name = "levenshtein", marker = "sys_platform == 'never'" },
-    { name = "transformers", specifier = "==4.55.2" },
+    { name = "transformers", specifier = ">=4.55.2" },
 ]
 
 [[package]]
@@ -4234,7 +4234,7 @@ requires-dist = [
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'image-cpu') or (sys_platform == 'darwin' and extra == 'image-cpu')", index = "https://pypi.org/simple" },
     { name = "torchvision", marker = "(platform_machine != 'x86_64' and extra == 'video-cpu') or (sys_platform == 'darwin' and extra == 'video-cpu')", index = "https://pypi.org/simple" },
     { name = "trafilatura", marker = "extra == 'text-cpu'", specifier = "==2.0.0" },
-    { name = "transformers", specifier = "==4.55.2" },
+    { name = "transformers" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin' and extra == 'video-cuda12'", specifier = "==0.11.0" },
     { name = "warcio", marker = "extra == 'text-cpu'" },
 ]
