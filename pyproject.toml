@@ -51,7 +51,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "absl-py>=2.0.0,<4.0.0",
+    "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
     "cosmos-xenna==0.1.2",
     "fsspec",
