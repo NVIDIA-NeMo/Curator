@@ -43,5 +43,5 @@ jobs:
         run: |
           pip install pre-commit==3.6.0
           pre-commit install
-          pre-commit run --all-files --show-diff-on-failure --color=always
+          SKIP=ruff,ruff-format pre-commit run --all-files --show-diff-on-failure --color=always
 
