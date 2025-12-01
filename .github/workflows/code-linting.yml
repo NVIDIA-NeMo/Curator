@@ -39,9 +39,11 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Check lint
+      - name: Run pre-commit checks
+        env:
+          SKIP: ruff,ruff-format,trailing-whitespace,end-of-file-fixer,requirements-txt-fixer  # checked separately in other workflows
         run: |
           pip install pre-commit==3.6.0
           pre-commit install
-          SKIP=ruff,ruff-format,trailing-whitespace,end-of-file-fixer,requirements-txt-fixer pre-commit run --all-files --show-diff-on-failure --color=always
+          pre-commit run --all-files --show-diff-on-failure --color=always
 
