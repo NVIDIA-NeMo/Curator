@@ -62,7 +62,7 @@ dependencies = [
     "pyarrow",
     "ray[default,data]>=2.50",
     "torch",
-    "transformers==4.55.2",
+    "transformers",
     "openai>=1.0.0",
 ]
 
@@ -186,7 +186,7 @@ override-dependencies = [
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "transformers==4.55.2",
+    "transformers>=4.55.2",
 ]
 
 
