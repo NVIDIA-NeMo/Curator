@@ -44,6 +44,18 @@ repos:
       # Run the formatter
       - id: ruff-format
 
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    # Use the latest version
+    rev: 0.9.2
+    hooks:
+      - id: uv-lock
+        # Optional: warns but doesn't block commits if uv fails
+        warn_only: true
+      - id: uv-export
+        # Optional: warns but doesn't block commits if uv fails
+        warn_only: true
+        args: ["--output-file", "requirements.txt"]
+
   - repo: local
     hooks:
       - id: check-signoff
