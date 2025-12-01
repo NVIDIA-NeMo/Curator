@@ -33,7 +33,11 @@ from runner.path_resolver import (
 )
 from runner.utils import get_total_memory_bytes
 
-_max_container_memory_bytes = 1099511627776  # 1TB
+_KB = 1024
+_MB = 1024 * _KB
+_GB = 1024 * _MB
+_TB = 1024 * _GB
+_max_container_memory_bytes = 1 * _TB
 _shm_size_container_memory_percentage = 0.5  # 50%
 
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "nemo_curator_benchmarking:latest")

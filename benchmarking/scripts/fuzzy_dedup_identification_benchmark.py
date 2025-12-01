@@ -41,29 +41,8 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     bands_per_iteration: int = 20,  # Number of bands to shuffle concurrently during LSH. Higher values have higher memory pressure but can reduce runtime
     text_field: str = "text",
     input_blocksize: str = "1.5GiB",
-    executor_name: str = "ray_data",
-    use_ray_data_settings: bool = False,
 ) -> dict[str, Any]:
     """Run the duplicate identification benchmark and collect comprehensive metrics."""
-
-    # Setup executor
-    if executor_name == "ray_data":
-        # TODO: Uncomment this when the pipeline is fixed
-        # from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-        # executor = RayDataExecutor()
-        if use_ray_data_settings:
-            from ray.data import DataContext
-
-            DataContext.get_current().target_max_block_size = 1
-
-    elif executor_name == "xenna":
-        # TODO: Uncomment this when the pipeline is fixed
-        # from nemo_curator.backends.xenna import XennaExecutor
-        # executor = XennaExecutor()
-        pass
-    else:
-        msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg)
 
     # Ensure directories
     Path(output_path).mkdir(parents=True, exist_ok=True)
@@ -103,7 +82,6 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
             "input_path": input_path,
             "cache_path": cache_path,
             "output_path": output_path,
-            "executor_name": executor_name,
             "input_filetype": input_filetype,
             "bands_per_iteration": bands_per_iteration,
             "text_field": text_field,
@@ -135,7 +113,6 @@ def main() -> int:
     parser.add_argument("--input-path", required=True, help="Path to input data")
     parser.add_argument("--cache-path", required=True, help="Path to cache directory")
     parser.add_argument("--output-path", required=True, help="Output directory for results")
-    parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
     parser.add_argument("--input-filetype", default="jsonl", choices=["jsonl", "parquet"], help="Input filetype")
     parser.add_argument(
         "--bands-per-iteration", type=int, default=20, help="Bands per iteration (for LSH deduplication)"
@@ -144,7 +121,6 @@ def main() -> int:
     parser.add_argument(
         "--input-blocksize", type=str, default="1.5GiB", help="Target partition size for input data (e.g. '512MB')"
     )
-    parser.add_argument("--use-ray-data-settings", action="store_true", help="If set, use ray data settings")
 
     args = parser.parse_args()
 
@@ -156,12 +132,10 @@ def main() -> int:
             input_path=args.input_path,
             cache_path=args.cache_path,
             output_path=args.output_path,
-            executor_name=args.executor,
             input_filetype=args.input_filetype,
             bands_per_iteration=args.bands_per_iteration,
             text_field=args.text_field,
             input_blocksize=args.input_blocksize,
-            use_ray_data_settings=args.use_ray_data_settings,
         )
 
     except Exception as e:  # noqa: BLE001

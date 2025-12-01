@@ -102,14 +102,13 @@ entries:
       --model-inference-batch-size=1024
     timeout_s: 20000
 
-  - name: fuzzy_dedup_identification_raydata
+  - name: fuzzy_dedup_identification
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
       --cache-path={session_entry_dir}/scratch/cache
       --output-path={session_entry_dir}/output
-      --executor=ray_data
       --input-filetype=jsonl
       --bands-per-iteration=20
       --text-field=text
