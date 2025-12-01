@@ -12,11 +12,11 @@ modality: "image-only"
 
 # Get Started with Image Curation
 
-This guide helps you set up and get started with NeMo Curator's image curation capabilities. Follow these steps to prepare your environment and run your first image curation pipeline.
+This guide provides step-by-step instructions for setting up NeMo Curator’s image curation capabilities. Follow these instructions to prepare your environment and execute your first image curation pipeline.
 
 ## Prerequisites
 
-To use NeMo Curator's image curation modules, ensure you meet the following requirements:
+Ensure your environment meets the following prerequisites for NeMo Curator image curation modules:
 
 * Python 3.10, 3.11, or 3.12
   * packaging >= 22.0
@@ -26,7 +26,7 @@ To use NeMo Curator's image curation modules, ensure you meet the following requ
   * CUDA 12 (or above)
 
 :::{tip}
-If you don't have `uv` installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
+If `uv` is not installed, refer to the [Installation Guide](../admin/installation.md) for setup instructions, or install it quickly with:
 
 ```bash
 curl -LsSf https://astral.sh/uv/0.8.22/install.sh | sh
@@ -39,7 +39,7 @@ source $HOME/.local/bin/env
 
 ## Installation Options
 
-You can install NeMo Curator in three ways:
+You can install NeMo Curator using one of the following methods:
 
 ::::{tab-set}
 
@@ -212,7 +212,7 @@ wget -O ~/nemo_curator/image_curation_example.py https://raw.githubusercontent.c
 
 # Run with your data
 python ~/nemo_curator/image_curation_example.py \
-    --input-tar-dataset-dir ~/nemo_curator/data/tar_archives \
+    --input-wds-dataset-dir ~/nemo_curator/data/tar_archives \
     --output-dataset-dir ~/nemo_curator/data/curated \
     --model-dir ~/nemo_curator/models \
     --aesthetic-threshold 0.5 \
