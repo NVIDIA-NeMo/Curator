@@ -64,14 +64,6 @@ Before implementing language management in your pipeline:
 
 ### Installation Dependencies
 
-```bash
-# Install FastText for language detection
-pip install fasttext
-
-# Optional: CLD2 for HTML extraction (automatically used by Common Crawl stages)
-pip install pycld2
-```
-
 ## Basic Language Filtering
 
 ### Quick Start Example
