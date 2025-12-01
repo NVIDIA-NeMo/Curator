@@ -7,20 +7,20 @@ After installing the NeMo Curator package, you can simply run the following comm
 LOGURU_LEVEL="ERROR" python tutorials/text/megatron-tokenizer/main.py
 ```
 
-We use LOGURU_LEVEL="ERROR" to help minimize console output and produce cleaner logs for the user.
+We use `LOGURU_LEVEL="ERROR"` to help minimize console output and produce cleaner logs for the user.
 
-The script first checks whether the Tinystories dataset is already prepared; if not, it downloads it and saves it into ten parquet files. Using the `--input-path` and `--output-path` flags, you can configure where the tokenized files are read from and written to, while the `--tokenizer-model` flag specifies which tokenizer will be used to process the data. The `--append-eod` option allows you to add an end-of-document token to each processed document.
+The script first checks whether the TinyStories dataset is already prepared; if not, it downloads it and saves it into 10 Parquet files. Using the `--input-path` and `--output-path` flags, you can configure where the tokenized files are read from and written to, while the `--tokenizer-model` flag specifies which tokenizer will be used to process the data. The `--append-eod` option allows you to add an end-of-document token to each processed document.
 
 ## MegatronTokenizerWriter
 
 The `MegatronTokenizerWriter` is responsible for creating tokenized files compatible with Megatron-LM. This writer is intended to serve as a drop-in replacement for Megatron-LM’s original [`preprocess_data.py`](https://github.com/NVIDIA/Megatron-LM/blob/main/tools/preprocess_data.py) script, offering equivalent output while allowing integration into the NeMo Curator pipeline. It accepts `DocumentBatch` objects containing processed data, enabling seamless composition with other pipeline stages in NeMo Curator. The configuration options for this writer are:
 
-- **model_identifier**: The tokenizer to load from the HuggingFace Hub using the `AutoTokenizer.from_pretrained` method
+- **model_identifier**: The tokenizer to load from the Hugging Face Hub using the `AutoTokenizer.from_pretrained` method
 - **tokenization_batch_size**: The number of documents to feed into `tokenizer.batch_encode_plus` and write to disk at a time
 - **append_eod**: Whether to append an end-of-document token to each sequence. Defaults to `False`
-- **text_field**: The field in the DocumentBatch that contains the text to tokenize
+- **text_field**: The field in the `DocumentBatch` that contains the text to tokenize
 - **cache_dir**: The directory where the cached tokenizer model will be stored. If not specified, it will use the [default transformers cache](https://huggingface.co/docs/transformers/en/installation#cache-directory) directory
-- **hf_token**: The HuggingFace token for authentication (required if not logged in and attempting to access gated models)
+- **hf_token**: The Hugging Face token for authentication (required if not logged in and attempting to access gated models)
 
 ## File Prefixes
 
