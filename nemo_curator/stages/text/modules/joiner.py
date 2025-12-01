@@ -59,7 +59,7 @@ class DocumentJoiner(ProcessingStage[DocumentBatch, DocumentBatch]):
             Both max_length and length_field must be specified or neither can be specified.
     """
 
-    separator: str
+    separator: str = "\n\n"
     text_field: str = "text"
     segment_id_field: str = "segment_id"
     document_id_field: str = "id"
@@ -110,7 +110,7 @@ class DocumentJoiner(ProcessingStage[DocumentBatch, DocumentBatch]):
                 accumulator_row = row.copy()
             else:
                 # Calculate what the new length would be if we joined this segment.
-                proposed_length = accumulator_length + row[self.length_field] + 1
+                proposed_length = accumulator_length + row[self.length_field] + len(self.separator)
                 if proposed_length <= self.max_length:
                     accumulator_text = accumulator_text + self.separator + row[self.text_field]
                     accumulator_length = proposed_length
