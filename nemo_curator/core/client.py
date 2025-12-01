@@ -16,7 +16,7 @@ import atexit
 import os
 import socket
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from loguru import logger
 
@@ -73,10 +73,17 @@ class RayClient:
     num_gpus: int | None = None
     num_cpus: int | None = None
     enable_object_spilling: bool = False
+    ray_stdouterr_capture_file: str | None = None
 
-    ray_process: subprocess.Popen | None = None
+    ray_process: subprocess.Popen | None = field(init=False)
+
+    def __post_init__(self) -> None:
+        if self.ray_stdouterr_capture_file and os.path.exists(self.ray_stdouterr_capture_file):
+            msg = f"Capture file {self.ray_stdouterr_capture_file} already exists."
+            raise FileExistsError(msg)
 
     def start(self) -> None:
+        """Start the Ray cluster, optionally capturing stdout/stderr to a file."""
         if self.include_dashboard:
             # Add Ray metrics service discovery to existing Prometheus configuration
             if is_prometheus_running() and is_grafana_running():
@@ -110,6 +117,7 @@ class RayClient:
                 get_next_free_port=(self.ray_client_server_port == DEFAULT_RAY_CLIENT_SERVER_PORT),
             )
             ip_address = socket.gethostbyname(socket.gethostname())
+
             self.ray_process = init_cluster(
                 self.ray_port,
                 self.ray_temp_dir,
@@ -122,6 +130,7 @@ class RayClient:
                 self.enable_object_spilling,
                 block=True,
                 ip_address=ip_address,
+                stdouterr_capture_file=self.ray_stdouterr_capture_file,
             )
             # Set environment variable for RAY_ADDRESS
 
