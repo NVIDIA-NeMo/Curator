@@ -125,15 +125,20 @@ git add pyproject.toml uv.lock requirements.txt
 git commit -s -m "Update dependencies"
 ```
 
-**Pre-commit hooks**: This repository has pre-commit hooks (`uv-lock` and `uv-export`) that automatically check if lock files are in sync. If you modify `pyproject.toml` and forget to update the lock files, the CI will fail.
+**Pre-commit hooks**: This repository has pre-commit hooks (`uv-lock` and `uv-export`) that check if lock files are in sync. If you have pre-commit installed locally and the lock files are out of sync, the hooks will:
+1. Generate the updated lock files
+2. Block the commit (showing "files were modified by this hook")
+3. You then need to stage the generated files and commit again
 
 **Workflow**:
 1. Modify dependencies in `pyproject.toml`
-2. Run `uv lock && uv export --output-file requirements.txt`
-3. Stage all three files: `pyproject.toml`, `uv.lock`, and `requirements.txt`
+2. Either:
+   - **Option A (Manual)**: Run `uv lock && uv export --output-file requirements.txt` before committing
+   - **Option B (Let hooks do it)**: Just try to commit - hooks will generate the files and block, then stage and commit again
+3. Stage all files: `git add pyproject.toml uv.lock requirements.txt`
 4. Commit with sign-off: `git commit -s -m "Your message"`
 
-> **Note**: If you encounter issues with the pre-commit hooks (e.g., `uv` not installed or platform-specific problems), you can bypass them temporarily with `git commit --no-verify`. However, make sure to update the lock files manually before pushing.
+> **Note**: If you encounter issues with the pre-commit hooks (e.g., `uv` not installed or platform-specific problems), you can bypass them with `git commit --no-verify`. The CI will still verify the lock files are in sync.
 
 Unit tests are expected to pass before merging into `main`.
 Every release a new branch will be cut from `main`.
