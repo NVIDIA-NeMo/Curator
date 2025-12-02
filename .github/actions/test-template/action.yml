@@ -54,9 +54,11 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Set up Azure CLI
+    - name: Install Azure CLI
       if: ${{ inputs.has-azure-credentials == 'true' }}
-      uses: azure/setup-azure-cli@v2
+      shell: bash
+      run: |
+        curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
 
     - name: Azure Login
       if: ${{ inputs.has-azure-credentials == 'true' }}
