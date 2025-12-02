@@ -264,8 +264,7 @@ When running production pipelines, track these critical metrics:
 
 ### Setting Up Monitoring
 
-Refer to [NeMo Curator Metrics](https://github.com/NVIDIA-NeMo/Curator/tree/main/
-nemo_curator/metrics) for information about how to use Prometheus and Grafana with NeMo Curator.
+Refer to [NeMo Curator Metrics](https://github.com/NVIDIA-NeMo/Curator/tree/main/nemo_curator/metrics) for information about how to use Prometheus and Grafana with NeMo Curator.
 
 ## Best Practices
 
