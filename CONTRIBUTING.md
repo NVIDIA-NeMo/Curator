@@ -78,7 +78,7 @@ uv sync --extra text --extra video
 uv sync --extra all
 ```
 
-- If project dependencies are updated, the lock files need to be regenerated. See [Updating Package Dependencies](#updating-package-dependencies) for the full workflow.
+- If project dependencies are updated, the lock file needs to be regenerated. See [Updating Package Dependencies](#updating-package-dependencies) for the full workflow.
 
 ## Unit tests
 Unit tests should be simple and fast.
