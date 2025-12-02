@@ -44,6 +44,14 @@ repos:
       # Run the formatter
       - id: ruff-format
 
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    # Use the latest version
+    # Note: These hooks will block commits if uv fails
+    # To bypass if strictly needed (change not related to dependencies), use: git commit --no-verify
+    rev: 0.9.2
+    hooks:
+      - id: uv-lock
+
   - repo: local
     hooks:
       - id: check-signoff
