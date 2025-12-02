@@ -41,7 +41,7 @@ jobs:
 
       - name: Run pre-commit checks
         env:   
-          SKIP: ruff,ruff-format,trailing-whitespace,end-of-file-fixer  # checked separately in other workflows
+          SKIP: ruff,ruff-format,trailing-whitespace,end-of-file-fixer,requirements-txt-fixer  # checked separately in other workflows
         run: |
           pip install pre-commit==3.6.0
           pre-commit install
