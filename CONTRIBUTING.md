@@ -114,31 +114,31 @@ Pull requests should cover at least 80% of its changes with tests. CI will rejec
 
 ### Updating Package Dependencies
 
-When you modify dependencies in `pyproject.toml`, you need to regenerate the lock files to keep them in sync:
+When you modify dependencies in `pyproject.toml`, you need to regenerate the lock file to keep it in sync:
 
 ```bash
-# Regenerate uv.lock and requirements.txt
-uv lock && uv export --output-file requirements.txt
+# Regenerate uv.lock
+uv lock
 
-# Stage and commit all dependency files
-git add pyproject.toml uv.lock requirements.txt
+# Stage and commit dependency files
+git add pyproject.toml uv.lock
 git commit -s -m "Update dependencies"
 ```
 
-**Pre-commit hooks**: This repository has pre-commit hooks (`uv-lock` and `uv-export`) that check if lock files are in sync. If you have pre-commit installed locally and the lock files are out of sync, the hooks will:
-1. Generate the updated lock files
+**Pre-commit hooks**: This repository has a pre-commit hook (`uv-lock`) that checks if the lock file is in sync. If you have pre-commit installed locally and the lock file is out of sync, the hook will:
+1. Generate the updated lock file
 2. Block the commit (showing "files were modified by this hook")
-3. You then need to stage the generated files and commit again
+3. You then need to stage the generated file and commit again
 
 **Workflow**:
 1. Modify dependencies in `pyproject.toml`
 2. Either:
-   - **Option A (Manual)**: Run `uv lock && uv export --output-file requirements.txt` before committing
-   - **Option B (Let hooks do it)**: Just try to commit - hooks will generate the files and block, then stage and commit again
-3. Stage all files: `git add pyproject.toml uv.lock requirements.txt`
+   - **Option A (Manual)**: Run `uv lock` before committing
+   - **Option B (Let hooks do it)**: Just try to commit - the hook will generate the file and block, then stage and commit again
+3. Stage files: `git add pyproject.toml uv.lock`
 4. Commit with sign-off: `git commit -s -m "Your message"`
 
-> **Note**: If you encounter issues with the pre-commit hooks (e.g., `uv` not installed or platform-specific problems), you can bypass them with `git commit --no-verify`. The CI will still verify the lock files are in sync.
+> **Note**: If you encounter issues with the pre-commit hook (e.g., `uv` not installed or platform-specific problems), you can bypass it with `git commit --no-verify`. The CI will still verify the lock file is in sync.
 
 Unit tests are expected to pass before merging into `main`.
 Every release a new branch will be cut from `main`.
