@@ -76,6 +76,7 @@ code_pipeline = Pipeline(
     )
 ])
 
+## NEED FIX: NameError: name 'code_dataset' is not defined
 filtered_code = code_pipeline(code_dataset)
 ```
 
