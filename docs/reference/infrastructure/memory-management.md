@@ -25,41 +25,35 @@ Processing large text datasets presents several challenges:
 
 ## Memory Management Strategies
 
-### 1. Partition Control
+TODO: Talk about how Curator handles resource allocation, etc. in the background.
 
-Control how data is split across workers using file partitioning:
-
-```python
-from nemo_curator.stages.file_partitioning import FilePartitioningStage
-
-# Control partition size when reading
-partitioner = FilePartitioningStage(
-    file_paths=files,
-    blocksize="256MB",  # Target size of each partition in memory
-    files_per_partition=10  # Alternative: group files by count instead of size
-)
-```
-
-### 2. Batch Processing
+### 1. Batch Processing
 
 Process data in manageable chunks by controlling file partitioning:
 
 ```python
 from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.io.writer import JsonlWriter
 
 # Read with controlled partition sizes
 reader = JsonlReader(
     file_paths="input/",
     files_per_partition=50,  # Process 50 files at a time
-    blocksize="1GB"  # Alternative: control memory usage per partition
+    # blocksize="1GB"  # Alternative: control memory usage per data batch
 )
-
-# Process and write in batches
-writer = JsonlWriter(path="output/")
 ```
 
-### 3. Memory-Aware Operations
+```python
+from nemo_curator.stages.text.io.reader import ParquetReader
+
+# Read with controlled partition sizes
+reader = ParquetReader(
+    file_paths="input/",
+    files_per_partition=50,  # Process 50 files at a time
+    # blocksize="1GB"  # Alternative: control memory usage per data batch
+)
+```
+
+### 2. Memory-Aware Operations
 
 Some operations need special memory handling:
 
@@ -89,50 +83,24 @@ classifier = QualityClassifier(
 )
 ```
 
+```{note}
+If you encounter a `torch.OutOfMemoryError` during model classification, it is almost always because the `model_inference_batch_size` is too large. Try smaller batch sizes to resolve the error.
+```
+
 ## Memory Monitoring
 
-### CPU Memory
-
-Monitor system memory:
-
-```python
-# Note: Requires installing psutil: pip install psutil
-import psutil
-
-def check_memory():
-    mem = psutil.virtual_memory()
-    print(f"Memory usage: {mem.percent}%")
-    print(f"Available: {mem.available / 1e9:.1f} GB")
-```
-
-### GPU Memory
-
-Monitor GPU memory:
-
-```python
-# Note: Requires CUDA installation with nemo_curator[cuda12]
-import pynvml
-
-def check_gpu_memory():
-    pynvml.nvmlInit()
-    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-    info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-    print(f"GPU memory used: {info.used / 1e9:.1f} GB")
-```
+TODO: Dashboard
 
 ## Best Practices
 
 1. **Monitor Memory Usage**
    - Track memory during development
    - Set up monitoring for production
-   - Handle out-of-memory gracefully
 
 2. **Optimize Data Loading**
-   - Use lazy loading when possible
-   - Control partition sizes
-   - Clean up unused data
+   - Split up large files into smaller chunks before curation (TODO: add section about this)
+   - Control partition sizes via `files_per_partition` or `blocksize`
 
 3. **Resource Management**
-   - Release memory after large operations
+   - Explicitly release memory after large operations if possible (TODO: consider showing example for this)
    - Use context managers for cleanup
-   - Monitor long-running processes
