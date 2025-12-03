@@ -128,22 +128,12 @@ runs:
         path: NeMo-Curator
         submodules: recursive
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
     - name: Build container
-      uses: docker/build-push-action@v6
+      shell: bash
       env:
         GH_TOKEN: ${{ inputs.PAT }}
-      with:
-        context: .
-        file: docker/Dockerfile
-        tags: ray-curator
-        load: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        build-args: |
-          GH_TOKEN=${{ inputs.PAT }}
+      run: |
+        docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
