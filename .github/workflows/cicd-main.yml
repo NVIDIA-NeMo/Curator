@@ -163,25 +163,18 @@ jobs:
         if: steps.cache-internvideo.outputs.cache-hit != 'true'
         run: cd InternVideo && patch -p1 < ../external/intern_video2_multimodal.patch
 
-      - name: Optionally free up space on Ubuntu
+      - name: Free up disk space on Ubuntu
         run: |
-          # Only free up space if we have less than 10GB available (enhancement which saves time)
-          AVAILABLE=$(df / --output=avail | tail -n 1)
-          if [ $AVAILABLE -lt 10485760 ]; then
-            echo "Freeing up disk space (available: ${AVAILABLE}KB)"
-            sudo rm -rf /usr/share/dotnet
-            sudo rm -rf /opt/ghc
-            sudo rm -rf /usr/local/share/boost
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          else
-            echo "Sufficient disk space available (${AVAILABLE}KB), skipping cleanup"
-          fi
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - name: Set up uv with Python ${{ matrix.python-version }}
         uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Run tests ${{ matrix.folder }} (CPU)
-        timeout-minutes: 30
+        timeout-minutes: 40
         run: |
           sed -i "/InternVideo/d" .gitignore
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
