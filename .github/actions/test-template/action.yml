@@ -172,42 +172,21 @@ runs:
         COVERAGE_PREFIX=$([[ "${{ inputs.is_unit_test }}" == "true" ]] && echo "unit-test" || echo "e2e")
         echo "coverage-prefix=$COVERAGE_PREFIX" | tee -a "$GITHUB_OUTPUT"
 
-        # Create job.sh with embedded CPU test monitor
-        cat > job.sh << 'JOBSCRIPT_EOF'
-#!/bin/bash
+        cmd=$(cat <<'RUN_TEST_EOF'
+        #!/bin/bash
 
-# Start CPU test monitor in background
-# Checks every 20s if any CPU test has failed, stops container if so
-(
-  while true; do
-    sleep 20
-    FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-    if [ "$FAILED" -gt 0 ]; then
-      echo "::warning::CPU test failed - stopping GPU test container"
-      docker stop $CONTAINER_NAME 2>/dev/null || true
-      exit 0
-    fi
-  done
-) &
-MONITOR_PID=$!
-echo "Started CPU monitor (PID: $MONITOR_PID)"
+        docker exec -t nemo_container_${{ github.run_id }} bash -c '
+          set -e
 
-# Run the actual test
-docker exec -t $CONTAINER_NAME bash -c "
-  set -e
-  . /opt/venv/env.sh
-  bash tests/$SCRIPT_NAME.sh
-"
-TEST_EXIT_CODE=$?
+          . /opt/venv/env.sh
+          bash tests/${{ inputs.script }}.sh
+        '
 
-# Cleanup monitor
-kill $MONITOR_PID 2>/dev/null || true
-
-exit $TEST_EXIT_CODE
-JOBSCRIPT_EOF
+        RUN_TEST_EOF
+        )
 
         echo "timeout_in_seconds=$(( ${{ inputs.timeout }} * 60 ))" | tee -a "$GITHUB_OUTPUT"
-        cat job.sh
+        echo "$cmd" | tee "job.sh"
 
     - name: Run main script
       uses: nick-fields/retry@v3
@@ -216,14 +195,36 @@ JOBSCRIPT_EOF
         GH_TOKEN: ${{ inputs.PAT }}
         RUN_ID: ${{ github.run_id }}
         CONTAINER_NAME: nemo_container_${{ github.run_id }}
-        SCRIPT_NAME: ${{ inputs.script }}
       with:
         timeout_seconds: ${{ steps.create.outputs.timeout_in_seconds }}
         max_attempts: 3
         shell: bash
         retry_on: timeout
-        command: /bin/bash job.sh
         on_retry_command: /bin/bash retry_job.sh
+        command: |
+          # Start CPU test monitor in background
+          (
+            while true; do
+              sleep 20
+              FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
+              if [ "$FAILED" -gt 0 ]; then
+                echo "::warning::CPU test failed - stopping GPU test container"
+                docker stop $CONTAINER_NAME 2>/dev/null || true
+                exit 0
+              fi
+            done
+          ) &
+          MONITOR_PID=$!
+          echo "Started CPU monitor (PID: $MONITOR_PID)"
+          
+          # Run the actual test
+          /bin/bash job.sh
+          TEST_EXIT_CODE=$?
+          
+          # Cleanup monitor
+          kill $MONITOR_PID 2>/dev/null || true
+          
+          exit $TEST_EXIT_CODE
 
     - name: Check result
       id: check
