@@ -132,12 +132,28 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
       run: |
+        # Check if CPU test already failed before starting build
+        FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
+        if [ "$FAILED" -gt 0 ]; then
+          echo "::error::CPU test already failed - skipping GPU test"
+          exit 1
+        fi
         docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
       shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
       run: |
+        # Check if CPU test already failed before starting container
+        FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
+        if [ "$FAILED" -gt 0 ]; then
+          echo "::error::CPU test already failed - skipping GPU test"
+          exit 1
+        fi
         MNT_PATH=${{ steps.azure-fileshare.outputs.mnt_path }}
 
         ARG=("")
@@ -208,9 +224,9 @@ runs:
               sleep 20
               FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
               if [ "$FAILED" -gt 0 ]; then
-                echo "::warning::CPU test failed - stopping GPU test container"
+                echo "::error::CPU test failed - stopping GPU test"
                 docker stop $CONTAINER_NAME 2>/dev/null || true
-                exit 0
+                exit 1
               fi
             done
           ) &
