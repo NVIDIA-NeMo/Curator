@@ -227,29 +227,6 @@ jobs:
       )
       && !cancelled()
     steps:
-      - name: Start CPU test monitor (background)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.run_id }}
-          CONTAINER_NAME: nemo_container_${{ github.run_id }}
-        run: |
-          # Background monitor: checks CPU test status every 20 seconds
-          # If CPU fails, stops only the GPU test container (CPU tests continue)
-          (
-            while true; do
-              sleep 20
-              FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-              if [ "$FAILED" -gt 0 ]; then
-                echo "::warning::CPU test failed - stopping GPU test container"
-                docker stop $CONTAINER_NAME 2>/dev/null || true
-                docker rm -f $CONTAINER_NAME 2>/dev/null || true
-                echo "CPU_TEST_FAILED" > /tmp/cpu_failed_flag
-                exit 0
-              fi
-            done
-          ) &
-          echo "Started CPU test monitor (checks every 20s, will stop container: $CONTAINER_NAME)"
-
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -265,14 +242,6 @@ jobs:
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           PAT: ${{ secrets.PAT }}
           timeout: 20
-
-      - name: Check if stopped due to CPU failure
-        if: failure()
-        run: |
-          if [ -f /tmp/cpu_failed_flag ]; then
-            echo "::error::GPU test was stopped because a CPU test failed"
-            exit 1
-          fi
 
   Nemo_CICD_Test:
     needs:
