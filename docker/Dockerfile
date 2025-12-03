@@ -73,13 +73,17 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
     patch -p1 < /opt/intern_video2_multimodal.patch && \
     rm /opt/intern_video2_multimodal.patch
 
-# Install Curator
-COPY . /opt/Curator
+# Install Curator dependencies first (for better Docker layer caching)
+# This layer is cached if pyproject.toml/uv.lock don't change
+COPY pyproject.toml uv.lock /opt/Curator/
 RUN cd /opt/Curator && \
   uv sync --link-mode copy --locked --extra all --all-groups && \
   uv add /opt/InternVideo/InternVideo2/multi_modality && \
   uv cache prune && \
   uv cache clean distance
+
+# Copy the rest of the code (this layer changes on every code change)
+COPY . /opt/Curator
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
