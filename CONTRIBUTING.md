@@ -13,6 +13,7 @@ Not all steps are necessary for some contributions, so read the linked sections 
   - [Unit tests](#unit-tests)
   - [Coverage](#coverage)
   - [Pull Requests (PR) Guidelines](#pull-requests-pr-guidelines)
+    - [Updating Package Dependencies](#updating-package-dependencies)
 
 ## General principles
 1. **User-oriented**: make it easy for end users, even at the cost of writing more code in the background
@@ -24,6 +25,14 @@ Not all steps are necessary for some contributions, so read the linked sections 
 
 ## Python style
 We use ``ruff`` as our style guide. To fix your format run `pre-commit install && pre-commit run --all`.
+
+**Setting up pre-commit hooks locally (optional)** (one-time setup):
+```bash
+pip install pre-commit
+pre-commit install --install-hooks
+```
+
+To manually run all checks: `pre-commit run --all-files`
 
 1. Include docstrings for every class and method exposed to the user.
 1. Loggers are preferred to print.
@@ -69,7 +78,7 @@ uv sync --extra text --extra video
 uv sync --extra all
 ```
 
-- If project dependencies are updated a new uv lock file needs to be generated. Run `uv lock` and add the changes of the new uv.lock file.
+- If project dependencies are updated, the lock file needs to be regenerated. See [Updating Package Dependencies](#updating-package-dependencies) for the full workflow.
 
 ## Unit tests
 Unit tests should be simple and fast.
@@ -102,6 +111,34 @@ Pull requests should cover at least 80% of its changes with tests. CI will rejec
     Replace `N` in the first line with the number of commits you want to undo. To undo the latest commit, do `git reset --soft HEAD~1`.
 4) Make sure all unittests finish successfully before sending PR ``pytest`` or (if your dev box does not have GPU) ``pytest --cpu`` from the root folder
 5) Send your PR and request a review
+
+### Updating Package Dependencies
+
+When you modify dependencies in `pyproject.toml`, you need to regenerate the lock file to keep it in sync:
+
+```bash
+# Regenerate uv.lock
+uv lock
+
+# Stage and commit dependency files
+git add pyproject.toml uv.lock
+git commit -s -m "Update dependencies"
+```
+
+**Pre-commit hooks**: This repository has a pre-commit hook (`uv-lock`) that checks if the lock file is in sync. If you have pre-commit installed locally and the lock file is out of sync, the hook will:
+1. Generate the updated lock file
+2. Block the commit (showing "files were modified by this hook")
+3. You then need to stage the generated file and commit again
+
+**Workflow**:
+1. Modify dependencies in `pyproject.toml`
+2. Either:
+   - **Option A (Manual)**: Run `uv lock` before committing
+   - **Option B (Let hooks do it)**: Just try to commit - the hook will generate the file and block, then stage and commit again
+3. Stage files: `git add pyproject.toml uv.lock`
+4. Commit with sign-off: `git commit -s -m "Your message"`
+
+> **Note**: If you encounter issues with the pre-commit hook (e.g., `uv` not installed or platform-specific problems), you can bypass it with `git commit --no-verify`. The CI will still verify the lock file is in sync.
 
 Unit tests are expected to pass before merging into `main`.
 Every release a new branch will be cut from `main`.
