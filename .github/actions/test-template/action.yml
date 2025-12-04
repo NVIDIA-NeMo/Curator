@@ -244,18 +244,27 @@ runs:
         retry_on: timeout
         on_retry_command: /bin/bash retry_job.sh
         command: |
-          # Start CPU test monitor in background
+          # Initial CPU test status check (synchronous, for debugging)
+          echo "=== Initial CPU test status check ==="
+          gh run view $RUN_ID --json jobs -q '.jobs[] | select(.name | startswith("Unit_Test_")) | "\(.name): \(.status) - \(.conclusion)"' || echo "gh command failed"
+          echo "=== End initial check ==="
+          
+          # Check if CPU test already failed
+          FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
+          if [ "$FAILED" -gt 0 ]; then
+            echo "::error::CPU test already failed before test started - aborting GPU test"
+            exit 1
+          fi
+          
+          # Start CPU test monitor in background - writes to file for visibility
           (
             while true; do
               sleep 20
-              # Get all CPU test jobs and their conclusions
-              RESULT=$(gh run view $RUN_ID --json jobs -q '.jobs[] | select(.name | startswith("Unit_Test_")) | "\(.name): \(.conclusion)"' 2>&1)
-              echo "CPU test status check: $RESULT"
               FAILED=$(gh run view $RUN_ID --json jobs -q '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-              echo "Failed count: $FAILED"
+              echo "[Monitor] CPU failure count: $FAILED" >&2
               if [ "$FAILED" -gt 0 ]; then
-                echo "::error::CPU test failed - killing GPU test container: $CONTAINER_NAME"
-                docker kill $CONTAINER_NAME || docker stop $CONTAINER_NAME || true
+                echo "::error::CPU test failed - killing GPU test container: $CONTAINER_NAME" >&2
+                docker kill $CONTAINER_NAME 2>&1 || docker stop $CONTAINER_NAME 2>&1 || true
                 exit 1
               fi
             done
