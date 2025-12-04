@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 FILETYPE_TO_DEFAULT_EXTENSIONS = {
     "parquet": [".parquet"],
     "jsonl": [".jsonl", ".json"],
+    "megatron": [".bin", ".idx"],
 }
 
 

@@ -10,7 +10,7 @@ Hands-on tutorials for curating data across all modalities with NeMo Curator. Co
 
 | Modality | Description | Key Tutorials |
 |----------|-------------|---------------|
-| **[Text](text/)** | Natural language processing and curation | Deduplication, Classification, Quality Assessment |
+| **[Text](text/)** | Natural language processing and curation | Deduplication, Classification, Quality Assessment, Tokenization |
 | **[Image](image/)** | Computer vision and image processing | Aesthetic Classification, NSFW Detection, Deduplication |
 | **[Video](video/)** | Video processing and analysis | Clipping, Frame Extraction, Filtering |
 | **[Audio](audio/)** | Speech and audio data curation | FLEURS Dataset Processing |
