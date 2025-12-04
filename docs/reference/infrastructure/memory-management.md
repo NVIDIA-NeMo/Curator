@@ -24,7 +24,7 @@ Processing large-scale datasets for LLM training presents unique memory manageme
 
 - **Long-Running Pipelines**: Processing billions of documents can take days or weeks. Even small memory leaks accumulate over time, potentially causing worker crashes or degraded performance. Automatic worker recycling helps mitigate this.
 
-- **Distributed Resource Allocation**: In multi-node clusters, balancing CPU, GPU, and memory resources across workers becomes complex. Different pipeline stages have different resource requirements (e.g., I/O-heavy readers vs. GPU-heavy classifiers), requiring intelligent allocation.
+- **Distributed Resource Allocation**: In multi-node clusters, balancing CPU, GPU, and memory resources across workers becomes complex. Different pipeline stages have different resource requirements (such as I/O-heavy readers compared to GPU-heavy classifiers), requiring intelligent allocation.
 
 - **Variable Data Sizes**: Individual documents can range from a few bytes to megabytes. Processing batches of highly variable-sized documents can cause unpredictable memory spikes if not properly managed.
 
@@ -62,7 +62,7 @@ pipeline.add_stage(JsonlWriter(path="output/"))
 pipeline.run()
 ```
 
-Each stage declares its resource requirements through the `Resources` class, which the executor uses for allocation.
+Each stage declares its resource requirements through the `Resources` class that the executor uses for allocation.
 
 **2. Resource Declaration**
 
@@ -109,15 +109,15 @@ executor = XennaExecutor(config={
 pipeline.run(executor=executor)
 ```
 
-Please refer to the {ref}`Pipeline Execution Backends <reference-execution-backends>` page for more information about Curator's executors.
+Refer to the {ref}`Pipeline Execution Backends <reference-execution-backends>` page for more information about Curator's executors.
 
 **4. Worker Management**
 
 Executors automatically manage workers based on stage resource requirements:
 
 - **Worker Allocation**: Creates workers with the exact resources each stage declares
-- **Setup/Teardown**: Calls `setup()` once per worker (e.g., load models) and `teardown()` for cleanup
-- **Setup on Node**: Calls `setup_on_node()` once per node (e.g., download model weights)
+- **Setup/Teardown**: Calls `setup()` once per worker (such as load models) and `teardown()` for cleanup
+- **Setup on Node**: Calls `setup_on_node()` once per node (such as download model weights)
 - **Task Batching**: Processes multiple tasks per worker call based on `batch_size`
 - **Auto-scaling**: Dynamically adjusts worker count based on workload
 
@@ -234,7 +234,7 @@ Effective monitoring helps you:
 NeMo Curator supports integration with **Prometheus** and **Grafana**, the industry-standard open-source monitoring stack:
 
 **Prometheus** is a time-series database and monitoring system that:
-- Collects metrics from your pipeline at regular intervals (e.g., every 15 seconds)
+- Collects metrics from your pipeline at regular intervals (for example, every 15 seconds)
 - Stores metrics like CPU usage, GPU memory, worker counts, and task throughput
 - Provides a query language (PromQL) to aggregate and analyze metrics
 - Runs as a standalone service that "scrapes" metrics exposed by Curator workers
@@ -243,7 +243,7 @@ NeMo Curator supports integration with **Prometheus** and **Grafana**, the indus
 - Connects to Prometheus as a data source
 - Displays metrics in customizable dashboards with graphs, gauges, and alerts
 - Provides real-time views of your pipeline's health and performance
-- Allows you to set up alerts (e.g., notify when GPU memory exceeds 90%)
+- Allows you to set up alerts (for example, notify when GPU memory exceeds 90%)
 
 **How They Work Together**:
 1. Curator workers expose metrics in a format Prometheus understands
@@ -269,12 +269,12 @@ Refer to [NeMo Curator Metrics](https://github.com/NVIDIA-NeMo/Curator/tree/main
 ## Best Practices
 
 1. **Monitor Memory Usage**
-   - **During Development**: Use system monitoring tools (`htop`, `nvidia-smi`, `watch -n 1 nvidia-smi`) to observe memory usage patterns as your pipeline runs. Start with small datasets to identify memory bottlenecks before scaling up.
-   - **In Production**: Set up monitoring dashboards using Prometheus and Grafana (see [Memory Monitoring](#memory-monitoring) section above) to track CPU/GPU memory usage, worker utilization, and pipeline throughput over time.
-   - **Ray Dashboard**: If using Ray-based executors, access the Ray dashboard (typically at `http://localhost:8265`) to view real-time resource usage, task execution, and memory consumption across workers.
+   - **During Development** Use system monitoring tools (`htop`, `nvidia-smi`, `watch -n 1 nvidia-smi`) to observe memory usage patterns as your pipeline runs. Start with small datasets to identify memory bottlenecks before scaling up.
+   - **In Production** Set up monitoring dashboards using Prometheus and Grafana (refer to [Memory Monitoring](#memory-monitoring) section above) to track CPU/GPU memory usage, worker utilization, and pipeline throughput over time.
+   - **Ray Dashboard** If using Ray-based executors, access the Ray dashboard (typically at `http://localhost:8265`) to view real-time resource usage, task execution, and memory consumption across workers.
 
 2. **Optimize Data Loading**
-   - **Split large files into smaller files before curation**: If you have individual files that are very large (e.g., a single 50GB JSONL file), you should split them into smaller files (e.g., 100 × 500MB files) before processing. The `blocksize` parameter controls how much data is read into memory at once but does **not** automatically split large files. Pre-splitting ensures better parallelization and prevents memory issues.
+   - **Split large files into smaller files before curation** If you have individual files that are very large (for example, a single 50 GB JSONL file), you should split them into smaller files (for example, 100 × 500 MB files) before processing. The `blocksize` parameter controls how much data is read into memory at once but does **not** automatically split large files. Pre-splitting ensures better parallelization and prevents memory issues.
    - Control partition sizes via `files_per_partition` or `blocksize` to manage how much data flows through your pipeline
 
 3. **Resource Management**
