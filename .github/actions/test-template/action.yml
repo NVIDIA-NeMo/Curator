@@ -169,19 +169,7 @@ runs:
 
     - name: Start container
       shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.PAT }}
-        RUN_ID: ${{ github.run_id }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        # Check if CPU test already failed before starting container
-        FAILED=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
-          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
-          | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-        if [ "$FAILED" -gt 0 ]; then
-          echo "::error::CPU test already failed - skipping GPU test"
-          exit 1
-        fi
         MNT_PATH=${{ steps.azure-fileshare.outputs.mnt_path }}
 
         ARG=("")
