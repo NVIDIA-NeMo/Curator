@@ -151,16 +151,10 @@ runs:
         # Start background monitor to cancel build if CPU test fails
         # Write PID to file for reliable cleanup
         MONITOR_PID_FILE="/tmp/build_monitor_$RUN_ID.pid"
-        PARENT_PID=$$
         (
           echo $$ > "$MONITOR_PID_FILE"
           while true; do
             sleep 20
-            # Exit if parent process died (orphan detection)
-            if ! kill -0 $PARENT_PID 2>/dev/null; then
-              rm -f "$MONITOR_PID_FILE"
-              exit 0
-            fi
             if [ "$(check_cpu_failures)" -gt 0 ]; then
               echo "::error::CPU test failed during Docker build - cancelling"
               # Graceful stop first, then force if needed
@@ -180,7 +174,7 @@ runs:
             rm -f "$MONITOR_PID_FILE"
           fi
         }
-        trap cleanup_monitor EXIT INT TERM
+        trap cleanup_monitor EXIT
         
         docker build -f docker/Dockerfile -t ray-curator .
         BUILD_EXIT=$?
@@ -277,16 +271,10 @@ runs:
           
           # Start background monitor to cancel test if CPU fails
           # Write PID to file for reliable cleanup across retries
-          PARENT_PID=$$
           (
             echo $$ > "$MONITOR_PID_FILE"
             while true; do
               sleep 20
-              # Exit if parent process died (orphan detection)
-              if ! kill -0 $PARENT_PID 2>/dev/null; then
-                rm -f "$MONITOR_PID_FILE"
-                exit 0
-              fi
               if [ "$(check_cpu_failures)" -gt 0 ]; then
                 echo "::error::CPU test failed - stopping GPU test"
                 # Graceful stop first
@@ -304,7 +292,7 @@ runs:
               rm -f "$MONITOR_PID_FILE"
             fi
           }
-          trap cleanup_monitor EXIT INT TERM
+          trap cleanup_monitor EXIT
           
           /bin/bash job.sh
           TEST_EXIT_CODE=$?
