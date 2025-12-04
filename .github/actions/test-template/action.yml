@@ -173,7 +173,7 @@ runs:
             PID=$(cat "$MONITOR_PID_FILE")
             # Check process exists before killing, use process group kill
             if kill -0 "$PID" 2>/dev/null; then
-              kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+              kill -- -$PID 2>/dev/null || kill "$PID" 2>/dev/null || true
             fi
             rm -f "$MONITOR_PID_FILE"
           fi
@@ -265,7 +265,7 @@ runs:
           if [ -f "$MONITOR_PID_FILE" ]; then
             PID=$(cat "$MONITOR_PID_FILE")
             if kill -0 "$PID" 2>/dev/null; then
-              kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+              kill -- -$PID 2>/dev/null || kill "$PID" 2>/dev/null || true
             fi
             rm -f "$MONITOR_PID_FILE"
           fi
@@ -298,7 +298,7 @@ runs:
               PID=$(cat "$MONITOR_PID_FILE")
               # Check process exists before killing, use process group kill
               if kill -0 "$PID" 2>/dev/null; then
-                kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+                kill -- -$PID 2>/dev/null || kill "$PID" 2>/dev/null || true
               fi
               rm -f "$MONITOR_PID_FILE"
             fi
