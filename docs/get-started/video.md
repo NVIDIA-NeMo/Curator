@@ -266,10 +266,10 @@ Organize input videos and output locations before running the pipeline.
 
 ## Run the Splitting Pipeline Example
 
-Use the following example script to read videos, split into clips, and write outputs. This runs a Ray pipeline with `XennaExecutor` under the hood.
+Use the example script from https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/video/getting-started to read videos, split into clips, and write outputs. This runs a Ray pipeline with `XennaExecutor` under the hood.
 
 ```bash
-python -m nemo_curator.examples.video.video_split_clip_example \
+python tutorials/video/getting-started/video_split_clip_example.py \
   --video-dir "$DATA_DIR" \
   --model-dir "$MODEL_DIR" \
   --output-clip-path "$OUT_DIR" \
