@@ -135,46 +135,36 @@ runs:
         RUN_ID: ${{ github.run_id }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-        # Initial check using GitHub API
-        echo "=== Checking CPU test status before Docker build ==="
-        RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
-        echo "API Response (first 500 chars): ${RESPONSE:0:500}"
+        # Check if CPU test already failed before starting build
+        check_cpu_failures() {
+          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
+        }
         
-        FAILED=$(echo "$RESPONSE" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-        echo "Failed CPU tests: $FAILED"
+        FAILED=$(check_cpu_failures)
         if [ "$FAILED" -gt 0 ]; then
           echo "::error::CPU test already failed - skipping GPU test"
           exit 1
         fi
         
-        # Start CPU test monitor in background during Docker build
+        # Start background monitor to cancel build if CPU test fails
         (
           while true; do
             sleep 20
-            RESP=$(curl -s -H "Authorization: token $GH_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
-            FAILED=$(echo "$RESP" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-            echo "[Build Monitor] Failed CPU tests: $FAILED" >&2
-            if [ "$FAILED" -gt 0 ]; then
-              echo "::error::CPU test failed during Docker build - cancelling" >&2
+            if [ "$(check_cpu_failures)" -gt 0 ]; then
+              echo "::error::CPU test failed during Docker build - cancelling"
               pkill -9 -f "docker build" 2>/dev/null || true
               exit 1
             fi
           done
         ) &
         MONITOR_PID=$!
-        echo "Started CPU monitor during build (PID: $MONITOR_PID)"
         
-        # Run Docker build
         docker build -f docker/Dockerfile -t ray-curator .
         BUILD_EXIT=$?
         
-        # Cleanup monitor
         kill $MONITOR_PID 2>/dev/null || true
-        
         exit $BUILD_EXIT
 
     - name: Start container
@@ -185,12 +175,9 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         # Check if CPU test already failed before starting container
-        echo "=== Checking CPU test status before starting container ==="
-        RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" \
-          -H "Accept: application/vnd.github.v3+json" \
-          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
-        FAILED=$(echo "$RESPONSE" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-        echo "Failed CPU tests: $FAILED"
+        FAILED=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+          | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
         if [ "$FAILED" -gt 0 ]; then
           echo "::error::CPU test already failed - skipping GPU test"
           exit 1
@@ -260,50 +247,36 @@ runs:
         retry_on: timeout
         on_retry_command: /bin/bash retry_job.sh
         command: |
-          # Initial CPU test status check using GitHub API
-          echo "=== Initial CPU test status check ==="
-          RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
-          
-          # Show CPU test jobs and their status
-          echo "$RESPONSE" | jq -r '.jobs[] | select(.name | startswith("Unit_Test_")) | "\(.name): \(.status) - \(.conclusion)"' 2>/dev/null || echo "jq parsing failed"
-          echo "=== End initial check ==="
+          # Helper function to check CPU test failures
+          check_cpu_failures() {
+            curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+              | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
+          }
           
           # Check if CPU test already failed
-          FAILED=$(echo "$RESPONSE" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-          echo "Failed CPU tests before starting: $FAILED"
-          if [ "$FAILED" -gt 0 ]; then
-            echo "::error::CPU test already failed before test started - aborting GPU test"
+          if [ "$(check_cpu_failures)" -gt 0 ]; then
+            echo "::error::CPU test already failed - aborting GPU test"
             exit 1
           fi
           
-          # Start CPU test monitor in background
+          # Start background monitor to cancel test if CPU fails
           (
             while true; do
               sleep 20
-              RESP=$(curl -s -H "Authorization: token $GH_TOKEN" \
-                -H "Accept: application/vnd.github.v3+json" \
-                "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
-              FAILED=$(echo "$RESP" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-              echo "[Monitor] CPU failure count: $FAILED" >&2
-              if [ "$FAILED" -gt 0 ]; then
-                echo "::error::CPU test failed - killing GPU test container: $CONTAINER_NAME" >&2
-                docker kill $CONTAINER_NAME 2>&1 || docker stop $CONTAINER_NAME 2>&1 || true
+              if [ "$(check_cpu_failures)" -gt 0 ]; then
+                echo "::error::CPU test failed - stopping GPU test"
+                docker kill $CONTAINER_NAME 2>/dev/null || docker stop $CONTAINER_NAME 2>/dev/null || true
                 exit 1
               fi
             done
           ) &
           MONITOR_PID=$!
-          echo "Started CPU monitor (PID: $MONITOR_PID)"
           
-          # Run the actual test
           /bin/bash job.sh
           TEST_EXIT_CODE=$?
           
-          # Cleanup monitor
           kill $MONITOR_PID 2>/dev/null || true
-          
           exit $TEST_EXIT_CODE
 
     - name: Check result
