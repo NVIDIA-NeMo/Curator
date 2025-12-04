@@ -170,7 +170,11 @@ runs:
         # Ensure cleanup on exit (normal, error, or signal)
         cleanup_monitor() {
           if [ -f "$MONITOR_PID_FILE" ]; then
-            kill $(cat "$MONITOR_PID_FILE") 2>/dev/null || true
+            PID=$(cat "$MONITOR_PID_FILE")
+            # Check process exists before killing, use process group kill
+            if kill -0 "$PID" 2>/dev/null; then
+              kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+            fi
             rm -f "$MONITOR_PID_FILE"
           fi
         }
@@ -259,7 +263,10 @@ runs:
           # Cleanup any orphaned monitors from previous retry attempts
           MONITOR_PID_FILE="/tmp/test_monitor_$RUN_ID.pid"
           if [ -f "$MONITOR_PID_FILE" ]; then
-            kill $(cat "$MONITOR_PID_FILE") 2>/dev/null || true
+            PID=$(cat "$MONITOR_PID_FILE")
+            if kill -0 "$PID" 2>/dev/null; then
+              kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+            fi
             rm -f "$MONITOR_PID_FILE"
           fi
           
@@ -288,7 +295,11 @@ runs:
           # Ensure cleanup on exit (normal, error, or signal)
           cleanup_monitor() {
             if [ -f "$MONITOR_PID_FILE" ]; then
-              kill $(cat "$MONITOR_PID_FILE") 2>/dev/null || true
+              PID=$(cat "$MONITOR_PID_FILE")
+              # Check process exists before killing, use process group kill
+              if kill -0 "$PID" 2>/dev/null; then
+                kill -- -"$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
+              fi
               rm -f "$MONITOR_PID_FILE"
             fi
           }
