@@ -149,22 +149,36 @@ runs:
         fi
         
         # Start background monitor to cancel build if CPU test fails
+        # Write PID to file for reliable cleanup
+        MONITOR_PID_FILE="/tmp/build_monitor_$RUN_ID.pid"
         (
+          echo $$ > "$MONITOR_PID_FILE"
           while true; do
             sleep 20
             if [ "$(check_cpu_failures)" -gt 0 ]; then
               echo "::error::CPU test failed during Docker build - cancelling"
+              # Graceful stop first, then force if needed
+              pkill -f "docker build" 2>/dev/null || true
+              sleep 2
               pkill -9 -f "docker build" 2>/dev/null || true
+              rm -f "$MONITOR_PID_FILE"
               exit 1
             fi
           done
         ) &
-        MONITOR_PID=$!
+        
+        # Ensure cleanup on exit (normal, error, or signal)
+        cleanup_monitor() {
+          if [ -f "$MONITOR_PID_FILE" ]; then
+            kill $(cat "$MONITOR_PID_FILE") 2>/dev/null || true
+            rm -f "$MONITOR_PID_FILE"
+          fi
+        }
+        trap cleanup_monitor EXIT
         
         docker build -f docker/Dockerfile -t ray-curator .
         BUILD_EXIT=$?
         
-        kill $MONITOR_PID 2>/dev/null || true
         exit $BUILD_EXIT
 
     - name: Start container
@@ -242,6 +256,13 @@ runs:
               | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
           }
           
+          # Cleanup any orphaned monitors from previous retry attempts
+          MONITOR_PID_FILE="/tmp/test_monitor_$RUN_ID.pid"
+          if [ -f "$MONITOR_PID_FILE" ]; then
+            kill $(cat "$MONITOR_PID_FILE") 2>/dev/null || true
+            rm -f "$MONITOR_PID_FILE"
+          fi
+          
           # Check if CPU test already failed
           if [ "$(check_cpu_failures)" -gt 0 ]; then
             echo "::error::CPU test already failed - aborting GPU test"
@@ -249,22 +270,33 @@ runs:
           fi
           
           # Start background monitor to cancel test if CPU fails
+          # Write PID to file for reliable cleanup across retries
           (
+            echo $$ > "$MONITOR_PID_FILE"
             while true; do
               sleep 20
               if [ "$(check_cpu_failures)" -gt 0 ]; then
                 echo "::error::CPU test failed - stopping GPU test"
-                docker kill $CONTAINER_NAME 2>/dev/null || docker stop $CONTAINER_NAME 2>/dev/null || true
+                # Graceful stop first
+                docker stop $CONTAINER_NAME 2>/dev/null || true
+                rm -f "$MONITOR_PID_FILE"
                 exit 1
               fi
             done
           ) &
-          MONITOR_PID=$!
+          
+          # Ensure cleanup on exit (normal, error, or signal)
+          cleanup_monitor() {
+            if [ -f "$MONITOR_PID_FILE" ]; then
+              kill $(cat "$MONITOR_PID_FILE") 2>/dev/null || true
+              rm -f "$MONITOR_PID_FILE"
+            fi
+          }
+          trap cleanup_monitor EXIT
           
           /bin/bash job.sh
           TEST_EXIT_CODE=$?
           
-          kill $MONITOR_PID 2>/dev/null || true
           exit $TEST_EXIT_CODE
 
     - name: Check result
