@@ -16,7 +16,7 @@ Domain-specific processing for code and advanced curation tasks using NeMo Curat
 
 This section covers advanced processing techniques for specific data types and use cases that require specialized handling beyond general text processing. These tools are designed for specific domains like programming content.
 
-## How it Works
+## How It Works
 
 Specialized processing modules in NeMo Curator are designed for specific data types and use cases:
 
@@ -76,6 +76,7 @@ code_pipeline = Pipeline(
     )
 ])
 
+## NEED FIX: NameError: name 'code_dataset' is not defined
 filtered_code = code_pipeline(code_dataset)
 ```
 

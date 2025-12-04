@@ -45,6 +45,7 @@ pipeline.add_stage(reader)
 
 # Add filter stages for code quality
 pipeline.add_stage(ScoreFilter(
+    ## NEED FIX: TypeError: ScoreFilter.__init__() got an unexpected keyword argument 'score_fn' 
     score_fn=PythonCommentToCodeFilter(
         min_comment_to_code_ratio=0.01,
         max_comment_to_code_ratio=0.8
@@ -82,7 +83,7 @@ NeMo Curator offers several specialized filters for code content:
 | **PythonCommentToCodeFilter** | Filters Python files based on comment-to-code ratio | `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 | **GeneralCommentToCodeFilter** | Similar filter for other languages | `language`, `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 
-The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials:
+The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials. These ratios should be adjusted based on specific programming languages:
 
 ```python
 # For Python files with docstrings
@@ -112,14 +113,16 @@ The `GeneralCommentToCodeFilter` supports various language MIME types:
 - `text/javascript` for JavaScript
 - `text/x-ruby` for Ruby
 - `text/x-csharp` for C#
+- `text/x-c` for C
+- `text/x-asm` for Assembly
 
 ### Code Structure Filters
 
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **NumberOfLinesOfCodeFilter** | Filters based on the number of lines | `min_lines`, `max_lines` | min=10, max=20000 |
-| **AlphaFilter** | Ensures code has sufficient alphabetic content | `min_alpha_ratio` | 0.25 |
-| **TokenizerFertilityFilter** | Measures token efficiency | `path_to_tokenizer` (required), `min_char_to_token_ratio` | ratio=2.5 |
+| **NumberOfLinesOfCodeFilter** | Filters based on the number of lines | `min_lines`, `max_lines` | min_lines=10, max_lines=20000 |
+| **AlphaFilter** | Ensures code has sufficient alphabetic content | `min_alpha_ratio` | min_alpha_ratio=0.25 |
+| **TokenizerFertilityFilter** | Measures token efficiency | `path_to_tokenizer` (required), `min_char_to_token_ratio` | min_char_to_token_ratio=2.5 |
 
 Code structure filters help identify problematic patterns:
 
@@ -237,6 +240,9 @@ When filtering code datasets, consider these best practices:
 1. **Language-specific configurations**: Adjust thresholds based on the programming language
 
    ```python
+   from nemo_curator.stages.text.modules import ScoreFilter
+   from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, GeneralCommentToCodeFilter
+
    # Python tends to have more comments than C
    python_comment_filter = ScoreFilter(
        score_fn=PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05),
@@ -251,6 +257,9 @@ When filtering code datasets, consider these best practices:
 2. **Preserve code structure**: Ensure filters don't inadvertently remove valid coding patterns
 
    ```python
+   from nemo_curator.stages.text.modules import ScoreFilter
+   from nemo_curator.stages.text.filters import GeneralCommentToCodeFilter
+
    # Some languages naturally have low comment ratios
    assembly_filter = ScoreFilter(
        score_fn=GeneralCommentToCodeFilter(
@@ -267,6 +276,7 @@ When filtering code datasets, consider these best practices:
    # First check if the content is actually Python using FastText language ID
    from nemo_curator.stages.text.filters import FastTextLangId
    from nemo_curator.pipeline import Pipeline
+   from nemo_curator.stages.text.modules import ScoreFilter
    
    # Create pipeline for Python code filtering with language detection
    pipeline = Pipeline(name="python_code_filtering")
@@ -321,6 +331,7 @@ When filtering code datasets, consider these best practices:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import NumberOfLinesOfCodeFilter, XMLHeaderFilter, GeneralCommentToCodeFilter
 
 # Create pipeline to filter non-functional code snippets
 pipeline = Pipeline(name="code_cleaning")
@@ -351,6 +362,7 @@ pipeline.add_stage(ScoreFilter(
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import AlphaFilter, TokenizerFertilityFilter, HTMLBoilerplateFilter
 
 # Create pipeline for training data preparation
 pipeline = Pipeline(name="training_data_prep")
