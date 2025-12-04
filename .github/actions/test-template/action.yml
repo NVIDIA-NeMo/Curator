@@ -149,10 +149,10 @@ runs:
         fi
         
         # Start background monitor to cancel build if CPU test fails
-        # Write PID to file for reliable cleanup
+        # Write PID to file for reliable cleanup ($BASHPID gives actual subshell PID, not parent's $$)
         MONITOR_PID_FILE="/tmp/build_monitor_$RUN_ID.pid"
         (
-          echo $$ > "$MONITOR_PID_FILE"
+          echo $BASHPID > "$MONITOR_PID_FILE"
           while true; do
             sleep 20
             if [ "$(check_cpu_failures)" -gt 0 ]; then
@@ -270,9 +270,9 @@ runs:
           fi
           
           # Start background monitor to cancel test if CPU fails
-          # Write PID to file for reliable cleanup across retries
+          # Write PID to file for reliable cleanup across retries ($BASHPID gives actual subshell PID)
           (
-            echo $$ > "$MONITOR_PID_FILE"
+            echo $BASHPID > "$MONITOR_PID_FILE"
             while true; do
               sleep 20
               if [ "$(check_cpu_failures)" -gt 0 ]; then
