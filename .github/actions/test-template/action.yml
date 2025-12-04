@@ -135,7 +135,6 @@ runs:
         RUN_ID: ${{ github.run_id }}
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
-<<<<<<< HEAD
         # Check if CPU test already failed before starting build
         check_cpu_failures() {
           curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
@@ -177,8 +176,6 @@ runs:
         }
         trap cleanup_monitor EXIT
         
-=======
->>>>>>> 0e81b7401d039502ad905df82aa5b9f8da0df845
         docker build -f docker/Dockerfile -t ray-curator .
         BUILD_EXIT=$?
         
