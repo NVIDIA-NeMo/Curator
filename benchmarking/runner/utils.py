@@ -122,6 +122,7 @@ def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | 
     """
     command = ["df", "-h", "/dev/shm"] if human_readable else ["df", "--block-size=1", "/dev/shm"]  # noqa: S108
     command_str = " ".join(command)
+    result = None
     try:
         result = subprocess.run(  # noqa: S603
             command,
@@ -134,15 +135,17 @@ def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | 
         logger.warning(f"Could not run `{command_str}`: {df_exc}")
 
     # Extract the size from the last line of the output
-    output = result.stdout
-    line = output.strip().split("\n")[-1]
-    try:
-        size = int(line.split()[1])  # Size is the second column
-    except (ValueError, IndexError):
-        logger.warning(f"Could not parse size from `{command_str}` output line: {line}")
-        size = None
-
-    return (size, output)
+    if result is not None:
+        output = result.stdout
+        line = output.strip().split("\n")[-1]
+        try:
+            size = int(line.split()[1])  # Size is the second column
+        except (ValueError, IndexError):
+            logger.warning(f"Could not parse size from `{command_str}` output line: {line}")
+            size = None
+        return (size, output)
+    else:
+        return (None, None)
 
 
 def human_readable_bytes_repr(size: int) -> str:
