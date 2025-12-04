@@ -108,9 +108,7 @@ results = pipeline.run(executor)
 
 For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
-### `RayActorPoolExecutor`
-
-Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
+### `RayDataExecutor`
 
 `RayDataExecutor` uses Ray Data, a scalable data processing library built on Ray Core. Ray Data provides a familiar DataFrame-like API for distributed data transformations. This executor is experimental and best suited for large-scale batch processing tasks that benefit from Ray Data's optimized data loading and transformation pipelines.
 
@@ -120,21 +118,23 @@ Executor using Ray Actor pools for custom distributed processing patterns such a
 - **Experimental status**: API and performance characteristics may change
 
 ```python
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
-executor = RayActorPoolExecutor()
+executor = RayDataExecutor()
 results = pipeline.run(executor)
 ```
 
 :::{note}`RayDataExecutor` currently has limited configuration options. For more control over execution, consider using `XennaExecutor` or `RayActorPoolExecutor`.
 :::
 
-### `RayActorPoolExecutor` (experimental)
+### `RayActorPoolExecutor`
+
+Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
 
 ```python
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 
-executor = RayDataExecutor()
+executor = RayActorPoolExecutor()
 results = pipeline.run(executor)
 ```
 
