@@ -22,6 +22,7 @@ import uuid
 from pathlib import Path
 
 from loguru import logger
+from runner.utils import run_shm_size_check
 
 from nemo_curator.core.client import RayClient
 
@@ -34,7 +35,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     num_gpus: int,
     enable_object_spilling: bool,
     ray_log_path: Path,
-    object_store_memory: int | None = None,
+    object_store_size_bytes: int | None = None,
     include_dashboard: bool = True,
 ) -> tuple[RayClient, Path]:
     """Setup Ray cluster and environment variables."""
@@ -71,7 +72,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
             enable_object_spilling=enable_object_spilling,
             ray_dashboard_host="0.0.0.0",  # noqa: S104
             ray_stdouterr_capture_file=ray_stdouterr_capture_file,
-            object_store_memory=object_store_memory,
+            object_store_memory=object_store_size_bytes,
         )
         client.start()
 
@@ -157,16 +158,7 @@ def check_ray_responsive(timeout_s: int = 20) -> bool:
 
         finally:
             # Also show the output of `df -h /dev/shm`, since this is often a symptom of problems
-            try:
-                result = subprocess.run(
-                    ["df", "-h", "/dev/shm"],  # noqa: S607, S108
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-                logger.debug(f"`df -h /dev/shm` output:\n{result.stdout}")
-            except subprocess.CalledProcessError as df_exc:
-                logger.warning(f"Could not run `df -h /dev/shm`: {df_exc}")
+            run_shm_size_check(human_readable=True)
 
         timer = time.time() - t0
         time.sleep(0.5)

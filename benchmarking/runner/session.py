@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 from runner.datasets import DatasetResolver
 from runner.entry import Entry
 from runner.path_resolver import PathResolver
+from runner.utils import get_total_memory_bytes
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -38,6 +39,8 @@ class Session:
     entries: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
+    # Set object store memory to 50% of total system memory by default
+    default_object_store_size_bytes: int = int(get_total_memory_bytes() * 0.5)
     # Whether to delete the entry's scratch directory after completion by default
     delete_scratch: bool = True
     path_resolver: PathResolver = None
@@ -60,6 +63,11 @@ class Session:
         for entry in self.entries:
             if entry.timeout_s is None:
                 entry.timeout_s = self.default_timeout_s
+
+        # Update object store size for each entry that has not been set to the session-level default_object_store_size setting
+        for entry in self.entries:
+            if entry.object_store_size_bytes is None:
+                entry.object_store_size_bytes = self.default_object_store_size_bytes
 
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:

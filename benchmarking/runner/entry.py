@@ -36,6 +36,8 @@ class Entry:
     sink_data: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     requirements: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
+    # If set, overrides the session-level default_object_store_size setting for this entry
+    object_store_size_bytes: int | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
     enabled: bool = True

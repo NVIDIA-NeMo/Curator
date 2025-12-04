@@ -47,7 +47,7 @@ from runner.ray_cluster import (
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import find_result, get_obj_for_json, get_total_memory_bytes, resolve_env_vars
+from runner.utils import find_result, get_obj_for_json, resolve_env_vars
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -156,15 +156,12 @@ def run_entry(
         for directory in [scratch_path, ray_cluster_path, logs_path, benchmark_results_path]:
             create_or_overwrite_dir(directory)
 
-        # Set object store memory to 50% of total system memory
-        object_store_memory = int(get_total_memory_bytes() * 0.5)
-
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
             num_cpus=entry.ray.get("num_cpus", os.cpu_count() or 1),
             num_gpus=entry.ray.get("num_gpus", 0),
             enable_object_spilling=bool(entry.ray.get("enable_object_spilling", False)),
             ray_log_path=logs_path / "ray.log",
-            object_store_memory=object_store_memory,
+            object_store_size_bytes=entry.object_store_size_bytes,
         )
 
         # Execute command with timeout
@@ -272,7 +269,7 @@ def main() -> int:
 
     session_overall_success = True
     logger.info(f"Started session {session_name}...")
-    env_dict = dump_env(session_path)
+    env_dict = dump_env(session_obj=session, output_path=session_path)
 
     for sink in session.sinks:
         sink.initialize(session_name=session_name, matrix_config=session, env_dict=env_dict)

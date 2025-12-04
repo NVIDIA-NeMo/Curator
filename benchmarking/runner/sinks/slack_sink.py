@@ -22,7 +22,7 @@ from loguru import logger
 from runner.entry import Entry
 from runner.session import Session
 from runner.sinks.sink import Sink
-from runner.utils import find_result, get_obj_for_json
+from runner.utils import find_result, get_obj_for_json, human_readable_bytes_repr
 
 _post_template = """
 {
@@ -152,7 +152,8 @@ class SlackSink(Sink):
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
-            rows.append(self._two_column_row(f"{indent}{var}", str(val)))
+            (fvar, fval) = self._get_formatted_metric_value_tuple(var, val)
+            rows.append(self._two_column_row(f"{indent}{fvar}", fval))
 
         rows.append(_blank_row)
         # Results header row
@@ -255,7 +256,8 @@ class SlackSink(Sink):
 
     @staticmethod
     def _get_formatted_metric_value_tuple(metric: str, result: Any) -> tuple[str, str]:  # noqa: ANN401
-        if metric == "exec_time_s":
+        # time metrics
+        if metric.endswith("_s"):
             try:
                 hours = int(result // 3600)
                 minutes = int((result % 3600) // 60)
@@ -270,6 +272,13 @@ class SlackSink(Sink):
                         formatted_str += f"{hours:02}h : "
                     formatted_str += f"{minutes:02}m : {seconds:05.2f}s)"
                 return (metric, formatted_str)
+        # memory metrics
+        elif metric.endswith("_bytes"):
+            try:
+                return (metric, f"{human_readable_bytes_repr(int(result))}  ({result} bytes)")
+            except (ValueError, TypeError):
+                return (metric, str(result))
+        # all other metrics
         else:
             return (metric, str(result))
 

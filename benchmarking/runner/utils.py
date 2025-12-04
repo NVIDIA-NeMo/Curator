@@ -14,8 +14,17 @@
 
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
+
+# utils.py is also imported in scripts that run before the Curator
+# environment is set up so do not assume loguru is available
+# ruff: noqa: LOG015
+try:
+    from loguru import logger
+except ImportError:
+    import logging as logger
 
 
 def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
@@ -105,3 +114,48 @@ def get_total_memory_bytes() -> int:
 
     # Fallback: get total physical memory
     return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+
+
+def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | None]:
+    """
+    Run the apprpriate "df" command to check the size of the system shared memory space.
+    """
+    command = ["df", "-h", "/dev/shm"] if human_readable else ["df", "--block-size=1", "/dev/shm"]  # noqa: S108
+    command_str = " ".join(command)
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        logger.debug(f"`{command_str}` output:\n{result.stdout}")
+    except subprocess.CalledProcessError as df_exc:
+        logger.warning(f"Could not run `{command_str}`: {df_exc}")
+
+    # Extract the size from the last line of the output
+    output = result.stdout
+    line = output.strip().split("\n")[-1]
+    try:
+        size = int(line.split()[1])  # Size is the second column
+    except (ValueError, IndexError):
+        logger.warning(f"Could not parse size from `{command_str}` output line: {line}")
+        size = None
+
+    return (size, output)
+
+
+def human_readable_bytes_repr(size: int) -> str:
+    """
+    Convert a size in bytes to a human readable string (e.g. "1.2 GiB").
+    """
+    suffixes = list(enumerate(["B", "KiB", "MiB", "GiB", "TiB", "PiB"]))
+    suffixes.reverse()
+    for index, suffix in suffixes:
+        threshold = 1024**index
+        if size >= threshold:
+            value = float(size) / threshold
+            if index == 0:
+                return f"{int(size)} {suffix}"
+            return f"{value:.2f} {suffix}"
+    return "0 B"
