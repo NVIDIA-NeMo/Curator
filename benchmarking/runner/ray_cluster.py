@@ -38,9 +38,7 @@ def setup_ray_cluster_and_env(  # noqa: PLR0913
     object_store_size_bytes: int | None = None,
     include_dashboard: bool = True,
 ) -> tuple[RayClient, Path]:
-    """Setup Ray cluster and environment variables."""
-    # This also sets the RAY_ADDRESS environment variable as a side effect of starting the Ray cluster.
-    """Start a Ray head node and return the Ray client and temporary directory."""
+    """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
     # Create a short temp dir to avoid Unix socket path length limits
     short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
     short_temp_path.mkdir(parents=True, exist_ok=True)
@@ -117,8 +115,6 @@ def _ensure_ray_client_process_started(client: RayClient, timeout_s: int, poll_i
     """Ensure the Ray client process has been started, no longer than timeout."""
     elapsed_s = 0
     while client.ray_process is None and elapsed_s < timeout_s:
-        if client.ray_process is not None:
-            break
         time.sleep(poll_interval_s)
         elapsed_s += poll_interval_s
     if client.ray_process is None:

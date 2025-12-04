@@ -118,7 +118,7 @@ def get_total_memory_bytes() -> int:
 
 def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | None]:
     """
-    Run the apprpriate "df" command to check the size of the system shared memory space.
+    Run the appropriate "df" command to check the size of the system shared memory space.
     """
     command = ["df", "-h", "/dev/shm"] if human_readable else ["df", "--block-size=1", "/dev/shm"]  # noqa: S108
     command_str = " ".join(command)
