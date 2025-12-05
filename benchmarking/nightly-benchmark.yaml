@@ -14,11 +14,11 @@ datasets:
   - name: "tinystories_train"
     formats:
     - type: "parquet"
-      path: "{datasets_path}/prospector-lm/clean/tinystories_train_parquet"
+      path: "{datasets_path}/clean/tinystories_train_parquet"
   - name: "cleaned_exact_dedup_all_cc"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc"
+      path: "{datasets_path}/cleaned_exact_dedup_all_cc"
 
 default_timeout_s: 7200
 
@@ -124,8 +124,8 @@ entries:
     script: dedup_removal_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
-      --id-generator-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
-      --ids-to-remove-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
+      --id-generator-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
+      --ids-to-remove-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-filetype=jsonl
@@ -144,8 +144,8 @@ entries:
     script: dedup_removal_benchmark.py
     args: >-
       --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
-      --id-generator-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
-      --ids-to-remove-path={datasets_path}/prospector-lm/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
+      --id-generator-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
+      --ids-to-remove-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-filetype=jsonl
