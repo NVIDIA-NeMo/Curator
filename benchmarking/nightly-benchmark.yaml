@@ -6,9 +6,9 @@
 # Paths can be used in other values in this file by using their placeholder
 # (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
 # appropriate path at runtime.
-results_path: /raid/curator-team/nightly/results
-artifacts_path: /raid/curator-team/nightly/artifacts
-datasets_path: /raid
+results_path: /path/where/results/are/stored
+artifacts_path: /path/where/artifacts/are/stored
+datasets_path: /path/to/datasets
 
 datasets:
   - name: "tinystories_train"
