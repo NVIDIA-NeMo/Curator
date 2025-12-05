@@ -11,14 +11,25 @@ artifacts_path: /path/where/artifacts/are/stored
 datasets_path: /path/to/datasets
 
 datasets:
-  - name: "tinystories_train"
+  - name: "tinystories"
     formats:
     - type: "parquet"
-      path: "{datasets_path}/clean/tinystories_train_parquet"
-  - name: "cleaned_exact_dedup_all_cc"
+      path: "{datasets_path}/tinystories/parquet_data"
+    - type: "jsonl"
+      path: "{datasets_path}/tinystories/jsonl_data"
+  - name: "commoncrawl"
     formats:
     - type: "jsonl"
-      path: "{datasets_path}/cleaned_exact_dedup_all_cc"
+      path: "{datasets_path}/commoncrawl/jsonl_data"
+  - name: "commoncrawl_id_map"
+    formats:
+    - type: "json"
+      path: "{datasets_path}/commoncrawl/id_generator.json"
+  - name: "commoncrawl_ids"
+    formats:
+    - type: "parquet"
+      path: "{datasets_path}/commoncrawl/IDs/parquet_data"
+
 
 default_timeout_s: 7200
 
@@ -46,7 +57,7 @@ entries:
     script: domain_classification_benchmark.py
     args: >-
       --executor=ray_data
-      --input-path={dataset:tinystories_train,parquet}
+      --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-inference-batch-size=1024
     timeout_s: 20000
@@ -68,7 +79,7 @@ entries:
     script: domain_classification_benchmark.py
     args: >-
       --executor=xenna
-      --input-path={dataset:tinystories_train,parquet}
+      --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-inference-batch-size=1024
     timeout_s: 20000
@@ -78,7 +89,7 @@ entries:
     script: embedding_generation_benchmark.py
     args: >-
       --executor=ray_data
-      --input-path={dataset:tinystories_train,parquet}
+      --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=sentence-transformers/all-MiniLM-L6-v2
       --model-inference-batch-size=1024
@@ -96,7 +107,7 @@ entries:
     script: embedding_generation_benchmark.py
     args: >-
       --executor=xenna
-      --input-path={dataset:tinystories_train,parquet}
+      --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
       --model-identifier=sentence-transformers/all-MiniLM-L6-v2
       --model-inference-batch-size=1024
@@ -106,7 +117,7 @@ entries:
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
-      --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
+      --input-path={dataset:commoncrawl,jsonl}
       --cache-path={session_entry_dir}/scratch/cache
       --output-path={session_entry_dir}/output
       --input-filetype=jsonl
@@ -123,9 +134,9 @@ entries:
     enabled: true
     script: dedup_removal_benchmark.py
     args: >-
-      --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
-      --id-generator-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
-      --ids-to-remove-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
+      --input-path={dataset:commoncrawl,jsonl}
+      --id-generator-path={dataset:commoncrawl_id_map,json}
+      --ids-to-remove-path={dataset:commoncrawl_ids,parquet}
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-filetype=jsonl
@@ -143,9 +154,9 @@ entries:
     enabled: true
     script: dedup_removal_benchmark.py
     args: >-
-      --input-path={dataset:cleaned_exact_dedup_all_cc,jsonl}
-      --id-generator-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/fuzzy_id_generator.json
-      --ids-to-remove-path={datasets_path}/cleaned_exact_dedup_all_cc_fuzzy_output_nightly_container_paths/FuzzyDuplicateIds/
+      --input-path={dataset:commoncrawl,jsonl}
+      --id-generator-path={dataset:commoncrawl_id_map,json}
+      --ids-to-remove-path={dataset:commoncrawl_ids,parquet}
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-filetype=jsonl
