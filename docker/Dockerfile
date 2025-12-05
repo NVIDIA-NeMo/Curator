@@ -73,13 +73,22 @@ RUN git clone https://github.com/OpenGVLab/InternVideo.git && \
     patch -p1 < /opt/intern_video2_multimodal.patch && \
     rm /opt/intern_video2_multimodal.patch
 
-# Install Curator
-COPY . /opt/Curator
-RUN cd /opt/Curator && \
-  uv sync --link-mode copy --locked --extra all --all-groups && \
+# Install Curator dependencies first (for better Docker layer caching)
+# This layer is cached if pyproject.toml/uv.lock don't change
+# Copy minimal files needed for version resolution during build
+WORKDIR /opt/Curator
+COPY pyproject.toml uv.lock /opt/Curator/
+COPY nemo_curator/package_info.py /opt/Curator/nemo_curator/
+
+# Create stub __init__.py for build (the real one imports deps that aren't installed yet)
+RUN echo "from .package_info import __version__" > /opt/Curator/nemo_curator/__init__.py
+RUN uv sync --link-mode copy --locked --extra all --all-groups && \
   uv add /opt/InternVideo/InternVideo2/multi_modality && \
   uv cache prune && \
   uv cache clean distance
+
+# Copy the rest of the code (this layer changes on every code change, overwrites stub __init__.py)
+COPY . /opt/Curator
 
 COPY <<EOF /opt/venv/env.sh
 export UV_PROJECT_ENVIRONMENT=/opt/venv
