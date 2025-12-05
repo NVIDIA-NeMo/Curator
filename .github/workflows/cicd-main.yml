@@ -124,7 +124,7 @@ jobs:
 
   build-container:
     needs: [pre-flight, cicd-wait-in-queue]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted-nemo
     environment: nemo-ci
     outputs:
       image: ${{ steps.output.outputs.image }}
