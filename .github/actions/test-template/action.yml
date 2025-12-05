@@ -51,6 +51,10 @@ inputs:
   PAT:
     description: "GitHub Personal Access Token"
     required: true
+  container-image:
+    description: "Pre-built container image to use (skips build if provided)"
+    required: false
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -67,6 +71,11 @@ runs:
         client-id: ${{ inputs.azure-client-id }}
         tenant-id: ${{ inputs.azure-tenant-id }}
         subscription-id: ${{ inputs.azure-subscription-id }}
+
+    - name: Azure ACR Login
+      if: ${{ inputs.has-azure-credentials == 'true' && inputs.container-image != '' }}
+      shell: bash
+      run: az acr login --name nemoci
 
     - name: Azure Fileshare
       if: ${{ inputs.has-azure-credentials == 'true' && inputs.is_unit_test == 'false' }}
@@ -128,18 +137,22 @@ runs:
         path: NeMo-Curator
         submodules: recursive
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build container with cache
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: docker/Dockerfile
-        tags: ray-curator:latest
-        load: true
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+    - name: Pull or Build container
+      shell: bash
+      env:
+        DOCKER_BUILDKIT: "1"
+        CONTAINER_IMAGE: ${{ inputs.container-image }}
+      run: |
+        if [ -n "$CONTAINER_IMAGE" ]; then
+          echo "📥 Pulling pre-built image: $CONTAINER_IMAGE"
+          docker pull $CONTAINER_IMAGE
+          docker tag $CONTAINER_IMAGE ray-curator
+          echo "✅ Image ready: ray-curator (from $CONTAINER_IMAGE)"
+        else
+          echo "🔨 Building image locally..."
+          docker build -f docker/Dockerfile -t ray-curator .
+          echo "✅ Image built: ray-curator"
+        fi
 
     - name: Start container
       shell: bash

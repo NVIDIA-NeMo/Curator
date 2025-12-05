@@ -122,6 +122,54 @@ jobs:
         run: |
           echo "Running CI tests"
 
+  build-container:
+    needs: [pre-flight, cicd-wait-in-queue]
+    runs-on: ubuntu-latest
+    environment: nemo-ci
+    outputs:
+      image: ${{ steps.output.outputs.image }}
+    if: |
+      (
+        success()
+        || needs.pre-flight.outputs.is_ci_workload == 'true'
+        || needs.pre-flight.outputs.force_run_all == 'true'
+      )
+      && needs.pre-flight.outputs.docs_only == 'false'
+      && !cancelled()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Azure ACR Login
+        run: az acr login --name nemoci
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push container
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: nemoci.azurecr.io/curator:${{ github.sha }}
+          cache-from: type=registry,ref=nemoci.azurecr.io/curator:cache
+          cache-to: type=registry,ref=nemoci.azurecr.io/curator:cache,mode=max
+
+      - name: Output image name
+        run: echo "image=nemoci.azurecr.io/curator:${{ github.sha }}" >> $GITHUB_OUTPUT
+        id: output
+
   cicd-cpu-tests:
     strategy:
       fail-fast: true
@@ -228,7 +276,7 @@ jobs:
         include:
           - script: L0_Unit_Test_GPU
             runner: self-hosted-nemo
-    needs: [pre-flight, cicd-wait-in-queue]
+    needs: [pre-flight, cicd-wait-in-queue, build-container]
     runs-on: ${{ matrix.runner }}
     name: ${{ matrix.script }}
     environment: nemo-ci
@@ -250,6 +298,7 @@ jobs:
           script: ${{ matrix.script }}
           is_unit_test: "false"
           has-azure-credentials: "true"
+          container-image: ${{ needs.build-container.outputs.image }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
