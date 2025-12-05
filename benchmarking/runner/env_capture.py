@@ -24,11 +24,13 @@ from typing import Any
 import git
 import pynvml
 from loguru import logger
-from runner.utils import get_obj_for_json
+from runner.session import Session
+from runner.utils import get_obj_for_json, get_total_memory_bytes, run_shm_size_check
 
 
-def dump_env(output_path: Path) -> dict[str, Any]:
+def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
     env_data = get_env()
+    env_data["default_object_store_size_bytes"] = session_obj.default_object_store_size_bytes
 
     # Try package managers in order of preference for capturing the environment
     # package_managers = [("uv", "pip freeze"), ("pip", "freeze"), ("micromamba", "list --explicit"), ("conda", "list --explicit")]  # noqa: ERA001
@@ -64,6 +66,8 @@ def get_env() -> dict[str, Any]:
 
     git_commit_string = get_git_commit_string()
     cuda_visible_devices = get_gpu_info_string()
+    shm_size_bytes, _ = run_shm_size_check(human_readable=False)
+
     # The image digest is not known at image build time and is not available inside the
     # container, so it must be passed in when the container is run.
     # Get the image digest via the env var set from tools/run.sh
@@ -75,6 +79,8 @@ def get_env() -> dict[str, Any]:
     return {
         "hostname": os.getenv("HOST_HOSTNAME", platform.node()),
         "platform": platform.platform(),
+        "total_system_memory_bytes": get_total_memory_bytes(),
+        "shm_size_bytes": shm_size_bytes,
         "ray_version": ray_version,
         "git_commit": git_commit_string,
         "image_digest": image_digest,
