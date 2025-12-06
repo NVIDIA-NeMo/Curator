@@ -42,16 +42,16 @@ NeMo Curator provides robust validation mechanisms for audio data ingestion:
 
 **File Existence Validation**:
 
-- `AudioBatch` automatically validates file paths during creation
+- `AudioBatch` automatically validates file paths when created
 - Use `validate()` for batch-level validation
 - Use `validate_item()` for individual file validation
-- Missing files generate warnings but do not stop processing
+- Missing files generate warnings but do not raise exceptions, allowing pipeline continuation
 
 **Validation Strategy**:
 
-- Check file existence at the start of the pipeline
+- File existence is checked automatically when `AudioBatch` is instantiated
 - Add metadata fields (duration, format) in downstream processing stages
-- Use non-blocking validation to maintain processing throughput
+- Validation logs warnings for missing files but allows processing to continue
 
 ## Field Recommendations
 
