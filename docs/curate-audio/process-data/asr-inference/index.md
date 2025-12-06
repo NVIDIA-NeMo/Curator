@@ -52,7 +52,7 @@ asr_stage = asr_stage.with_(
 # Use language-specific models
 language_models = {
     "en_us": "nvidia/stt_en_fastconformer_hybrid_large_pc",
-    "es_419": "nvidia/stt_es_fastconformer_hybrid_large_pc", 
+    "es_419": "nvidia/stt_es_fastconformer_hybrid_large_pc",
     "hy_am": "nvidia/stt_hy_fastconformer_hybrid_large_pc",
 }
 
@@ -116,7 +116,7 @@ Within a single `AudioBatch`, `process()` transcribes the file paths together.
 Data loading stages create input `AudioBatch` objects that must contain:
 
 ```python
-# AudioBatch structure (created automatically by loading stages)
+# AudioBatch's data object structure (created automatically by loading stages)
 # Each item in the batch contains:
 {
     "audio_filepath": "/path/to/audio1.wav",
@@ -138,7 +138,7 @@ Data loading stages create input `AudioBatch` objects that must contain:
 The ASR stage adds predicted transcriptions to each audio sample:
 
 ```python
-# Output AudioBatch structure
+# Output AudioBatch's data object structure
 {
     "audio_filepath": "/path/to/audio1.wav",
     "pred_text": "this is the predicted transcription",
