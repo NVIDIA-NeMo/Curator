@@ -15,212 +15,109 @@
 """
 Orchestration script for running math preprocessing on multiple datasets.
 
+Dataset configurations are loaded from datasets.json in the same directory.
+
 This script automatically handles sequencing for two types of datasets:
 
-1. DATASETS WITH FULL WARC METADATA (Direct Range Fetch):
+1. DATASETS WITH FULL WARC METADATA (Direct Fetch):
    - FINEMATH_3PLUS, FINEMATH_4PLUS
    - Config: fetch_cc=True, needs_cc_lookup=False
    - These have: url, warc_filename, warc_record_offset, warc_record_length
-   - Fetches directly from Common Crawl
+   - Fetches directly from Common Crawl via HTTPS
 
-2. DATASETS REQUIRING CC INDEX LOOKUP (Automatic Two-Phase):
+2. DATASETS REQUIRING CC INDEX LOOKUP (Two-Phase):
    - OPENWEBMATH, INFIWEBMATH, MEGAMATH
    - Config: fetch_cc=True, needs_cc_lookup=True
    - These only have: url (no WARC metadata)
    - Script automatically:
-     1. Runs CC Index lookup for the specified --crawl-id
-     2. Keeps only URLs that exist in that crawl (others are dropped)
+     1. Queries CC Index on S3 to find WARC locations (no download required)
+     2. Keeps only URLs that exist in the specified crawl(s)
      3. Fetches content from CC using enriched WARC metadata
-
-   IMPORTANT: Not all URLs will be found in a given crawl!
-   - The output will be a SUBSET of URLs that were captured in that crawl
-   - Choose a crawl ID from: https://index.commoncrawl.org/
-   - Recent crawls (e.g., CC-MAIN-2024-10) have better coverage of current pages
 
 Examples:
     # FineMath - has WARC metadata, fetches directly from CC
     python run_all_preprocess.py --output-base /output --datasets FINEMATH_4PLUS
 
-    # OpenWebMath - needs CC lookup, provide crawl-id
-    # Only URLs found in CC-MAIN-2024-10 will be processed
+    # OpenWebMath - needs CC lookup, specify crawls to search
     python run_all_preprocess.py --output-base /output --datasets OPENWEBMATH \\
-        --crawl-id CC-MAIN-2024-10
+        --crawls CC-MAIN-2024-10
+
+    # Multiple crawls for better URL coverage
+    python run_all_preprocess.py --output-base /output --datasets OPENWEBMATH \\
+        --crawls CC-MAIN-2024-10 CC-MAIN-2024-18 CC-MAIN-2023-50
 
     # Process all datasets that are ready (have WARC metadata, no lookup needed)
     python run_all_preprocess.py --output-base /output --ready-only
 
-    # Process all datasets with CC lookup (requires --crawl-id)
-    python run_all_preprocess.py --output-base /output --crawl-id CC-MAIN-2024-10
-
-    # Process multiple specific datasets
+    # Process all datasets with CC lookup
     python run_all_preprocess.py --output-base /output \\
-        --datasets FINEMATH_4PLUS OPENWEBMATH INFIWEBMATH_4PLUS \\
-        --crawl-id CC-MAIN-2024-10
+        --crawls CC-MAIN-2024-10 CC-MAIN-2024-18
 
     # Continue processing even if one dataset fails
     python run_all_preprocess.py --output-base /output \\
-        --crawl-id CC-MAIN-2024-10 \\
+        --crawls CC-MAIN-2024-10 \\
         --continue-on-error
 
-Note: For datasets requiring CC lookup, if --crawl-id is not provided, the script
-will process existing text data only (no CC fetch) and warn the user.
+    # Use a custom datasets config file
+    python run_all_preprocess.py --output-base /output \\
+        --datasets-config /path/to/my_datasets.json \\
+        --crawls CC-MAIN-2024-10
 """
 
+import json
 import subprocess
 import sys
 from pathlib import Path
 
 from loguru import logger
 
-# =============================================================================
-# DATASET CONFIGURATIONS
-# =============================================================================
-#
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ FULL WARC METADATA (Direct Range Fetch Possible)                            │
-# ├─────────────────────────────────────────────────────────────────────────────┤
-# │ ✅ FINEMATH_3PLUS │ HuggingFaceTB/finemath │ finemath-3plus/                │
-# │ ✅ FINEMATH_4PLUS │ HuggingFaceTB/finemath │ finemath-4plus/                │
-# │                                                                             │
-# │ Columns: url, warc_filename, warc_record_offset, warc_record_length         │
-# │ → Can fetch specific bytes directly from WARC (no CC Index needed)          │
-# └─────────────────────────────────────────────────────────────────────────────┘
-#
-# ┌─────────────────────────────────────────────────────────────────────────────┐
-# │ REQUIRES CC INDEX LOOKUP                                                    │
-# │ (Has URL, needs offset/length from CC Index via run_cc_index_lookup.py)     │
-# ├─────────────────────────────────────────────────────────────────────────────┤
-# │ ❌ OPENWEBMATH    │ open-web-math/open-web-math       │ data/               │
-# │ ❌ INFIWEBMATH_3+ │ OpenCoder-LLM/opc-fineweb-...     │ infiwebmath-3plus/  │
-# │ ❌ INFIWEBMATH_4+ │ OpenCoder-LLM/opc-fineweb-...     │ infiwebmath-4plus/  │
-# │ ❌ MEGAMATH_WEB   │ LLM360/MegaMath                   │ megamath-web/       │
-# │ ❌ MEGAMATH_PRO   │ LLM360/MegaMath                   │ megamath-web-pro/   │
-# │                                                                             │
-# │ → Has URL (and cc-path for MegaMath) but NO offset/length                   │
-# │ → Run run_cc_index_lookup.py first to get WARC locations from CC Index      │
-# │ → Then use --fetch-cc to fetch specific records                             │
-# └─────────────────────────────────────────────────────────────────────────────┘
+# Default path to datasets configuration
+DEFAULT_DATASETS_CONFIG = Path(__file__).parent / "datasets.json"
 
-DATASETS = {
-    # =========================================================================
-    # READY FOR DIRECT FETCH (have full WARC metadata)
-    # =========================================================================
-    "FINEMATH_4PLUS": {
-        # HuggingFace: hf://HuggingFaceTB/finemath/finemath-4plus
-        "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/finemath-4plus/*.parquet",
-        "output": "finemath_4plus_processed",
-        "fetch_cc": True,
-        "needs_cc_lookup": False,  # Already has WARC metadata
-        "columns": {
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-    "FINEMATH_3PLUS": {
-        # HuggingFace: hf://HuggingFaceTB/finemath/finemath-3plus
-        "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/finemath-3plus/*.parquet",
-        "output": "finemath_3plus_processed",
-        "fetch_cc": True,
-        "needs_cc_lookup": False,  # Already has WARC metadata
-        "columns": {
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-    # =========================================================================
-    # REQUIRE CC INDEX LOOKUP FIRST (only have URL)
-    # Both fetch_cc=True and needs_cc_lookup=True → script automatically:
-    #   1. Runs CC Index lookup (requires --crawl-id)
-    #   2. Then fetches from CC using enriched WARC metadata
-    # =========================================================================
-    "OPENWEBMATH": {
-        # HuggingFace: hf://open-web-math/open-web-math
-        "input": "/home/sasatheesh/data/20t/jsonls/nv-math/open-web-math/*.parquet",
-        "output": "openwebmath_processed",
-        "fetch_cc": True,  # Will fetch from CC after lookup
-        "needs_cc_lookup": True,  # Needs CC Index lookup first (automatic)
-        "url_col": "url",  # Column containing the URL for CC lookup
-        "columns": {
-            # After CC lookup, these columns will be added:
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-    "INFIWEBMATH_4PLUS": {
-        # HuggingFace: hf://OpenCoder-LLM/opc-fineweb-math-corpus/infiwebmath-4plus
-        "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/infiwebmath-4plus/*.parquet",
-        "output": "infiwebmath_4plus_processed",
-        "fetch_cc": True,  # Will fetch from CC after lookup
-        "needs_cc_lookup": True,  # Needs CC Index lookup first (automatic)
-        "url_col": "url",
-        "columns": {
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-    "INFIWEBMATH_3PLUS": {
-        # HuggingFace: hf://OpenCoder-LLM/opc-fineweb-math-corpus/infiwebmath-3plus
-        "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/infiwebmath-3plus/*.parquet",
-        "output": "infiwebmath_3plus_processed",
-        "fetch_cc": True,  # Will fetch from CC after lookup
-        "needs_cc_lookup": True,  # Needs CC Index lookup first (automatic)
-        "url_col": "url",
-        "columns": {
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-    "MEGAMATH_PRO": {
-        # HuggingFace: hf://LLM360/MegaMath/megamath-web-pro
-        "input": "/lustre/fsw/portfolios/llmservice/projects/llmservice_fm_text/adlr-stem/megamath_dataset/megamath-web-pro/*.parquet",
-        "output": "megamath_pro_processed",
-        "fetch_cc": True,  # Will fetch from CC after lookup
-        "needs_cc_lookup": True,  # Needs CC Index lookup first (automatic)
-        "url_col": "url",
-        "columns": {
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-    "MEGAMATH_WEB": {
-        # HuggingFace: hf://LLM360/MegaMath/megamath-web
-        "input": "/lustre/fsw/portfolios/llmservice/projects/llmservice_fm_text/adlr-stem/megamath_dataset/megamath-web/**/*.parquet",
-        "output": "megamath_web_processed",
-        "fetch_cc": True,  # Will fetch from CC after lookup
-        "needs_cc_lookup": True,  # Needs CC Index lookup first (automatic)
-        "url_col": "url",
-        "columns": {
-            "warc_filename": "warc_filename",
-            "offset": "warc_record_offset",
-            "length": "warc_record_length",
-        },
-    },
-}
+
+def load_datasets_config(config_path: Path) -> dict:
+    """
+    Load dataset configurations from JSON file.
+
+    Args:
+        config_path: Path to the datasets.json file.
+
+    Returns:
+        Dictionary of dataset configurations.
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(f"Datasets config not found: {config_path}")
+
+    with open(config_path) as f:
+        config = json.load(f)
+
+    # Remove metadata keys (those starting with _)
+    datasets = {k: v for k, v in config.items() if not k.startswith("_")}
+
+    logger.info(f"Loaded {len(datasets)} dataset configurations from {config_path}")
+    return datasets
 
 
 def run_cc_index_lookup(
     name: str,
     config: dict,
     base_output_dir: str,
-    crawl_id: str,
+    crawls: list[str],
     continue_on_error: bool = False,
 ) -> str | None:
     """
     Run CC Index lookup to enrich dataset with WARC metadata.
 
+    Queries the public CC Index on S3 directly.
+
     Returns the path to the enriched output directory.
     """
-    script_path = Path(__file__).parent / "run_cc_index_lookup.py"
+    script_path = Path(__file__).parent / "run_cc_index_lookup_local.py"
     enriched_output = Path(base_output_dir) / f"{config['output']}_enriched"
 
     logger.info(f"Running CC Index lookup for: {name}")
     logger.info(f"Input: {config['input']}")
+    logger.info(f"Crawls: {crawls}")
     logger.info(f"Enriched output: {enriched_output}")
 
     cmd = [
@@ -229,8 +126,7 @@ def run_cc_index_lookup(
         "--input", config["input"],
         "--output", str(enriched_output),
         "--url-col", config.get("url_col", "url"),
-        "--crawl-id", crawl_id,
-        "--drop-missing",  # Drop rows where lookup fails
+        "--crawls", *crawls,
     ]
 
     logger.info(f"Running command: {' '.join(cmd)}")
@@ -295,15 +191,15 @@ def run_dataset(
     name: str,
     config: dict,
     base_output_dir: str,
-    crawl_id: str | None = None,
+    crawls: list[str] | None = None,
     continue_on_error: bool = False,
 ) -> None:
     """
     Run the full pipeline for a dataset.
 
     Automatic sequencing logic:
-    - If needs_cc_lookup=True AND fetch_cc=True AND crawl_id provided:
-        1. Run CC Index lookup to get WARC metadata
+    - If needs_cc_lookup=True AND fetch_cc=True AND crawls provided:
+        1. Run CC Index lookup (queries S3 directly)
         2. Run preprocessing with --fetch-cc on enriched data
     - If needs_cc_lookup=False AND fetch_cc=True:
         Run preprocessing with --fetch-cc directly (has WARC metadata)
@@ -315,19 +211,19 @@ def run_dataset(
 
     # Both flags are True: needs lookup AND wants to fetch from CC
     if needs_lookup and fetch_cc:
-        if not crawl_id:
+        if not crawls:
             logger.error(
-                f"Dataset {name} requires CC Index lookup but no --crawl-id provided. "
-                "Either provide --crawl-id or set fetch_cc=False to process existing data only."
+                f"Dataset {name} requires CC Index lookup but no --crawls provided. "
+                "Specify crawl IDs to search (e.g., --crawls CC-MAIN-2024-10)."
             )
             if not continue_on_error:
-                raise ValueError(f"Missing --crawl-id for {name}")
+                raise ValueError(f"Missing --crawls for {name}")
             return
 
-        # Step 1: Run CC Index lookup automatically
-        logger.info(f"Dataset {name} needs CC Index lookup. Running lookup first...")
+        # Step 1: Run CC Index lookup on S3
+        logger.info(f"Dataset {name} needs CC Index lookup. Querying CC Index on S3...")
         enriched_path = run_cc_index_lookup(
-            name, config, base_output_dir, crawl_id, continue_on_error
+            name, config, base_output_dir, crawls, continue_on_error
         )
         if not enriched_path:
             return  # Lookup failed
@@ -370,37 +266,39 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Run preprocessing for all configured math datasets",
+        description="Run preprocessing for all configured math datasets. "
+        "Dataset configurations are loaded from datasets.json.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # FineMath - has WARC metadata, fetches directly from CC
   python run_all_preprocess.py --output-base /output --datasets FINEMATH_4PLUS
 
-  # OpenWebMath - needs CC lookup, provide crawl-id (automatically runs lookup + fetch)
+  # OpenWebMath - needs CC lookup, specify crawls to search
   python run_all_preprocess.py --output-base /output --datasets OPENWEBMATH \\
-      --crawl-id CC-MAIN-2024-10
+      --crawls CC-MAIN-2024-10
+
+  # Multiple crawls for better URL coverage
+  python run_all_preprocess.py --output-base /output --datasets OPENWEBMATH \\
+      --crawls CC-MAIN-2024-10 CC-MAIN-2024-18 CC-MAIN-2023-50
 
   # Process all datasets that are ready (have WARC metadata, no lookup needed)
   python run_all_preprocess.py --output-base /output --ready-only
 
-  # Process all datasets with CC lookup (requires --crawl-id)
-  python run_all_preprocess.py --output-base /output --crawl-id CC-MAIN-2024-10
-
-  # Process multiple specific datasets
+  # Use a custom datasets config file
   python run_all_preprocess.py --output-base /output \\
-      --datasets FINEMATH_4PLUS OPENWEBMATH INFIWEBMATH_4PLUS \\
-      --crawl-id CC-MAIN-2024-10
+      --datasets-config /path/to/my_datasets.json \\
+      --crawls CC-MAIN-2024-10
 
   # Continue processing even if one dataset fails
   python run_all_preprocess.py --output-base /output \\
-      --crawl-id CC-MAIN-2024-10 \\
+      --crawls CC-MAIN-2024-10 \\
       --continue-on-error
 
-Dataset Types:
+Dataset Types (see datasets.json):
   - FINEMATH_3PLUS, FINEMATH_4PLUS: Have full WARC metadata (can fetch directly)
   - OPENWEBMATH, INFIWEBMATH_3PLUS, INFIWEBMATH_4PLUS, MEGAMATH_WEB, MEGAMATH_PRO:
-    Need CC Index lookup (provide --crawl-id to enable)
+    Need CC Index lookup (provide --crawls to enable)
         """,
     )
     parser.add_argument(
@@ -409,15 +307,21 @@ Dataset Types:
         help="Base directory for all outputs",
     )
     parser.add_argument(
-        "--datasets",
-        nargs="+",
-        help="Specific datasets to run (default: all)",
-        choices=list(DATASETS.keys()),
+        "--datasets-config",
+        type=Path,
+        default=DEFAULT_DATASETS_CONFIG,
+        help=f"Path to datasets JSON config file (default: {DEFAULT_DATASETS_CONFIG})",
     )
     parser.add_argument(
-        "--crawl-id",
-        help="Common Crawl crawl ID for CC Index lookup (e.g., 'CC-MAIN-2024-10'). "
-        "Required for datasets that need CC lookup.",
+        "--datasets",
+        nargs="+",
+        help="Specific datasets to run (default: all). See datasets.json for available datasets.",
+    )
+    parser.add_argument(
+        "--crawls",
+        nargs="+",
+        help="Crawl IDs to search in CC Index (e.g., CC-MAIN-2024-10). "
+        "Required for datasets that need CC lookup. Multiple crawls improve URL coverage.",
     )
     parser.add_argument(
         "--ready-only",
@@ -432,28 +336,31 @@ Dataset Types:
 
     args = parser.parse_args()
 
-    # Determine which datasets to process
+    # Load datasets configuration
+    datasets = load_datasets_config(args.datasets_config)
+
+    # Validate dataset names if specified
     if args.datasets:
+        invalid = [d for d in args.datasets if d not in datasets]
+        if invalid:
+            logger.error(f"Unknown datasets: {invalid}. Available: {list(datasets.keys())}")
+            return
         targets = args.datasets
     elif args.ready_only:
-        targets = [name for name, cfg in DATASETS.items() if not cfg.get("needs_cc_lookup")]
+        targets = [name for name, cfg in datasets.items() if not cfg.get("needs_cc_lookup")]
         logger.info(f"Processing only datasets with full WARC metadata: {targets}")
     else:
-        targets = list(DATASETS.keys())
+        targets = list(datasets.keys())
 
     # Process each dataset
     for name in targets:
-        if name not in DATASETS:
-            logger.warning(f"Dataset {name} not found in configuration. Skipping.")
-            continue
-
-        config = DATASETS[name]
+        config = datasets[name]
 
         run_dataset(
             name,
             config,
             args.output_base,
-            crawl_id=args.crawl_id,
+            crawls=args.crawls,
             continue_on_error=args.continue_on_error,
         )
 

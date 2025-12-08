@@ -1,0 +1,109 @@
+{
+  "_comment": "Math dataset configurations for the preprocessing pipeline",
+  "_schema": {
+    "input": "Path or glob pattern for input parquet files",
+    "output": "Output directory name (will be created under --output-base)",
+    "fetch_cc": "Whether to fetch content from Common Crawl",
+    "needs_cc_lookup": "Whether CC Index lookup is required (dataset lacks WARC metadata)",
+    "url_col": "Column name containing URLs (for CC lookup)",
+    "huggingface": "HuggingFace dataset path for reference",
+    "columns": "Column name mappings for WARC metadata"
+  },
+
+  "FINEMATH_4PLUS": {
+    "huggingface": "HuggingFaceTB/finemath/finemath-4plus",
+    "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/finemath-4plus/*.parquet",
+    "output": "finemath_4plus_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": false,
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  },
+
+  "FINEMATH_3PLUS": {
+    "huggingface": "HuggingFaceTB/finemath/finemath-3plus",
+    "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/finemath-3plus/*.parquet",
+    "output": "finemath_3plus_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": false,
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  },
+
+  "OPENWEBMATH": {
+    "huggingface": "open-web-math/open-web-math",
+    "input": "/home/sasatheesh/data/20t/jsonls/nv-math/open-web-math/*.parquet",
+    "output": "openwebmath_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": true,
+    "url_col": "url",
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  },
+
+  "INFIWEBMATH_4PLUS": {
+    "huggingface": "OpenCoder-LLM/opc-fineweb-math-corpus/infiwebmath-4plus",
+    "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/infiwebmath-4plus/*.parquet",
+    "output": "infiwebmath_4plus_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": true,
+    "url_col": "url",
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  },
+
+  "INFIWEBMATH_3PLUS": {
+    "huggingface": "OpenCoder-LLM/opc-fineweb-math-corpus/infiwebmath-3plus",
+    "input": "/lustre/fsw/portfolios/llmservice/users/rkarimimahab/data/finemath/original-data/infiwebmath-3plus/*.parquet",
+    "output": "infiwebmath_3plus_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": true,
+    "url_col": "url",
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  },
+
+  "MEGAMATH_PRO": {
+    "huggingface": "LLM360/MegaMath/megamath-web-pro",
+    "input": "/lustre/fsw/portfolios/llmservice/projects/llmservice_fm_text/adlr-stem/megamath_dataset/megamath-web-pro/*.parquet",
+    "output": "megamath_pro_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": true,
+    "url_col": "url",
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  },
+
+  "MEGAMATH_WEB": {
+    "huggingface": "LLM360/MegaMath/megamath-web",
+    "input": "/lustre/fsw/portfolios/llmservice/projects/llmservice_fm_text/adlr-stem/megamath_dataset/megamath-web/**/*.parquet",
+    "output": "megamath_web_processed",
+    "fetch_cc": true,
+    "needs_cc_lookup": true,
+    "url_col": "url",
+    "columns": {
+      "warc_filename": "warc_filename",
+      "offset": "warc_record_offset",
+      "length": "warc_record_length"
+    }
+  }
+}
+
