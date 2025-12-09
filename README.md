@@ -28,7 +28,7 @@
 
 ```bash
 # Install for your modality
-uv pip install "nemo-curator[text_cuda12]"
+uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]
 
 # Run the quickstart example
 python tutorials/quickstart.py
