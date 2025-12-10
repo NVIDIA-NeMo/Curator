@@ -19,9 +19,13 @@ import numpy as np
 import pytest
 import torch
 
-from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
+try:
+    from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
+except ImportError:
+    pass
 
 
+@pytest.mark.image
 class TestCLIPImageEmbeddings:
     """Test cases for CLIPImageEmbeddings model class."""
 
@@ -205,6 +209,7 @@ class TestCLIPImageEmbeddings:
         assert torch.allclose(norms, torch.ones_like(norms), atol=1e-5)
 
 
+@pytest.mark.image
 class TestCLIPAestheticScorer:
     """Test cases for CLIPAestheticScorer model class."""
 
@@ -328,6 +333,7 @@ class TestCLIPAestheticScorer:
             self.model(images)
 
 
+@pytest.mark.image
 class TestModelIntegration:
     """Integration tests for CLIP model components."""
 
