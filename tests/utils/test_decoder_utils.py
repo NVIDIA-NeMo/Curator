@@ -21,7 +21,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-try:
+try:  # noqa: SIM105
     from nemo_curator.utils.decoder_utils import (
         FrameExtractionPolicy,
         FrameExtractionSignature,

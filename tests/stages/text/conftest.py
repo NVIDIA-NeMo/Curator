@@ -19,7 +19,12 @@ If the user deselects the "text" marker, all tests in this directory will be ski
 and we will not import any test module inside that directory (this helps avoid import errors).
 """
 
-def pytest_ignore_collect(collection_path, config):
+from pathlib import Path
+
+import pytest
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     if "text" in str(collection_path):
         selected = config.getoption("-m")
         if "not text" in selected:

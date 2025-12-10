@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 import torch
 
-try:
+try:  # noqa: SIM105
     from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
 except ImportError:
     pass

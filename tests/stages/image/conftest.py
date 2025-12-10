@@ -19,7 +19,12 @@ If the user deselects the "image" marker, all tests in this directory will be sk
 and we will not import any test module inside that directory (this helps avoid import errors).
 """
 
-def pytest_ignore_collect(collection_path, config):
+from pathlib import Path
+
+import pytest
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     if "image" in str(collection_path):
         selected = config.getoption("-m")
         if "not image" in selected:
