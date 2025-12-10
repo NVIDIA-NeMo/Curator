@@ -168,11 +168,11 @@ srun \
   --overlap \
   --export=ALL \
   -w "${HEAD_NODE_NAME}" \
-    ${CONTAINER_CMD} exec \
+    "${CONTAINER_CMD}" exec \
       --bind="${HEAD_CONTAINER_MOUNTS}" \
       --containall \
       --nv \
-      ${IMAGE} \
+      "${IMAGE}" \
       bash -c "
         ray start \
           --head \
@@ -213,11 +213,11 @@ for ((i = 1; i < ${#NODES[@]}; i++)); do
     --export=ALL \
     --gres=gpu:"${NUM_GPUS_PER_NODE}" \
     -w "${NODE_I}" \
-    ${CONTAINER_CMD} exec \
+    "${CONTAINER_CMD}" exec \
       --bind="${WORKER_CONTAINER_MOUNTS},${WORKER_TMP_I}:/tmp" \
       --containall \
       --nv \
-      ${IMAGE} \
+      "${IMAGE}" \
       bash -c "
         ray start \
           --address ${RAY_GCS_ADDRESS} \
