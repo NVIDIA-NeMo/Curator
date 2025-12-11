@@ -21,6 +21,8 @@ The primary metric for measuring ASR transcription quality:
 
 **Definition**: Percentage of words that differ between ground truth and predicted transcriptions.
 
+**Function**: `get_wer(text: str, pred_text: str) -> float`
+
 **Calculation**: 
 ```
 WER = (Substitutions + Deletions + Insertions) / Total_Words × 100
@@ -41,7 +43,7 @@ WER = (Substitutions + Deletions + Insertions) / Total_Words × 100
 ```
 
 ```{note}
-WER and CER utilities depend on the `editdistance` package.
+WER and CER utilities depend on the `editdistance` package. All metrics functions (`get_wer`, `get_cer`, `get_wordrate`, `get_charrate`) are available in `nemo_curator.stages.audio.metrics.get_wer`.
 ```
 
 ### Character Error Rate (CER)
@@ -49,6 +51,8 @@ WER and CER utilities depend on the `editdistance` package.
 More granular accuracy measurement at the character level:
 
 **Definition**: Percentage of characters that differ between ground truth and predicted transcriptions.
+
+**Function**: `get_cer(text: str, pred_text: str) -> float`
 
 **Calculation**:
 ```
@@ -74,8 +78,8 @@ CER = (Character_Substitutions + Character_Deletions + Character_Insertions) / T
 **Audio Duration**: Precise measurement of audio file length in seconds.
 
 **Speech Rate Metrics**:
-- **Words per Second**: `word_count / duration`
-- **Characters per Second**: `character_count / duration`
+- **Words per Second**: `get_wordrate(text: str, duration: float) -> float` — Calculates `word_count / duration`
+- **Characters per Second**: `get_charrate(text: str, duration: float) -> float` — Calculates `character_count / duration`
 
 ```{note}
 To enforce duration thresholds in a pipeline, use `PreserveByValueStage`.
@@ -122,7 +126,7 @@ quality_thresholds = {
 }
 ```
 
-Filtering mechanism reference: `nemo_curator/stages/audio/common.py:71-116` (`PreserveByValueStage` supports `lt`, `le`, `eq`, `ne`, `ge`, `gt` over a value key)
+Filtering mechanism reference: `nemo_curator/stages/audio/common.py:71-115` (`PreserveByValueStage` supports `lt`, `le`, `eq`, `ne`, `ge`, `gt` over a value key)
 
 ### Language-Specific Considerations
 
@@ -240,7 +244,7 @@ def analyze_quality_distribution(manifest_data: list) -> dict:
 ```
 
 ```{note}
-This distribution function is a documentation example, not part of the shipped API. It requires `numpy` (such as `import numpy as np`). Consider integrating it in analysis notebooks or a custom stage.
+This distribution function is a documentation example, not part of the shipped API. To use it, first install numpy (`pip install numpy`) and add `import numpy as np` at the top of your script. Consider integrating this function in analysis notebooks or a custom stage.
 ```
 
 ## Best Practices
