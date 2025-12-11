@@ -62,8 +62,6 @@ Before implementing language management in your pipeline:
   - Ensure FastText model file is accessible to all workers
   - Use shared filesystem, network storage, or object storage (S3, GCS, etc.)
 
-### Installation Dependencies
-
 ## Basic Language Filtering
 
 ### Quick Start Example
