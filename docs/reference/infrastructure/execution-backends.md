@@ -8,17 +8,31 @@ content_type: "reference"
 modality: "universal"
 ---
 
-<!-- TODO: further elaborate on what Xenna is and what Ray Data is, and detailed explanations for each parameter -->
-
 (reference-execution-backends)=
 
 # Pipeline Execution Backends
 
-Executors run NeMo Curator `Pipeline` workflows across your compute resources. This reference explains the available backends and how to configure them. It applies to all modalities (text, image, video, and audio).
+Configure and optimize execution backends to run NeMo Curator pipelines efficiently across single machines, multi-GPU systems, and distributed clusters.
 
-## How it Works
+## Overview
 
-Build your pipeline by adding stages, then run it with an executor:
+Execution backends (executors) are the engines that run NeMo Curator `Pipeline` workflows across your compute resources. They handle:
+
+- **Task Distribution**: Distribute pipeline stages across available workers and GPUs
+- **Resource Management**: Allocate CPU, GPU, and memory resources to processing tasks
+- **Scaling**: Automatically or manually scale processing based on workload
+- **Data Movement**: Optimize data transfer between pipeline stages
+
+**Choosing the right executor** impacts:
+- Pipeline performance and throughput
+- Resource utilization efficiency
+- Ease of deployment and monitoring
+
+This guide covers all execution backends available in NeMo Curator and applies to all modalities: text, image, video, and audio curation.
+
+## Basic Usage Pattern
+
+All pipelines follow this standard execution pattern:
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -30,35 +44,78 @@ pipeline.add_stage(...)
 results = pipeline.run(executor)
 ```
 
+**Key points:**
+- The same pipeline definition works with any executor
+- Executor choice is independent of pipeline stages
+- Switch executors without changing pipeline code
+
 ## Available Backends
 
 ### `XennaExecutor` (recommended)
+
+`XennaExecutor` is the production-ready executor that uses Cosmos-Xenna, a Ray-based execution engine optimized for distributed data processing. Xenna provides native streaming support, automatic resource scaling, and built-in fault tolerance. It's the recommended choice for most production workloads, especially for video and multimodal pipelines.
+
+**Key Features**:
+- **Streaming execution**: Process data incrementally as it arrives, reducing memory requirements
+- **Auto-scaling**: Dynamically adjusts worker allocation based on stage throughput
+- **Fault tolerance**: Built-in error handling and recovery mechanisms
+- **Resource optimization**: Efficient CPU and GPU allocation for video/multimodal workloads
 
 ```python
 from nemo_curator.backends.xenna import XennaExecutor
 
 executor = XennaExecutor(
     config={
-        # 'streaming' (default) or 'batch'
+        # Execution mode: 'streaming' (default) or 'batch'
+        # Batch processes all data for a stage before moving to the next; streaming runs stages concurrently.
         "execution_mode": "streaming",
-        # seconds between status logs
+        
+        # Logging interval: seconds between status logs (default: 60)
+        # Controls how frequently progress updates are printed
         "logging_interval": 60,
-        # continue on failures
+        
+        # Ignore failures: whether to continue on failures (default: False)
+        # When True, the pipeline continues execution instead of failing fast when stages raise errors.
         "ignore_failures": False,
-        # CPU allocation ratio (0-1)
+        
+        # CPU allocation percentage: ratio of CPU to allocate (0-1, default: 0.95)
+        # Fraction of available CPU resources to use for pipeline execution
         "cpu_allocation_percentage": 0.95,
-        # streaming autoscale interval (seconds)
+        
+        # Autoscale interval: seconds between auto-scaling checks (default: 180)
+        # How often to run the stage auto-scaler.
         "autoscale_interval_s": 180,
+        
+        # Max workers per stage: maximum number of workers (optional)
+        # Limits worker count per stage; None means no limit
+        "max_workers_per_stage": None,
     }
 )
 
 results = pipeline.run(executor)
 ```
 
-- Pass options via `config`; they map to the executor's pipeline configuration.
-- For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
+**Configuration Parameters**:
 
-### `RayDataExecutor` (experimental)
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `execution_mode` | `str` | `"streaming"` | Execution mode: `"streaming"` for incremental processing or `"batch"` for full dataset processing |
+| `logging_interval` | `int` | `60` | Seconds between status log updates |
+| `ignore_failures` | `bool` | `False` | If `True`, continue pipeline execution even when stages fail |
+| `cpu_allocation_percentage` | `float` | `0.95` | Fraction (0-1) of available CPU resources to allocate |
+| `autoscale_interval_s` | `int` | `180` | Seconds between auto-scaling evaluations |
+| `max_workers_per_stage` | `int \| None` | `None` | Maximum workers per stage; `None` means no limit |
+
+For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
+
+### `RayDataExecutor`
+
+`RayDataExecutor` uses Ray Data, a scalable data processing library built on Ray Core. Ray Data provides a familiar DataFrame-like API for distributed data transformations. This executor is experimental and best suited for large-scale batch processing tasks that benefit from Ray Data's optimized data loading and transformation pipelines.
+
+**Key Features**:
+- **Ray Data API**: Leverages Ray Data's optimized data processing primitives
+- **Scalable transformations**: Efficient map-batch operations across distributed workers
+- **Experimental status**: API and performance characteristics may change
 
 ```python
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
@@ -67,7 +124,12 @@ executor = RayDataExecutor()
 results = pipeline.run(executor)
 ```
 
-### `RayActorPoolExecutor` (experimental)
+:::{note}`RayDataExecutor` currently has limited configuration options. For more control over execution, consider using `XennaExecutor` or `RayActorPoolExecutor`.
+:::
+
+### `RayActorPoolExecutor`
+
+Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
 
 ```python
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
