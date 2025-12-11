@@ -124,8 +124,7 @@ Each document will include a `language` field with the detected language code:
 When processing HTML content (e.g., Common Crawl), CLD2 provides language hints automatically:
 
 ```python
-from nemo_curator.stages.text.download import CommonCrawlWarcDownloader
-from nemo_curator.stages.text.filters import UrlFilter
+from nemo_curator.stages.text.download import CommonCrawlDownloadExtractStage
 
 # HTML extraction automatically uses CLD2 for language hints
 pipeline.add_stage(CommonCrawlWarcDownloader(...))
