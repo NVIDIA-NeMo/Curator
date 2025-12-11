@@ -22,13 +22,23 @@ import yaml
 this_script_path = Path(__file__).parent.absolute()
 # Add the parent directory to PYTHONPATH to import the runner modules
 sys.path.insert(0, str(this_script_path.parent))
-from runner.path_resolver import (  # noqa: E402
+
+# ruff: noqa: E402
+from runner.path_resolver import (
     CONTAINER_ARTIFACTS_DIR_ROOT,
     CONTAINER_CONFIG_DIR_ROOT,
     CONTAINER_CURATOR_DIR,
     CONTAINER_DATASETS_DIR_ROOT,
     CONTAINER_RESULTS_DIR_ROOT,
 )
+from runner.utils import get_total_memory_bytes
+
+_KB = 1024
+_MB = 1024 * _KB
+_GB = 1024 * _MB
+_TB = 1024 * _GB
+_max_container_memory_bytes = 1 * _TB
+_shm_size_container_memory_percentage = 0.5  # 50%
 
 DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "nemo_curator_benchmarking:latest")
 GPUS = os.environ.get("GPUS", "all")
@@ -165,11 +175,19 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
         if not args.shell:
             entrypoint_args.append(f"--config={container_dir_path}")
 
+    # The total available container memory will be the total host memory, but no more
+    # than _max_container_memory_bytes.
+    # The container shared memory size is a percentage of the container memory.
+    container_memory_bytes = min(get_total_memory_bytes(), _max_container_memory_bytes)
+    shm_size_bytes = int(container_memory_bytes * _shm_size_container_memory_percentage)
+
     # Build and return the string to eval in bash.
     eval_str = ""
     eval_str += f"BASH_ENTRYPOINT_OVERRIDE={bash_entrypoint_override}\n"
     eval_str += f"DOCKER_IMAGE={DOCKER_IMAGE}\n"
     eval_str += f"GPUS={GPUS}\n"
+    eval_str += f"CONTAINER_MEMORY_BYTES={container_memory_bytes}\n"
+    eval_str += f"SHM_SIZE_BYTES={shm_size_bytes}\n"
     eval_str += f"HOST_CURATOR_DIR={HOST_CURATOR_DIR}\n"
     eval_str += f"CURATOR_BENCHMARKING_DEBUG={CURATOR_BENCHMARKING_DEBUG}\n"
     vms = f'"{" ".join(volume_mounts)}"' if volume_mounts else ""
