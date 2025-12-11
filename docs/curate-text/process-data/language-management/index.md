@@ -176,9 +176,13 @@ pipeline.add_stage(
 
 # 3. Filter to English documents only
 @processing_stage(name="keep_english")
+@processing_stage(name="keep_english")
 def filter_english(batch: DocumentBatch) -> DocumentBatch:
+    import ast
     df = batch.data
-    df = df[df['language'] == 'en']
+    parsed = df["language"].apply(lambda v: ast.literal_eval(v) if isinstance(v, str) else v)
+    df["lang_code"] = parsed.apply(lambda p: str(p[1]))
+    df = df[df['lang_code'] == 'EN']
     return DocumentBatch(data=df, task_id=batch.task_id, dataset_name=batch.dataset_name)
 
 pipeline.add_stage(filter_english)
