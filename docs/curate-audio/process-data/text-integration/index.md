@@ -44,7 +44,7 @@ audio_batch = AudioBatch(data=[
     {
         "audio_filepath": "/data/audio/sample.wav",
         "text": "ground truth text",
-        "pred_text": "asr predicted text", 
+        "pred_text": "asr predicted text",
         "wer": 12.5,
         "duration": 3.2
     }
@@ -71,7 +71,7 @@ The conversion preserves all fields from your audio processing pipeline:
 ```python
 # All audio processing results are maintained:
 # - audio_filepath: Original audio file reference
-# - text: Ground truth transcription (if available)  
+# - text: Ground truth transcription (if available)
 # - pred_text: ASR prediction
 # - wer: Word Error Rate (if calculated)
 # - duration: Audio duration (if calculated)
@@ -90,11 +90,14 @@ The most common use case is adding `AudioToDocumentStage` at the end of your aud
 
 ```python
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.stages.audio.datasets.fleurs.create_initial_manifest import CreateInitialManifestFleursStage
 from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.resources import Resources
 
 # Create pipeline that processes audio and exports results
 pipeline = Pipeline(name="audio_processing_with_export")
@@ -108,13 +111,11 @@ pipeline.add_stage(CreateInitialManifestFleursStage(
 
 # 2. Run ASR inference
 pipeline.add_stage(InferenceAsrNemoStage(
-pipeline.add_stage(InferenceAsrNemoStage(
     model_name="nvidia/stt_en_fastconformer_hybrid_large_pc",
     pred_text_key="pred_text"
 ).with_(resources=Resources(gpus=1.0)))
 
 # 3. Calculate quality metrics
-pipeline.add_stage(GetPairwiseWerStage(
 pipeline.add_stage(GetPairwiseWerStage(
     text_key="text",
     pred_text_key="pred_text",
@@ -126,7 +127,6 @@ pipeline.add_stage(GetAudioDurationStage(
 ))
 
 # 4. Convert to DocumentBatch for export
-pipeline.add_stage(AudioToDocumentStage())
 pipeline.add_stage(AudioToDocumentStage())
 
 # 5. Export to JSONL format
@@ -159,17 +159,17 @@ import pandas as pd
 @processing_stage(name="custom_transcription_filter")
 def filter_transcriptions(document_batch: DocumentBatch) -> DocumentBatch:
     """Custom filtering of ASR transcriptions."""
-    
+
     # Access the pandas DataFrame
     df = document_batch.data
-    
+
     # Example: Filter by transcription length
     df = df[df['pred_text'].str.len() > 10]  # Keep transcriptions > 10 chars
-    
+
     # Example: Filter by WER if available
     if 'wer' in df.columns:
         df = df[df['wer'] < 50.0]  # Keep WER < 50%
-    
+
     return DocumentBatch(
         data=df,
         task_id=document_batch.task_id,
@@ -185,7 +185,7 @@ After conversion, your data will be in `DocumentBatch` format with a pandas Data
 # Example output structure
 document_batch.data  # pandas DataFrame with columns:
 # - audio_filepath: "/path/to/audio.wav"
-# - text: "ground truth transcription" 
+# - text: "ground truth transcription"
 # - pred_text: "asr prediction"
 # - wer: 15.2
 # - duration: 3.4
@@ -199,7 +199,7 @@ document_batch.data  # pandas DataFrame with columns:
 
 **Reasons for incompatibility:**
 - Text filters assume document-level content (e.g., paragraph structure, word count thresholds designed for articles)
-- ASR transcriptions have different characteristics (shorter, may contain recognition errors, conversational language)
+- ASR transcriptions have different characteristics (shorter, can contain recognition errors, conversational language)
 - Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
 
 **Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
