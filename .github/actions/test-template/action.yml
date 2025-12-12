@@ -144,8 +144,8 @@ runs:
         start_cpu_monitor() {  # Usage: start_cpu_monitor "kill_cmd" "name"
           local pf="/tmp/cpu_monitor_${RUN_ID}_${2:-default}.pid"
           # Clean up ALL monitors from this run (handles cross-step and retry cleanup)
-          for f in /tmp/cpu_monitor_${RUN_ID}_*.pid 2>/dev/null; do
-            [ -f "$f" ] && { kill $(cat "$f") 2>/dev/null; rm -f "$f"; }
+          for f in /tmp/cpu_monitor_${RUN_ID}_*.pid; do
+            [ -f "$f" ] && { local p=$(cat "$f"); kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; rm -f "$f"; }
           done
           cpu_test_failed && { echo "::error::CPU test already failed"; return 1; }
           local ppid=$$  # Parent PID for orphan detection
@@ -165,7 +165,7 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         source /tmp/cpu_monitor.sh
-        start_cpu_monitor 'pkill -9 -f "docker build"' "build" || exit 1
+        start_cpu_monitor 'pkill -f "docker build"; sleep 2; pkill -9 -f "docker build"' "build" || exit 1
         docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
