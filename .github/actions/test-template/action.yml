@@ -143,9 +143,16 @@ runs:
         }
         start_cpu_monitor() {  # Usage: start_cpu_monitor "kill_cmd" "name"
           local pf="/tmp/cpu_monitor_${RUN_ID}_${2:-default}.pid"
-          [ -f "$pf" ] && { kill $(cat "$pf") 2>/dev/null; rm -f "$pf"; } || true
+          # Clean up ALL monitors from this run (handles cross-step and retry cleanup)
+          for f in /tmp/cpu_monitor_${RUN_ID}_*.pid 2>/dev/null; do
+            [ -f "$f" ] && { kill $(cat "$f") 2>/dev/null; rm -f "$f"; }
+          done
           cpu_test_failed && { echo "::error::CPU test already failed"; return 1; }
-          ( while sleep 20; do cpu_test_failed && { eval "$1"; exit 1; }; done ) &
+          local ppid=$$  # Parent PID for orphan detection
+          ( while sleep 20; do
+              kill -0 $ppid 2>/dev/null || exit 0  # Self-terminate if parent died
+              cpu_test_failed && { eval "$1"; exit 1; }
+            done ) &
           echo $! > "$pf"; trap "kill \$(cat '$pf' 2>/dev/null) 2>/dev/null; rm -f '$pf'" EXIT
         }
         EOF
