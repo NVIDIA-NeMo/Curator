@@ -65,6 +65,20 @@ All non-empty Python files must include the NVIDIA copyright header:
 
 Supports Python 3.10, 3.11, and 3.12 (requires >=3.10, <3.13)
 
-# Loguru
+## Loguru
 
-NeMo Curator uses loguru for logging.
+NeMo Curator uses loguru for logging:
+
+```python
+from loguru import logger
+```
+
+Common uses include `logger.info`, `logger.warning`, and `logger.error`.
+
+## PyTest Standards
+
+All changes to NeMo Curator's source code must be accompanied with relevant tests. Tests which require a GPU and cannot be run on a CPU-only machine must be marked with `@pytest.mark.gpu`.
+
+NeMo Curator enforces 80% PyTest coverage within the `nemo_curator/` directory.
+
+For straightforward navigation purposes, the `tests/` directory structure matches the `nemo_curator/` directory structure.
