@@ -51,11 +51,11 @@ def _assert_ray_stdouterr_output(stdouterr_capture_file: str) -> None:
             with open(stdouterr_capture_file) as f:
                 if "Ray runtime started." in f.read():
                     break
-        if elapsed >= timeout:
-            msg = f"Expected output not found in {stdouterr_capture_file} after {timeout} seconds"
-            raise AssertionError(msg)
         time.sleep(1)
         elapsed += 1
+    if elapsed >= timeout:
+        msg = f"Expected output not found in {stdouterr_capture_file} after {timeout} seconds"
+        raise AssertionError(msg)
 
 
 @pytest.fixture(scope="module")
