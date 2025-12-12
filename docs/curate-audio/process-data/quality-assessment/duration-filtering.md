@@ -148,7 +148,7 @@ This example assumes you have already calculated and stored speech rate metrics 
 
 ## Filtering by Speech Rate
 
-Once you've calculated speech rate metrics, filter samples to keep those with appropriate speaking speeds:
+After you calculate speech rate metrics, filter samples to keep those with appropriate speaking speeds:
 
 ### Normal Speech Rate Range
 
