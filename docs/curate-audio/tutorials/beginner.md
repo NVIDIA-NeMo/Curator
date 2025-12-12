@@ -40,9 +40,10 @@ The complete working code for this tutorial is located at:
 
 ```
 <nemo_curator_repository>/tutorials/audio/fleurs/
-├── run.py              # Main tutorial script
 ├── README.md           # Tutorial documentation
-└── requirements.txt    # Python dependencies
+├── pipeline.py         # Main tutorial script
+├── pipeline.yaml       # Configuration file for run.py
+└── run.py              # Same as pipeline.py, but defines pipeline using YAML file instead
 ```
 
 **Accessing the code:**
@@ -50,9 +51,6 @@ The complete working code for this tutorial is located at:
 # Clone NeMo Curator repository
 git clone https://github.com/NVIDIA/NeMo-Curator.git
 cd NeMo-Curator/tutorials/audio/fleurs/
-
-# Install dependencies
-pip install -r requirements.txt
 ```
 
 ## Prerequisites
@@ -222,16 +220,15 @@ To run the working tutorial:
 ```bash
 cd tutorials/audio/fleurs/
 
-# Basic run with default settings
-python run.py --raw_data_dir /data/fleurs_output
-
-# Customize parameters
-python run.py \
-    --raw_data_dir /data/fleurs_output \
-    --lang ko_kr \
-    --split train \
-    --model_name nvidia/stt_ko_fastconformer_hybrid_large_pc \
-    --wer_threshold 50.0
+python tutorials/audio/fleurs/pipeline.py \
+  --raw_data_dir ./example_audio/fleurs \
+  --model_name nvidia/stt_hy_fastconformer_hybrid_large_pc \
+  --lang hy_am \
+  --split dev \
+  --wer_threshold 75 \
+  --gpus 1 \
+  --clean \
+  --verbose
 ```
 
 **Command-line options:**

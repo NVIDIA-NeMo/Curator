@@ -133,7 +133,6 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.PAT }}
       run: |
-        docker system prune -af
         docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container

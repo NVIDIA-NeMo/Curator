@@ -30,6 +30,15 @@ Modality-level overview of ingest, validation, optional ASR, metrics, filtering,
 {bdg-secondary}`overview` {bdg-secondary}`map`
 :::
 
+:::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` AudioBatch Structure
+:link: about-concepts-audio-audio-batch
+:link-type: ref
+
+Understanding the AudioBatch data structure and audio file management
++++
+{bdg-secondary}`data-structures` {bdg-secondary}`validation`
+:::
+
 :::{grid-item-card} {octicon}`workflow;1.5em;sd-mr-1` ASR Pipeline
 :link: about-concepts-audio-asr-pipeline
 :link-type: ref
@@ -46,15 +55,6 @@ Comprehensive overview of the automatic speech recognition pipeline and workflow
 Core concepts for evaluating speech transcription quality and audio characteristics
 +++
 {bdg-secondary}`wer` {bdg-secondary}`cer` {bdg-secondary}`metrics`
-:::
-
-:::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` AudioBatch Structure
-:link: about-concepts-audio-audio-batch
-:link-type: ref
-
-Understanding the AudioBatch data structure and audio file management
-+++
-{bdg-secondary}`data-structures` {bdg-secondary}`validation`
 :::
 
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Dataset Manifests and Ingest
@@ -122,9 +122,9 @@ Continue interrupted operations across large audio datasets
 :hidden:
 
 Audio Curation Pipeline (Overview) <curation-pipeline.md>
+AudioBatch Structure <audio-batch.md>
 ASR Pipeline <asr-pipeline.md>
 Quality Metrics <quality-metrics.md>
-AudioBatch Structure <audio-batch.md>
 Dataset Manifests and Ingest <manifests-ingest.md>
 Text Integration <text-integration.md>
 ```
