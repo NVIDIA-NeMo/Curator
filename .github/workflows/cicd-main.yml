@@ -205,7 +205,7 @@ jobs:
 
   cicd-gpu-tests:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - script: L0_Unit_Test_GPU

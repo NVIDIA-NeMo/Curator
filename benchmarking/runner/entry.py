@@ -17,20 +17,17 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from loguru import logger
-
 if TYPE_CHECKING:
-    from runner.sinks.sink import Sink
-from runner.datasets import DatasetResolver
-from runner.path_resolver import PathResolver
+    from runner.datasets import DatasetResolver
+    from runner.path_resolver import PathResolver
 
 
 @dataclass
-class MatrixEntry:
+class Entry:
     name: str
     script: str | None = None
     args: str | None = None
@@ -39,6 +36,8 @@ class MatrixEntry:
     sink_data: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     requirements: list[dict[str, Any]] | dict[str, Any] = field(default_factory=dict)
     ray: dict[str, Any] = field(default_factory=dict)  # supports only single node: num_cpus,num_gpus,object_store_gb
+    # If set, overrides the session-level default_object_store_size setting for this entry
+    object_store_size_bytes: int | None = None
     # If set, overrides the session-level delete_scratch setting for this entry
     delete_scratch: bool | None = None
     enabled: bool = True
@@ -160,99 +159,3 @@ class MatrixEntry:
             return str(session_entry_path)
 
         return session_entry_pattern.sub(replace_session_entry_path, cmd)
-
-
-@dataclass(frozen=True, kw_only=True)
-class MatrixConfig:
-    results_path: Path
-    artifacts_path: Path
-    entries: list[MatrixEntry] = field(default_factory=list)
-    sinks: list[Sink] = field(default_factory=list)
-    default_timeout_s: int = 7200
-    # Whether to delete the entry's scratch directory after completion by default
-    delete_scratch: bool = True
-    path_resolver: PathResolver = None
-    dataset_resolver: DatasetResolver = None
-
-    def __post_init__(self) -> None:
-        """Post-initialization checks and updates for dataclass."""
-        names = [entry.name for entry in self.entries]
-        if len(names) != len(set(names)):
-            duplicates = {name for name in names if names.count(name) > 1}
-            msg = f"Duplicate entry name(s) found: {', '.join(duplicates)}"
-            raise ValueError(msg)
-
-        # Update delete_scratch for each entry that has not been set to the session-level delete_scratch setting
-        for entry in self.entries:
-            if entry.delete_scratch is None:
-                entry.delete_scratch = self.delete_scratch
-
-        # Update timeout_s for each entry that has not been set to the session-level default_timeout_s
-        for entry in self.entries:
-            if entry.timeout_s is None:
-                entry.timeout_s = self.default_timeout_s
-
-    @classmethod
-    def assert_valid_config_dict(cls, data: dict) -> None:
-        """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_path", "artifacts_path", "datasets_path", "entries"]
-        missing_fields = [k for k in required_fields if k not in data]
-        if missing_fields:
-            msg = f"Invalid configuration: missing required fields: {missing_fields}"
-            raise ValueError(msg)
-
-    @classmethod
-    def create_from_dict(cls, data: dict) -> MatrixConfig:
-        """
-        Factory method to create a MatrixConfig from a dictionary.
-
-        The dictionary is typically created from reading one or more YAML files.
-        This method resolves environment variables and converts the list of
-        entry dicts to MatrixEntry objects, and returns a new MatrixConfig
-        object.
-        """
-        path_resolver = PathResolver(data)
-        dataset_resolver = DatasetResolver(data.get("datasets", []))
-
-        # Filter out data not needed for a MatrixConfig object.
-        mc_field_names = {f.name for f in fields(cls)}
-        mc_data = {k: v for k, v in data.items() if k in mc_field_names}
-        sinks = cls.create_sinks_from_dict(mc_data.get("sinks", []))
-        # Load entries only if enabled (enabled by default)
-        # TODO: should entries be created unconditionally and have an "enabled" field instead?
-        entries = [MatrixEntry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
-
-        mc_data["results_path"] = path_resolver.resolve("results_path")
-        mc_data["artifacts_path"] = path_resolver.resolve("artifacts_path")
-        mc_data["entries"] = entries
-        mc_data["sinks"] = sinks
-        mc_data["path_resolver"] = path_resolver
-        mc_data["dataset_resolver"] = dataset_resolver
-
-        return cls(**mc_data)
-
-    @classmethod
-    def create_sinks_from_dict(cls, sink_configs: list[dict]) -> list[Sink]:
-        """Load sinks from the list of sink configuration dictionaries."""
-        sinks = []
-        for sink_config in sink_configs:
-            sink_name = sink_config["name"]
-            sink_enabled = sink_config.get("enabled", True)
-            if not sink_enabled:
-                logger.warning(f"Sink {sink_name} is not enabled, skipping")
-                continue
-            if sink_name == "mlflow":
-                from runner.sinks.mlflow_sink import MlflowSink
-
-                sinks.append(MlflowSink(sink_config=sink_config))
-            elif sink_name == "slack":
-                from runner.sinks.slack_sink import SlackSink
-
-                sinks.append(SlackSink(sink_config=sink_config))
-            elif sink_name == "gdrive":
-                from runner.sinks.gdrive_sink import GdriveSink
-
-                sinks.append(GdriveSink(sink_config=sink_config))
-            else:
-                logger.warning(f"Unknown sink: {sink_name}, skipping")
-        return sinks
