@@ -124,7 +124,7 @@ jobs:
 
   cicd-cpu-tests:
     strategy:
-      fail-fast: true
+      fail-fast: false  # Allow all tests to complete so failures are visible in UI
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
