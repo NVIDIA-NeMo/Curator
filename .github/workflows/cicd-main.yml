@@ -28,7 +28,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  actions: write  # Required for gh run cancel
+  actions: read  # Required for gh run view
 
 env:
   UV_HTTP_TIMEOUT: 60
@@ -202,12 +202,6 @@ jobs:
             ./coverage.xml
             ./.coverage
           include-hidden-files: true
-
-      - name: Cancel workflow on failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }}
 
   cicd-gpu-tests:
     strategy:
