@@ -22,15 +22,17 @@ import pytest
 import torch
 
 try:
-    from nemo_curator.stages.video.embedding.internvideo2 import (
-        InternVideo2EmbeddingStage,
-        InternVideo2FrameCreationStage,
-    )
+    from nemo_curator.tasks.video import Clip, Video, VideoTask
+
+    try:
+        from nemo_curator.stages.video.embedding.internvideo2 import (
+            InternVideo2EmbeddingStage,
+            InternVideo2FrameCreationStage,
+        )
+    except ImportError:
+        pytest.skip("InternVideo2 package is not available")
 except ImportError:
-    pytest.skip("InternVideo2 package is not available")
-
-
-from nemo_curator.tasks.video import Clip, Video, VideoTask
+    pass
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
+@pytest.mark.video
 class TestInternVideo2FrameCreationStage:
     """Test cases for InternVideo2FrameCreationStage class."""
 
@@ -242,6 +245,7 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
 
+@pytest.mark.video
 class TestInternVideo2EmbeddingStage:
     """Test cases for InternVideo2EmbeddingStage class."""
 
