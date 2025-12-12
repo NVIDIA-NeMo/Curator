@@ -16,14 +16,15 @@ Filter audio samples based on Word Error Rate (WER) thresholds to ensure high-qu
 
 ### What is Word Error Rate?
 
-Word Error Rate measures transcription accuracy by calculating the percentage of words that differ between ground truth and ASR predictions:
+Word Error Rate (WER) measures transcription accuracy by calculating the percentage of words that differ between ground truth and ASR predictions:
 
 ```text
 WER = (Substitutions + Deletions + Insertions) / Total_Reference_Words × 100
 ```
 
 **Components:**
-- **Substitutions**: Words incorrectly replaced (e.g., "cat" → "hat")
+
+- **Substitutions**: Words incorrectly replaced (for example, "cat" → "hat")
 - **Deletions**: Words omitted from the prediction
 - **Insertions**: Extra words added to the prediction
 - **Total_Reference_Words**: Total word count in ground truth transcription
@@ -40,7 +41,7 @@ The following table provides general guidelines for interpreting WER values. Adj
 | 10-25% | Good | General ASR training, most applications |
 | 25-50% | Moderate | Supplementary training data, domain adaptation |
 | 50-75% | Poor | Review required, potential filtering |
-| 75%+ | Very Poor | Strong candidate for removal |
+| 75%+ | Poor | Strong candidate for removal |
 
 ## Basic WER Filtering
 
@@ -63,7 +64,9 @@ wer_stage = GetPairwiseWerStage(
 # Add to pipeline
 pipeline.add_stage(wer_stage)
 ```
+
 **Parameters:**
+
 - `text_key`: Field name containing ground truth transcriptions in your manifest
 - `pred_text_key`: Field name containing ASR predictions (from `InferenceAsrNemoStage` or similar)
 - `wer_key`: Field name to store calculated WER values (default: `"wer"`)
@@ -86,24 +89,26 @@ wer_filter = PreserveByValueStage(
 
 pipeline.add_stage(wer_filter)
 ```
+
 **Parameters:**
+
 - `input_value_key`: Field containing WER values (matches `wer_key` from previous stage)
 - `target_value`: WER threshold (percentage as float, e.g., `30.0` for 30%)
 - `operator`: Comparison operator (`"le"` for ≤, `"lt"` for <, `"ge"` for ≥, `"gt"` for >)
 
-Samples meeting the threshold criteria are preserved; others are filtered out.
+The stage preserves samples meeting the threshold criteria and filters out others.
 
 ## Advanced WER Filtering
-
 
 ### Statistical WER Filtering
 
 Rather than using fixed thresholds, you can analyze your dataset's WER distribution to determine optimal filtering thresholds. This approach is useful when working with domain-specific data or evaluating data quality.
 
 **Workflow:**
+
 1. Calculate WER for all samples using `GetPairwiseWerStage`
 2. Export results and analyze WER distribution (mean, median, percentiles)
-3. Determine threshold based on your quality requirements (e.g., keep samples below 75th percentile)
+3. Determine threshold based on your quality requirements (for example, keep samples below 75th percentile)
 4. Apply the calculated threshold using `PreserveByValueStage`
 
 **Example:**
@@ -229,11 +234,11 @@ pipeline.run(executor)
 
 ## Best Practices
 
-- **Start with lenient thresholds**: Begin with higher WER thresholds (e.g., 50%) and progressively tighten based on dataset size and quality requirements
-- **Consider domain characteristics**: Adjust thresholds based on speech type (conversational vs. broadcast vs. read speech)
-- **Analyze before filtering**: Export WER distributions to understand your data before applying aggressive filters
-- **Balance quality and quantity**: Stricter thresholds improve data quality but reduce dataset size; find the right balance for your use case
-- **Validate ASR model**: Ensure your ASR model is appropriate for the language and domain before using WER for filtering
+- **Start with lenient thresholds**: Begin with higher WER thresholds (for example, 50%) and progressively tighten based on dataset size and quality requirements.
+- **Consider domain characteristics**: Adjust thresholds based on speech type (conversational compared to broadcast compared to read speech).
+- **Analyze before filtering**: Export WER distributions to understand your data before applying aggressive filters.
+- **Balance quality and quantity**: Stricter thresholds improve data quality but reduce dataset size; find the right balance for your use case.
+- **Check ASR model**: Ensure your ASR model is appropriate for the language and domain before using WER for filtering.
 
 ## Related Topics
 
