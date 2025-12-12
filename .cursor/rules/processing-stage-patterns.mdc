@@ -117,12 +117,12 @@ class ExampleStage(ProcessingStage[Task, Task]):
 
         # Transform the data in some way...
 
-        # Create output batch
+        # Create output task
         return Task(
-            task_id=f"{batch.task_id}_{self.name}",  # Common naming pattern
-            dataset_name=batch.dataset_name,
+            task_id=f"{task.task_id}_{self.name}",  # Common naming pattern
+            dataset_name=task.dataset_name,
             data=task_data,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
+            _metadata=task._metadata,
+            _stage_perf=task._stage_perf,
         )
 ```
