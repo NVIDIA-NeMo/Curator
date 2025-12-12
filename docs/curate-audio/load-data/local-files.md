@@ -16,7 +16,7 @@ Load audio files from local directories by creating custom manifests that refere
 
 ## Overview
 
-To process local audio files with NeMo Curator, you need to create a manifest file that lists your audio files and their metadata. NeMo Curator doesn't provide automatic audio file discovery - you must create a JSONL manifest first.
+To process local audio files with NeMo Curator, you need to create a manifest file that lists your audio files and their metadata. NeMo Curator does not provide automatic audio file discovery - you must create a JSONL manifest first.
 
 ## Supported Audio Formats
 

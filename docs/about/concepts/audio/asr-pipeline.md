@@ -198,7 +198,7 @@ duration_stage = GetAudioDurationStage(
 asr_stage = InferenceAsrNemoStage(
     model_name="nvidia/stt_en_fastconformer_hybrid_small"  # Smaller model
 ).with_(
-    resources=Resources(gpus=0.5)  # Request fractional GPU via executor/backends
+    resources=Resources(gpus=0.5)  # Request fractional GPU using executor/backends
 )
 ```
 

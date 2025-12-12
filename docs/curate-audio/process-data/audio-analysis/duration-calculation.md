@@ -283,7 +283,7 @@ pipeline.add_stage(PreserveByValueStage(
 ### Processing Speed
 
 - Duration calculation is I/O bound and scales with file size
-- Network-mounted files may be slower than local storage
+- Network-mounted files can be slower than local storage
 - Consider parallel processing for large datasets using Ray
 
 ### File System Optimization

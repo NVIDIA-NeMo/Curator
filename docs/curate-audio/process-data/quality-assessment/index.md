@@ -73,7 +73,7 @@ word_rate = get_wordrate("hello world example", 2.5)  # 1.2 words/second
 char_rate = get_charrate("hello world", 2.0)  # 5.5 chars/second
 ```
 :::{seealso}
-For a complete example of using speech rate metrics in a pipeline, see the **[Duration Filtering](duration-filtering.md)** guide.
+For a complete example of using speech rate metrics in a pipeline, refer to the **[Duration Filtering](duration-filtering.md)** guide.
 :::
 
 ## Filtering Strategies

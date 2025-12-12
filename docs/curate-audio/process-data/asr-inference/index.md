@@ -131,7 +131,7 @@ Data loading stages create input `AudioBatch` objects that must contain:
 - **Supported Formats**: Determined by the selected NeMo ASR model; refer to the NeMo ASR documentation.
 - **Sample Rates**: Typically 16 kHz; refer to the model card for details.
 - **Channels**: Mono or stereo; channel handling (for example, down-mixing) depends on the model.
-- **Duration**: Long files may require manual chunking before inference.
+- **Duration**: Long files can require manual chunking before inference.
 
 ## Output Structure
 
@@ -166,7 +166,7 @@ Processing behavior:
 - **Input structure validation**: The stage uses `validate_input()` to check required attributes/columns and raises `ValueError` if they are missing.
 - **Model loading failures**: `setup()` raises `RuntimeError` if model download or initialization fails.
 - **No automatic retries or auto-tuning**: The stage does not perform automatic batch size reduction or network retries.
-- **Missing files**: `AudioBatch.validate()` may log file-existence warnings when code creates tasks; the stage does not auto-skip files.
+- **Missing files**: `AudioBatch.validate()` can log file-existence warnings when code creates tasks; the stage does not auto-skip files.
 
 ## Performance Optimization
 

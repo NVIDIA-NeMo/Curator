@@ -199,7 +199,7 @@ document_batch.data  # pandas DataFrame with columns:
 
 **Reasons for incompatibility:**
 - Text filters assume document-level content (e.g., paragraph structure, word count thresholds designed for articles)
-- ASR transcriptions have different characteristics (shorter, may contain recognition errors, conversational language)
+- ASR transcriptions have different characteristics (shorter, can contain recognition errors, conversational language)
 - Audio-specific metrics (WER, duration, speech rate) require custom filtering logic
 
 **Recommendation:** Use `PreserveByValueStage` for audio quality filtering, or create custom stages for transcription-specific processing.
