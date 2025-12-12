@@ -136,21 +136,17 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         cat > /tmp/cpu_monitor.sh << 'EOF'
-        # Check if any CPU test has failed (returns 0=failed, 1=ok)
         cpu_test_failed() {
-          local count=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+          [ "$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
-            | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0")
-          [ "$count" -gt 0 ]
+            | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo 0)" -gt 0 ]
         }
-
-        # Start background monitor. Usage: start_cpu_monitor "kill command"
-        start_cpu_monitor() {
-          cpu_test_failed && { echo "::error::CPU test already failed - aborting"; return 1; }
-          local pid_file="/tmp/cpu_monitor_$$.pid"
-          ( while sleep 20; do cpu_test_failed && { echo "::error::CPU test failed - cancelling"; eval "$1"; exit 1; }; done ) &
-          echo $! > "$pid_file"
-          trap "kill \$(cat '$pid_file' 2>/dev/null) 2>/dev/null; rm -f '$pid_file'" EXIT
+        start_cpu_monitor() {  # Usage: start_cpu_monitor "kill_cmd" "name"
+          local pf="/tmp/cpu_monitor_${RUN_ID}_${2:-default}.pid"
+          [ -f "$pf" ] && { kill $(cat "$pf") 2>/dev/null; rm -f "$pf"; } || true
+          cpu_test_failed && { echo "::error::CPU test already failed"; return 1; }
+          ( while sleep 20; do cpu_test_failed && { eval "$1"; exit 1; }; done ) &
+          echo $! > "$pf"; trap "kill \$(cat '$pf' 2>/dev/null) 2>/dev/null; rm -f '$pf'" EXIT
         }
         EOF
 
@@ -162,7 +158,7 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         source /tmp/cpu_monitor.sh
-        start_cpu_monitor 'pkill -9 -f "docker build"' || exit 1
+        start_cpu_monitor 'pkill -9 -f "docker build"' "build" || exit 1
         docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
@@ -234,7 +230,7 @@ runs:
         on_retry_command: /bin/bash retry_job.sh
         command: |
           source /tmp/cpu_monitor.sh
-          start_cpu_monitor "docker stop $CONTAINER_NAME" || exit 1
+          start_cpu_monitor "docker stop $CONTAINER_NAME" "test" || exit 1
           /bin/bash job.sh
 
     - name: Check result
