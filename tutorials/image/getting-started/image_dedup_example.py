@@ -45,7 +45,7 @@ def create_image_embedding_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=args.task_batch_size,
+        batch_size=args.batch_size,
         verbose=args.verbose,
         num_threads=16,  # More threads for I/O
         num_gpus_per_worker=0.25,
@@ -97,7 +97,7 @@ def create_image_deduplication_pipeline(args: argparse.Namespace) -> Pipeline:
 
     # Stage 1: Read images from webdataset tar files (now runs in parallel)
     pipeline.add_stage(ImageReaderStage(
-        task_batch_size=args.task_batch_size,
+        batch_size=args.batch_size,
         verbose=args.verbose,
         num_threads=16,  # More threads for I/O
         num_gpus_per_worker=0.25,
@@ -132,7 +132,7 @@ def main(args: argparse.Namespace) -> None:
     print(f"Output webdataset directory: {args.output_dataset_dir}")
     print(f"Model directory: {args.model_dir}")
     print(f"Tar files per partition: {args.tar_files_per_partition}")
-    print(f"Task batch size: {args.task_batch_size}")
+    print(f"Task batch size: {args.batch_size}")
     print("\n" + "=" * 50 + "\n")
 
     # Step 1: Download and prepare webdataset from parquet file
@@ -263,7 +263,7 @@ if __name__ == "__main__":
         help="Number of tar files to process per partition (controls parallelism) for FilePartitioningStage"
     )
     parser.add_argument(
-        "--task-batch-size",
+        "--batch-size",
         type=int,
         default=100,
         help="Number of images per ImageBatch for the reader stage"

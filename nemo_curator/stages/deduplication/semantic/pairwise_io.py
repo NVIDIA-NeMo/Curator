@@ -21,6 +21,7 @@ from nemo_curator.backends.experimental.utils import RayStageSpecKeys
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.tasks import FileGroupTask, _EmptyTask
+from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import get_all_file_paths_under, get_fs, infer_dataset_name_from_path
 
 if TYPE_CHECKING:
@@ -49,9 +50,10 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
         """
         self.input_path = input_path
         self.storage_options = storage_options
-        self._name = "pairwise_file_partitioning"
-        self._resources = Resources(cpus=0.5)
+        self.name = "pairwise_file_partitioning"
+        self.resources = Resources(cpus=0.5)
         self.fs: AbstractFileSystem | None = None
+        self.path_normalizer = lambda x: x
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], []
@@ -61,6 +63,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         self.fs = get_fs(self.input_path, storage_options=self.storage_options)
+        self.path_normalizer = self.fs.unstrip_protocol if is_remote_url(self.input_path) else (lambda x: x)
 
     def ray_stage_spec(self) -> dict[str, Any]:
         """Ray stage specification for this stage."""
@@ -83,7 +86,7 @@ class ClusterWiseFilePartitioningStage(ProcessingStage[_EmptyTask, FileGroupTask
             # Extract centroid ID from directory name (e.g., "centroid=0" -> 0)
             if "centroid=" in entry:
                 centroid_id = int(entry.split("centroid=")[-1])
-                centroid_dirs[centroid_id] = entry
+                centroid_dirs[centroid_id] = self.path_normalizer(entry)
 
         logger.debug(
             f"Found {len(centroid_dirs)} centroid directories e.g. {next(iter(centroid_dirs.values())) if centroid_dirs else None}"

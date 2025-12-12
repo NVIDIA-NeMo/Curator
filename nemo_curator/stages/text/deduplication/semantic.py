@@ -160,9 +160,9 @@ class TextSemanticDeduplicationWorkflow:
         input_blocksize: Blocksize for reading files
         input_filetype: Type of input files ("jsonl" or "parquet")
         input_file_extensions: List of file extensions to process
-        output_filetype: Type of output files ("jsonl" or "parquet")
-        output_file_extension: File extension for output files (None for default)
-        output_fields: List of fields to include in final output (None for all fields)
+        output_filetype: Type of deduplicated output files ("jsonl" or "parquet")
+        output_file_extension: File extension for deduplicated output files (None for default)
+        output_fields: List of fields to include in final deduplicated output (None for all fields)
         read_kwargs: Keyword arguments for reading files
         cache_kwargs: Keyword arguments for cache operations and storage
         write_kwargs: Keyword arguments for writing files
@@ -282,21 +282,18 @@ class TextSemanticDeduplicationWorkflow:
         pipeline.add_stage(embedding_stage)
 
         # Writer stage
-        if self.output_filetype == "parquet":
-            writer = ParquetWriter(
-                path=self.embeddings_path,
-                fields=[self.id_field, self.embedding_field] + (self.metadata_fields or []),
-                write_kwargs=self.cache_kwargs,
-            )
-        else:
-            msg = f"Output filetype {self.output_filetype} not supported yet"
-            raise NotImplementedError(msg)
-
+        writer = ParquetWriter(
+            path=self.embeddings_path,
+            fields=[self.id_field, self.embedding_field] + (self.metadata_fields or []),
+            write_kwargs=self.cache_kwargs,
+        )
         pipeline.add_stage(writer)
 
         return pipeline.run(executor)
 
-    def _run_semantic_deduplication(self, executor: BaseExecutor) -> dict[str, Any]:
+    def _run_semantic_deduplication(
+        self, kmeans_executor: BaseExecutor, pairwise_executor: BaseExecutor
+    ) -> dict[str, Any]:
         """Run semantic deduplication stage."""
         if self.verbose:
             logger.debug("Starting semantic deduplication stage...")
@@ -334,7 +331,7 @@ class TextSemanticDeduplicationWorkflow:
             verbose=self.verbose,
         )
 
-        return workflow.run(pairwise_executor=executor)
+        return workflow.run(kmeans_executor=kmeans_executor, pairwise_executor=pairwise_executor)
 
     def _run_duplicate_removal(self, executor: BaseExecutor) -> list[Any]:
         """Run duplicate removal stage."""
@@ -410,7 +407,9 @@ class TextSemanticDeduplicationWorkflow:
         logger.info("=" * 80)
 
     def run(  # noqa: C901, PLR0912, PLR0915
-        self, executor: BaseExecutor | tuple[BaseExecutor, BaseExecutor, BaseExecutor] | None = None
+        self,
+        streaming_executor: BaseExecutor | tuple[BaseExecutor, BaseExecutor, BaseExecutor] | None = None,
+        batch_executor: BaseExecutor | None = None,
     ) -> dict[str, Any]:
         """
         Run the complete text semantic deduplication workflow.
@@ -419,20 +418,26 @@ class TextSemanticDeduplicationWorkflow:
             Dictionary with results and timing information from all stages
         """
 
-        if isinstance(executor, tuple):
-            if len(executor) != 3:  # noqa: PLR2004
-                msg = f"Expected 3 executors in tuple, got {len(executor)}"
+        if isinstance(streaming_executor, tuple):
+            if len(streaming_executor) != 3:  # noqa: PLR2004
+                msg = f"Expected 3 executors in tuple, got {len(streaming_executor)}"
                 raise ValueError(msg)
-            embedding_executor, pairwise_executor, removal_executor = executor
+            embedding_executor, pairwise_executor, removal_executor = streaming_executor
         else:
             # Use same executor for all stages
-            if executor is None:
+            if streaming_executor is None:
                 from nemo_curator.backends.xenna import XennaExecutor
 
-                executor = XennaExecutor()
-            embedding_executor = pairwise_executor = removal_executor = executor
+                streaming_executor = XennaExecutor()
+            embedding_executor = pairwise_executor = removal_executor = streaming_executor
+
+        if batch_executor is None:
+            from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+
+            batch_executor = RayActorPoolExecutor()
 
         # Expose executors as attributes for logging and downstream access
+        self.kmeans_executor = batch_executor
         self.embedding_executor = embedding_executor
         self.pairwise_executor = pairwise_executor
         self.removal_executor = removal_executor
@@ -478,7 +483,9 @@ class TextSemanticDeduplicationWorkflow:
 
             # Stage 2: Semantic deduplication
             semantic_start_time = time.time()
-            semantic_results = self._run_semantic_deduplication(pairwise_executor)
+            semantic_results = self._run_semantic_deduplication(
+                kmeans_executor=self.kmeans_executor, pairwise_executor=self.pairwise_executor
+            )
             semantic_end_time = time.time()
             semantic_time = semantic_end_time - semantic_start_time
 

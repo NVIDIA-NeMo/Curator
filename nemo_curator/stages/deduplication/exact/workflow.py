@@ -19,6 +19,7 @@ from typing import Any, Literal
 from loguru import logger
 
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+from nemo_curator.backends.utils import merge_executor_configs, warn_on_env_var_override
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.deduplication.exact.identification import ExactDuplicateIdentification
 from nemo_curator.stages.deduplication.id_generator import (
@@ -164,7 +165,9 @@ class ExactDeduplicationWorkflow:
             msg = "input_path to the dataset must be provided if initial_tasks are not provided manually."
             raise ValueError(msg)
 
-    def run(self, initial_tasks: list[FileGroupTask] | None = None) -> None:
+    def run(
+        self, initial_tasks: list[FileGroupTask] | None = None, executor: RayActorPoolExecutor | None = None
+    ) -> None:
         """Run the deduplication pipeline.
 
         Args:
@@ -173,7 +176,15 @@ class ExactDeduplicationWorkflow:
             If not provided, the pipeline will generate the input tasks based on the input_dir and input_file_extensions.
         """
         self._validate_initial_tasks(initial_tasks)
-        executor = RayActorPoolExecutor(config=self.executor_config)
+        if executor is None:
+            executor = RayActorPoolExecutor(config=self.executor_config)
+        else:
+            if not isinstance(executor, RayActorPoolExecutor):
+                msg = "Executor must be an instance of RayActorPoolExecutor."
+                raise ValueError(msg)
+            previous_config = executor.config
+            executor.config = merge_executor_configs(executor.config, self.executor_config)
+            warn_on_env_var_override(previous_config, executor.config)
         if self.assign_id:
             try:
                 create_id_generator_actor()

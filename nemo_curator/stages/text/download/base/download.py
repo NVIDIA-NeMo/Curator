@@ -128,12 +128,12 @@ class DocumentDownloadStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     This allows the download step to scale independently from iteration/extraction.
     """
 
-    _resources = Resources(cpus=0.5)
+    resources = Resources(cpus=0.5)
     downloader: DocumentDownloader
-    _batch_size = None
+    batch_size = None
 
     def __post_init__(self):
-        self._name = f"download_{self.downloader.__class__.__name__.lower()}"
+        self.name = f"download_{self.downloader.__class__.__name__.lower()}"
 
     def inputs(self) -> tuple[list[str], list[str]]:
         """Define input requirements - expects FileGroupTask with URLs."""

@@ -21,13 +21,13 @@ Wikipedia releases compressed dumps of all its content in XML format twice per m
 The Wikipedia pipeline in Curator consists of four stages:
 
 1. **URL Generation**: Automatically discovers Wikipedia dump URLs for the specified language and date
-2. **Download**: Downloads compressed .bz2 dump files using `wget`
+2. **Download**: Downloads compressed `.bz2` dump files using `wget`
 3. **Iteration**: Parses XML content and extracts individual articles
 4. **Extraction**: Cleans Wikipedia markup and converts to plain text
 
 ## Before You Start
 
-Wikipedia publishes new dumps around the **first** and **twentieth** of each month. Refer to the English Wikipedia dumps index at `https://dumps.wikimedia.org/enwiki/` for available dates.
+Wikipedia publishes new dumps around the **first** and **twentieth** of each month. Refer to the English Wikipedia dumps index at [https://dumps.wikimedia.org/enwiki/](https://dumps.wikimedia.org/enwiki/) for available dates.
 
 Curator uses `wget` to download Wikipedia dumps. You must have `wget` installed on your system:
 
@@ -42,65 +42,46 @@ Curator uses `wget` to download Wikipedia dumps. You must have `wget` installed 
 Here's how to download and extract Wikipedia data using Curator:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.download import WikipediaDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
-# Create the Wikipedia processing stage
-wikipedia_stage = WikipediaDownloadExtractStage(
-    language="en",
-    download_dir="./wikipedia_downloads",
-    dump_date="20240401",  # Optional: specific dump date (YYYYMMDD format)
-    url_limit=5,           # Optional: limit number of dump files (useful for testing)
-    record_limit=1000,     # Optional: limit articles per dump file
-    verbose=True
-)
-
-# Create writer stage to save results
-writer_stage = JsonlWriter(
-    path="./wikipedia_output"
-)
+# Initialize Ray client
+ray_client = RayClient()
+ray_client.start()
 
 # Create and configure pipeline
 pipeline = Pipeline(
     name="wikipedia_pipeline",
     description="Download and process Wikipedia dumps"
 )
+
+# Create the Wikipedia processing stage
+wikipedia_stage = WikipediaDownloadExtractStage(
+    language="en",
+    download_dir="./wikipedia_downloads",
+    dump_date=None,        # None uses latest dump
+    url_limit=5,           # Optional: limit number of dump files (useful for testing)
+    record_limit=1000,     # Optional: limit articles per dump file
+    verbose=True
+)
 pipeline.add_stage(wikipedia_stage)
+
+# Create writer stage to save results
+writer_stage = JsonlWriter(
+    path="./wikipedia_output"
+)
 pipeline.add_stage(writer_stage)
 
 # Execute the pipeline
 results = pipeline.run()
+
+# Stop Ray client
+ray_client.stop()
 ```
 
 For executor options and configuration, refer to {ref}`reference-execution-backends`.
-
-### Multi-Language Processing
-
-You can process several languages by creating separate pipelines:
-
-```python
-languages = ["en", "es", "fr", "de"]
-
-for lang in languages:
-    # Create language-specific pipeline
-    wikipedia_stage = WikipediaDownloadExtractStage(
-        language=lang,
-        download_dir=f"./downloads/{lang}",
-        dump_date="20240401"
-    )
-
-    writer_stage = JsonlWriter(
-        path=f"./output/{lang}"
-    )
-
-    pipeline = Pipeline(name=f"wikipedia_{lang}")
-    pipeline.add_stage(wikipedia_stage)
-    pipeline.add_stage(writer_stage)
-
-    # Execute
-    results = pipeline.run()
-```
 
 ### Parameters
 
@@ -119,7 +100,7 @@ for lang in languages:
 * - `download_dir`
   - str
   - "./wikipedia_downloads"
-  - Directory to store downloaded .bz2 files
+  - Directory to store downloaded `.bz2` files
 * - `dump_date`
   - Optional[str]
   - None
@@ -150,13 +131,9 @@ for lang in languages:
   - How often to log progress during article processing
 ```
 
-### Known Limitations
-
-Parsing relies on `mwparserfromhell`. Complex templates might not be fully rendered, so template-heavy pages can yield incomplete text. Customize the extractor if you need different behavior.
-
 ## Output Format
 
-The processed Wikipedia articles become JSONL files, with each line containing a JSON object with these fields:
+The processed Wikipedia articles become `DocumentBatch` objects, with each line containing the following fields:
 
 - `text`: The cleaned main text content of the article
 - `title`: The title of the Wikipedia article

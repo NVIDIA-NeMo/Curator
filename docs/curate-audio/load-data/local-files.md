@@ -16,7 +16,7 @@ Load audio files from local directories by creating custom manifests that refere
 
 ## Overview
 
-To process local audio files with NeMo Curator, you need to create a manifest file that lists your audio files and their metadata. NeMo Curator doesn't provide automatic audio file discovery - you must create a JSONL manifest first.
+To process local audio files with NeMo Curator, you need to create a manifest file that lists your audio files and their metadata. NeMo Curator does not provide automatic audio file discovery - you must create a JSONL manifest first.
 
 ## Supported Audio Formats
 
@@ -45,26 +45,26 @@ import json
 
 def create_audio_manifest(audio_dir: str, manifest_path: str):
     """Create a basic manifest for local audio files."""
-    
+
     manifest_entries = []
-    
+
     # Find all audio files in directory
     for filename in os.listdir(audio_dir):
         if filename.endswith(('.wav', '.flac', '.mp3', '.ogg')):
             audio_path = os.path.abspath(os.path.join(audio_dir, filename))
-            
+
             # Basic entry - ASR will generate transcriptions
             entry = {
                 "audio_filepath": audio_path,
-                "text": ""  # Empty - will be filled by ASR inference
+                "text": ""  # Empty - will be filled by ASR inference based on pred_text_key
             }
             manifest_entries.append(entry)
-    
+
     # Write manifest file
     with open(manifest_path, 'w') as f:
         for entry in manifest_entries:
             f.write(json.dumps(entry) + '\n')
-    
+
     print(f"Created manifest with {len(manifest_entries)} entries: {manifest_path}")
 
 # Usage
@@ -115,23 +115,23 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def process_local_audio_manifest(manifest_path: str, output_dir: str):
     """Process local audio files using a manifest."""
-    
+
     pipeline = Pipeline(name="local_audio_processing")
-    
+
     # Load manifest
     pipeline.add_stage(JsonlReader(file_paths=manifest_path))
-    
+
     # ASR processing
     pipeline.add_stage(InferenceAsrNemoStage(
         model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
     ))
-    
+
     # Calculate duration and filter
     pipeline.add_stage(GetAudioDurationStage(
         audio_filepath_key="audio_filepath",
         duration_key="duration"
     ))
-    
+
     # Keep files between 1-30 seconds
     pipeline.add_stage(PreserveByValueStage(
         input_value_key="duration",
@@ -143,11 +143,11 @@ def process_local_audio_manifest(manifest_path: str, output_dir: str):
         target_value=30.0,
         operator="le"
     ))
-    
+
     # Export results
     pipeline.add_stage(AudioToDocumentStage())
     pipeline.add_stage(JsonlWriter(path=output_dir))
-    
+
     # Execute pipeline
     pipeline.run()
 
@@ -166,40 +166,40 @@ import json
 
 def create_manifest_with_transcripts(audio_dir: str, transcript_dir: str, manifest_path: str):
     """Create manifest pairing audio files with existing transcriptions."""
-    
+
     manifest_entries = []
-    
+
     for filename in os.listdir(audio_dir):
         if filename.endswith(('.wav', '.flac', '.mp3', '.ogg')):
             # Find matching transcript file
             base_name = os.path.splitext(filename)[0]
             transcript_file = os.path.join(transcript_dir, f"{base_name}.txt")
-            
+
             audio_path = os.path.abspath(os.path.join(audio_dir, filename))
-            
+
             # Read transcript if it exists
             text = ""
             if os.path.exists(transcript_file):
                 with open(transcript_file, 'r', encoding='utf-8') as f:
                     text = f.read().strip()
-            
+
             entry = {
                 "audio_filepath": audio_path,
                 "text": text
             }
             manifest_entries.append(entry)
-    
+
     # Write manifest
     with open(manifest_path, 'w') as f:
         for entry in manifest_entries:
             f.write(json.dumps(entry) + '\n')
-    
+
     print(f"Created manifest with {len(manifest_entries)} entries: {manifest_path}")
 
 # Usage
 create_manifest_with_transcripts(
     audio_dir="/path/to/audio/files",
-    transcript_dir="/path/to/transcripts", 
+    transcript_dir="/path/to/transcripts",
     manifest_path="paired_manifest.jsonl"
 )
 ```
@@ -232,25 +232,25 @@ import os
 
 def validate_manifest(manifest_path: str):
     """Check that all audio files in manifest exist."""
-    
+
     missing_files = []
     valid_count = 0
-    
+
     with open(manifest_path, 'r') as f:
         for line_num, line in enumerate(f, 1):
             entry = json.loads(line.strip())
             audio_path = entry.get("audio_filepath", "")
-            
+
             if not os.path.exists(audio_path):
                 missing_files.append(f"Line {line_num}: {audio_path}")
             else:
                 valid_count += 1
-    
+
     if missing_files:
         print(f"Warning: {len(missing_files)} missing files:")
         for missing in missing_files[:5]:  # Show first 5
             print(f"  {missing}")
-    
+
     print(f"Validation complete: {valid_count} valid files")
     return len(missing_files) == 0
 

@@ -17,13 +17,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import fsspec
-from fsspec.utils import infer_storage_options
+from fsspec.core import url_to_fs
 from loguru import logger
 
 import nemo_curator.stages.text.io.writer.utils as writer_utils
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.tasks import DocumentBatch, FileGroupTask
+from nemo_curator.utils.client_utils import is_remote_url
 from nemo_curator.utils.file_utils import check_output_mode
 
 
@@ -39,26 +39,14 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
     file_extension: str
     write_kwargs: dict[str, Any] = field(default_factory=dict)
     fields: list[str] | None = None
+    name: str = "BaseWriter"
     mode: Literal["ignore", "overwrite", "append", "error"] = "ignore"
-    _name: str = "BaseWriter"
-    _fs_path: str = field(init=False, repr=False, default="")
-    _protocol: str = field(init=False, repr=False, default="file")
-    _has_explicit_protocol: bool = field(init=False, repr=False, default=False)
     append_mode_implemented: bool = False
 
     def __post_init__(self):
-        # Determine protocol and normalized filesystem path
-        path_opts = infer_storage_options(self.path)
-        protocol = path_opts.get("protocol", "file")
-        self._protocol = protocol or "file"
-        # Track if the user provided an explicit URL-style protocol in the path
-        self._has_explicit_protocol = "://" in self.path
-        # Use the filesystem-native path (no protocol) for fs operations
-        self._fs_path = path_opts.get("path", self.path)
-
-        # Only pass user-provided storage options to fsspec
+        # Use fsspec's url_to_fs to get both filesystem and normalized path
         self.storage_options = (self.write_kwargs or {}).get("storage_options", {})
-        self.fs = fsspec.filesystem(protocol, **self.storage_options)
+        self.fs, self._fs_path = url_to_fs(self.path, **self.storage_options)
         check_output_mode(self.mode, self.fs, self._fs_path, append_mode_implemented=self.append_mode_implemented)
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -95,17 +83,20 @@ class BaseWriter(ProcessingStage[DocumentBatch, FileGroupTask], ABC):
         file_extension = self.get_file_extension()
         file_path = self.fs.sep.join([self._fs_path, f"{filename}.{file_extension}"])
 
+        # For remote URLs, restore the protocol prefix so downstream code can infer the filesystem
+        file_path_with_protocol = self.fs.unstrip_protocol(file_path) if is_remote_url(self.path) else file_path
+
         if self.fs.exists(file_path):
-            logger.debug(f"File {file_path} already exists, overwriting it")
+            logger.debug(f"File {file_path_with_protocol} already exists, overwriting it")
 
-        self.write_data(task, file_path)
-        logger.debug(f"Written {task.num_items} records to {file_path}")
+        self.write_data(task, file_path_with_protocol)
+        logger.debug(f"Written {task.num_items} records to {file_path_with_protocol}")
 
-        # Create FileGroupTask with written files
+        # Create FileGroupTask with written files using the full protocol-prefixed path
         return FileGroupTask(
             task_id=task.task_id,
             dataset_name=task.dataset_name,
-            data=[file_path],
+            data=[file_path_with_protocol],
             _metadata={
                 **task._metadata,
                 "format": self.get_file_extension(),

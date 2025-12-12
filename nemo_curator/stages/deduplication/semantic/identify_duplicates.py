@@ -45,9 +45,9 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
     def __post_init__(self):
         """Initialize parent class after dataclass initialization."""
         super().__init__()
-        self._name = "RemovalStage"
+        self.name = "RemovalStage"
 
-        self._batch_size = 10  # We want to load multiple clusters at once
+        self.batch_size = 10  # We want to load multiple clusters at once
 
         # Storage options
         self.read_kwargs = self.read_kwargs.copy() if self.read_kwargs is not None else {}
@@ -88,14 +88,23 @@ class IdentifyDuplicatesStage(ProcessingStage[FileGroupTask, FileGroupTask]):
             return []
 
         all_files = [file for task in tasks for file in task.data]
-        # Read using filters
-        df: pd.DataFrame = pd.read_parquet(
-            all_files,
-            storage_options=self.input_storage_options,
-            **self.read_kwargs,
-            filters=[("cosine_sim_score", ">=", 1.0 - self.eps)],
-            engine="pyarrow",
-        )[["id"]]  # TODO: If we want we can add other columns
+        # We read using filters
+        # We read file by file since list[files] when files are remote urls can fail
+        # See https://github.com/pandas-dev/pandas/issues/62922
+        df: pd.DataFrame = pd.concat(
+            (
+                pd.read_parquet(
+                    f,
+                    storage_options=self.input_storage_options,
+                    **self.read_kwargs,
+                    filters=[("cosine_sim_score", ">=", 1.0 - self.eps)],
+                    columns=["id"],
+                    engine="pyarrow",
+                )
+                for f in all_files
+            ),
+            ignore_index=True,
+        )
         # Write out sorted and with multiple row groups
         df.sort_values("id", inplace=True)  # noqa: PD002
 

@@ -62,7 +62,8 @@ dependencies = [
     "pyarrow",
     "ray[default,data]>=2.50",
     "torch",
-    "transformers==4.55.2",
+    "transformers",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -70,13 +71,12 @@ cuda12 = ["gpustat", "nvidia-ml-py"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==25.6.*",
-    "cugraph-cu12==25.6.*",
-    "cuml-cu12==25.6.*",
-    "nx-cugraph-cu12==25.6.*",
-    "pylibraft-cu12==25.6.*",
-    "raft-dask-cu12==25.6.*",
-    "rapidsmpf-cu12==25.6.*",
+    "cudf-cu12==25.10.*",
+    "cuml-cu12==25.10.*",
+    "pylibcugraph-cu12==25.10.*",
+    "pylibraft-cu12==25.10.*",
+    "raft-dask-cu12==25.10.*",
+    "rapidsmpf-cu12==25.10.*",
 ]
 
 audio_cpu = [
@@ -144,7 +144,7 @@ video_cuda12 = [
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.8.0",
     "torchaudio",
-    "vllm==0.10.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.11.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -167,6 +167,7 @@ test = [
     "pytest-cov",
     "pytest-loguru",
     "scikit-learn",
+    "s3fs", # added for testing cloud fs
 ]
 
 [tool.uv]
@@ -178,13 +179,15 @@ no-build-isolation-package = ["flash-attn"]
 constraint-dependencies = [
     "protobuf>=4.25.8", # Address CVE GHSA-8qvm-5x2c-j2w7
     "xgrammar>=0.1.21", # Address CVE GHSA-5cmr-4px5-23pc
+    "starlette>=0.49.1", # Address CVE GHSA-7f5h-v6xp-fcq8
+    "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
 ]
 override-dependencies = [
     "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
-    "transformers==4.55.2",
+    "transformers>=4.55.2",
 ]
 
 

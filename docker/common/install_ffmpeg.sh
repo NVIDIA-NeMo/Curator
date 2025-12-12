@@ -62,7 +62,7 @@ cd /tmp/nv-codec-headers-${NVCODEC_VERSION}
 make
 make install
 
-# INSTALL FFMPEG
+# Install FFMPEG
 wget -O /tmp/ffmpeg-snapshot.tar.bz2 https://www.ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.bz2
 tar xjvf /tmp/ffmpeg-snapshot.tar.bz2 -C /tmp/
 cd /tmp/ffmpeg-${FFMPEG_VERSION}
