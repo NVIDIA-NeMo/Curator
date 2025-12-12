@@ -1,0 +1,84 @@
+---
+alwaysApply: true
+---
+
+# NeMo Curator Coding Standards
+
+## Linting and Formatting
+
+The project uses **Ruff** for linting and formatting with line length of 119 characters.
+
+## Key Style Rules
+
+### Allowed Patterns
+
+- ✅ Print statements (T20 ignored)
+- ✅ Boolean arguments in functions (FBT ignored)
+- ✅ `df` as variable name for DataFrames (PD901 ignored)
+- ✅ TODOs without author/link (TD002, TD003 ignored)
+- ✅ Long exception messages (TRY003 ignored)
+- ✅ Accessing private attributes (SLF001 ignored)
+- ✅ Branching after return (RET505-508 ignored)
+
+### Required Patterns
+
+- ❌ No docstrings required (D ignored)
+- ❌ No pathlib enforcement (PTH ignored)
+- ❌ No logging enforcement (G ignored)
+- ✅ Type annotations for functions (except `*args`, `**kwargs`, special methods)
+
+## File-Specific Exceptions
+
+### `examples/` directory
+- No `__init__.py` required (INP001)
+
+### `tests/` directory
+- Allow assertions (S101)
+- Allow magic values (PLR2004)
+- No return type annotations required (ANN201)
+
+### `tutorials/` directory
+- No `__init__.py` required (INP001)
+- Ignore Unicode complaint (PLE2515)
+
+## Copyright Header
+
+All non-empty Python files must include the NVIDIA copyright header:
+
+```python
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+```
+
+## Python Version Support
+
+Supports Python 3.10, 3.11, and 3.12 (requires >=3.10, <3.13)
+
+## Loguru
+
+NeMo Curator uses loguru for logging:
+
+```python
+from loguru import logger
+```
+
+Common uses include `logger.info`, `logger.warning`, and `logger.error`.
+
+## PyTest Standards
+
+All changes to NeMo Curator's source code must be accompanied with relevant tests. Tests which require a GPU and cannot be run on a CPU-only machine must be marked with `@pytest.mark.gpu`.
+
+NeMo Curator enforces 80% PyTest coverage within the `nemo_curator/` directory.
+
+For straightforward navigation purposes, the `tests/` directory structure matches the `nemo_curator/` directory structure.
