@@ -78,7 +78,7 @@ class ClipTranscodingStage(ProcessingStage[VideoTask, VideoTask]):
         if self.encoder == "h264_nvenc" or self.use_hwaccel:
             if self.nb_streams_per_gpu > 0:
                 # Assume that we have same type of GPUs
-                self._resources = Resources(gpus=1.0 / self.nb_streams_per_gpu)
+                self.resources = Resources(gpus=1.0 / self.nb_streams_per_gpu)
             else:
                 self.resources = Resources(gpus=1)
         else:
