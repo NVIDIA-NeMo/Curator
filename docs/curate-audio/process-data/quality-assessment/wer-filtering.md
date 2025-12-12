@@ -139,9 +139,9 @@ Conversational speech typically has higher WER due to informal language, disflue
 ```python
 # More lenient thresholds for conversational speech
 conversational_wer_config = {
-    "excellent_threshold": 15.0,  # vs. 10.0 for read speech
-    "good_threshold": 35.0,       # vs. 25.0 for read speech  
-    "acceptable_threshold": 60.0   # vs. 50.0 for read speech
+    "excellent_threshold": 15.0,  # compared to 10.0 for read speech
+    "good_threshold": 35.0,       # compared to 25.0 for read speech  
+    "acceptable_threshold": 60.0   # compared to 50.0 for read speech
 }
 
 conversational_filter = PreserveByValueStage(
