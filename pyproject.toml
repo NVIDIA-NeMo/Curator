@@ -71,12 +71,12 @@ cuda12 = ["gpustat", "nvidia-ml-py"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
-    "cudf-cu12==25.10.*",
-    "cuml-cu12==25.10.*",
-    "pylibcugraph-cu12==25.10.*",
-    "pylibraft-cu12==25.10.*",
-    "raft-dask-cu12==25.10.*",
-    "rapidsmpf-cu12==25.10.*",
+    "cudf-cu12==25.12.*",
+    "cuml-cu12==25.12.*",
+    "pylibcugraph-cu12==25.12.*",
+    "pylibraft-cu12==25.12.*",
+    "raft-dask-cu12==25.12.*",
+    "rapidsmpf-cu12==25.12.*",
 ]
 
 audio_cpu = [
