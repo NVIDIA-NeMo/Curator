@@ -132,8 +132,67 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
+        # Check if CPU test already failed before starting build
+        check_cpu_failures() {
+          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
+        }
+        
+        echo "DEBUG: Initial CPU failure check..."
+        FAILED=$(check_cpu_failures)
+        echo "DEBUG: Failed CPU tests = $FAILED"
+        if [ "$FAILED" -gt 0 ]; then
+          echo "::error::CPU test already failed - skipping GPU test"
+          exit 1
+        fi
+        
+        # Start background monitor to cancel build if CPU test fails
+        # Write PID to file for reliable cleanup ($BASHPID gives actual subshell PID, not parent's $$)
+        MONITOR_PID_FILE="/tmp/build_monitor_$RUN_ID.pid"
+        (
+          echo $BASHPID > "$MONITOR_PID_FILE"
+          while true; do
+            sleep 20
+            FAILED_COUNT=$(check_cpu_failures)
+            echo "[MONITOR $(date +%H:%M:%S)] Checked - failed=$FAILED_COUNT" >> /tmp/cpu_monitor_$RUN_ID.log
+            if [ "$FAILED_COUNT" -gt 0 ]; then
+              echo "[MONITOR] DETECTED FAILURE - KILLING BUILD" >> /tmp/cpu_monitor_$RUN_ID.log
+              echo "::error::CPU test failed during Docker build - cancelling"
+              # Graceful stop first, then force if needed
+              pkill -f "docker build" 2>/dev/null || true
+              sleep 2
+              pkill -9 -f "docker build" 2>/dev/null || true
+              rm -f "$MONITOR_PID_FILE"
+              exit 1
+            fi
+          done
+        ) &
+        
+        # Ensure cleanup on exit (normal, error, or signal)
+        cleanup_monitor() {
+          if [ -f "$MONITOR_PID_FILE" ]; then
+            PID=$(cat "$MONITOR_PID_FILE")
+            # Check process exists before killing, use process group kill
+            if kill -0 "$PID" 2>/dev/null; then
+              kill -- -$PID 2>/dev/null || kill "$PID" 2>/dev/null || true
+            fi
+            rm -f "$MONITOR_PID_FILE"
+          fi
+        }
+        trap cleanup_monitor EXIT
+        
         docker build -f docker/Dockerfile -t ray-curator .
+        BUILD_EXIT=$?
+        
+        echo "DEBUG: Build completed with exit code $BUILD_EXIT"
+        echo "DEBUG: Monitor log:"
+        cat /tmp/cpu_monitor_$RUN_ID.log 2>/dev/null || echo "No monitor log found"
+        
+        exit $BUILD_EXIT
 
     - name: Start container
       shell: bash
@@ -191,13 +250,74 @@ runs:
     - name: Run main script
       uses: nick-fields/retry@v3
       id: run-main-script
+      env:
+        GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        CONTAINER_NAME: nemo_container_${{ github.run_id }}
       with:
         timeout_seconds: ${{ steps.create.outputs.timeout_in_seconds }}
         max_attempts: 3
         shell: bash
         retry_on: timeout
-        command: /bin/bash job.sh
         on_retry_command: /bin/bash retry_job.sh
+        command: |
+          # Helper function to check CPU test failures
+          check_cpu_failures() {
+            curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+              | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
+          }
+          
+          # Cleanup any orphaned monitors from previous retry attempts
+          MONITOR_PID_FILE="/tmp/test_monitor_$RUN_ID.pid"
+          if [ -f "$MONITOR_PID_FILE" ]; then
+            PID=$(cat "$MONITOR_PID_FILE")
+            if kill -0 "$PID" 2>/dev/null; then
+              kill -- -$PID 2>/dev/null || kill "$PID" 2>/dev/null || true
+            fi
+            rm -f "$MONITOR_PID_FILE"
+          fi
+          
+          # Check if CPU test already failed
+          if [ "$(check_cpu_failures)" -gt 0 ]; then
+            echo "::error::CPU test already failed - aborting GPU test"
+            exit 1
+          fi
+          
+          # Start background monitor to cancel test if CPU fails
+          # Write PID to file for reliable cleanup across retries ($BASHPID gives actual subshell PID)
+          (
+            echo $BASHPID > "$MONITOR_PID_FILE"
+            while true; do
+              sleep 20
+              if [ "$(check_cpu_failures)" -gt 0 ]; then
+                echo "::error::CPU test failed - stopping GPU test"
+                # Graceful stop first
+                docker stop $CONTAINER_NAME 2>/dev/null || true
+                rm -f "$MONITOR_PID_FILE"
+                exit 1
+              fi
+            done
+          ) &
+          
+          # Ensure cleanup on exit (normal, error, or signal)
+          cleanup_monitor() {
+            if [ -f "$MONITOR_PID_FILE" ]; then
+              PID=$(cat "$MONITOR_PID_FILE")
+              # Check process exists before killing, use process group kill
+              if kill -0 "$PID" 2>/dev/null; then
+                kill -- -$PID 2>/dev/null || kill "$PID" 2>/dev/null || true
+              fi
+              rm -f "$MONITOR_PID_FILE"
+            fi
+          }
+          trap cleanup_monitor EXIT
+          
+          /bin/bash job.sh
+          TEST_EXIT_CODE=$?
+          
+          exit $TEST_EXIT_CODE
 
     - name: Check result
       id: check

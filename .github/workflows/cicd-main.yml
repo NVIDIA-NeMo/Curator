@@ -177,6 +177,11 @@ jobs:
       - name: Run tests ${{ matrix.folder }} (CPU)
         timeout-minutes: 40
         run: |
+          # TEMPORARY: Force fail to test GPU cancel mechanism - REMOVE AFTER TESTING
+          if [ "${{ matrix.folder }}" == "core" ]; then
+            echo "Forcing failure for testing GPU cancel"
+            exit 1
+          fi
           sed -i "/InternVideo/d" .gitignore
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --group test
           uv add InternVideo/InternVideo2/multi_modality
