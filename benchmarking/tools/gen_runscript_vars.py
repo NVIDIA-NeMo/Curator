@@ -40,7 +40,7 @@ _TB = 1024 * _GB
 _max_container_memory_bytes = 1 * _TB
 _shm_size_container_memory_percentage = 0.5  # 50%
 
-DOCKER_IMAGE = os.environ.get("DOCKER_IMAGE", "nemo_curator_benchmarking:latest")
+CURATOR_BENCHMARKING_IMAGE = os.environ.get("CURATOR_BENCHMARKING_IMAGE", "nemo_curator_benchmarking:latest")
 GPUS = os.environ.get("GPUS", "all")
 HOST_CURATOR_DIR = os.environ.get("HOST_CURATOR_DIR", str(this_script_path.parent.parent.absolute()))
 CURATOR_BENCHMARKING_DEBUG = os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0")
@@ -66,7 +66,7 @@ def print_help(script_name: str) -> None:
 
   Optional environment variables to override config and defaults:
       GPUS                          Value for --gpus option to docker run (using: {GPUS}).
-      DOCKER_IMAGE                  Docker image to use (using: {DOCKER_IMAGE}).
+      CURATOR_BENCHMARKING_IMAGE                  Docker image to use (using: {CURATOR_BENCHMARKING_IMAGE}).
       HOST_CURATOR_DIR              Curator repo path used with --use-host-curator (see above) (using: {HOST_CURATOR_DIR}).
       CURATOR_BENCHMARKING_DEBUG    Set to 1 for debug mode (regular output, possibly more in the future) (using: {CURATOR_BENCHMARKING_DEBUG}).
     """)
@@ -184,7 +184,7 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
     # Build and return the string to eval in bash.
     eval_str = ""
     eval_str += f"BASH_ENTRYPOINT_OVERRIDE={bash_entrypoint_override}\n"
-    eval_str += f"DOCKER_IMAGE={DOCKER_IMAGE}\n"
+    eval_str += f"CURATOR_BENCHMARKING_IMAGE={CURATOR_BENCHMARKING_IMAGE}\n"
     eval_str += f"GPUS={GPUS}\n"
     eval_str += f"CONTAINER_MEMORY_BYTES={container_memory_bytes}\n"
     eval_str += f"SHM_SIZE_BYTES={shm_size_bytes}\n"

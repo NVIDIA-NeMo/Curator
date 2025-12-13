@@ -33,7 +33,7 @@ _post_template = """
       "type": "header",
       "text": {
         "type": "plain_text",
-        "text": "Curator Benchmark Summary"
+        "text": "Curator Benchmark Summary $SESSION_NAME"
       }
     },
     {
@@ -123,6 +123,7 @@ class SlackSink(Sink):
             "REPORT_JSON_TEXT": "REPORT_JSON_TEXT",
             "GOOGLE_DRIVE_LINK": "https://google.com",
             "EXECUTIVE_SUMMARY": " ",
+            "SESSION_NAME": f"- {self.session_name}" if self.session_name else "",
         }
         indent = "-    "  # start with a dash since leading whitespace is stripped
 
