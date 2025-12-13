@@ -40,7 +40,7 @@ docker build \
   ${CURATOR_DIR}
 
 if ${TAG_AS_LATEST}; then
-  # Tag image as <name>:latest, where <name> is the part of NEMO_CURATOR_IMAGE before the colon
+  # Tag image as <name>:latest, where <name> is the part of CURATOR_IMAGE before the colon
   docker tag "${CURATOR_IMAGE}" "${CURATOR_IMAGE%%:*}:latest"
 fi
 
@@ -49,7 +49,7 @@ docker build \
   -f ${CURATOR_DIR}/benchmarking/Dockerfile \
   --target nemo_curator_benchmarking \
   --tag=${CURATOR_BENCHMARKING_IMAGE} \
-  --build-arg NEMO_CURATOR_IMAGE=${CURATOR_IMAGE} \
+  --build-arg CURATOR_IMAGE=${CURATOR_IMAGE} \
   ${CURATOR_DIR}
 
 if ${TAG_AS_LATEST}; then
