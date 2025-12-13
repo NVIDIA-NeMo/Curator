@@ -66,7 +66,7 @@ def print_help(script_name: str) -> None:
 
   Optional environment variables to override config and defaults:
       GPUS                          Value for --gpus option to docker run (using: {GPUS}).
-      CURATOR_BENCHMARKING_IMAGE                  Docker image to use (using: {CURATOR_BENCHMARKING_IMAGE}).
+      CURATOR_BENCHMARKING_IMAGE    Docker image to use (using: {CURATOR_BENCHMARKING_IMAGE}).
       HOST_CURATOR_DIR              Curator repo path used with --use-host-curator (see above) (using: {HOST_CURATOR_DIR}).
       CURATOR_BENCHMARKING_DEBUG    Set to 1 for debug mode (regular output, possibly more in the future) (using: {CURATOR_BENCHMARKING_DEBUG}).
     """)
