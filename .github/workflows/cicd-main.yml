@@ -28,7 +28,7 @@ concurrency:
 permissions:
   id-token: write
   contents: read
-  actions: write  # Required for gh run cancel
+  actions: read  # Required for gh run view
 
 env:
   UV_HTTP_TIMEOUT: 60

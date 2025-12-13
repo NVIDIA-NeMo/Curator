@@ -128,11 +128,44 @@ runs:
         path: NeMo-Curator
         submodules: recursive
 
+    - name: Setup CPU failure monitor
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+      run: |
+        cat > /tmp/cpu_monitor.sh << 'EOF'
+        cpu_test_failed() {
+          [ "$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo 0)" -gt 0 ]
+        }
+        start_cpu_monitor() {  # Usage: start_cpu_monitor "kill_cmd" "name"
+          local pf="/tmp/cpu_monitor_${RUN_ID}_${2:-default}.pid"
+          # Clean up ALL monitors from this run (handles cross-step and retry cleanup)
+          for f in /tmp/cpu_monitor_${RUN_ID}_*.pid; do
+            [ -f "$f" ] && { local p=$(cat "$f"); kill -0 "$p" 2>/dev/null && kill "$p" 2>/dev/null; rm -f "$f"; }
+          done
+          cpu_test_failed && { echo "::error::CPU test already failed"; return 1; }
+          local ppid=$$  # Parent PID for orphan detection
+          ( while sleep 20; do
+              kill -0 $ppid 2>/dev/null || exit 0  # Self-terminate if parent died
+              cpu_test_failed && { eval "$1"; exit 1; }
+            done ) &
+          echo $! > "$pf"; trap "kill \$(cat '$pf' 2>/dev/null) 2>/dev/null; rm -f '$pf'" EXIT
+        }
+        EOF
+
     - name: Build container
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
+        source /tmp/cpu_monitor.sh
+        start_cpu_monitor 'pkill -f "docker build"; sleep 2; pkill -9 -f "docker build"' "build" || exit 1
         docker build -f docker/Dockerfile -t ray-curator .
 
     - name: Start container
@@ -191,13 +224,21 @@ runs:
     - name: Run main script
       uses: nick-fields/retry@v3
       id: run-main-script
+      env:
+        GH_TOKEN: ${{ inputs.PAT }}
+        RUN_ID: ${{ github.run_id }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        CONTAINER_NAME: nemo_container_${{ github.run_id }}
       with:
         timeout_seconds: ${{ steps.create.outputs.timeout_in_seconds }}
         max_attempts: 3
         shell: bash
         retry_on: timeout
-        command: /bin/bash job.sh
         on_retry_command: /bin/bash retry_job.sh
+        command: |
+          source /tmp/cpu_monitor.sh
+          start_cpu_monitor "docker stop $CONTAINER_NAME" "test" || exit 1
+          /bin/bash job.sh
 
     - name: Check result
       id: check
