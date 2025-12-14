@@ -96,8 +96,9 @@ jobs:
           echo "🧪 Testing lock file installation with Python ${{ matrix.python-version }}"
           echo "This ensures reproducible builds using uv.lock"
           
-          # Test lock file installation - this is what the Dockerfile uses
-          uv sync --link-mode copy --locked --extra all --all-groups
+          # Test lock file installation with CPU-only extras to avoid CUDA dependencies on CPU runners
+          # The Dockerfile uses --extra all, but that requires CUDA which isn't available on ubuntu-latest
+          uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --all-groups
           
           # Verify installation
           uv run python -c "from nemo_curator import package_info; print(f'✅ nemo_curator version: {package_info.__version__}')"
@@ -132,18 +133,18 @@ jobs:
           echo "UV_PROJECT_ENVIRONMENT=./venv" | tee -a "$GITHUB_ENV"
           echo "UV_LINK_MODE=copy" | tee -a "$GITHUB_ENV"
 
-      - name: Verify Python 3.10
-        shell: bash -x -e -u -o pipefail {0}
-        run: |
-          python --version
-          python -c "import sys; assert sys.version_info[:2] == (3, 10), f'Expected Python 3.10, got {sys.version_info[:2]}'"
-          echo "✅ Python 3.10 verified"
-
       - name: Install with uv + Python 3.10
         shell: bash -x -e -u -o pipefail {0}
         run: |
           echo "🧪 Testing uv + Python 3.10 installation"
-          uv sync --link-mode copy --locked --extra all --all-groups
+          # Use CPU-only extras to avoid CUDA dependencies on CPU runners
+          # This matches the pattern used in cicd-main.yml line 181
+          uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --all-groups
+          
+          # Verify Python version after sync
+          uv run python --version
+          uv run python -c "import sys; assert sys.version_info[:2] == (3, 10), f'Expected Python 3.10, got {sys.version_info[:2]}'"
+          echo "✅ Python 3.10 verified"
           
           # Verify installation
           uv run python -c "import nemo_curator; print('✅ Installation successful with uv + Python 3.10')"
