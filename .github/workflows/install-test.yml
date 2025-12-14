@@ -100,54 +100,21 @@ jobs:
           # The Dockerfile uses --extra all, but that requires CUDA which isn't available on ubuntu-latest
           uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --all-groups
           
+          # Verify Python version
+          uv run python --version
+          uv run python -c "import sys; expected = tuple(map(int, '${{ matrix.python-version }}'.split('.'))); assert sys.version_info[:2] == expected, f'Expected Python ${{ matrix.python-version }}, got {sys.version_info[:2]}'"
+          
           # Verify installation
           uv run python -c "from nemo_curator import package_info; print(f'✅ nemo_curator version: {package_info.__version__}')"
-          
-          echo "✅ Lock file installation successful"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Installation successful: Lock file installation successful with uv + Python ${{ matrix.python-version }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
       - name: Verify installation
         shell: bash -x -e -u -o pipefail {0}
         run: |
           uv run python -c "import nemo_curator; print('✅ nemo_curator imported successfully')"
           uv run python -c "from nemo_curator import package_info; print(f'✅ Package info: {package_info.__version__}')"
-
-  uv-python310-test:
-    needs: [pre-flight]
-    if: |
-      !(needs.pre-flight.outputs.docs_only == 'true')
-    runs-on: ubuntu-latest
-    name: UV + Python3.10 Installation Check
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up uv with Python 3.10
-        uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.10"
-
-      - name: Set environment variables
-        run: |
-          echo "UV_PROJECT_ENVIRONMENT=./venv" | tee -a "$GITHUB_ENV"
-          echo "UV_LINK_MODE=copy" | tee -a "$GITHUB_ENV"
-
-      - name: Install with uv + Python 3.10
-        shell: bash -x -e -u -o pipefail {0}
-        run: |
-          echo "🧪 Testing uv + Python 3.10 installation"
-          # Use CPU-only extras to avoid CUDA dependencies on CPU runners
-          # This matches the pattern used in cicd-main.yml line 181
-          uv sync --link-mode copy --locked --extra audio_cpu --extra text_cpu --extra video_cpu --all-groups
-          
-          # Verify Python version after sync
-          uv run python --version
-          uv run python -c "import sys; assert sys.version_info[:2] == (3, 10), f'Expected Python 3.10, got {sys.version_info[:2]}'"
-          echo "✅ Python 3.10 verified"
-          
-          # Verify installation
-          uv run python -c "import nemo_curator; print('✅ Installation successful with uv + Python 3.10')"
 
   pip-install-test:
     needs: [pre-flight]
@@ -194,7 +161,7 @@ jobs:
           pip show nemo-curator
 
   install-test-summary:
-    needs: [pre-flight, uv-lock-file-test, uv-python310-test, pip-install-test]
+    needs: [pre-flight, uv-lock-file-test, pip-install-test]
     runs-on: ubuntu-latest
     name: Install test summary
     if: |
