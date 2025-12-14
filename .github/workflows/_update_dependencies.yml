@@ -33,12 +33,19 @@ on:
         required: true
       SSH_PWD:
         required: true
+  workflow_dispatch:
+    inputs:
+      target-branch:
+        required: true
+        type: string
+        description: "The target branch to bump"
+        default: "main"
 
 jobs:
   pre-flight:
     runs-on: ubuntu-latest
     outputs:
-      bump-branch: bump-ci-container-${{ steps.ref.outputs.date }}-${{ inputs.target-branch }}
+      bump-branch: bump-ci-container-${{ steps.ref.outputs.date }}-${{ inputs.target-branch || github.event.inputs.target-branch }}
       date: ${{ steps.ref.outputs.date }}
     steps:
       - name: Get date
@@ -51,7 +58,7 @@ jobs:
     needs: [pre-flight]
     env:
       SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
-      TARGET_BRANCH: ${{ inputs.target-branch }}
+      TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
       - name: Install Azure CLI
         run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
@@ -115,7 +122,7 @@ jobs:
     environment: main
     env:
       SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
-      TARGET_BRANCH: ${{ inputs.target-branch }}
+      TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -151,14 +158,14 @@ jobs:
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
         env:
-          title: "chore(beep boop 🤖): Bump `uv.lock` (${{ inputs.target-branch}}) (${{ needs.pre-flight.outputs.date }})"
+          title: "chore(beep boop 🤖): Bump `uv.lock` (${{ inputs.target-branch || github.event.inputs.target-branch }}) (${{ needs.pre-flight.outputs.date }})"
         with:
           branch: ${{ env.SOURCE_BRANCH }}
           base: ${{ env.TARGET_BRANCH }}
           title: ${{ env.title }}
           token: ${{ secrets.PAT }}
           body: |
-            🚀 PR to bump `uv.lock` in `${{ inputs.target-branch }}`.  
+            🚀 PR to bump `uv.lock` in `${{ inputs.target-branch || github.event.inputs.target-branch }}`.  
 
             📝 Please remember the following to-do's before merge: 
             - [ ] Verify the presubmit CI  
