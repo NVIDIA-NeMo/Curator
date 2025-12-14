@@ -20,6 +20,10 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+from runner.entry import Entry
+from runner.session import Session
+from runner.sinks.sink import Sink
+
 # If this sink is not enabled this entire file will not be imported, so these
 # dependencies are only needed if the user intends to enable/use this sink.
 from loguru import logger
@@ -27,9 +31,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from pydrive2.auth import GoogleAuth
 from pydrive2.drive import GoogleDrive
 from pydrive2.files import ApiRequestError
-from runner.matrix import MatrixConfig, MatrixEntry
-from runner.sinks.sink import Sink
-
 
 class GdriveSink(Sink):
     def __init__(self, sink_config: dict[str, Any]):
@@ -39,7 +40,7 @@ class GdriveSink(Sink):
         self.enabled = self.sink_config.get("enabled", True)
         self.results: list[dict[str, Any]] = []
         self.session_name: str = None
-        self.matrix_config: MatrixConfig = None
+        self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
         self.drive_folder_id: str = None
         self.service_account_file: str = None
@@ -54,9 +55,9 @@ class GdriveSink(Sink):
         self.include_environment: bool = self.sink_config.get("include_environment", True)
         self.enhanced_naming: bool = self.sink_config.get("enhanced_naming", True)
 
-    def initialize(self, session_name: str, matrix_config: MatrixConfig, env_dict: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, session: Session, env_dict: dict[str, Any]) -> None:
         self.session_name = session_name
-        self.matrix_config = matrix_config
+        self.session = session
         self.env_dict = env_dict
         self.drive_folder_id = self.sink_config.get("drive_folder_id")
         if not self.drive_folder_id:
@@ -67,7 +68,7 @@ class GdriveSink(Sink):
             msg = "GdriveSink: No service account file configured"
             raise ValueError(msg)
 
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
+    def process_result(self, result_dict: dict[str, Any], entry: Entry) -> None:
         """Collect benchmark results for inclusion in the Google Drive archive."""
         if not self.enabled:
             return
@@ -81,7 +82,7 @@ class GdriveSink(Sink):
         # This reflects the different purposes: Slack does simple metric selection,
         # while GDrive does complex archive behavior configuration.
         benchmark_config = {}
-        if matrix_entry:
+        if entry:
             benchmark_config = matrix_entry.get_sink_data(self.name)
             logger.debug(f"GdriveSink: Benchmark '{matrix_entry.name}' config: {benchmark_config}")
 
