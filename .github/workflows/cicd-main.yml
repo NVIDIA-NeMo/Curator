@@ -124,7 +124,7 @@ jobs:
 
   cicd-cpu-tests:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.12"]
@@ -203,15 +203,9 @@ jobs:
             ./.coverage
           include-hidden-files: true
 
-      - name: Cancel workflow on failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh run cancel ${{ github.run_id }}
-
   cicd-gpu-tests:
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - script: L0_Unit_Test_GPU
