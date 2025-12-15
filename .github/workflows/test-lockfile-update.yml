@@ -13,7 +13,8 @@
 # limitations under the License.
 
 # This workflow tests the lock file update process used by dependabot.yml
-# It validates that uv lock --upgrade works correctly without creating actual PRs
+# It validates that uv lock --upgrade works correctly and creates a TEST PR to main
+# NOTE: This is for testing only - do not merge the created PR
 
 name: Test Lock File Update
 
@@ -27,15 +28,50 @@ on:
   workflow_dispatch:  # Allow manual triggering
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
+  pre-flight:
+    runs-on: ubuntu-latest
+    outputs:
+      test-branch: test-lockfile-update-${{ steps.ref.outputs.date }}-${{ steps.ref.outputs.sha }}
+      date: ${{ steps.ref.outputs.date }}
+    steps:
+      - name: Get date and sha
+        id: ref
+        run: |
+          echo "date=$(date +%F)" | tee -a "$GITHUB_OUTPUT"
+          echo "sha=$(echo $GITHUB_SHA | cut -c1-7)" | tee -a "$GITHUB_OUTPUT"
+
   test-lockfile-upgrade:
+    needs: [pre-flight]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+          submodules: recursive
+
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create test branch
+        env:
+          TEST_BRANCH: ${{ needs.pre-flight.outputs.test-branch }}
+        run: |
+          git checkout -b $TEST_BRANCH main
+          git push origin $TEST_BRANCH
+
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ needs.pre-flight.outputs.test-branch }}
           submodules: recursive
 
       - name: Set up uv
@@ -96,6 +132,56 @@ jobs:
           
           echo "✅ Lock file validation completed"
 
+      - name: Commit lock file changes
+        env:
+          TEST_BRANCH: ${{ needs.pre-flight.outputs.test-branch }}
+        run: |
+          git add uv.lock
+          git commit -m "test: Update lock file (TEST - do not merge)" || echo "No changes to commit"
+          git push origin $TEST_BRANCH
+
+  create-test-pr:
+    needs: [pre-flight, test-lockfile-upgrade]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: main
+
+      - name: Create Test PR
+        uses: peter-evans/create-pull-request@v6
+        id: create-pull-request
+        with:
+          branch: ${{ needs.pre-flight.outputs.test-branch }}
+          base: main
+          title: "🧪 TEST: Lock file update (${{ needs.pre-flight.outputs.date }}) - DO NOT MERGE"
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: |
+            🧪 **THIS IS A TEST PR - DO NOT MERGE** 🧪
+            
+            This PR was created by the test-lockfile-update workflow to validate the lock file update process.
+            
+            **Purpose:**
+            - Test that `uv lock --upgrade` works correctly
+            - Test that PR creation works end-to-end
+            - Validate the workflow matches `_update_dependencies.yml` behavior
+            
+            **What this validates:**
+            - ✅ uv setup works correctly
+            - ✅ uv lock --upgrade works in venv
+            - ✅ Lock file is generated/updated correctly
+            - ✅ Lock file validation works
+            - ✅ PR creation works
+            
+            **Action Required:**
+            - ❌ **DO NOT MERGE** - This is for testing only
+            - ✅ Review the changes to verify the workflow works
+            - ✅ Close this PR after validation
+          commit-message: "test: Update lock file (TEST - do not merge)"
+          signoff: false
+
       - name: Summary
         run: |
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -107,6 +193,9 @@ jobs:
           echo "  ✅ uv lock --upgrade works in venv"
           echo "  ✅ Lock file is generated/updated correctly"
           echo "  ✅ Lock file validation works"
+          echo "  ✅ PR creation works end-to-end"
           echo ""
-          echo "The dependabot workflow should work correctly for periodic lock file updates."
+          echo "Test PR created: ${{ steps.create-pull-request.outputs.pull-request-url }}"
+          echo ""
+          echo "⚠️  Remember: This is a TEST PR - do not merge it!"
 
