@@ -148,6 +148,11 @@ jobs:
         with:
           name: lock-file-${{ env.SOURCE_BRANCH }}
 
+      - name: Configure git for PR creation
+        run: |
+          git config --global user.name "${{ steps.gpg-action.outputs.name }}"
+          git config --global user.email "${{ steps.gpg-action.outputs.email }}"
+
       - name: Create Bump PR
         uses: peter-evans/create-pull-request@v6
         id: create-pull-request
