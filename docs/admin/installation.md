@@ -64,7 +64,6 @@ Install NeMo Curator from the Python Package Index using `uv` for proper depende
 3. Install NeMo Curator:
 
    ```bash
-   TODO: Fix this
    uv pip install torch wheel_stub psutil setuptools setuptools_scm
    echo "transformers==4.55.2" > override.txt
    uv pip install --extra-index-url https://pypi.nvidia.com --no-build-isolation "nemo-curator[all]" --override override.txt
@@ -85,14 +84,12 @@ cd Curator
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install with all extras using uv
-# TODO: Fix this
 uv sync --all-extras --all-groups
 ```
 
 Optional InternVideo2 installation steps:
 
 ```bash
-# TODO: Check this
 bash external/intern_video2_installation.sh
 uv add InternVideo/InternVideo2/multi_modality
 ```
@@ -105,10 +102,10 @@ NeMo Curator is available as a standalone container on NGC: https://catalog.ngc.
 
 ```bash
 # Pull the container from NGC
-docker pull nvcr.io/nvidia/nemo-curator:25.09
+docker pull nvcr.io/nvidia/nemo-curator:{{ container_version }}
 
 # Run the container with GPU support
-docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:25.09
+docker run --gpus all -it --rm nvcr.io/nvidia/nemo-curator:{{ container_version }}
 ```
 
 Alternatively, you can build the NeMo Curator container locally using the provided Dockerfile:
@@ -146,7 +143,6 @@ Use the maintained script in the repository to build and install `FFmpeg` with `
 - Script source: [docker/common/install_ffmpeg.sh](https://github.com/NVIDIA-NeMo/Curator/blob/main/docker/common/install_ffmpeg.sh)
 
 ```bash
-# TODO: Check this
 curl -fsSL https://raw.githubusercontent.com/NVIDIA-NeMo/Curator/main/docker/common/install_ffmpeg.sh -o install_ffmpeg.sh
 chmod +x install_ffmpeg.sh
 sudo bash install_ffmpeg.sh
@@ -159,7 +155,6 @@ sudo bash install_ffmpeg.sh
 Confirm that `FFmpeg` is on your `PATH` and that at least one H.264 encoder is available:
 
 ```bash
-# TODO: Check this
 ffmpeg -hide_banner -version | head -n 5
 ffmpeg -encoders | grep -E "h264_nvenc|libopenh264|libx264" | cat
 ```
@@ -177,7 +172,6 @@ Video processing includes optional support for InternVideo2. To install InternVi
 
 :::{tab-item} PyPI Installation
 ```bash
-# TODO: Check this
 # Clone and set up InternVideo2
 git clone https://github.com/OpenGVLab/InternVideo.git
 cd InternVideo
@@ -196,7 +190,6 @@ uv add InternVideo/InternVideo2/multi_modality
 
 :::{tab-item} Source Installation
 ```bash
-# TODO: Check this
 # Inside the NeMo Curator folder
 bash external/intern_video2_installation.sh
 uv add InternVideo/InternVideo2/multi_modality
@@ -225,22 +218,22 @@ NeMo Curator provides several installation extras to install only the components
   - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]`
   - GPU-accelerated text processing with RAPIDS
 * - **audio_cpu**
-  - `uv pip install nemo-curator[audio_cpu]`  # TODO: Check this
+  - `uv pip install nemo-curator[audio_cpu]`
   - CPU-only audio curation with NeMo Toolkit ASR
 * - **audio_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`  # TODO: Check this
+  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[audio_cuda12]`
   - GPU-accelerated audio curation
 * - **image_cpu**
-  - `uv pip install nemo-curator[image_cpu]`  # TODO: Check this
+  - `uv pip install nemo-curator[image_cpu]`
   - CPU-only image processing
 * - **image_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_cuda12]`  # TODO: Check this
+  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[image_cuda12]`
   - GPU-accelerated image processing with NVIDIA DALI
 * - **video_cpu**
-  - `uv pip install nemo-curator[video_cpu]`  # TODO: Check this
+  - `uv pip install nemo-curator[video_cpu]`
   - CPU-only video processing
 * - **video_cuda12**
-  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[video_cuda12]`  # TODO: Check this
+  - `uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[video_cuda12]`
   - GPU-accelerated video processing with CUDA libraries. Requires FFmpeg and additional build dependencies when using `uv`.
 ```
 

@@ -49,7 +49,7 @@ You can install NeMo Curator using one of the following methods:
 The simplest way to install NeMo Curator:
 
 ```bash
-uv pip install "nemo-curator[text_cuda12]"
+uv pip install --extra-index-url https://pypi.nvidia.com "nemo-curator[text_cuda12]"
 ```
 
 ```{note}
