@@ -142,7 +142,9 @@ runs:
             | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
         }
         
+        echo "DEBUG: Initial CPU failure check..."
         FAILED=$(check_cpu_failures)
+        echo "DEBUG: Failed CPU tests = $FAILED"
         if [ "$FAILED" -gt 0 ]; then
           echo "::error::CPU test already failed - skipping GPU test"
           exit 1
@@ -155,7 +157,10 @@ runs:
           echo $BASHPID > "$MONITOR_PID_FILE"
           while true; do
             sleep 20
-            if [ "$(check_cpu_failures)" -gt 0 ]; then
+            FAILED_COUNT=$(check_cpu_failures)
+            echo "[MONITOR $(date +%H:%M:%S)] Checked - failed=$FAILED_COUNT" >> /tmp/cpu_monitor_$RUN_ID.log
+            if [ "$FAILED_COUNT" -gt 0 ]; then
+              echo "[MONITOR] DETECTED FAILURE - KILLING BUILD" >> /tmp/cpu_monitor_$RUN_ID.log
               echo "::error::CPU test failed during Docker build - cancelling"
               # Graceful stop first, then force if needed
               pkill -f "docker build" 2>/dev/null || true
@@ -182,6 +187,10 @@ runs:
         
         docker build -f docker/Dockerfile -t ray-curator .
         BUILD_EXIT=$?
+        
+        echo "DEBUG: Build completed with exit code $BUILD_EXIT"
+        echo "DEBUG: Monitor log:"
+        cat /tmp/cpu_monitor_$RUN_ID.log 2>/dev/null || echo "No monitor log found"
         
         exit $BUILD_EXIT
 
