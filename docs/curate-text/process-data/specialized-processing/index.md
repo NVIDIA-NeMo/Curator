@@ -56,11 +56,16 @@ Specialized filters for programming content and source code
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
+from nemo_curator.stages.text.io.reader import JsonlReader
 
 # Filter Python code based on quality metrics
 code_pipeline = Pipeline(
     name="code_processing_pipeline",
     stages=[
+    JsonlReader(
+        file_paths="code_data/*.jsonl",
+        fields=["content"]
+    ),
     ScoreFilter(
         PythonCommentToCodeFilter(
             min_comment_to_code_ratio=0.01,
@@ -76,8 +81,7 @@ code_pipeline = Pipeline(
     )
 ])
 
-## NEED FIX: NameError: name 'code_dataset' is not defined
-filtered_code = code_pipeline(code_dataset)
+results = code_pipeline.run()
 ```
 
 :::

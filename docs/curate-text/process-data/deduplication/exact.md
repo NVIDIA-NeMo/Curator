@@ -33,24 +33,6 @@ This method targets character-for-character duplicates and is recommended for re
 - Ray cluster with GPU support (required for distributed processing)
 - Stable document identifiers for removal (either existing IDs or IDs assigned by the workflow)
 
-:::{dropdown} Adding Document IDs
-:icon: gear
-
-If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
-
-```python
-from nemo_curator.stages.text.modules import AddId
-from nemo_curator.pipeline import Pipeline
-
-pipeline = Pipeline(name="add_ids_for_dedup")
-pipeline.add_stage(
-    AddId(
-        id_field="doc_id",
-        id_prefix="corpus"  # Optional prefix
-    )
-)
-```
-
 For more details, refer to {ref}`text-process-data-add-id`.
 :::
 
@@ -65,8 +47,12 @@ Get started with exact deduplication using these examples:
 Identify duplicates, then remove them:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 # Step 1: Identify duplicates
 exact_workflow = ExactDeduplicationWorkflow(
@@ -99,7 +85,11 @@ removal_workflow.run()
 :::{tab-item} Minimal Example
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 exact_workflow = ExactDeduplicationWorkflow(
     input_path="input_data/",
@@ -164,21 +154,6 @@ Configure exact deduplication using these key parameters:
 :::{dropdown} Advanced Configuration
 :icon: gear
 
-**Cloud Storage**:
-
-```python
-workflow = ExactDeduplicationWorkflow(
-    input_path="s3://bucket/input/",
-    output_path="s3://bucket/output/",
-    read_kwargs={
-        "storage_options": {"key": "<access_key>", "secret": "<secret_key>"}
-    },
-    write_kwargs={
-        "storage_options": {"key": "<access_key>", "secret": "<secret_key>"}
-    },
-    # ... other parameters
-)
-```
 
 **Passing Environment Variables**:
 
@@ -197,7 +172,11 @@ env_vars = {
 After identifying duplicates, use `TextDuplicatesRemovalWorkflow` to remove them:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 removal_workflow = TextDuplicatesRemovalWorkflow(
     input_path="/path/to/input/data",

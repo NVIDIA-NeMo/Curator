@@ -45,8 +45,7 @@ pipeline.add_stage(reader)
 
 # Add filter stages for code quality
 pipeline.add_stage(ScoreFilter(
-    ## NEED FIX: TypeError: ScoreFilter.__init__() got an unexpected keyword argument 'score_fn' 
-    score_fn=PythonCommentToCodeFilter(
+    filter_obj=PythonCommentToCodeFilter(
         min_comment_to_code_ratio=0.01,
         max_comment_to_code_ratio=0.8
     ),
@@ -54,12 +53,12 @@ pipeline.add_stage(ScoreFilter(
     score_field="comment_ratio"
 ))
 pipeline.add_stage(ScoreFilter(
-    score_fn=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
+    filter_obj=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
     text_field="content",
     score_field="line_count"
 ))
 pipeline.add_stage(ScoreFilter(
-    score_fn=AlphaFilter(min_alpha_ratio=0.3),
+    filter_obj=AlphaFilter(min_alpha_ratio=0.3),
     text_field="content",
     score_field="alpha_ratio"
 ))

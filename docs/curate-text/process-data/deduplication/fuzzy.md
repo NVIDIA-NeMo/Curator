@@ -66,8 +66,12 @@ Get started with fuzzy deduplication using these examples:
 Identify duplicates, then remove them:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 # Step 1: Identify duplicates
 fuzzy_workflow = FuzzyDeduplicationWorkflow(
@@ -302,28 +306,6 @@ The workflow produces these output files:
 - **Best practices**: Clear cache between runs, use `input_blocksize="1GiB"`
 
 **Note**: Performance depends on hardware configuration, dataset characteristics, and parameter choices such as `bands_per_iteration`, `char_ngrams`, and `input_blocksize`.
-:::
-
-:::{dropdown} Advanced Usage
-:icon: code-square
-
-**Cloud storage configuration**:
-
-```python
-fuzzy_workflow = FuzzyDeduplicationWorkflow(
-    input_path="s3://bucket/input/",
-    cache_path="s3://bucket/cache/",
-    output_path="s3://bucket/output/",
-    read_kwargs={
-        "storage_options": {
-            "key": "<access_key>",
-            "secret": "<secret_key>",
-            "endpoint_url": "<endpoint_url>"
-        }
-    },
-    # ... other parameters
-)
-```
 :::
 
 For comparison with other deduplication methods and guidance on when to use fuzzy deduplication, refer to the {ref}`Deduplication overview <text-process-data-dedup>`.
