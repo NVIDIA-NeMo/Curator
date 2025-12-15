@@ -33,34 +33,6 @@ jobs:
   test-lockfile-upgrade:
     runs-on: linux-amd64-cpu16
     steps:
-      - name: Free up disk space BEFORE pulling container
-        run: |
-          echo "Disk space before cleanup:"
-          df -h
-          # Remove unnecessary files from the runner
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo rm -rf /opt/az
-          sudo rm -rf /usr/share/miniconda
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/lib/node_modules
-          sudo rm -rf /tmp/*
-          sudo rm -rf /var/tmp/*
-          sudo rm -rf ~/.cache
-          sudo rm -rf /var/cache/*
-          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo rm -rf /var/cache/apt/archives/*
-          sudo docker system prune -a -f --volumes
-          echo "Disk space after cleanup:"
-          df -h
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -72,35 +44,10 @@ jobs:
       - name: Build container (test)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCKER_BUILDKIT: 1
-          BUILDKIT_STEP_LOG_MAX_SIZE: 10000000
-          BUILDKIT_STEP_LOG_MAX_SPEED: 10000000
         run: |
           echo "🧪 Testing container build process"
-          echo "Disk space before Docker build:"
-          df -h
-          
-          # Clean up Docker right before building to maximize space
-          docker system prune -af --volumes || true
-          
-          echo "Docker disk usage before build:"
-          docker system df
-          
-          echo "Building container..."
-          docker build -f docker/Dockerfile -t ray-curator-test . || {
-            echo "❌ Build failed!"
-            echo "Disk space at failure:"
-            df -h
-            echo "Docker disk usage:"
-            docker system df
-            exit 1
-          }
-          
+          docker build -f docker/Dockerfile -t ray-curator-test .
           echo "✅ Container built successfully"
-          echo "Disk space after build:"
-          df -h
-          echo "Docker disk usage:"
-          docker system df
 
       - name: Test uv lock --upgrade in container
         run: |
