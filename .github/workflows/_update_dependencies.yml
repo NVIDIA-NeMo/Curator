@@ -91,9 +91,10 @@ jobs:
       - name: Azure ACR Login
         run: az acr login --name nemoci
 
-      - name: Checkout repo
+      - name: Checkout repo (TARGET_BRANCH for branch creation)
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.PAT }}
           ref: ${{ env.TARGET_BRANCH }}
           submodules: recursive
 
@@ -103,16 +104,24 @@ jobs:
         run: |
           docker build -f docker/Dockerfile -t ray-curator .
 
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Create bump branch if not exists
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
         run: |
           if ! git ls-remote --exit-code origin $SOURCE_BRANCH; then
             git checkout -b $SOURCE_BRANCH $TARGET_BRANCH
-            git push origin $SOURCE_BRANCH
+            git push https://token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $SOURCE_BRANCH
           fi
 
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.PAT }}
           ref: ${{ env.SOURCE_BRANCH }}
           submodules: recursive
 
