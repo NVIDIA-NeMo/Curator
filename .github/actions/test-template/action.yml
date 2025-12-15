@@ -145,11 +145,8 @@ runs:
         # Debug: Show what the API returns
         echo "DEBUG: Checking API response..."
         echo "DEBUG: RUN_ID=$RUN_ID, REPO=$GITHUB_REPOSITORY"
-        API_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+        API_RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
           "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
-        echo "DEBUG: Raw response (first 500 chars):"
-        echo "$API_RESPONSE" | head -c 500
-        echo ""
         echo "DEBUG: CPU test jobs and their status:"
         echo "$API_RESPONSE" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | {name: .name, status: .status, conclusion: .conclusion}]' 2>&1 || echo "jq parse failed"
         
