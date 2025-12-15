@@ -60,49 +60,12 @@ jobs:
       SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
-      - name: Free up disk space BEFORE pulling container
-        run: |
-          echo "Disk space before cleanup:"
-          df -h
-          # Remove unnecessary files from the runner
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo rm -rf /usr/local/share/boost
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-          sudo docker system prune -a -f
-          echo "Disk space after cleanup:"
-          df -h
-
-      - name: Install Azure CLI
-        run: curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Azure ACR Login
-        run: az acr login --name nemoci
-
       - name: Checkout repo (TARGET_BRANCH for branch creation)
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
           ref: ${{ env.TARGET_BRANCH }}
           submodules: recursive
-
-      - name: Build container
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          docker build -f docker/Dockerfile -t ray-curator .
 
       - name: Configure git
         run: |
@@ -125,17 +88,21 @@ jobs:
           ref: ${{ env.SOURCE_BRANCH }}
           submodules: recursive
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set environment variables
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=./venv" | tee -a "$GITHUB_ENV"
+          echo "UV_LINK_MODE=copy" | tee -a "$GITHUB_ENV"
+
       - name: Upgrade lock file
         env:
           GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          docker run \
-            --rm \
-            -v $(pwd):/workspace \
-            -w /workspace \
-            -e GH_TOKEN=${{ secrets.PAT }} \
-            ray-curator \
-            bash -c 'cd /workspace && uv lock --upgrade'
+          uv lock --upgrade
 
       - name: Upload lock file
         uses: actions/upload-artifact@v4
