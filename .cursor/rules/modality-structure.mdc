@@ -53,7 +53,7 @@ Task type: `AudioBatch`
 
 ## Video Processing (`stages/video/`)
 
-Common operations:  # TODO
+Common operations:
 - Scene detection (TransNetV2)
 - Clip extraction
 - GPU H.264 encoding/decoding
