@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # This workflow tests the lock file update process used by dependabot.yml
-# It validates that uv lock --upgrade works correctly and creates a TEST PR to main
+# It validates that uv lock --upgrade works correctly and creates a TEST PR when changes are detected
 # NOTE: This is for testing only - do not merge the created PR
 
 name: Test Lock File Update
@@ -47,6 +47,8 @@ jobs:
   test-lockfile-upgrade:
     needs: [pre-flight]
     runs-on: ubuntu-latest
+    outputs:
+      has-changes: ${{ steps.check-changes.outputs.has-changes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -132,23 +134,26 @@ jobs:
           
           echo "✅ Lock file validation completed"
 
-      - name: Commit lock file changes
-        env:
-          TEST_BRANCH: ${{ needs.pre-flight.outputs.test-branch }}
-        run: |
-          git add uv.lock
-          git commit -m "test: Update lock file (TEST - do not merge)" || echo "No changes to commit"
-          git push origin $TEST_BRANCH
+      - name: Upload lock file
+        uses: actions/upload-artifact@v4
+        with:
+          name: lock-file-${{ needs.pre-flight.outputs.test-branch }}
+          path: uv.lock
 
   create-test-pr:
     needs: [pre-flight, test-lockfile-upgrade]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: main
+
+      - name: Download lock file
+        uses: actions/download-artifact@v4
+        with:
+          name: lock-file-${{ needs.pre-flight.outputs.test-branch }}
 
       - name: Create Test PR
         uses: peter-evans/create-pull-request@v6
@@ -181,6 +186,7 @@ jobs:
             - ✅ Close this PR after validation
           commit-message: "test: Update lock file (TEST - do not merge)"
           signoff: false
+          delete-branch: false
 
       - name: Summary
         run: |
@@ -198,4 +204,17 @@ jobs:
           echo "Test PR created: ${{ steps.create-pull-request.outputs.pull-request-url }}"
           echo ""
           echo "⚠️  Remember: This is a TEST PR - do not merge it!"
+
+  summary:
+    needs: [pre-flight, test-lockfile-upgrade, create-test-pr]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          if [ "${{ needs.test-lockfile-upgrade.outputs.has-changes }}" == "true" ]; then
+            echo "✅ Lock file had changes - PR should have been created"
+          else
+            echo "ℹ️ Lock file had no changes - PR creation was skipped (this is expected if dependencies are up to date)"
+          fi
 
