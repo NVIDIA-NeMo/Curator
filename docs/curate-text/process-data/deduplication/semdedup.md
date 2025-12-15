@@ -42,27 +42,6 @@ Based on [SemDeDup: Data-efficient learning at web-scale through semantic dedupl
 - GPU acceleration (required for embedding generation and clustering)
 - Stable document identifiers for removal (either existing IDs or IDs managed by the workflow and removal stages)
 
-:::{dropdown} Adding Document IDs
-:icon: gear
-
-If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
-
-```python
-from nemo_curator.stages.text.modules import AddId
-from nemo_curator.pipeline import Pipeline
-
-pipeline = Pipeline(name="add_ids_for_dedup")
-pipeline.add_stage(
-    AddId(
-        id_field="doc_id",
-        id_prefix="corpus"  # Optional prefix
-    )
-)
-```
-
-For more details, refer to {ref}`text-process-data-add-id`.
-:::
-
 ## Quick Start
 
 Get started with semantic deduplication using these examples:

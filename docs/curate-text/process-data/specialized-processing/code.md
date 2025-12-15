@@ -87,7 +87,7 @@ The comment-to-code ratio is an important metric for code quality. Low comment r
 ```python
 # For Python files with docstrings
 python_filter = ScoreFilter(
-    score_fn=PythonCommentToCodeFilter(
+    filter_obj=PythonCommentToCodeFilter(
         min_comment_to_code_ratio=0.05,  # At least 5% comments
         max_comment_to_code_ratio=0.7    # At most 70% comments
     ),
@@ -96,7 +96,7 @@ python_filter = ScoreFilter(
 
 # For other languages
 cpp_filter = ScoreFilter(
-    score_fn=GeneralCommentToCodeFilter(
+    filter_obj=GeneralCommentToCodeFilter(
         language="text/x-c++",  # MIME type for C++
         min_comment_to_code_ratio=0.02,
         max_comment_to_code_ratio=0.6
@@ -128,7 +128,7 @@ Code structure filters help identify problematic patterns:
 ```python
 # Filter for reasonable line counts
 line_filter = ScoreFilter(
-    score_fn=NumberOfLinesOfCodeFilter(
+    filter_obj=NumberOfLinesOfCodeFilter(
         min_lines=5,     # Filter out tiny snippets
         max_lines=2000   # Filter out extremely long files
     ),
@@ -137,7 +137,7 @@ line_filter = ScoreFilter(
 
 # Filter for alphabetic content (avoid large data blobs)
 alpha_filter = ScoreFilter(
-    score_fn=AlphaFilter(min_alpha_ratio=0.3),  # At least 30% alphabetic chars
+    filter_obj=AlphaFilter(min_alpha_ratio=0.3),  # At least 30% alphabetic chars
     text_field="content"
 )
 ```
@@ -148,7 +148,7 @@ The `TokenizerFertilityFilter` helps ensure code has efficient token encoding:
 # Filter for token efficiency
 # Note: path_to_tokenizer is required
 tokenization_filter = ScoreFilter(
-    score_fn=TokenizerFertilityFilter(
+    filter_obj=TokenizerFertilityFilter(
         path_to_tokenizer="/path/to/code_tokenizer.model",  # Required parameter
         min_char_to_token_ratio=2.5  # Each token encodes at least 2.5 chars on average
     ),
@@ -173,7 +173,7 @@ Different programming languages have different conventions and characteristics. 
 ```python
 # Apply language-specific filters
 python_specific = ScoreFilter(
-    score_fn=PerExtensionFilter(
+    filter_obj=PerExtensionFilter(
         lang="python",
         extension=".py",
         metadata_file="code_meta.csv"  # Contains language-specific thresholds
@@ -200,7 +200,7 @@ stages:
     fields: ["content", "id"]
   
   - name: ScoreFilter
-    score_fn:
+    filter_obj:
       name: PythonCommentToCodeFilter
       min_comment_to_code_ratio: 0.01
       max_comment_to_code_ratio: 0.85
@@ -208,7 +208,7 @@ stages:
     score_field: comment_ratio
   
   - name: ScoreFilter
-    score_fn:
+    filter_obj:
       name: NumberOfLinesOfCodeFilter
       min_lines: 10
       max_lines: 5000
@@ -216,14 +216,14 @@ stages:
     score_field: line_count
   
   - name: ScoreFilter
-    score_fn:
+    filter_obj:
       name: AlphaFilter
       min_alpha_ratio: 0.25
     text_field: content
     score_field: alpha_ratio
   
   - name: ScoreFilter
-    score_fn:
+    filter_obj:
       name: XMLHeaderFilter
     text_field: content
     score_field: xml_detected
@@ -244,11 +244,11 @@ When filtering code datasets, consider these best practices:
 
    # Python tends to have more comments than C
    python_comment_filter = ScoreFilter(
-       score_fn=PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05),
+       filter_obj=PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05),
        text_field="content"
    )
    c_comment_filter = ScoreFilter(
-       score_fn=GeneralCommentToCodeFilter(language="text/x-c", min_comment_to_code_ratio=0.02),
+       filter_obj=GeneralCommentToCodeFilter(language="text/x-c", min_comment_to_code_ratio=0.02),
        text_field="content"
    )
    ```
@@ -261,7 +261,7 @@ When filtering code datasets, consider these best practices:
 
    # Some languages naturally have low comment ratios
    assembly_filter = ScoreFilter(
-       score_fn=GeneralCommentToCodeFilter(
+       filter_obj=GeneralCommentToCodeFilter(
            language="text/x-asm",
            min_comment_to_code_ratio=0.001  # Very low minimum for assembly
        ),
@@ -282,7 +282,7 @@ When filtering code datasets, consider these best practices:
    
    # Add language detection stage
    pipeline.add_stage(ScoreFilter(
-       score_fn=FastTextLangId(
+       filter_obj=FastTextLangId(
            model_path="/path/to/lid.176.bin",  # Download from fasttext.cc
            min_langid_score=0.8
        ),
@@ -292,7 +292,7 @@ When filtering code datasets, consider these best practices:
    
    # Then apply Python-specific filters
    pipeline.add_stage(ScoreFilter(
-       score_fn=PythonCommentToCodeFilter(),
+       filter_obj=PythonCommentToCodeFilter(),
        text_field="content"
    ))
    ```
@@ -337,19 +337,19 @@ pipeline = Pipeline(name="code_cleaning")
 
 # Remove extremely short files
 pipeline.add_stage(ScoreFilter(
-    score_fn=NumberOfLinesOfCodeFilter(min_lines=3),
+    filter_obj=NumberOfLinesOfCodeFilter(min_lines=3),
     text_field="content"
 ))
 
 # Remove files with XML preamble (misidentified as code)
 pipeline.add_stage(ScoreFilter(
-    score_fn=XMLHeaderFilter(),
+    filter_obj=XMLHeaderFilter(),
     text_field="content"
 ))
 
 # Ensure reasonable comment-to-code ratio
 pipeline.add_stage(ScoreFilter(
-    score_fn=GeneralCommentToCodeFilter(language="text/x-c++"),
+    filter_obj=GeneralCommentToCodeFilter(language="text/x-c++"),
     text_field="content"
 ))
 ```
@@ -368,19 +368,19 @@ pipeline = Pipeline(name="training_data_prep")
 
 # Ensure enough alphabetic content (not just symbols or data)
 pipeline.add_stage(ScoreFilter(
-    score_fn=AlphaFilter(min_alpha_ratio=0.3),
+    filter_obj=AlphaFilter(min_alpha_ratio=0.3),
     text_field="content"
 ))
 
 # Check token efficiency
 pipeline.add_stage(ScoreFilter(
-    score_fn=TokenizerFertilityFilter(path_to_tokenizer="tokenizer.model"),
+    filter_obj=TokenizerFertilityFilter(path_to_tokenizer="tokenizer.model"),
     text_field="content"
 ))
 
 # Remove HTML with mostly boilerplate
 pipeline.add_stage(ScoreFilter(
-    score_fn=HTMLBoilerplateFilter(min_lang_content_ratio=0.3),
+    filter_obj=HTMLBoilerplateFilter(min_lang_content_ratio=0.3),
     text_field="content"
 ))
 ```

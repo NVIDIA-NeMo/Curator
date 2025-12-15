@@ -33,36 +33,9 @@ This method targets character-for-character duplicates and is recommended for re
 - Ray cluster with GPU support (required for distributed processing)
 - Stable document identifiers for removal (either existing IDs or IDs assigned by the workflow)
 
-:::{dropdown} Adding Document IDs
-:icon: gear
-
-If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
-
-```python
-from nemo_curator.stages.text.modules import AddId
-from nemo_curator.pipeline import Pipeline
-
-pipeline = Pipeline(name="add_ids_for_dedup")
-pipeline.add_stage(
-    AddId(
-        id_field="doc_id",
-        id_prefix="corpus"  # Optional prefix
-    )
-)
-```
-
-For more details, refer to {ref}`text-process-data-add-id`.
-:::
-
 ## Quick Start
 
-Get started with exact deduplication using these examples:
-
-::::{tab-set}
-
-:::{tab-item} Two-Step Process
-
-Identify duplicates, then remove them:
+Get started with exact deduplication using the following example of identifying duplicates, then remove them:
 
 ```python
 from nemo_curator.core.client import RayClient
@@ -97,31 +70,6 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
 removal_workflow.run()
 # Clean dataset saved to ./deduplicated/
 ```
-
-:::
-
-:::{tab-item} Minimal Example
-
-```python
-from nemo_curator.core.client import RayClient
-from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
-
-ray_client = RayClient()
-ray_client.start()
-
-exact_workflow = ExactDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    text_field="text",
-    assign_id=True,
-    perform_removal=False
-)
-exact_workflow.run()
-```
-
-:::
-
-::::
 
 ## Configuration
 
