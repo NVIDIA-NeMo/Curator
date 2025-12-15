@@ -142,6 +142,13 @@ runs:
             | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
         }
         
+        # Debug: Show what the API returns
+        echo "DEBUG: Checking API response..."
+        API_RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+          "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")
+        echo "DEBUG: CPU test jobs and their status:"
+        echo "$API_RESPONSE" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | {name: .name, status: .status, conclusion: .conclusion}]' 2>/dev/null || echo "jq failed"
+        
         echo "DEBUG: Initial CPU failure check..."
         FAILED=$(check_cpu_failures)
         echo "DEBUG: Failed CPU tests = $FAILED"
