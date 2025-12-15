@@ -32,9 +32,6 @@ resources = Resources(
 - `cpus`: Number of CPU cores (default: 1.0)
 - `gpu_memory_gb`: GPU memory in GB for single-GPU stages (default: 0.0)
 - `gpus`: Number of GPUs for single- or multi-GPU stages (default: 0.0)
-- `nvdecs`: Number of NVDEC units (default: 0)
-- `nvencs`: Number of NVENC units (default: 0)
-- `entire_gpu`: Allocate entire GPU regardless of memory (default: False)
 
 ## Important Constraints
 
