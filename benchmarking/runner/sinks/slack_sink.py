@@ -19,9 +19,10 @@ from typing import Any
 
 import requests
 from loguru import logger
-from runner.matrix import MatrixConfig, MatrixEntry
+from runner.entry import Entry
+from runner.session import Session
 from runner.sinks.sink import Sink
-from runner.utils import find_result, get_obj_for_json
+from runner.utils import find_result, get_obj_for_json, human_readable_bytes_repr
 
 _post_template = """
 {
@@ -76,7 +77,7 @@ class SlackSink(Sink):
         self.sink_config = sink_config
         self.enabled = self.sink_config.get("enabled", True)
         self.session_name: str = None
-        self.matrix_config: MatrixConfig = None
+        self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
 
         self.results_to_report: list[tuple[list[str], dict[str, Any]]] = []  # list of tuples of (metrics, result_dict)
@@ -89,13 +90,13 @@ class SlackSink(Sink):
             msg = "SlackSink: No default metrics configured"
             raise ValueError(msg)
 
-    def initialize(self, session_name: str, matrix_config: MatrixConfig, env_dict: dict[str, Any]) -> None:
+    def initialize(self, session_name: str, matrix_config: Session, env_dict: dict[str, Any]) -> None:
         # Initializes the sink for the session.
         self.session_name = session_name
         self.env_dict = env_dict
         self.matrix_config = matrix_config
 
-    def process_result(self, result_dict: dict[str, Any], matrix_entry: MatrixEntry) -> None:
+    def process_result(self, result_dict: dict[str, Any], matrix_entry: Entry) -> None:
         # Use the matrix_entry to get any entry-specific settings for the Slack report
         # such as additional metrics to include in the report.
         if matrix_entry:
@@ -123,6 +124,7 @@ class SlackSink(Sink):
             "GOOGLE_DRIVE_LINK": "https://google.com",
             "EXECUTIVE_SUMMARY": " ",
         }
+        indent = "-    "  # start with a dash since leading whitespace is stripped
 
         # Create REPORT_JSON_TEXT: Build the report data as a Python data structure which maps to JSON,
         # then call json.dumps() to convert to a string.
@@ -138,7 +140,7 @@ class SlackSink(Sink):
         rows.append(self._two_column_row_bold("OVERALL STATUS", overall_status))
         for _, results in self.results_to_report:
             # Name and success icon row
-            entry_name = find_result(results, "name")
+            entry_name = f"{indent}{find_result(results, 'name')}"
             success_str = "✅ success" if find_result(results, "success") else "❌ FAILED"
             rows.append(self._two_column_row_bold(entry_name, success_str))
 
@@ -150,7 +152,8 @@ class SlackSink(Sink):
         for var, val in self.env_dict.items():
             if var in {"pip_freeze_txt", "conda_explicit_txt"}:
                 continue
-            rows.append(self._two_column_row(str(var), str(val)))
+            (fvar, fval) = self._get_formatted_metric_value_tuple(var, val)
+            rows.append(self._two_column_row(f"{indent}{fvar}", fval))
 
         rows.append(_blank_row)
         # Results header row
@@ -165,7 +168,8 @@ class SlackSink(Sink):
             # Remaining rows are metrics and values
             data = []
             for metric in metrics:
-                data.append((metric, find_result(results, metric, 0)))
+                result = find_result(results, metric, 0)
+                data.append(self._get_formatted_metric_value_tuple(metric, result))
 
             # Requirements checks - add a row for each requirement that was not met
             if "requirements_not_met" in results:
@@ -179,7 +183,7 @@ class SlackSink(Sink):
                     data.append(("All requirements met", "❌"))
 
             for var, val in data:
-                rows.append(self._two_column_row(str(var), str(val)))
+                rows.append(self._two_column_row(f"{indent}{var}", str(val)))
             # Add a blank row between entry results
             rows.append(_blank_row)
 
@@ -250,16 +254,49 @@ class SlackSink(Sink):
             },
         ]
 
+    @staticmethod
+    def _get_formatted_metric_value_tuple(metric: str, result: Any) -> tuple[str, str]:  # noqa: ANN401
+        # time metrics
+        if metric.endswith("_s"):
+            try:
+                hours = int(result // 3600)
+                minutes = int((result % 3600) // 60)
+                seconds = result % 60
+            except (ValueError, TypeError):
+                return (metric, str(result))
+            else:
+                formatted_str = f"{result:.2f}s"
+                if hours > 0 or minutes > 0:
+                    formatted_str += " ("
+                    if hours > 0:
+                        formatted_str += f"{hours:02}h : "
+                    formatted_str += f"{minutes:02}m : {seconds:05.2f}s)"
+                return (metric, formatted_str)
+        # memory metrics
+        elif metric.endswith("_bytes"):
+            try:
+                return (metric, f"{human_readable_bytes_repr(int(result))}  ({result} bytes)")
+            except (ValueError, TypeError):
+                return (metric, str(result))
+        # all other metrics
+        else:
+            return (metric, str(result))
+
 
 # Run SlackSink from the command line to post a summary of the results to Slack.
 if __name__ == "__main__":
     import argparse
+    import os
     from pathlib import Path
 
     parser = argparse.ArgumentParser(description="Post benchmark results to Slack via webhook.")
-    parser.add_argument("--webhook-url", help="Slack webhook URL")
-    parser.add_argument("--results-root-dir", help="Path to the directory containing result subdirectories")
-    parser.add_argument("--additional-metrics", help="Additional metrics to include in the report", nargs="+")
+    parser.add_argument(
+        "--results-root-dir", required=True, help="Path to the directory containing result subdirectories"
+    )
+    parser.add_argument("--webhook-url", default=os.getenv("SLACK_WEBHOOK_URL"), help="Slack webhook URL")
+    parser.add_argument(
+        "--additional-metrics", default=[], help="Additional metrics to include in the report", nargs="+"
+    )
     args = parser.parse_args()
 
     webhook_url = args.webhook_url
@@ -274,7 +311,7 @@ if __name__ == "__main__":
                     yield json.load(f)
 
     sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
-    matrix_config = MatrixConfig(results_path=results_root_path, artifacts_path=results_root_path)
+    matrix_config = Session(results_path=results_root_path, artifacts_path=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)
@@ -282,9 +319,7 @@ if __name__ == "__main__":
     slack_sink = SlackSink(sink_config=sink_config)
     slack_sink.initialize(session_name="test", matrix_config=matrix_config, env_dict=env_data)
 
-    matrix_entry = MatrixEntry(
-        name="test", sink_data=[{"name": "slack", "additional_metrics": args.additional_metrics}]
-    )
+    matrix_entry = Entry(name="test", sink_data=[{"name": "slack", "additional_metrics": args.additional_metrics}])
     for result in collect_results_from_dir(results_root_path):
         slack_sink.process_result(result_dict=result, matrix_entry=matrix_entry)
     slack_sink.finalize()

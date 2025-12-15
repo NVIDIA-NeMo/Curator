@@ -12,7 +12,7 @@ modality: "audio-only"
 
 # ASR Pipeline Architecture
 
-This guide provides a comprehensive overview of NeMo Curator's automatic speech recognition (ASR) pipeline architecture, covering audio input processing through transcription generation and quality assessment.
+This guide provides a comprehensive overview of NeMo Curator's Automatic Speech Recognition (ASR) pipeline architecture, covering audio input processing through transcription generation and quality assessment.
 
 ## Pipeline Overview
 
@@ -26,18 +26,18 @@ graph TD
     D --> E[Transcription Output]
     E --> F[Quality Assessment]
     F --> G[Filtering & Export]
-    
+
     subgraph "Input Stage"
         A
         B
     end
-    
+
     subgraph "Processing Stage"
         C
         D
         E
     end
-    
+
     subgraph "Assessment Stage"
         F
         G
@@ -77,7 +77,7 @@ graph TD
 
 **Batch Processing**: Supports processing audio files together
 
-- Audio files process together in a single call to the NeMo ASR model
+- Audio files are processed together in a single call to the NeMo ASR model
 - Batch size configuration controls task grouping for processing using `.with_(batch_size=..., resources=Resources(...))`
 - Internal batching and optimization handled by the NeMo framework
 
@@ -141,7 +141,7 @@ processed_batch = asr_stage.process(audio_batch)
 # WER calculation
 wer_stage = GetPairwiseWerStage(
     text_key="text",
-    pred_text_key="pred_text", 
+    pred_text_key="pred_text",
     wer_key="wer"
 )
 
@@ -163,7 +163,7 @@ duration_stage = GetAudioDurationStage(
 ### Processing Data Flow
 
 1. **Model Loading** → NeMo ASR model initialization
-2. **Batch Creation** → Group audio files for efficient processing  
+2. **Batch Creation** → Group audio files for efficient processing
 3. **GPU Processing** → Transcription generation
 4. **Result Aggregation** → Combine transcriptions with metadata
 
@@ -198,7 +198,7 @@ duration_stage = GetAudioDurationStage(
 asr_stage = InferenceAsrNemoStage(
     model_name="nvidia/stt_en_fastconformer_hybrid_small"  # Smaller model
 ).with_(
-    resources=Resources(gpus=0.5)  # Request fractional GPU via executor/backends
+    resources=Resources(gpus=0.5)  # Request fractional GPU using executor/backends
 )
 ```
 

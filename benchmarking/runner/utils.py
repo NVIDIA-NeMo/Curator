@@ -14,7 +14,17 @@
 
 import os
 import re
+import subprocess
+from pathlib import Path
 from typing import Any
+
+# utils.py is also imported in scripts that run before the Curator
+# environment is set up so do not assume loguru is available
+# ruff: noqa: LOG015
+try:
+    from loguru import logger
+except ImportError:
+    import logging as logger
 
 
 def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
@@ -78,3 +88,77 @@ def find_result(results: dict[str, Any], key: str, default_value: Any = None) ->
         return results["metrics"].get(key, results.get(key, default_value))
     else:
         return results.get(key, default_value)
+
+
+def get_total_memory_bytes() -> int:
+    """
+    Get the memory limit, respecting Docker/container constraints.
+    Tries cgroup limits first, falls back to system memory.
+    """
+
+    def read_int_from_file(path: str) -> int | None:
+        try:
+            return int(Path(path).read_text().strip())
+        except (FileNotFoundError, ValueError, PermissionError):
+            return None
+
+    # Try cgroup v2 (unified hierarchy)
+    limit = read_int_from_file("/sys/fs/cgroup/memory.max")
+    if limit is not None:
+        return limit
+
+    # Try cgroup v1
+    limit = read_int_from_file("/sys/fs/cgroup/memory/memory.limit_in_bytes")
+    if limit is not None and limit < (1 << 62):  # Check if it's not "unlimited"
+        return limit
+
+    # Fallback: get total physical memory
+    return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+
+
+def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | None]:
+    """
+    Run the appropriate "df" command to check the size of the system shared memory space.
+    """
+    command = ["df", "-h", "/dev/shm"] if human_readable else ["df", "--block-size=1", "/dev/shm"]  # noqa: S108
+    command_str = " ".join(command)
+    result = None
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        logger.debug(f"`{command_str}` output:\n{result.stdout}")
+    except subprocess.CalledProcessError as df_exc:
+        logger.warning(f"Could not run `{command_str}`: {df_exc}")
+
+    # Extract the size from the last line of the output
+    if result is not None:
+        output = result.stdout
+        line = output.strip().split("\n")[-1]
+        try:
+            size = int(line.split()[1])  # Size is the second column
+        except (ValueError, IndexError):
+            logger.warning(f"Could not parse size from `{command_str}` output line: {line}")
+            size = None
+        return (size, output)
+    else:
+        return (None, None)
+
+
+def human_readable_bytes_repr(size: int) -> str:
+    """
+    Convert a size in bytes to a human readable string (e.g. "1.2 GiB").
+    """
+    suffixes = list(enumerate(["B", "KiB", "MiB", "GiB", "TiB", "PiB"]))
+    suffixes.reverse()
+    for index, suffix in suffixes:
+        threshold = 1024**index
+        if size >= threshold:
+            value = float(size) / threshold
+            if index == 0:
+                return f"{int(size)} {suffix}"
+            return f"{value:.2f} {suffix}"
+    return "0 B"
