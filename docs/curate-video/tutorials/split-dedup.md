@@ -173,8 +173,8 @@ After duplicate removal, export curated clips and metadata for training. Common 
 Video-specific pointers:
 
 - Use `ClipWriterStage` path helpers to locate outputs: `nemo_curator/stages/video/io/clip_writer.py`.
-  - Processed videos: `get_output_path_processed_videos(${OUT_DIR})`
-  - Clip chunks and previews: `get_output_path_processed_clip_chunks(${OUT_DIR})`, `get_output_path_previews(${OUT_DIR})`
+  - Processed videos: `get_output_path_processed_videos(OUT_DIR)`
+  - Clip chunks and previews: `get_output_path_processed_clip_chunks(OUT_DIR)`, `get_output_path_previews(OUT_DIR)`
   - Embeddings parquet: `${OUT_DIR}/iv2_embd_parquet` (or `${OUT_DIR}/ce1_embd_parquet`)
 
 ### Example Export
