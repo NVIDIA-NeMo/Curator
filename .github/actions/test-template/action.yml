@@ -137,9 +137,26 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
       run: |
         cat > /tmp/cpu_monitor.sh << 'EOF'
-        cpu_failed_count() { curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"; }
-        check_cpu_or_exit() { [ "$(cpu_failed_count)" -gt 0 ] && { echo "::error::CPU test failed - aborting GPU test"; exit 1; }; }
-        start_monitor() { local pf="/tmp/cpu_monitor_${2:-m}_$RUN_ID.pid"; [ -f "$pf" ] && { kill "$(cat $pf)" 2>/dev/null; rm -f "$pf"; }; ( echo $BASHPID > "$pf"; while sleep 40; do [ "$(cpu_failed_count)" -gt 0 ] && { echo "::error::CPU failed - cancelling"; eval "$1"; rm -f "$pf"; exit 1; }; done ) &; trap "kill \$(cat '$pf' 2>/dev/null) 2>/dev/null; rm -f '$pf'" EXIT; }
+        cpu_failed_count() {
+          curl -s -H "Authorization: token $GH_TOKEN" -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100" \
+            | jq '[.jobs[] | select(.name | startswith("Unit_Test_")) | select(.conclusion == "failure")] | length' 2>/dev/null || echo "0"
+        }
+        check_cpu_or_exit() {
+          local count=$(cpu_failed_count)
+          [ "$count" -gt 0 ] && { echo "::error::CPU test failed ($count) - aborting GPU test"; exit 1; }
+          return 0
+        }
+        start_monitor() {
+          local pf="/tmp/cpu_monitor_${2:-m}_$RUN_ID.pid"
+          [ -f "$pf" ] && kill "$(cat $pf)" 2>/dev/null && rm -f "$pf"
+          ( echo $BASHPID > "$pf"
+            while sleep 40; do
+              [ "$(cpu_failed_count)" -gt 0 ] && { echo "::error::CPU failed - cancelling"; eval "$1"; rm -f "$pf"; exit 1; }
+            done
+          ) &
+          trap "kill \$(cat '$pf' 2>/dev/null) 2>/dev/null; rm -f '$pf'" EXIT
+        }
         EOF
 
     - name: Build container
