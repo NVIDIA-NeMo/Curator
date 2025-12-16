@@ -21,11 +21,15 @@ GPU resources based on the test session's requirements.
 import os
 import socket
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
 import ray
 from loguru import logger
+
+
+MODALITY_GROUPS = ["text", "image", "video", "audio"]
 
 
 def find_free_port() -> int:
@@ -94,6 +98,44 @@ def session_needs_gpu(config: pytest.Config, collected_items: list[pytest.Item])
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Hook to store collected items in config for later use."""
     config._collected_items = items  # Store in config instead of global
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+    selected = config.getoption("-m") or ""
+
+    # No -m expression → collect everything
+    if selected.strip() == "":
+        return False
+
+    # Determine which groups were explicitly requested
+    selected_groups = {m for m in MODALITY_GROUPS if m in selected}
+
+    # If no known group was requested → collect everything
+    if not selected_groups:
+        return False
+
+    path_str = str(collection_path)
+
+    # 1. Directory-based detection
+    # e.g., if there is a subdirectory called "video", it is safe to assume it contains video tests only
+    for group in MODALITY_GROUPS:
+        if f"/{group}/" in path_str or path_str.endswith(f"{group}"):
+            return group not in selected_groups
+
+    # 2. File-based comment detection
+    # scan first 5 lines for: "# modality: video"
+    if collection_path.is_file() and collection_path.suffix == ".py":
+        try:
+            with open(collection_path, "r", encoding="utf8") as f:
+                header = "".join([next(f) for _ in range(5)])
+        except StopIteration:
+            header = ""
+        for group in MODALITY_GROUPS:
+            if f"# modality: {group}" in header:
+                return group not in selected_groups
+
+    # Default → collect
+    return False
 
 
 def _build_ray_command(temp_dir: str, num_cpus: int, num_gpus: int, object_store_memory: int) -> tuple[list[str], int]:

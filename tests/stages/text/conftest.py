@@ -14,19 +14,10 @@
 
 """
 Marks all tests in this directory with pytest.mark.text
-
-If the user deselects the "text" marker, all tests in this directory will be skipped,
-and we will not import any test module inside that directory (this helps avoid import errors).
 """
-
-from pathlib import Path
 
 import pytest
 
-
-def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
-    if "text" in str(collection_path):
-        selected = config.getoption("-m")
-        if "not text" in selected:
-            return True
-    return False
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    for item in items:
+        item.add_marker(pytest.mark.text)
