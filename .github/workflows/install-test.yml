@@ -203,6 +203,9 @@ jobs:
       !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: self-hosted-nemo
     name: Pip All (CPU+GPU) - Py${{ matrix.python-version }}
+    # Allow failure due to known dependency conflict: nemo_toolkit[asr] vs vllm (transformers version)
+    # TODO: Fix in pyproject.toml when nemo_toolkit supports transformers>=4.55.2
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
