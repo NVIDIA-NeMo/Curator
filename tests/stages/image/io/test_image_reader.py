@@ -200,6 +200,7 @@ def test_resources_without_cuda() -> None:
     assert res.requires_gpu is False
 
 
+@pytest.mark.skip(reason="Image data files have not been added yet")
 @pytest.mark.gpu
 def test_dali_image_reader_on_gpu() -> None:
     """Test DALI image reader on GPU."""
