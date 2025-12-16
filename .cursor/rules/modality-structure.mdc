@@ -1,0 +1,70 @@
+---
+alwaysApply: true
+---
+
+# Modality Structure
+
+NeMo Curator supports four data modalities, each with its own stage directory and patterns.
+
+## Directory Structure
+
+```
+nemo_curator/stages/
+├── text/ # Text/document processing
+├── image/ # Image processing
+├── audio/ # Audio/speech processing
+└── video/ # Video processing
+```
+
+Other subdirectories of `nemo_curator/stages/` are `deduplication` and `synthetic`, which contain stages that can be used by two or more modalities.
+
+## Text Processing (`stages/text/`)
+
+Common subdirectories:
+- `classifiers/`: Quality, domain, content safety classification
+- `deduplication/`: Duplicate text removal
+- `download/`: Data ingestion (Common Crawl, Wikipedia, ArXiv)
+- `embedders/`: Text embedding generation
+- `filters/`: Heuristic and model-based filtering
+- `io/`: Readers (Parquet, JSONL) and writers
+- `modifiers/`: Text transformations (cleaning, normalization)
+
+Task type: `DocumentBatch`
+
+## Image Processing (`stages/image/`)
+
+Common operations:
+- CLIP embedding generation
+- Aesthetic quality scoring
+- NSFW detection
+- Deduplication
+
+Task type: `ImageBatch`
+
+## Audio Processing (`stages/audio/`)
+
+Common operations:
+- ASR transcription (NeMo Framework)
+- Word Error Rate (WER) calculation
+- Duration analysis
+- Quality filtering
+
+Task type: `AudioBatch`
+
+## Video Processing (`stages/video/`)
+
+Common operations:
+- Scene detection (TransNetV2)
+- Clip extraction
+- GPU H.264 encoding/decoding
+- Motion and aesthetic filtering
+- Embeddings (InternVideo2, Cosmos-Embed1)
+
+Task type: `VideoTask`
+
+## Shared Components
+
+All modalities share:
+- `stages/base.py`: Base classes (`ProcessingStage`, `CompositeStage`)
+- `stages/resources.py`: Resource configuration
+- `stages/function_decorators.py`: Decorators for creating `ProcessingStage` instances from simple functions
