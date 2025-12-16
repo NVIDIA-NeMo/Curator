@@ -23,7 +23,9 @@ with suppress(ImportError):
 
 import torch
 
-from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
 
 
 @pytest.mark.gpu
