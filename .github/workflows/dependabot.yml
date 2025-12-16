@@ -48,14 +48,14 @@ jobs:
         include:
           - target-branch: ${{ needs.get-release-branch-names.outputs.curator }}
           - target-branch: main
+    if: |
+      always() && 
+      (matrix.target-branch == 'main' || needs.get-release-branch-names.outputs.curator != '')
     uses: ./.github/workflows/_update_dependencies.yml
     with:
       target-branch: ${{ matrix.target-branch }}
     secrets:
       PAT: ${{ secrets.PAT }}
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       SSH_KEY: ${{ secrets.SSH_KEY }}
       SSH_PWD: ${{ secrets.SSH_PWD }}
 

@@ -23,12 +23,6 @@ on:
     secrets:
       PAT:
         required: true
-      AZURE_CLIENT_ID:
-        required: true
-      AZURE_TENANT_ID:
-        required: true
-      AZURE_SUBSCRIPTION_ID:
-        required: true
       SSH_KEY:
         required: true
       SSH_PWD:
@@ -45,7 +39,7 @@ jobs:
   pre-flight:
     runs-on: ubuntu-latest
     outputs:
-      bump-branch: bump-ci-container-${{ steps.ref.outputs.date }}-${{ inputs.target-branch || github.event.inputs.target-branch }}
+      bump-branch: bump-dependencies-${{ steps.ref.outputs.date }}-${{ inputs.target-branch || github.event.inputs.target-branch }}
       date: ${{ steps.ref.outputs.date }}
     steps:
       - name: Get date
