@@ -14,22 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
-import pytest
-
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     import cudf
     import cupy as cp
-except ImportError:
-    pass
 
+import numpy as np
+import pytest
 import torch
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     from nemo_curator.stages.deduplication.semantic.pairwise import (
         PairwiseCosineSimilarityStage,
         PairwiseStage,
@@ -38,8 +37,6 @@ try:
     from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
     from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
     from nemo_curator.tasks import FileGroupTask
-except ImportError:
-    pass
 
 
 @pytest.mark.gpu

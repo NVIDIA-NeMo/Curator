@@ -24,17 +24,14 @@ import pytest
 import torch
 
 try:
-    from nemo_curator.tasks.video import Clip, Video, VideoTask
-
-    try:
-        from nemo_curator.stages.video.embedding.internvideo2 import (
-            InternVideo2EmbeddingStage,
-            InternVideo2FrameCreationStage,
-        )
-    except ImportError:
-        pytest.skip("InternVideo2 package is not available")
+    from nemo_curator.stages.video.embedding.internvideo2 import (
+        InternVideo2EmbeddingStage,
+        InternVideo2FrameCreationStage,
+    )
 except ImportError:
-    pass
+    pytest.skip("InternVideo2 package is not available")
+
+from nemo_curator.tasks.video import Clip, Video, VideoTask
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)

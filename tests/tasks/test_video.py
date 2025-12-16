@@ -23,18 +23,15 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
-try:
-    from nemo_curator.tasks.video import (
-        Clip,
-        ClipStats,
-        Video,
-        VideoMetadata,
-        VideoTask,
-        _Window,
-    )
-    from nemo_curator.utils.decoder_utils import VideoMetadata as DecoderVideoMetadata
-except ImportError:
-    pass
+from nemo_curator.tasks.video import (
+    Clip,
+    ClipStats,
+    Video,
+    VideoMetadata,
+    VideoTask,
+    _Window,
+)
+from nemo_curator.utils.decoder_utils import VideoMetadata as DecoderVideoMetadata
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
