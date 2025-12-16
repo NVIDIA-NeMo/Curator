@@ -52,7 +52,7 @@ asr_stage = asr_stage.with_(
 # Use language-specific models
 language_models = {
     "en_us": "nvidia/stt_en_fastconformer_hybrid_large_pc",
-    "es_419": "nvidia/stt_es_fastconformer_hybrid_large_pc", 
+    "es_419": "nvidia/stt_es_fastconformer_hybrid_large_pc",
     "hy_am": "nvidia/stt_hy_fastconformer_hybrid_large_pc",
 }
 
@@ -116,7 +116,7 @@ Within a single `AudioBatch`, `process()` transcribes the file paths together.
 Data loading stages create input `AudioBatch` objects that must contain:
 
 ```python
-# AudioBatch structure (created automatically by loading stages)
+# AudioBatch's data object structure (created automatically by loading stages)
 # Each item in the batch contains:
 {
     "audio_filepath": "/path/to/audio1.wav",
@@ -131,14 +131,14 @@ Data loading stages create input `AudioBatch` objects that must contain:
 - **Supported Formats**: Determined by the selected NeMo ASR model; refer to the NeMo ASR documentation.
 - **Sample Rates**: Typically 16 kHz; refer to the model card for details.
 - **Channels**: Mono or stereo; channel handling (for example, down-mixing) depends on the model.
-- **Duration**: Long files may require manual chunking before inference.
+- **Duration**: Long files can require manual chunking before inference.
 
 ## Output Structure
 
 The ASR stage adds predicted transcriptions to each audio sample:
 
 ```python
-# Output AudioBatch structure
+# Output AudioBatch's data object structure
 {
     "audio_filepath": "/path/to/audio1.wav",
     "pred_text": "this is the predicted transcription",
@@ -166,7 +166,7 @@ Processing behavior:
 - **Input structure validation**: The stage uses `validate_input()` to check required attributes/columns and raises `ValueError` if they are missing.
 - **Model loading failures**: `setup()` raises `RuntimeError` if model download or initialization fails.
 - **No automatic retries or auto-tuning**: The stage does not perform automatic batch size reduction or network retries.
-- **Missing files**: `AudioBatch.validate()` may log file-existence warnings when code creates tasks; the stage does not auto-skip files.
+- **Missing files**: `AudioBatch.validate()` can log file-existence warnings when code creates tasks; the stage does not auto-skip files.
 
 ## Performance Optimization
 
