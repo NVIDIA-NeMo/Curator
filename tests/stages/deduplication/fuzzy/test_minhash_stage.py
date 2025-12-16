@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,11 +21,17 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-cudf = pytest.importorskip("cudf", reason="MinHashStage tests require cudf")
+try:
+    import cudf
+except ImportError:
+    pass
 
-from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from nemo_curator.tasks import FileGroupTask
+try:
+    from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
+    from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+    from nemo_curator.tasks import FileGroupTask
+except ImportError:
+    pass
 
 
 @pytest.fixture
@@ -107,6 +115,7 @@ def input_task(sample_files: tuple[list[str], str]) -> FileGroupTask:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestMinHashStage:
     """Test suite for MinHashStage ProcessingStage."""
 

@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,9 +22,15 @@ import numpy as np
 import pandas as pd
 import pytest
 
-cudf = pytest.importorskip("cudf", reason="MinHash tests require cudf")
+try:
+    import cudf
+except ImportError:
+    pass
 
-from nemo_curator.stages.deduplication.fuzzy.minhash import GPUMinHash
+try:
+    from nemo_curator.stages.deduplication.fuzzy.minhash import GPUMinHash
+except ImportError:
+    pass
 
 
 def minhash_overlap(minhash1: np.ndarray, minhash2: np.ndarray) -> float:
@@ -60,6 +68,7 @@ def sample_data():
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestGPUMinHash:
     """Test suite for GPU MinHash implementation."""
 

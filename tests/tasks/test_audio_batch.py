@@ -1,3 +1,5 @@
+# modality: audio
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,9 +16,12 @@
 
 from pathlib import Path
 
+import pytest
+
 from nemo_curator.tasks import AudioBatch
 
 
+@pytest.mark.audio
 def test_audio_batch_accepts_dict_and_list() -> None:
     # Single dict wraps into list
     b1 = AudioBatch(data={"audio_filepath": "/x.wav"})
@@ -28,6 +33,7 @@ def test_audio_batch_accepts_dict_and_list() -> None:
     assert len(b2.data) == 2
 
 
+@pytest.mark.audio
 def test_audio_batch_validation_uses_filepath_key(tmp_path: Path) -> None:
     existing = tmp_path / "ok.wav"
     existing.write_bytes(b"fake")

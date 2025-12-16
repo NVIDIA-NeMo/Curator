@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,7 +23,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-try:  # noqa: SIM105
+try:
     from nemo_curator.utils.decoder_utils import (
         FrameExtractionPolicy,
         FrameExtractionSignature,

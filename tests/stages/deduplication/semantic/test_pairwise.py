@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,23 +21,29 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-cudf = pytest.importorskip("cudf")
-cupy = pytest.importorskip("cupy")
+try:
+    import cudf
+    import cupy as cp
+except ImportError:
+    pass
 
-import cupy as cp
 import torch
 
-from nemo_curator.stages.deduplication.semantic.pairwise import (
-    PairwiseCosineSimilarityStage,
-    PairwiseStage,
-    pairwise_cosine_similarity_batched,
-)
-from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
-from nemo_curator.tasks import FileGroupTask
+try:
+    from nemo_curator.stages.deduplication.semantic.pairwise import (
+        PairwiseCosineSimilarityStage,
+        PairwiseStage,
+        pairwise_cosine_similarity_batched,
+    )
+    from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+    from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+    from nemo_curator.tasks import FileGroupTask
+except ImportError:
+    pass
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestPairwiseCosineSimilarityBatched:
     """Test cases for pairwise_cosine_similarity_batched function."""
 
@@ -86,6 +94,7 @@ class TestPairwiseCosineSimilarityBatched:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestPairwiseCosineSimilarityStage:
     """Test cases for PairwiseCosineSimilarityStage."""
 
@@ -335,6 +344,7 @@ class TestPairwiseCosineSimilarityStage:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestPairwiseStage:
     """Test cases for PairwiseStage composite stage."""
 

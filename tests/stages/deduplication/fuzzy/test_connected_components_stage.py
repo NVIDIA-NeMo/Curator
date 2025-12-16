@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,14 +21,14 @@ from typing import TYPE_CHECKING
 import pandas as pd
 import pytest
 
-cudf = pytest.importorskip("cudf", reason="ConnectedComponentsStage tests require cudf")
-cugraph = pytest.importorskip("cugraph", reason="ConnectedComponentsStage tests require cugraph")
-
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from nemo_curator.tasks import FileGroupTask
+try:
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.fuzzy.connected_components import ConnectedComponentsStage
+    from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+    from nemo_curator.tasks import FileGroupTask
+except ImportError:
+    pass
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -86,6 +88,7 @@ def input_tasks(sample_files: list[str]) -> list[FileGroupTask]:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestConnectedComponentsStage:
     """Test suite for ConnectedComponentsStage ProcessingStage."""
 

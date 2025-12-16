@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,16 +20,23 @@ from pathlib import Path
 
 import pytest
 
-cudf = pytest.importorskip("cudf", reason="MinHashStage tests require cudf")
+try:
+    import cudf
+except ImportError:
+    pass
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
-from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-from nemo_curator.tasks import FileGroupTask
+try:
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.fuzzy.lsh.stage import LSHStage
+    from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
+    from nemo_curator.tasks import FileGroupTask
+except ImportError:
+    pass
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 @pytest.mark.usefixtures("shared_ray_client")
 class TestLSHStage:
     @pytest.fixture(autouse=True)

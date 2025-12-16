@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,9 +25,10 @@ import pytest
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
 
-BucketsToEdgesStage = pytest.importorskip(
-    "nemo_curator.stages.deduplication.fuzzy.buckets_to_edges"
-).BucketsToEdgesStage
+try:
+    from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
+except ImportError:
+    pass
 
 
 @pytest.fixture
@@ -87,6 +90,7 @@ def input_task(sample_files: list[str]) -> FileGroupTask:
 
 # Marking as GPU so that they don't get skiped on GPU CI runs
 @pytest.mark.gpu
+@pytest.mark.text
 class TestBucketsToEdgesStage:
     """Test suite for BucketsToEdgesStage ProcessingStage."""
 

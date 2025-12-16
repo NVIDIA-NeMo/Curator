@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,23 +21,30 @@ from typing import Literal
 
 import pytest
 
-cudf = pytest.importorskip("cudf")
+try:
+    import cudf
+except ImportError:
+    pass
+
 import numpy as np
 import pandas as pd
 
-from nemo_curator.stages.deduplication.exact.workflow import ID_GENERATOR_OUTPUT_FILENAME, ExactDeduplicationWorkflow
-from nemo_curator.stages.deduplication.id_generator import (
-    CURATOR_DEDUP_ID_STR,
-    IdGeneratorBase,
-    create_id_generator_actor,
-    kill_id_generator_actor,
-)
-from nemo_curator.tasks import FileGroupTask
+try:
+    from nemo_curator.stages.deduplication.exact.workflow import ID_GENERATOR_OUTPUT_FILENAME, ExactDeduplicationWorkflow
+    from nemo_curator.stages.deduplication.id_generator import (
+        CURATOR_DEDUP_ID_STR,
+        IdGeneratorBase,
+        create_id_generator_actor,
+        kill_id_generator_actor,
+    )
+    from nemo_curator.tasks import FileGroupTask
+except ImportError:
+    pass
 
 
 def get_original_df_with_curator_ids(
     id_generator_path: str, tasks: list[FileGroupTask], filetype: Literal["parquet", "jsonl"]
-) -> cudf.DataFrame:
+) -> "cudf.DataFrame":
     """Get mapping from curator IDs to original IDs using IDGeneratorActor.
 
     Args:
@@ -113,6 +122,7 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 @pytest.mark.usefixtures("shared_ray_client")
 class TestExactDuplicatesWorkflow:
     @pytest.mark.parametrize("assign_id", [True, False])

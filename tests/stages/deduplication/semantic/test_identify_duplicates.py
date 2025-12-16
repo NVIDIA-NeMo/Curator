@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,14 +24,13 @@ import pytest
 
 from nemo_curator.tasks import FileGroupTask
 
-cudf = pytest.importorskip("cudf")
-cuml = pytest.importorskip("cuml")
-cp = pytest.importorskip("cupy")
+try:
+    from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
+except ImportError:
+    pass
 
 
-from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
-
-
+@pytest.mark.text
 class TestIdentifyDuplicatesStage:
     """Test cases for IdentifyDuplicatesStage."""
 

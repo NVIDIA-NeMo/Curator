@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,11 +27,14 @@ import pytest
 import torch
 from sklearn.datasets import make_blobs
 
-cupy = pytest.importorskip("cupy")
-from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+try:
+    from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+except ImportError:
+    pass
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestSemanticDeduplicationWorkflow:
     """Test the SemanticDeduplicationWorkflow against the same data and expectations as the original Dask-based test."""
 

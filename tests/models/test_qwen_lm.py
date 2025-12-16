@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,9 +20,12 @@ from unittest.mock import Mock, patch
 # Mock vllm before importing the module to avoid dependency issues
 sys.modules["vllm"] = Mock()
 
+import pytest
+
 from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
 
 
+@pytest.mark.video
 class TestQwenLM:
     """Test cases for QwenLM model class."""
 

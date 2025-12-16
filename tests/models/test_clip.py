@@ -1,3 +1,5 @@
+# modality: image
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -19,7 +21,7 @@ import numpy as np
 import pytest
 import torch
 
-try:  # noqa: SIM105
+try:
     from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
 except ImportError:
     pass

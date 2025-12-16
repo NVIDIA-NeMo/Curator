@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,12 +17,19 @@
 # ruff: noqa: E402
 import pytest
 
-cudf = pytest.importorskip("cudf")
+try:
+    import cudf
+except ImportError:
+    pass
 
-from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+try:
+    from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+except ImportError:
+    pass
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestRankingStrategy:
     """Test cases for RankingStrategy."""
 

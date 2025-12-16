@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,18 +23,24 @@ import pandas as pd
 import pytest
 from sklearn.datasets import make_blobs
 
-cudf = pytest.importorskip("cudf")
-cuml = pytest.importorskip("cuml")
-cp = pytest.importorskip("cupy")
+try:
+    import cudf
+    import cuml
+    import cupy as cp
+except ImportError:
+    pass
 
 from sklearn.metrics import adjusted_rand_score
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
-from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
-from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
-from nemo_curator.tasks import FileGroupTask
+try:
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
+    from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+    from nemo_curator.tasks import FileGroupTask
+except ImportError:
+    pass
 
 N_CLUSTERS = 4
 N_SAMPLES_PER_CLUSTER = 10_000
@@ -139,6 +147,7 @@ def run_single_gpu_baseline(
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 @pytest.mark.parametrize(
     "file_format_config",
     ["parquet", "jsonl"],
@@ -283,6 +292,7 @@ class TestKMeansStageIntegration:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestKMeansReadFitWriteStage:
     """Unit tests for KMeansReadFitWriteStage methods."""
 
