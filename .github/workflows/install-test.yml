@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # This workflow validates NeMo Curator installation across supported platforms.
-# Tests both uv (lock file) and pip installations for CPU and ALL (CPU+GPU) extras.
+# Tests both uv (lock file) and pip installations for CPU and ALL (GPU+CPU) extras.
 
 name: Installation Test
 
@@ -69,7 +69,8 @@ jobs:
   # ============================================================================
   uv-cpu-test:
     needs: [pre-flight]
-    if: !(needs.pre-flight.outputs.docs_only == 'true')
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: ubuntu-latest
     name: UV CPU - Py${{ matrix.python-version }}
     strategy:
@@ -111,7 +112,8 @@ jobs:
 
   pip-cpu-test:
     needs: [pre-flight]
-    if: !(needs.pre-flight.outputs.docs_only == 'true')
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: ubuntu-latest
     name: Pip CPU - Py${{ matrix.python-version }}
     strategy:
@@ -153,7 +155,8 @@ jobs:
   # ============================================================================
   uv-all-test:
     needs: [pre-flight]
-    if: !(needs.pre-flight.outputs.docs_only == 'true')
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: self-hosted-nemo
     name: UV All (CPU+GPU) - Py${{ matrix.python-version }}
     strategy:
@@ -196,7 +199,8 @@ jobs:
 
   pip-all-test:
     needs: [pre-flight]
-    if: !(needs.pre-flight.outputs.docs_only == 'true')
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: self-hosted-nemo
     name: Pip All (CPU+GPU) - Py${{ matrix.python-version }}
     strategy:
