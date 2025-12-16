@@ -44,7 +44,7 @@ jobs:
 
   update-lockfile:
     environment: nemo-ci
-    runs-on: linux-amd64-cpu16
+    runs-on: ubuntu-latest
     needs: [pre-flight]
     env:
       SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
@@ -63,12 +63,10 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Create bump branch if not exists
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
         run: |
           if ! git ls-remote --exit-code origin $SOURCE_BRANCH; then
             git checkout -b $SOURCE_BRANCH $TARGET_BRANCH
-            git push https://token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $SOURCE_BRANCH
+            git push origin $SOURCE_BRANCH
           fi
 
       - name: Checkout repo
@@ -89,10 +87,7 @@ jobs:
           echo "UV_LINK_MODE=copy" | tee -a "$GITHUB_ENV"
 
       - name: Upgrade lock file
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          uv lock --upgrade
+        run: uv lock --upgrade
 
       - name: Upload lock file
         uses: actions/upload-artifact@v4
