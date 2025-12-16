@@ -28,7 +28,6 @@ import pytest
 import ray
 from loguru import logger
 
-
 MODALITY_GROUPS = ["text", "image", "video", "audio"]
 
 
@@ -126,7 +125,7 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     # scan first 5 lines for: "# modality: video"
     if collection_path.is_file() and collection_path.suffix == ".py":
         try:
-            with open(collection_path, "r", encoding="utf8") as f:
+            with open(collection_path, encoding="utf8") as f:
                 header = "".join([next(f) for _ in range(5)])
         except StopIteration:
             header = ""
