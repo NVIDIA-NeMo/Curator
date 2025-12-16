@@ -37,9 +37,10 @@ try:
         create_id_generator_actor,
         kill_id_generator_actor,
     )
-    from nemo_curator.tasks import FileGroupTask
 except ImportError:
     pass
+
+from nemo_curator.tasks import FileGroupTask
 
 
 def get_original_df_with_curator_ids(

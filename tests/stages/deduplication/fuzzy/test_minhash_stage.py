@@ -29,9 +29,10 @@ except ImportError:
 try:
     from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-    from nemo_curator.tasks import FileGroupTask
 except ImportError:
     pass
+
+from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.fixture

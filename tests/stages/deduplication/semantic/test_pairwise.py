@@ -380,8 +380,6 @@ class TestPairwiseStage:
         assert len(stages) == 2
 
         # First stage should be ClusterWiseFilePartitioningStage
-        from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-
         assert isinstance(stages[0], ClusterWiseFilePartitioningStage)
         assert stages[0].input_path == "/input/path"
 
@@ -439,7 +437,7 @@ class TestPairwiseStage:
         assert ranking_strategy.metadata_cols == ["cosine_dist_to_cent", "doc_id"]
         assert ranking_strategy.ascending == [False, False]  # "hard" means descending (farthest first)
 
-    def _setup_test_data(self, tmp_path: Path) -> tuple[Path, Path, cudf.DataFrame, Path]:
+    def _setup_test_data(self, tmp_path: Path) -> tuple[Path, Path, "cudf.DataFrame", Path]:
         """Helper method to set up common test data for all ranking tests."""
         cluster_id = 0
 

@@ -35,9 +35,10 @@ try:
     from nemo_curator.pipeline import Pipeline
     from nemo_curator.stages.deduplication.exact.identification import ExactDuplicateIdentification
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
-    from nemo_curator.tasks import FileGroupTask
 except ImportError:
     pass
+
+from nemo_curator.tasks import FileGroupTask
 
 
 def get_original_df_with_curator_ids(
