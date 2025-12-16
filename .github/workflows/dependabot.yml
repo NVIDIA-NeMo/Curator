@@ -25,7 +25,6 @@ permissions:
 jobs:
   get-release-branch-names:
     runs-on: ubuntu-latest
-    environment: nemo-ci
     outputs:
       curator: ${{ steps.get-branch.outputs.curator_release_branch }}
     steps:
