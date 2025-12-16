@@ -14,23 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 import os
+from contextlib import suppress
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     import cudf
-except ImportError:
-    pass
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     from nemo_curator.stages.deduplication.fuzzy.minhash import MinHashStage
     from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
-except ImportError:
-    pass
 
 from nemo_curator.tasks import FileGroupTask
 

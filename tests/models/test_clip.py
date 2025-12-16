@@ -21,10 +21,7 @@ import numpy as np
 import pytest
 import torch
 
-try:
-    from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
-except ImportError:
-    pass
+from nemo_curator.models.clip import CLIPAestheticScorer, CLIPImageEmbeddings
 
 
 @pytest.mark.image

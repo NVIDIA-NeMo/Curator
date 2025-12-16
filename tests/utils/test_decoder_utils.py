@@ -18,30 +18,28 @@ import io
 import json
 import pathlib
 import tempfile
+from contextlib import suppress
 from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
 
-try:
-    from nemo_curator.utils.decoder_utils import (
-        FrameExtractionPolicy,
-        FrameExtractionSignature,
-        Resolution,
-        VideoMetadata,
-        _make_video_stream,
-        decode_video_cpu,
-        extract_frames,
-        extract_video_metadata,
-        find_closest_indices,
-        get_avg_frame_rate,
-        get_frame_count,
-        get_video_timestamps,
-        sample_closest,
-        save_stream_position,
-    )
-except ImportError:
-    pass
+from nemo_curator.utils.decoder_utils import (
+    FrameExtractionPolicy,
+    FrameExtractionSignature,
+    Resolution,
+    VideoMetadata,
+    _make_video_stream,
+    decode_video_cpu,
+    extract_frames,
+    extract_video_metadata,
+    find_closest_indices,
+    get_avg_frame_rate,
+    get_frame_count,
+    get_video_timestamps,
+    sample_closest,
+    save_stream_position,
+)
 
 
 @pytest.mark.video

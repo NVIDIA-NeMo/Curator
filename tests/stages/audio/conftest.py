@@ -18,6 +18,7 @@ Marks all tests in this directory with pytest.mark.audio
 
 import pytest
 
+
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         item.add_marker(pytest.mark.audio)

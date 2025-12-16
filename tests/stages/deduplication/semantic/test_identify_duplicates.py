@@ -14,7 +14,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 import os
 from pathlib import Path
 
@@ -22,12 +21,8 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
+from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
 from nemo_curator.tasks import FileGroupTask
-
-try:
-    from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
-except ImportError:
-    pass
 
 
 @pytest.mark.text

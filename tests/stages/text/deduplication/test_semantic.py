@@ -11,20 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: E402
+
 import os
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pytest
+from huggingface_hub import snapshot_download
 
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
-
-_ = pytest.importorskip("cudf")
-from huggingface_hub import snapshot_download
-
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
 # Pre-download the model to avoid rate limiting in CI. If it fails, skip the test.

@@ -14,18 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
+
 import pytest
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     import cudf
-except ImportError:
-    pass
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
-except ImportError:
-    pass
 
 
 @pytest.mark.gpu

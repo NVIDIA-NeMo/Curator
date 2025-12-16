@@ -14,23 +14,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 from collections.abc import Iterable
+from contextlib import suppress
 from itertools import combinations
 
 import numpy as np
 import pandas as pd
 import pytest
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     import cudf
-except ImportError:
-    pass
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     from nemo_curator.stages.deduplication.fuzzy.minhash import GPUMinHash
-except ImportError:
-    pass
 
 
 def minhash_overlap(minhash1: np.ndarray, minhash2: np.ndarray) -> float:

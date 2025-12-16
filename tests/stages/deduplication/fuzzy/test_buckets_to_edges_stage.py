@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import os
+from contextlib import suppress
 from pathlib import Path
 
 import pandas as pd
@@ -25,10 +26,9 @@ import pytest
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
 
-try:
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
     from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
-except ImportError:
-    pass
 
 
 @pytest.fixture

@@ -14,25 +14,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: ANN401, PT019
-
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
-try:
-    from nemo_curator.utils.nvcodec_utils import (
-        FrameExtractionPolicy,
-        NvVideoDecoder,
-        PyNvcFrameExtractor,
-        VideoBatchDecoder,
-        gpu_decode_for_stitching,
-        pixel_format_to_cvcuda_code,
-    )
-except ImportError:
-    pass
+from nemo_curator.utils.nvcodec_utils import (
+    FrameExtractionPolicy,
+    NvVideoDecoder,
+    PyNvcFrameExtractor,
+    VideoBatchDecoder,
+    gpu_decode_for_stitching,
+    pixel_format_to_cvcuda_code,
+)
 
 
 @pytest.mark.video
