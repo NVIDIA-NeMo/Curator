@@ -19,6 +19,7 @@ GPU resources based on the test session's requirements.
 """
 
 import os
+import re
 import socket
 import subprocess
 from pathlib import Path
@@ -100,18 +101,50 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
 
 def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+    m_opts = config.invocation_params.args
+    m_count = sum(arg == "-m" for arg in m_opts)
+
+    # At most one -m flag allowed
+    if m_count > 1:
+        raise pytest.UsageError(
+            "At most one -m flag is allowed.\n"
+            "Combine markers into a single boolean expression, e.g.:\n"
+            '  pytest -m "not gpu and video"'
+        )
+
     selected = config.getoption("-m") or ""
 
     # No -m expression → collect everything
     if selected.strip() == "":
         return False
 
-    # Determine which groups were explicitly requested
-    selected_groups = {m for m in MODALITY_GROUPS if m in selected}
+    # Determine which modalities (if any) were explicitly requested
+    selected_groups = set()
 
-    # If no known group was requested → collect everything
-    if not selected_groups:
+    for group in MODALITY_GROUPS:
+        # Do not allow negating a modality
+        if re.search(rf"\bnot\s+{group}\b", selected):
+            raise pytest.UsageError(
+                f"Negating a modality is not allowed: 'not {group}'."
+            )
+
+        if re.search(rf"\b{group}\b", selected):
+            selected_groups.add(group)
+
+    # Do not allow multiple modalities to be selected at once
+    if len(selected_groups) > 1:
+        raise pytest.UsageError(
+            f"Multiple modalities selected: {sorted(selected_groups)}. "
+            "Please select only one modality at a time "
+            f"({', '.join(MODALITY_GROUPS)})."
+        )
+
+    # If no modality was requested → collect everything
+    if len(selected_groups) == 0:
         return False
+
+    # If we reach this point, there should be exactly one modality selected
+    assert len(selected_groups) == 1
 
     path_str = str(collection_path)
 
