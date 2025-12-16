@@ -220,9 +220,22 @@ jobs:
         run: |
           echo "🧪 Testing: pip install .[all] (Python ${{ matrix.python-version }})"
           
-          # Build a minimal container and install via pip
+          # Use same base image as project's Dockerfile (nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04)
           docker build -f - -t test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} . <<'EOF'
-          FROM nvcr.io/nvidia/pytorch:24.12-py3
+          FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+          
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && apt-get install -y \
+              python${{ matrix.python-version }} \
+              python${{ matrix.python-version }}-venv \
+              python${{ matrix.python-version }}-dev \
+              python3-pip \
+              git \
+              && rm -rf /var/lib/apt/lists/*
+          
+          RUN update-alternatives --install /usr/bin/python python /usr/bin/python${{ matrix.python-version }} 1
+          RUN python -m pip install --upgrade pip
+          
           WORKDIR /workspace
           COPY . .
           RUN pip install --no-cache-dir ".[all]"
