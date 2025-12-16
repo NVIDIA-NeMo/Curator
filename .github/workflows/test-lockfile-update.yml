@@ -150,6 +150,11 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: main
 
+      - name: Configure git for signoff
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Download lock file
         uses: actions/download-artifact@v4
         with:
@@ -185,7 +190,8 @@ jobs:
             - ✅ Review the changes to verify the workflow works
             - ✅ Close this PR after validation
           commit-message: "test: Update lock file (TEST - do not merge)"
-          signoff: false
+          signoff: true
+          committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
           delete-branch: false
 
       - name: Summary
