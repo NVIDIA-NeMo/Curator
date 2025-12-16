@@ -78,7 +78,6 @@ jobs:
   create-pr:
     needs: [update-lockfile, pre-flight]
     runs-on: ubuntu-latest
-    environment: main
     env:
       SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
