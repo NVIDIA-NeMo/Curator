@@ -31,10 +31,10 @@ jobs:
       - name: Get release branch names
         id: get-branch
         env:
-          PAT: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          latest_branch=$(git ls-remote --heads https://token:${PAT}@github.com/NVIDIA-NeMo/Curator.git 'refs/heads/r*' | 
-            grep -o 'r[0-9]\+\.[0-9]\+\.[0-9]\+' | 
+          latest_branch=$(gh api repos/NVIDIA-NeMo/Curator/branches --paginate --jq '.[].name' | 
+            grep -E '^r[0-9]+\.[0-9]+\.[0-9]+$' | 
             sort -V | 
             tail -n1)
           echo "curator_release_branch=$latest_branch" >> $GITHUB_OUTPUT
