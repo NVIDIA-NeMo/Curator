@@ -27,20 +27,25 @@ FROM cuda AS build
 ARG CURATOR_ENV=ci
 ENV CURATOR_ENVIRONMENT=${CURATOR_ENV}
 
+ARG PYTHON_VERSION=3.12
+
 ENV NVIDIA_PRODUCT_NAME="NeMo Curator"
 
 # Install base dependency
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12-dev \
-    python3 \
+    python${PYTHON_VERSION}-dev \
+    python${PYTHON_VERSION} \
+    python${PYTHON_VERSION}-venv \
     python3-dev \
     python3-venv \
-    python-is-python3\
+    python-is-python3 \
     curl \
     git \
     vim && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${PYTHON_VERSION} 1 && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python${PYTHON_VERSION} 1 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -53,7 +58,7 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 ENV UV_CACHE_DIR=/opt/uv_cache
 ENV PATH="$UV_PROJECT_ENVIRONMENT/bin:$PATH"
 ENV UV_LINK_MODE=copy
-RUN uv venv ${UV_PROJECT_ENVIRONMENT} --system-site-packages
+RUN uv venv ${UV_PROJECT_ENVIRONMENT} --python python${PYTHON_VERSION} --system-site-packages
 
 FROM build AS nemo_curator_dep
 
