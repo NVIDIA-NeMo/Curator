@@ -298,7 +298,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        extra: [cuda12, deduplication_cuda12, all]
+        extra: [cuda12, deduplication_cuda12, audio_cuda12, image_cuda12, text_cuda12, video_cuda12, all]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -327,6 +327,34 @@ jobs:
                 python -c "import cudf; print(f'✅ cudf {cudf.__version__} importable')"
               docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
                 python -c "import cuml; print(f'✅ cuml {cuml.__version__} importable')"
+              ;;
+            audio_cuda12)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "from nemo.collections.asr.models import ASRModel; print('✅ ASRModel importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import gpustat; print('✅ gpustat importable')"
+              ;;
+            image_cuda12)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import torchvision; print(f'✅ torchvision {torchvision.__version__} importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import nvidia.dali; print('✅ nvidia-dali importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import cudf; print(f'✅ cudf {cudf.__version__} importable')"
+              ;;
+            text_cuda12)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import fasttext; print('✅ fasttext importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import cudf; import cuml; print('✅ cudf/cuml importable')"
+              ;;
+            video_cuda12)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import av; print(f'✅ av {av.__version__} importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import cvcuda; print('✅ cvcuda importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import vllm; print('✅ vllm importable')"
               ;;
             all)
               docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
