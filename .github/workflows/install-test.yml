@@ -31,15 +31,14 @@ concurrency:
 
 env:
   UV_HTTP_TIMEOUT: 60
-  # GPU test configuration - update here when upgrading CUDA
-  CUDA_VERSION: "12.8"  # For display in job names
-  CUDA_BASE_IMAGE: "nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04"
 
 jobs:
   pre-flight:
     runs-on: ubuntu-latest
     outputs:
       docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
+      cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
+      cuda_version: ${{ steps.cuda_config.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,6 +65,19 @@ jobs:
           DOCS_ONLY: ${{ steps.changed-files.outputs.any_changed == 'false' }}
         run: |
           echo "main=$DOCS_ONLY" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Extract CUDA config from Dockerfile
+        id: cuda_config
+        run: |
+          # Extract CUDA_VER and LINUX_VER from docker/Dockerfile (single source of truth)
+          CUDA_VER=$(grep -E "^ARG CUDA_VER=" docker/Dockerfile | cut -d'=' -f2)
+          LINUX_VER=$(grep -E "^ARG LINUX_VER=" docker/Dockerfile | cut -d'=' -f2)
+          BASE_IMAGE="nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}"
+          VERSION=$(echo "$CUDA_VER" | cut -d'.' -f1,2)
+          
+          echo "base_image=$BASE_IMAGE" | tee -a "$GITHUB_OUTPUT"
+          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "📦 CUDA base image: $BASE_IMAGE (v$VERSION)"
 
   # ============================================================================
   # CPU Installation Tests (ubuntu-latest)
@@ -161,7 +173,7 @@ jobs:
     if: |
       !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: self-hosted-nemo
-    name: UV All (CPU+GPU) - CUDA${{ env.CUDA_VERSION }} - Py${{ matrix.python-version }}
+    name: UV All (CPU+GPU) - CUDA${{ needs.pre-flight.outputs.cuda_version }} - Py${{ matrix.python-version }}
     strategy:
       fail-fast: false
       matrix:
@@ -178,7 +190,7 @@ jobs:
           
           # Build container with deadsnakes PPA for Python 3.10 support
           docker build -f - -t test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} . <<EOF
-          FROM ${{ env.CUDA_BASE_IMAGE }}
+          FROM ${{ needs.pre-flight.outputs.cuda_base_image }}
           
           ENV DEBIAN_FRONTEND=noninteractive
           
@@ -229,7 +241,7 @@ jobs:
     if: |
       !(needs.pre-flight.outputs.docs_only == 'true')
     runs-on: self-hosted-nemo
-    name: Pip All (CPU+GPU) - CUDA${{ env.CUDA_VERSION }} - Py${{ matrix.python-version }}
+    name: Pip All (CPU+GPU) - CUDA${{ needs.pre-flight.outputs.cuda_version }} - Py${{ matrix.python-version }}
     # Allow failure due to known dependency conflict: nemo_toolkit[asr] vs vllm (transformers version)
     # TODO: Fix in pyproject.toml when nemo_toolkit supports transformers>=4.55.2
     continue-on-error: true
@@ -249,7 +261,7 @@ jobs:
           
           # Build container with deadsnakes PPA for Python 3.10 support
           docker build -f - -t test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} . <<EOF
-          FROM ${{ env.CUDA_BASE_IMAGE }}
+          FROM ${{ needs.pre-flight.outputs.cuda_base_image }}
           
           ENV DEBIAN_FRONTEND=noninteractive
           ENV PIP_BREAK_SYSTEM_PACKAGES=1
