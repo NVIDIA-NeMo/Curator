@@ -82,16 +82,6 @@ jobs:
       SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
-      - name: Debug token availability
-        env:
-          TOKEN_CHECK: ${{ secrets.PAT }}
-        run: |
-          if [ -z "$TOKEN_CHECK" ]; then
-            echo "❌ secrets.PAT is EMPTY"
-          else
-            echo "✅ secrets.PAT is available (${#TOKEN_CHECK} chars)"
-          fi
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
