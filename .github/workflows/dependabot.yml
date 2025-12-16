@@ -23,43 +23,17 @@ permissions:
   contents: write
 
 jobs:
-  get-release-branch-names:
-    runs-on: ubuntu-latest
-    outputs:
-      curator: ${{ steps.get-branch.outputs.curator_release_branch }}
-    steps:
-      - name: Get release branch names
-        id: get-branch
-        env:
-          GH_TOKEN: ${{ secrets.PAT }}
-        run: |
-          latest_branch=$(gh api repos/NVIDIA-NeMo/Curator/branches --paginate --jq '.[].name' | 
-            grep -E '^r[0-9]+\.[0-9]+\.[0-9]+$' | 
-            sort -V | 
-            tail -n1)
-          echo "curator_release_branch=$latest_branch" >> $GITHUB_OUTPUT
-
   bump-main:
-    needs: [get-release-branch-names]
     uses: ./.github/workflows/_update_dependencies.yml
     with:
       target-branch: main
     secrets:
       PAT: ${{ secrets.PAT }}
 
-  bump-release:
-    needs: [get-release-branch-names]
-    if: needs.get-release-branch-names.outputs.curator != ''
-    uses: ./.github/workflows/_update_dependencies.yml
-    with:
-      target-branch: ${{ needs.get-release-branch-names.outputs.curator }}
-    secrets:
-      PAT: ${{ secrets.PAT }}
-
   notify:
     if: failure()
     runs-on: ubuntu-latest
-    needs: [bump-main, bump-release]
+    needs: [bump-main]
     steps:
       - name: Notify
         env:
@@ -72,4 +46,3 @@ jobs:
             -H 'Content-type: application/json' \
             --data "{\"text\":\":robot_joy: <https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}|Dependabot workflow> failed. Please fix manually.\n\ncc ${SLACK_WEBHOOK_ADMIN}\"}" \
             $SLACK_WEBHOOK
-
