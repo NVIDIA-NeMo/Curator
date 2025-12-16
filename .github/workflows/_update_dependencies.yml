@@ -47,33 +47,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [pre-flight]
     env:
-      SOURCE_BRANCH: ${{ needs.pre-flight.outputs.bump-branch }}
       TARGET_BRANCH: ${{ inputs.target-branch || github.event.inputs.target-branch }}
     steps:
-      - name: Checkout repo (TARGET_BRANCH for branch creation)
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT }}
-          ref: ${{ env.TARGET_BRANCH }}
-          submodules: recursive
-
-      - name: Configure git
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Create bump branch if not exists
-        run: |
-          if ! git ls-remote --exit-code origin $SOURCE_BRANCH; then
-            git checkout -b $SOURCE_BRANCH $TARGET_BRANCH
-            git push origin $SOURCE_BRANCH
-          fi
-
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT }}
-          ref: ${{ env.SOURCE_BRANCH }}
+          ref: ${{ env.TARGET_BRANCH }}
           submodules: recursive
 
       - name: Set up uv
@@ -92,7 +72,7 @@ jobs:
       - name: Upload lock file
         uses: actions/upload-artifact@v4
         with:
-          name: lock-file-${{ env.SOURCE_BRANCH }}
+          name: lock-file-${{ needs.pre-flight.outputs.bump-branch }}
           path: uv.lock
 
   create-pr:
@@ -139,4 +119,3 @@ jobs:
           commit-message: ${{ env.title }}
           signoff: true
           committer: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
-
