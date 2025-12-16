@@ -28,7 +28,10 @@ import pytest
 
 # Suppress GPU-related import errors when running pytest -m "not gpu"
 with suppress(ImportError):
-    from nemo_curator.stages.deduplication.exact.workflow import ID_GENERATOR_OUTPUT_FILENAME, ExactDeduplicationWorkflow
+    from nemo_curator.stages.deduplication.exact.workflow import (
+        ID_GENERATOR_OUTPUT_FILENAME,
+        ExactDeduplicationWorkflow,
+    )
     from nemo_curator.stages.deduplication.id_generator import (
         CURATOR_DEDUP_ID_STR,
         IdGeneratorBase,

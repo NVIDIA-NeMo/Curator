@@ -15,16 +15,20 @@
 # limitations under the License.
 
 import os
+from contextlib import suppress
 from pathlib import Path
 
 import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
-from nemo_curator.tasks import FileGroupTask
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
+    from nemo_curator.tasks import FileGroupTask
 
 
+@pytest.mark.gpu
 @pytest.mark.text
 class TestIdentifyDuplicatesStage:
     """Test cases for IdentifyDuplicatesStage."""

@@ -18,7 +18,6 @@ import io
 import json
 import pathlib
 import tempfile
-from contextlib import suppress
 from unittest.mock import Mock, patch
 
 import numpy as np

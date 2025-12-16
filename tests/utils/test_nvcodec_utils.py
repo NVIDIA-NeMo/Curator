@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: ANN401, PT019
+
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
