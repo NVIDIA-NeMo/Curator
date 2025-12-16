@@ -152,6 +152,8 @@ jobs:
         id: create-pull-request
         env:
           title: "chore(beep boop 🤖): Bump `uv.lock` (${{ inputs.target-branch || github.event.inputs.target-branch }}) (${{ needs.pre-flight.outputs.date }})"
+          committer_name: ${{ steps.gpg-action.outputs.name }}
+          committer_email: ${{ steps.gpg-action.outputs.email }}
         with:
           branch: ${{ env.SOURCE_BRANCH }}
           base: ${{ env.TARGET_BRANCH }}
@@ -164,7 +166,10 @@ jobs:
             - [ ] Verify the presubmit CI  
 
             🙏 Please merge this PR only if the CI workflow completed successfully.
-          commit-message: ${{ env.title }}
-          signoff: true
-          committer: "${{ steps.gpg-action.outputs.name }} <${{ steps.gpg-action.outputs.email }}>"
+          commit-message: |
+            ${{ env.title }}
+            
+            Signed-off-by: ${{ env.committer_name }} <${{ env.committer_email }}>
+          signoff: false
+          committer: "${{ env.committer_name }} <${{ env.committer_email }}>"
 
