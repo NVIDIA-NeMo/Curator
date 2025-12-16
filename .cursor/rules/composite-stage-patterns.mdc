@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from nemo_curator.stages.base import CompositeStage, ProcessingStage
 
 
+@dataclass
 class MyCompositeStage(CompositeStage[InputTaskType, OutputTaskType]):
     param1: str
     param2: int
