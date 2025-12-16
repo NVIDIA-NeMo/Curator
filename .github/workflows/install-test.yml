@@ -14,6 +14,7 @@
 
 # This workflow verifies that the basic install works across all supported platforms.
 # Tests lock file installation (reproducible builds) and pip installation (user experience).
+# Also tests individual extras in isolation to catch dependency issues early.
 
 name: Installation Test
 
@@ -160,8 +161,193 @@ jobs:
           # Verify pip can find the package
           pip show nemo-curator
 
+  # ============================================================================
+  # Individual Extras Testing - UV Lock File
+  # Tests each CPU extra in isolation to catch dependency conflicts
+  # ============================================================================
+  extras-isolation-test:
+    needs: [pre-flight]
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
+    runs-on: ubuntu-latest
+    name: UV Extra (${{ matrix.extra }}) - Py${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+        extra: [audio_cpu, image_cpu, text_cpu, video_cpu]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up uv with Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Test lock file with extra
+        shell: bash -x -e -u -o pipefail {0}
+        run: |
+          echo "🧪 Testing: uv sync --locked --extra ${{ matrix.extra }}"
+          uv sync --link-mode copy --locked --extra ${{ matrix.extra }}
+          
+          # Verify base import
+          uv run python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
+
+      - name: Smoke test extra
+        shell: bash -x -e -u -o pipefail {0}
+        run: |
+          case "${{ matrix.extra }}" in
+            audio_cpu)
+              uv run python -c "from nemo.collections.asr.models import ASRModel; print('✅ ASRModel importable')"
+              ;;
+            image_cpu)
+              uv run python -c "import torchvision; print(f'✅ torchvision {torchvision.__version__} importable')"
+              ;;
+            text_cpu)
+              uv run python -c "import fasttext; print('✅ fasttext importable')"
+              uv run python -c "import trafilatura; print('✅ trafilatura importable')"
+              uv run python -c "import justext; print('✅ justext importable')"
+              ;;
+            video_cpu)
+              uv run python -c "import av; print(f'✅ av (PyAV) {av.__version__} importable')"
+              uv run python -c "import cv2; print(f'✅ opencv {cv2.__version__} importable')"
+              uv run python -c "import einops; print('✅ einops importable')"
+              ;;
+          esac
+
+  # ============================================================================
+  # Individual Extras Testing - Pip (User Experience)
+  # Tests pip install with extras - this is what users actually do
+  # ============================================================================
+  pip-extras-test:
+    needs: [pre-flight]
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
+    runs-on: ubuntu-latest
+    name: Pip Extra (${{ matrix.extra }}) - Py${{ matrix.python-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+        extra: [audio_cpu, image_cpu, text_cpu, video_cpu]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Install via pip with extra
+        shell: bash -x -e -u -o pipefail {0}
+        run: |
+          echo "🧪 Testing: pip install .[${{ matrix.extra }}]"
+          python -m pip install --upgrade pip
+          pip install --no-cache-dir ".[${{ matrix.extra }}]"
+          
+          # Verify installation
+          python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
+          pip show nemo-curator
+
+      - name: Smoke test extra
+        shell: bash -x -e -u -o pipefail {0}
+        run: |
+          case "${{ matrix.extra }}" in
+            audio_cpu)
+              python -c "from nemo.collections.asr.models import ASRModel; print('✅ ASRModel importable')"
+              ;;
+            image_cpu)
+              python -c "import torchvision; print(f'✅ torchvision {torchvision.__version__} importable')"
+              ;;
+            text_cpu)
+              python -c "import fasttext; print('✅ fasttext importable')"
+              python -c "import trafilatura; print('✅ trafilatura importable')"
+              ;;
+            video_cpu)
+              python -c "import av; print(f'✅ av (PyAV) {av.__version__} importable')"
+              python -c "import cv2; print(f'✅ opencv {cv2.__version__} importable')"
+              ;;
+          esac
+
+  # ============================================================================
+  # CUDA Extras Testing (GPU Runner)
+  # Tests GPU-dependent extras on self-hosted runner with CUDA
+  # ============================================================================
+  extras-cuda-test:
+    needs: [pre-flight]
+    if: |
+      !(needs.pre-flight.outputs.docs_only == 'true')
+    runs-on: self-hosted-nemo
+    name: CUDA Extra (${{ matrix.extra }})
+    strategy:
+      fail-fast: false
+      matrix:
+        extra: [cuda12, deduplication_cuda12, all]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build test container
+        run: |
+          echo "🧪 Building container for CUDA extra: ${{ matrix.extra }}"
+          docker build -f docker/Dockerfile -t test-${{ matrix.extra }}-${{ github.run_id }} .
+
+      - name: Verify CUDA availability
+        run: |
+          docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+            python -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'; print(f'✅ CUDA available, device: {torch.cuda.get_device_name(0)}')"
+
+      - name: Smoke test CUDA imports
+        run: |
+          case "${{ matrix.extra }}" in
+            cuda12)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import gpustat; print('✅ gpustat importable')"
+              ;;
+            deduplication_cuda12)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import cudf; print(f'✅ cudf {cudf.__version__} importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import cuml; print(f'✅ cuml {cuml.__version__} importable')"
+              ;;
+            all)
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "import cudf; import cuml; import torchvision; print('✅ all extras importable')"
+              docker run --rm --gpus all test-${{ matrix.extra }}-${{ github.run_id }} \
+                python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
+              ;;
+          esac
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rmi test-${{ matrix.extra }}-${{ github.run_id }} || true
+
+  # ============================================================================
+  # Summary Job
+  # ============================================================================
   install-test-summary:
-    needs: [pre-flight, uv-lock-file-test, pip-install-test]
+    needs: [pre-flight, uv-lock-file-test, pip-install-test, extras-isolation-test, pip-extras-test, extras-cuda-test]
     runs-on: ubuntu-latest
     name: Install test summary
     if: |
@@ -171,6 +357,9 @@ jobs:
       )
       && !cancelled()
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Get workflow result
         id: result
         shell: bash -x -e -u -o pipefail {0}
@@ -183,11 +372,18 @@ jobs:
 
           if [ "${FAILED_JOBS:-0}" -eq 0 ] || [ "$SKIPPING_IS_ALLOWED" == "true" ]; then
               echo "✅ All installation tests completed successfully"
+              echo ""
+              echo "📊 Test Summary:"
+              echo "  - UV Lock File: ✅"
+              echo "  - Pip Install: ✅"
+              echo "  - UV Extras (isolated): ✅"
+              echo "  - Pip Extras: ✅"
+              echo "  - CUDA Extras: ✅"
               exit 0
           else
               echo "❌ Found $FAILED_JOBS failed installation test(s)"
-              # Show which jobs failed
+              echo ""
+              echo "Failed jobs:"
               gh run view $GITHUB_RUN_ID --json jobs --jq '.jobs[] | select(.status == "completed" and .conclusion != "success") | .name'
               exit 1
           fi
-
