@@ -100,17 +100,16 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     config._collected_items = items  # Store in config instead of global
 
 
-def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:  # noqa: C901, PLR0912
     m_opts = config.invocation_params.args
     m_count = sum(arg == "-m" for arg in m_opts)
 
     # At most one -m flag allowed
     if m_count > 1:
-        raise pytest.UsageError(
-            "At most one -m flag is allowed.\n"
-            "Combine markers into a single boolean expression, e.g.:\n"
-            '  pytest -m "not gpu and video"'
-        )
+        msg = "At most one -m flag is allowed.\n"
+        msg += "Combine markers into a single boolean expression, e.g.:\n"
+        msg += '  pytest -m "not gpu and video"'
+        raise pytest.UsageError(msg)
 
     selected = config.getoption("-m") or ""
 
@@ -124,20 +123,18 @@ def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
     for group in MODALITY_GROUPS:
         # Do not allow negating a modality
         if re.search(rf"\bnot\s+{group}\b", selected):
-            raise pytest.UsageError(
-                f"Negating a modality is not allowed: 'not {group}'."
-            )
+            msg = f"Negating a modality is not allowed: 'not {group}'."
+            raise pytest.UsageError(msg)
 
         if re.search(rf"\b{group}\b", selected):
             selected_groups.add(group)
 
     # Do not allow multiple modalities to be selected at once
     if len(selected_groups) > 1:
-        raise pytest.UsageError(
-            f"Multiple modalities selected: {sorted(selected_groups)}. "
-            "Please select only one modality at a time "
-            f"({', '.join(MODALITY_GROUPS)})."
-        )
+        msg = f"Multiple modalities selected: {sorted(selected_groups)}. "
+        msg += "Please select only one modality at a time "
+        msg += f"({', '.join(MODALITY_GROUPS)})."
+        raise pytest.UsageError(msg)
 
     # If no modality was requested → collect everything
     if len(selected_groups) == 0:
