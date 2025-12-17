@@ -45,17 +45,19 @@ audio_batch = AudioBatch(
 audio_batch = AudioBatch(
     data=[
         {
-            "audio_filepath": "/path/to/audio1.wav", 
+            "audio_filepath": "/path/to/audio1.wav",
             "text": "first transcription",
             "duration": 2.1
         },
         {
             "audio_filepath": "/path/to/audio2.wav",
-            "text": "second transcription", 
+            "text": "second transcription",
             "duration": 3.5
         }
     ],
-    filepath_key="audio_filepath"
+    filepath_key="audio_filepath",
+    task_id="audio_task_001",
+    dataset_name="my_speech_dataset"
 )
 ```
 
@@ -86,16 +88,16 @@ audio_sample = {
     # Core fields (user-provided)
     "audio_filepath": "/path/to/audio.wav",
     "text": "transcription text",
-    
+
     # Fields added by processing stages
     "pred_text": "asr prediction",    # Added by ASR inference stages
     "wer": 12.5,                     # Added by GetPairwiseWerStage
     "duration": 3.2,                 # Added by GetAudioDurationStage
-    
+
     # Optional user-provided metadata
     "language": "en_us",
     "speaker_id": "speaker_001",
-    
+
     # Custom fields (examples)
     "domain": "conversational",
     "noise_level": "low"
@@ -119,7 +121,7 @@ audio_batch = AudioBatch(data=[
 ])
 # Validation fails, but processing continues with warnings
 
-# Corrupted audio files  
+# Corrupted audio files
 corrupted_sample = {
     "audio_filepath": "/corrupted/audio.wav",
     "text": "sample text"
@@ -139,30 +141,30 @@ invalid_sample = {
 ```python
 def robust_audiobatch_creation(raw_data: list) -> AudioBatch:
     """Create AudioBatch with error recovery."""
-    
+
     valid_data = []
     error_count = 0
-    
+
     for item in raw_data:
         try:
             # Validate required fields
             if "audio_filepath" not in item or "text" not in item:
                 error_count += 1
                 continue
-            
+
             # Validate file existence
             if not os.path.exists(item["audio_filepath"]):
                 error_count += 1
                 continue
-                
+
             valid_data.append(item)
-            
+
         except Exception as e:
             logger.warning(f"Error processing item: {e}")
             error_count += 1
-    
+
     logger.info(f"Created AudioBatch with {len(valid_data)} valid items, {error_count} errors")
-    
+
     return AudioBatch(
         data=valid_data,
         filepath_key="audio_filepath"
@@ -210,12 +212,12 @@ AudioBatch serves as input and output for audio processing stages:
 def process(self, task: AudioBatch) -> AudioBatch:
     # Process audio data
     processed_data = []
-    
+
     for item in task.data:
         # Apply processing logic
         processed_item = self.process_audio_item(item)
         processed_data.append(processed_item)
-    
+
     # Return new AudioBatch with processed data
     return AudioBatch(
         data=processed_data,
@@ -239,7 +241,7 @@ flowchart TD
     F --> G["AudioBatch (filtered)<br/>• audio_filepath<br/>• text<br/>• pred_text<br/>• wer<br/>• duration"]
     G --> H[Export Stage]
     H --> I[Output Files]
-    
+
     style A fill:#e1f5fe
     style C fill:#f3e5f5
     style E fill:#e8f5e8

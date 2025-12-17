@@ -1,0 +1,52 @@
+---
+alwaysApply: true
+---
+
+# Task Patterns
+
+## Task Base Class
+
+Tasks are the fundamental unit of data processed through stages and pipelines. All tasks must:
+
+- Inherit from `Task[T]` where `T` is the data type (e.g., `pd.DataFrame`)
+- Define the `task_id`, `dataset_name`, and `data` attributes
+- Implement the abstract `num_items` property
+- Implement the abstract `validate()` method
+
+## Common Task Types
+
+- **DocumentBatch**: For text document processing (`data: pa.Table | pd.DataFrame`)
+- **VideoTask**: For video processing (`data: nemo_curator.tasks.video.Video`)
+- **ImageBatch**: For image processing (`data: list[nemo_curator.tasks.image.ImageObject]`)
+- **AudioBatch**: For audio processing (`data: dict | list[dict]`)
+- **FileGroupTask**: Represents a list of file names (`data: list[str]`)
+- **_EmptyTask**: A singleton dummy task (`data: None`) used as input for stages that **generate** data rather than transform it. Commonly used for:
+  - **File discovery stages** (e.g., `FilePartitioningStage` that scans directories and produces `FileGroupTask`s)
+  - **Reader stages** at the start of a pipeline (e.g., stages that list files to read)
+  - **Data generation stages** that don't need input data
+
+## Task Attributes
+
+Tasks automatically include:
+
+- `task_id`: Unique identifier for the task
+- `dataset_name`: Name of the dataset
+- `data`: The actual data payload (type `T`)
+- `_stage_perf`: List of performance statistics per stage
+- `_metadata`: Dictionary for arbitrary metadata
+- `_uuid`: Auto-generated UUID
+
+## Example Task Creation
+
+```python
+import pandas as pd
+
+from nemo_curator.tasks import DocumentBatch
+
+
+task = DocumentBatch(
+    task_id="batch_001",
+    dataset_name="my_dataset",
+    data=pd.DataFrame({"text": ["doc1", "doc2"]})
+)
+```
