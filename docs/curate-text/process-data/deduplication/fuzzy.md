@@ -37,13 +37,6 @@ Ideal for detecting documents with minor differences such as formatting changes,
 ## Quick Start
 
 Get started with fuzzy deduplication using the following example of identifying duplicates, then remove them:
-
-::::{tab-set}
-
-:::{tab-item} Two-Step Process
-
-Identify duplicates, then remove them:
-
 ```python
 from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
@@ -80,27 +73,6 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
 removal_workflow.run()
 # Clean dataset saved to ./deduplicated/
 ```
-
-:::
-
-:::{tab-item} Minimal Example
-
-```python
-from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
-
-fuzzy_workflow = FuzzyDeduplicationWorkflow(
-    input_path="input_data/",
-    cache_path="./cache",
-    output_path="./results",
-    text_field="text",
-    perform_removal=False
-)
-fuzzy_workflow.run()
-```
-
-:::
-
-::::
 
 ## Configuration
 

@@ -45,6 +45,10 @@ NeMo Curator provides two approaches for quality assessment:
 1. **Classification**: Use `QualityClassifier` to add quality predictions and optionally filter during classification
 2. **Filtering**: Use `FastTextQualityFilter` with `ScoreFilter` for document-level filtering with Pareto sampling
 
+:::{note}
+If you need to train custom fastText models for specific domains or requirements, refer to the [fastText documentation](https://fasttext.cc/docs/en/supervised-tutorial.html) for comprehensive training guides.
+:::
+
 ::::{tab-set}
 
 :::{tab-item} DeBERTa Quality Classification

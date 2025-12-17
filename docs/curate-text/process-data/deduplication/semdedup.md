@@ -44,13 +44,7 @@ Based on [SemDeDup: Data-efficient learning at web-scale through semantic dedupl
 
 ## Quick Start
 
-Get started with semantic deduplication using these examples:
-
-::::{tab-set}
-
-:::{tab-item} One-Step Process
-
-Complete deduplication in a single step:
+Get started with semantic deduplication using the following example of identifying duplicates, then remove them in one step:
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
@@ -71,59 +65,6 @@ executor = RayDataExecutor()
 results = workflow.run(executor)
 # Clean dataset saved to ./results/deduplicated/
 ```
-
-:::
-
-:::{tab-item} Two-Step Process
-
-Identify duplicates first, then remove them:
-
-```python
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-# Step 1: Identify duplicates
-workflow = TextSemanticDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    cache_path="./sem_cache",
-    model_identifier="sentence-transformers/all-MiniLM-L6-v2",
-    n_clusters=100,
-    eps=0.07,
-    id_field="doc_id",
-    perform_removal=False  # Only identify duplicates
-)
-
-executor = RayDataExecutor()
-results = workflow.run(executor)
-# Duplicate IDs saved to ./results/duplicates/
-
-# Step 2: Remove duplicates (if needed)
-# Use TextDuplicatesRemovalWorkflow with duplicate IDs
-```
-
-:::
-
-:::{tab-item} Minimal Example
-
-```python
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-workflow = TextSemanticDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    cache_path="./sem_cache",
-    perform_removal=True
-)
-
-executor = RayDataExecutor()
-results = workflow.run(executor)
-```
-
-:::
-
-::::
 
 ## Configuration
 

@@ -122,31 +122,6 @@ pipeline.add_stage(Filter(lambda x: x <= 0.3, filter_field="symbol_ratio"))
 
 :::
 
-:::{tab-item} Performance Optimization
-
-NeMo Curator's filtering framework is optimized for performance through:
-
-```python
-# Filters automatically use vectorized operations when possible
-class OptimizedFilter(DocumentFilter):
-    def score_document(self, text: str) -> float:
-        # Individual document scoring
-        return len(text.split())
-    
-    def keep_document(self, score: float) -> bool:
-        # Individual document filtering decision
-        return score >= 10
-```
-
-The framework provides built-in performance optimizations:
-
-- Vectorized pandas operations for batch processing
-- Efficient memory usage patterns
-- Optimized I/O operations
-- Distributed processing support
-
-:::
-
 ::::
 
 ---

@@ -117,22 +117,6 @@ Configure exact deduplication using these key parameters:
   - Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`.
 ```
 
-:::{dropdown} Advanced Configuration
-:icon: gear
-
-
-**Passing Environment Variables**:
-
-You can pass environment variables to the Ray executor by using the `env_vars` parameter on `ExactDeduplicationWorkflow`. For example:
-
-```python
-env_vars = {
-    "UCX_TLS": "rc,cuda_copy,cuda_ipc",
-    "UCX_IB_GPU_DIRECT_RDMA": "yes",
-}
-```
-:::
-
 ## Removing Duplicates
 
 After identifying duplicates, use `TextDuplicatesRemovalWorkflow` to remove them:
@@ -216,31 +200,5 @@ The workflow produces these output files:
 - Use `assign_id=True` for consistent ID tracking
 :::
 
-:::{dropdown} Advanced Usage
-:icon: code-square
-
-**Integration with existing pipelines**:
-
-```python
-from nemo_curator.tasks import FileGroupTask
-from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
-
-initial_tasks = [
-    FileGroupTask(
-        task_id="batch_0",
-        dataset_name="my_dataset",
-        data=["/path/to/file1.parquet", "/path/to/file2.parquet"],
-        _metadata={"source_files": ["/path/to/file1.parquet", "/path/to/file2.parquet"]},
-    )
-]
-
-exact_workflow = ExactDeduplicationWorkflow(
-    output_path="/path/to/output",
-    text_field="text",
-    assign_id=True
-)
-exact_workflow.run(initial_tasks=initial_tasks)
-```
-:::
 
 For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the {ref}`Deduplication overview <text-process-data-dedup>`.

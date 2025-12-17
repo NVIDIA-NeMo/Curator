@@ -365,28 +365,6 @@ pipeline.add_stage(writer)
 results = pipeline.run()  # Uses XennaExecutor by default
 ```
 
-## Scaling with Different Executors
-
-All NVIDIA NeMo Curator classifiers support different execution backends for enhanced scalability and performance. By default, pipelines use the `XennaExecutor`, but you can choose different backends based on your computational requirements.
-
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.classifiers import QualityClassifier
-
-# Create pipeline with classifier
-pipeline = Pipeline(name="classifier_pipeline")
-pipeline.add_stage(read_stage)
-pipeline.add_stage(QualityClassifier())
-pipeline.add_stage(write_stage)
-
-# Run with default Xenna executor (recommended)
-executor = XennaExecutor(config={"execution_mode": "streaming"})
-results = pipeline.run(executor)
-```
-
-For large-scale distributed classification tasks, consider using Ray-based executors or other backends. Refer to the {doc}`Pipeline Execution Backends </reference/infrastructure/execution-backends>` reference for detailed information about available executors, their configurations, and when to use each backend type.
-
 ## Performance Optimization
 
 NVIDIA NeMo Curator's distributed classifiers are optimized for high-throughput processing through several key features:

@@ -189,49 +189,6 @@ The metadata file can specify different thresholds for metrics like:
 - Empty line ratio
 - Alphabetic content ratio
 
-## Filter Configuration
-
-A typical configuration for code filtering in YAML format:
-
-```yaml
-stages:
-  - name: JsonlReader
-    file_paths: "code_data/*.jsonl"
-    fields: ["content", "id"]
-  
-  - name: ScoreFilter
-    filter_obj:
-      name: PythonCommentToCodeFilter
-      min_comment_to_code_ratio: 0.01
-      max_comment_to_code_ratio: 0.85
-    text_field: content
-    score_field: comment_ratio
-  
-  - name: ScoreFilter
-    filter_obj:
-      name: NumberOfLinesOfCodeFilter
-      min_lines: 10
-      max_lines: 5000
-    text_field: content
-    score_field: line_count
-  
-  - name: ScoreFilter
-    filter_obj:
-      name: AlphaFilter
-      min_alpha_ratio: 0.25
-    text_field: content
-    score_field: alpha_ratio
-  
-  - name: ScoreFilter
-    filter_obj:
-      name: XMLHeaderFilter
-    text_field: content
-    score_field: xml_detected
-  
-  - name: JsonlWriter
-    path: "filtered_code/"
-```
-
 ## Best Practices for Code Filtering
 
 When filtering code datasets, consider these best practices:
