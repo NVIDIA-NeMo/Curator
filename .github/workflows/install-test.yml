@@ -117,7 +117,7 @@ jobs:
             INSTALL_OK=false
             IMPORT_OK=false
             
-            if pip install ".[$extra]" 2>&1; then
+            if pip install ".[$extra]"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
               
@@ -167,7 +167,7 @@ jobs:
             INSTALL_OK=false
             IMPORT_OK=false
             
-            if uv sync --locked --link-mode copy --extra "$extra" 2>&1; then
+            if uv sync --locked --link-mode copy --extra "$extra"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
               
@@ -382,7 +382,8 @@ jobs:
           
           echo "::group::🚀 Installing ALL extras (pip, Py${{ matrix.python-version }}) - Install Only"
           
-          if docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          # Write Dockerfile to avoid heredoc+pipe masking errors
+          cat > Dockerfile.pip-all-test <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           ENV PIP_BREAK_SYSTEM_PACKAGES=1
@@ -397,11 +398,14 @@ jobs:
           WORKDIR /workspace
           COPY . .
           RUN pip install --no-cache-dir ".[all]"
-          EOF
-          then
+          DOCKERFILE
+          
+          if docker build -f Dockerfile.pip-all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
             echo "✅ INSTALL SUCCESS"
           else
             echo "❌ INSTALL FAILED (expected - known conflicts)"
+            echo "=== Build errors ==="
+            grep -E "(ERROR|error:|failed|conflict)" build.log | head -20 || true
           fi
           echo "::endgroup::"
           
@@ -418,7 +422,8 @@ jobs:
           
           echo "::group::🚀 Installing ALL extras (uv, Py${{ matrix.python-version }}) - Install Only"
           
-          if docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          # Write Dockerfile to avoid heredoc+pipe masking errors
+          cat > Dockerfile.uv-all-test <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -434,11 +439,14 @@ jobs:
           WORKDIR /workspace
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
-          EOF
-          then
+          DOCKERFILE
+          
+          if docker build -f Dockerfile.uv-all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
             echo "✅ INSTALL SUCCESS"
           else
             echo "❌ INSTALL FAILED (expected - known conflicts)"
+            echo "=== Build errors ==="
+            grep -E "(ERROR|error:|failed|conflict)" build.log | head -20 || true
           fi
           echo "::endgroup::"
           
