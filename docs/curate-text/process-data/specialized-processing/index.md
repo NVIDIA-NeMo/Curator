@@ -67,7 +67,7 @@ code_pipeline = Pipeline(
         fields=["content"]
     ),
     ScoreFilter(
-        PythonCommentToCodeFilter(
+        filter_obj=PythonCommentToCodeFilter(
             min_comment_to_code_ratio=0.01,
             max_comment_to_code_ratio=0.8
         ),
@@ -75,7 +75,7 @@ code_pipeline = Pipeline(
         score_field="comment_ratio"
     ),
     ScoreFilter(
-        NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
+        filter_obj=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
         text_field="content", 
         score_field="line_count"
     )
