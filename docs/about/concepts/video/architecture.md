@@ -13,7 +13,7 @@ only: not ga
 
 # Architecture
 
-NeMo Curator's video curation system builds on Ray, a distributed computing framework that enables scalable, high-throughput data processing across clusters of machines.
+NeMo Curator's video curation system builds on Ray, a distributed framework for scalable, high‑throughput data processing across machine clusters.
 
 ## Ray Foundation
 
