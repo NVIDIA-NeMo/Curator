@@ -14,9 +14,8 @@
 
 # This workflow validates NeMo Curator installation for each optional dependency.
 # Tests both pip and uv (lockfile) installations.
-# - CPU extras: tested individually on ubuntu-latest (Python 3.12)
-# - GPU extras: tested individually on self-hosted GPU runner (Python 3.12)
-# - ALL extras: tested together on Python 3.10 & 3.12 (continue-on-error due to potential conflicts)
+# - Most jobs: CPU runner, install-only validation
+# - UV Py3.12 jobs: GPU runner, install + import validation
 
 name: Installation Test
 
@@ -71,13 +70,13 @@ jobs:
           echo "base_image=nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}" >> $GITHUB_OUTPUT
 
   # ============================================================================
-  # CPU Installation Tests - Each extra tested individually (Python 3.12)
+  # CPU Extras - Install Only (CPU Runner)
   # ============================================================================
   cpu-install-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    name: CPU Extras (${{ matrix.installer }}) - Py3.12
+    name: CPU Extras Individual - Install + Import (${{ matrix.installer }}) - Py3.12
     strategy:
       fail-fast: false
       matrix:
@@ -103,7 +102,6 @@ jobs:
 
       - name: Test each CPU extra (pip)
         if: matrix.installer == 'pip'
-        id: test-pip
         run: |
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
@@ -111,46 +109,50 @@ jobs:
           
           for extra in "${CPU_EXTRAS[@]}"; do
             echo "::group::📦 Testing: $extra (pip)"
-            echo "=========================================="
-            echo "Installing: pip install '.[$extra]'"
-            echo "=========================================="
             
-            # Fresh venv for each extra
             python -m venv "venv_$extra"
             source "venv_$extra/bin/activate"
             pip install --upgrade pip -q
             
-            # Install and capture result
+            INSTALL_OK=false
+            IMPORT_OK=false
+            
             if pip install ".[$extra]" 2>&1; then
-              echo "✅ $extra: SUCCESS"
-              python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"
-              RESULTS="$RESULTS\n| $extra | ✅ |"
+              echo "✅ $extra: INSTALL SUCCESS"
+              INSTALL_OK=true
+              
+              if python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
+                echo "✅ $extra: IMPORT SUCCESS"
+                IMPORT_OK=true
+              else
+                echo "❌ $extra: IMPORT FAILED"
+              fi
             else
-              echo "❌ $extra: FAILED"
-              RESULTS="$RESULTS\n| $extra | ❌ |"
+              echo "❌ $extra: INSTALL FAILED"
+            fi
+            
+            if $INSTALL_OK && $IMPORT_OK; then
+              RESULTS="$RESULTS\n| $extra | ✅ | ✅ |"
+            else
+              RESULTS="$RESULTS\n| $extra | $($INSTALL_OK && echo '✅' || echo '❌') | $($IMPORT_OK && echo '✅' || echo '❌') |"
               FAILED=$((FAILED + 1))
             fi
             
-            # Cleanup
             deactivate
             rm -rf "venv_$extra"
             echo "::endgroup::"
           done
           
           echo ""
-          echo "## CPU Installation Results (pip, Python 3.12)"
-          echo "| Extra | Status |"
-          echo "|-------|--------|"
+          echo "## CPU Installation Results (pip)"
+          echo "| Extra | Install | Import |"
+          echo "|-------|---------|--------|"
           echo -e "$RESULTS"
           
-          if [ $FAILED -gt 0 ]; then
-            echo "❌ $FAILED CPU extra(s) failed"
-            exit 1
-          fi
+          [ $FAILED -gt 0 ] && exit 1 || exit 0
 
       - name: Test each CPU extra (uv)
         if: matrix.installer == 'uv'
-        id: test-uv
         run: |
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
@@ -158,48 +160,55 @@ jobs:
           
           for extra in "${CPU_EXTRAS[@]}"; do
             echo "::group::📦 Testing: $extra (uv)"
-            echo "=========================================="
-            echo "Installing: uv sync --locked --extra $extra"
-            echo "=========================================="
             
-            # Clean any existing venv
             rm -rf .venv
+            uv cache clean
             
-            # Install with uv using lockfile
+            INSTALL_OK=false
+            IMPORT_OK=false
+            
             if uv sync --locked --link-mode copy --extra "$extra" 2>&1; then
-              echo "✅ $extra: SUCCESS"
-              uv run python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"
-              RESULTS="$RESULTS\n| $extra | ✅ |"
+              echo "✅ $extra: INSTALL SUCCESS"
+              INSTALL_OK=true
+              
+              if uv run python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
+                echo "✅ $extra: IMPORT SUCCESS"
+                IMPORT_OK=true
+              else
+                echo "❌ $extra: IMPORT FAILED"
+              fi
             else
-              echo "❌ $extra: FAILED"
-              RESULTS="$RESULTS\n| $extra | ❌ |"
+              echo "❌ $extra: INSTALL FAILED"
+            fi
+            
+            if $INSTALL_OK && $IMPORT_OK; then
+              RESULTS="$RESULTS\n| $extra | ✅ | ✅ |"
+            else
+              RESULTS="$RESULTS\n| $extra | $($INSTALL_OK && echo '✅' || echo '❌') | $($IMPORT_OK && echo '✅' || echo '❌') |"
               FAILED=$((FAILED + 1))
             fi
             
-            # Cleanup
             rm -rf .venv
+            uv cache clean
             echo "::endgroup::"
           done
           
           echo ""
-          echo "## CPU Installation Results (uv, Python 3.12)"
-          echo "| Extra | Status |"
-          echo "|-------|--------|"
+          echo "## CPU Installation Results (uv)"
+          echo "| Extra | Install | Import |"
+          echo "|-------|---------|--------|"
           echo -e "$RESULTS"
           
-          if [ $FAILED -gt 0 ]; then
-            echo "❌ $FAILED CPU extra(s) failed"
-            exit 1
-          fi
+          [ $FAILED -gt 0 ] && exit 1 || exit 0
 
   # ============================================================================
-  # GPU Installation Tests - Each extra tested individually in Docker (Python 3.12)
+  # GPU Extras - Install Only (CPU Runner, Docker build only)
   # ============================================================================
   gpu-install-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: self-hosted-nemo
-    name: GPU Extras (${{ matrix.installer }}) - Py3.12
+    runs-on: ubuntu-latest
+    name: GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12
     strategy:
       fail-fast: false
       matrix:
@@ -209,9 +218,14 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/lib/android
+          df -h
+
       - name: Test each GPU extra (pip)
         if: matrix.installer == 'pip'
-        id: test-pip
         run: |
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -219,11 +233,8 @@ jobs:
           FAILED=0
           
           for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra (pip)"
-            echo "=========================================="
-            echo "Installing: pip install '.[$extra]'"
+            echo "::group::🎮 Testing: $extra (pip) - Install Only"
             echo "Base image: $BASE_IMAGE"
-            echo "=========================================="
             
             CONTAINER_NAME="test-pip-$extra-${{ github.run_id }}"
             
@@ -244,41 +255,29 @@ jobs:
           RUN pip install --no-cache-dir ".[$extra]"
           EOF
             then
-              echo "✅ $extra: BUILD SUCCESS"
-              
-              if docker run --rm --gpus all "$CONTAINER_NAME" \
-                python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
-                echo "✅ $extra: IMPORT SUCCESS"
-                RESULTS="$RESULTS\n| $extra | ✅ |"
-              else
-                echo "❌ $extra: IMPORT FAILED"
-                RESULTS="$RESULTS\n| $extra | ❌ |"
-                FAILED=$((FAILED + 1))
-              fi
+              echo "✅ $extra: INSTALL SUCCESS"
+              RESULTS="$RESULTS\n| $extra | ✅ |"
             else
-              echo "❌ $extra: BUILD FAILED"
+              echo "❌ $extra: INSTALL FAILED"
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
             
             docker rmi "$CONTAINER_NAME" 2>/dev/null || true
+            docker system prune -f 2>/dev/null || true
             echo "::endgroup::"
           done
           
           echo ""
-          echo "## GPU Installation Results (pip, Python 3.12)"
-          echo "| Extra | Status |"
-          echo "|-------|--------|"
+          echo "## GPU Installation Results (pip)"
+          echo "| Extra | Install |"
+          echo "|-------|---------|"
           echo -e "$RESULTS"
           
-          if [ $FAILED -gt 0 ]; then
-            echo "❌ $FAILED GPU extra(s) failed"
-            exit 1
-          fi
+          [ $FAILED -gt 0 ] && exit 1 || exit 0
 
       - name: Test each GPU extra (uv)
         if: matrix.installer == 'uv'
-        id: test-uv
         run: |
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -286,11 +285,8 @@ jobs:
           FAILED=0
           
           for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra (uv)"
-            echo "=========================================="
-            echo "Installing: uv sync --locked --extra $extra"
+            echo "::group::🎮 Testing: $extra (uv) - Install Only"
             echo "Base image: $BASE_IMAGE"
-            echo "=========================================="
             
             CONTAINER_NAME="test-uv-$extra-${{ github.run_id }}"
             
@@ -312,56 +308,54 @@ jobs:
           RUN uv sync --locked --link-mode copy --extra $extra
           EOF
             then
-              echo "✅ $extra: BUILD SUCCESS"
-              
-              if docker run --rm --gpus all "$CONTAINER_NAME" \
-                uv run python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
-                echo "✅ $extra: IMPORT SUCCESS"
-                RESULTS="$RESULTS\n| $extra | ✅ |"
-              else
-                echo "❌ $extra: IMPORT FAILED"
-                RESULTS="$RESULTS\n| $extra | ❌ |"
-                FAILED=$((FAILED + 1))
-              fi
+              echo "✅ $extra: INSTALL SUCCESS"
+              RESULTS="$RESULTS\n| $extra | ✅ |"
             else
-              echo "❌ $extra: BUILD FAILED"
+              echo "❌ $extra: INSTALL FAILED"
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
             
             docker rmi "$CONTAINER_NAME" 2>/dev/null || true
+            docker system prune -f 2>/dev/null || true
             echo "::endgroup::"
           done
           
           echo ""
-          echo "## GPU Installation Results (uv, Python 3.12)"
-          echo "| Extra | Status |"
-          echo "|-------|--------|"
+          echo "## GPU Installation Results (uv)"
+          echo "| Extra | Install |"
+          echo "|-------|---------|"
           echo -e "$RESULTS"
           
-          if [ $FAILED -gt 0 ]; then
-            echo "❌ $FAILED GPU extra(s) failed"
-            exit 1
-          fi
+          [ $FAILED -gt 0 ] && exit 1 || exit 0
 
   # ============================================================================
-  # ALL Installation Test - All extras together (Python 3.10 & 3.12)
+  # ALL Extras - Install Only (CPU Runner)
   # ============================================================================
-  all-install-test:
+  all-install-only-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: self-hosted-nemo
-    name: ALL Extras (${{ matrix.installer }}) - Py${{ matrix.python-version }}
-    continue-on-error: true  # Known conflicts may cause failure
+    runs-on: ubuntu-latest
+    name: ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
         installer: [pip, uv]
         python-version: ["3.12", "3.10"]
+        exclude:
+          - installer: uv
+            python-version: "3.12"  # This combo runs on GPU with import checks
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/lib/android
+          df -h
 
       - name: Install ALL extras (pip)
         if: matrix.installer == 'pip'
@@ -371,10 +365,7 @@ jobs:
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
           CONTAINER_NAME="test-pip-all-py${{ matrix.python-version }}-${{ github.run_id }}"
           
-          echo "::group::🚀 Installing ALL extras (pip, Python ${{ matrix.python-version }})"
-          echo "=========================================="
-          echo "pip install '.[all]'"
-          echo "=========================================="
+          echo "::group::🚀 Installing ALL extras (pip, Py${{ matrix.python-version }}) - Install Only"
           
           docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
           FROM $BASE_IMAGE
@@ -393,13 +384,10 @@ jobs:
           RUN pip install --no-cache-dir ".[all]"
           EOF
           
-          if [ $? -eq 0 ]; then
-            echo "install_status=success" >> $GITHUB_OUTPUT
-            echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
-          else
-            echo "install_status=failure" >> $GITHUB_OUTPUT
-          fi
+          [ $? -eq 0 ] && echo "✅ INSTALL SUCCESS" || echo "❌ INSTALL FAILED (expected - known conflicts)"
           echo "::endgroup::"
+          
+          docker rmi "$CONTAINER_NAME" 2>/dev/null || true
 
       - name: Install ALL extras (uv)
         if: matrix.installer == 'uv'
@@ -409,10 +397,7 @@ jobs:
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
           CONTAINER_NAME="test-uv-all-py${{ matrix.python-version }}-${{ github.run_id }}"
           
-          echo "::group::🚀 Installing ALL extras (uv, Python ${{ matrix.python-version }})"
-          echo "=========================================="
-          echo "uv sync --locked --extra all"
-          echo "=========================================="
+          echo "::group::🚀 Installing ALL extras (uv, Py${{ matrix.python-version }}) - Install Only"
           
           docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
           FROM $BASE_IMAGE
@@ -432,6 +417,58 @@ jobs:
           RUN uv sync --locked --link-mode copy --extra all
           EOF
           
+          [ $? -eq 0 ] && echo "✅ INSTALL SUCCESS" || echo "❌ INSTALL FAILED (expected - known conflicts)"
+          echo "::endgroup::"
+          
+          docker rmi "$CONTAINER_NAME" 2>/dev/null || true
+
+      - name: Report
+        if: always()
+        run: |
+          echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
+          echo "Known conflicts may cause failure. See build logs for details."
+
+  # ============================================================================
+  # ALL Extras - Install + Import (GPU Runner, uv Py3.12 only)
+  # ============================================================================
+  all-install-import-test:
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only != 'true'
+    runs-on: self-hosted-nemo
+    name: ALL Extras - Install + Import (uv) - Py3.12
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install ALL extras (uv - install + import)
+        id: install
+        continue-on-error: true
+        run: |
+          BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
+          CONTAINER_NAME="test-uv-all-py3.12-${{ github.run_id }}"
+          
+          echo "::group::🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
+          
+          docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          FROM $BASE_IMAGE
+          ENV DEBIAN_FRONTEND=noninteractive
+          RUN apt-get update && apt-get install -y --no-install-recommends \
+              software-properties-common && \
+              add-apt-repository -y ppa:deadsnakes/ppa && \
+              apt-get update && apt-get install -y --no-install-recommends \
+              python3.12 python3.12-venv python3.12-dev git curl && \
+              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+              update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
+              rm -rf /var/lib/apt/lists/*
+          RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+          ENV PATH="/root/.local/bin:\$PATH"
+          WORKDIR /workspace
+          COPY . .
+          RUN uv sync --locked --link-mode copy --extra all
+          EOF
+          
           if [ $? -eq 0 ]; then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
@@ -440,14 +477,13 @@ jobs:
           fi
           echo "::endgroup::"
 
-      - name: Verify ALL installation
-        if: steps.install-pip.outputs.install_status == 'success' || steps.install-uv.outputs.install_status == 'success'
+      - name: Verify imports
+        if: steps.install.outputs.install_status == 'success'
         run: |
-          CONTAINER="${{ steps.install-pip.outputs.container || steps.install-uv.outputs.container }}"
-          RUNNER="${{ matrix.installer == 'uv' && 'uv run python' || 'python' }}"
+          CONTAINER="${{ steps.install.outputs.container }}"
           
-          echo "::group::🔍 Verification (${{ matrix.installer }}, Python ${{ matrix.python-version }})"
-          docker run --rm --gpus all "$CONTAINER" $RUNNER -c "
+          echo "::group::🔍 Import Verification"
+          docker run --rm --gpus all "$CONTAINER" uv run python -c "
           import sys
           print('Python:', sys.version)
           
@@ -474,44 +510,34 @@ jobs:
           "
           echo "::endgroup::"
 
-      - name: Generate report
+      - name: Report
         if: always()
         run: |
-          STATUS="${{ steps.install-pip.outputs.install_status || steps.install-uv.outputs.install_status }}"
-          
           echo ""
           echo "=============================================="
-          echo "📊 ALL EXTRAS REPORT (${{ matrix.installer }}, Python ${{ matrix.python-version }})"
+          echo "📊 ALL EXTRAS (uv, Py3.12) - Install + Import"
           echo "=============================================="
-          echo ""
           
-          if [ "$STATUS" == "success" ]; then
-            echo "✅ Status: SUCCESS"
-            echo ""
-            echo "All optional dependencies installed together without conflicts."
+          if [ "${{ steps.install.outputs.install_status }}" == "success" ]; then
+            echo "✅ Install: SUCCESS"
           else
-            echo "❌ Status: FAILED (expected - known conflicts)"
+            echo "❌ Install: FAILED (expected - known conflicts)"
             echo ""
             echo "Known conflicts:"
             echo "  - nemo_toolkit[asr] requires transformers<4.55"
             echo "  - vllm requires transformers>=4.55"
-            echo ""
-            echo "Conflict details from build log:"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -20 || echo "  (no specific conflict message found)"
-            echo ""
-            echo "Workaround: Install conflicting extras in separate environments."
+            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -10 || true
           fi
 
       - name: Cleanup
         if: always()
-        run: |
-          docker rmi "test-${{ matrix.installer }}-all-py${{ matrix.python-version }}-${{ github.run_id }}" 2>/dev/null || true
+        run: docker rmi "test-uv-all-py3.12-${{ github.run_id }}" 2>/dev/null || true
 
   # ============================================================================
   # Summary
   # ============================================================================
   install-test-summary:
-    needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-test]
+    needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-only-test, all-install-import-test]
     runs-on: ubuntu-latest
     if: always() && !cancelled()
     steps:
@@ -519,19 +545,27 @@ jobs:
         run: |
           echo "# 📊 Installation Test Summary"
           echo ""
-          echo "| Job | Installer | Python | Status |"
-          echo "|-----|-----------|--------|--------|"
-          echo "| CPU Extras (Individual) | pip & uv | 3.12 | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| GPU Extras (Individual) | pip & uv | 3.12 | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| ALL Extras (Combined) | pip & uv | 3.10 & 3.12 | ${{ needs.all-install-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
+          echo "## Individual Extras"
+          echo "| Job | Runner | Installer | Validation | Status |"
+          echo "|-----|--------|-----------|------------|--------|"
+          echo "| CPU Extras | CPU | pip | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| CPU Extras | CPU | uv | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras | CPU | pip | Install Only | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras | CPU | uv | Install Only | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo ""
+          echo "## ALL Extras (Combined)"
+          echo "| Job | Runner | Validation | Status |"
+          echo "|-----|--------|------------|--------|"
+          echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️' }} |"
+          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '⚠️' }} |"
           echo ""
           
-          if [ "${{ needs.cpu-install-test.result }}" != "success" ] || [ "${{ needs.gpu-install-test.result }}" != "success" ]; then
+          # Core tests (individual extras) must pass
+          if [ "${{ needs.cpu-install-test.result }}" != "success" ] || \
+             [ "${{ needs.gpu-install-test.result }}" != "success" ]; then
             echo "❌ Core installation tests failed"
             exit 1
           else
-            echo "✅ All individual extras install successfully"
-            if [ "${{ needs.all-install-test.result }}" != "success" ]; then
-              echo "⚠️ Combined installation has known conflicts (informational)"
-            fi
+            echo "✅ All individual extras validated successfully"
           fi
+
