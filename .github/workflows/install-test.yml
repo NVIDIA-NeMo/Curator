@@ -207,7 +207,7 @@ jobs:
   gpu-install-test-pip:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu16
     name: "OPTIONAL: GPU Extras Individual - Install Only (pip) - Py3.12"
     continue-on-error: true
     steps:
@@ -278,7 +278,7 @@ jobs:
   gpu-install-test-uv:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu16
     name: GPU Extras Individual - Install Only (uv) - Py3.12
     steps:
       - uses: actions/checkout@v4
@@ -473,7 +473,8 @@ jobs:
           
           echo "::group::🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
           
-          if docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          # Write Dockerfile first to avoid heredoc+pipe issues
+          cat > Dockerfile.all-test <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -489,13 +490,17 @@ jobs:
           WORKDIR /workspace
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
-          EOF
-          then
+          DOCKERFILE
+          
+          if docker build -f Dockerfile.all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
           else
             echo "install_status=failure" >> $GITHUB_OUTPUT
-            exit 1  # Fail the step (job will be red but won't block due to continue-on-error)
+            echo ""
+            echo "=== Build log errors ==="
+            grep -E "(ERROR|error:|failed|conflict)" build.log | head -30 || cat build.log | tail -50
+            exit 1
           fi
           echo "::endgroup::"
 
