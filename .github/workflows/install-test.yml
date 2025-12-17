@@ -443,8 +443,8 @@ jobs:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
-    name: ALL Extras - Install + Import (uv) - Py3.12
-    continue-on-error: true
+    name: "OPTIONAL: ALL Extras - Install + Import (uv) - Py3.12"
+    continue-on-error: true  # Job shows red when failing but doesn't block workflow
     steps:
       - uses: actions/checkout@v4
         with:
@@ -452,7 +452,6 @@ jobs:
 
       - name: Install ALL extras (uv - install + import)
         id: install
-        continue-on-error: true
         run: |
           set -o pipefail
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -482,6 +481,7 @@ jobs:
             echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
           else
             echo "install_status=failure" >> $GITHUB_OUTPUT
+            exit 1  # Fail the step (job will be red but won't block due to continue-on-error)
           fi
           echo "::endgroup::"
 
@@ -529,12 +529,14 @@ jobs:
           if [ "${{ steps.install.outputs.install_status }}" == "success" ]; then
             echo "✅ Install: SUCCESS"
           else
-            echo "❌ Install: FAILED (expected - known conflicts)"
+            echo "❌ Install: FAILED"
             echo ""
-            echo "Known conflicts:"
+            echo "Known conflicts that may cause this:"
             echo "  - nemo_toolkit[asr] requires transformers<4.55"
             echo "  - vllm requires transformers>=4.55"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -10 || true
+            echo ""
+            echo "Build log errors:"
+            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -20 || true
           fi
 
       - name: Cleanup
@@ -564,8 +566,8 @@ jobs:
           echo "## ALL Extras (Combined)"
           echo "| Job | Runner | Validation | Status |"
           echo "|-----|--------|------------|--------|"
-          echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️' }} |"
-          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '⚠️' }} |"
+          echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
+          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '⚠️ (known conflict)' }} |"
           echo ""
           
           # Core tests (individual extras) must pass
