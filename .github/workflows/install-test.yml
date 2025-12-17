@@ -25,7 +25,7 @@ on:
       - main
       - "pull-request/[0-9]+"
   schedule:
-    - cron: 0 0 * * *
+    - cron: "0 0 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -362,12 +362,13 @@ jobs:
         id: install-pip
         continue-on-error: true
         run: |
+          set -o pipefail
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
           CONTAINER_NAME="test-pip-all-py${{ matrix.python-version }}-${{ github.run_id }}"
           
           echo "::group::🚀 Installing ALL extras (pip, Py${{ matrix.python-version }}) - Install Only"
           
-          docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          if docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           ENV PIP_BREAK_SYSTEM_PACKAGES=1
@@ -383,8 +384,11 @@ jobs:
           COPY . .
           RUN pip install --no-cache-dir ".[all]"
           EOF
-          
-          [ $? -eq 0 ] && echo "✅ INSTALL SUCCESS" || echo "❌ INSTALL FAILED (expected - known conflicts)"
+          then
+            echo "✅ INSTALL SUCCESS"
+          else
+            echo "❌ INSTALL FAILED (expected - known conflicts)"
+          fi
           echo "::endgroup::"
           
           docker rmi "$CONTAINER_NAME" 2>/dev/null || true
@@ -394,12 +398,13 @@ jobs:
         id: install-uv
         continue-on-error: true
         run: |
+          set -o pipefail
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
           CONTAINER_NAME="test-uv-all-py${{ matrix.python-version }}-${{ github.run_id }}"
           
           echo "::group::🚀 Installing ALL extras (uv, Py${{ matrix.python-version }}) - Install Only"
           
-          docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          if docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -416,8 +421,11 @@ jobs:
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
           EOF
-          
-          [ $? -eq 0 ] && echo "✅ INSTALL SUCCESS" || echo "❌ INSTALL FAILED (expected - known conflicts)"
+          then
+            echo "✅ INSTALL SUCCESS"
+          else
+            echo "❌ INSTALL FAILED (expected - known conflicts)"
+          fi
           echo "::endgroup::"
           
           docker rmi "$CONTAINER_NAME" 2>/dev/null || true
@@ -446,12 +454,13 @@ jobs:
         id: install
         continue-on-error: true
         run: |
+          set -o pipefail
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
           CONTAINER_NAME="test-uv-all-py3.12-${{ github.run_id }}"
           
           echo "::group::🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
           
-          docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          if docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -468,8 +477,7 @@ jobs:
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
           EOF
-          
-          if [ $? -eq 0 ]; then
+          then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
           else
