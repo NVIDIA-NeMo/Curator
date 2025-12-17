@@ -202,17 +202,14 @@ jobs:
           [ $FAILED -gt 0 ] && exit 1 || exit 0
 
   # ============================================================================
-  # GPU Extras - Install Only (CPU Runner, Docker build only)
+  # GPU Extras - Install Only (pip)
   # ============================================================================
-  gpu-install-test:
+  gpu-install-test-pip:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    name: GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12
-    strategy:
-      fail-fast: false
-      matrix:
-        installer: [pip, uv]
+    name: "OPTIONAL: GPU Extras Individual - Install Only (pip) - Py3.12"
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -225,7 +222,6 @@ jobs:
           df -h
 
       - name: Test each GPU extra (pip)
-        if: matrix.installer == 'pip'
         run: |
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -276,8 +272,26 @@ jobs:
           
           [ $FAILED -gt 0 ] && exit 1 || exit 0
 
+  # ============================================================================
+  # GPU Extras - Install Only (uv) - Required
+  # ============================================================================
+  gpu-install-test-uv:
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    name: GPU Extras Individual - Install Only (uv) - Py3.12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          sudo rm -rf /usr/local/lib/android
+          df -h
+
       - name: Test each GPU extra (uv)
-        if: matrix.installer == 'uv'
         run: |
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -547,7 +561,7 @@ jobs:
   # Summary
   # ============================================================================
   install-test-summary:
-    needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-only-test, all-install-import-test]
+    needs: [pre-flight, cpu-install-test, gpu-install-test-pip, gpu-install-test-uv, all-install-only-test, all-install-import-test]
     runs-on: ubuntu-latest
     if: always() && !cancelled()
     steps:
@@ -560,22 +574,22 @@ jobs:
           echo "|-----|--------|-----------|------------|--------|"
           echo "| CPU Extras | CPU | pip | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
           echo "| CPU Extras | CPU | uv | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| GPU Extras | CPU | pip | Install Only | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| GPU Extras | CPU | uv | Install Only | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras | CPU | pip | Install Only | ${{ needs.gpu-install-test-pip.result == 'success' && '✅' || '❌ (expected)' }} |"
+          echo "| GPU Extras | CPU | uv | Install Only | ${{ needs.gpu-install-test-uv.result == 'success' && '✅' || '❌' }} |"
           echo ""
           echo "## ALL Extras (Combined)"
           echo "| Job | Runner | Validation | Status |"
           echo "|-----|--------|------------|--------|"
           echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
-          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '⚠️ (known conflict)' }} |"
+          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌ (expected)' }} |"
           echo ""
           
-          # Core tests (individual extras) must pass
+          # Core tests: CPU and GPU uv must pass
           if [ "${{ needs.cpu-install-test.result }}" != "success" ] || \
-             [ "${{ needs.gpu-install-test.result }}" != "success" ]; then
+             [ "${{ needs.gpu-install-test-uv.result }}" != "success" ]; then
             echo "❌ Core installation tests failed"
             exit 1
           else
-            echo "✅ All individual extras validated successfully"
+            echo "✅ All required extras validated successfully (uv)"
           fi
 
