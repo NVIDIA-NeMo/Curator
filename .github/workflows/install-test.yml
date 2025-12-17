@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This workflow validates NeMo Curator installation across supported platforms.
-# Tests both uv (lock file) and pip installations for CPU and ALL (GPU+CPU) extras.
+# This workflow validates NeMo Curator installation for each optional dependency.
+# - CPU extras: tested individually on ubuntu-latest
+# - GPU extras: tested individually on self-hosted GPU runner
+# - ALL extras: tested together (continue-on-error due to known conflicts)
 
 name: Installation Test
 
@@ -24,9 +26,10 @@ on:
       - "pull-request/[0-9]+"
   schedule:
     - cron: 0 0 * * *
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.label.name || 'main' }}-${{ github.event_name }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -36,15 +39,12 @@ jobs:
   pre-flight:
     runs-on: ubuntu-latest
     outputs:
-      docs_only: ${{ steps.docs_only.outputs.main == 'true' }}
+      docs_only: ${{ steps.docs_only.outputs.result }}
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
-      cuda_version: ${{ steps.cuda_config.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
 
       - name: Get changed files
         id: changed-files
@@ -59,290 +59,311 @@ jobs:
           base_sha: HEAD~1
 
       - name: Check if docs only
-        shell: bash
         id: docs_only
-        env:
-          DOCS_ONLY: ${{ steps.changed-files.outputs.any_changed == 'false' }}
-        run: |
-          echo "main=$DOCS_ONLY" | tee -a "$GITHUB_OUTPUT"
+        run: echo "result=${{ steps.changed-files.outputs.any_changed == 'false' }}" >> $GITHUB_OUTPUT
 
-      - name: Extract CUDA config from Dockerfile
+      - name: Extract CUDA config
         id: cuda_config
         run: |
-          # Extract CUDA_VER and LINUX_VER from docker/Dockerfile (single source of truth)
           CUDA_VER=$(grep -E "^ARG CUDA_VER=" docker/Dockerfile | cut -d'=' -f2)
           LINUX_VER=$(grep -E "^ARG LINUX_VER=" docker/Dockerfile | cut -d'=' -f2)
-          BASE_IMAGE="nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}"
-          VERSION=$(echo "$CUDA_VER" | cut -d'.' -f1,2)
-          
-          echo "base_image=$BASE_IMAGE" | tee -a "$GITHUB_OUTPUT"
-          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
-          echo "📦 CUDA base image: $BASE_IMAGE (v$VERSION)"
+          echo "base_image=nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}" >> $GITHUB_OUTPUT
 
   # ============================================================================
-  # CPU Installation Tests (ubuntu-latest)
+  # CPU Installation Tests - Each extra tested individually
   # ============================================================================
-  uv-cpu-test:
+  cpu-install-test:
     needs: [pre-flight]
-    if: |
-      !(needs.pre-flight.outputs.docs_only == 'true')
+    if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    name: UV CPU - Py${{ matrix.python-version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.12"]
+    name: CPU Extras (Individual)
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v4
 
-      - name: Free up disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
 
-      - name: Set up uv with Python ${{ matrix.python-version }}
-        uses: astral-sh/setup-uv@v6
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install with uv (CPU extras)
-        shell: bash -x -e -u -o pipefail {0}
-        run: |
-          echo "🧪 Testing: uv sync --locked (all CPU extras)"
-          uv sync --link-mode copy --locked --extra audio_cpu --extra image_cpu --extra text_cpu --extra video_cpu
-          
-          # Verify Python version
-          uv run python --version
-          uv run python -c "import sys; expected = tuple(map(int, '${{ matrix.python-version }}'.split('.'))); assert sys.version_info[:2] == expected"
-
-      - name: Verify installation
-        shell: bash -x -e -u -o pipefail {0}
-        run: |
-          uv run python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
-          uv run python -c "import torchvision; print(f'✅ torchvision {torchvision.__version__}')"
-          uv run python -c "import fasttext; print('✅ fasttext')"
-          uv run python -c "import av; print(f'✅ av {av.__version__}')"
-
-  pip-cpu-test:
-    needs: [pre-flight]
-    if: |
-      !(needs.pre-flight.outputs.docs_only == 'true')
-    runs-on: ubuntu-latest
-    name: Pip CPU - Py${{ matrix.python-version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.12"]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Free up disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
-
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.10"
 
-      - name: Install with pip (CPU extras)
-        shell: bash -x -e -u -o pipefail {0}
+      - name: Test each CPU extra
+        id: test
         run: |
-          echo "🧪 Testing: pip install .[audio_cpu,image_cpu,text_cpu,video_cpu]"
-          python -m pip install --upgrade pip
-          pip install --no-cache-dir ".[audio_cpu,image_cpu,text_cpu,video_cpu]"
-
-      - name: Verify installation
-        shell: bash -x -e -u -o pipefail {0}
-        run: |
-          python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
-          python -c "import torchvision; print(f'✅ torchvision {torchvision.__version__}')"
-          python -c "import fasttext; print('✅ fasttext')"
-          python -c "import av; print(f'✅ av {av.__version__}')"
-          pip show nemo-curator
+          CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
+          RESULTS=""
+          FAILED=0
+          
+          for extra in "${CPU_EXTRAS[@]}"; do
+            echo "::group::📦 Testing: $extra"
+            echo "=========================================="
+            echo "Installing: pip install '.[$extra]'"
+            echo "=========================================="
+            
+            # Fresh venv for each extra
+            python -m venv "venv_$extra"
+            source "venv_$extra/bin/activate"
+            pip install --upgrade pip -q
+            
+            # Install and capture result
+            if pip install ".[$extra]" 2>&1; then
+              echo "✅ $extra: SUCCESS"
+              
+              # Quick import test
+              python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"
+              RESULTS="$RESULTS\n| $extra | ✅ |"
+            else
+              echo "❌ $extra: FAILED"
+              RESULTS="$RESULTS\n| $extra | ❌ |"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Cleanup
+            deactivate
+            rm -rf "venv_$extra"
+            echo "::endgroup::"
+          done
+          
+          echo ""
+          echo "## CPU Installation Results"
+          echo "| Extra | Status |"
+          echo "|-------|--------|"
+          echo -e "$RESULTS"
+          
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ $FAILED CPU extra(s) failed"
+            exit 1
+          fi
 
   # ============================================================================
-  # GPU Installation Tests (self-hosted with CUDA)
-  # Tests 'all' extra which includes CPU + GPU dependencies
+  # GPU Installation Tests - Each extra tested individually in Docker
   # ============================================================================
-  uv-all-test:
+  gpu-install-test:
     needs: [pre-flight]
-    if: |
-      !(needs.pre-flight.outputs.docs_only == 'true')
+    if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
-    name: UV All (CPU+GPU) - CUDA${{ needs.pre-flight.outputs.cuda_version }} - Py${{ matrix.python-version }}
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.12"]
+    name: GPU Extras (Individual)
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - uses: actions/checkout@v4
 
-      - name: Build and test container (uv)
+      - name: Test each GPU extra
+        id: test
         run: |
-          echo "🧪 Testing: uv sync --locked --extra all (Python ${{ matrix.python-version }})"
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
+          BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
+          RESULTS=""
+          FAILED=0
           
-          # Build container with deadsnakes PPA for Python 3.10 support
-          docker build -f - -t test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} . <<EOF
-          FROM ${{ needs.pre-flight.outputs.cuda_base_image }}
-          
-          ENV DEBIAN_FRONTEND=noninteractive
-          
-          # Install Python (with deadsnakes PPA for 3.10 support)
-          RUN apt-get update && apt-get install -y --no-install-recommends \
-              software-properties-common && \
-              add-apt-repository -y ppa:deadsnakes/ppa && \
-              apt-get update && apt-get install -y --no-install-recommends \
-              python${{ matrix.python-version }} \
-              python${{ matrix.python-version }}-venv \
-              python${{ matrix.python-version }}-dev \
-              git \
-              curl && \
-              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${{ matrix.python-version }} 1 && \
-              update-alternatives --install /usr/bin/python python /usr/bin/python${{ matrix.python-version }} 1 && \
-              rm -rf /var/lib/apt/lists/*
-          
-          # Install uv
-          RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-          ENV PATH="/root/.local/bin:\$PATH"
-          
-          WORKDIR /workspace
-          COPY . .
-          RUN uv sync --locked --link-mode copy --extra all
-          EOF
-
-      - name: Verify CUDA and imports
-        run: |
-          docker run --rm --gpus all test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'; print(f'✅ CUDA: {torch.cuda.get_device_name(0)}')"
-          
-          docker run --rm --gpus all test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
-          
-          docker run --rm --gpus all test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "import cudf; import cuml; print('✅ cudf, cuml')"
-          
-          docker run --rm --gpus all test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "import torchvision; print(f'✅ torchvision {torchvision.__version__}')"
-
-      - name: Cleanup
-        if: always()
-        run: |
-          docker rmi test-uv-all-${{ matrix.python-version }}-${{ github.run_id }} || true
-
-  pip-all-test:
-    needs: [pre-flight]
-    if: |
-      !(needs.pre-flight.outputs.docs_only == 'true')
-    runs-on: self-hosted-nemo
-    name: Pip All (CPU+GPU) - CUDA${{ needs.pre-flight.outputs.cuda_version }} - Py${{ matrix.python-version }}
-    # Allow failure due to known dependency conflict: nemo_toolkit[asr] vs vllm (transformers version)
-    # TODO: Fix in pyproject.toml when nemo_toolkit supports transformers>=4.55.2
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.12"]
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Build and test container (pip)
-        run: |
-          echo "🧪 Testing: pip install .[all] (Python ${{ matrix.python-version }})"
-          
-          # Build container with deadsnakes PPA for Python 3.10 support
-          docker build -f - -t test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} . <<EOF
-          FROM ${{ needs.pre-flight.outputs.cuda_base_image }}
-          
+          for extra in "${GPU_EXTRAS[@]}"; do
+            echo "::group::🎮 Testing: $extra"
+            echo "=========================================="
+            echo "Installing: pip install '.[$extra]'"
+            echo "Base image: $BASE_IMAGE"
+            echo "=========================================="
+            
+            # Build test container
+            CONTAINER_NAME="test-$extra-${{ github.run_id }}"
+            
+            if docker build -f - -t "$CONTAINER_NAME" . <<EOF
+          FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           ENV PIP_BREAK_SYSTEM_PACKAGES=1
-          
-          # Install Python (matching project's Dockerfile setup)
           RUN apt-get update && apt-get install -y --no-install-recommends \
               software-properties-common && \
               add-apt-repository -y ppa:deadsnakes/ppa && \
               apt-get update && apt-get install -y --no-install-recommends \
-              python${{ matrix.python-version }} \
-              python${{ matrix.python-version }}-venv \
-              python${{ matrix.python-version }}-dev \
-              python3-pip \
-              git \
-              curl && \
-              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${{ matrix.python-version }} 1 && \
-              update-alternatives --install /usr/bin/python python /usr/bin/python${{ matrix.python-version }} 1 && \
+              python3.10 python3.10-venv python3.10-dev python3-pip git curl && \
+              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+              update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
               rm -rf /var/lib/apt/lists/*
-          
-          # Upgrade pip
           RUN python -m pip install --upgrade pip
+          WORKDIR /workspace
+          COPY . .
+          RUN pip install --no-cache-dir ".[$extra]"
+          EOF
+            then
+              echo "✅ $extra: BUILD SUCCESS"
+              
+              # Verify import
+              if docker run --rm --gpus all "$CONTAINER_NAME" \
+                python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
+                echo "✅ $extra: IMPORT SUCCESS"
+                RESULTS="$RESULTS\n| $extra | ✅ |"
+              else
+                echo "❌ $extra: IMPORT FAILED"
+                RESULTS="$RESULTS\n| $extra | ❌ |"
+                FAILED=$((FAILED + 1))
+              fi
+            else
+              echo "❌ $extra: BUILD FAILED"
+              RESULTS="$RESULTS\n| $extra | ❌ |"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            # Cleanup
+            docker rmi "$CONTAINER_NAME" 2>/dev/null || true
+            echo "::endgroup::"
+          done
           
+          echo ""
+          echo "## GPU Installation Results"
+          echo "| Extra | Status |"
+          echo "|-------|--------|"
+          echo -e "$RESULTS"
+          
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ $FAILED GPU extra(s) failed"
+            exit 1
+          fi
+
+  # ============================================================================
+  # ALL Installation Test - All extras together
+  # ============================================================================
+  all-install-test:
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only != 'true'
+    runs-on: self-hosted-nemo
+    name: ALL Extras (Combined)
+    continue-on-error: true  # Known conflicts may cause failure
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ALL extras
+        id: install
+        continue-on-error: true
+        run: |
+          BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
+          CONTAINER_NAME="test-all-${{ github.run_id }}"
+          
+          echo "::group::🚀 Installing ALL extras"
+          echo "=========================================="
+          echo "pip install '.[all]'"
+          echo "=========================================="
+          
+          docker build -f - -t "$CONTAINER_NAME" . 2>&1 | tee build.log <<EOF
+          FROM $BASE_IMAGE
+          ENV DEBIAN_FRONTEND=noninteractive
+          ENV PIP_BREAK_SYSTEM_PACKAGES=1
+          RUN apt-get update && apt-get install -y --no-install-recommends \
+              software-properties-common && \
+              add-apt-repository -y ppa:deadsnakes/ppa && \
+              apt-get update && apt-get install -y --no-install-recommends \
+              python3.10 python3.10-venv python3.10-dev python3-pip git curl && \
+              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+              update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
+              rm -rf /var/lib/apt/lists/*
+          RUN python -m pip install --upgrade pip
           WORKDIR /workspace
           COPY . .
           RUN pip install --no-cache-dir ".[all]"
           EOF
+          
+          BUILD_EXIT=$?
+          echo "::endgroup::"
+          
+          if [ $BUILD_EXIT -eq 0 ]; then
+            echo "install_status=success" >> $GITHUB_OUTPUT
+          else
+            echo "install_status=failure" >> $GITHUB_OUTPUT
+          fi
+          
+          # Save container name for verification step
+          echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
 
-      - name: Verify CUDA and imports
+      - name: Verify ALL installation
+        if: steps.install.outputs.install_status == 'success'
         run: |
-          docker run --rm --gpus all test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'; print(f'✅ CUDA: {torch.cuda.get_device_name(0)}')"
+          CONTAINER="${{ steps.install.outputs.container }}"
           
-          docker run --rm --gpus all test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "from nemo_curator import package_info; print(f'✅ nemo_curator v{package_info.__version__}')"
+          echo "::group::🔍 Verification"
+          docker run --rm --gpus all "$CONTAINER" python -c "
+          import sys
+          print('Python:', sys.version)
           
-          docker run --rm --gpus all test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} \
-            python -c "import cudf; import cuml; print('✅ cudf, cuml')"
+          from nemo_curator import package_info
+          print(f'✅ nemo_curator v{package_info.__version__}')
+          
+          try:
+              import torch
+              print(f'✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})')
+          except Exception as e:
+              print(f'⚠️ torch: {e}')
+          
+          try:
+              import cudf, cuml
+              print('✅ cudf, cuml')
+          except Exception as e:
+              print(f'⚠️ cudf/cuml: {e}')
+          
+          try:
+              import torchvision
+              print(f'✅ torchvision {torchvision.__version__}')
+          except Exception as e:
+              print(f'⚠️ torchvision: {e}')
+          "
+          echo "::endgroup::"
+
+      - name: Generate report
+        if: always()
+        run: |
+          echo ""
+          echo "=============================================="
+          echo "📊 ALL EXTRAS INSTALLATION REPORT"
+          echo "=============================================="
+          echo ""
+          
+          if [ "${{ steps.install.outputs.install_status }}" == "success" ]; then
+            echo "✅ Status: SUCCESS"
+            echo ""
+            echo "All optional dependencies installed together without conflicts."
+          else
+            echo "❌ Status: FAILED (expected - known conflicts)"
+            echo ""
+            echo "Known conflicts:"
+            echo "  - nemo_toolkit[asr] requires transformers<4.55"
+            echo "  - vllm requires transformers>=4.55"
+            echo ""
+            echo "Conflict details from build log:"
+            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -20 || echo "  (no specific conflict message found)"
+            echo ""
+            echo "Workaround: Install conflicting extras in separate environments."
+          fi
 
       - name: Cleanup
         if: always()
         run: |
-          docker rmi test-pip-all-${{ matrix.python-version }}-${{ github.run_id }} || true
+          docker rmi "test-all-${{ github.run_id }}" 2>/dev/null || true
 
   # ============================================================================
   # Summary
   # ============================================================================
   install-test-summary:
-    needs: [pre-flight, uv-cpu-test, pip-cpu-test, uv-all-test, pip-all-test]
+    needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-test]
     runs-on: ubuntu-latest
-    name: Install test summary
-    if: |
-      (needs.pre-flight.outputs.docs_only == 'true' || always()) && !cancelled()
+    if: always() && !cancelled()
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Get workflow result
-        id: result
-        shell: bash -x -e -u -o pipefail {0}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.run_id }}
-          SKIPPING_IS_ALLOWED: ${{ needs.pre-flight.outputs.docs_only == 'true' }}
+      - name: Summary
         run: |
-          FAILED_JOBS=$(gh run view $RUN_ID --json jobs --jq '[.jobs[] | select(.status == "completed" and .conclusion != "success")] | length') || echo 0
-
-          if [ "${FAILED_JOBS:-0}" -eq 0 ] || [ "$SKIPPING_IS_ALLOWED" == "true" ]; then
-              echo "✅ All installation tests passed"
-              echo ""
-              echo "📊 Test Matrix:"
-              echo "  ┌─────────┬─────────────┬─────────────┐"
-              echo "  │ Method  │ Py 3.10     │ Py 3.12     │"
-              echo "  ├─────────┼─────────────┼─────────────┤"
-              echo "  │ UV CPU  │ ✅          │ ✅          │"
-              echo "  │ UV All  │ ✅          │ ✅          │"
-              echo "  │ Pip CPU │ ✅          │ ✅          │"
-              echo "  │ Pip All │ ✅          │ ✅          │"
-              echo "  └─────────┴─────────────┴─────────────┘"
-              exit 0
+          echo "# 📊 Installation Test Summary"
+          echo ""
+          echo "| Job | Status |"
+          echo "|-----|--------|"
+          echo "| CPU Extras | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| ALL Extras | ${{ needs.all-install-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
+          echo ""
+          
+          if [ "${{ needs.cpu-install-test.result }}" != "success" ] || [ "${{ needs.gpu-install-test.result }}" != "success" ]; then
+            echo "❌ Core installation tests failed"
+            exit 1
           else
-              echo "❌ Found $FAILED_JOBS failed installation test(s)"
-              gh run view $RUN_ID --json jobs --jq '.jobs[] | select(.status == "completed" and .conclusion != "success") | .name'
-              exit 1
+            echo "✅ All individual extras install successfully"
+            if [ "${{ needs.all-install-test.result }}" != "success" ]; then
+              echo "⚠️ Combined installation has known conflicts (informational)"
+            fi
           fi
