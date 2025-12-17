@@ -142,9 +142,9 @@ video_cuda12 = [
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
-    "torch<=2.8.0",
+    "torch<=2.9.0",
     "torchaudio",
-    "vllm==0.11.0; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "vllm==0.11.1; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -156,7 +156,7 @@ all = [
 ]
 
 [dependency-groups]
-build = ["setuptools", "torch<=2.8.0"]
+build = ["setuptools", "torch<=2.9.0"]
 dev = ["jupyter"]
 linting = ["pre-commit", "ruff==0.11.4"]
 test = [
