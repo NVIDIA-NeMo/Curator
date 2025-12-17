@@ -13,9 +13,9 @@
 # limitations under the License.
 
 # This workflow validates NeMo Curator installation for each optional dependency.
-# - CPU extras: tested individually on ubuntu-latest
-# - GPU extras: tested individually on self-hosted GPU runner
-# - ALL extras: tested together (continue-on-error due to known conflicts)
+# - CPU extras: tested individually on ubuntu-latest (Python 3.12)
+# - GPU extras: tested individually on self-hosted GPU runner (Python 3.12)
+# - ALL extras: tested together on Python 3.10 & 3.12 (continue-on-error due to potential conflicts)
 
 name: Installation Test
 
@@ -70,13 +70,13 @@ jobs:
           echo "base_image=nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}" >> $GITHUB_OUTPUT
 
   # ============================================================================
-  # CPU Installation Tests - Each extra tested individually
+  # CPU Installation Tests - Each extra tested individually (Python 3.12)
   # ============================================================================
   cpu-install-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    name: CPU Extras (Individual)
+    name: CPU Extras (Individual) - Py3.12
     steps:
       - uses: actions/checkout@v4
 
@@ -86,7 +86,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Test each CPU extra
         id: test
@@ -96,7 +96,7 @@ jobs:
           FAILED=0
           
           for extra in "${CPU_EXTRAS[@]}"; do
-            echo "::group::📦 Testing: $extra"
+            echo "::group::📦 Testing: $extra (Python 3.12)"
             echo "=========================================="
             echo "Installing: pip install '.[$extra]'"
             echo "=========================================="
@@ -126,7 +126,7 @@ jobs:
           done
           
           echo ""
-          echo "## CPU Installation Results"
+          echo "## CPU Installation Results (Python 3.12)"
           echo "| Extra | Status |"
           echo "|-------|--------|"
           echo -e "$RESULTS"
@@ -139,13 +139,13 @@ jobs:
           fi
 
   # ============================================================================
-  # GPU Installation Tests - Each extra tested individually in Docker
+  # GPU Installation Tests - Each extra tested individually in Docker (Python 3.12)
   # ============================================================================
   gpu-install-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
-    name: GPU Extras (Individual)
+    name: GPU Extras (Individual) - Py3.12
     steps:
       - uses: actions/checkout@v4
 
@@ -158,7 +158,7 @@ jobs:
           FAILED=0
           
           for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra"
+            echo "::group::🎮 Testing: $extra (Python 3.12)"
             echo "=========================================="
             echo "Installing: pip install '.[$extra]'"
             echo "Base image: $BASE_IMAGE"
@@ -175,11 +175,10 @@ jobs:
               software-properties-common && \
               add-apt-repository -y ppa:deadsnakes/ppa && \
               apt-get update && apt-get install -y --no-install-recommends \
-              python3.10 python3.10-venv python3.10-dev python3-pip git curl && \
-              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
-              update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
+              python3.12 python3.12-venv python3.12-dev python3-pip git curl && \
+              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+              update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
               rm -rf /var/lib/apt/lists/*
-          RUN python -m pip install --upgrade pip
           WORKDIR /workspace
           COPY . .
           RUN pip install --no-cache-dir ".[$extra]"
@@ -209,7 +208,7 @@ jobs:
           done
           
           echo ""
-          echo "## GPU Installation Results"
+          echo "## GPU Installation Results (Python 3.12)"
           echo "| Extra | Status |"
           echo "|-------|--------|"
           echo -e "$RESULTS"
@@ -222,14 +221,18 @@ jobs:
           fi
 
   # ============================================================================
-  # ALL Installation Test - All extras together
+  # ALL Installation Test - All extras together (Python 3.10 & 3.12)
   # ============================================================================
   all-install-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
-    name: ALL Extras (Combined)
+    name: ALL Extras - Py${{ matrix.python-version }}
     continue-on-error: true  # Known conflicts may cause failure
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.10"]
     steps:
       - uses: actions/checkout@v4
 
@@ -238,9 +241,9 @@ jobs:
         continue-on-error: true
         run: |
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          CONTAINER_NAME="test-all-${{ github.run_id }}"
+          CONTAINER_NAME="test-all-py${{ matrix.python-version }}-${{ github.run_id }}"
           
-          echo "::group::🚀 Installing ALL extras"
+          echo "::group::🚀 Installing ALL extras (Python ${{ matrix.python-version }})"
           echo "=========================================="
           echo "pip install '.[all]'"
           echo "=========================================="
@@ -253,11 +256,10 @@ jobs:
               software-properties-common && \
               add-apt-repository -y ppa:deadsnakes/ppa && \
               apt-get update && apt-get install -y --no-install-recommends \
-              python3.10 python3.10-venv python3.10-dev python3-pip git curl && \
-              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
-              update-alternatives --install /usr/bin/python python /usr/bin/python3.10 1 && \
+              python${{ matrix.python-version }} python${{ matrix.python-version }}-venv python${{ matrix.python-version }}-dev python3-pip git curl && \
+              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${{ matrix.python-version }} 1 && \
+              update-alternatives --install /usr/bin/python python /usr/bin/python${{ matrix.python-version }} 1 && \
               rm -rf /var/lib/apt/lists/*
-          RUN python -m pip install --upgrade pip
           WORKDIR /workspace
           COPY . .
           RUN pip install --no-cache-dir ".[all]"
@@ -280,7 +282,7 @@ jobs:
         run: |
           CONTAINER="${{ steps.install.outputs.container }}"
           
-          echo "::group::🔍 Verification"
+          echo "::group::🔍 Verification (Python ${{ matrix.python-version }})"
           docker run --rm --gpus all "$CONTAINER" python -c "
           import sys
           print('Python:', sys.version)
@@ -313,7 +315,7 @@ jobs:
         run: |
           echo ""
           echo "=============================================="
-          echo "📊 ALL EXTRAS INSTALLATION REPORT"
+          echo "📊 ALL EXTRAS INSTALLATION REPORT (Python ${{ matrix.python-version }})"
           echo "=============================================="
           echo ""
           
@@ -337,7 +339,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker rmi "test-all-${{ github.run_id }}" 2>/dev/null || true
+          docker rmi "test-all-py${{ matrix.python-version }}-${{ github.run_id }}" 2>/dev/null || true
 
   # ============================================================================
   # Summary
@@ -351,11 +353,11 @@ jobs:
         run: |
           echo "# 📊 Installation Test Summary"
           echo ""
-          echo "| Job | Status |"
-          echo "|-----|--------|"
-          echo "| CPU Extras | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| GPU Extras | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| ALL Extras | ${{ needs.all-install-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
+          echo "| Job | Python | Status |"
+          echo "|-----|--------|--------|"
+          echo "| CPU Extras (Individual) | 3.12 | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras (Individual) | 3.12 | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| ALL Extras (Combined) | 3.10 & 3.12 | ${{ needs.all-install-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
           echo ""
           
           if [ "${{ needs.cpu-install-test.result }}" != "success" ] || [ "${{ needs.gpu-install-test.result }}" != "success" ]; then
