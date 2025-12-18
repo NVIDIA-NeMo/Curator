@@ -25,7 +25,6 @@ sys.path.insert(0, str(this_script_path.parent))
 
 # ruff: noqa: E402
 from runner.path_resolver import (
-    CONTAINER_ARTIFACTS_DIR_ROOT,
     CONTAINER_CONFIG_DIR_ROOT,
     CONTAINER_CURATOR_DIR,
     CONTAINER_DATASETS_DIR_ROOT,
@@ -132,7 +131,7 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
     else:
         entrypoint_args.extend(unknown_args)
 
-    # Parse config files and set volume mounts for results, artifacts, and datasets.
+    # Parse config files and set volume mounts for results and datasets.
     if args.config:
         # consolidate all config files passed in into a single dict - last one wins.
         config_data = {}
@@ -149,7 +148,6 @@ def get_runscript_eval_str(argv: list[str]) -> str:  # noqa: C901, PLR0912, PLR0
         # process the final path settings into the list of volume mounts.
         for path_type, container_dir in [
             ("results_path", CONTAINER_RESULTS_DIR_ROOT),
-            ("artifacts_path", CONTAINER_ARTIFACTS_DIR_ROOT),
             ("datasets_path", CONTAINER_DATASETS_DIR_ROOT),
         ]:
             if path_type in config_data:

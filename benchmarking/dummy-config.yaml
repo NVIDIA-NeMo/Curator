@@ -2,7 +2,6 @@
 
 # See tools/run.sh for the env vars used in this config
 results_dir: "${CONTAINER_RESULTS_DIR}"
-artifacts_dir: "${CONTAINER_ARTIFACTS_DIR}"
 datasets:
   - name: "cc"
     formats:

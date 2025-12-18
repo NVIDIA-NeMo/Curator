@@ -312,7 +312,7 @@ if __name__ == "__main__":
                     yield json.load(f)
 
     sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
-    matrix_config = Session(results_path=results_root_path, artifacts_path=results_root_path)
+    matrix_config = Session(results_path=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)
