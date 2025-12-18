@@ -391,7 +391,7 @@ jobs:
   all-install-only-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: linux-amd64-cpu16
     name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
     strategy:
       fail-fast: false
