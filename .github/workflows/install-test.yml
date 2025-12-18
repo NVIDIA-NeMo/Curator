@@ -516,9 +516,9 @@ jobs:
             echo "❌ Installation failed (expected - known conflicts)"
             echo ""
             echo "Known conflicts that may cause this:"
-            echo "  - nemo_toolkit[asr] requires transformers<4.55"
-            echo "  - vllm requires transformers>=4.55"
+            echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo "  - flash-attn build requires packaging module"
+            echo "  - flash-attn build requires torch pre-installed (pip can't handle build-time deps)"
             exit 1
           fi
 
@@ -624,8 +624,7 @@ jobs:
             echo "❌ Install: FAILED"
             echo ""
             echo "Known conflicts that may cause this:"
-            echo "  - nemo_toolkit[asr] requires transformers<4.55"
-            echo "  - vllm requires transformers>=4.55"
+            echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
             echo "Build log errors:"
             grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -20 || true
