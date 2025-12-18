@@ -103,6 +103,7 @@ jobs:
       - name: Test each CPU extra (pip)
         if: matrix.installer == 'pip'
         run: |
+          set -o pipefail
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
@@ -117,11 +118,11 @@ jobs:
             INSTALL_OK=false
             IMPORT_OK=false
             
-            if pip install ".[$extra]"; then
+            if pip install ".[$extra]" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
               
-              if python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
+              if python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1; then
                 echo "✅ $extra: IMPORT SUCCESS"
                 IMPORT_OK=true
               else
@@ -129,6 +130,10 @@ jobs:
               fi
             else
               echo "❌ $extra: INSTALL FAILED"
+              echo ""
+              echo "=== ERROR for $extra ==="
+              grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              echo "========================="
             fi
             
             if $INSTALL_OK && $IMPORT_OK; then
@@ -138,6 +143,7 @@ jobs:
               FAILED=$((FAILED + 1))
             fi
             
+            rm -f "install-$extra.log"
             deactivate
             rm -rf "venv_$extra"
             echo "::endgroup::"
@@ -154,6 +160,7 @@ jobs:
       - name: Test each CPU extra (uv)
         if: matrix.installer == 'uv'
         run: |
+          set -o pipefail
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
@@ -167,11 +174,11 @@ jobs:
             INSTALL_OK=false
             IMPORT_OK=false
             
-            if uv sync --locked --link-mode copy --extra "$extra"; then
+            if uv sync --locked --link-mode copy --extra "$extra" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
               
-              if uv run python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')"; then
+              if uv run python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1; then
                 echo "✅ $extra: IMPORT SUCCESS"
                 IMPORT_OK=true
               else
@@ -179,6 +186,10 @@ jobs:
               fi
             else
               echo "❌ $extra: INSTALL FAILED"
+              echo ""
+              echo "=== ERROR for $extra ==="
+              grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              echo "========================="
             fi
             
             if $INSTALL_OK && $IMPORT_OK; then
@@ -188,6 +199,7 @@ jobs:
               FAILED=$((FAILED + 1))
             fi
             
+            rm -f "install-$extra.log"
             rm -rf .venv
             uv cache clean
             echo "::endgroup::"
@@ -221,20 +233,10 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           df -h
 
-      - name: Test each GPU extra (pip)
+      - name: Build base image
         run: |
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          RESULTS=""
-          FAILED=0
-          
-          for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra (pip) - Install Only"
-            echo "Base image: $BASE_IMAGE"
-            
-            CONTAINER_NAME="test-pip-$extra-${{ github.run_id }}"
-            
-            if docker build -f - -t "$CONTAINER_NAME" . <<EOF
+          cat > Dockerfile.gpu-base <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           ENV PIP_BREAK_SYSTEM_PACKAGES=1
@@ -247,30 +249,55 @@ jobs:
               update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
               rm -rf /var/lib/apt/lists/*
           WORKDIR /workspace
-          COPY . .
-          RUN pip install --no-cache-dir ".[$extra]"
-          EOF
-            then
+          DOCKERFILE
+          docker build -f Dockerfile.gpu-base -t gpu-base-pip .
+          rm -f Dockerfile.gpu-base
+
+      - name: Test each GPU extra (pip)
+        run: |
+          set -o pipefail
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
+          RESULTS=""
+          FAILED=0
+          
+          for extra in "${GPU_EXTRAS[@]}"; do
+              echo "::group::🎮 Testing: $extra (pip) - Install Only"
+              
+              # Run install in isolated container - venv created and destroyed inside container
+              if docker run --rm -v "$(pwd):/workspace:ro" gpu-base-pip bash -c "
+              set -e
+              python -m venv /tmp/test_venv
+              source /tmp/test_venv/bin/activate
+              cd /workspace
+              pip install --no-cache-dir '.[$extra]'
+            " 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               RESULTS="$RESULTS\n| $extra | ✅ |"
             else
               echo "❌ $extra: INSTALL FAILED"
+              echo ""
+              echo "=== ERROR for $extra ==="
+              grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|versions have conflicting)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              echo "========================="
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
             
-            docker rmi "$CONTAINER_NAME" 2>/dev/null || true
-            docker system prune -f 2>/dev/null || true
+            rm -f "install-$extra.log"
             echo "::endgroup::"
           done
           
           echo ""
           echo "## GPU Installation Results (pip)"
-          echo "| Extra | Install |"
-          echo "|-------|---------|"
+          echo "| Extra | Status |"
+          echo "|-------|--------|"
           echo -e "$RESULTS"
           
           [ $FAILED -gt 0 ] && exit 1 || exit 0
+
+      - name: Cleanup
+        if: always()
+        run: docker rmi gpu-base-pip 2>/dev/null || true
 
   # ============================================================================
   # GPU Extras - Install Only (uv) - Required
@@ -291,20 +318,10 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           df -h
 
-      - name: Test each GPU extra (uv)
+      - name: Build base image
         run: |
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          RESULTS=""
-          FAILED=0
-          
-          for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra (uv) - Install Only"
-            echo "Base image: $BASE_IMAGE"
-            
-            CONTAINER_NAME="test-uv-$extra-${{ github.run_id }}"
-            
-            if docker build -f - -t "$CONTAINER_NAME" . <<EOF
+          cat > Dockerfile.gpu-base <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
           RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -318,30 +335,54 @@ jobs:
           RUN curl -LsSf https://astral.sh/uv/install.sh | sh
           ENV PATH="/root/.local/bin:\$PATH"
           WORKDIR /workspace
-          COPY . .
-          RUN uv sync --locked --link-mode copy --extra $extra
-          EOF
-            then
+          DOCKERFILE
+          docker build -f Dockerfile.gpu-base -t gpu-base-uv .
+          rm -f Dockerfile.gpu-base
+
+      - name: Test each GPU extra (uv)
+        run: |
+          set -o pipefail
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
+          RESULTS=""
+          FAILED=0
+          
+          for extra in "${GPU_EXTRAS[@]}"; do
+            echo "::group::🎮 Testing: $extra (uv) - Install Only"
+            
+            # Run install in isolated container - copy project to temp dir so .venv is ephemeral
+            if docker run --rm -v "$(pwd):/src:ro" gpu-base-uv bash -c "
+              set -e
+              cp -r /src /tmp/workspace
+              cd /tmp/workspace
+              uv sync --locked --link-mode copy --extra $extra
+            " 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               RESULTS="$RESULTS\n| $extra | ✅ |"
             else
               echo "❌ $extra: INSTALL FAILED"
+              echo ""
+              echo "=== ERROR for $extra ==="
+              grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              echo "========================="
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
             
-            docker rmi "$CONTAINER_NAME" 2>/dev/null || true
-            docker system prune -f 2>/dev/null || true
+            rm -f "install-$extra.log"
             echo "::endgroup::"
           done
           
           echo ""
           echo "## GPU Installation Results (uv)"
-          echo "| Extra | Install |"
-          echo "|-------|---------|"
+          echo "| Extra | Status |"
+          echo "|-------|--------|"
           echo -e "$RESULTS"
           
           [ $FAILED -gt 0 ] && exit 1 || exit 0
+
+      - name: Cleanup
+        if: always()
+        run: docker rmi gpu-base-uv 2>/dev/null || true
 
   # ============================================================================
   # ALL Extras - Install Only (CPU Runner)
