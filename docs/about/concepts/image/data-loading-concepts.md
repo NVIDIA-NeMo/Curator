@@ -24,20 +24,24 @@ NeMo Curator loads image datasets from tar archives for scalable, distributed im
 
 ```bash
 input_dataset/
-├── 00000.tar
+├── 00000.tar          # Tar archive containing JPEG images
 │   ├── 000000000.jpg
-│   ├── 000000000.txt
-│   ├── 000000000.json
+│   ├── 000000001.jpg
+│   ├── 000000002.jpg
 │   ├── ...
 ├── 00001.tar
+│   ├── 000001000.jpg
+│   ├── 000001001.jpg
 │   ├── ...
 ```
 
-**Input file types:**
+**What gets loaded:**
 
-- `.tar` files: Contain images (`.jpg`), captions (`.txt`), and metadata (`.json`) - only images are loaded
+- `.tar` files: Tar archives containing JPEG images (`.jpg`)
+- Only JPEG images are extracted and processed
 
-:::{note} While tar archives may contain captions (`.txt`) and metadata (`.json`) files, the `ImageReaderStage` only extracts JPEG images. Other file types are ignored during the loading process.
+:::{note}
+**WebDataset Format Support**: If your tar archives follow the [WebDataset format](https://github.com/webdataset/webdataset) and contain additional files (captions as `.txt`, metadata as `.json`), the `ImageReaderStage` will **only extract JPEG images**. Other file types (`.txt`, `.json`, etc.) are automatically ignored during loading.
 :::
 
 Each record is identified by a unique ID (e.g., `000000031`), used as the prefix for all files belonging to that record.
@@ -59,20 +63,23 @@ from nemo_curator.stages.image.io.image_reader import ImageReaderStage
 # Create pipeline for loading
 pipeline = Pipeline(name="image_loading")
 
-# Partition tar files
+# Partition tar files for parallel processing
 pipeline.add_stage(FilePartitioningStage(
     file_paths="/path/to/tar_dataset",
-    files_per_partition=1,
-    file_extensions=[".tar"],  # Required for ImageReaderStage
+    files_per_partition=1,         # Process one tar file per partition
+    file_extensions=[".tar"],       # Only include .tar files
 ))
 
-# Load images with DALI
+# Load JPEG images from tar files using DALI
 pipeline.add_stage(ImageReaderStage(
-    batch_size=100,
+    batch_size=100,                 # Number of images per batch
     verbose=True,
-    num_threads=8,
-    num_gpus_per_worker=0.25,
+    num_threads=16,                 # Number of threads for I/O operations
+    num_gpus_per_worker=0.25,       # Allocate 1/4 GPU per worker
 ))
+
+# Execute the pipeline
+results = pipeline.run()
 ```
 
 ## DALI Integration for High-Performance Loading

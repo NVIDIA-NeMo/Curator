@@ -116,6 +116,9 @@ pipeline.add_stage(ImageWriterStage(
     images_per_tar=1000,
     remove_image_data=True,
 ))
+
+# Execute the pipeline
+results = pipeline.run()
 ```
 
 ## Configuring Output Sharding
