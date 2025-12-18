@@ -263,7 +263,7 @@ jobs:
           for extra in "${GPU_EXTRAS[@]}"; do
             echo "::group::🎮 Testing: $extra (pip) - Install Only"
             
-            # Run install in isolated container - copy project to temp dir so it's writable
+            # Run install in isolated container - copy to /tmp so it's writable and discarded on exit
             if docker run --rm -v "$(pwd):/src:ro" gpu-base-pip bash -c "
               set -e
               cp -r /src /tmp/workspace
@@ -350,7 +350,7 @@ jobs:
           for extra in "${GPU_EXTRAS[@]}"; do
             echo "::group::🎮 Testing: $extra (uv) - Install Only"
             
-            # Run install in isolated container - copy project to temp dir so .venv is ephemeral
+            # Run install in isolated container - copy to /tmp so it's writable and discarded on exit
             if docker run --rm -e UV_HTTP_TIMEOUT=300 -v "$(pwd):/src:ro" gpu-base-uv bash -c "
               set -e
               cp -r /src /tmp/workspace
