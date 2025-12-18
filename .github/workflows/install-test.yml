@@ -222,7 +222,6 @@ jobs:
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: linux-amd64-cpu16
     name: "OPTIONAL: GPU Extras Individual - Install Only (pip) - Py3.12"
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -393,8 +392,7 @@ jobs:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
-    name: ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}
-    continue-on-error: true
+    name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
     strategy:
       fail-fast: false
       matrix:
@@ -417,7 +415,6 @@ jobs:
       - name: Install ALL extras (pip)
         if: matrix.installer == 'pip'
         id: install-pip
-        continue-on-error: true
         run: |
           set -o pipefail
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -445,10 +442,12 @@ jobs:
           
           if docker build -f Dockerfile.pip-all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
             echo "✅ INSTALL SUCCESS"
+            echo "install_status=success" >> $GITHUB_OUTPUT
           else
             echo "❌ INSTALL FAILED (expected - known conflicts)"
             echo "=== Build errors ==="
             grep -E "(ERROR|error:|failed|conflict)" build.log | head -20 || true
+            echo "install_status=failure" >> $GITHUB_OUTPUT
           fi
           echo "::endgroup::"
           
@@ -457,7 +456,6 @@ jobs:
       - name: Install ALL extras (uv)
         if: matrix.installer == 'uv'
         id: install-uv
-        continue-on-error: true
         run: |
           set -o pipefail
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
@@ -487,10 +485,12 @@ jobs:
           
           if docker build -f Dockerfile.uv-all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
             echo "✅ INSTALL SUCCESS"
+            echo "install_status=success" >> $GITHUB_OUTPUT
           else
             echo "❌ INSTALL FAILED (expected - known conflicts)"
             echo "=== Build errors ==="
             grep -E "(ERROR|error:|failed|conflict)" build.log | head -20 || true
+            echo "install_status=failure" >> $GITHUB_OUTPUT
           fi
           echo "::endgroup::"
           
@@ -500,7 +500,27 @@ jobs:
         if: always()
         run: |
           echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
-          echo "Known conflicts may cause failure. See build logs for details."
+          echo ""
+          
+          # Check install status from the appropriate step
+          if [ "${{ matrix.installer }}" == "pip" ]; then
+            STATUS="${{ steps.install-pip.outputs.install_status }}"
+          else
+            STATUS="${{ steps.install-uv.outputs.install_status }}"
+          fi
+          
+          if [ "$STATUS" == "success" ]; then
+            echo "✅ Installation succeeded"
+            exit 0
+          else
+            echo "❌ Installation failed (expected - known conflicts)"
+            echo ""
+            echo "Known conflicts that may cause this:"
+            echo "  - nemo_toolkit[asr] requires transformers<4.55"
+            echo "  - vllm requires transformers>=4.55"
+            echo "  - flash-attn build requires packaging module"
+            exit 1
+          fi
 
   # ============================================================================
   # ALL Extras - Install + Import (GPU Runner, uv Py3.12 only)
@@ -510,7 +530,6 @@ jobs:
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
     name: "OPTIONAL: ALL Extras - Install + Import (uv) - Py3.12"
-    continue-on-error: true  # Job shows red when failing but doesn't block workflow
     steps:
       - uses: actions/checkout@v4
         with:
