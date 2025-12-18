@@ -350,6 +350,10 @@ jobs:
           - installer: uv
             python-version: "3.12"  # This combo runs on GPU with import checks
     steps:
+      - name: Install git for checkout
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends git
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -387,7 +391,7 @@ jobs:
           set -o pipefail
           echo "🚀 Installing ALL extras (${{ matrix.installer }}, Py${{ matrix.python-version }})"
           
-          if [ "${{ matrix.installer }}" == "pip" ]; then
+          if [ "${{ matrix.installer }}" = "pip" ]; then
             if pip install --no-cache-dir ".[all]" 2>&1 | tee install.log; then
               echo "install_status=success" >> $GITHUB_OUTPUT
               echo "✅ INSTALL SUCCESS"
@@ -416,7 +420,7 @@ jobs:
         run: |
           echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
           
-          if [ "${{ steps.install.outputs.install_status }}" == "success" ]; then
+          if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
             echo "✅ Installation succeeded"
           else
             echo "❌ Installation failed (expected - known conflicts)"
@@ -524,7 +528,7 @@ jobs:
           echo "📊 ALL EXTRAS (uv, Py3.12) - Install + Import"
           echo "=============================================="
           
-          if [ "${{ steps.install.outputs.install_status }}" == "success" ]; then
+          if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
             echo "✅ Install: SUCCESS"
           else
             echo "❌ Install: FAILED"
