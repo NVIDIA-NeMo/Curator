@@ -33,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UV_HTTP_TIMEOUT: 60
+  UV_HTTP_TIMEOUT: 300
 
 jobs:
   pre-flight:
@@ -479,6 +479,7 @@ jobs:
               rm -rf /var/lib/apt/lists/*
           RUN curl -LsSf https://astral.sh/uv/install.sh | sh
           ENV PATH="/root/.local/bin:\$PATH"
+          ENV UV_HTTP_TIMEOUT=300
           WORKDIR /workspace
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
@@ -538,6 +539,7 @@ jobs:
               rm -rf /var/lib/apt/lists/*
           RUN curl -LsSf https://astral.sh/uv/install.sh | sh
           ENV PATH="/root/.local/bin:\$PATH"
+          ENV UV_HTTP_TIMEOUT=300
           WORKDIR /workspace
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
