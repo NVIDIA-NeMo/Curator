@@ -195,13 +195,20 @@ jobs:
           [ $FAILED -gt 0 ] && exit 1 || exit 0
 
   # ============================================================================
-  # GPU Extras - Install Only (pip)
+  # GPU Extras - Install Only (pip=OPTIONAL, uv=Required)
   # ============================================================================
-  gpu-install-test-pip:
+  gpu-install-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: linux-amd64-cpu16
-    name: "OPTIONAL: GPU Extras Individual - Install Only (pip) - Py3.12"
+    strategy:
+      fail-fast: false
+      matrix:
+        installer: [pip, uv]
+    name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
+    outputs:
+      pip_status: ${{ steps.finalize.outputs.pip_status }}
+      uv_status: ${{ steps.finalize.outputs.uv_status }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -216,41 +223,65 @@ jobs:
       - name: Build base image
         run: |
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
+          INSTALLER="${{ matrix.installer }}"
+          
+          if [ "$INSTALLER" == "pip" ]; then
+            EXTRA_ENV="ENV PIP_BREAK_SYSTEM_PACKAGES=1"
+            EXTRA_PKGS="python3-pip"
+            INSTALL_UV=""
+          else
+            EXTRA_ENV=""
+            EXTRA_PKGS=""
+            INSTALL_UV='RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+          ENV PATH="/root/.local/bin:$PATH"'
+          fi
+          
           cat > Dockerfile.gpu-base <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
-          ENV PIP_BREAK_SYSTEM_PACKAGES=1
+          $EXTRA_ENV
           RUN apt-get update && apt-get install -y --no-install-recommends \
               software-properties-common && \
               add-apt-repository -y ppa:deadsnakes/ppa && \
               apt-get update && apt-get install -y --no-install-recommends \
-              python3.12 python3.12-venv python3.12-dev python3-pip git curl && \
+              python3.12 python3.12-venv python3.12-dev $EXTRA_PKGS git curl && \
               update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
               update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
               rm -rf /var/lib/apt/lists/*
+          $INSTALL_UV
           WORKDIR /workspace
           DOCKERFILE
-          docker build -f Dockerfile.gpu-base -t gpu-base-pip .
+          docker build -f Dockerfile.gpu-base -t gpu-base-$INSTALLER .
           rm -f Dockerfile.gpu-base
 
-      - name: Test each GPU extra (pip)
+      - name: Test each GPU extra (${{ matrix.installer }})
+        id: test
         run: |
           set -o pipefail
+          INSTALLER="${{ matrix.installer }}"
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           RESULTS=""
           FAILED=0
           
           for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra (pip) - Install Only"
+            echo "::group::🎮 Testing: $extra ($INSTALLER) - Install Only"
+            
+            # Build install command based on installer type
+            if [ "$INSTALLER" == "pip" ]; then
+              INSTALL_CMD="python -m venv /tmp/test_venv && source /tmp/test_venv/bin/activate && pip install --no-cache-dir '.[\$extra]'"
+              DOCKER_OPTS=""
+            else
+              INSTALL_CMD="uv sync --locked --link-mode copy --extra \$extra"
+              DOCKER_OPTS="-e UV_HTTP_TIMEOUT=300"
+            fi
             
             # Run install in isolated container - copy to /tmp so it's writable and discarded on exit
-            if docker run --rm -v "$(pwd):/src:ro" gpu-base-pip bash -c "
+            if docker run --rm $DOCKER_OPTS -v "$(pwd):/src:ro" gpu-base-$INSTALLER bash -c "
               set -e
               cp -r /src /tmp/workspace
               cd /tmp/workspace
-              python -m venv /tmp/test_venv
-              source /tmp/test_venv/bin/activate
-              pip install --no-cache-dir '.[$extra]'
+              extra=$extra
+              $INSTALL_CMD
             " 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               RESULTS="$RESULTS\n| $extra | ✅ |"
@@ -258,7 +289,11 @@ jobs:
               echo "❌ $extra: INSTALL FAILED"
               echo ""
               echo "=== ERROR for $extra ==="
-              grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|versions have conflicting)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              if [ "$INSTALLER" == "pip" ]; then
+                grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|versions have conflicting)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              else
+                grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              fi
               echo "========================="
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
@@ -269,101 +304,26 @@ jobs:
           done
           
           echo ""
-          echo "## GPU Installation Results (pip)"
+          echo "## GPU Installation Results ($INSTALLER)"
           echo "| Extra | Status |"
           echo "|-------|--------|"
           echo -e "$RESULTS"
           
-          [ $FAILED -gt 0 ] && exit 1 || exit 0
+          if [ $FAILED -gt 0 ]; then
+            echo "test_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Record result for summary
+        id: finalize
+        if: always()
+        run: echo "${{ matrix.installer }}_status=${{ steps.test.outputs.test_status || 'failure' }}" >> $GITHUB_OUTPUT
 
       - name: Cleanup
         if: always()
-        run: docker rmi gpu-base-pip 2>/dev/null || true
-
-  # ============================================================================
-  # GPU Extras - Install Only (uv) - Required
-  # ============================================================================
-  gpu-install-test-uv:
-    needs: [pre-flight]
-    if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: linux-amd64-cpu16
-    name: GPU Extras Individual - Install Only (uv) - Py3.12
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
-          sudo rm -rf /usr/local/lib/android
-          df -h
-
-      - name: Build base image
-        run: |
-          BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          cat > Dockerfile.gpu-base <<DOCKERFILE
-          FROM $BASE_IMAGE
-          ENV DEBIAN_FRONTEND=noninteractive
-          RUN apt-get update && apt-get install -y --no-install-recommends \
-              software-properties-common && \
-              add-apt-repository -y ppa:deadsnakes/ppa && \
-              apt-get update && apt-get install -y --no-install-recommends \
-              python3.12 python3.12-venv python3.12-dev git curl && \
-              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-              update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
-              rm -rf /var/lib/apt/lists/*
-          RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-          ENV PATH="/root/.local/bin:\$PATH"
-          WORKDIR /workspace
-          DOCKERFILE
-          docker build -f Dockerfile.gpu-base -t gpu-base-uv .
-          rm -f Dockerfile.gpu-base
-
-      - name: Test each GPU extra (uv)
-        run: |
-          set -o pipefail
-          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
-          RESULTS=""
-          FAILED=0
-          
-          for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra (uv) - Install Only"
-            
-            # Run install in isolated container - copy to /tmp so it's writable and discarded on exit
-            if docker run --rm -e UV_HTTP_TIMEOUT=300 -v "$(pwd):/src:ro" gpu-base-uv bash -c "
-              set -e
-              cp -r /src /tmp/workspace
-              cd /tmp/workspace
-              uv sync --locked --link-mode copy --extra $extra
-            " 2>&1 | tee "install-$extra.log"; then
-              echo "✅ $extra: INSTALL SUCCESS"
-              RESULTS="$RESULTS\n| $extra | ✅ |"
-            else
-              echo "❌ $extra: INSTALL FAILED"
-              echo ""
-              echo "=== ERROR for $extra ==="
-              grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
-              echo "========================="
-              RESULTS="$RESULTS\n| $extra | ❌ |"
-              FAILED=$((FAILED + 1))
-            fi
-            
-            rm -f "install-$extra.log"
-            echo "::endgroup::"
-          done
-          
-          echo ""
-          echo "## GPU Installation Results (uv)"
-          echo "| Extra | Status |"
-          echo "|-------|--------|"
-          echo -e "$RESULTS"
-          
-          [ $FAILED -gt 0 ] && exit 1 || exit 0
-
-      - name: Cleanup
-        if: always()
-        run: docker rmi gpu-base-uv 2>/dev/null || true
+        run: docker rmi gpu-base-${{ matrix.installer }} 2>/dev/null || true
 
   # ============================================================================
   # ALL Extras - Install Only (CPU Runner)
@@ -578,8 +538,8 @@ jobs:
   # Summary
   # ============================================================================
   install-test-summary:
-    # Note: all jobs listed to access their .result status
-    needs: [pre-flight, cpu-install-test, gpu-install-test-pip, gpu-install-test-uv, all-install-only-test, all-install-import-test]
+    # Note: all jobs listed to access their .result status and outputs
+    needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-only-test, all-install-import-test]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.pre-flight.outputs.docs_only != 'true' }}
     steps:
@@ -592,8 +552,8 @@ jobs:
           echo "|-----|--------|-----------|------------|--------|"
           echo "| CPU Extras | CPU | pip | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
           echo "| CPU Extras | CPU | uv | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| GPU Extras | CPU | pip | Install Only | ${{ needs.gpu-install-test-pip.result == 'success' && '✅' || '❌ (expected)' }} |"
-          echo "| GPU Extras | CPU | uv | Install Only | ${{ needs.gpu-install-test-uv.result == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras | CPU | pip | Install Only | ${{ needs.gpu-install-test.outputs.pip_status == 'success' && '✅' || '❌ (expected)' }} |"
+          echo "| GPU Extras | CPU | uv | Install Only | ${{ needs.gpu-install-test.outputs.uv_status == 'success' && '✅' || '❌' }} |"
           echo ""
           echo "## ALL Extras (Combined)"
           echo "| Job | Runner | Validation | Status |"
@@ -604,7 +564,7 @@ jobs:
           
           # Core tests: CPU extras, GPU extras (uv), and ALL extras (uv) must pass
           if [ "${{ needs.cpu-install-test.result }}" != "success" ] || \
-             [ "${{ needs.gpu-install-test-uv.result }}" != "success" ] || \
+             [ "${{ needs.gpu-install-test.outputs.uv_status }}" != "success" ] || \
              [ "${{ needs.all-install-import-test.result }}" != "success" ]; then
             echo "❌ Core installation tests failed"
             exit 1
