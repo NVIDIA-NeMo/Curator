@@ -46,6 +46,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Get PR info
+        id: get-pr-info
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" >> $GITHUB_OUTPUT
+
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v45.0.1
@@ -56,7 +66,7 @@ jobs:
             pyproject.toml
             uv.lock
             docker/**
-          base_sha: HEAD~1
+          base_sha: ${{ steps.base-ref.outputs.base }}
 
       - name: Check if docs only
         id: docs_only
