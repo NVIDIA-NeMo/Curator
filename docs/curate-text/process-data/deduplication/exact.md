@@ -1,3 +1,4 @@
+---
 description: "Identify and remove exact duplicates using MD5 hashing in a Ray-based workflow"
 categories: ["how-to-guides"]
 tags: ["exact-dedup", "hashing", "md5", "gpu", "ray"]
@@ -32,40 +33,17 @@ This method targets character-for-character duplicates and is recommended for re
 - Ray cluster with GPU support (required for distributed processing)
 - Stable document identifiers for removal (either existing IDs or IDs assigned by the workflow)
 
-:::{dropdown} Adding Document IDs
-:icon: gear
-
-If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
-
-```python
-from nemo_curator.stages.text.modules import AddId
-from nemo_curator.pipeline import Pipeline
-
-pipeline = Pipeline(name="add_ids_for_dedup")
-pipeline.add_stage(
-    AddId(
-        id_field="doc_id",
-        id_prefix="corpus"  # Optional prefix
-    )
-)
-```
-
-For more details, refer to {ref}`text-process-data-add-id`.
-:::
-
 ## Quick Start
 
-Get started with exact deduplication using these examples:
-
-::::{tab-set}
-
-:::{tab-item} Two-Step Process
-
-Identify duplicates, then remove them:
+Get started with exact deduplication using the following example of identifying duplicates, then remove them:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 # Step 1: Identify duplicates
 exact_workflow = ExactDeduplicationWorkflow(
@@ -92,27 +70,6 @@ removal_workflow = TextDuplicatesRemovalWorkflow(
 removal_workflow.run()
 # Clean dataset saved to ./deduplicated/
 ```
-
-:::
-
-:::{tab-item} Minimal Example
-
-```python
-from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
-
-exact_workflow = ExactDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    text_field="text",
-    assign_id=True,
-    perform_removal=False
-)
-exact_workflow.run()
-```
-
-:::
-
-::::
 
 ## Configuration
 
@@ -160,43 +117,16 @@ Configure exact deduplication using these key parameters:
   - Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`.
 ```
 
-:::{dropdown} Advanced Configuration
-:icon: gear
-
-**Cloud Storage**:
-
-```python
-workflow = ExactDeduplicationWorkflow(
-    input_path="s3://bucket/input/",
-    output_path="s3://bucket/output/",
-    read_kwargs={
-        "storage_options": {"key": "<access_key>", "secret": "<secret_key>"}
-    },
-    write_kwargs={
-        "storage_options": {"key": "<access_key>", "secret": "<secret_key>"}
-    },
-    # ... other parameters
-)
-```
-
-**Passing Environment Variables**:
-
-You can pass environment variables to the Ray executor by using the `env_vars` parameter on `ExactDeduplicationWorkflow`. For example:
-
-```python
-env_vars = {
-    "UCX_TLS": "rc,cuda_copy,cuda_ipc",
-    "UCX_IB_GPU_DIRECT_RDMA": "yes",
-}
-```
-:::
-
 ## Removing Duplicates
 
 After identifying duplicates, use `TextDuplicatesRemovalWorkflow` to remove them:
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 removal_workflow = TextDuplicatesRemovalWorkflow(
     input_path="/path/to/input/data",
@@ -270,31 +200,5 @@ The workflow produces these output files:
 - Use `assign_id=True` for consistent ID tracking
 :::
 
-:::{dropdown} Advanced Usage
-:icon: code-square
-
-**Integration with existing pipelines**:
-
-```python
-from nemo_curator.tasks import FileGroupTask
-from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
-
-initial_tasks = [
-    FileGroupTask(
-        task_id="batch_0",
-        dataset_name="my_dataset",
-        data=["/path/to/file1.parquet", "/path/to/file2.parquet"],
-        _metadata={"source_files": ["/path/to/file1.parquet", "/path/to/file2.parquet"]},
-    )
-]
-
-exact_workflow = ExactDeduplicationWorkflow(
-    output_path="/path/to/output",
-    text_field="text",
-    assign_id=True
-)
-exact_workflow.run(initial_tasks=initial_tasks)
-```
-:::
 
 For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the {ref}`Deduplication overview <text-process-data-dedup>`.
