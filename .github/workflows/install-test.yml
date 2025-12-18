@@ -261,14 +261,15 @@ jobs:
           FAILED=0
           
           for extra in "${GPU_EXTRAS[@]}"; do
-              echo "::group::🎮 Testing: $extra (pip) - Install Only"
-              
-              # Run install in isolated container - venv created and destroyed inside container
-              if docker run --rm -v "$(pwd):/workspace:ro" gpu-base-pip bash -c "
+            echo "::group::🎮 Testing: $extra (pip) - Install Only"
+            
+            # Run install in isolated container - copy project to temp dir so it's writable
+            if docker run --rm -v "$(pwd):/src:ro" gpu-base-pip bash -c "
               set -e
+              cp -r /src /tmp/workspace
+              cd /tmp/workspace
               python -m venv /tmp/test_venv
               source /tmp/test_venv/bin/activate
-              cd /workspace
               pip install --no-cache-dir '.[$extra]'
             " 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
