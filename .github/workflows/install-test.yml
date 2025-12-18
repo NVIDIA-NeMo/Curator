@@ -529,7 +529,7 @@ jobs:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
-    name: "OPTIONAL: ALL Extras - Install + Import (uv) - Py3.12"
+    name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
       - uses: actions/checkout@v4
         with:
