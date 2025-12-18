@@ -101,29 +101,49 @@ jobs:
           python-version: "3.12"
           enable-cache: false  # We use isolated venvs with uv cache clean
 
-      - name: Test each CPU extra (pip)
-        if: matrix.installer == 'pip'
+      - name: Test each CPU extra (${{ matrix.installer }})
         run: |
           set -o pipefail
+          INSTALLER="${{ matrix.installer }}"
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
           
           for extra in "${CPU_EXTRAS[@]}"; do
-            echo "::group::📦 Testing: $extra (pip)"
+            echo "::group::📦 Testing: $extra ($INSTALLER)"
             
-            python -m venv "venv_$extra"
-            source "venv_$extra/bin/activate"
-            pip install --upgrade pip -q
+            # Setup environment
+            if [ "$INSTALLER" == "pip" ]; then
+              python -m venv "venv_$extra"
+              source "venv_$extra/bin/activate"
+              pip install --upgrade pip -q
+            else
+              rm -rf .venv
+              uv cache clean
+            fi
             
             INSTALL_OK=false
             IMPORT_OK=false
             
-            if pip install ".[$extra]" 2>&1 | tee "install-$extra.log"; then
+            # Install
+            if [ "$INSTALLER" == "pip" ]; then
+              INSTALL_CMD="pip install '.[$extra]'"
+            else
+              INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
+            fi
+            
+            if eval "$INSTALL_CMD" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
               
-              if python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1; then
+              # Import test
+              if [ "$INSTALLER" == "pip" ]; then
+                RUN_CMD="python"
+              else
+                RUN_CMD="uv run python"
+              fi
+              
+              if $RUN_CMD -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1; then
                 echo "✅ $extra: IMPORT SUCCESS"
                 IMPORT_OK=true
               else
@@ -133,7 +153,7 @@ jobs:
               echo "❌ $extra: INSTALL FAILED"
               echo ""
               echo "=== ERROR for $extra ==="
-              grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
+              grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
               echo "========================="
             fi
             
@@ -144,70 +164,20 @@ jobs:
               FAILED=$((FAILED + 1))
             fi
             
+            # Cleanup
             rm -f "install-$extra.log"
-            deactivate
-            rm -rf "venv_$extra"
+            if [ "$INSTALLER" == "pip" ]; then
+              deactivate
+              rm -rf "venv_$extra"
+            else
+              rm -rf .venv
+              uv cache clean
+            fi
             echo "::endgroup::"
           done
           
           echo ""
-          echo "## CPU Installation Results (pip)"
-          echo "| Extra | Install | Import |"
-          echo "|-------|---------|--------|"
-          echo -e "$RESULTS"
-          
-          [ $FAILED -gt 0 ] && exit 1 || exit 0
-
-      - name: Test each CPU extra (uv)
-        if: matrix.installer == 'uv'
-        run: |
-          set -o pipefail
-          CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
-          RESULTS=""
-          FAILED=0
-          
-          for extra in "${CPU_EXTRAS[@]}"; do
-            echo "::group::📦 Testing: $extra (uv)"
-            
-            rm -rf .venv
-            uv cache clean
-            
-            INSTALL_OK=false
-            IMPORT_OK=false
-            
-            if uv sync --locked --link-mode copy --extra "$extra" 2>&1 | tee "install-$extra.log"; then
-              echo "✅ $extra: INSTALL SUCCESS"
-              INSTALL_OK=true
-              
-              if uv run python -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1; then
-                echo "✅ $extra: IMPORT SUCCESS"
-                IMPORT_OK=true
-              else
-                echo "❌ $extra: IMPORT FAILED"
-              fi
-            else
-              echo "❌ $extra: INSTALL FAILED"
-              echo ""
-              echo "=== ERROR for $extra ==="
-              grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
-              echo "========================="
-            fi
-            
-            if $INSTALL_OK && $IMPORT_OK; then
-              RESULTS="$RESULTS\n| $extra | ✅ | ✅ |"
-            else
-              RESULTS="$RESULTS\n| $extra | $($INSTALL_OK && echo '✅' || echo '❌') | $($IMPORT_OK && echo '✅' || echo '❌') |"
-              FAILED=$((FAILED + 1))
-            fi
-            
-            rm -f "install-$extra.log"
-            rm -rf .venv
-            uv cache clean
-            echo "::endgroup::"
-          done
-          
-          echo ""
-          echo "## CPU Installation Results (uv)"
+          echo "## CPU Installation Results ($INSTALLER)"
           echo "| Extra | Install | Import |"
           echo "|-------|---------|--------|"
           echo -e "$RESULTS"
@@ -412,20 +382,24 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           df -h
 
-      - name: Install ALL extras (pip)
-        if: matrix.installer == 'pip'
-        id: install-pip
+      - name: Install ALL extras (${{ matrix.installer }})
+        id: install
         run: |
           set -o pipefail
+          INSTALLER="${{ matrix.installer }}"
           BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          CONTAINER_NAME="test-pip-all-py${{ matrix.python-version }}-${{ github.run_id }}"
+          CONTAINER_NAME="test-$INSTALLER-all-py${{ matrix.python-version }}-${{ github.run_id }}"
           
-          echo "::group::🚀 Installing ALL extras (pip, Py${{ matrix.python-version }}) - Install Only"
+          echo "::group::🚀 Installing ALL extras ($INSTALLER, Py${{ matrix.python-version }}) - Install Only"
           
-          # Write Dockerfile to avoid heredoc+pipe masking errors
-          cat > Dockerfile.pip-all-test <<DOCKERFILE
+          # Build Dockerfile dynamically based on installer
+          cat > Dockerfile.all-test <<DOCKERFILE
           FROM $BASE_IMAGE
           ENV DEBIAN_FRONTEND=noninteractive
+          DOCKERFILE
+          
+          if [ "$INSTALLER" == "pip" ]; then
+            cat >> Dockerfile.all-test <<DOCKERFILE
           ENV PIP_BREAK_SYSTEM_PACKAGES=1
           RUN apt-get update && apt-get install -y --no-install-recommends \
               software-properties-common && \
@@ -439,34 +413,8 @@ jobs:
           COPY . .
           RUN pip install --no-cache-dir ".[all]"
           DOCKERFILE
-          
-          if docker build -f Dockerfile.pip-all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
-            echo "✅ INSTALL SUCCESS"
-            echo "install_status=success" >> $GITHUB_OUTPUT
           else
-            echo "❌ INSTALL FAILED (expected - known conflicts)"
-            echo "=== Build errors ==="
-            grep -E "(ERROR|error:|failed|conflict)" build.log | head -20 || true
-            echo "install_status=failure" >> $GITHUB_OUTPUT
-          fi
-          echo "::endgroup::"
-          
-          docker rmi "$CONTAINER_NAME" 2>/dev/null || true
-
-      - name: Install ALL extras (uv)
-        if: matrix.installer == 'uv'
-        id: install-uv
-        run: |
-          set -o pipefail
-          BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          CONTAINER_NAME="test-uv-all-py${{ matrix.python-version }}-${{ github.run_id }}"
-          
-          echo "::group::🚀 Installing ALL extras (uv, Py${{ matrix.python-version }}) - Install Only"
-          
-          # Write Dockerfile to avoid heredoc+pipe masking errors
-          cat > Dockerfile.uv-all-test <<DOCKERFILE
-          FROM $BASE_IMAGE
-          ENV DEBIAN_FRONTEND=noninteractive
+            cat >> Dockerfile.all-test <<DOCKERFILE
           RUN apt-get update && apt-get install -y --no-install-recommends \
               software-properties-common && \
               add-apt-repository -y ppa:deadsnakes/ppa && \
@@ -482,8 +430,9 @@ jobs:
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
           DOCKERFILE
+          fi
           
-          if docker build -f Dockerfile.uv-all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
+          if docker build -f Dockerfile.all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
             echo "✅ INSTALL SUCCESS"
             echo "install_status=success" >> $GITHUB_OUTPUT
           else
@@ -500,18 +449,9 @@ jobs:
         if: always()
         run: |
           echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
-          echo ""
           
-          # Check install status from the appropriate step
-          if [ "${{ matrix.installer }}" == "pip" ]; then
-            STATUS="${{ steps.install-pip.outputs.install_status }}"
-          else
-            STATUS="${{ steps.install-uv.outputs.install_status }}"
-          fi
-          
-          if [ "$STATUS" == "success" ]; then
+          if [ "${{ steps.install.outputs.install_status }}" == "success" ]; then
             echo "✅ Installation succeeded"
-            exit 0
           else
             echo "❌ Installation failed (expected - known conflicts)"
             echo ""
