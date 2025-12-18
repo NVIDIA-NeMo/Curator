@@ -126,7 +126,7 @@ jobs:
             if [ "$INSTALLER" == "pip" ]; then
               python -m venv "venv_$extra"
               source "venv_$extra/bin/activate"
-              pip install --upgrade pip -q
+              pip install --upgrade pip
             else
               rm -rf .venv
               uv cache clean
@@ -153,7 +153,7 @@ jobs:
                 RUN_CMD="uv run python"
               fi
               
-              if $RUN_CMD -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1; then
+              if $RUN_CMD -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1 | tee -a "install-$extra.log"; then
                 echo "✅ $extra: IMPORT SUCCESS"
                 IMPORT_OK=true
               else
@@ -206,9 +206,6 @@ jobs:
       matrix:
         installer: [pip, uv]
     name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
-    outputs:
-      pip_status: ${{ steps.finalize.outputs.pip_status }}
-      uv_status: ${{ steps.finalize.outputs.uv_status }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -275,7 +272,7 @@ jobs:
               DOCKER_OPTS="-e UV_HTTP_TIMEOUT=300"
             fi
             
-            # Run install in isolated container - copy to /tmp so it's writable and discarded on exit
+            # Run install in isolated container
             if docker run --rm $DOCKER_OPTS -v "$(pwd):/src:ro" gpu-base-$INSTALLER bash -c "
               set -e
               cp -r /src /tmp/workspace
@@ -316,10 +313,19 @@ jobs:
             echo "test_status=success" >> $GITHUB_OUTPUT
           fi
 
-      - name: Record result for summary
-        id: finalize
+      - name: Save status for summary
         if: always()
-        run: echo "${{ matrix.installer }}_status=${{ steps.test.outputs.test_status || 'failure' }}" >> $GITHUB_OUTPUT
+        run: |
+          mkdir -p gpu-status
+          echo "${{ steps.test.outputs.test_status || 'failure' }}" > gpu-status/${{ matrix.installer }}_status.txt
+
+      - name: Upload status artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-status-${{ matrix.installer }}
+          path: gpu-status/
+          retention-days: 1
 
       - name: Cleanup
         if: always()
@@ -538,13 +544,24 @@ jobs:
   # Summary
   # ============================================================================
   install-test-summary:
-    # Note: all jobs listed to access their .result status and outputs
+    # Note: all jobs listed to access their .result status
     needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-only-test, all-install-import-test]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.pre-flight.outputs.docs_only != 'true' }}
     steps:
+      - name: Download GPU status artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gpu-status-*
+          merge-multiple: true
+          path: gpu-status/
+
       - name: Summary
         run: |
+          # Read GPU status from artifacts (matrix outputs don't merge across runs)
+          GPU_PIP_STATUS=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
+          GPU_UV_STATUS=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
+          
           echo "# 📊 Installation Test Summary"
           echo ""
           echo "## Individual Extras"
@@ -552,19 +569,19 @@ jobs:
           echo "|-----|--------|-----------|------------|--------|"
           echo "| CPU Extras | CPU | pip | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
           echo "| CPU Extras | CPU | uv | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| GPU Extras | CPU | pip | Install Only | ${{ needs.gpu-install-test.outputs.pip_status == 'success' && '✅' || '❌ (expected)' }} |"
-          echo "| GPU Extras | CPU | uv | Install Only | ${{ needs.gpu-install-test.outputs.uv_status == 'success' && '✅' || '❌' }} |"
+          echo "| GPU Extras | CPU | pip | Install Only | $([[ $GPU_PIP_STATUS == 'success' ]] && echo '✅' || echo '❌ (expected)') |"
+          echo "| GPU Extras | CPU | uv | Install Only | $([[ $GPU_UV_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
           echo ""
           echo "## ALL Extras (Combined)"
           echo "| Job | Runner | Validation | Status |"
           echo "|-----|--------|------------|--------|"
           echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
-          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌ (expected)' }} |"
+          echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
           echo ""
           
           # Core tests: CPU extras, GPU extras (uv), and ALL extras (uv) must pass
           if [ "${{ needs.cpu-install-test.result }}" != "success" ] || \
-             [ "${{ needs.gpu-install-test.outputs.uv_status }}" != "success" ] || \
+             [ "$GPU_UV_STATUS" != "success" ] || \
              [ "${{ needs.all-install-import-test.result }}" != "success" ]; then
             echo "❌ Core installation tests failed"
             exit 1
