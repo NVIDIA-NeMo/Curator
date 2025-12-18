@@ -387,6 +387,7 @@ jobs:
 
       - name: Install ALL extras (${{ matrix.installer }})
         id: install
+        shell: bash
         run: |
           set -o pipefail
           echo "🚀 Installing ALL extras (${{ matrix.installer }}, Py${{ matrix.python-version }})"
