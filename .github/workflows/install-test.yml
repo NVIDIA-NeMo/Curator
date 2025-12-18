@@ -99,6 +99,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
+          enable-cache: false  # We use isolated venvs with uv cache clean
 
       - name: Test each CPU extra (pip)
         if: matrix.installer == 'pip'
