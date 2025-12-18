@@ -540,6 +540,7 @@ jobs:
           WORKDIR /workspace
           COPY . .
           RUN uv sync --locked --link-mode copy --extra all
+          ENV PATH="/workspace/.venv/bin:\$PATH"
           DOCKERFILE
           
           if docker build -f Dockerfile.all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
