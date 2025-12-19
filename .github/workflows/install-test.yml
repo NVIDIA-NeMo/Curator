@@ -215,7 +215,7 @@ jobs:
           retention-days: 1
 
   # ============================================================================
-  # GPU Extras - Install Only (pip=OPTIONAL, uv=Required)
+  # GPU Extras - Install Only (pip=required, uv=Required)
   # ============================================================================
   gpu-install-test:
     needs: [pre-flight]
@@ -226,8 +226,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        installer: [uv] # Add back pip
-    name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
+        installer: [pip, uv]
+    name: "GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
     steps:
       - name: Install dependencies for setup-python
         run: apt-get update && apt-get install -y --no-install-recommends git curl
@@ -345,11 +345,11 @@ jobs:
     runs-on: linux-amd64-cpu16
     container:
       image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-    name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
+    name: "ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
     strategy:
       fail-fast: false
       matrix:
-        installer: [pip, uv]
+        installer: [uv]
         python-version: ["3.12", "3.10"]
         exclude:
           - installer: uv
