@@ -544,35 +544,22 @@ jobs:
 
       - name: Summary
         run: |
-          # Read status from artifacts, fallback to job result for skipped/cancelled
-          CPU_RESULT="${{ needs.cpu-install-test.result }}"
-          GPU_RESULT="${{ needs.gpu-install-test.result }}"
-          
-          if [ "$CPU_RESULT" = "success" ]; then
-            CPU_PIP_STATUS=$(cat cpu-status/pip_status.txt 2>/dev/null || echo "failure")
-            CPU_UV_STATUS=$(cat cpu-status/uv_status.txt 2>/dev/null || echo "failure")
-          else
-            CPU_PIP_STATUS="$CPU_RESULT"
-            CPU_UV_STATUS="$CPU_RESULT"
-          fi
-          
-          if [ "$GPU_RESULT" = "success" ]; then
-            GPU_PIP_STATUS=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
-            GPU_UV_STATUS=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
-          else
-            GPU_PIP_STATUS="$GPU_RESULT"
-            GPU_UV_STATUS="$GPU_RESULT"
-          fi
+          # Read status from artifacts; if job didn't succeed, use job result directly
+          read_status() { [ "$1" = "success" ] && cat "$2" 2>/dev/null || echo "${1:-failure}"; }
+          CPU_PIP=$(read_status "${{ needs.cpu-install-test.result }}" cpu-status/pip_status.txt)
+          CPU_UV=$(read_status "${{ needs.cpu-install-test.result }}" cpu-status/uv_status.txt)
+          GPU_PIP=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/pip_status.txt)
+          GPU_UV=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/uv_status.txt)
           
           echo "# 📊 Installation Test Summary"
           echo ""
           echo "## Individual Extras"
           echo "| Job | Runner | Installer | Validation | Status |"
           echo "|-----|--------|-----------|------------|--------|"
-          echo "| CPU Extras | CPU | pip | Install+Import | $([[ $CPU_PIP_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
-          echo "| CPU Extras | CPU | uv | Install+Import | $([[ $CPU_UV_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
-          echo "| GPU Extras | CPU | pip | Install Only | $([[ $GPU_PIP_STATUS == 'success' ]] && echo '✅' || echo '❌ (expected)') |"
-          echo "| GPU Extras | CPU | uv | Install Only | $([[ $GPU_UV_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
+          echo "| CPU Extras | CPU | pip | Install+Import | $([[ $CPU_PIP == 'success' ]] && echo '✅' || echo '❌') |"
+          echo "| CPU Extras | CPU | uv | Install+Import | $([[ $CPU_UV == 'success' ]] && echo '✅' || echo '❌') |"
+          echo "| GPU Extras | CPU | pip | Install Only | $([[ $GPU_PIP == 'success' ]] && echo '✅' || echo '❌ (expected)') |"
+          echo "| GPU Extras | CPU | uv | Install Only | $([[ $GPU_UV == 'success' ]] && echo '✅' || echo '❌') |"
           echo ""
           echo "## ALL Extras (Combined)"
           echo "| Job | Runner | Validation | Status |"
@@ -582,13 +569,10 @@ jobs:
           echo ""
           
           # Core tests: CPU extras (both), GPU extras (uv), and ALL extras (uv) must pass
-          if [ "$CPU_PIP_STATUS" != "success" ] || \
-             [ "$CPU_UV_STATUS" != "success" ] || \
-             [ "$GPU_UV_STATUS" != "success" ] || \
-             [ "${{ needs.all-install-import-test.result }}" != "success" ]; then
-            echo "❌ Core installation tests failed"
-            exit 1
+          if [ "$CPU_PIP" = "success" ] && [ "$CPU_UV" = "success" ] && \
+             [ "$GPU_UV" = "success" ] && [ "${{ needs.all-install-import-test.result }}" = "success" ]; then
+            echo "✅ All required tests passed"
           else
-            echo "✅ All required tests passed (uv)"
+            echo "❌ Core installation tests failed"; exit 1
           fi
 
