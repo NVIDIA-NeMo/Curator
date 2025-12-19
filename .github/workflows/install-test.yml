@@ -48,7 +48,7 @@ jobs:
 
       - name: Get PR info
         id: get-pr-info
-        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pull-request/')
         uses: nv-gha-runners/get-pr-info@main
 
       - name: Determine base reference
