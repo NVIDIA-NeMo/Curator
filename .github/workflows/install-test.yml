@@ -560,7 +560,7 @@ jobs:
             echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
             echo "Build log errors:"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log 2>/dev/null | head -20 || echo "Build log not available"
+            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log 2>/dev/null | head -20 || echo "Build log not available or no errors found"
           fi
 
       - name: Cleanup
