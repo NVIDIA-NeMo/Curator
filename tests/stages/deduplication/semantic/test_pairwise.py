@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,30 +14,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import patch
 
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
+    import cupy as cp
+
 import numpy as np
 import pytest
-
-cudf = pytest.importorskip("cudf")
-cupy = pytest.importorskip("cupy")
-
-import cupy as cp
 import torch
 
-from nemo_curator.stages.deduplication.semantic.pairwise import (
-    PairwiseCosineSimilarityStage,
-    PairwiseStage,
-    pairwise_cosine_similarity_batched,
-)
-from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
-from nemo_curator.tasks import FileGroupTask
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic.pairwise import (
+        PairwiseCosineSimilarityStage,
+        PairwiseStage,
+        pairwise_cosine_similarity_batched,
+    )
+    from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+    from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
+    from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestPairwiseCosineSimilarityBatched:
     """Test cases for pairwise_cosine_similarity_batched function."""
 
@@ -86,6 +91,7 @@ class TestPairwiseCosineSimilarityBatched:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestPairwiseCosineSimilarityStage:
     """Test cases for PairwiseCosineSimilarityStage."""
 
@@ -335,6 +341,7 @@ class TestPairwiseCosineSimilarityStage:
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 class TestPairwiseStage:
     """Test cases for PairwiseStage composite stage."""
 
@@ -370,8 +377,6 @@ class TestPairwiseStage:
         assert len(stages) == 2
 
         # First stage should be ClusterWiseFilePartitioningStage
-        from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-
         assert isinstance(stages[0], ClusterWiseFilePartitioningStage)
         assert stages[0].input_path == "/input/path"
 
@@ -429,7 +434,7 @@ class TestPairwiseStage:
         assert ranking_strategy.metadata_cols == ["cosine_dist_to_cent", "doc_id"]
         assert ranking_strategy.ascending == [False, False]  # "hard" means descending (farthest first)
 
-    def _setup_test_data(self, tmp_path: Path) -> tuple[Path, Path, cudf.DataFrame, Path]:
+    def _setup_test_data(self, tmp_path: Path) -> tuple[Path, Path, "cudf.DataFrame", Path]:
         """Helper method to set up common test data for all ranking tests."""
         cluster_id = 0
 

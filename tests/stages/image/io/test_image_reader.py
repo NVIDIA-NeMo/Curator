@@ -200,22 +200,17 @@ def test_resources_without_cuda() -> None:
     assert res.requires_gpu is False
 
 
-# GPU integration test using real DALI if available
+@pytest.mark.skip(reason="Image data files have not been added yet")
 @pytest.mark.gpu
 def test_dali_image_reader_on_gpu() -> None:
-    if not torch.cuda.is_available():  # pragma: no cover - CPU CI
-        pytest.skip("CUDA not available; GPU test skipped")
-
-    try:
-        import nvidia.dali  # noqa: F401
-    except (ModuleNotFoundError, ImportError):  # pragma: no cover - environment without DALI
-        pytest.skip("nvidia.dali not available; skipping GPU reader test")
+    """Test DALI image reader on GPU."""
 
     # Reuse sample webdataset tar from repository-level tests assets
-    # Project root is parents[5] from this file (ray-curator/tests/stages/image/io)
+    # Project root is parents[5] from this file (nemo_curator/tests/stages/image/io)
     tar_path = pathlib.Path(__file__).resolve().parents[5] / "tests" / "image_data" / "00000.tar"
-    if not tar_path.exists():  # pragma: no cover - missing asset
-        pytest.skip(f"Sample dataset not found at {tar_path}")
+    if not tar_path.exists():
+        msg = f"Sample dataset not found at {tar_path}"
+        raise FileNotFoundError(msg)
 
     from nemo_curator.stages.image.io.image_reader import ImageReaderStage
     from nemo_curator.tasks import FileGroupTask

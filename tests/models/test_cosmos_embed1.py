@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
+@pytest.mark.video
 class TestCosmosEmbed1:
     """Test cases for CosmosEmbed1 model class."""
 

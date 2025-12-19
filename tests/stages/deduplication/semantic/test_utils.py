@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +22,7 @@ import pytest
 
 
 @pytest.mark.gpu
+@pytest.mark.text
 def test_get_array_from_df() -> None:
     import cudf
     import cupy as cp
@@ -44,6 +47,7 @@ def test_get_array_from_df() -> None:
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
+@pytest.mark.text
 class TestBreakParquetPartitionIntoGroups:
     @patch("pyarrow.parquet.read_metadata", return_value=Mock(num_rows=10_000))
     @patch("nemo_curator.stages.deduplication.semantic.utils.open_parquet_file")

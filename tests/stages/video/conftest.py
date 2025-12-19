@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Marks all tests in this directory with pytest.mark.video
+"""
+
 import pytest
 
 
-@pytest.mark.gpu
-def test_basic_cudf_dataframe():
-    import cudf
-
-    df = cudf.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
-    assert len(df) == 3
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    for item in items:
+        item.add_marker(pytest.mark.video)

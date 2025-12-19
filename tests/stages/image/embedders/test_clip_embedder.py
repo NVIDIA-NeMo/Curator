@@ -388,8 +388,7 @@ class TestImageEmbeddingStage:
     # GPU integration test with a dummy CUDA-backed embedding model
     @pytest.mark.gpu
     def test_image_embedding_stage_on_gpu(self) -> None:
-        if not torch.cuda.is_available():  # pragma: no cover - CPU CI
-            pytest.skip("CUDA not available; skipping GPU embedding test")
+        """Test image embedding stage on GPU."""
 
         class _DummyCLIPImageEmbeddings:
             def __init__(self, _model_dir: str | None = None) -> None:

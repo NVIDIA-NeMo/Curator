@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -40,6 +42,7 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
+@pytest.mark.video
 class TestInternVideo2MultiModality:
     """Test cases for InternVideo2MultiModality model class."""
 
@@ -279,6 +282,7 @@ class TestInternVideo2MultiModality:
         mock_model_instance.predict_label.assert_called_once()
 
 
+@pytest.mark.video
 class TestInternVideo2Stage2Wrapper:
     """Test cases for _InternVideo2Stage2Wrapper class."""
 
@@ -428,6 +432,7 @@ class TestInternVideo2Stage2Wrapper:
         assert result[1].shape == (1, 2)  # indices
 
 
+@pytest.mark.video
 class TestHelperFunctions:
     """Test cases for helper functions."""
 

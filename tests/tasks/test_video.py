@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -35,6 +37,7 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
+@pytest.mark.video
 class TestWindow:
     """Test suite for _Window class."""
 
@@ -109,6 +112,7 @@ class TestWindow:
         assert size >= len(mp4_data) + len(webp_data)
 
 
+@pytest.mark.video
 class TestClip:
     """Test suite for Clip class."""
 
@@ -230,6 +234,7 @@ class TestClip:
         assert size >= expected_size
 
 
+@pytest.mark.video
 class TestClipStats:
     """Test suite for ClipStats class."""
 
@@ -310,6 +315,7 @@ class TestClipStats:
         assert stats1.max_clip_duration == 20.1  # Should be max of both
 
 
+@pytest.mark.video
 class TestVideoMetadata:
     """Test suite for VideoMetadata class."""
 
@@ -355,6 +361,7 @@ class TestVideoMetadata:
         assert metadata.bit_rate_k == 5000
 
 
+@pytest.mark.video
 class TestVideo:
     """Test suite for Video class."""
 
@@ -528,6 +535,7 @@ class TestVideo:
         assert video.input_path == "/home/user/test_video.mp4"
 
 
+@pytest.mark.video
 class TestVideoTask:
     """Test suite for VideoTask class."""
 

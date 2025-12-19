@@ -12,17 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
+"""
+Marks all tests in this directory with pytest.mark.text
+"""
 
 import pytest
 
 
-def test_raises_system_error(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(sys, "modules", {})
-    dummy_platform = "asdfasdf"
-    monkeypatch.setattr(sys, "platform", dummy_platform)
-
-    with pytest.raises(ValueError, match="only supports Linux systems") as excinfo:
-        import nemo_curator  # noqa
-
-    assert dummy_platform in str(excinfo.value)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    for item in items:
+        item.add_marker(pytest.mark.text)

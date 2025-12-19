@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,6 +24,7 @@ import pytest
 from nemo_curator.models.qwen_vl import _QWEN2_5_VL_MODEL_ID, _QWEN_VARIANTS_INFO, QwenVL
 
 
+@pytest.mark.video
 class TestQwenVL:
     """Test cases for QwenVL model class."""
 
