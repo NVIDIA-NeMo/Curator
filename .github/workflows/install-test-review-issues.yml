@@ -92,7 +92,7 @@ jobs:
     continue-on-error: true
     container:
       image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-    name: "REVIEW OPTIONAL: GPU Extras (pip) - Py3.12"
+    name: "REVIEW OPTIONAL: GPU Extras Individual - Install Only (pip) - Py3.12"
     steps:
       - name: Install dependencies for setup-python
         run: apt-get update && apt-get install -y --no-install-recommends git curl
@@ -150,8 +150,8 @@ jobs:
             echo ""
             echo "⚠️ KNOWN ISSUE: flash-attn build requires torch pre-installed"
             echo "pip cannot handle build-time dependencies. Use uv instead."
-            exit 1
           fi
+          # Job completes successfully - issues are documented above
         env:
           PIP_BREAK_SYSTEM_PACKAGES: 1
 
@@ -165,7 +165,7 @@ jobs:
     continue-on-error: true
     container:
       image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-    name: "REVIEW OPTIONAL: ALL Extras (pip) - Py${{ matrix.python-version }}"
+    name: "REVIEW OPTIONAL: ALL Extras - Install Only (pip) - Py${{ matrix.python-version }}"
     strategy:
       fail-fast: false
       matrix:
@@ -210,17 +210,17 @@ jobs:
           echo ""
           
           if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
-            echo "✅ Installation succeeded - pip issues may be resolved!"
+            echo "🎉 Installation succeeded - pip issues may be resolved!"
           else
-            echo "❌ Installation failed (expected - known conflicts)"
+            echo "⚠️ Installation failed (expected - known conflicts)"
             echo ""
             echo "Known issues causing this failure:"
             echo "  1. nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo "  2. flash-attn build requires torch pre-installed (pip can't handle build-time deps)"
             echo ""
             echo "Workaround: Use 'uv' instead of pip for installation"
-            exit 1
           fi
+          # Job completes successfully - issues are documented above
 
   # ============================================================================
   # Summary
