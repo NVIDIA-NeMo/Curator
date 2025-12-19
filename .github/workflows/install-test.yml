@@ -462,61 +462,61 @@ jobs:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: self-hosted-nemo
+    container:
+      image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+      options: --gpus all
     name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
+      - name: Install git for checkout
+        run: apt-get update && apt-get install -y --no-install-recommends git
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install ALL extras (uv - install + import)
+      - name: Setup Python 3.12
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            software-properties-common
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update && apt-get install -y --no-install-recommends \
+            python3.12 python3.12-venv python3.12-dev git curl
+          update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
+          update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+
+      - name: Setup uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "/root/.local/bin" >> $GITHUB_PATH
+        env:
+          UV_HTTP_TIMEOUT: 300
+
+      - name: Install ALL extras (uv)
         id: install
+        shell: bash
         run: |
           set -o pipefail
-          BASE_IMAGE="${{ needs.pre-flight.outputs.cuda_base_image }}"
-          CONTAINER_NAME="test-uv-all-py3.12-${{ github.run_id }}"
-          
-          echo "::group::🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
-          
-          # Write Dockerfile first to avoid heredoc+pipe issues
-          cat > Dockerfile.all-test <<DOCKERFILE
-          FROM $BASE_IMAGE
-          ENV DEBIAN_FRONTEND=noninteractive
-          RUN apt-get update && apt-get install -y --no-install-recommends \
-              software-properties-common && \
-              add-apt-repository -y ppa:deadsnakes/ppa && \
-              apt-get update && apt-get install -y --no-install-recommends \
-              python3.12 python3.12-venv python3.12-dev git curl && \
-              update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-              update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
-              rm -rf /var/lib/apt/lists/*
-          RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-          ENV PATH="/root/.local/bin:\$PATH"
-          ENV UV_HTTP_TIMEOUT=300
-          WORKDIR /workspace
-          COPY . .
-          RUN uv sync --locked --link-mode copy --extra all
-          ENV PATH="/workspace/.venv/bin:\$PATH"
-          DOCKERFILE
-          
-          if docker build -f Dockerfile.all-test -t "$CONTAINER_NAME" . 2>&1 | tee build.log; then
+          echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
+          export PATH="/root/.local/bin:$PATH"
+          if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
             echo "install_status=success" >> $GITHUB_OUTPUT
-            echo "container=$CONTAINER_NAME" >> $GITHUB_OUTPUT
+            echo "✅ INSTALL SUCCESS"
           else
             echo "install_status=failure" >> $GITHUB_OUTPUT
-            echo ""
-            echo "=== Build log errors ==="
-            grep -E "(ERROR|error:|failed|conflict)" build.log | head -30 || cat build.log | tail -50
+            echo "❌ INSTALL FAILED"
+            grep -E "(ERROR|error:|failed|conflict)" install.log | head -20 || true
             exit 1
           fi
-          echo "::endgroup::"
+        env:
+          UV_HTTP_TIMEOUT: 300
 
       - name: Verify imports
         if: steps.install.outputs.install_status == 'success'
+        shell: bash
         run: |
-          CONTAINER="${{ steps.install.outputs.container }}"
-          
           echo "::group::🔍 Import Verification"
-          docker run --rm --gpus all "$CONTAINER" uv run python -c "
+          export PATH="/root/.local/bin:$PATH"
+          uv run python -c "
           import sys
           print('Python:', sys.version)
           
@@ -546,11 +546,7 @@ jobs:
       - name: Report
         if: always()
         run: |
-          echo ""
-          echo "=============================================="
           echo "📊 ALL EXTRAS (uv, Py3.12) - Install + Import"
-          echo "=============================================="
-          
           if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
             echo "✅ Install: SUCCESS"
           else
@@ -559,13 +555,9 @@ jobs:
             echo "Known conflicts that may cause this:"
             echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
-            echo "Build log errors:"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log 2>/dev/null | head -20 || echo "Build log not available or no errors found"
+            echo "Install log errors:"
+            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" install.log 2>/dev/null | head -20 || echo "Install log not available or no errors found"
           fi
-
-      - name: Cleanup
-        if: always()
-        run: docker rmi "test-uv-all-py3.12-${{ github.run_id }}" 2>/dev/null || true
 
   # ============================================================================
   # Summary
