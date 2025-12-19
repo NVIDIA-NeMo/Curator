@@ -55,7 +55,7 @@ entries:
     enabled: true
     script: domain_classification_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -78,7 +78,7 @@ entries:
     enabled: true
     script: domain_classification_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -89,7 +89,7 @@ entries:
     enabled: true
     script: embedding_generation_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -108,7 +108,7 @@ entries:
     enabled: true
     script: embedding_generation_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -120,7 +120,7 @@ entries:
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
       --cache-path={session_entry_dir}/scratch/cache
       --output-path={session_entry_dir}/output
@@ -138,7 +138,7 @@ entries:
     enabled: true
     script: dedup_removal_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
       --id-generator-path={dataset:commoncrawl_id_map,json}
       --ids-to-remove-path={dataset:commoncrawl_ids,parquet}
@@ -159,7 +159,7 @@ entries:
     enabled: true
     script: dedup_removal_benchmark.py
     args: >-
-      --benchmark-results-path={results_path}
+      --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
       --id-generator-path={dataset:commoncrawl_id_map,json}
       --ids-to-remove-path={dataset:commoncrawl_ids,parquet}
