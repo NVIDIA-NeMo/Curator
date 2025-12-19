@@ -112,6 +112,7 @@ jobs:
           enable-cache: false  # We use isolated venvs with uv cache clean
 
       - name: Test each CPU extra (${{ matrix.installer }})
+        id: test
         run: |
           set -o pipefail
           INSTALLER="${{ matrix.installer }}"
@@ -192,7 +193,26 @@ jobs:
           echo "|-------|---------|--------|"
           echo -e "$RESULTS"
           
-          [ $FAILED -gt 0 ] && exit 1 || exit 0
+          if [ $FAILED -gt 0 ]; then
+            echo "test_status=failure" >> $GITHUB_OUTPUT
+            exit 1
+          else
+            echo "test_status=success" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Save status for summary
+        if: always()
+        run: |
+          mkdir -p cpu-status
+          echo "${{ steps.test.outputs.test_status || 'failure' }}" > cpu-status/${{ matrix.installer }}_status.txt
+
+      - name: Upload status artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpu-status-${{ matrix.installer }}
+          path: cpu-status/
+          retention-days: 1
 
   # ============================================================================
   # GPU Extras - Install Only (pip=OPTIONAL, uv=Required)
@@ -556,7 +576,16 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ always() && needs.pre-flight.outputs.docs_only != 'true' }}
     steps:
+      - name: Download CPU status artifacts
+        continue-on-error: true  # May not exist if job was skipped
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cpu-status-*
+          merge-multiple: true
+          path: cpu-status/
+
       - name: Download GPU status artifacts
+        continue-on-error: true  # May not exist if job was skipped
         uses: actions/download-artifact@v4
         with:
           pattern: gpu-status-*
@@ -565,7 +594,9 @@ jobs:
 
       - name: Summary
         run: |
-          # Read GPU status from artifacts (matrix outputs don't merge across runs)
+          # Read status from artifacts (matrix outputs don't merge across runs)
+          CPU_PIP_STATUS=$(cat cpu-status/pip_status.txt 2>/dev/null || echo "failure")
+          CPU_UV_STATUS=$(cat cpu-status/uv_status.txt 2>/dev/null || echo "failure")
           GPU_PIP_STATUS=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
           GPU_UV_STATUS=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
           
@@ -574,8 +605,8 @@ jobs:
           echo "## Individual Extras"
           echo "| Job | Runner | Installer | Validation | Status |"
           echo "|-----|--------|-----------|------------|--------|"
-          echo "| CPU Extras | CPU | pip | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
-          echo "| CPU Extras | CPU | uv | Install+Import | ${{ needs.cpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo "| CPU Extras | CPU | pip | Install+Import | $([[ $CPU_PIP_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
+          echo "| CPU Extras | CPU | uv | Install+Import | $([[ $CPU_UV_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
           echo "| GPU Extras | CPU | pip | Install Only | $([[ $GPU_PIP_STATUS == 'success' ]] && echo '✅' || echo '❌ (expected)') |"
           echo "| GPU Extras | CPU | uv | Install Only | $([[ $GPU_UV_STATUS == 'success' ]] && echo '✅' || echo '❌') |"
           echo ""
@@ -586,8 +617,9 @@ jobs:
           echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
           echo ""
           
-          # Core tests: CPU extras, GPU extras (uv), and ALL extras (uv) must pass
-          if [ "${{ needs.cpu-install-test.result }}" != "success" ] || \
+          # Core tests: CPU extras (both), GPU extras (uv), and ALL extras (uv) must pass
+          if [ "$CPU_PIP_STATUS" != "success" ] || \
+             [ "$CPU_UV_STATUS" != "success" ] || \
              [ "$GPU_UV_STATUS" != "success" ] || \
              [ "${{ needs.all-install-import-test.result }}" != "success" ]; then
             echo "❌ Core installation tests failed"
