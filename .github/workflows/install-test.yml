@@ -544,12 +544,11 @@ jobs:
 
       - name: Summary
         run: |
-          # Read status from artifacts; if job didn't succeed, use job result directly
-          read_status() { [ "$1" = "success" ] && cat "$2" 2>/dev/null || echo "${1:-failure}"; }
-          CPU_PIP=$(read_status "${{ needs.cpu-install-test.result }}" cpu-status/pip_status.txt)
-          CPU_UV=$(read_status "${{ needs.cpu-install-test.result }}" cpu-status/uv_status.txt)
-          GPU_PIP=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/pip_status.txt)
-          GPU_UV=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/uv_status.txt)
+          # Read status from artifacts (matrix jobs may have mixed results)
+          CPU_PIP=$(cat cpu-status/pip_status.txt 2>/dev/null || echo "failure")
+          CPU_UV=$(cat cpu-status/uv_status.txt 2>/dev/null || echo "failure")
+          GPU_PIP=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
+          GPU_UV=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
           
           echo "# 📊 Installation Test Summary"
           echo ""
