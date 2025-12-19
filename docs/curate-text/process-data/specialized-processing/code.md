@@ -45,7 +45,7 @@ pipeline.add_stage(reader)
 
 # Add filter stages for code quality
 pipeline.add_stage(ScoreFilter(
-    score_fn=PythonCommentToCodeFilter(
+    filter_obj=PythonCommentToCodeFilter(
         min_comment_to_code_ratio=0.01,
         max_comment_to_code_ratio=0.8
     ),
@@ -53,12 +53,12 @@ pipeline.add_stage(ScoreFilter(
     score_field="comment_ratio"
 ))
 pipeline.add_stage(ScoreFilter(
-    score_fn=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
+    filter_obj=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
     text_field="content",
     score_field="line_count"
 ))
 pipeline.add_stage(ScoreFilter(
-    score_fn=AlphaFilter(min_alpha_ratio=0.3),
+    filter_obj=AlphaFilter(min_alpha_ratio=0.3),
     text_field="content",
     score_field="alpha_ratio"
 ))
@@ -82,12 +82,12 @@ NeMo Curator offers several specialized filters for code content:
 | **PythonCommentToCodeFilter** | Filters Python files based on comment-to-code ratio | `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 | **GeneralCommentToCodeFilter** | Similar filter for other languages | `language`, `min_comment_to_code_ratio`, `max_comment_to_code_ratio` | min=0.01, max=0.85 |
 
-The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials:
+The comment-to-code ratio is an important metric for code quality. Low comment ratios may indicate poor documentation, while high comment ratios might suggest automatically generated code or tutorials. These ratios should be adjusted based on specific programming languages:
 
 ```python
 # For Python files with docstrings
 python_filter = ScoreFilter(
-    score_fn=PythonCommentToCodeFilter(
+    filter_obj=PythonCommentToCodeFilter(
         min_comment_to_code_ratio=0.05,  # At least 5% comments
         max_comment_to_code_ratio=0.7    # At most 70% comments
     ),
@@ -96,7 +96,7 @@ python_filter = ScoreFilter(
 
 # For other languages
 cpp_filter = ScoreFilter(
-    score_fn=GeneralCommentToCodeFilter(
+    filter_obj=GeneralCommentToCodeFilter(
         language="text/x-c++",  # MIME type for C++
         min_comment_to_code_ratio=0.02,
         max_comment_to_code_ratio=0.6
@@ -112,21 +112,23 @@ The `GeneralCommentToCodeFilter` supports various language MIME types:
 - `text/javascript` for JavaScript
 - `text/x-ruby` for Ruby
 - `text/x-csharp` for C#
+- `text/x-c` for C
+- `text/x-asm` for Assembly
 
 ### Code Structure Filters
 
 | Filter | Description | Key Parameters | Default Values |
 |--------|-------------|----------------|---------------|
-| **NumberOfLinesOfCodeFilter** | Filters based on the number of lines | `min_lines`, `max_lines` | min=10, max=20000 |
-| **AlphaFilter** | Ensures code has sufficient alphabetic content | `min_alpha_ratio` | 0.25 |
-| **TokenizerFertilityFilter** | Measures token efficiency | `path_to_tokenizer` (required), `min_char_to_token_ratio` | ratio=2.5 |
+| **NumberOfLinesOfCodeFilter** | Filters based on the number of lines | `min_lines`, `max_lines` | min_lines=10, max_lines=20000 |
+| **AlphaFilter** | Ensures code has sufficient alphabetic content | `min_alpha_ratio` | min_alpha_ratio=0.25 |
+| **TokenizerFertilityFilter** | Measures token efficiency | `path_to_tokenizer` (required), `min_char_to_token_ratio` | min_char_to_token_ratio=2.5 |
 
 Code structure filters help identify problematic patterns:
 
 ```python
 # Filter for reasonable line counts
 line_filter = ScoreFilter(
-    score_fn=NumberOfLinesOfCodeFilter(
+    filter_obj=NumberOfLinesOfCodeFilter(
         min_lines=5,     # Filter out tiny snippets
         max_lines=2000   # Filter out extremely long files
     ),
@@ -135,7 +137,7 @@ line_filter = ScoreFilter(
 
 # Filter for alphabetic content (avoid large data blobs)
 alpha_filter = ScoreFilter(
-    score_fn=AlphaFilter(min_alpha_ratio=0.3),  # At least 30% alphabetic chars
+    filter_obj=AlphaFilter(min_alpha_ratio=0.3),  # At least 30% alphabetic chars
     text_field="content"
 )
 ```
@@ -146,7 +148,7 @@ The `TokenizerFertilityFilter` helps ensure code has efficient token encoding:
 # Filter for token efficiency
 # Note: path_to_tokenizer is required
 tokenization_filter = ScoreFilter(
-    score_fn=TokenizerFertilityFilter(
+    filter_obj=TokenizerFertilityFilter(
         path_to_tokenizer="/path/to/code_tokenizer.model",  # Required parameter
         min_char_to_token_ratio=2.5  # Each token encodes at least 2.5 chars on average
     ),
@@ -171,7 +173,7 @@ Different programming languages have different conventions and characteristics. 
 ```python
 # Apply language-specific filters
 python_specific = ScoreFilter(
-    score_fn=PerExtensionFilter(
+    filter_obj=PerExtensionFilter(
         lang="python",
         extension=".py",
         metadata_file="code_meta.csv"  # Contains language-specific thresholds
@@ -187,49 +189,6 @@ The metadata file can specify different thresholds for metrics like:
 - Empty line ratio
 - Alphabetic content ratio
 
-## Filter Configuration
-
-A typical configuration for code filtering in YAML format:
-
-```yaml
-stages:
-  - name: JsonlReader
-    file_paths: "code_data/*.jsonl"
-    fields: ["content", "id"]
-  
-  - name: ScoreFilter
-    score_fn:
-      name: PythonCommentToCodeFilter
-      min_comment_to_code_ratio: 0.01
-      max_comment_to_code_ratio: 0.85
-    text_field: content
-    score_field: comment_ratio
-  
-  - name: ScoreFilter
-    score_fn:
-      name: NumberOfLinesOfCodeFilter
-      min_lines: 10
-      max_lines: 5000
-    text_field: content
-    score_field: line_count
-  
-  - name: ScoreFilter
-    score_fn:
-      name: AlphaFilter
-      min_alpha_ratio: 0.25
-    text_field: content
-    score_field: alpha_ratio
-  
-  - name: ScoreFilter
-    score_fn:
-      name: XMLHeaderFilter
-    text_field: content
-    score_field: xml_detected
-  
-  - name: JsonlWriter
-    path: "filtered_code/"
-```
-
 ## Best Practices for Code Filtering
 
 When filtering code datasets, consider these best practices:
@@ -237,13 +196,16 @@ When filtering code datasets, consider these best practices:
 1. **Language-specific configurations**: Adjust thresholds based on the programming language
 
    ```python
+   from nemo_curator.stages.text.modules import ScoreFilter
+   from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, GeneralCommentToCodeFilter
+
    # Python tends to have more comments than C
    python_comment_filter = ScoreFilter(
-       score_fn=PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05),
+       filter_obj=PythonCommentToCodeFilter(min_comment_to_code_ratio=0.05),
        text_field="content"
    )
    c_comment_filter = ScoreFilter(
-       score_fn=GeneralCommentToCodeFilter(language="text/x-c", min_comment_to_code_ratio=0.02),
+       filter_obj=GeneralCommentToCodeFilter(language="text/x-c", min_comment_to_code_ratio=0.02),
        text_field="content"
    )
    ```
@@ -251,9 +213,12 @@ When filtering code datasets, consider these best practices:
 2. **Preserve code structure**: Ensure filters don't inadvertently remove valid coding patterns
 
    ```python
+   from nemo_curator.stages.text.modules import ScoreFilter
+   from nemo_curator.stages.text.filters import GeneralCommentToCodeFilter
+
    # Some languages naturally have low comment ratios
    assembly_filter = ScoreFilter(
-       score_fn=GeneralCommentToCodeFilter(
+       filter_obj=GeneralCommentToCodeFilter(
            language="text/x-asm",
            min_comment_to_code_ratio=0.001  # Very low minimum for assembly
        ),
@@ -267,13 +232,14 @@ When filtering code datasets, consider these best practices:
    # First check if the content is actually Python using FastText language ID
    from nemo_curator.stages.text.filters import FastTextLangId
    from nemo_curator.pipeline import Pipeline
+   from nemo_curator.stages.text.modules import ScoreFilter
    
    # Create pipeline for Python code filtering with language detection
    pipeline = Pipeline(name="python_code_filtering")
    
    # Add language detection stage
    pipeline.add_stage(ScoreFilter(
-       score_fn=FastTextLangId(
+       filter_obj=FastTextLangId(
            model_path="/path/to/lid.176.bin",  # Download from fasttext.cc
            min_langid_score=0.8
        ),
@@ -283,7 +249,7 @@ When filtering code datasets, consider these best practices:
    
    # Then apply Python-specific filters
    pipeline.add_stage(ScoreFilter(
-       score_fn=PythonCommentToCodeFilter(),
+       filter_obj=PythonCommentToCodeFilter(),
        text_field="content"
    ))
    ```
@@ -321,25 +287,26 @@ When filtering code datasets, consider these best practices:
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import NumberOfLinesOfCodeFilter, XMLHeaderFilter, GeneralCommentToCodeFilter
 
 # Create pipeline to filter non-functional code snippets
 pipeline = Pipeline(name="code_cleaning")
 
 # Remove extremely short files
 pipeline.add_stage(ScoreFilter(
-    score_fn=NumberOfLinesOfCodeFilter(min_lines=3),
+    filter_obj=NumberOfLinesOfCodeFilter(min_lines=3),
     text_field="content"
 ))
 
 # Remove files with XML preamble (misidentified as code)
 pipeline.add_stage(ScoreFilter(
-    score_fn=XMLHeaderFilter(),
+    filter_obj=XMLHeaderFilter(),
     text_field="content"
 ))
 
 # Ensure reasonable comment-to-code ratio
 pipeline.add_stage(ScoreFilter(
-    score_fn=GeneralCommentToCodeFilter(language="text/x-c++"),
+    filter_obj=GeneralCommentToCodeFilter(language="text/x-c++"),
     text_field="content"
 ))
 ```
@@ -351,25 +318,26 @@ pipeline.add_stage(ScoreFilter(
 ```python
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
+from nemo_curator.stages.text.filters import AlphaFilter, TokenizerFertilityFilter, HTMLBoilerplateFilter
 
 # Create pipeline for training data preparation
 pipeline = Pipeline(name="training_data_prep")
 
 # Ensure enough alphabetic content (not just symbols or data)
 pipeline.add_stage(ScoreFilter(
-    score_fn=AlphaFilter(min_alpha_ratio=0.3),
+    filter_obj=AlphaFilter(min_alpha_ratio=0.3),
     text_field="content"
 ))
 
 # Check token efficiency
 pipeline.add_stage(ScoreFilter(
-    score_fn=TokenizerFertilityFilter(path_to_tokenizer="tokenizer.model"),
+    filter_obj=TokenizerFertilityFilter(path_to_tokenizer="tokenizer.model"),
     text_field="content"
 ))
 
 # Remove HTML with mostly boilerplate
 pipeline.add_stage(ScoreFilter(
-    score_fn=HTMLBoilerplateFilter(min_lang_content_ratio=0.3),
+    filter_obj=HTMLBoilerplateFilter(min_lang_content_ratio=0.3),
     text_field="content"
 ))
 ```

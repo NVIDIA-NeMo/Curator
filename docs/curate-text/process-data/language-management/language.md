@@ -38,12 +38,6 @@ The `FastTextLangId` filter implements this workflow by:
 
 This approach supports **176 languages** with high accuracy, making it suitable for large-scale multilingual dataset curation where language-specific processing and monolingual dataset creation are critical.
 
-## Before You Start
-
-- Language identification requires NeMo Curator with distributed backend support. For installation instructions, see the {ref}`admin-installation` guide.
-
----
-
 ## Usage
 
 The following example demonstrates how to create a language identification pipeline using Curator with distributed processing.
@@ -139,72 +133,4 @@ for batch in results:
 
 :::{tip}
 For quick exploratory inspection, converting a `DocumentBatch` to a Pandas DataFrame is fine. For performance and scalability, write transformations as `ProcessingStage`s (or with the `@processing_stage` decorator) and run them inside a `Pipeline` with an executor. Curator’s parallelism and resource scheduling apply when code runs as pipeline stages; ad‑hoc Pandas code executes on the driver and will not scale.
-:::
-
-### Processing Language Results
-
-::::{tab-set}
-
-:::{tab-item} As Exploration (Pandas)
-
-```python
-import ast
-
-# Example: parse language results on the driver for quick inspection
-for batch in results:
-    df = batch.to_pandas()
-    if "language" in df.columns:
-        parsed = df["language"].apply(lambda v: ast.literal_eval(v) if isinstance(v, str) else v)
-        df["lang_score"] = parsed.apply(lambda p: float(p[0]))
-        df["lang_code"] = parsed.apply(lambda p: str(p[1]))
-        # Optional: apply a higher confidence threshold for ad hoc analysis
-        df = df[df["lang_score"] >= 0.7]
-    print(df[["text", "lang_code", "lang_score"]].head())
-```
-
-:::
-
-:::{tab-item} As Pipeline Stage
-
-```python
-import ast
-from nemo_curator.stages.function_decorators import processing_stage
-from nemo_curator.tasks import DocumentBatch
-
-def create_extract_language_fields_stage(min_confidence: float | None = None):
-    @processing_stage(name="extract_language_fields")
-    def extract_language_fields(batch: DocumentBatch) -> DocumentBatch:
-        df = batch.to_pandas()
-        if "language" in df.columns:
-            parsed = df["language"].apply(lambda v: ast.literal_eval(v) if isinstance(v, str) else v)
-            df["lang_score"] = parsed.apply(lambda p: float(p[0]))
-            df["lang_code"] = parsed.apply(lambda p: str(p[1]))
-            if min_confidence is not None:
-                df = df[df["lang_score"] >= min_confidence]
-
-        return DocumentBatch(
-            task_id=f"{batch.task_id}_extract_language_fields",
-            dataset_name=batch.dataset_name,
-            data=df,
-            _metadata=batch._metadata,
-            _stage_perf=batch._stage_perf,
-        )
-
-    return extract_language_fields
-
-# Add this stage to your pipeline after ScoreFilter
-pipeline.add_stage(create_extract_language_fields_stage(min_confidence=0.7))
-```
-
-:::
-
-::::
-
-A higher confidence score indicates greater certainty in the language identification. The `ScoreFilter` automatically filters documents below your specified `min_langid_score` threshold. The `extract_language_fields` stage shows how to further parse results and apply a higher threshold if needed.
-
-:::{note}
-Pipeline outputs may use the `language` field differently depending on the stage:
-
-- In the FastText classification path (`ScoreFilter(FastTextLangId)`), the selected `score_field` (often `language`) stores a string representation of a list: `[score, code]`.
-- In HTML extraction pipelines (for example, Common Crawl), CLD2 assigns a language name (for example, "ENGLISH") to the `language` column.
 :::
