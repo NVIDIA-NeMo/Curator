@@ -229,36 +229,23 @@ jobs:
         installer: [pip, uv]
     name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
     steps:
-      - name: Install git for checkout
-        run: apt-get update && apt-get install -y --no-install-recommends git
+      - name: Install dependencies for setup-python
+        run: apt-get update && apt-get install -y --no-install-recommends git curl
 
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup Python 3.12
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            software-properties-common
-          add-apt-repository -y ppa:deadsnakes/ppa
-          apt-get update && apt-get install -y --no-install-recommends \
-            python3.12 python3.12-venv python3.12-dev git curl
-          update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
-          update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
-
-      - name: Setup pip
-        if: matrix.installer == 'pip'
-        run: |
-          apt-get install -y --no-install-recommends python3-pip
-          pip install --upgrade pip || true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Setup uv
         if: matrix.installer == 'uv'
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "/root/.local/bin" >> $GITHUB_PATH
-        env:
-          UV_HTTP_TIMEOUT: 300
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: false
 
       - name: Test each GPU extra (${{ matrix.installer }})
         id: test
@@ -367,40 +354,23 @@ jobs:
           - installer: uv
             python-version: "3.12"  # This combo runs on GPU with import checks
     steps:
-      - name: Install git for checkout
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends git
+      - name: Install dependencies for setup-python
+        run: apt-get update && apt-get install -y --no-install-recommends git curl
 
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup Python ${{ matrix.python-version }}
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            software-properties-common
-          add-apt-repository -y ppa:deadsnakes/ppa
-          apt-get update && apt-get install -y --no-install-recommends \
-            python${{ matrix.python-version }} \
-            python${{ matrix.python-version }}-venv \
-            python${{ matrix.python-version }}-dev \
-            git curl
-          update-alternatives --install /usr/bin/python3 python3 /usr/bin/python${{ matrix.python-version }} 1
-          update-alternatives --install /usr/bin/python python /usr/bin/python${{ matrix.python-version }} 1
-
-      - name: Setup pip
-        if: matrix.installer == 'pip'
-        run: |
-          apt-get install -y --no-install-recommends python3-pip
-          pip install --upgrade pip || true  # Best-effort upgrade, continue if fails
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python-version }}"
 
       - name: Setup uv
         if: matrix.installer == 'uv'
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "/root/.local/bin" >> $GITHUB_PATH
-        env:
-          UV_HTTP_TIMEOUT: 300
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "${{ matrix.python-version }}"
+          enable-cache: false
 
       - name: Install ALL extras (${{ matrix.installer }})
         id: install
@@ -462,29 +432,21 @@ jobs:
       options: --gpus all
     name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
-      - name: Install git for checkout
-        run: apt-get update && apt-get install -y --no-install-recommends git
+      - name: Install dependencies for setup-python
+        run: apt-get update && apt-get install -y --no-install-recommends git curl
 
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Setup Python 3.12
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            software-properties-common
-          add-apt-repository -y ppa:deadsnakes/ppa
-          apt-get update && apt-get install -y --no-install-recommends \
-            python3.12 python3.12-venv python3.12-dev git curl
-          update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1
-          update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Setup uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "/root/.local/bin" >> $GITHUB_PATH
-        env:
-          UV_HTTP_TIMEOUT: 300
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: false
 
       - name: Install ALL extras (uv)
         id: install
