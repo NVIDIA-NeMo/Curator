@@ -168,10 +168,10 @@ jobs:
               echo "========================="
             fi
             
-            if $INSTALL_OK && $IMPORT_OK; then
+            if [ "$INSTALL_OK" = "true" ] && [ "$IMPORT_OK" = "true" ]; then
               RESULTS="$RESULTS\n| $extra | ✅ | ✅ |"
             else
-              RESULTS="$RESULTS\n| $extra | $($INSTALL_OK && echo '✅' || echo '❌') | $($IMPORT_OK && echo '✅' || echo '❌') |"
+              RESULTS="$RESULTS\n| $extra | $( [ "$INSTALL_OK" = "true" ] && echo '✅' || echo '❌') | $( [ "$IMPORT_OK" = "true" ] && echo '✅' || echo '❌') |"
               FAILED=$((FAILED + 1))
             fi
             
@@ -560,7 +560,7 @@ jobs:
             echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
             echo "Build log errors:"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log | head -20 || true
+            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" build.log 2>/dev/null | head -20 || echo "Build log not available"
           fi
 
       - name: Cleanup
