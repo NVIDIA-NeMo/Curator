@@ -330,11 +330,11 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             logger.info(f"LSH pipeline completed in {lsh_time:.2f} seconds")
 
             valid_lsh_tasks = [task for task in lsh_tasks or [] if task._metadata.get("num_docs", 0) > 0]
-            connected_components_pipeline = self._create_connected_components_pipeline()
-
             if len(valid_lsh_tasks) == 0:
                 logger.info("No potential duplicates found in the dataset. Skipping connected components pipeline.")
+                workflow_result.add_metadata("num_duplicates", 0)
             else:
+                connected_components_pipeline = self._create_connected_components_pipeline()
                 connected_components_start_time = time.time()
                 connected_components_tasks = connected_components_pipeline.run(
                     executor=executor, initial_tasks=valid_lsh_tasks
@@ -345,7 +345,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 workflow_result.add_metadata("connected_components_time", connected_components_time)
                 logger.info(f"Connected components pipeline completed in {connected_components_time:.2f} seconds")
                 num_removed_documents = sum(
-                    task._metadata.get("num_removal_ids", 0) for task in connected_components_tasks or []
+                    task._metadata.get("num_removal_ids", 0) for task in (connected_components_tasks or [])
                 )
                 workflow_result.add_metadata("num_duplicates", num_removed_documents)
                 logger.info(f"Number of documents removed: {num_removed_documents}")

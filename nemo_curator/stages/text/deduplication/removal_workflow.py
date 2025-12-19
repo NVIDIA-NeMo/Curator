@@ -165,7 +165,11 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
             stages=self._generate_stages(initial_tasks),
         )
         workflow_result = WorkflowRunResult(workflow_name="text_duplicates_removal")
-        if self.input_task_limit is not None and len(initial_tasks) > self.input_task_limit:
+        if (
+            self.input_task_limit is not None
+            and initial_tasks is not None
+            and len(initial_tasks) > self.input_task_limit
+        ):
             logger.warning(
                 f"Initial tasks provided ({len(initial_tasks)}) is greater than input_task_limit ({self.input_task_limit}), truncating to {self.input_task_limit}"
             )

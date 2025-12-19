@@ -10,7 +10,7 @@ class WorkflowRunResult:
     """Container returned by high-level workflows to expose pipeline outputs.
 
     Attributes:
-        workflow_name: Human readable workflow identifier (e.g., ``fuzzy_dedup``).
+        workflow_name: Human readable workflow identifier (e.g., "fuzzy_dedup").
         pipeline_tasks: Mapping of pipeline names to the ``Task`` objects they produced.
         metadata: Free-form dictionary for workflow specific timing or counters.
     """

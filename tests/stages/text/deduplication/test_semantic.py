@@ -144,8 +144,6 @@ class TestTextSemanticDeduplicationWorkflow:
         """Test that semantic deduplication produces the correct number of records from each group."""
         # Verify the workflow completed successfully
         assert self.results is not None, "Workflow results should be available"
-        assert self.results.get_metadata("total_execution_time") is not None
-        assert self.results.get_metadata("total_execution_time") > 0
 
         # Check that final output directory exists
         final_output_path = self.results.get_metadata("final_output_path")
@@ -263,3 +261,18 @@ class TestTextSemanticDeduplicationWorkflow:
             f"Deduplicated missing columns: {expected_dedup_cols - set(deduplicated_df.columns)}"
         )
         assert len(deduplicated_df) == 5, f"Expected 5 deduplicated records, got {len(deduplicated_df)}"
+
+    def test_metadata_counts_and_timings(self) -> None:
+        """Ensure workflow metadata exposes identification vs removal counts distinctly."""
+        assert self.results is not None, "Workflow results should be available"
+
+        metadata = self.results.metadata
+        # Identified duplicates (semantic stage)
+        assert metadata.get("num_duplicates") == 2
+        # Removed duplicates (removal stage)
+        assert metadata.get("num_duplicates_removed") == 2
+
+        # Timings should be present and positive
+        for key in ["total_time", "embedding_time", "identification_time", "removal_time"]:
+            assert metadata.get(key) is not None, f"{key} missing from metadata"
+            assert metadata[key] > 0, f"{key} should be > 0"
