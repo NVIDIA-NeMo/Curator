@@ -294,9 +294,10 @@ jobs:
   all-install-only-test:
     needs: [pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: linux-amd64-cpu16
+    runs-on: self-hosted-nemo
     container:
       image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+      options: --gpus all
     name: "ALL Extras - Install Only (uv) - Py3.10"
     steps:
       - name: Install dependencies for setup-python
