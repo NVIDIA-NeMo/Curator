@@ -151,7 +151,7 @@ jobs:
             echo "⚠️ KNOWN ISSUE: flash-attn build requires torch pre-installed"
             echo "pip cannot handle build-time dependencies. Use uv instead."
           fi
-          # Job completes successfully - issues are documented above
+          # Job completes successfully but did not succeed (has known issues) - issues are documented above, please check
         env:
           PIP_BREAK_SYSTEM_PACKAGES: 1
 
