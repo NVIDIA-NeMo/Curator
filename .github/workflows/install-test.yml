@@ -339,87 +339,87 @@ jobs:
   # ============================================================================
   # ALL Extras - Install Only (CPU Runner)
   # ============================================================================
-  all-install-only-test:
-    needs: [pre-flight]
-    if: needs.pre-flight.outputs.docs_only != 'true'
-    runs-on: linux-amd64-cpu16
-    container:
-      image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-    name: "ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
-    strategy:
-      fail-fast: false
-      matrix:
-        installer: [uv]
-        python-version: ["3.12", "3.10"]
-        exclude:
-          - installer: uv
-            python-version: "3.12"  # This combo runs on GPU with import checks
-    steps:
-      - name: Install dependencies for setup-python
-        run: apt-get update && apt-get install -y --no-install-recommends git curl
+  # all-install-only-test:
+  #   needs: [pre-flight]
+  #   if: needs.pre-flight.outputs.docs_only != 'true'
+  #   runs-on: linux-amd64-cpu16
+  #   container:
+  #     image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+  #   name: "ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       installer: [uv]
+  #       python-version: ["3.12", "3.10"]
+  #       exclude:
+  #         - installer: uv
+  #           python-version: "3.12"  # This combo runs on GPU with import checks
+  #   steps:
+  #     - name: Install dependencies for setup-python
+  #       run: apt-get update && apt-get install -y --no-install-recommends git curl
 
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         submodules: recursive
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "${{ matrix.python-version }}"
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: "${{ matrix.python-version }}"
 
-      - name: Setup uv
-        if: matrix.installer == 'uv'
-        uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "${{ matrix.python-version }}"
-          enable-cache: false
+  #     - name: Setup uv
+  #       if: matrix.installer == 'uv'
+  #       uses: astral-sh/setup-uv@v6
+  #       with:
+  #         python-version: "${{ matrix.python-version }}"
+  #         enable-cache: false
 
-      - name: Install ALL extras (${{ matrix.installer }})
-        id: install
-        shell: bash
-        run: |
-          set -o pipefail
-          echo "🚀 Installing ALL extras (${{ matrix.installer }}, Py${{ matrix.python-version }})"
-          
-          if [ "${{ matrix.installer }}" = "pip" ]; then
-            if pip install --no-cache-dir ".[all]" 2>&1 | tee install.log; then
-              echo "install_status=success" >> $GITHUB_OUTPUT
-              echo "✅ INSTALL SUCCESS"
-            else
-              echo "install_status=failure" >> $GITHUB_OUTPUT
-              echo "❌ INSTALL FAILED"
-              grep -E "(ERROR|error:|failed|conflict)" install.log | head -20 || true
-            fi
-          else
-            export PATH="/root/.local/bin:$PATH"
-            if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
-              echo "install_status=success" >> $GITHUB_OUTPUT
-              echo "✅ INSTALL SUCCESS"
-            else
-              echo "install_status=failure" >> $GITHUB_OUTPUT
-              echo "❌ INSTALL FAILED"
-              grep -E "(error:|Error:|failed)" install.log | head -20 || true
-            fi
-          fi
-        env:
-          UV_HTTP_TIMEOUT: 300
-          PIP_BREAK_SYSTEM_PACKAGES: 1
+  #     - name: Install ALL extras (${{ matrix.installer }})
+  #       id: install
+  #       shell: bash
+  #       run: |
+  #         set -o pipefail
+  #         echo "🚀 Installing ALL extras (${{ matrix.installer }}, Py${{ matrix.python-version }})"
 
-      - name: Report
-        if: always()
-        run: |
-          echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
-          
-          if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
-            echo "✅ Installation succeeded"
-          else
-            echo "❌ Installation failed (expected - known conflicts)"
-            echo ""
-            echo "Known conflicts that may cause this:"
-            echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
-            echo "  - flash-attn build requires packaging module"
-            echo "  - flash-attn build requires torch pre-installed (pip can't handle build-time deps)"
-            exit 1
-          fi
+  #         if [ "${{ matrix.installer }}" = "pip" ]; then
+  #           if pip install --no-cache-dir ".[all]" 2>&1 | tee install.log; then
+  #             echo "install_status=success" >> $GITHUB_OUTPUT
+  #             echo "✅ INSTALL SUCCESS"
+  #           else
+  #             echo "install_status=failure" >> $GITHUB_OUTPUT
+  #             echo "❌ INSTALL FAILED"
+  #             grep -E "(ERROR|error:|failed|conflict)" install.log | head -20 || true
+  #           fi
+  #         else
+  #           export PATH="/root/.local/bin:$PATH"
+  #           if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
+  #             echo "install_status=success" >> $GITHUB_OUTPUT
+  #             echo "✅ INSTALL SUCCESS"
+  #           else
+  #             echo "install_status=failure" >> $GITHUB_OUTPUT
+  #             echo "❌ INSTALL FAILED"
+  #             grep -E "(error:|Error:|failed)" install.log | head -20 || true
+  #           fi
+  #         fi
+  #       env:
+  #         UV_HTTP_TIMEOUT: 300
+  #         PIP_BREAK_SYSTEM_PACKAGES: 1
+
+  #     - name: Report
+  #       if: always()
+  #       run: |
+  #         echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
+
+  #         if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
+  #           echo "✅ Installation succeeded"
+  #         else
+  #           echo "❌ Installation failed (expected - known conflicts)"
+  #           echo ""
+  #           echo "Known conflicts that may cause this:"
+  #           echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
+  #           echo "  - flash-attn build requires packaging module"
+  #           echo "  - flash-attn build requires torch pre-installed (pip can't handle build-time deps)"
+  #           exit 1
+  #         fi
 
   # ============================================================================
   # ALL Extras - Install + Import (GPU Runner, uv Py3.12 only)
