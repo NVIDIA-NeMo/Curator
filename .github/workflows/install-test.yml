@@ -13,9 +13,9 @@
 # limitations under the License.
 
 # This workflow validates NeMo Curator installation for each optional dependency.
-# Tests both pip and uv (lockfile) installations.
-# - Most jobs: CPU runner, install-only validation
-# - UV Py3.12 jobs: GPU runner, install + import validation
+# - CPU extras: Tests both pip and uv with install + import verification
+# - GPU extras: Tests uv only with install-only validation
+# - ALL extras: Tests uv on GPU runner with install + import verification
 
 name: Installation Test
 
@@ -215,7 +215,7 @@ jobs:
           retention-days: 1
 
   # ============================================================================
-  # GPU Extras - Install Only (pip=OPTIONAL, uv=Required)
+  # GPU Extras - Install Only (uv)
   # ============================================================================
   gpu-install-test:
     needs: [pre-flight]
@@ -223,11 +223,7 @@ jobs:
     runs-on: linux-amd64-cpu16
     container:
       image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-    strategy:
-      fail-fast: false
-      matrix:
-        installer: [pip, uv]
-    name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}GPU Extras Individual - Install Only (${{ matrix.installer }}) - Py3.12"
+    name: "GPU Extras Individual - Install Only (uv) - Py3.12"
     steps:
       - name: Install dependencies for setup-python
         run: apt-get update && apt-get install -y --no-install-recommends git curl
@@ -241,103 +237,59 @@ jobs:
           python-version: "3.12"
 
       - name: Setup uv
-        if: matrix.installer == 'uv'
         uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
           enable-cache: false
 
-      - name: Test each GPU extra (${{ matrix.installer }})
+      - name: Test each GPU extra (uv)
         id: test
         shell: bash
         run: |
           set -o pipefail
-          INSTALLER="${{ matrix.installer }}"
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
           RESULTS=""
           FAILED=0
           
           for extra in "${GPU_EXTRAS[@]}"; do
-            echo "::group::🎮 Testing: $extra ($INSTALLER) - Install Only"
+            echo "::group::🎮 Testing: $extra (uv) - Install Only"
             
-            # Setup isolated environment
-            if [ "$INSTALLER" = "pip" ]; then
-              python -m venv "venv_$extra"
-              source "venv_$extra/bin/activate"
-              pip install --upgrade pip || true
-            else
-              rm -rf .venv
-              uv cache clean
-            fi
+            rm -rf .venv
+            uv cache clean
             
-            # Install
-            if [ "$INSTALLER" = "pip" ]; then
-              INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
-            else
-              INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
-            fi
-            
-            if eval "$INSTALL_CMD" 2>&1 | tee "install-$extra.log"; then
+            if uv sync --locked --link-mode copy --extra $extra 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               RESULTS="$RESULTS\n| $extra | ✅ |"
             else
               echo "❌ $extra: INSTALL FAILED"
               echo ""
               echo "=== ERROR for $extra ==="
-              if [ "$INSTALLER" = "pip" ]; then
-                grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|versions have conflicting)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
-              else
-                grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
-              fi
+              grep -E "(error:|Error:|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
               echo "========================="
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
             
-            # Cleanup
             rm -f "install-$extra.log"
-            if [ "$INSTALLER" = "pip" ]; then
-              deactivate || true
-              rm -rf "venv_$extra"
-            else
-              rm -rf .venv
-              uv cache clean
-            fi
+            rm -rf .venv
+            uv cache clean
             echo "::endgroup::"
           done
           
           echo ""
-          echo "## GPU Installation Results ($INSTALLER)"
+          echo "## GPU Installation Results (uv)"
           echo "| Extra | Status |"
           echo "|-------|--------|"
           echo -e "$RESULTS"
           
           if [ $FAILED -gt 0 ]; then
-            echo "test_status=failure" >> $GITHUB_OUTPUT
             exit 1
-          else
-            echo "test_status=success" >> $GITHUB_OUTPUT
           fi
         env:
           UV_HTTP_TIMEOUT: 300
-          PIP_BREAK_SYSTEM_PACKAGES: 1
-
-      - name: Save status for summary
-        if: always()
-        run: |
-          mkdir -p gpu-status
-          echo "${{ steps.test.outputs.test_status || 'failure' }}" > gpu-status/${{ matrix.installer }}_status.txt
-
-      - name: Upload status artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gpu-status-${{ matrix.installer }}
-          path: gpu-status/
-          retention-days: 1
 
   # ============================================================================
-  # ALL Extras - Install Only (CPU Runner)
+  # ALL Extras - Install Only (uv, Py3.10)
   # ============================================================================
   all-install-only-test:
     needs: [pre-flight]
@@ -345,15 +297,7 @@ jobs:
     runs-on: linux-amd64-cpu16
     container:
       image: ${{ needs.pre-flight.outputs.cuda_base_image }}
-    name: "${{ matrix.installer == 'pip' && 'OPTIONAL: ' || '' }}ALL Extras - Install Only (${{ matrix.installer }}) - Py${{ matrix.python-version }}"
-    strategy:
-      fail-fast: false
-      matrix:
-        installer: [pip, uv]
-        python-version: ["3.12", "3.10"]
-        exclude:
-          - installer: uv
-            python-version: "3.12"  # This combo runs on GPU with import checks
+    name: "ALL Extras - Install Only (uv) - Py3.10"
     steps:
       - name: Install dependencies for setup-python
         run: apt-get update && apt-get install -y --no-install-recommends git curl
@@ -364,61 +308,43 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "${{ matrix.python-version }}"
+          python-version: "3.10"
 
       - name: Setup uv
-        if: matrix.installer == 'uv'
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "${{ matrix.python-version }}"
+          python-version: "3.10"
           enable-cache: false
 
-      - name: Install ALL extras (${{ matrix.installer }})
+      - name: Install ALL extras (uv)
         id: install
         shell: bash
         run: |
           set -o pipefail
-          echo "🚀 Installing ALL extras (${{ matrix.installer }}, Py${{ matrix.python-version }})"
+          echo "🚀 Installing ALL extras (uv, Py3.10)"
           
-          if [ "${{ matrix.installer }}" = "pip" ]; then
-            if pip install --no-cache-dir ".[all]" 2>&1 | tee install.log; then
-              echo "install_status=success" >> $GITHUB_OUTPUT
-              echo "✅ INSTALL SUCCESS"
-            else
-              echo "install_status=failure" >> $GITHUB_OUTPUT
-              echo "❌ INSTALL FAILED"
-              grep -E "(ERROR|error:|failed|conflict)" install.log | head -20 || true
-            fi
+          export PATH="/root/.local/bin:$PATH"
+          if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
+            echo "install_status=success" >> $GITHUB_OUTPUT
+            echo "✅ INSTALL SUCCESS"
           else
-            export PATH="/root/.local/bin:$PATH"
-            if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
-              echo "install_status=success" >> $GITHUB_OUTPUT
-              echo "✅ INSTALL SUCCESS"
-            else
-              echo "install_status=failure" >> $GITHUB_OUTPUT
-              echo "❌ INSTALL FAILED"
-              grep -E "(error:|Error:|failed)" install.log | head -20 || true
-            fi
+            echo "install_status=failure" >> $GITHUB_OUTPUT
+            echo "❌ INSTALL FAILED"
+            grep -E "(error:|Error:|failed)" install.log | head -20 || true
+            exit 1
           fi
         env:
           UV_HTTP_TIMEOUT: 300
-          PIP_BREAK_SYSTEM_PACKAGES: 1
 
       - name: Report
         if: always()
         run: |
-          echo "📊 ALL Extras (${{ matrix.installer }}, Py${{ matrix.python-version }}) - Install Only"
+          echo "📊 ALL Extras (uv, Py3.10) - Install Only"
           
           if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
             echo "✅ Installation succeeded"
           else
-            echo "❌ Installation failed (expected - known conflicts)"
-            echo ""
-            echo "Known conflicts that may cause this:"
-            echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
-            echo "  - flash-attn build requires packaging module"
-            echo "  - flash-attn build requires torch pre-installed (pip can't handle build-time deps)"
-            exit 1
+            echo "❌ Installation failed"
           fi
 
   # ============================================================================
@@ -521,57 +447,51 @@ jobs:
   # Summary
   # ============================================================================
   install-test-summary:
-    # Note: all jobs listed to access their .result status
     needs: [pre-flight, cpu-install-test, gpu-install-test, all-install-only-test, all-install-import-test]
     runs-on: ubuntu-latest
     if: ${{ always() && needs.pre-flight.outputs.docs_only != 'true' }}
     steps:
       - name: Download CPU status artifacts
-        continue-on-error: true  # May not exist if job was skipped
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: cpu-status-*
           merge-multiple: true
           path: cpu-status/
 
-      - name: Download GPU status artifacts
-        continue-on-error: true  # May not exist if job was skipped
-        uses: actions/download-artifact@v4
-        with:
-          pattern: gpu-status-*
-          merge-multiple: true
-          path: gpu-status/
-
       - name: Summary
         run: |
           # Read status from artifacts (matrix jobs may have mixed results)
           CPU_PIP=$(cat cpu-status/pip_status.txt 2>/dev/null || echo "failure")
           CPU_UV=$(cat cpu-status/uv_status.txt 2>/dev/null || echo "failure")
-          GPU_PIP=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
-          GPU_UV=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
           
           echo "# 📊 Installation Test Summary"
           echo ""
-          echo "## Individual Extras"
-          echo "| Job | Runner | Installer | Validation | Status |"
-          echo "|-----|--------|-----------|------------|--------|"
-          echo "| CPU Extras | CPU | pip | Install+Import | $([[ $CPU_PIP == 'success' ]] && echo '✅' || echo '❌') |"
-          echo "| CPU Extras | CPU | uv | Install+Import | $([[ $CPU_UV == 'success' ]] && echo '✅' || echo '❌') |"
-          echo "| GPU Extras | CPU | pip | Install Only | $([[ $GPU_PIP == 'success' ]] && echo '✅' || echo '❌ (expected)') |"
-          echo "| GPU Extras | CPU | uv | Install Only | $([[ $GPU_UV == 'success' ]] && echo '✅' || echo '❌') |"
+          echo "## CPU Extras (pip + uv)"
+          echo "| Installer | Validation | Status |"
+          echo "|-----------|------------|--------|"
+          echo "| pip | Install+Import | $([[ $CPU_PIP == 'success' ]] && echo '✅' || echo '❌') |"
+          echo "| uv | Install+Import | $([[ $CPU_UV == 'success' ]] && echo '✅' || echo '❌') |"
           echo ""
-          echo "## ALL Extras (Combined)"
+          echo "## GPU Extras (uv only)"
+          echo "| Job | Validation | Status |"
+          echo "|-----|------------|--------|"
+          echo "| GPU Extras (uv) | Install Only | ${{ needs.gpu-install-test.result == 'success' && '✅' || '❌' }} |"
+          echo ""
+          echo "## ALL Extras (uv only)"
           echo "| Job | Runner | Validation | Status |"
           echo "|-----|--------|------------|--------|"
-          echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
+          echo "| ALL (uv, Py3.10) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '❌' }} |"
           echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
           echo ""
           
-          # Core tests: CPU extras (both), GPU extras (uv), and ALL extras (uv) must pass
+          # All tests must pass
           if [ "$CPU_PIP" = "success" ] && [ "$CPU_UV" = "success" ] && \
-             [ "$GPU_UV" = "success" ] && [ "${{ needs.all-install-import-test.result }}" = "success" ]; then
-            echo "✅ All required tests passed"
+             [ "${{ needs.gpu-install-test.result }}" = "success" ] && \
+             [ "${{ needs.all-install-only-test.result }}" = "success" ] && \
+             [ "${{ needs.all-install-import-test.result }}" = "success" ]; then
+            echo "✅ All installation tests passed"
           else
-            echo "❌ Core installation tests failed"; exit 1
+            echo "❌ Installation tests failed"; exit 1
           fi
 

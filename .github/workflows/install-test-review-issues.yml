@@ -1,0 +1,258 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# ============================================================================
+# PIP INSTALLATION REVIEW - Known Issues
+# ============================================================================
+# This workflow tests pip installations that have KNOWN FAILURES due to:
+#   1. flash-attn requires torch at build time (pip can't handle build-time deps)
+#   2. nemo_toolkit[asr] requires transformers<4.55 but vllm requires >=4.55
+#
+# These tests use continue-on-error: true so they don't block PRs.
+# Review the logs to track progress on fixing these issues.
+# ============================================================================
+
+name: "Installation Test - pip Review Issues"
+
+on:
+  push:
+    branches:
+      - main
+      - "pull-request/[0-9]+"
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-flight:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.docs_only.outputs.result }}
+      cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR info
+        id: get-pr-info
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pull-request/')
+        uses: nv-gha-runners/get-pr-info@main
+
+      - name: Determine base reference
+        id: base-ref
+        run: |
+          echo "base=${{ (startsWith(github.ref, 'refs/heads/pull-request/') && fromJSON(steps.get-pr-info.outputs.pr-info).base.ref) || 'HEAD~1' }}" >> $GITHUB_OUTPUT
+
+      - name: Get changed files
+        id: changed-files
+        uses: step-security/changed-files@v45.0.1
+        with:
+          files: |
+            nemo_curator/**
+            .github/**
+            pyproject.toml
+            uv.lock
+            docker/**
+          base_sha: ${{ steps.base-ref.outputs.base }}
+
+      - name: Check if docs only
+        id: docs_only
+        run: echo "result=${{ steps.changed-files.outputs.any_changed == 'false' }}" >> $GITHUB_OUTPUT
+
+      - name: Extract CUDA config
+        id: cuda_config
+        run: |
+          CUDA_VER=$(grep -E "^ARG CUDA_VER=" docker/Dockerfile | cut -d'=' -f2)
+          LINUX_VER=$(grep -E "^ARG LINUX_VER=" docker/Dockerfile | cut -d'=' -f2)
+          echo "base_image=nvidia/cuda:${CUDA_VER}-cudnn-devel-${LINUX_VER}" >> $GITHUB_OUTPUT
+
+  # ============================================================================
+  # GPU Extras - pip (KNOWN ISSUE: flash-attn build requires torch)
+  # ============================================================================
+  gpu-extras-pip:
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only != 'true'
+    runs-on: linux-amd64-cpu16
+    continue-on-error: true
+    container:
+      image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+    name: "REVIEW OPTIONAL: GPU Extras (pip) - Py3.12"
+    steps:
+      - name: Install dependencies for setup-python
+        run: apt-get update && apt-get install -y --no-install-recommends git curl
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test each GPU extra (pip)
+        id: test
+        shell: bash
+        run: |
+          set -o pipefail
+          GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12" "video_cuda12")
+          RESULTS=""
+          FAILED=0
+          
+          for extra in "${GPU_EXTRAS[@]}"; do
+            echo "::group::🎮 Testing: $extra (pip) - Install Only"
+            
+            python -m venv "venv_$extra"
+            source "venv_$extra/bin/activate"
+            pip install --upgrade pip || true
+            
+            if pip install --no-cache-dir ".[$extra]" 2>&1 | tee "install-$extra.log"; then
+              echo "✅ $extra: INSTALL SUCCESS"
+              RESULTS="$RESULTS\n| $extra | ✅ |"
+            else
+              echo "❌ $extra: INSTALL FAILED"
+              echo ""
+              echo "=== ERROR for $extra ==="
+              grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|versions have conflicting|ModuleNotFoundError)" "install-$extra.log" | tail -20 || tail -30 "install-$extra.log"
+              echo "========================="
+              RESULTS="$RESULTS\n| $extra | ❌ |"
+              FAILED=$((FAILED + 1))
+            fi
+            
+            deactivate || true
+            rm -rf "venv_$extra"
+            rm -f "install-$extra.log"
+            echo "::endgroup::"
+          done
+          
+          echo ""
+          echo "## GPU Installation Results (pip)"
+          echo "| Extra | Status |"
+          echo "|-------|--------|"
+          echo -e "$RESULTS"
+          
+          if [ $FAILED -gt 0 ]; then
+            echo ""
+            echo "⚠️ KNOWN ISSUE: flash-attn build requires torch pre-installed"
+            echo "pip cannot handle build-time dependencies. Use uv instead."
+            exit 1
+          fi
+        env:
+          PIP_BREAK_SYSTEM_PACKAGES: 1
+
+  # ============================================================================
+  # ALL Extras - pip (KNOWN ISSUES: transformers conflict + flash-attn)
+  # ============================================================================
+  all-extras-pip:
+    needs: [pre-flight]
+    if: needs.pre-flight.outputs.docs_only != 'true'
+    runs-on: linux-amd64-cpu16
+    continue-on-error: true
+    container:
+      image: ${{ needs.pre-flight.outputs.cuda_base_image }}
+    name: "REVIEW OPTIONAL: ALL Extras (pip) - Py${{ matrix.python-version }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.10"]
+    steps:
+      - name: Install dependencies for setup-python
+        run: apt-get update && apt-get install -y --no-install-recommends git curl
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python-version }}"
+
+      - name: Install ALL extras (pip)
+        id: install
+        shell: bash
+        run: |
+          set -o pipefail
+          echo "🚀 Installing ALL extras (pip, Py${{ matrix.python-version }})"
+          
+          if pip install --no-cache-dir ".[all]" 2>&1 | tee install.log; then
+            echo "install_status=success" >> $GITHUB_OUTPUT
+            echo "✅ INSTALL SUCCESS"
+          else
+            echo "install_status=failure" >> $GITHUB_OUTPUT
+            echo "❌ INSTALL FAILED"
+            echo ""
+            echo "=== ERRORS ==="
+            grep -E "(ERROR|error:|failed|conflict|ModuleNotFoundError|ResolutionImpossible)" install.log | head -30 || true
+            echo "=============="
+          fi
+        env:
+          PIP_BREAK_SYSTEM_PACKAGES: 1
+
+      - name: Report Known Issues
+        if: always()
+        run: |
+          echo "📊 ALL Extras (pip, Py${{ matrix.python-version }}) - Install Only"
+          echo ""
+          
+          if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
+            echo "✅ Installation succeeded - pip issues may be resolved!"
+          else
+            echo "❌ Installation failed (expected - known conflicts)"
+            echo ""
+            echo "Known issues causing this failure:"
+            echo "  1. nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
+            echo "  2. flash-attn build requires torch pre-installed (pip can't handle build-time deps)"
+            echo ""
+            echo "Workaround: Use 'uv' instead of pip for installation"
+            exit 1
+          fi
+
+  # ============================================================================
+  # Summary
+  # ============================================================================
+  pip-review-summary:
+    needs: [pre-flight, gpu-extras-pip, all-extras-pip]
+    runs-on: ubuntu-latest
+    if: ${{ always() && needs.pre-flight.outputs.docs_only != 'true' }}
+    steps:
+      - name: Summary
+        run: |
+          echo "# 🔍 pip Installation Review - Known Issues"
+          echo ""
+          echo "These tests document known pip installation failures."
+          echo "Use **uv** for reliable installation until these are resolved."
+          echo ""
+          echo "## Test Results"
+          echo "| Job | Status | Known Issue |"
+          echo "|-----|--------|-------------|"
+          echo "| GPU Extras (pip) | ${{ needs.gpu-extras-pip.result == 'success' && '✅ Fixed!' || '❌ Expected' }} | flash-attn requires torch at build time |"
+          echo "| ALL Extras (pip) Py3.12 | ${{ needs.all-extras-pip.result == 'success' && '✅ Fixed!' || '❌ Expected' }} | transformers version conflict + flash-attn |"
+          echo "| ALL Extras (pip) Py3.10 | ${{ needs.all-extras-pip.result == 'success' && '✅ Fixed!' || '❌ Expected' }} | transformers version conflict + flash-attn |"
+          echo ""
+          echo "## Root Causes"
+          echo ""
+          echo "### 1. flash-attn build-time dependency"
+          echo "\`flash-attn\` requires \`torch\` to be installed BEFORE building."
+          echo "pip's build isolation prevents this. uv handles it with \`no-build-isolation-package\`."
+          echo ""
+          echo "### 2. transformers version conflict"
+          echo "- \`nemo_toolkit[asr]\` requires \`transformers<4.55\`"
+          echo "- \`vllm\` requires \`transformers>=4.55\`"
+          echo ""
+          echo "uv resolves this with dependency overrides in pyproject.toml."
+
