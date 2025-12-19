@@ -285,7 +285,6 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         minhash_time = 0.0
         lsh_time = 0.0
         connected_components_time = 0.0
-        num_removed_documents = 0
 
         if executor is None:
             executor = RayActorPoolExecutor(config=self.executor_config)
@@ -344,11 +343,11 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 workflow_result.add_pipeline_tasks("connected_components", connected_components_tasks)
                 workflow_result.add_metadata("connected_components_time", connected_components_time)
                 logger.info(f"Connected components pipeline completed in {connected_components_time:.2f} seconds")
-                num_removed_documents = sum(
+                num_duplicates_identified = sum(
                     task._metadata.get("num_removal_ids", 0) for task in (connected_components_tasks or [])
                 )
-                workflow_result.add_metadata("num_duplicates", num_removed_documents)
-                logger.info(f"Number of documents removed: {num_removed_documents}")
+                workflow_result.add_metadata("num_duplicates", num_duplicates_identified)
+                logger.info(f"Number of documents removed: {num_duplicates_identified}")
                 output_fs = get_fs(
                     self.output_path,
                     self.write_kwargs.get("storage_options") if self.write_kwargs is not None else None,
@@ -367,5 +366,12 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
         total_end_time = time.time()
         total_time = total_end_time - total_start_time
         workflow_result.add_metadata("total_time", total_time)
+        workflow_result.extend_metadata(
+            {
+                "total_time": total_time,
+                # paths
+                "id_generator_path": id_generator_path,
+            }
+        )
         logger.info(f"Fuzzy deduplication pipeline completed in {total_time:.2f} seconds")
         return workflow_result

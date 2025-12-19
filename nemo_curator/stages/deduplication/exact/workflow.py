@@ -186,7 +186,6 @@ class ExactDeduplicationWorkflow(WorkflowBase):
         workflow_result = WorkflowRunResult(workflow_name="exact_deduplication")
         input_filegroups_time = 0.0
         identification_time = 0.0
-        num_duplicates = 0
 
         if executor is None:
             executor = RayActorPoolExecutor(config=self.executor_config)
@@ -230,8 +229,10 @@ class ExactDeduplicationWorkflow(WorkflowBase):
             workflow_result.add_pipeline_tasks("identification", removal_id_tasks)
             logger.info(f"Exact duplicate identification pipeline completed in {identification_time:.2f} seconds")
 
-            num_duplicates = sum(task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks or [])
-            if num_duplicates == 0:
+            num_duplicates_identified = sum(
+                task._metadata.get("num_removal_ids", 0) for task in removal_id_tasks or []
+            )
+            if num_duplicates_identified == 0:
                 logger.info("No exact duplicates found in the dataset.")
 
             if self.assign_id:
@@ -249,7 +250,12 @@ class ExactDeduplicationWorkflow(WorkflowBase):
 
         total_end_time = time.time()
         total_time = total_end_time - total_start_time
-        workflow_summary = {"total_time": total_time, "num_duplicates": num_duplicates}
+        workflow_summary = {
+            "total_time": total_time,
+            "num_duplicates": num_duplicates_identified,
+            # paths
+            "id_generator_path": id_generator_path,
+        }
         workflow_result.extend_metadata(workflow_summary)
         logger.info(f"Exact deduplication pipeline completed in {total_time:.2f} seconds")
         return workflow_result

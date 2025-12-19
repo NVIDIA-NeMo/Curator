@@ -378,13 +378,13 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             total_time = total_end_time - total_start_time
 
             # Count duplicates if identified
-            total_duplicates = 0
+            num_duplicates_identified = 0
             if self.eps is not None and pairwise_results:
                 for task in pairwise_results:
                     if hasattr(task, "_metadata") and "num_removed" in task._metadata:
-                        total_duplicates += task._metadata["num_removed"]
+                        num_duplicates_identified += task._metadata["num_removed"]
 
-            workflow_result.extend_metadata({"total_time": total_time, "num_duplicates": total_duplicates})
+            workflow_result.extend_metadata({"total_time": total_time, "num_duplicates": num_duplicates_identified})
 
             # Log final summary
             logger.success("=" * 60)
@@ -393,8 +393,8 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
             logger.success(f"Total execution time: {total_time:.2f} seconds")
             logger.info(f"K-means time: {kmeans_time:.2f} seconds")
             logger.info(f"Pairwise time: {pairwise_time:.2f} seconds")
-            if total_duplicates > 0:
-                logger.success(f"Total documents identified as duplicates: {total_duplicates}")
+            if num_duplicates_identified > 0:
+                logger.success(f"Total documents identified as duplicates: {num_duplicates_identified:,}")
                 logger.info(f"Similarity threshold used: {1.0 - self.eps:.3f} (eps={self.eps})")
             elif self.eps is not None:
                 logger.info(

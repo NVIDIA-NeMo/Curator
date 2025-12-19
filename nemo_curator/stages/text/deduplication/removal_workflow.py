@@ -182,7 +182,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
 
         output_tasks: list[FileGroupTask] | None = None
         execution_time = 0.0
-        num_removed_duplicates = 0
+        num_duplicates_removed = 0
 
         if self.id_generator_path is not None:
             from nemo_curator.stages.deduplication.id_generator import (
@@ -195,7 +195,7 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
                 start_time = time.time()
                 output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
                 execution_time = time.time() - start_time
-                num_removed_duplicates = self._count_removed_duplicates(output_tasks)
+                num_duplicates_removed = self._count_removed_duplicates(output_tasks)
             except Exception as e:
                 logger.error(f"Error running pipeline: {e}")
                 raise
@@ -205,10 +205,9 @@ class TextDuplicatesRemovalWorkflow(WorkflowBase):
             start_time = time.time()
             output_tasks = pipeline.run(executor, initial_tasks=initial_tasks)
             execution_time = time.time() - start_time
-            num_removed_duplicates = self._count_removed_duplicates(output_tasks)
+            num_duplicates_removed = self._count_removed_duplicates(output_tasks)
 
         workflow_result.add_pipeline_tasks("removal", output_tasks)
         workflow_result.add_metadata("total_time", execution_time)
-        workflow_result.add_metadata("num_duplicates", num_removed_duplicates)
-        workflow_result.add_metadata("num_output_tasks", len(output_tasks or []))
+        workflow_result.add_metadata("num_duplicates_removed", num_duplicates_removed)
         return workflow_result
