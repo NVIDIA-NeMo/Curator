@@ -267,7 +267,7 @@ jobs:
               pip install --upgrade pip || true
             else
               rm -rf .venv
-              export PATH="/root/.local/bin:$PATH"
+              uv cache clean
             fi
             
             # Install
@@ -301,6 +301,7 @@ jobs:
               rm -rf "venv_$extra"
             else
               rm -rf .venv
+              uv cache clean
             fi
             echo "::endgroup::"
           done
@@ -543,11 +544,25 @@ jobs:
 
       - name: Summary
         run: |
-          # Read status from artifacts (matrix outputs don't merge across runs)
-          CPU_PIP_STATUS=$(cat cpu-status/pip_status.txt 2>/dev/null || echo "failure")
-          CPU_UV_STATUS=$(cat cpu-status/uv_status.txt 2>/dev/null || echo "failure")
-          GPU_PIP_STATUS=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
-          GPU_UV_STATUS=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
+          # Read status from artifacts, fallback to job result for skipped/cancelled
+          CPU_RESULT="${{ needs.cpu-install-test.result }}"
+          GPU_RESULT="${{ needs.gpu-install-test.result }}"
+          
+          if [ "$CPU_RESULT" = "success" ]; then
+            CPU_PIP_STATUS=$(cat cpu-status/pip_status.txt 2>/dev/null || echo "failure")
+            CPU_UV_STATUS=$(cat cpu-status/uv_status.txt 2>/dev/null || echo "failure")
+          else
+            CPU_PIP_STATUS="$CPU_RESULT"
+            CPU_UV_STATUS="$CPU_RESULT"
+          fi
+          
+          if [ "$GPU_RESULT" = "success" ]; then
+            GPU_PIP_STATUS=$(cat gpu-status/pip_status.txt 2>/dev/null || echo "failure")
+            GPU_UV_STATUS=$(cat gpu-status/uv_status.txt 2>/dev/null || echo "failure")
+          else
+            GPU_PIP_STATUS="$GPU_RESULT"
+            GPU_UV_STATUS="$GPU_RESULT"
+          fi
           
           echo "# 📊 Installation Test Summary"
           echo ""
