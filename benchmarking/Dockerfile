@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-ARG NEMO_CURATOR_IMAGE=nemo_curator
-FROM ${NEMO_CURATOR_IMAGE} AS nemo_curator_benchmarking
+ARG CURATOR_IMAGE=nemo_curator
+FROM ${CURATOR_IMAGE} AS nemo_curator_benchmarking
 
 # Add system utilities useful for benchmark and debug
 RUN apt-get update \

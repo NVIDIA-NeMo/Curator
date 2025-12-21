@@ -2,7 +2,6 @@
 
 # See tools/run.sh for the env vars used in this config
 results_dir: "${CONTAINER_RESULTS_DIR}"
-artifacts_dir: "${CONTAINER_ARTIFACTS_DIR}"
 datasets:
   - name: "cc"
     formats:
@@ -34,6 +33,7 @@ entries:
   - name: demo
     script: dummy_benchmark.py
     args: >-
+      --benchmark-results-path={results_path}
       --input-path {dataset:cc,parquet}
       --output-path {session_entry_dir}/scratch/output
     timeout_s: 20000
@@ -44,6 +44,7 @@ entries:
   - name: demo2
     script: dummy_benchmark.py
     args: >-
+      --benchmark-results-path={results_path}
       --input-path {dataset:cc,parquet}
       --output-path {session_entry_dir}/scratch/output
     timeout_s: 20000

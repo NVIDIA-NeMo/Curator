@@ -175,7 +175,7 @@ def write_results(benchmark_results_path: str, results: dict) -> None:
 def main() -> int:
     p = argparse.ArgumentParser(description="Common Crawl download/extract benchmark")
     # Contract arg for nightly driver
-    p.add_argument("--benchmark-results-path", required=True, help="Directory to write benchmark artifacts")
+    p.add_argument("--benchmark-results-path", required=True, help="Directory to write benchmark results")
     # Pipeline configuration
     p.add_argument("--download_path", type=str, default="./common_crawl_downloads")
     p.add_argument("--output_path", type=str, default="./common_crawl_output")

@@ -1,5 +1,5 @@
-# These three paths must be defined and are used to resolve the paths for
-# results, artifacts, and datasets. These must be existing paths on the host.
+# These two paths must be defined and are used to resolve the results and
+# datasets paths. These must be existing paths on the host.
 # If running inside a Docker container started with tools/run.sh, the paths
 # will automatically be mapped to the appropriate volume mount.
 # If running on the host, the paths will remain as defined below.
@@ -7,7 +7,6 @@
 # (e.g. {datasets_path}/my/test/dataset.parquet) and will be resolved to the
 # appropriate path at runtime.
 results_path: /path/where/results/are/stored
-artifacts_path: /path/where/artifacts/are/stored
 datasets_path: /path/to/datasets
 
 datasets:
@@ -56,6 +55,7 @@ entries:
     enabled: true
     script: domain_classification_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -78,6 +78,7 @@ entries:
     enabled: true
     script: domain_classification_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -88,6 +89,7 @@ entries:
     enabled: true
     script: embedding_generation_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -106,6 +108,7 @@ entries:
     enabled: true
     script: embedding_generation_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
       --dataset-size-gb=10
@@ -117,6 +120,7 @@ entries:
     enabled: true
     script: fuzzy_dedup_identification_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
       --cache-path={session_entry_dir}/scratch/cache
       --output-path={session_entry_dir}/output
@@ -134,6 +138,7 @@ entries:
     enabled: true
     script: dedup_removal_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
       --id-generator-path={dataset:commoncrawl_id_map,json}
       --ids-to-remove-path={dataset:commoncrawl_ids,parquet}
@@ -154,6 +159,7 @@ entries:
     enabled: true
     script: dedup_removal_benchmark.py
     args: >-
+      --benchmark-results-path={session_entry_dir}
       --input-path={dataset:commoncrawl,jsonl}
       --id-generator-path={dataset:commoncrawl_id_map,json}
       --ids-to-remove-path={dataset:commoncrawl_ids,parquet}
