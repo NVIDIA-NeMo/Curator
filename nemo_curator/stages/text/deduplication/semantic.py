@@ -447,7 +447,6 @@ class TextSemanticDeduplicationWorkflow:
         total_start_time = time.time()
         workflow_result = WorkflowRunResult(workflow_name="text_semantic_deduplication")
         num_duplicates_identified = 0
-        removal_stage_metadata: dict[str, Any] = {}
 
         try:
             # Setup
@@ -471,7 +470,7 @@ class TextSemanticDeduplicationWorkflow:
             embedding_results = self._run_embedding_generation(embedding_executor)
             embedding_end_time = time.time()
             embedding_time = embedding_end_time - embedding_start_time
-            workflow_result.add_pipeline_tasks("text_semantic_dedup_embedding", embedding_results)
+            workflow_result.add_pipeline_tasks("embeddings", embedding_results)
             logger.success(f"Embedding generation completed in {embedding_time:.2f} seconds")
 
             if self.use_id_generator:
@@ -507,28 +506,19 @@ class TextSemanticDeduplicationWorkflow:
             logger.success(f"Semantic deduplication completed in {semantic_time:.2f} seconds")
 
             # Stage 3: Duplicate removal (optional)
-            removal_summary: WorkflowRunResult | None = None
-            removal_results: list[Any] = []
             removal_time = 0.0
             if self.perform_removal:
                 removal_start_time = time.time()
-                removal_summary = self._run_duplicate_removal(removal_executor)
+                removal_results = self._run_duplicate_removal(removal_executor)
                 removal_end_time = time.time()
                 removal_time = removal_end_time - removal_start_time
-                # Extract tasks from removal_summary and merge into workflow_result
-                if removal_summary is not None:
-                    for pipeline_name, tasks in removal_summary.pipeline_tasks.items():
+                if removal_results is not None:
+                    for pipeline_name, tasks in removal_results.pipeline_tasks.items():
                         workflow_result.add_pipeline_tasks(pipeline_name, tasks)
-                    removal_stage_metadata = removal_summary.metadata or {}
-                    num_duplicates_removed = removal_stage_metadata.get("num_duplicates")
+                    removal_metadata = removal_results.metadata or {}
+                    num_duplicates_removed = removal_metadata.get("num_duplicates")
                     workflow_result.add_metadata("num_duplicates_removed", num_duplicates_removed)
-                    workflow_result.add_metadata(
-                        "removal_num_output_tasks", removal_stage_metadata.get("num_output_tasks")
-                    )
-                    # Extract tasks for result_payload
-                    removal_results = []
-                    for tasks in removal_summary.pipeline_tasks.values():
-                        removal_results.extend(tasks)
+                    workflow_result.add_metadata("removal_num_output_tasks", removal_metadata.get("num_output_tasks"))
 
                 logger.success(f"Duplicate removal completed in {removal_time:.2f} seconds")
 
@@ -545,9 +535,7 @@ class TextSemanticDeduplicationWorkflow:
                 logger.info(f"Embedding generation time: {embedding_time:.2f} seconds")
                 logger.info(f"Semantic deduplication time: {semantic_time:.2f} seconds")
                 if self.perform_removal:
-                    logger.info(
-                        f"Duplicate removal time: {removal_time:.2f} seconds (output tasks: {len(removal_results)})"
-                    )
+                    logger.info(f"Duplicate removal time: {removal_time:.2f} seconds")
                 num_duplicates_identified = semantic_results.get_metadata("num_duplicates") or 0
                 if num_duplicates_identified > 0:
                     logger.success(f"Total documents identified as duplicates: {num_duplicates_identified:,}")
@@ -569,6 +557,7 @@ class TextSemanticDeduplicationWorkflow:
                 "embeddings_path": self.embeddings_path,
                 "semantic_dedup_path": self.semantic_dedup_path,
                 "final_output_path": self.deduplicated_output_path if self.perform_removal else None,
+                "id_generator_path": self.id_generator_state_file if self.use_id_generator else None,
             }
         )
         return workflow_result
