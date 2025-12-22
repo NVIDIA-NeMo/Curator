@@ -98,12 +98,9 @@ class Pipeline:
         decomposition_info = {}
 
         for stage in stages:
-            # Get the decomposed stages (returns [self] for regular stages)
-            sub_stages = stage.decompose_and_apply_with() if isinstance(stage, CompositeStage) else [stage]
-
-            if len(sub_stages) > 1:
-                # This was a composite stage
-                logger.info(f"Decomposing composite stage: {stage.name}")
+            if isinstance(stage, CompositeStage):
+                # Get the decomposed stages for composite stages
+                sub_stages = stage.decompose_and_apply_with()
 
                 # Validate that decomposed stages are not composite
                 for sub_stage in sub_stages:

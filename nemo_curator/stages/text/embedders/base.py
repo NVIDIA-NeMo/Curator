@@ -100,9 +100,34 @@ class EmbeddingModelStage(ModelStage):
 
 @dataclass(kw_only=True)
 class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
+    """Stage for creating embeddings from text using different backends.
+
+    Args:
+        model_identifier: The identifier of the Hugging Face model.
+        text_field: The field in the DataFrame containing the text to embed.
+        embedding_field: The field name for the output embeddings.
+        backend: The backend to use for embedding generation. Options are:
+            - "transformers": Uses HuggingFace transformers with tokenization and batching.
+            - "vllm": Uses VLLM for optimized inference (submits all texts at once).
+        max_chars: Maximum number of characters per text (huggingface transformers backend only).
+        max_seq_length: Maximum sequence length for tokenization (huggingface transformers backend only).
+        padding_side: The side to pad the input tokens. Defaults to "right".
+        embedding_pooling: Pooling strategy for embeddings (huggingface transformers backend only).
+        model_inference_batch_size: Batch size for model inference (huggingface transformers backend only).
+        autocast: Whether to use autocast for faster inference (huggingface transformers backend only).
+        sort_by_length: Whether to sort by length for efficiency (huggingface transformers backend only).
+        hf_token: Hugging Face token for downloading the model.
+        gpu_memory_utilization: Fraction of GPU memory for VLLM (vllm backend only).
+        num_cpus: Number of CPUs for the model (vllm backend only).
+        num_gpus: Number of GPUs for the model (vllm backend only).
+    """
+
+    name: str = "EmbeddingCreatorStage"
     model_identifier: str = "sentence-transformers/all-MiniLM-L6-v2"
     text_field: str = "text"
     embedding_field: str = "embeddings"
+    backend: Literal["transformers", "vllm"] = "transformers"
+    # HuggingFace backend options
     max_chars: int | None = None
     max_seq_length: int | None = None
     padding_side: Literal["left", "right"] = "right"
@@ -111,31 +136,53 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     autocast: bool = True
     sort_by_length: bool = True
     hf_token: str | None = None
+    # VLLM backend options
+    gpu_memory_utilization: float = 0.8
+    num_cpus: int = 8
+    num_gpus: int = 1
 
     def __post_init__(self) -> None:
         super().__init__()
 
-        self.stages = [
-            TokenizerStage(
-                model_identifier=self.model_identifier,
-                hf_token=self.hf_token,
-                text_field=self.text_field,
-                max_chars=self.max_chars,
-                max_seq_length=self.max_seq_length,
-                padding_side=self.padding_side,
-                sort_by_length=self.sort_by_length,
-            ),
-            EmbeddingModelStage(
-                model_identifier=self.model_identifier,
-                embedding_field=self.embedding_field,
-                pooling=self.embedding_pooling,
-                hf_token=self.hf_token,
-                model_inference_batch_size=self.model_inference_batch_size,
-                has_seq_order=self.sort_by_length,
-                padding_side=self.padding_side,
-                autocast=self.autocast,
-            ),
-        ]
+        if self.backend == "transformers":
+            self.stages = [
+                TokenizerStage(
+                    model_identifier=self.model_identifier,
+                    hf_token=self.hf_token,
+                    text_field=self.text_field,
+                    max_chars=self.max_chars,
+                    max_seq_length=self.max_seq_length,
+                    padding_side=self.padding_side,
+                    sort_by_length=self.sort_by_length,
+                ),
+                EmbeddingModelStage(
+                    model_identifier=self.model_identifier,
+                    embedding_field=self.embedding_field,
+                    pooling=self.embedding_pooling,
+                    hf_token=self.hf_token,
+                    model_inference_batch_size=self.model_inference_batch_size,
+                    has_seq_order=self.sort_by_length,
+                    padding_side=self.padding_side,
+                    autocast=self.autocast,
+                ),
+            ]
+        elif self.backend == "vllm":
+            from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+
+            self.stages = [
+                VLLMEmbeddingModelStage(
+                    model_identifier=self.model_identifier,
+                    text_field=self.text_field,
+                    embedding_field=self.embedding_field,
+                    hf_token=self.hf_token,
+                    gpu_memory_utilization=self.gpu_memory_utilization,
+                    num_cpus=self.num_cpus,
+                    num_gpus=self.num_gpus,
+                ),
+            ]
+        else:
+            msg = f"Unknown backend: {self.backend}. Supported backends are 'transformers' and 'vllm'."
+            raise ValueError(msg)
 
     def decompose(self) -> list[ProcessingStage]:
         return self.stages
