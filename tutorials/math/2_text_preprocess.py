@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import argparse
+from dataclasses import dataclass
 
 import ray.data
 from loguru import logger
@@ -28,18 +29,23 @@ from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
-def build_pipeline(
-    input_glob: str,
-    output_dir: str,
-    fetch_cc: bool = False,
-    warc_filename_col: str = "warc_filename",
-    warc_record_offset_col: str = "warc_record_offset",
-    warc_record_length_col: str = "warc_record_length",
-) -> Pipeline:
+@dataclass
+class TextPreprocessConfig:
+    """Configuration for text preprocessing."""
+
+    input_glob: str
+    output_dir: str
+    fetch_cc: bool = False
+    warc_filename_col: str = "warc_filename"
+    warc_record_offset_col: str = "warc_record_offset"
+    warc_record_length_col: str = "warc_record_length"
+
+
+def build_pipeline(config: TextPreprocessConfig) -> Pipeline:
     p = Pipeline(name="math_text_preprocess", description="Decode (binary) → type → html via lynx → text")
 
     p.add_stage(
-        ParquetReader(file_paths=input_glob).with_(
+        ParquetReader(file_paths=config.input_glob).with_(
             {
                 "file_partitioning": {"resources": Resources(cpus=1.0)},
                 "parquet_reader": {"resources": Resources(cpus=1.0)},
@@ -47,13 +53,13 @@ def build_pipeline(
         )
     )
 
-    if fetch_cc:
+    if config.fetch_cc:
         logger.info("Adding CommonCrawlWARCReader stage to fetch content from S3.")
         p.add_stage(
             CommonCrawlWARCReader(
-                warc_filename_col=warc_filename_col,
-                warc_record_offset_col=warc_record_offset_col,
-                warc_record_length_col=warc_record_length_col,
+                warc_filename_col=config.warc_filename_col,
+                warc_record_offset_col=config.warc_record_offset_col,
+                warc_record_length_col=config.warc_record_length_col,
             ).with_(resources=Resources(cpus=0.5))  # Lightweight network op
         )
 
@@ -66,7 +72,7 @@ def build_pipeline(
         ).with_(resources=Resources(cpus=1.0))
     )
 
-    p.add_stage(JsonlWriter(path=output_dir).with_(resources=Resources(cpus=1.0)))
+    p.add_stage(JsonlWriter(path=config.output_dir).with_(resources=Resources(cpus=1.0)))
 
     return p
 
@@ -126,14 +132,15 @@ def main() -> None:
     ray_client = RayClient()
     ray_client.start()
 
-    pipeline = build_pipeline(
-        args.input,
-        args.output,
+    config = TextPreprocessConfig(
+        input_glob=args.input,
+        output_dir=args.output,
         fetch_cc=args.fetch_cc,
         warc_filename_col=args.warc_filename_col,
         warc_record_offset_col=args.offset_col,
         warc_record_length_col=args.length_col,
     )
+    pipeline = build_pipeline(config)
     logger.info(pipeline.describe())
 
     executor = XennaExecutor()
