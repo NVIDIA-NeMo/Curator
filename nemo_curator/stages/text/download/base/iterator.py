@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
+import posixpath
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -89,8 +89,8 @@ class DocumentIterateStage(ProcessingStage[FileGroupTask, DocumentBatch]):
                         if self.record_limit and record_count >= self.record_limit:
                             break
                         if self.add_filename_column:
-                            # TODO: Support cloud storage https://github.com/NVIDIA-NeMo/Curator/issues/779
-                            record_dict[self.filename_col] = os.path.basename(file_path)  # type: ignore[reportReturnType]
+                            # Use posixpath for cloud storage compatibility
+                            record_dict[self.filename_col] = posixpath.basename(file_path)  # type: ignore[reportReturnType]
                         records.append(record_dict)
                         record_count += 1
 
