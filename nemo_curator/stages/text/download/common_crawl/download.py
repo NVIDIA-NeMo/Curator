@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import concurrent.futures
+import gzip
+import io
 import os
 import subprocess
 from urllib.parse import urlparse
@@ -20,6 +22,7 @@ from urllib.parse import urlparse
 import pandas as pd
 import requests
 from loguru import logger
+from warcio.archiveiterator import ArchiveIterator
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download import DocumentDownloader
@@ -28,14 +31,19 @@ from nemo_curator.tasks import DocumentBatch
 # Common Crawl base URL for HTTPS access
 CC_BASE_URL = "https://data.commoncrawl.org/"
 
+# HTTP status codes
+HTTP_OK = 200
+HTTP_PARTIAL_CONTENT = 206
+
 
 def _check_s5cmd_installed() -> bool:
     """Check if s5cmd is installed."""
     try:
         subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
-        return True
     except FileNotFoundError:
         return False
+    else:
+        return True
 
 
 class CommonCrawlWARCDownloader(DocumentDownloader):
@@ -116,7 +124,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
     using byte-range requests. No AWS credentials or s5cmd required.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         warc_filename_col: str = "warc_filename",
         warc_record_offset_col: str = "warc_record_offset",
@@ -148,7 +156,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.max_workers = max_workers
         self.timeout = timeout
         self.max_retries = max_retries
-        self._name = "CommonCrawlWARCReader"
+        self.name = "CommonCrawlWARCReader"
         self._session = None
 
     def inputs(self) -> tuple[list[str], list[str]]:
@@ -174,8 +182,17 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             self._session.mount("http://", adapter)
         return self._session
 
-    def _read_warc_record(self, row) -> bytes | None:
-        """Fetch a single WARC record using HTTPS range request."""
+    def _read_warc_record(self, row: pd.Series) -> bytes | None:  # noqa: C901, PLR0911
+        """Fetch a single WARC record using HTTPS range request.
+
+        This method:
+        1. Fetches gzip-compressed WARC record bytes via HTTP range request
+        2. Decompresses the gzip content
+        3. Parses the WARC record format using warcio
+        4. Extracts and returns the HTTP response body (the actual content)
+        """
+        filename = None
+        offset = None
         try:
             filename = row[self.warc_filename_col]
             offset = int(row[self.warc_record_offset_col])
@@ -195,15 +212,38 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             )
 
             # 206 Partial Content is the expected response for range requests
-            if response.status_code == 206:
-                return response.content
-            elif response.status_code == 200:
+            if response.status_code == HTTP_PARTIAL_CONTENT:
+                raw_bytes = response.content
+            elif response.status_code == HTTP_OK:
                 # Server ignored range request, returned full file (unusual but handle it)
                 logger.warning(f"Server returned full file instead of range for {filename}")
-                return response.content[offset : offset + length]
+                raw_bytes = response.content[offset : offset + length]
             else:
                 logger.warning(f"Failed to fetch WARC record {filename}: HTTP {response.status_code}")
                 return None
+
+            # Decompress gzip content (WARC files from CC are .warc.gz)
+            try:
+                decompressed = gzip.decompress(raw_bytes)
+            except gzip.BadGzipFile:
+                # Content might not be gzip-compressed, use as-is
+                decompressed = raw_bytes
+
+            # Parse the WARC record using warcio to extract HTTP response body
+            try:
+                stream = io.BytesIO(decompressed)
+                archive_iterator = ArchiveIterator(stream)
+                for record in archive_iterator:
+                    if record.rec_type == "response":
+                        # Return the HTTP response body (content after HTTP headers)
+                        return record.content_stream().read()
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"Failed to parse WARC record {filename}: {e}, returning decompressed bytes")
+                return decompressed
+            else:
+                # If no response record found, return the decompressed bytes as-is
+                logger.debug(f"No response record found in WARC for {filename}, returning raw content")
+                return decompressed
 
         except requests.exceptions.Timeout:
             logger.warning(f"Timeout fetching WARC record {filename} at offset {offset}")
@@ -220,7 +260,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
         results = [None] * len(df_partition)
         rows = list(df_partition.iterrows())
 
-        def fetch_row(row_data):
+        def fetch_row(row_data: tuple[int, pd.Series]) -> tuple[int, bytes | None]:
             idx, row = row_data
             return idx, self._read_warc_record(row)
 
@@ -233,7 +273,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
                 try:
                     i, result = future.result()
                     results[i] = result
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:  # noqa: BLE001, PERF203
                     logger.warning(f"Error in thread pool: {e}")
 
         return results

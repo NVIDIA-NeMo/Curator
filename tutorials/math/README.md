@@ -27,24 +27,25 @@ uv pip install --force-reinstall pynvml
 
 ### Common Crawl Index Requirements
 
-**No local download required.** The CC Index lookup script (`run_cc_index_lookup_local.py`) queries the Common Crawl Index **directly from S3** using anonymous access.
+The CC Index lookup script (`1_cc_index_lookup.py`) uses **cuDF for GPU-accelerated distributed joins** against a local CC Index
 
 **Key points:**
-- **No CC Index download**: The script uses `polars.scan_parquet()` to stream CC Index parquet files directly from `s3://commoncrawl/cc-index/table/cc-main/warc/`
-- **Anonymous S3 access**: No AWS credentials required—uses public anonymous access to Common Crawl's S3 bucket
-- **Network requirement**: Ensure your environment can reach `s3://commoncrawl/` (port 443 HTTPS)
-- **Memory efficient**: Polars' lazy evaluation means only matching records are materialized, not the entire index (~300GB+ per crawl)
+- **Local CC Index required**: Download CC Index parquet files locally for GPU-accelerated joins
+- **Distributed processing**: Uses Ray for distributed execution across multiple GPUs
+- **cuDF joins**: GPU-accelerated inner joins for high performance
+- **Broadcast pattern**: CC Index is loaded into Ray object store and broadcast to workers
 
-**When to consider local index:**
-- If you have unreliable network connectivity to S3
-- If you're processing millions of URLs repeatedly (local index avoids repeated S3 queries)
-- If your cluster has limited egress bandwidth
+**Download options:**
 
-To download a CC Index snapshot locally (optional):
 ```bash
-# Download a specific crawl's index (~300GB compressed)
+# Option 1: Download a single partition for testing (~1GB)
+mkdir -p /tmp/cc-index/crawl=CC-MAIN-2024-10/subset=warc
+wget -O /tmp/cc-index/crawl=CC-MAIN-2024-10/subset=warc/part-00000.parquet \
+  "https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/part-00000-5bb2bfdd-dcc0-47b2-8a2d-f27c3c9bfe17.c000.gz.parquet"
+
+# Option 2: Download full crawl index (~300GB compressed)
 aws s3 sync s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/ \
-    /local/path/cc-index/CC-MAIN-2024-10/ --no-sign-request
+    /local/path/cc-index/crawl=CC-MAIN-2024-10/ --no-sign-request
 ```
 
 ## Understanding CC Index Lookup
@@ -87,7 +88,7 @@ The CC Index is [**publicly available on S3**](https://commoncrawl.org/access-th
                            │
                            ▼
             ┌──────────────────────────────────────┐
-            │   run_text_preprocess.py --fetch-cc  │
+            │   2_text_preprocess.py --fetch-cc  │
             │   Uses WARC metadata to fetch actual │
             │   content from Common Crawl S3       │
             └──────────────────────────────────────┘
@@ -108,11 +109,12 @@ Available crawl IDs: https://index.commoncrawl.org/
 
 ## Dataset Configuration
 
-Dataset configurations are stored in `datasets.json`. This file defines:
-- Input paths for each dataset
-- Output directory names
-- Whether CC Index lookup is required
-- Column mappings for WARC metadata
+Dataset configurations are stored in `datasets.json`. The `0_download.py` script reads this to download datasets from HuggingFace Hub.
+
+Each dataset entry contains:
+- `huggingface`: Source repository path for downloading
+- `needs_cc_lookup`: Whether CC Index lookup is required (datasets without WARC metadata)
+- `url_col`: Column name containing URLs (for datasets needing CC lookup)
 
 ### Pre-configured Datasets
 
@@ -121,76 +123,74 @@ Dataset configurations are stored in `datasets.json`. This file defines:
 | `FINEMATH_4PLUS` | HuggingFaceTB/finemath | ✅ Yes | No |
 | `FINEMATH_3PLUS` | HuggingFaceTB/finemath | ✅ Yes | No |
 | `OPENWEBMATH` | open-web-math/open-web-math | ❌ No | Yes |
-| `INFIWEBMATH_4PLUS` | OpenCoder-LLM/opc-fineweb-math-corpus | ❌ No | Yes |
-| `INFIWEBMATH_3PLUS` | OpenCoder-LLM/opc-fineweb-math-corpus | ❌ No | Yes |
+| `OPC_FINEWEB_MATH` | OpenCoder-LLM/opc-fineweb-math-corpus | ❌ No | Yes |
 | `MEGAMATH_PRO` | LLM360/MegaMath | ❌ No | Yes |
 | `MEGAMATH_WEB` | LLM360/MegaMath | ❌ No | Yes |
 
 ### Custom Dataset Configuration
 
-To add your own dataset, edit `datasets.json` or create a custom config file:
+To add your own dataset, edit `datasets.json`:
 
 ```json
 {
   "MY_DATASET": {
     "huggingface": "my-org/my-dataset",
-    "input": "/path/to/my/data/*.parquet",
-    "output": "my_dataset_processed",
-    "fetch_cc": true,
     "needs_cc_lookup": true,
-    "url_col": "url",
-    "columns": {
-      "warc_filename": "warc_filename",
-      "offset": "warc_record_offset",
-      "length": "warc_record_length"
-    }
+    "url_col": "url"
   }
 }
 ```
 
-Use with a custom config:
-```bash
-python run_all_preprocess.py --output-base /output \
-    --datasets-config /path/to/my_datasets.json \
-    --datasets MY_DATASET \
-    --crawls CC-MAIN-2024-10
-```
+For datasets with WARC metadata already included, set `"needs_cc_lookup": false` and omit `url_col`.
+
 
 ## Complete Pipeline Flow
 
 ```mermaid
 flowchart TD
+    subgraph download["Download (Optional)"]
+        HF[("HuggingFace Hub")]
+        DL["0_download.py"]
+        RAW["Raw Parquet Files<br/><i>$MATH_DATA_DIR/raw/</i>"]
+    end
+
     subgraph datasets["Input Datasets"]
         D1["FineMath 3+/4+<br/><i>Has WARC metadata</i>"]
         D2["OpenWebMath<br/>InfiWebMath<br/>MegaMath<br/><i>URL only</i>"]
     end
 
-    subgraph step0["Step 0: CC Index Lookup"]
+    subgraph step1["Step 1: CC Index Lookup"]
         CC_INDEX[("CC Index on S3<br/>s3://commoncrawl/cc-index/")]
-        LOOKUP["run_cc_index_lookup_local.py<br/>--crawls CC-MAIN-2024-10"]
+        LOOKUP["1_cc_index_lookup.py"]
         ENRICHED["Enriched Dataset<br/><i>+ warc_filename</i><br/><i>+ offset, length</i>"]
     end
 
-    subgraph step1["Step 1: Text Preprocessing"]
+    subgraph step2["Step 2: Text Preprocessing"]
         CC_S3[("Common Crawl S3<br/>s3://commoncrawl/crawl-data/")]
-        EXTRACT["run_text_preprocess.py<br/>--fetch-cc"]
+        EXTRACT["2_text_preprocess.py<br/>--fetch-cc"]
         PREPROCESSED["Preprocessed Data<br/><i>text, url, type</i>"]
     end
 
-    subgraph step2["Step 2: Quality Classification"]
-        CLASSIFY["run_quality_classifier.py<br/><i>FineMath model</i>"]
+    subgraph step3["Step 3: Quality Classification"]
+        CLASSIFY["3_quality_classifier.py<br/><i>FineMath model</i>"]
         CLASSIFIED["Classified Data<br/><i>+ finemath_scores</i>"]
     end
 
-    subgraph step3["Step 3: Deduplication"]
-        DEDUP["run_deduplication.py<br/><i>Fuzzy matching</i>"]
+    subgraph step4["Step 4: Deduplication"]
+        DEDUP["4_deduplication.py<br/><i>Fuzzy matching</i>"]
         DEDUPED["Deduplicated Data"]
     end
 
-    subgraph step4["Step 4: LLM Cleanup"]
-        LLM["run_cleanup_webpages_with_llm.py<br/><i>vLLM + Phi-4</i>"]
+    subgraph step5["Step 5: LLM Cleanup"]
+        LLM["5_llm_cleanup.py<br/><i>vLLM + Phi-4</i>"]
         FINAL["Final Cleaned Data<br/><i>+ cleaned_text</i>"]
     end
+
+    %% Download flow (optional)
+    HF -->|"Download"| DL
+    DL --> RAW
+    RAW --> D1
+    RAW --> D2
 
     %% Flow for datasets WITH WARC metadata
     D1 -->|"Has warc_filename,<br/>offset, length"| EXTRACT
@@ -219,7 +219,7 @@ flowchart TD
     %% Light Gray (#999999): Intermediate outputs
     %% Purple (#7b68ee): Data stores, S3 buckets (cylinders)
     %% All boxes have black borders (#000000)
-    
+
     classDef nvidiaGreen fill:#76b900,stroke:#000000,color:white,stroke-width:2px
     classDef nvidiaGray fill:#666666,stroke:#000000,color:white,stroke-width:2px
     classDef nvidiaLightGray fill:#999999,stroke:#000000,color:white,stroke-width:2px
@@ -229,25 +229,26 @@ flowchart TD
     %% Input datasets - Gray
     class D1,D2 nvidiaGray
 
-    %% External S3 data stores - Purple (cylinders)
-    class CC_INDEX,CC_S3 nvidiaPurple
+    %% External data stores - Purple (cylinders)
+    class HF,CC_INDEX,CC_S3 nvidiaPurple
 
     %% Processing steps (Python scripts) - NVIDIA Green
-    class LOOKUP,EXTRACT,CLASSIFY,DEDUP,LLM nvidiaGreen
+    class DL,LOOKUP,EXTRACT,CLASSIFY,DEDUP,LLM nvidiaGreen
 
     %% Intermediate outputs - Light Gray
-    class ENRICHED,PREPROCESSED,CLASSIFIED,DEDUPED nvidiaLightGray
+    class RAW,ENRICHED,PREPROCESSED,CLASSIFIED,DEDUPED nvidiaLightGray
 
     %% Final output - Gray
     class FINAL nvidiaGray
 
     %% Subgraph styling (Note: subgraph styling support varies by renderer)
+    style download fill:transparent,stroke:#000000,stroke-width:2px,stroke-dasharray:5 5,color:#333
     style datasets fill:transparent,stroke:#000000,stroke-width:2px,color:#333
-    style step0 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step1 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step2 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step3 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
     style step4 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
+    style step5 fill:transparent,stroke:#000000,stroke-width:2px,color:#333
 
     %% Link/Arrow styling (Note: linkStyle support varies by renderer)
     linkStyle default stroke:#76b900,stroke-width:2px
@@ -257,38 +258,126 @@ flowchart TD
 
 | Step | Script | Input | Output | Required For |
 |------|--------|-------|--------|--------------|
-| 0 | `run_cc_index_lookup_local.py` | URLs | URLs + WARC metadata | Datasets without WARC metadata |
-| 1 | `run_text_preprocess.py` | WARC metadata | Extracted text | All datasets |
-| 2 | `run_quality_classifier.py` | Text | Text + quality scores | All datasets |
-| 3 | `run_deduplication.py` | Scored text | Deduplicated text | All datasets |
-| 4 | `run_cleanup_webpages_with_llm.py` | Deduplicated text | Cleaned text | Optional |
+| — | `0_download.py` | HuggingFace | Raw parquet files | Optional (if data not already available) |
+| 1 | `1_cc_index_lookup.py` | URLs | URLs + WARC metadata | Datasets without WARC metadata |
+| 2 | `2_text_preprocess.py` | WARC metadata | Extracted text | All datasets |
+| 3 | `3_quality_classifier.py` | Text | Text + quality scores | All datasets |
+| 4 | `4_deduplication.py` | Scored text | Deduplicated text | All datasets |
+| 5 | `5_llm_cleanup.py` | Deduplicated text | Cleaned text | Optional |
 
 ### Working Directory Setup
 
 ```bash
 # Create working directories
 export MATH_DATA_DIR=/tmp/math_pipeline
-mkdir -p $MATH_DATA_DIR/{enriched,preprocessed,classified,dedup_cache,dedup_ids,deduplicated,cleaned}
+mkdir -p $MATH_DATA_DIR/{raw,enriched,preprocessed,classified,dedup_cache,dedup_ids,deduplicated,cleaned}
 ```
 
-## Step 0: CC Index Lookup (For Datasets Without WARC Metadata)
+## Download Dataset from HuggingFace (Optional)
+
+**Skip this step if you already have the dataset downloaded locally.**
+
+The `0_download.py` script downloads math datasets from HuggingFace Hub. It reads dataset configurations from `datasets.json` and downloads parquet files to `$MATH_DATA_DIR/raw/<dataset_name>/`.
+
+### Authentication (Optional)
+
+For gated datasets or higher download rate limits, authenticate with HuggingFace:
+
+```bash
+# Option 1: Environment variable
+export HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Option 2: CLI login (saves token to ~/.cache/huggingface/token)
+huggingface-cli login
+```
+
+Get your token at: https://huggingface.co/settings/tokens
+
+### Download Commands
+
+```bash
+# List available datasets
+python tutorials/math/0_download.py --list
+
+# Download a specific dataset
+python tutorials/math/0_download.py \
+    --dataset FINEMATH_4PLUS \
+    --output-dir $MATH_DATA_DIR/raw
+
+# Download multiple datasets
+python tutorials/math/0_download.py \
+    --dataset FINEMATH_4PLUS OPENWEBMATH \
+    --output-dir $MATH_DATA_DIR/raw
+
+# Download only a few files for testing
+python tutorials/math/0_download.py \
+    --dataset FINEMATH_4PLUS \
+    --output-dir $MATH_DATA_DIR/raw \
+    --max-files 5
+
+# Parallel download with 8 workers (recommended for large datasets)
+python tutorials/math/0_download.py \
+    --dataset FINEMATH_4PLUS \
+    --output-dir $MATH_DATA_DIR/raw \
+    --workers 8
+```
+
+**Output structure:**
+```
+$MATH_DATA_DIR/raw/
+├── finemath_4plus/
+│   ├── train-00000-of-00XXX.parquet
+│   ├── train-00001-of-00XXX.parquet
+│   └── ...
+└── openwebmath/
+    └── ...
+```
+
+**Dataset sizes (approximate):**
+| Dataset | Tokens | Notes |
+|---------|--------|-------|
+| FINEMATH_4PLUS | ~9.5B | High-quality math (score ≥4) |
+| FINEMATH_3PLUS | ~30B | Good quality math (score ≥3) |
+| OPENWEBMATH | ~14B | Requires CC Index lookup |
+
+## Step 1: CC Index Lookup (For Datasets Without WARC Metadata)
 
 **Skip this step if your dataset already has WARC metadata** (like FineMath).
 
-For datasets that only have URLs (OpenWebMath, InfiWebMath, MegaMath), enrich them with WARC metadata by querying the CC Index on S3:
+For datasets that only have URLs (OpenWebMath, InfiWebMath, MegaMath), enrich them with WARC metadata by joining against a local CC Index using GPU-accelerated cuDF.
+
+### Download CC Index for Testing
+
+First, download a small slice of the CC Index for local testing:
 
 ```bash
-# Query CC Index directly from S3 (no download required)
-python tutorials/math/run_cc_index_lookup_local.py \
-    --input "/path/to/openwebmath/*.parquet" \
-    --output $MATH_DATA_DIR/enriched \
-    --crawls CC-MAIN-2024-10
+# Create directory structure
+export CC_INDEX_DIR=/tmp/cc-index
+mkdir -p "$CC_INDEX_DIR/crawl=CC-MAIN-2024-10/subset=warc"
 
-# Multiple crawls for better URL coverage
-python tutorials/math/run_cc_index_lookup_local.py \
-    --input "/path/to/openwebmath/*.parquet" \
+# Download a single partition file (~1GB) for testing
+# Get the exact filename from: https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/
+wget -O "$CC_INDEX_DIR/crawl=CC-MAIN-2024-10/subset=warc/part-00000.parquet" \
+  "https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/part-00000-5bb2bfdd-dcc0-47b2-8a2d-f27c3c9bfe17.c000.gz.parquet"
+```
+
+**Note**: Each CC Index crawl has ~300 partition files. For testing, one file is sufficient but match rates will be low.
+
+### Run CC Index Lookup
+
+```bash
+# Run CC Index lookup (auto-detects all available crawls)
+python tutorials/math/1_cc_index_lookup.py \
+    --input $MATH_DATA_DIR/raw/openwebmath \
     --output $MATH_DATA_DIR/enriched \
-    --crawls CC-MAIN-2024-10 CC-MAIN-2024-18 CC-MAIN-2023-50
+    --cc-index-path $CC_INDEX_DIR
+
+# Or specify specific crawls
+python tutorials/math/1_cc_index_lookup.py \
+    --input $MATH_DATA_DIR/raw/openwebmath \
+    --output $MATH_DATA_DIR/enriched \
+    --cc-index-path $CC_INDEX_DIR \
+    --crawls CC-MAIN-2024-10 CC-MAIN-2024-18
 ```
 
 **Output columns added:**
@@ -301,30 +390,30 @@ python tutorials/math/run_cc_index_lookup_local.py \
 | `content_mime_type` | MIME type | `text/html` |
 | `http_status` | HTTP status code | `200` |
 
-## Step 1: Text Preprocessing (decode → type-detect → extract)
+## Step 2: Text Preprocessing (decode → type-detect → extract)
 
 Extract and preprocess text from raw web data:
 
 ```bash
 # For datasets WITH WARC metadata (FineMath) - fetch directly from CC
-python tutorials/math/run_text_preprocess.py \
-    --input "/path/to/finemath/*.parquet" \
+python tutorials/math/2_text_preprocess.py \
+    --input "$MATH_DATA_DIR/raw/finemath_4plus/**/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed \
     --fetch-cc
 
-# For datasets AFTER CC Index lookup (Step 0 output)
-python tutorials/math/run_text_preprocess.py \
+# For datasets AFTER CC Index lookup (Step 1 output)
+python tutorials/math/2_text_preprocess.py \
     --input "$MATH_DATA_DIR/enriched/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed \
     --fetch-cc
 
 # For local data with binary_content already present
-python tutorials/math/run_text_preprocess.py \
+python tutorials/math/2_text_preprocess.py \
     --input "tutorials/math/data/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed
 
 # Optional: Add --report-stats to see extraction statistics
-python tutorials/math/run_text_preprocess.py \
+python tutorials/math/2_text_preprocess.py \
     --input "tutorials/math/data/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed \
     --report-stats
@@ -336,17 +425,17 @@ python tutorials/math/run_text_preprocess.py \
 
 **Output**: JSONL files with columns: `text`, `url`, `type`
 
-## Step 2: Quality Classification
+## Step 3: Quality Classification
 
 Classify mathematical content quality using the FineMath model:
 
 ```bash
-python tutorials/math/run_quality_classifier.py \
+python tutorials/math/3_quality_classifier.py \
   --input "$MATH_DATA_DIR/preprocessed/*.jsonl" \
   --output $MATH_DATA_DIR/classified
 ```
 
-**Input**: JSONL files from Step 1
+**Input**: JSONL files from Step 2
 
 **Output**: JSONL files with additional columns:
 - `finemath_scores`: float scores (0..5)
@@ -360,12 +449,12 @@ python tutorials/math/run_quality_classifier.py \
 {"id":3,"text":"We have $$\\int_0^1 x^2 dx = 1/3.$$.","finemath_scores":1.9150390625,"finemath_int_scores":2}
 ```
 
-## Step 3: Deduplication
+## Step 4: Deduplication
 
 Remove duplicate content using fuzzy deduplication:
 
 ```bash
-python tutorials/math/run_deduplication.py \
+python tutorials/math/4_deduplication.py \
   --input $MATH_DATA_DIR/classified \
   --cache_dir $MATH_DATA_DIR/dedup_cache \
   --duplicate_ids_dir $MATH_DATA_DIR/dedup_ids \
@@ -373,7 +462,7 @@ python tutorials/math/run_deduplication.py \
   --input_filetype jsonl
 ```
 
-**Input**: JSONL files from Step 2
+**Input**: JSONL files from Step 3
 
 **Output**: Deduplicated JSONL files
 
@@ -383,16 +472,14 @@ python tutorials/math/run_deduplication.py \
 
 **Note**: The `cache_dir` must be empty between runs.
 
-## Step 4: LLM Cleanup
+## Step 5: LLM Cleanup
 
-Clean and refine text using a large language model (optional chunking for long texts):
+Clean and refine text using a large language model. This step uses vLLM for efficient inference and requires a GPU.
 
-### Option 1: Clean with chunking (for long texts)
-
-For long texts that exceed model context limits, chunk first then clean each chunk:
+**Note**: The `--chunk_data` flag is required to tokenize and chunk the input text before LLM processing.
 
 ```bash
-python tutorials/math/run_cleanup_webpages_with_llm.py \
+python tutorials/math/5_llm_cleanup.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned \
   --model microsoft/phi-4 \
@@ -402,31 +489,18 @@ python tutorials/math/run_cleanup_webpages_with_llm.py \
   --input_filetype parquet
 ```
 
-**Input**: JSONL files from Step 3
+**Input**: Parquet files from Step 4
 
 **Output**: JSONL files with additional columns:
 - `cleaned_text`: LLM-processed text (or `label` if `--classification` is used)
-- `chunk_id`: Sequential chunk identifier (if chunking was used)
-- `n_tokens`: Number of tokens in the chunk (if chunking was used)
+- `chunk_id`: Sequential chunk identifier
 - All original metadata fields preserved
 
-### Option 2: Clean without chunking (for short texts)
-
-For texts that fit within model context limits, clean directly:
-
-```bash
-python tutorials/math/run_cleanup_webpages_with_llm.py \
-  --input $MATH_DATA_DIR/deduplicated \
-  --output $MATH_DATA_DIR/cleaned \
-  --model microsoft/phi-4 \
-  --prompt HTML_TO_TEXT_PROMPT \
-  --input_filetype parquet
-```
-
 **Additional options**:
+- `--chunk_length`: Maximum tokens per chunk (default: 5000)
 - `--classification`: Output classification labels instead of cleaned text
 - `--max_model_len`: Maximum model context length (auto-detected if not specified)
-- `--filter_by_n_tokens`: Filter chunks by token count (requires `--chunk_data`)
+- `--filter_by_n_tokens`: Filter chunks by token count
 - `--temperature`, `--top_p`, `--top_k`, `--min_p`: Sampling parameters
 
 ## Alternative Prompts and Use Cases
@@ -440,7 +514,7 @@ The LLM cleanup step supports various specialized prompts for different mathemat
 **`HTML_TO_TEXT_PROMPT_CODE`**: For pages mixing math and significant code (e.g., computational math tutorials)
 
 ```bash
-python tutorials/math/run_cleanup_webpages_with_llm.py \
+python tutorials/math/5_llm_cleanup.py \
   --input $MATH_DATA_DIR/deduplicated \
   --output $MATH_DATA_DIR/cleaned_code \
   --model microsoft/phi-4 \
@@ -449,37 +523,3 @@ python tutorials/math/run_cleanup_webpages_with_llm.py \
   --chunk_length 5000 \
   --input_filetype parquet
 ```
----
-
-## Orchestrated Processing (Multiple Datasets)
-
-Use `run_all_preprocess.py` to process multiple datasets with automatic CC Index lookup:
-
-```bash
-# Process FineMath (has WARC metadata, direct fetch)
-python tutorials/math/run_all_preprocess.py \
-    --output-base $MATH_DATA_DIR \
-    --datasets FINEMATH_4PLUS
-
-# Process OpenWebMath (needs CC Index lookup)
-python tutorials/math/run_all_preprocess.py \
-    --output-base $MATH_DATA_DIR \
-    --datasets OPENWEBMATH \
-    --crawls CC-MAIN-2024-10
-
-# Process all datasets with CC Index lookup
-python tutorials/math/run_all_preprocess.py \
-    --output-base $MATH_DATA_DIR \
-    --crawls CC-MAIN-2024-10 CC-MAIN-2024-18
-
-# Only process datasets that don't need CC lookup
-python tutorials/math/run_all_preprocess.py \
-    --output-base $MATH_DATA_DIR \
-    --ready-only
-```
-
----
-
-## Running Individual Steps
-
-You can also run individual steps independently with custom input/output directories. Just ensure the input format matches what each script expects.
