@@ -233,25 +233,26 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         return results
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from cuml.cluster.kmeans import KMeans as cumlKMeans
+        # from cuml.cluster.kmeans_mg import KMeansMG as cumlKMeans
 
-        if not hasattr(self, "_raft_handle"):
-            msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"
-            raise ValueError(msg)
+        # if not hasattr(self, "_raft_handle"):
+        #     msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"
+        #     raise ValueError(msg)
 
-        self.kmeans = cumlKMeans(
-            handle=self._raft_handle,
-            output_type="cupy",
-            init=self.init,
-            n_clusters=self.n_clusters,
-            max_iter=self.max_iter,
-            tol=self.tol,
-            random_state=self.random_state,
-            verbose=self.verbose,
-            n_init=self.n_init,
-            oversampling_factor=self.oversampling_factor,
-            max_samples_per_batch=self.max_samples_per_batch,
-        )
+        # self.kmeans = cumlKMeans(
+        #     handle=self._raft_handle,
+        #     output_type="cupy",
+        #     init=self.init,
+        #     n_clusters=self.n_clusters,
+        #     max_iter=self.max_iter,
+        #     tol=self.tol,
+        #     random_state=self.random_state,
+        #     verbose=self.verbose,
+        #     n_init=self.n_init,
+        #     oversampling_factor=self.oversampling_factor,
+        #     max_samples_per_batch=self.max_samples_per_batch,
+        # )
+        pass
 
     @staticmethod
     def normalize_embeddings_col_in_df(df: "cudf.DataFrame", embedding_col: str) -> "cudf.DataFrame":
