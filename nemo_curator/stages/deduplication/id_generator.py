@@ -106,7 +106,6 @@ def create_id_generator_actor(filepath: str | None = None, storage_options: dict
     ray.init(ignore_reinit_error=True)
 
     try:
-        actor_handle = ray.actor.ActorHandle[IdGenerator]
         if filepath is None:
             actor_handle = IdGenerator.options(
                 name=CURATOR_ID_GENERATOR_ACTOR_NAME, namespace=CURATOR_ID_GENERATOR_ACTOR_NAME, lifetime="detached"
