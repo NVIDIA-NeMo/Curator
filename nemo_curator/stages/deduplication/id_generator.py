@@ -81,6 +81,10 @@ class IdGeneratorBase:
 class IdGenerator(IdGeneratorBase):
     """Ray actor version of IdGenerator."""
 
+    def wait(self) -> None:
+        """Function used by create_id_generator_actor to make sure the actor is started."""
+        return
+
 
 def get_id_generator_actor() -> ActorHandle[IdGenerator]:
     return ray.get_actor(name=CURATOR_ID_GENERATOR_ACTOR_NAME, namespace=CURATOR_ID_GENERATOR_ACTOR_NAME)
@@ -102,8 +106,9 @@ def create_id_generator_actor(filepath: str | None = None, storage_options: dict
     ray.init(ignore_reinit_error=True)
 
     try:
+        actor_handle = ray.actor.ActorHandle[IdGenerator]
         if filepath is None:
-            _ = IdGenerator.options(
+            actor_handle = IdGenerator.options(
                 name=CURATOR_ID_GENERATOR_ACTOR_NAME, namespace=CURATOR_ID_GENERATOR_ACTOR_NAME, lifetime="detached"
             ).remote()
         else:
@@ -113,9 +118,12 @@ def create_id_generator_actor(filepath: str | None = None, storage_options: dict
             with fsspec.open(filepath, mode="r", **storage_options) as f:
                 data = json.load(f)
             # Create actor with loaded data
-            _ = IdGenerator.options(
+            actor_handle = IdGenerator.options(
                 name=CURATOR_ID_GENERATOR_ACTOR_NAME, namespace=CURATOR_ID_GENERATOR_ACTOR_NAME, lifetime="detached"
             ).remote(start_id=data["next_id"], batch_registry=data["batch_registry"])
+        # Wait for the actor to be ready, so next call to get_id_generator_actor
+        # will always work.
+        ray.get(actor_handle.wait.remote())
     except Exception as e:
         logger.error(f"Error creating id generator actor: {e}")
         raise
