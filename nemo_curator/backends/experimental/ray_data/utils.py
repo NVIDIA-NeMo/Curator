@@ -49,8 +49,10 @@ def calculate_concurrency_for_actors_for_stage(
         max_gpu_actors = available_gpus // stage.resources.gpus
 
     # Take the minimum of CPU and GPU constraints
-    max_actors = min(max_cpu_actors, max_gpu_actors)
-    return (1, int(max_actors))
+    max_actors = int(min(max_cpu_actors, max_gpu_actors))
+    # Return fixed concurrency instead of range (1, max) to prevent Ray Data from over-scaling
+    # A range allows Ray to spawn anywhere from 1 to max workers, which can cause OOM
+    return max(1, max_actors)
 
 
 def is_actor_stage(stage: ProcessingStage) -> bool:
