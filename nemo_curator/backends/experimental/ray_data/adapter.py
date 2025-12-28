@@ -86,16 +86,18 @@ class RayDataStageAdapter(BaseStageAdapter):
 
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
+        # Calculate concurrency for ALL stages to prevent unlimited worker spawning
+        calculated_concurrency = calculate_concurrency_for_actors_for_stage(
+            self.stage, ignore_head_node=ignore_head_node
+        )
+
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
-            concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(
-                    self.stage, ignore_head_node=ignore_head_node
-                ),
-            }
         else:
             map_batches_fn = create_task_from_stage(self.stage)
-            concurrency_kwargs = {"concurrency": None}
+
+        # Always set explicit concurrency to prevent Ray Data from spawning unlimited workers
+        concurrency_kwargs = {"concurrency": calculated_concurrency}
 
         if self.stage.resources.cpus > 0:
             concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
