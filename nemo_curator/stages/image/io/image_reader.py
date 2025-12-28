@@ -36,20 +36,15 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
     batch_size: int = 100
     verbose: bool = True
     num_threads: int = 8
-    num_gpus_per_worker: float = 0.25
+    num_gpus_per_worker: float = 1.0  # One worker per GPU to prevent OOM
     name: str = "image_reader"
 
     def __post_init__(self) -> None:
-        # Allow both GPU and CPU DALI; log mode for visibility
-        if torch.cuda.is_available():
-            logger.info("ImageReaderStage using DALI GPU decode.")
-        else:
-            logger.info("CUDA not available; ImageReaderStage using DALI CPU decode.")
-
-        if torch.cuda.is_available():
-            self.resources = Resources(gpus=self.num_gpus_per_worker)
-        else:
-            self.resources = Resources()
+        # Always request GPU resources so stage gets scheduled on GPU workers
+        # CUDA availability is checked at runtime on workers, not during init
+        # This allows running with a CPU-only head node
+        self.resources = Resources(gpus=self.num_gpus_per_worker)
+        logger.info(f"ImageReaderStage requesting {self.num_gpus_per_worker} GPUs per worker.")
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return [], []
@@ -67,10 +62,13 @@ class ImageReaderStage(ProcessingStage[FileGroupTask, ImageBatch]):
             )
             raise RuntimeError(msg) from exc
 
+        # Set device_id based on runtime CUDA availability (checked on worker, not head node)
+        dali_device_id = 0 if torch.cuda.is_available() else None
+
         @pipeline_def(
             batch_size=self.batch_size,
             num_threads=self.num_threads,
-            device_id=0,  # First device; unused for CPU-only DALI builds
+            device_id=dali_device_id,
         )
         def webdataset_pipeline() -> object:
             # Read only JPGs to avoid Python-side JSON parsing overhead
