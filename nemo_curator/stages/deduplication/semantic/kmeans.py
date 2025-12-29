@@ -234,7 +234,7 @@ class KMeansReadFitWriteStage(ProcessingStage[FileGroupTask, _EmptyTask], Dedupl
         return results
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
-        from cuml.cluster.kmeans_mg import KMeansMG as cumlKMeans
+        from cuml.cluster.kmeans import KMeans as cumlKMeans
 
         if not hasattr(self, "_raft_handle"):
             msg = "RAFT handle not found. Make sure the stage is initialized with RAFT"
