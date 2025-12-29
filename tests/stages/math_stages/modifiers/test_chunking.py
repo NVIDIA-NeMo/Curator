@@ -203,7 +203,7 @@ class TestTokenSplitterStage:
         for _, row in result.data.iterrows():
             if row["chunk_id"] < len(result.data) - 1:
                 # Non-last chunks should end with separator
-                assert row["text"].endswith("\n") or len(result.data) == 1
+                assert row["text"].endswith("\n")
 
     def test_process_chunk_id_sequential(self):
         """Test that chunk_id is sequential for each document."""

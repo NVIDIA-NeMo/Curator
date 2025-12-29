@@ -18,7 +18,7 @@ uv pip install --force-reinstall pynvml
 ## Prerequisites
 
 ### System Dependencies
-- GPU(s) with CUDA for the HF model and vLLM
+- GPU(s) with CUDA for the Hugging Face model and vLLM
 - Python environment with `nemo-curator[math_cuda12]` installed (uv sync above)
 - Lynx system dependency for HTML rendering to text:
   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`
@@ -486,10 +486,10 @@ python tutorials/math/5_llm_cleanup.py \
   --prompt HTML_TO_TEXT_PROMPT \
   --chunk_data \
   --chunk_length 5000 \
-  --input_filetype parquet
+  --input_filetype jsonl
 ```
 
-**Input**: Parquet files from Step 4
+**Input**: JSONL files from Step 4
 
 **Output**: JSONL files with additional columns:
 - `cleaned_text`: LLM-processed text (or `label` if `--classification` is used)
@@ -521,5 +521,5 @@ python tutorials/math/5_llm_cleanup.py \
   --prompt HTML_TO_TEXT_PROMPT_CODE \
   --chunk_data \
   --chunk_length 5000 \
-  --input_filetype parquet
+  --input_filetype jsonl
 ```

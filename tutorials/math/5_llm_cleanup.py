@@ -137,7 +137,8 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Input directory or glob pattern for JSONL/Parquet files")
     parser.add_argument("--output", required=True, help="Output directory for cleaned JSONL files")
     parser.add_argument("--model", required=True, help="Model identifier (e.g., microsoft/phi-4)")
-    parser.add_argument("--prompt", required=True, help="Prompt name from prompts module (e.g., HTML_TO_TEXT_PROMPT)")
+    parser.add_argument("--prompt", required=True, help="""Prompt name from prompts module (e.g., HTML_TO_TEXT_PROMPT).
+        Must match one of the prompts from the prompts module.""")
     parser.add_argument(
         "--input_filetype",
         choices=["jsonl", "parquet"],

@@ -145,8 +145,8 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             user_prompt = self.system_prompt.format(text=text)
 
             if is_qwen3_30b_a3b:
-                user_prompt = user_prompt + " /nothink"
-                system_content = " /nothink"
+                user_prompt = user_prompt + " /no_think"
+                system_content = " /no_think"
             else:
                 system_content = ""
 
