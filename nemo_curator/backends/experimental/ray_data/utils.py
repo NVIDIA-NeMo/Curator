@@ -36,13 +36,19 @@ def calculate_concurrency_for_actors_for_stage(
     available_cpus, available_gpus = get_available_cpu_gpu_resources(
         init_and_shutdown=False, ignore_head_node=ignore_head_node
     )
+
+    # Reserve some CPUs for CPU-only stages (file partitioning, etc.)
+    # This prevents GPU stages from starving CPU stages
+    reserved_cpus_for_other_stages = max(4, available_cpus * 0.1)  # At least 4 CPUs or 10%
+    available_cpus_for_stage = max(1, available_cpus - reserved_cpus_for_other_stages)
+
     # Calculate based on CPU and GPU requirements
     max_cpu_actors = float("inf")
     max_gpu_actors = float("inf")
 
     # CPU constraint
     if stage.resources.cpus > 0:
-        max_cpu_actors = available_cpus // stage.resources.cpus
+        max_cpu_actors = available_cpus_for_stage // stage.resources.cpus
 
     # GPU constraint
     if stage.resources.gpus > 0:

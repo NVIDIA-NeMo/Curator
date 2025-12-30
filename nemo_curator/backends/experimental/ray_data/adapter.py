@@ -99,8 +99,14 @@ class RayDataStageAdapter(BaseStageAdapter):
         # Always set explicit concurrency to prevent Ray Data from spawning unlimited workers
         concurrency_kwargs = {"concurrency": calculated_concurrency}
 
+        # Always explicitly set num_cpus to prevent Ray Data from defaulting to 1 CPU per task
+        # For GPU-only stages, this should be 0 or a small value to leave CPUs for other stages
         if self.stage.resources.cpus > 0:
             concurrency_kwargs["num_cpus"] = self.stage.resources.cpus  # type: ignore[reportArgumentType]
+        else:
+            # Explicitly set to 0 for GPU-only stages to prevent default CPU allocation
+            # Ray Data defaults to 1 CPU per task if not specified, which can exhaust CPUs
+            concurrency_kwargs["num_cpus"] = 0  # type: ignore[reportArgumentType]
         if self.stage.resources.gpus > 0:
             concurrency_kwargs["num_gpus"] = self.stage.resources.gpus  # type: ignore[reportArgumentType]
 
