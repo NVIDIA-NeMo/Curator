@@ -18,6 +18,8 @@ from typing import Literal
 import pandas as pd
 import torch
 import torch.nn.functional as F  # noqa: N812
+from loguru import logger
+from sentence_transformers import SentenceTransformer
 from transformers import AutoModel
 
 from nemo_curator.backends.base import WorkerMetadata
@@ -98,9 +100,49 @@ class EmbeddingModelStage(ModelStage):
         return F.normalize(last_token_embeddings, dim=1)
 
 
+class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
+    def __init__(  # noqa: PLR0913
+        self,
+        model_identifier: str,
+        embedding_field: str = "embeddings",
+        hf_token: str | None = None,
+        model_inference_batch_size: int = 1024,
+        has_seq_order: bool = True,
+        padding_side: Literal["left", "right"] = "right",
+        autocast: bool = True,
+    ):
+        super().__init__(
+            model_identifier=model_identifier,
+            hf_token=hf_token,
+            model_inference_batch_size=model_inference_batch_size,
+            has_seq_order=has_seq_order,
+            padding_side=padding_side,
+            autocast=autocast,
+        )
+        # Override unpack_inference_batch to False as SentenceTransformer expects a dictionary input
+        self.unpack_inference_batch = False
+        self.embedding_field = embedding_field
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        return ["data"], [self.embedding_field]
+
+    def setup(self, _: WorkerMetadata | None = None) -> None:
+        """Load the model for inference."""
+        self.model = SentenceTransformer(self.model_identifier, local_files_only=True)
+        self.model.eval().to("cuda")
+
+    def process_model_output(
+        self,
+        outputs: torch.Tensor,
+        model_input_batch: dict[str, torch.Tensor] | None = None,  # noqa: ARG002
+    ) -> torch.Tensor:
+        return outputs["sentence_embedding"].cpu()
+
+
 @dataclass(kw_only=True)
 class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     model_identifier: str = "sentence-transformers/all-MiniLM-L6-v2"
+    use_sentence_transformer: bool = True
     text_field: str = "text"
     embedding_field: str = "embeddings"
     max_chars: int | None = None
@@ -115,6 +157,16 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     def __post_init__(self) -> None:
         super().__init__()
 
+        model_class = SentenceTransformerEmbeddingModelStage if self.use_sentence_transformer else EmbeddingModelStage
+
+        if self.use_sentence_transformer:
+            logger.warning("Using SentenceTransformer for embedding model ignoring embedding_pooling")
+            model_additional_kwargs = {}
+        else:
+            model_additional_kwargs = {
+                "pooling": self.embedding_pooling,
+            }
+
         self.stages = [
             TokenizerStage(
                 model_identifier=self.model_identifier,
@@ -125,15 +177,15 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 padding_side=self.padding_side,
                 sort_by_length=self.sort_by_length,
             ),
-            EmbeddingModelStage(
+            model_class(
                 model_identifier=self.model_identifier,
                 embedding_field=self.embedding_field,
-                pooling=self.embedding_pooling,
                 hf_token=self.hf_token,
                 model_inference_batch_size=self.model_inference_batch_size,
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
                 autocast=self.autocast,
+                **model_additional_kwargs,
             ),
         ]
 
