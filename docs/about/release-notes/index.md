@@ -190,13 +190,27 @@ graph LR
 
 For all tutorial content, refer to the [tutorials directory](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials) in the NeMo Curator GitHub repository.
 
+## Synthetic Data Generation
+
+New Ray-based synthetic data generation capabilities for creating and augmenting training data using LLMs:
+
+- **LLM Client Infrastructure**: OpenAI-compatible async/sync clients with automatic rate limiting, retry logic, and exponential backoff
+- **Multilingual Q&A Generation**: Generate synthetic Q&A pairs across multiple languages using customizable prompts
+- **NemotronCC Pipelines**: Advanced text transformation and knowledge extraction workflows:
+  - **Wikipedia Paraphrasing**: Improve low-quality text by rewriting in Wikipedia-style prose
+  - **Diverse QA**: Generate diverse question-answer pairs for reading comprehension training
+  - **Distill**: Create condensed, information-dense paraphrases preserving key concepts
+  - **Extract Knowledge**: Extract factual content as textbook-style passages
+  - **Knowledge List**: Extract structured fact lists from documents
+
+Learn more in the [Synthetic Data Generation documentation](../../curate-text/synthetic/index.md).
+
 ## Known Limitations
 
 > (Pending Refactor in Future Release)
 
 ### Generation
 
-- **Synthetic data generation**: Synthetic text generation features are being refactored for Ray compatibility
 - **Hard negative mining**: Retrieval-based data generation workflows under development
 
 ### PII

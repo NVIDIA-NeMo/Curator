@@ -1,0 +1,301 @@
+---
+description: "Configure LLM clients for synthetic data generation with NVIDIA APIs or custom endpoints"
+categories: ["how-to-guides"]
+tags: ["llm-client", "openai", "nvidia-api", "configuration"]
+personas: ["data-scientist-focused", "mle-focused"]
+difficulty: "beginner"
+content_type: "how-to"
+modality: "text-only"
+---
+
+(synthetic-llm-client)=
+# LLM Client Configuration
+
+NeMo Curator's synthetic data generation uses OpenAI-compatible clients to communicate with LLM inference servers. This guide covers client configuration, performance tuning, and integration with various endpoints.
+
+## Overview
+
+Two client types are available:
+
+- **`AsyncOpenAIClient`**: Recommended for high-throughput batch processing with concurrent requests
+- **`OpenAIClient`**: Synchronous client for simpler use cases or debugging
+
+For most SDG workloads, use `AsyncOpenAIClient` to maximize throughput.
+
+## Basic Configuration
+
+### NVIDIA API Endpoints
+
+```python
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+
+client = AsyncOpenAIClient(
+    api_key="your-nvidia-api-key",  # Or use NVIDIA_API_KEY env var
+    base_url="https://integrate.api.nvidia.com/v1",
+    max_concurrent_requests=5,
+)
+```
+
+### Environment Variables
+
+Set your API key as an environment variable to avoid hardcoding credentials:
+
+```bash
+export NVIDIA_API_KEY="nvapi-..."
+```
+
+The client automatically uses `NVIDIA_API_KEY` or `OPENAI_API_KEY` if not explicitly provided.
+
+## Generation Parameters
+
+Configure LLM generation behavior using `GenerationConfig`:
+
+```python
+from nemo_curator.models.client.llm_client import GenerationConfig
+
+config = GenerationConfig(
+    max_tokens=2048,
+    temperature=0.7,
+    top_p=0.95,
+    seed=42,  # For reproducibility
+)
+```
+
+```{list-table} Generation Parameters
+:header-rows: 1
+:widths: 20 15 15 50
+
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `max_tokens`
+  - int
+  - 2048
+  - Maximum tokens to generate per request
+* - `temperature`
+  - float
+  - 0.0
+  - Sampling temperature (0.0-2.0). Higher values increase randomness
+* - `top_p`
+  - float
+  - 0.95
+  - Nucleus sampling parameter (0.0-1.0)
+* - `top_k`
+  - int
+  - None
+  - Top-k sampling (if supported by the endpoint)
+* - `seed`
+  - int
+  - 0
+  - Random seed for reproducibility
+* - `stop`
+  - str/list
+  - None
+  - Stop sequences to end generation
+* - `stream`
+  - bool
+  - False
+  - Enable streaming (not recommended for batch processing)
+* - `n`
+  - int
+  - 1
+  - Number of completions to generate per request
+```
+
+## Performance Tuning
+
+### Concurrency vs. Parallelism
+
+The `max_concurrent_requests` parameter controls how many API requests the client can have in-flight simultaneously. This interacts with Ray's distributed workers:
+
+- **Client-level concurrency**: `max_concurrent_requests` limits concurrent API calls per worker
+- **Worker-level parallelism**: Ray distributes tasks across multiple workers
+
+```python
+# For NVIDIA API endpoints with rate limits
+client = AsyncOpenAIClient(
+    base_url="https://integrate.api.nvidia.com/v1",
+    max_concurrent_requests=3,  # Conservative for cloud APIs
+)
+
+# For local vLLM server with more capacity
+client = AsyncOpenAIClient(
+    base_url="http://localhost:8000/v1",
+    max_concurrent_requests=16,  # Higher for local deployment
+)
+```
+
+### Optimal Settings
+
+```{list-table} Recommended Concurrency Settings
+:header-rows: 1
+:widths: 30 25 45
+
+* - Endpoint Type
+  - Recommended Setting
+  - Notes
+* - NVIDIA API (cloud)
+  - 3-5
+  - Respects rate limits; increase gradually
+* - Local vLLM
+  - 8-32
+  - Depends on GPU memory and model size
+* - Local TGI
+  - 8-16
+  - Adjust based on server configuration
+```
+
+### Retry Configuration
+
+The client includes automatic retry with exponential backoff for transient errors:
+
+```python
+client = AsyncOpenAIClient(
+    base_url="https://integrate.api.nvidia.com/v1",
+    max_retries=3,        # Number of retry attempts
+    base_delay=1.0,       # Base delay in seconds
+    timeout=120,          # Request timeout
+)
+```
+
+The retry logic handles:
+- **Rate limit errors (429)**: Automatic backoff with jitter
+- **Connection errors**: Retry with exponential delay
+- **Transient failures**: Configurable retry attempts
+
+## Using Custom Endpoints
+
+````{tab-set}
+
+```{tab-item} Local vLLM Server
+
+Deploy a local vLLM server and configure the client:
+
+**Start vLLM server:**
+```bash
+vllm serve meta-llama/Llama-3.3-70B-Instruct \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --tensor-parallel-size 4
+```
+
+**Configure client:**
+```python
+client = AsyncOpenAIClient(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed",  # vLLM doesn't require API key by default
+    max_concurrent_requests=16,
+    timeout=300,  # Longer timeout for large models
+)
+```
+```
+
+```{tab-item} Text Generation Inference (TGI)
+
+Deploy a TGI server and configure the client:
+
+**Start TGI server:**
+```bash
+docker run --gpus all -p 8080:80 \
+    ghcr.io/huggingface/text-generation-inference:latest \
+    --model-id meta-llama/Llama-3.3-70B-Instruct
+```
+
+**Configure client:**
+```python
+client = AsyncOpenAIClient(
+    base_url="http://localhost:8080/v1",
+    api_key="not-needed",
+    max_concurrent_requests=8,
+)
+```
+```
+
+```{tab-item} OpenAI API
+
+Use the official OpenAI API:
+
+```python
+client = AsyncOpenAIClient(
+    base_url="https://api.openai.com/v1",
+    api_key="sk-...",  # Or set OPENAI_API_KEY env var
+    max_concurrent_requests=5,
+)
+```
+```
+
+````
+
+## Complete Example
+
+```python
+import os
+from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.models.client.llm_client import GenerationConfig
+from nemo_curator.pipeline import Pipeline
+from nemo_curator.stages.synthetic.qa_multilingual_synthetic import QAMultilingualSyntheticStage
+
+# Configure client
+client = AsyncOpenAIClient(
+    api_key=os.environ.get("NVIDIA_API_KEY"),
+    base_url="https://integrate.api.nvidia.com/v1",
+    max_concurrent_requests=5,
+    max_retries=3,
+    base_delay=1.0,
+)
+
+# Configure generation
+config = GenerationConfig(
+    temperature=0.9,
+    top_p=0.95,
+    max_tokens=2048,
+)
+
+# Use in a pipeline stage
+pipeline = Pipeline(name="sdg_example")
+pipeline.add_stage(
+    QAMultilingualSyntheticStage(
+        prompt="Generate a Q&A pair about science in {language}.",
+        languages=["English", "French", "German"],
+        client=client,
+        model_name="meta/llama-3.3-70b-instruct",
+        num_samples=100,
+        generation_config=config,
+    )
+)
+```
+
+## Troubleshooting
+
+### Rate Limit Errors
+
+If you encounter frequent 429 errors:
+1. Reduce `max_concurrent_requests`
+2. Increase `base_delay` for longer backoff
+3. Consider using a local deployment for high-volume workloads
+
+### Connection Timeouts
+
+For large models or slow networks:
+```python
+client = AsyncOpenAIClient(
+    base_url="...",
+    timeout=300,  # Increase from default 120 seconds
+)
+```
+
+### Local Server Issues
+
+If experiencing connection errors with local servers:
+- Check server resource utilization (GPU memory, CPU)
+- Reduce concurrent requests
+- Verify the server is running and accessible
+
+---
+
+## Next Steps
+
+- {ref}`multilingual-qa-tutorial`: Generate multilingual Q&A pairs
+- {ref}`nemotron-cc-overview`: Advanced text transformation pipelines
+
