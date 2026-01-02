@@ -118,32 +118,6 @@ client = AsyncOpenAIClient(
     base_url="https://integrate.api.nvidia.com/v1",
     max_concurrent_requests=3,  # Conservative for cloud APIs
 )
-
-# For local vLLM server with more capacity
-client = AsyncOpenAIClient(
-    base_url="http://localhost:8000/v1",
-    max_concurrent_requests=16,  # Higher for local deployment
-)
-```
-
-### Optimal Settings
-
-```{list-table} Recommended Concurrency Settings
-:header-rows: 1
-:widths: 30 25 45
-
-* - Endpoint Type
-  - Recommended Setting
-  - Notes
-* - NVIDIA API (cloud)
-  - 3-5
-  - Respects rate limits; increase gradually
-* - Local vLLM
-  - 8-32
-  - Depends on GPU memory and model size
-* - Local TGI
-  - 8-16
-  - Adjust based on server configuration
 ```
 
 ### Retry Configuration
@@ -164,68 +138,25 @@ The retry logic handles:
 - **Connection errors**: Retry with exponential delay
 - **Transient failures**: Configurable retry attempts
 
-## Using Custom Endpoints
+## Using Other OpenAI-Compatible Endpoints
 
-::::{tab-set}
-
-:::{tab-item} Local vLLM Server
-
-Deploy a local vLLM server and configure the client:
-
-**Start vLLM server:**
-```bash
-vllm serve meta-llama/Llama-3.3-70B-Instruct \
-    --host 0.0.0.0 \
-    --port 8000 \
-    --tensor-parallel-size 4
-```
-
-**Configure client:**
-```python
-client = AsyncOpenAIClient(
-    base_url="http://localhost:8000/v1",
-    api_key="not-needed",  # vLLM doesn't require API key by default
-    max_concurrent_requests=16,
-    timeout=300,  # Longer timeout for large models
-)
-```
-:::
-
-:::{tab-item} Text Generation Inference (TGI)
-
-Deploy a TGI server and configure the client:
-
-**Start TGI server:**
-```bash
-docker run --gpus all -p 8080:80 \
-    ghcr.io/huggingface/text-generation-inference:latest \
-    --model-id meta-llama/Llama-3.3-70B-Instruct
-```
-
-**Configure client:**
-```python
-client = AsyncOpenAIClient(
-    base_url="http://localhost:8080/v1",
-    api_key="not-needed",
-    max_concurrent_requests=8,
-)
-```
-:::
-
-:::{tab-item} OpenAI API
-
-Use the official OpenAI API:
+The `AsyncOpenAIClient` works with any OpenAI-compatible API endpoint. Simply configure the `base_url` and `api_key` parameters:
 
 ```python
+# OpenAI API
 client = AsyncOpenAIClient(
     base_url="https://api.openai.com/v1",
     api_key="sk-...",  # Or set OPENAI_API_KEY env var
     max_concurrent_requests=5,
 )
-```
-:::
 
-::::
+# Any OpenAI-compatible endpoint
+client = AsyncOpenAIClient(
+    base_url="http://your-endpoint/v1",
+    api_key="your-api-key",
+    max_concurrent_requests=5,
+)
+```
 
 ## Complete Example
 
@@ -277,20 +208,13 @@ If you encounter frequent 429 errors:
 
 ### Connection Timeouts
 
-For large models or slow networks:
+For slow networks or high-latency endpoints:
 ```python
 client = AsyncOpenAIClient(
     base_url="...",
     timeout=300,  # Increase from default 120 seconds
 )
 ```
-
-### Local Server Issues
-
-If experiencing connection errors with local servers:
-- Check server resource utilization (GPU memory, CPU)
-- Reduce concurrent requests
-- Verify the server is running and accessible
 
 ---
 

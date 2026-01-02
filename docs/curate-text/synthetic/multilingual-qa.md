@@ -254,7 +254,7 @@ python synthetic_data_generation_example.py \
   - NVIDIA API
   - Base URL for the API endpoint
 * - `--model-name`
-  - llama-3.3-70b
+  - meta/llama-3.3-70b-instruct
   - Model to use for generation
 * - `--languages`
   - EN, FR, DE, ES, IT

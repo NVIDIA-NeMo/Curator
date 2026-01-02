@@ -45,19 +45,13 @@ python synthetic_data_generation_example.py \
 ### NemotronCC Pipelines
 
 ```bash
-# Run DiverseQA pipeline with mock data (requires tokenizer access)
+# High-quality processing: Run any task (diverse_qa, distill, extract_knowledge, knowledge_list)
 python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
     --task diverse_qa \
     --tokenizer meta-llama/Llama-3.3-70B-Instruct \
     --mock
 
-# Run Distill pipeline
-python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
-    --task distill \
-    --tokenizer meta-llama/Llama-3.3-70B-Instruct \
-    --mock
-
-# Run Wikipedia Paraphrasing for low-quality data
+# Low-quality processing: Wikipedia-style paraphrasing to improve text quality
 python nemotron_cc/nemotron_cc_sdg_low_quality_example_pipeline.py \
     --tokenizer meta-llama/Llama-3.3-70B-Instruct \
     --mock
@@ -77,26 +71,16 @@ python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
 
 ## Command-Line Arguments
 
-### Common Arguments
+Refer to each script's `--help` output for the complete list of available arguments.
 
 | Argument | Default | Description |
 |----------|---------|-------------|
 | `--api-key` | env var | NVIDIA API key |
 | `--base-url` | NVIDIA API | Base URL for API endpoint |
-| `--model-name` | llama-3.3-70b | Model to use for generation |
+| `--model-name` | meta/llama-3.3-70b-instruct | Model to use for generation |
 | `--output-path` | ./synthetic_output | Output directory |
 | `--max-concurrent-requests` | 3 | Concurrent API requests |
 | `--temperature` | 0.9 (QA) / 0.5 (NemotronCC) | Sampling temperature |
-
-### NemotronCC-Specific Arguments
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--task` | diverse_qa | Task type (diverse_qa, distill, extract_knowledge, knowledge_list) |
-| `--tokenizer` | required | HuggingFace tokenizer name |
-| `--mock` | False | Use built-in test data |
-| `--input-parquet-path` | None | Input Parquet file path/glob |
-| `--output-format` | parquet | Output format (jsonl, parquet) |
 
 ## Example Output
 
@@ -107,19 +91,9 @@ python nemotron_cc/nemotron_cc_sdg_high_quality_example_pipeline.py \
 {"text": "[FR] Question: Qu'est-ce que la photosynthèse? Answer: La photosynthèse est le processus par lequel les plantes convertissent la lumière du soleil en énergie."}
 ```
 
-### DiverseQA
+### NemotronCC
 
-The output contains the original text followed by generated Q&A pairs:
-
-```text
-The Amazon rainforest contains an unparalleled diversity of plant and animal species...
-
-Question: What makes the Amazon rainforest unique in terms of biodiversity?
-Answer: The Amazon rainforest contains an unparalleled diversity of plant and animal species.
-
-Question: True or False: The Amazon rainforest has limited species diversity.
-Answer: False. The Amazon rainforest contains an unparalleled diversity of species.
-```
+See the [NemotronCC documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md) for output format details for each task type.
 
 ---
 
