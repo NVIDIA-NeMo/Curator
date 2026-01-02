@@ -65,7 +65,7 @@ pipeline.add_stage(FilePartitioningStage(
 pipeline.add_stage(ImageReaderStage(
     batch_size=100,
     verbose=True,
-    num_threads=16,
+    num_threads=8,
     num_gpus_per_worker=0.25,
 ))
 
@@ -109,38 +109,6 @@ The `ImageReaderStage` is the core component that handles tar archive loading wi
 ---
 
 ## Parameters
-
-### FilePartitioningStage Parameters
-
-```{list-table}
-:header-rows: 1
-:widths: 20 15 15 50
-
-* - Parameter
-  - Type
-  - Default
-  - Description
-* - `file_paths`
-  - str | list[str]
-  - Required
-  - Path to directory containing tar files, or list of file paths
-* - `files_per_partition`
-  - int | None
-  - None
-  - Number of tar files to process per partition (controls parallelism). Defaults to 1 if both `files_per_partition` and `blocksize` are not provided
-* - `file_extensions`
-  - list[str] | None
-  - `[".jsonl", ".json", ".parquet"]`
-  - List of file extensions to include (for example, `[".tar"]`)
-* - `blocksize`
-  - int | str | None
-  - None
-  - Target size of the partitions. If provided, `files_per_partition` is ignored
-* - `limit`
-  - int | None
-  - None
-  - Maximum number of partitions to create
-```
 
 ### ImageReaderStage Parameters
 
@@ -193,44 +161,3 @@ ImageObject(
 ```
 
 **Note**: Only JPEG images are extracted from tar files. Other content (text files, JSON metadata, etc.) within the tar archives is ignored during processing.
-
----
-
-## Performance Optimization
-
-### Hardware-Specific Configuration
-
-**GPU-Enabled Environments (Recommended)**
-
-```python
-# Optimal configuration for GPU acceleration
-pipeline.add_stage(ImageReaderStage(
-    batch_size=256,        # Larger batches for GPU throughput
-    num_threads=16,             # More threads for I/O parallelism
-    num_gpus_per_worker=0.5,    # Allocate more GPU memory
-    verbose=True,
-))
-```
-
-**CPU Environments**
-
-```python
-# Optimized for CPU decoding
-pipeline.add_stage(ImageReaderStage(
-    batch_size=64,         # Smaller batches to avoid memory pressure
-    num_threads=8,              # Fewer threads for CPU processing
-    num_gpus_per_worker=0,      # No GPU allocation
-    verbose=True,
-))
-```
-
-## Customization Options & Performance Tips
-
-- **GPU Acceleration**: Use a GPU-enabled environment for optimal performance. The stage automatically detects CUDA availability and uses GPU decoding when possible.
-- **Parallelism Control**: Adjust `files_per_partition` to control how many tar files are processed together. Lower values increase parallelism but may increase overhead.
-- **Batch Size Tuning**: Increase `batch_size` for better throughput, but ensure sufficient memory is available.
-- **Thread Configuration**: Adjust `num_threads` for I/O operations based on your storage system's characteristics.
-
----
-
-<!-- More advanced usage and troubleshooting tips can be added here. -->
