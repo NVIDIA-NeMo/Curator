@@ -223,6 +223,7 @@ curate-text/index.md
 Tutorials <curate-text/tutorials/index.md>
 Load Data <curate-text/load-data/index.md>
 Process Data <curate-text/process-data/index.md>
+Synthetic Data <curate-text/synthetic/index.md>
 ::::
 
 ::::{toctree}
