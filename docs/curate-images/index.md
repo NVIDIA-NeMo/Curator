@@ -105,20 +105,10 @@ Load and process JPEG images from tar archives using DALI
 
 ### Process Data
 
-Transform and enhance your image data through classification, embeddings, and filters.
+Transform and enhance your image data through embeddings, classification, and filters.
 
 ::::{grid} 1 1 1 2
 :gutter: 1 1 1 2
-
-:::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filters
-:link: image-process-data-filters
-:link-type: ref
-
-Apply built-in filters for aesthetic quality and NSFW content filtering.
-+++
-{bdg-secondary}`Aesthetic` {bdg-secondary}`NSFW` {bdg-secondary}`quality filtering`
-
-:::
 
 :::{grid-item-card} {octicon}`pencil;1.5em;sd-mr-1` Embeddings
 :link: image-process-data-embeddings
@@ -127,6 +117,16 @@ Apply built-in filters for aesthetic quality and NSFW content filtering.
 Generate image embeddings using CLIP models.
 +++
 {bdg-secondary}`embeddings`
+
+:::
+
+:::{grid-item-card} {octicon}`filter;1.5em;sd-mr-1` Filters
+:link: image-process-data-filters
+:link-type: ref
+
+Apply built-in filters for aesthetic quality and NSFW content filtering.
++++
+{bdg-secondary}`Aesthetic` {bdg-secondary}`NSFW` {bdg-secondary}`quality filtering`
 
 :::
 

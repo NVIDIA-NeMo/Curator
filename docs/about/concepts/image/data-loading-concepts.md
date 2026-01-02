@@ -1,7 +1,7 @@
 ---
 description: "Core concepts for loading and managing image datasets from tar archives with cloud storage support"
 categories: ["concepts-architecture"]
-tags: ["data-loading", "tar-archives", "dali", "cloud-storage", "sharding", "gpu-accelerated"]
+tags: ["data-loading", "tar-archives", "dali", "cloud-storage", "gpu-accelerated"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "intermediate"
 content_type: "concept"
@@ -13,8 +13,6 @@ modality: "image-only"
 # Data Loading Concepts (Image)
 
 This page covers the core concepts for loading and managing image datasets in NeMo Curator.
-
-> **Input vs. Output**: This page focuses on **input** data formats for loading datasets into NeMo Curator. For information about **output** formats (including Parquet metadata files created during export), see the [Data Export Concepts](data-export-concepts.md) page.
 
 ## Input Data Format and Directory Structure
 
@@ -45,11 +43,6 @@ input_dataset/
 :::
 
 Each record is identified by a unique ID (e.g., `000000031`), used as the prefix for all files belonging to that record.
-
-## Sharding and Metadata Management
-
-- **Sharding:** Datasets are split into multiple `.tar` files (shards) for efficient distributed processing.
-- **Metadata:** Each record has a unique ID, and metadata is stored in `.json` files (per record) within the tar archives.
 
 ## Loading from Local Disk
 
