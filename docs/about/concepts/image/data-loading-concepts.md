@@ -67,7 +67,7 @@ pipeline.add_stage(FilePartitioningStage(
 pipeline.add_stage(ImageReaderStage(
     batch_size=100,                 # Number of images per batch
     verbose=True,
-    num_threads=16,                 # Number of threads for I/O operations
+    num_threads=8,                  # Number of threads for I/O operations
     num_gpus_per_worker=0.25,       # Allocate 1/4 GPU per worker
 ))
 
