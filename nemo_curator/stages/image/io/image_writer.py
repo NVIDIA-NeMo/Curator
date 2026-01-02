@@ -107,8 +107,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         # Assert to prevent accidental overwrite if a file with the same name already exists
         if os.path.exists(tar_path):
-            err = f"Collision detected: refusing to overwrite existing tar file: {tar_path}"
-            raise AssertionError(err)
+            logger.warning(f"File {tar_path} already exists. Overwriting it.")
 
         with open(tar_path, "wb") as fobj, tarfile.open(fileobj=fobj, mode="w") as tf:
             for member_name, payload in members:
@@ -130,8 +129,7 @@ class ImageWriterStage(ProcessingStage[ImageBatch, FileGroupTask]):
 
         # Assert to prevent accidental overwrite if a file with the same name already exists
         if os.path.exists(parquet_path):
-            err = f"Collision detected: refusing to overwrite existing parquet file: {parquet_path}"
-            raise AssertionError(err)
+            logger.warning(f"File {parquet_path} already exists. Overwriting it.")
 
         # Convert rows to Arrow Table (assumes uniform keys across rows)
         table = pa.Table.from_pylist(rows)

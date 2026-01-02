@@ -18,7 +18,7 @@ Filter audio quality using transcription accuracy metrics, duration analysis, an
 Audio quality assessment in NeMo Curator focuses on speech-specific metrics that correlate with training data quality:
 
 1. **Transcription Accuracy**: Word Error Rate (WER) and Character Error Rate (CER) between ground truth and ASR predictions
-2. **Duration Analysis**: Audio length validation and speech rate calculations  
+2. **Duration Analysis**: Audio length validation and speech rate calculations
 3. **Value-based Filtering**: Configurable filtering using comparison operators
 
 ## Quality Metrics
@@ -47,21 +47,21 @@ WER measures the percentage of words that differ between ground truth and predic
 
 ### Character Error Rate (CER)
 
-More granular accuracy measurement at the character level:
+More granular accuracy measurement at the character level.  The `get_cer()` function is a utility for calculating CER programmatically::
 
 ```python
 from nemo_curator.stages.audio.metrics.get_wer import get_cer
 
-# Calculate CER programmatically
+# Calculate CER between two strings (for testing/validation)
 cer_value = get_cer("hello world", "helo world")  # Returns 9.09
 ```
 
-:::{note} The WER and CER utilities depend on the `editdistance` package.
+:::{note} The WER and CER utilities depend on the `editdistance` package. These are utility functions typically used within custom stages rather than directly in pipelines.
 :::
 
 ### Speech Rate Metrics
 
-Analyze speaking speed and content density:
+NeMo Curator provides utility functions for analyzing speaking speed and content density. These functions are designed for use in custom processing stages:
 
 ```python
 from nemo_curator.stages.audio.metrics.get_wer import get_wordrate, get_charrate
@@ -69,9 +69,12 @@ from nemo_curator.stages.audio.metrics.get_wer import get_wordrate, get_charrate
 # Calculate words per second
 word_rate = get_wordrate("hello world example", 2.5)  # 1.2 words/second
 
-# Calculate characters per second  
+# Calculate characters per second
 char_rate = get_charrate("hello world", 2.0)  # 5.5 chars/second
 ```
+:::{seealso}
+For a complete example of using speech rate metrics in a pipeline, refer to the **[Duration Filtering](duration-filtering.md)** guide.
+:::
 
 ## Filtering Strategies
 
@@ -91,7 +94,7 @@ high_quality_filter = PreserveByValueStage(
 
 # Remove samples with WER >= 80% (very poor quality)
 poor_quality_filter = PreserveByValueStage(
-    input_value_key="wer", 
+    input_value_key="wer",
     target_value=80.0,
     operator="lt"  # less than
 )
@@ -114,7 +117,7 @@ duration_min_filter = PreserveByValueStage(
 
 duration_max_filter = PreserveByValueStage(
     input_value_key="duration",
-    target_value=30.0, 
+    target_value=30.0,
     operator="le"  # less than or equal
 )
 ```
@@ -173,21 +176,22 @@ from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.audio.common import GetAudioDurationStage, PreserveByValueStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.text.io.writer import JsonlWriter
+from nemo_curator.stages.resources import Resources
 
 # Create complete quality assessment pipeline
 pipeline = Pipeline(name="audio_quality_assessment")
 
 # 1. Load data
 pipeline.add_stage(CreateInitialManifestFleursStage(
-    lang="hy_am", 
-    split="dev", 
+    lang="hy_am",
+    split="dev",
     raw_data_dir="./audio_data"
 ).with_(batch_size=4))
 
 # 2. ASR inference
 pipeline.add_stage(InferenceAsrNemoStage(
     model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc"
-))
+).with_(resources=Resources(gpus=1.0)))
 
 # 3. Calculate quality metrics
 pipeline.add_stage(GetPairwiseWerStage())
@@ -210,7 +214,7 @@ pipeline.add_stage(PreserveByValueStage(
 ))
 
 pipeline.add_stage(PreserveByValueStage(
-    input_value_key="duration", 
+    input_value_key="duration",
     target_value=30.0,
     operator="le"  # Keep duration <= 30s
 ))

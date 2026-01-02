@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# ruff: noqa: S603
+
 import os
 import shutil
 import subprocess
@@ -20,6 +22,7 @@ import uuid
 from pathlib import Path
 
 from loguru import logger
+from runner.utils import run_shm_size_check
 
 from nemo_curator.core.client import RayClient
 
@@ -27,29 +30,63 @@ ray_client_start_timeout_s = 30
 ray_client_start_poll_interval_s = 0.5
 
 
-def setup_ray_cluster_and_env(
+def setup_ray_cluster_and_env(  # noqa: PLR0913
     num_cpus: int,
     num_gpus: int,
     enable_object_spilling: bool,
     ray_log_path: Path,
-) -> tuple[RayClient, Path, dict[str, str]]:
-    """Setup Ray cluster and environment variables."""
-    ray_client, ray_temp_path = start_ray_head(
-        num_cpus=num_cpus,
-        num_gpus=num_gpus,
-        enable_object_spilling=enable_object_spilling,
-        ray_log_path=ray_log_path,
-    )
-    verify_ray_responsive(ray_client)
+    object_store_size_bytes: int | None = None,
+    include_dashboard: bool = True,
+) -> tuple[RayClient, Path]:
+    """Setup a Ray cluster and set the RAY_ADDRESS environment variable and return the Ray client and temp dir."""
+    # Create a short temp dir to avoid Unix socket path length limits
+    short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
+    short_temp_path.mkdir(parents=True, exist_ok=True)
 
-    env = os.environ.copy()
-    ray_address = f"localhost:{ray_client.ray_port}"
-    env["RAY_ADDRESS"] = ray_address
-    # Also set globally so Ray Data executor can find it
-    os.environ["RAY_ADDRESS"] = ray_address
-    logger.debug(f"Set RAY_ADDRESS={ray_address}")
+    # Capture stdout/stderr to a file if provided, otherwise suppress it
+    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
 
-    return ray_client, ray_temp_path, env
+    # Check environment variables that might interfere
+    ray_address_env = os.environ.get("RAY_ADDRESS")
+    if ray_address_env:
+        logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
+
+    responsive = False
+    retries = 0
+    max_retries = 5
+    while not responsive and retries < max_retries:
+        logger.info(f"Starting Ray cluster (attempt {retries + 1} of {max_retries})...")
+
+        # Capture the ray cluster output for each attempt to start it using a unique file name
+        if ray_log_path and retries > 0:
+            ray_stdouterr_capture_file = f"{ray_log_path!s}-{retries + 1}"
+
+        # Create and start the Ray client
+        client = RayClient(
+            ray_temp_dir=str(short_temp_path),
+            include_dashboard=include_dashboard,
+            num_gpus=num_gpus,
+            num_cpus=num_cpus,
+            enable_object_spilling=enable_object_spilling,
+            ray_dashboard_host="0.0.0.0",  # noqa: S104
+            ray_stdouterr_capture_file=ray_stdouterr_capture_file,
+            object_store_memory=object_store_size_bytes,
+        )
+        client.start()
+
+        _ensure_ray_client_process_started(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
+        responsive = check_ray_responsive()
+        if not responsive:
+            logger.info("Ray cluster did not become responsive in time, stopping client and retrying...")
+            client.stop()
+            retries += 1
+
+    if not responsive:
+        msg = f"Failed to start Ray cluster after {max_retries} attempts"
+        raise RuntimeError(msg)
+
+    logger.info(f"RayClient started successfully: pid={client.ray_process.pid}, port={client.ray_port}")
+    return client, short_temp_path
 
 
 def teardown_ray_cluster_and_env(
@@ -59,91 +96,73 @@ def teardown_ray_cluster_and_env(
 ) -> None:
     """Teardown Ray cluster and environment variables."""
     if ray_client is not None:
-        stop_ray_head(ray_client, ray_temp_path, ray_cluster_path)
-
-        # Clean up RAY_ADDRESS environment variable immediately after stopping cluster
-        if "RAY_ADDRESS" in os.environ:
-            del os.environ["RAY_ADDRESS"]
-            logger.debug("Cleaned up RAY_ADDRESS environment variable")
-
-
-def start_ray_head(
-    num_cpus: int,
-    num_gpus: int,
-    include_dashboard: bool = True,
-    enable_object_spilling: bool = False,
-    ray_log_path: Path | None = None,
-) -> tuple[RayClient, Path]:
-    # Create a short temp dir to avoid Unix socket path length limits
-    short_temp_path = Path(f"/tmp/ray_{uuid.uuid4().hex[:8]}")  # noqa: S108
-    short_temp_path.mkdir(parents=True, exist_ok=True)
-
-    # Check environment variables that might interfere
-    ray_address_env = os.environ.get("RAY_ADDRESS")
-    if ray_address_env:
-        logger.warning(f"RAY_ADDRESS already set in environment: {ray_address_env}")
-    client = RayClient(
-        ray_temp_dir=str(short_temp_path),
-        include_dashboard=include_dashboard,
-        num_gpus=num_gpus,
-        num_cpus=num_cpus,
-        enable_object_spilling=enable_object_spilling,
-        ray_dashboard_host="0.0.0.0",  # noqa: S104
-    )
-    ray_stdouterr_capture_file = str(ray_log_path) if ray_log_path else os.devnull
-    client.start(stdouterr_capture_file=ray_stdouterr_capture_file)
-    # Wait for Ray client to start, no longer than timeout
-    wait_for_ray_client_start(client, ray_client_start_timeout_s, ray_client_start_poll_interval_s)
-    logger.debug(f"RayClient started successfully: pid={client.ray_process.pid}, port={client.ray_port}")
-
-    return client, short_temp_path
+        # This also removes the RAY_ADDRESS environment variable if the client also started the Ray cluster
+        try:
+            # Stop the Ray client
+            # This also removes the RAY_ADDRESS environment variable if the client also started the Ray cluster
+            ray_client.stop()
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to stop Ray client")
+        # Copy debugging artifacts and clean up temp directory
+        try:
+            _copy_ray_debug_artifacts(ray_temp_path, ray_cluster_path)
+            shutil.rmtree(ray_temp_path, ignore_errors=True)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to copy/remove Ray temp dir")
 
 
-def wait_for_ray_client_start(client: RayClient, timeout_s: int, poll_interval_s: float) -> None:
-    """Wait for Ray client to start, no longer than timeout."""
+def _ensure_ray_client_process_started(client: RayClient, timeout_s: int, poll_interval_s: float) -> None:
+    """Ensure the Ray client process has been started, no longer than timeout."""
     elapsed_s = 0
     while client.ray_process is None and elapsed_s < timeout_s:
-        if client.ray_process is not None:
-            break
         time.sleep(poll_interval_s)
         elapsed_s += poll_interval_s
     if client.ray_process is None:
-        msg = f"Ray client failed to start in {timeout_s} seconds"
+        msg = f"Ray client process failed to start in {timeout_s} seconds"
         raise RuntimeError(msg)
 
 
-def verify_ray_responsive(client: RayClient, timeout_s: int = 15) -> None:
-    env = os.environ.copy()
-    env["RAY_ADDRESS"] = f"localhost:{client.ray_port}"
+def check_ray_responsive(timeout_s: int = 20) -> bool:
+    # Assume the env var RAY_ADDRESS is set to the correct value by code starting the Ray cluster
+    logger.debug(f"Verifying Ray cluster is responsive, using RAY_ADDRESS={os.environ.get('RAY_ADDRESS')}")
+
+    responsive = False
+    timer = 0
     t0 = time.time()
-    while time.time() - t0 < timeout_s:
+    while not responsive and (timer < timeout_s):
         try:
-            subprocess.run(  # noqa: S603
+            logger.debug("running 'ray status' command")
+            result = subprocess.run(
                 ["ray", "status"],  # noqa: S607
                 check=True,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=timeout_s,
             )
-        except Exception:  # noqa: BLE001, PERF203
-            time.sleep(1)
-        else:
-            return
+            if "No cluster status" in result.stdout or "Error" in result.stdout:
+                logger.debug(f"Ray cluster is not responsive: {result.stdout}")
+            else:
+                logger.debug("Ray cluster IS responsive")
+                responsive = True
 
-    msg = "Ray cluster did not become responsive in time"
-    raise TimeoutError(msg)
+        except subprocess.CalledProcessError as e:
+            logger.debug(f"Ray cluster is not responsive ('ray status' command failed): {e.stdout}")
 
+        except subprocess.TimeoutExpired as e:
+            logger.debug(f"Ray cluster is not responsive ('ray status' command timed out): {e.stdout}")
 
-def _stop_ray_client(client: RayClient) -> None:
-    """Stop the Ray client and clean up environment variables."""
-    try:
-        client.stop()
-        # Clean up RAY_ADDRESS environment variable to prevent interference
-        if "RAY_ADDRESS" in os.environ:
-            del os.environ["RAY_ADDRESS"]
-            logger.debug("Cleaned up RAY_ADDRESS environment variable")
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to stop Ray client")
+        finally:
+            # Also show the output of `df -h /dev/shm`, since this is often a symptom of problems
+            run_shm_size_check(human_readable=True)
+
+        timer = time.time() - t0
+        time.sleep(0.5)
+
+    if not responsive and timer >= timeout_s:
+        logger.debug("Ray cluster did not become responsive in time...")
+
+    return responsive
 
 
 def _copy_item_safely(src_path: Path, dst_path: Path) -> None:
@@ -190,16 +209,3 @@ def _copy_ray_debug_artifacts(short_temp_path: Path, ray_destination_path: Path)
     if session_src.exists():
         session_dst = ray_destination_path / "session_latest"
         _copy_session_contents(session_src, session_dst)
-
-
-def stop_ray_head(client: RayClient, ray_temp_path: Path, ray_destination_path: Path) -> None:
-    """Stop Ray head node and clean up artifacts."""
-    # Stop the Ray client
-    _stop_ray_client(client)
-
-    # Copy debugging artifacts and clean up temp directory
-    try:
-        _copy_ray_debug_artifacts(ray_temp_path, ray_destination_path)
-        shutil.rmtree(ray_temp_path, ignore_errors=True)
-    except Exception:  # noqa: BLE001
-        logger.exception("Failed to copy/remove Ray temp dir")

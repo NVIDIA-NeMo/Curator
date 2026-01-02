@@ -12,11 +12,27 @@ modality: "universal"
 
 # Pipeline Execution Backends
 
-Executors run NeMo Curator `Pipeline` workflows across your compute resources. This reference explains the available backends and how to configure them. It applies to all modalities (text, image, video, and audio).
+Configure and optimize execution backends to run NeMo Curator pipelines efficiently across single machines, multi-GPU systems, and distributed clusters.
 
-## How it Works
+## Overview
 
-Build your pipeline by adding stages, then run it with an executor:
+Execution backends (executors) are the engines that run NeMo Curator `Pipeline` workflows across your compute resources. They handle:
+
+- **Task Distribution**: Distribute pipeline stages across available workers and GPUs
+- **Resource Management**: Allocate CPU, GPU, and memory resources to processing tasks
+- **Scaling**: Automatically or manually scale processing based on workload
+- **Data Movement**: Optimize data transfer between pipeline stages
+
+**Choosing the right executor** impacts:
+- Pipeline performance and throughput
+- Resource utilization efficiency
+- Ease of deployment and monitoring
+
+This guide covers all execution backends available in NeMo Curator and applies to all modalities: text, image, video, and audio curation.
+
+## Basic Usage Pattern
+
+All pipelines follow this standard execution pattern:
 
 ```python
 from nemo_curator.pipeline import Pipeline
@@ -27,6 +43,11 @@ pipeline.add_stage(...)
 # Choose an executor below and run
 results = pipeline.run(executor)
 ```
+
+**Key points:**
+- The same pipeline definition works with any executor
+- Executor choice is independent of pipeline stages
+- Switch executors without changing pipeline code
 
 ## Available Backends
 
@@ -87,7 +108,7 @@ results = pipeline.run(executor)
 
 For more details, refer to the official [NVIDIA Cosmos-Xenna project](https://github.com/nvidia-cosmos/cosmos-xenna/tree/main).
 
-### `RayDataExecutor` (experimental)
+### `RayDataExecutor`
 
 `RayDataExecutor` uses Ray Data, a scalable data processing library built on Ray Core. Ray Data provides a familiar DataFrame-like API for distributed data transformations. This executor is experimental and best suited for large-scale batch processing tasks that benefit from Ray Data's optimized data loading and transformation pipelines.
 
@@ -106,7 +127,9 @@ results = pipeline.run(executor)
 :::{note}`RayDataExecutor` currently has limited configuration options. For more control over execution, consider using `XennaExecutor` or `RayActorPoolExecutor`.
 :::
 
-### `RayActorPoolExecutor` (experimental)
+### `RayActorPoolExecutor`
+
+Executor using Ray Actor pools for custom distributed processing patterns such as deduplication.
 
 ```python
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
