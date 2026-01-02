@@ -124,6 +124,10 @@ pipeline.add_stage(
 
 The recommended approach is to use the helper functions in `nemotron_cc_pipelines.py`:
 
+:::{note}
+The `nemotron_cc_pipelines` helper functions are provided in the [tutorials directory](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/synthetic/nemotron_cc/nemotron_cc_pipelines.py), not as part of the installed package. Copy this file to your project or reference the patterns when building custom pipelines.
+:::
+
 ```python
 from nemotron_cc_pipelines import (
     add_preprocessing_pipeline,

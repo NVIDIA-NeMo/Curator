@@ -112,7 +112,7 @@ Before using synthetic data generation, ensure you have:
 
 ---
 
-## Getting Started
+## Topics
 
 ::::{grid} 1 1 2 2
 :gutter: 2

@@ -166,9 +166,9 @@ The retry logic handles:
 
 ## Using Custom Endpoints
 
-````{tab-set}
+::::{tab-set}
 
-```{tab-item} Local vLLM Server
+:::{tab-item} Local vLLM Server
 
 Deploy a local vLLM server and configure the client:
 
@@ -189,9 +189,9 @@ client = AsyncOpenAIClient(
     timeout=300,  # Longer timeout for large models
 )
 ```
-```
+:::
 
-```{tab-item} Text Generation Inference (TGI)
+:::{tab-item} Text Generation Inference (TGI)
 
 Deploy a TGI server and configure the client:
 
@@ -210,9 +210,9 @@ client = AsyncOpenAIClient(
     max_concurrent_requests=8,
 )
 ```
-```
+:::
 
-```{tab-item} OpenAI API
+:::{tab-item} OpenAI API
 
 Use the official OpenAI API:
 
@@ -223,9 +223,9 @@ client = AsyncOpenAIClient(
     max_concurrent_requests=5,
 )
 ```
-```
+:::
 
-````
+::::
 
 ## Complete Example
 
