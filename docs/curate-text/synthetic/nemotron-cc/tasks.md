@@ -50,7 +50,7 @@ on a separate line with "Here is a paraphrased version:".
 Text: {document}
 ```
 
-See the [full prompt in source](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/synthetic/nemotron_cc/prompts.py).
+Refer to the [full prompt in source](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/synthetic/nemotron_cc/prompts.py).
 
 ### Post-Processing
 
@@ -89,7 +89,7 @@ stage = DiverseQAStage(
 
 ### Prompt Template
 
-The stage requests up to 8 diverse Q&A pairs with specific formatting:
+The stage requests up to eight diverse Q&A pairs with specific formatting:
 
 ```text
 Task: Read the text, ask questions and answer them.

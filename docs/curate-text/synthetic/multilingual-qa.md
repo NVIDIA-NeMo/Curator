@@ -116,7 +116,7 @@ prompt = "Generate a Q&A pair about science in {language}."
 prompt = """
 Generate a short question and a short answer in the general science domain in {language}.
 Begin with the language name using the 2-letter code in square brackets,
-e.g. [EN] for English, [FR] for French, [DE] for German.
+for example, [EN] for English, [FR] for French, [DE] for German.
 """
 ```
 
