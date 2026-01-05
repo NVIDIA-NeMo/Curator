@@ -42,36 +42,9 @@ Based on [SemDeDup: Data-efficient learning at web-scale through semantic dedupl
 - GPU acceleration (required for embedding generation and clustering)
 - Stable document identifiers for removal (either existing IDs or IDs managed by the workflow and removal stages)
 
-:::{dropdown} Adding Document IDs
-:icon: gear
-
-If your broader pipeline does not already manage IDs, you can add them with the `AddId` stage:
-
-```python
-from nemo_curator.stages.text.modules import AddId
-from nemo_curator.pipeline import Pipeline
-
-pipeline = Pipeline(name="add_ids_for_dedup")
-pipeline.add_stage(
-    AddId(
-        id_field="doc_id",
-        id_prefix="corpus"  # Optional prefix
-    )
-)
-```
-
-For more details, refer to {ref}`text-process-data-add-id`.
-:::
-
 ## Quick Start
 
-Get started with semantic deduplication using these examples:
-
-::::{tab-set}
-
-:::{tab-item} One-Step Process
-
-Complete deduplication in a single step:
+Get started with semantic deduplication using the following example of identifying duplicates, then remove them in one step:
 
 ```python
 from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
@@ -92,59 +65,6 @@ executor = RayDataExecutor()
 results = workflow.run(executor)
 # Clean dataset saved to ./results/deduplicated/
 ```
-
-:::
-
-:::{tab-item} Two-Step Process
-
-Identify duplicates first, then remove them:
-
-```python
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-# Step 1: Identify duplicates
-workflow = TextSemanticDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    cache_path="./sem_cache",
-    model_identifier="sentence-transformers/all-MiniLM-L6-v2",
-    n_clusters=100,
-    eps=0.07,
-    id_field="doc_id",
-    perform_removal=False  # Only identify duplicates
-)
-
-executor = RayDataExecutor()
-results = workflow.run(executor)
-# Duplicate IDs saved to ./results/duplicates/
-
-# Step 2: Remove duplicates (if needed)
-# Use TextDuplicatesRemovalWorkflow with duplicate IDs
-```
-
-:::
-
-:::{tab-item} Minimal Example
-
-```python
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-
-workflow = TextSemanticDeduplicationWorkflow(
-    input_path="input_data/",
-    output_path="./results",
-    cache_path="./sem_cache",
-    perform_removal=True
-)
-
-executor = RayDataExecutor()
-results = workflow.run(executor)
-```
-
-:::
-
-::::
 
 ## Configuration
 
@@ -323,6 +243,7 @@ workflow = TextSemanticDeduplicationWorkflow(
 - Ensure compatibility with your data type
 - Adjust `embedding_model_inference_batch_size` for memory requirements
 - Choose models appropriate for your language or domain
+- Avoid generic decoder-only LLMs (e.g., OPT/GPT) for embeddings; prefer models trained for sentence embeddings (e.g., E5/BGE/SBERT)
 :::
 
 :::{dropdown} Advanced Configuration
@@ -362,7 +283,7 @@ workflow = TextSemanticDeduplicationWorkflow(
 
 The semantic deduplication process produces the following directory structure in your configured `cache_path`:
 
-```s
+```text
 cache_path/
 ├── embeddings/                           # Embedding outputs
 │   └── *.parquet                         # Parquet files containing document embeddings
@@ -394,8 +315,8 @@ The workflow produces these output files:
    - `embs_by_nearest_center/`: Parquet files containing cluster members
    - Format: Parquet files with columns: `[id_column, embedding_column, cluster_id]`
 
-3. **Deduplicated Results** (`output_path/duplicates/*.parquet`):
-   - Final output containing document IDs to remove after deduplication
+3. **Duplicate IDs** (`output_path/duplicates/*.parquet`):
+   - IDs of documents identified as duplicates for removal
    - Format: Parquet file with columns: `["id"]`
    - **Important**: Contains only the IDs of documents to remove, not the full document content
    - When `perform_removal=True`, clean dataset is saved to `output_path/deduplicated/`

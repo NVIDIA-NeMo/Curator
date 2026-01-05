@@ -237,9 +237,13 @@ def test_encode_image_to_bytes_modes(tmp_path: pathlib.Path) -> None:
     assert dtype == np.uint8
 
 
-def test_write_tar_collision_and_content(tmp_path: pathlib.Path) -> None:
-    _module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
+def test_write_tar_collision_and_content(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
+    module, image_writer_stage_cls = _import_writer_with_stubbed_pyarrow()
     stage = image_writer_stage_cls(output_dir=str(tmp_path))
+
+    # Mock logger to verify warning
+    warnings: list[str] = []
+    monkeypatch.setattr(module.logger, "warning", lambda msg: warnings.append(msg))
 
     base = "images-abc123"
     path = stage._write_tar(base, [("a.jpg", b"a"), ("b.jpg", b"bb")])
@@ -249,8 +253,18 @@ def test_write_tar_collision_and_content(tmp_path: pathlib.Path) -> None:
         names = {m.name for m in tf.getmembers()}
         assert names == {"a.jpg", "b.jpg"}
 
-    with pytest.raises(AssertionError, match="Collision detected"):
-        stage._write_tar(base, [("c.jpg", b"c")])
+    # Overwrite existing file
+    path2 = stage._write_tar(base, [("c.jpg", b"c")])
+    assert path2 == path
+    assert pathlib.Path(path).exists()
+
+    # Verify warning was logged
+    assert any("already exists" in w for w in warnings)
+
+    # Verify content was overwritten
+    with tarfile.open(path, "r") as tf:
+        names = {m.name for m in tf.getmembers()}
+        assert names == {"c.jpg"}
 
 
 def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path) -> None:
@@ -260,6 +274,10 @@ def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_p
     written: dict[str, object] = {}
 
     module = importlib.import_module("nemo_curator.stages.image.io.image_writer")
+
+    # Mock logger to verify warning
+    warnings: list[str] = []
+    monkeypatch.setattr(module.logger, "warning", lambda msg: warnings.append(msg))
 
     # Patch module-local pyarrow bindings
     stub_pa = types.SimpleNamespace(Table=types.SimpleNamespace(from_pylist=lambda rows: ("T", rows)))
@@ -272,14 +290,21 @@ def test_write_parquet_collision_and_path(monkeypatch: pytest.MonkeyPatch, tmp_p
     base = "images-parq"
     # Pre-create to trigger collision
     (tmp_path / f"{base}.parquet").write_bytes(b"")
-    with pytest.raises(AssertionError, match="Collision detected"):
-        stage._write_parquet(base, [{"k": 1}])
 
-    # Remove and write successfully
+    # Should overwrite and warn
+    out_path = stage._write_parquet(base, [{"k": 1}])
+
+    assert any("already exists" in w for w in warnings)
+    assert out_path == str(tmp_path / f"{base}.parquet")
+    # Verify write was called
+    assert written.get("path") == out_path
+
+    # Clean up and write again (no collision)
+    warnings.clear()
     (tmp_path / f"{base}.parquet").unlink()
     out_path = stage._write_parquet(base, [{"k": 2}])
     assert out_path == str(tmp_path / f"{base}.parquet")
-    assert written.get("path") == out_path
+    assert not warnings
 
 
 @pytest.mark.parametrize("remove", [True, False])
