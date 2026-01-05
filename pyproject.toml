@@ -68,11 +68,13 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda12 = ["gpustat", "nvidia-ml-py"]
+vllm = ["vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')"]
 
 # Installs CPU + GPU text curation modules
 deduplication_cuda12 = [
     "cudf-cu12==25.10.*",
     "cuml-cu12==25.10.*",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "pylibcugraph-cu12==25.10.*",
     "pylibraft-cu12==25.10.*",
     "raft-dask-cu12==25.10.*",
@@ -124,7 +126,7 @@ text_cuda12 = [
     "nemo_curator[cuda12]",
     "nemo_curator[deduplication_cuda12]",
     "nemo_curator[text_cpu]",
-    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
+    "nemo_curator[vllm]",
     "sentence-transformers"
 ]
 
@@ -140,13 +142,13 @@ video_cpu = [
 video_cuda12 = [
     "nemo_curator[video_cpu]",
     "nemo_curator[cuda12]",
+    "nemo_curator[vllm]",
     "cvcuda_cu12",
     "flash-attn<=2.8.3; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "pycuda",
     "PyNvVideoCodec==2.0.2; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
     "torch<=2.9.1",
     "torchaudio",
-    "vllm>=0.13; (platform_machine == 'x86_64' and platform_system != 'Darwin')",
 ]
 
 # All dependencies
@@ -168,7 +170,7 @@ test = [
     "pytest-asyncio",
     "pytest-cov",
     "pytest-loguru",
-    "scikit-learn",
+    "scikit-learn<1.8.0",  # cuml 25.10.0 is incompatible with scikit-learn 1.8.0
     "s3fs", # added for testing cloud fs
 ]
 
