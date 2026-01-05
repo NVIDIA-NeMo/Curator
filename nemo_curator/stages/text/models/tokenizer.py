@@ -152,7 +152,6 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         output = df.copy()
         output[INPUT_ID_FIELD] = tokens.input_ids.tolist()
         output[ATTENTION_MASK_FIELD] = tokens.attention_mask.tolist()
-        output[TOKEN_LENGTH_FIELD] = tokens.attention_mask.sum(axis=1)
 
         if self.sort_by_length:
             # Add column to preserve original order

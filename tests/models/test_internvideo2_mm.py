@@ -30,8 +30,8 @@ try:
         _InternVideo2Stage2Wrapper,
         _setup_internvideo2,
     )
-except ImportError:
-    pytest.skip("InternVideo2 package is not available")
+except Exception:  # noqa: BLE001
+    pytest.skip("InternVideo2 package is not available", allow_module_level=True)
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)
