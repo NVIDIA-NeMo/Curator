@@ -4177,7 +4177,7 @@ requires-dist = [
     { name = "av", marker = "extra == 'video-cpu'", specifier = "==13.1.0" },
     { name = "beautifulsoup4", marker = "extra == 'text-cpu'" },
     { name = "comment-parser" },
-    { name = "cosmos-xenna", specifier = ">=0.1.8" },
+    { name = "cosmos-xenna", specifier = "==0.1.8" },
     { name = "cudf-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cuml-cu12", marker = "extra == 'deduplication-cuda12'", specifier = "==25.10.*" },
     { name = "cvcuda-cu12", marker = "extra == 'video-cuda12'" },
