@@ -36,7 +36,7 @@ class Resources:
     Attributes:
         cpus: Number of CPU cores required
         gpu_memory_gb: GPU memory required in GB (Only for single-GPU stages)
-        entire_gpu: Whether to allocate entire GPU regardless of memory (This also gives you nvdecs and nvencs of that GPU)
+        entire_gpu: Whether to allocate entire GPU regardless of memory
         gpus: Number of GPUs required (Only for multi-GPU stages)
     """
 
