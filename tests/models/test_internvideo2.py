@@ -27,7 +27,7 @@ try:
         InternVideo2FrameCreationStage,
     )
 except ImportError:
-    pytest.skip("InternVideo2 package is not available")
+    pytest.skip("InternVideo2 package is not available", allow_module_level=True)
 
 
 from nemo_curator.tasks.video import Clip, Video, VideoTask
