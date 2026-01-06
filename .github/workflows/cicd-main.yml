@@ -247,7 +247,7 @@ jobs:
     if: |
       (
         needs.pre-flight.outputs.docs_only == 'true'
-        || success()
+        || always()
       )
       && !cancelled()
     runs-on: ubuntu-latest
