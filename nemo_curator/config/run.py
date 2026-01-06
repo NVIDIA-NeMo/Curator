@@ -20,8 +20,6 @@ from omegaconf import DictConfig, OmegaConf
 
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader, ParquetReader
-from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
 
 
 def create_ray_client_from_yaml(cfg: DictConfig) -> RayClient:
@@ -45,27 +43,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline | Any:  # noqa: ANN40
 
         # Add stages to the pipeline
         for p in cfg.stages:
-            if "input_file_type" in p:  # Text-specific
-                input_file_type = p.input_file_type.lower()
-                if input_file_type not in ["jsonl", "parquet"]:
-                    msg = f"Invalid input file type: {input_file_type}"
-                    raise ValueError(msg)
-                reader_stage = JsonlReader if input_file_type == "jsonl" else ParquetReader
-                stage = reader_stage(
-                    file_paths=p.file_paths,
-                    files_per_partition=p.files_per_partition,
-                    blocksize=p.blocksize,
-                    fields=p.fields,
-                )
-            elif "output_file_type" in p:  # Text-specific
-                output_file_type = p.output_file_type.lower()
-                if output_file_type not in ["jsonl", "parquet"]:
-                    msg = f"Invalid output file type: {output_file_type}"
-                    raise ValueError(msg)
-                writer_stage = JsonlWriter if output_file_type == "jsonl" else ParquetWriter
-                stage = writer_stage(path=p.path, fields=p.fields)
-            else:
-                stage = hydra.utils.instantiate(p)
+            stage = hydra.utils.instantiate(p)
             pipeline.add_stage(stage)
 
         return pipeline

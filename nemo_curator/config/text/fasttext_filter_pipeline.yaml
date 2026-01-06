@@ -41,7 +41,7 @@ fasttext_langid_model_path: ???
 fasttext_quality_model_path: ???
 
 stages:
-  - input_file_type: jsonl  # This can be jsonl or parquet
+  - _target_: nemo_curator.stages.text.io.reader.JsonlReader
     file_paths: ${input_path}
     files_per_partition: null
     blocksize: null
@@ -68,6 +68,6 @@ stages:
     text_field: ${text_field}
     score_field: null
 
-  - output_file_type: jsonl  # This can be jsonl or parquet
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
     path: ${output_path}
     fields: null

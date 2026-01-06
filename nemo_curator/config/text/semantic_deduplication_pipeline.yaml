@@ -32,7 +32,7 @@ input_path: ???
 output_path: ???
 cache_path: ???
 input_filetype: jsonl
-output_filetype: parquet
+output_filetype: jsonl
 text_field: "text"
 id_field: "id"
 

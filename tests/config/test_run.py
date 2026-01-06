@@ -28,7 +28,7 @@ def test_pipeline_with_jsonl_reader_stage():
         {
             "stages": [
                 {
-                    "input_file_type": "jsonl",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
                     "file_paths": "./data",
                     "files_per_partition": 1,
                     "blocksize": "256MB",
@@ -51,7 +51,7 @@ def test_pipeline_with_jsonl_reader_stage_string_vs_list():
         {
             "stages": [
                 {
-                    "input_file_type": "jsonl",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
                     "file_paths": "./data",
                     "files_per_partition": None,
                     "blocksize": None,
@@ -65,7 +65,7 @@ def test_pipeline_with_jsonl_reader_stage_string_vs_list():
         {
             "stages": [
                 {
-                    "input_file_type": "jsonl",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
                     "file_paths": ["./data1", "./data2"],
                     "files_per_partition": None,
                     "blocksize": None,
@@ -89,7 +89,7 @@ def test_pipeline_with_parquet_reader_stage():
         {
             "stages": [
                 {
-                    "input_file_type": "parquet",
+                    "_target_": "nemo_curator.stages.text.io.reader.ParquetReader",
                     "file_paths": "./data",
                     "files_per_partition": 2,
                     "blocksize": "512MB",
@@ -106,27 +106,18 @@ def test_pipeline_with_parquet_reader_stage():
     assert isinstance(pipeline.stages[0], ParquetReader)
 
 
-def test_pipeline_with_invalid_reader_stage():
+def test_pipeline_with_jsonl_writer_stage():
     cfg = OmegaConf.create(
         {
             "stages": [
                 {
-                    "input_file_type": "csv",
-                    "file_paths": "./data",
-                    "files_per_partition": 1,
-                    "blocksize": None,
-                    "fields": None,
+                    "_target_": "nemo_curator.stages.text.io.writer.JsonlWriter",
+                    "path": "./output",
+                    "fields": ["text", "id"],
                 }
             ]
         }
     )
-
-    with pytest.raises(ValueError, match="Invalid input file type: csv"):
-        create_pipeline_from_yaml(cfg)
-
-
-def test_pipeline_with_jsonl_writer_stage():
-    cfg = OmegaConf.create({"stages": [{"output_file_type": "jsonl", "path": "./output", "fields": ["text", "id"]}]})
 
     pipeline = create_pipeline_from_yaml(cfg)
 
@@ -136,20 +127,23 @@ def test_pipeline_with_jsonl_writer_stage():
 
 
 def test_pipeline_with_parquet_writer_stage():
-    cfg = OmegaConf.create({"stages": [{"output_file_type": "parquet", "path": "./output", "fields": ["text"]}]})
+    cfg = OmegaConf.create(
+        {
+            "stages": [
+                {
+                    "_target_": "nemo_curator.stages.text.io.writer.ParquetWriter",
+                    "path": "./output",
+                    "fields": ["text"],
+                }
+            ]
+        }
+    )
 
     pipeline = create_pipeline_from_yaml(cfg)
 
     assert isinstance(pipeline, Pipeline)
     assert len(pipeline.stages) == 1
     assert isinstance(pipeline.stages[0], ParquetWriter)
-
-
-def test_pipeline_with_invalid_writer_stage():
-    cfg = OmegaConf.create({"stages": [{"output_file_type": "csv", "path": "./output", "fields": None}]})
-
-    with pytest.raises(ValueError, match="Invalid output file type: csv"):
-        create_pipeline_from_yaml(cfg)
 
 
 def test_pipeline_with_hydra_instantiated_stage():
@@ -192,7 +186,7 @@ def test_pipeline_with_multiple_stages():
         {
             "stages": [
                 {
-                    "input_file_type": "jsonl",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
                     "file_paths": "./data",
                     "files_per_partition": 1,
                     "blocksize": None,
@@ -203,7 +197,11 @@ def test_pipeline_with_multiple_stages():
                     "modifier_fn": {"_target_": "nemo_curator.stages.text.modifiers.url_remover.UrlRemover"},
                     "input_fields": "text",
                 },
-                {"output_file_type": "parquet", "path": "./output", "fields": None},
+                {
+                    "_target_": "nemo_curator.stages.text.io.writer.ParquetWriter",
+                    "path": "./output",
+                    "fields": None,
+                },
             ]
         }
     )
@@ -301,7 +299,7 @@ def test_both_stages_and_workflow_raises_error():
         {
             "stages": [
                 {
-                    "input_file_type": "jsonl",
+                    "_target_": "nemo_curator.stages.text.io.reader.JsonlReader",
                     "file_paths": "./data",
                 }
             ],
