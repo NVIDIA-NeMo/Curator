@@ -34,7 +34,11 @@ Computes MD5 hashes for each document's text content and groups documents with i
 :icon: code-square
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 exact_workflow = ExactDeduplicationWorkflow(
     input_path="/path/to/input/data",
@@ -64,7 +68,11 @@ Generates MinHash signatures and uses LSH to find similar documents. Best for de
 :icon: code-square
 
 ```python
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
+
+ray_client = RayClient()
+ray_client.start()
 
 fuzzy_workflow = FuzzyDeduplicationWorkflow(
     input_path="/path/to/input/data",
@@ -418,7 +426,7 @@ For large-scale duplicate removal, persist the ID Generator for consistent docum
 
 ```python
 from nemo_curator.stages.deduplication.id_generator import (
-    create_id_generator_actor, 
+    create_id_generator_actor,
     write_id_generator_to_disk,
     kill_id_generator_actor
 )

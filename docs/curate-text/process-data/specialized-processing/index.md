@@ -16,7 +16,7 @@ Domain-specific processing for code and advanced curation tasks using NeMo Curat
 
 This section covers advanced processing techniques for specific data types and use cases that require specialized handling beyond general text processing. These tools are designed for specific domains like programming content.
 
-## How it Works
+## How It Works
 
 Specialized processing modules in NeMo Curator are designed for specific data types and use cases:
 
@@ -56,13 +56,18 @@ Specialized filters for programming content and source code
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import PythonCommentToCodeFilter, NumberOfLinesOfCodeFilter
+from nemo_curator.stages.text.io.reader import JsonlReader
 
 # Filter Python code based on quality metrics
 code_pipeline = Pipeline(
     name="code_processing_pipeline",
     stages=[
+    JsonlReader(
+        file_paths="code_data/*.jsonl",
+        fields=["content"]
+    ),
     ScoreFilter(
-        PythonCommentToCodeFilter(
+        filter_obj=PythonCommentToCodeFilter(
             min_comment_to_code_ratio=0.01,
             max_comment_to_code_ratio=0.8
         ),
@@ -70,13 +75,13 @@ code_pipeline = Pipeline(
         score_field="comment_ratio"
     ),
     ScoreFilter(
-        NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
+        filter_obj=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
         text_field="content", 
         score_field="line_count"
     )
 ])
 
-filtered_code = code_pipeline(code_dataset)
+results = code_pipeline.run()
 ```
 
 :::
