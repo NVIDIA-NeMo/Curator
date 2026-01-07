@@ -1,6 +1,6 @@
 # Math Data Curation Pipeline
 
-This example demonstrates a complete pipeline for curating mathematical content from Common Crawl, including CC Index lookup, text preprocessing, quality classification, deduplication, and LLM-based cleanup.
+This example demonstrates a complete pipeline for curating mathematical content from Common Crawl, including Common Crawl Index lookup, text preprocessing, quality classification, deduplication, and LLM-based cleanup.
 
 ## Install
 Use uv to create the project environment and install Curator with the math extra:
@@ -25,34 +25,56 @@ uv pip install --force-reinstall pynvml
   - RHEL/Fedora: `sudo dnf install -y lynx` (or `sudo yum install -y lynx`)
   - Conda: `conda install -c conda-forge lynx`
 
-### Common Crawl Index Requirements
+### Common Crawl (CC) Index Requirements
 
-The CC Index lookup script (`1_cc_index_lookup.py`) uses **cuDF for GPU-accelerated distributed joins** against a local CC Index
+The index lookup script (`1_cc_index_lookup.py`) uses **cuDF** against a local CC Index in **parquet format**.
 
 **Key points:**
 - **Local CC Index required**: Download CC Index parquet files locally for GPU-accelerated joins
+- **Parquet format**: The script expects parquet files with columns: `url`, `warc_filename`, `warc_record_offset`, `warc_record_length`, `content_mime_type`, `http_status`
+- **Hive partitioning**: Files must be in `<base_path>/crawl=CC-MAIN-YYYY-WW/subset=warc/*.parquet` structure
 - **Distributed processing**: Uses Ray for distributed execution across multiple GPUs
-- **cuDF joins**: GPU-accelerated inner joins for high performance
-- **Broadcast pattern**: CC Index is loaded into Ray object store and broadcast to workers
 
-**Download options:**
+**CC Index Access Options:**
+
+| Method | Access | Format | Recommended |
+|--------|--------|--------|-------------|
+| **Columnar Index (S3)** | Requires AWS credentials | Parquet (ready to use) | ✅ Yes |
+| **CDX Index (HTTPS)** | Public, no auth needed | Gzip JSON (needs conversion) | Fallback only |
+
+**Option 1: Columnar Index via S3 (Recommended)**
+
+The CC Index is available as a pre-built parquet table on S3. This is the fastest approach and requires AWS credentials:
 
 ```bash
-# Option 1: Download a single partition for testing (~1GB)
-mkdir -p /tmp/cc-index/crawl=CC-MAIN-2024-10/subset=warc
-wget -O /tmp/cc-index/crawl=CC-MAIN-2024-10/subset=warc/part-00000.parquet \
-  "https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/part-00000-5bb2bfdd-dcc0-47b2-8a2d-f27c3c9bfe17.c000.gz.parquet"
+# Download parquet files for a specific crawl (~300 partitions, ~1GB each)
+aws s3 cp s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/ \
+    /local/path/cc-index/crawl=CC-MAIN-2024-10/subset=warc/ --recursive
 
-# Option 2: Download full crawl index (~300GB compressed)
-aws s3 sync s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/ \
-    /local/path/cc-index/crawl=CC-MAIN-2024-10/ --no-sign-request
+# For testing: download just a few partition files
+aws s3 cp s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/part-00000.parquet \
+    /local/path/cc-index/crawl=CC-MAIN-2024-10/subset=warc/
 ```
 
-## Understanding CC Index Lookup
+**Option 2: CDX Index via HTTPS**
 
-Some datasets (OpenWebMath, InfiWebMath, MegaMath) only have URLs without WARC metadata. To fetch their content from Common Crawl, you first need to look up each URL's location in the CC Index.
+You can also download CDX files via HTTPS and convert them to parquet. CDX files are gzip-compressed JSON lines.
 
-The CC Index is [**publicly available on S3**](https://commoncrawl.org/access-the-data) and can be queried directly—no download required.
+```bash
+# Get the list of CDX files for a crawl:
+curl -s https://data.commoncrawl.org/crawl-data/CC-MAIN-2024-10/cc-index.paths.gz | gunzip
+```
+
+CDX to parquet conversion requires parsing JSON and extracting the required columns with proper types:
+- `url` (string), `warc_filename` (string from `filename` field)
+- `warc_record_offset` (int64 from `offset`), `warc_record_length` (int64 from `length`)
+- `content_mime_type` (string from `mime`), `http_status` (string from `status`)
+
+## Understanding Index Lookup
+
+Some datasets (OpenWebMath, InfiWebMath, MegaMath) only have URLs without WARC metadata. To fetch their content from Common Crawl, you first need to look up each URL's location in the Common Crawl (CC) Index.
+
+The CC Index is [**publicly available on S3**](https://commoncrawl.org/access-the-data).
 
 ### How the Lookup Process Works
 
@@ -88,7 +110,7 @@ The CC Index is [**publicly available on S3**](https://commoncrawl.org/access-th
                            │
                            ▼
             ┌──────────────────────────────────────┐
-            │   2_text_preprocess.py --fetch-cc  │
+            │   2_text_preprocess.py --fetch-cc    │
             │   Uses WARC metadata to fetch actual │
             │   content from Common Crawl S3       │
             └──────────────────────────────────────┘
@@ -98,18 +120,18 @@ The CC Index is [**publicly available on S3**](https://commoncrawl.org/access-th
 
 ### CC Index Location
 
-The CC Index is stored at:
-```
-s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-YYYY-WW/
-```
+The CC Index is available in two formats:
 
-Each crawl snapshot (~2.5-3 billion URLs) has its own index partition. The script queries this directly via S3—no need to download hundreds of GB.
+| Format | Location | Notes |
+|--------|----------|-------|
+| **Columnar (Parquet)** | `s3://commoncrawl/cc-index/table/cc-main/warc/crawl=CC-MAIN-YYYY-WW/` | Requires AWS credentials |
+| **CDX (Gzip JSON)** | `https://data.commoncrawl.org/cc-index/collections/CC-MAIN-YYYY-WW/indexes/` | Public HTTPS access |
 
 Available crawl IDs: https://index.commoncrawl.org/
 
 ## Dataset Configuration
 
-Dataset configurations are stored in `datasets.json`. The `0_download.py` script reads this to download datasets from HuggingFace Hub.
+Dataset metadata is stored in `datasets.json`. This file is used by `0_download.py` to download datasets from HuggingFace Hub and describes which datasets require CC Index lookup.
 
 Each dataset entry contains:
 - `huggingface`: Source repository path for downloading
@@ -344,24 +366,11 @@ $MATH_DATA_DIR/raw/
 
 **Skip this step if your dataset already has WARC metadata** (like FineMath).
 
-For datasets that only have URLs (OpenWebMath, InfiWebMath, MegaMath), enrich them with WARC metadata by joining against a local CC Index using GPU-accelerated cuDF.
+For datasets that only have URLs (OpenWebMath, InfiWebMath, MegaMath), enrich them with WARC metadata by joining against a local CC Index.
 
-### Download CC Index for Testing
+### Download CC Index
 
-First, download a small slice of the CC Index for local testing:
-
-```bash
-# Create directory structure
-export CC_INDEX_DIR=/tmp/cc-index
-mkdir -p "$CC_INDEX_DIR/crawl=CC-MAIN-2024-10/subset=warc"
-
-# Download a single partition file (~1GB) for testing
-# Get the exact filename from: https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/
-wget -O "$CC_INDEX_DIR/crawl=CC-MAIN-2024-10/subset=warc/part-00000.parquet" \
-  "https://data.commoncrawl.org/cc-index/table/cc-main/warc/crawl=CC-MAIN-2024-10/subset=warc/part-00000-5bb2bfdd-dcc0-47b2-8a2d-f27c3c9bfe17.c000.gz.parquet"
-```
-
-**Note**: Each CC Index crawl has ~300 partition files. For testing, one file is sufficient but match rates will be low.
+Download CC Index parquet files for the crawl(s) you need. See [CC Index Requirements](#common-crawl-cc-index-requirements) for download options and required schema.
 
 ### Run CC Index Lookup
 
@@ -395,33 +404,29 @@ python tutorials/math/1_cc_index_lookup.py \
 Extract and preprocess text from raw web data:
 
 ```bash
-# For datasets WITH WARC metadata (FineMath) - fetch directly from CC
-python tutorials/math/2_text_preprocess.py \
-    --input "$MATH_DATA_DIR/raw/finemath_4plus/**/*.parquet" \
-    --output $MATH_DATA_DIR/preprocessed \
-    --fetch-cc
-
-# For datasets AFTER CC Index lookup (Step 1 output)
+# For datasets with WARC metadata (FineMath, or after CC Index lookup)
+# Uses --fetch-cc to download content from Common Crawl S3
 python tutorials/math/2_text_preprocess.py \
     --input "$MATH_DATA_DIR/enriched/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed \
     --fetch-cc
 
-# For local data with binary_content already present
+# For local data with binary_content column already present (no fetch needed)
 python tutorials/math/2_text_preprocess.py \
-    --input "tutorials/math/data/*.parquet" \
+    --input "$MATH_DATA_DIR/local/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed
 
 # Optional: Add --report-stats to see extraction statistics
 python tutorials/math/2_text_preprocess.py \
-    --input "tutorials/math/data/*.parquet" \
+    --input "$MATH_DATA_DIR/enriched/*.parquet" \
     --output $MATH_DATA_DIR/preprocessed \
+    --fetch-cc \
     --report-stats
 ```
 
 **Input**: Parquet files with either:
-- `binary_content` (bytes), `url`, `mime_type` - for local data
-- `warc_filename`, `warc_record_offset`, `warc_record_length` - with `--fetch-cc` flag
+- `warc_filename`, `warc_record_offset`, `warc_record_length` columns → use `--fetch-cc` to download from Common Crawl
+- `binary_content` (bytes) column → content already present, no fetch needed
 
 **Output**: JSONL files with columns: `text`, `url`, `type`
 
