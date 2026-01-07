@@ -53,7 +53,7 @@ classifiers = [
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna==0.1.2",
+    "cosmos-xenna==0.1.8",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
