@@ -14,63 +14,6 @@ modality: "text-only"
 
 Classifier-based filtering uses machine learning models to differentiate between high-quality and low-quality documents. NVIDIA NeMo Curator implements an approach similar to the one described in [Brown et al., 2020](https://arxiv.org/abs/2005.14165), which trains a binary skip-gram classifier to distinguish between curated high-quality data and lower-quality data.
 
-## Supported Classifier Models
-
-NeMo Curator supports a variety of classifier models for different filtering and classification tasks. The table below summarizes the main supported models, their backend, typical use case, and HuggingFace model link (if public):
-
-```{list-table}
-:header-rows: 1
-:widths: 20 20 30 30
-* - Classifier Name
-  - Model Type
-  - Typical Use Case / Description
-  - HuggingFace Model/Link
-* - FastTextQualityFilter
-  - fastText (binary classifier)
-  - Quality filtering, high/low quality document classification (available as filter, not distributed classifier)
-  - https://fasttext.cc/
-* - FastTextLangId
-  - fastText (language identification)
-  - Language identification (available as filter, not distributed classifier)
-  - https://fasttext.cc/docs/en/language-identification.html
-* - QualityClassifier
-  - DeBERTa (transformers, HF)
-  - Document quality classification (multi-class, e.g., for curation)
-  - https://huggingface.co/nvidia/quality-classifier-deberta
-* - DomainClassifier
-  - DeBERTa (transformers, HF)
-  - Domain classification (English)
-  - https://huggingface.co/nvidia/domain-classifier
-* - MultilingualDomainClassifier
-  - mDeBERTa (transformers, HF)
-  - Domain classification (multilingual, 52 languages)
-  - https://huggingface.co/nvidia/multilingual-domain-classifier
-* - ContentTypeClassifier
-  - DeBERTa (transformers, HF)
-  - Content type classification (11 speech types)
-  - https://huggingface.co/nvidia/content-type-classifier-deberta
-* - AegisClassifier
-  - LlamaGuard-7b (LLM, PEFT, HF)
-  - Safety classification (AI content safety, requires access to LlamaGuard-7b)
-  - https://huggingface.co/meta-llama/LlamaGuard-7b
-* - InstructionDataGuardClassifier
-  - Custom neural net (used with Aegis)
-  - Detects instruction data poisoning
-  - https://huggingface.co/nvidia/instruction-data-guard
-* - FineWebEduClassifier
-  - SequenceClassification (transformers, HF)
-  - Educational content quality scoring (FineWeb)
-  - https://huggingface.co/HuggingFaceFW/fineweb-edu-classifier
-* - FineWebMixtralEduClassifier
-  - SequenceClassification (transformers, HF)
-  - Educational content quality scoring (Mixtral variant)
-  - https://huggingface.co/nvidia/nemocurator-fineweb-mixtral-edu-classifier
-* - FineWebNemotronEduClassifier
-  - SequenceClassification (transformers, HF)
-  - Educational content quality scoring (Nemotron-4 variant)
-  - https://huggingface.co/nvidia/nemocurator-fineweb-nemotron-4-edu-classifier
-```
-
 ## How It Works
 
 Classifier-based filtering learns the characteristics of high-quality documents from training data, unlike heuristic filtering which relies on predefined rules and thresholds. This approach is particularly effective when:
@@ -96,118 +39,15 @@ The classifier-based filtering process involves:
 
 ## Usage
 
-:::{note}
-Training fastText classifiers requires using CLI commands. The trained models can then be used with the Python API for filtering datasets.
-:::
-
-### 1. Prepare Training Data
-
-First, you need to prepare training data by sampling from high-quality and low-quality datasets using the CLI command.
-
-You can prepare training data using Python scripts:
-
-```python
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.pipeline import Pipeline
-import random
-
-# Sample from low-quality dataset (e.g., raw Common Crawl)
-def sample_documents(input_path, output_path, num_samples, label):
-    pipeline = Pipeline(name="sample_data")
-    reader = JsonlReader(file_paths=input_path, fields=["text"])
-    pipeline.add_stage(reader)
-    
-    # Execute pipeline to load data
-    results = pipeline.run()
-    
-    # Sample and save with labels for fastText format
-    with open(output_path, 'w') as f:
-        for result in results:
-            data = result.to_pandas()
-            sampled = data.sample(min(num_samples, len(data)))
-            for _, row in sampled.iterrows():
-                f.write(f"{label} {row['text'].replace(chr(10), ' ')}\n")
-
-# Create training samples
-sample_documents(
-    "/path/to/common-crawl/*.jsonl", 
-    "./cc_samples.txt", 
-    10000, 
-    "__label__cc"
-)
-sample_documents(
-    "/path/to/wikipedia/*.jsonl", 
-    "./hq_samples.txt", 
-    10000, 
-    "__label__hq"
-)
-```
-
-#### Command Parameters
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `--input-data-dir` | Directory containing JSONL files to sample from | `/data/common_crawl/` |
-| `--output-num-samples` | Number of documents to sample | `10000` |
-| `--label` | FastText label prefix for the category | `__label__hq` or `__label__cc` |
-| `--output-train-file` | Output file for training samples | `./samples.txt` |
-
-### 2. Use Pre-trained Quality Classifiers
-
-For most quality filtering use cases, we recommend using the pre-trained quality classifiers available in NeMo Curator rather than training custom fastText models:
-
-#### Option A: DeBERTa Quality Classifier (Recommended)
-
-Use the pre-trained `nvidia/quality-classifier-deberta` model for robust quality assessment:
-
-```python
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.io.reader import JsonlReader
-from nemo_curator.stages.text.io.writer import JsonlWriter
-from nemo_curator.stages.text.classifiers import QualityClassifier
-
-# Create pipeline with DeBERTa quality classifier
-pipeline = Pipeline(name="quality_classification_pipeline")
-
-# Load dataset
-read_stage = JsonlReader(
-    file_paths="input_data/",
-    fields=["text", "id"]
-)
-pipeline.add_stage(read_stage)
-
-# Apply quality classifier
-classify_stage = QualityClassifier(
-    max_chars=6000,  # Default is 6000
-    model_inference_batch_size=256
-)
-pipeline.add_stage(classify_stage)
-
-# Save results
-write_stage = JsonlWriter(path="classified_output/")
-pipeline.add_stage(write_stage)
-
-# Execute pipeline
-results = pipeline.run()  # Uses XennaExecutor by default
-```
-
-#### Option B: Custom fastText Models
-
-If you need to train custom fastText models for specific domains or requirements, refer to the [fastText documentation](https://fasttext.cc/docs/en/supervised-tutorial.html) for comprehensive training guides.
-
-:::{note}
-**When to use each approach:**
-
-- **QualityClassifier (DeBERTa)**: Higher accuracy, multi-class output (Low/Medium/High), better for general quality assessment. Use the `filter_by` parameter to filter during classification or omit it to add predictions as metadata only.
-- **FastTextQualityFilter**: Faster inference, lower memory usage, includes Pareto sampling, better for high-throughput scenarios or when you have domain-specific training data.
-:::
-
-### 3. Use Quality Assessment
 
 NeMo Curator provides two approaches for quality assessment:
 
 1. **Classification**: Use `QualityClassifier` to add quality predictions and optionally filter during classification
 2. **Filtering**: Use `FastTextQualityFilter` with `ScoreFilter` for document-level filtering with Pareto sampling
+
+:::{note}
+If you need to train custom fastText models for specific domains or requirements, refer to the [fastText documentation](https://fasttext.cc/docs/en/supervised-tutorial.html) for comprehensive training guides.
+:::
 
 ::::{tab-set}
 
@@ -320,16 +160,6 @@ selective_fasttext_filter = FastTextQualityFilter(
 
 ::::
 
-## Pareto-Based Sampling
-
-NeMo Curator's implementation includes support for Pareto-based sampling, as described in Brown et al., 2020. This approach:
-
-1. Scores documents using the trained classifier
-2. Ranks documents based on their scores
-3. Samples documents according to a Pareto distribution, favoring higher-ranked documents
-
-This method helps maintain diversity in the dataset while still prioritizing higher-quality documents.
-
 ## Quality Classifier and Filter Parameters
 
 ### QualityClassifier (DeBERTa)
@@ -350,37 +180,6 @@ The `FastTextQualityFilter` accepts the following parameters:
 - `label` (str, default="__label__hq"): The label for high-quality documents
 - `alpha` (float, default=3): Alpha parameter for Pareto distribution sampling
 - `seed` (int, default=42): Random seed for reproducible sampling
-
-## Configuration
-
-Typical configurations for quality-based filtering:
-
-### DeBERTa Quality Classifier
-
-```yaml
-classifiers:
-  - name: QualityClassifier
-    filter_by: ["High"]
-    model_inference_batch_size: 256
-    max_chars: 6000
-    label_field: quality_pred
-    text_field: text
-```
-
-### FastText Quality Filter
-
-```yaml
-filters:
-  - name: ScoreFilter
-    filter:
-      name: FastTextQualityFilter
-      model_path: /path/to/quality_classifier.bin
-      label: __label__hq
-      alpha: 3
-      seed: 42
-    text_field: text
-    score_field: quality_score
-```
 
 ## Best Practices
 

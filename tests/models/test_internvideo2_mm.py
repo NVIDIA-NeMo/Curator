@@ -31,7 +31,7 @@ try:
         _setup_internvideo2,
     )
 except ImportError:
-    pytest.skip("InternVideo2 package is not available")
+    pytest.skip("InternVideo2 package is not available", allow_module_level=True)
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)

@@ -1,5 +1,5 @@
 ---
-description: "Identify exact duplicates using MD5 hashing with distributed GPU acceleration"
+description: "Identify and remove exact duplicates using MD5 hashing in a Ray-based workflow"
 categories: ["how-to-guides"]
 tags: ["exact-dedup", "hashing", "md5", "gpu", "ray"]
 personas: ["data-scientist-focused", "mle-focused"]
@@ -16,109 +16,189 @@ Remove character-for-character duplicate documents using NeMo Curator's exact du
 
 For an overview of all duplicate removal options, refer to {ref}`Deduplication <text-process-data-dedup>`.
 
----
-
 ## How It Works
 
-1. File partitioning for scalable, distributed processing
-2. MD5 hashing of the configured `text_field`
-3. Identification of duplicate groups by hash equality
+Exact deduplication uses MD5 hashing to identify identical documents:
 
----
+1. Computes MD5 hash for each document's text content
+2. Groups documents by identical hash values
+3. Identifies duplicates and saves IDs for removal
 
-## Usage (Python)
+This method targets character-for-character duplicates and is recommended for removing exact copies of documents.
+
+## Before You Start
+
+**Prerequisites**:
+
+- Ray cluster with GPU support (required for distributed processing)
+- Stable document identifiers for removal (either existing IDs or IDs assigned by the workflow)
+
+## Quick Start
+
+Get started with exact deduplication using the following example of identifying duplicates, then remove them:
 
 ```python
-# Import directly from the workflow module
+from nemo_curator.core.client import RayClient
 from nemo_curator.stages.deduplication.exact.workflow import ExactDeduplicationWorkflow
+from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 
-# Basic exact duplicate identification
+ray_client = RayClient()
+ray_client.start()
+
+# Step 1: Identify duplicates
 exact_workflow = ExactDeduplicationWorkflow(
-    input_path="/path/to/input/data",
-    output_path="/path/to/output",
+    input_path="input_data/",
+    output_path="./results",
     text_field="text",
-    perform_removal=False,  # Identification only
-    assign_id=True,         # Auto-assign unique IDs if missing
-    input_filetype="parquet",  # "parquet" or "jsonl"
-    input_blocksize="2GiB"
-)
-
-exact_workflow.run()
-
-# Advanced configuration with existing IDs and storage options
-exact_workflow_advanced = ExactDeduplicationWorkflow(
-    input_path="/path/to/input/data",
-    output_path="/path/to/output",
-    # Input configuration
-    input_filetype="jsonl",
-    input_blocksize="2GiB",
-    input_file_extensions=[".jsonl"],
-    read_kwargs={
-        "storage_options": {"key": "<access_key>", "secret": "<secret_key>"}
-    },
-    write_kwargs={
-        "storage_options": {"key": "<access_key>", "secret": "<secret_key>"}
-    },
-    # Processing configuration
-    text_field="content",
-    assign_id=False,        # Use existing ID field
-    id_field="document_id",
+    assign_id=True,
     perform_removal=False,
-    # Optional: environment variables for GPU comms
-    env_vars={
-        "UCX_TLS": "rc,cuda_copy,cuda_ipc",
-        "UCX_IB_GPU_DIRECT_RDMA": "yes",
-    },
+    input_filetype="parquet"
 )
+exact_workflow.run()
+# Duplicate IDs saved to ./results/ExactDuplicateIds/
 
-exact_workflow_advanced.run()
-
-# Integrate with existing pipelines using initial tasks
-from nemo_curator.tasks import FileGroupTask
-
-initial_tasks = [
-    FileGroupTask(
-        task_id="batch_0",
-        dataset_name="my_dataset",
-        data=["/path/to/file1.parquet", "/path/to/file2.parquet"],
-        _metadata={"source_files": ["/path/to/file1.parquet", "/path/to/file2.parquet"]},
-    )
-]
-
-exact_workflow.run(initial_tasks=initial_tasks)
+# Step 2: Remove duplicates
+removal_workflow = TextDuplicatesRemovalWorkflow(
+    input_path="input_data/",
+    ids_to_remove_path="./results/ExactDuplicateIds",
+    output_path="./deduplicated",
+    input_filetype="parquet",
+    input_id_field="_curator_dedup_id",
+    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_generator_path="./results/exact_id_generator.json"
+)
+removal_workflow.run()
+# Clean dataset saved to ./deduplicated/
 ```
 
-```{note}
-Removal is currently not implemented in the exact workflow (`perform_removal=True` raises an error). Use the duplicate ID outputs with the Text Duplicates Removal workflow. Refer to {ref}`Common Operations <text-process-data-dedup-common-ops>` for removal and outputs.
+## Configuration
+
+Configure exact deduplication using these key parameters:
+
+```{list-table} Key Configuration Parameters
+:header-rows: 1
+:widths: 25 15 20 40
+
+* - Parameter
+  - Type
+  - Default
+  - Description
+* - `input_path`
+  - str | list[str]
+  - None
+  - Path(s) to input files or directories
+* - `output_path`
+  - str
+  - Required
+  - Directory to write duplicate IDs and ID generator
+* - `text_field`
+  - str
+  - "text"
+  - Name of the text field in input data
+* - `assign_id`
+  - bool
+  - True
+  - Whether to automatically assign unique IDs
+* - `id_field`
+  - str | None
+  - None
+  - Existing ID field name (if assign_id=False)
+* - `input_filetype`
+  - str
+  - "parquet"
+  - Input file format ("parquet" or "jsonl")
+* - `input_blocksize`
+  - str | int
+  - "2GiB"
+  - Size of input blocks for processing
+* - `perform_removal`
+  - bool
+  - False
+  - Reserved; must remain `False`. Exact removal is performed with `TextDuplicatesRemovalWorkflow`.
 ```
 
----
+## Removing Duplicates
 
-## Performance Recommendations
+After identifying duplicates, use `TextDuplicatesRemovalWorkflow` to remove them:
 
-- Uses MD5 hashing for exact duplicate detection
-- Requires a Ray-based distributed GPU execution environment
-- Clear the output directory between runs to avoid conflicts
+```python
+from nemo_curator.core.client import RayClient
+from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 
----
+ray_client = RayClient()
+ray_client.start()
 
-## Output Structure
+removal_workflow = TextDuplicatesRemovalWorkflow(
+    input_path="/path/to/input/data",
+    ids_to_remove_path="/path/to/output/ExactDuplicateIds",
+    output_path="/path/to/deduplicated",
+    input_filetype="parquet",
+    input_id_field="_curator_dedup_id",
+    ids_to_remove_duplicate_id_field="_curator_dedup_id",
+    id_generator_path="/path/to/output/exact_id_generator.json"  # Required if assign_id=True
+)
+removal_workflow.run()
+```
 
-- Output directory contains duplicate IDs and, when `assign_id=True`, an ID generator mapping
-  - `ExactDuplicateIds/`: Parquet files with document IDs to remove
-  - `exact_id_generator.json`: ID generator mapping
+:::{dropdown} ID Field Configuration
+:icon: info
 
----
+**When `assign_id=True`**:
 
-## Workflow Stages
+- Duplicate IDs file contains `_curator_dedup_id` column
+- Set `ids_to_remove_duplicate_id_field="_curator_dedup_id"`
+- `id_generator_path` is required
 
-1. File Partitioning: Groups input files for parallel processing
-2. Exact Duplicate Identification: Computes MD5 hashes and identifies duplicates
+**When `assign_id=False`**:
 
----
+- Duplicate IDs file contains the column specified by `id_field` (e.g., `"id"`)
+- Set `ids_to_remove_duplicate_id_field` to match your `id_field` value
+- `id_generator_path` not required
+:::
 
-## Ray Cluster Setup
+## Output Format
 
-The workflow runs on a Ray cluster with GPU support. Initialization and cleanup of the ID generator actor occur within the workflow when `assign_id=True`.
+The exact deduplication process produces the following directory structure:
 
-Refer to the Ray documentation (`https://docs.ray.io/en/latest/cluster/getting-started.html`) for distributed cluster setup.
+```s
+output_path/
+├── ExactDuplicateIds/              # Duplicate identification results
+│   └── *.parquet                   # Parquet files with document IDs to remove
+└── exact_id_generator.json         # ID generator mapping (if assign_id=True)
+```
+
+### File Formats
+
+The workflow produces these output files:
+
+1. **Duplicate IDs** (`ExactDuplicateIds/*.parquet`):
+   - Contains document IDs to remove
+   - Format: Parquet files with a single ID column
+   - Column name depends on `assign_id`:
+     - When `assign_id=True`: Column is `"_curator_dedup_id"`
+     - When `assign_id=False`: Column matches the `id_field` parameter (e.g., `"id"`)
+   - **Important**: Contains only the IDs of documents to remove, not the full document content
+
+2. **ID Generator** (`exact_id_generator.json`):
+   - JSON file containing ID generator state
+   - Required for removal workflow when `assign_id=True`
+   - Ensures consistent ID mapping across workflow stages
+
+:::{dropdown} Performance Considerations
+:icon: zap
+
+**Performance characteristics**:
+
+- Uses MD5 hashing over the configured text field to derive duplicate groups
+- Runs as a Ray-based workflow and writes duplicate IDs to the `ExactDuplicateIds/` directory
+- Stores only document IDs to remove in the output files, not full document content
+
+**Best practices**:
+
+- Use `input_blocksize="2GiB"` for optimal performance
+- Clear output directory between runs
+- Use `assign_id=True` for consistent ID tracking
+:::
+
+
+For comparison with other deduplication methods and guidance on when to use exact deduplication, refer to the {ref}`Deduplication overview <text-process-data-dedup>`.
