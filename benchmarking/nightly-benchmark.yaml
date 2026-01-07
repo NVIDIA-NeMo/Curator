@@ -181,7 +181,7 @@ entries:
 
   - name: image_curation
     enabled: true
-    script: /opt/Curator/tutorials/image/getting-started/image_curation_example.py
+    script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
     args: >-
       --input-wds-dataset-dir {dataset:mscoco,wds}
       --output-dataset-dir {session_entry_dir}/results_truncated_100K_mscoco
