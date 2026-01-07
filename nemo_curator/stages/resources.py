@@ -36,17 +36,13 @@ class Resources:
     Attributes:
         cpus: Number of CPU cores required
         gpu_memory_gb: GPU memory required in GB (Only for single-GPU stages)
-        nvdecs: Number of NVDEC units required
-        nvencs: Number of NVENC units required
-        entire_gpu: Whether to allocate entire GPU regardless of memory (This also gives you nvdecs and nvencs of that GPU)
+        entire_gpu: Whether to allocate entire GPU regardless of memory
         gpus: Number of GPUs required (Only for multi-GPU stages)
     """
 
     # TODO : Revisit this gpu_memory_gb, gpus, entire_gpu too many variables for gpu
     cpus: float = 1.0
     gpu_memory_gb: float = 0.0
-    nvdecs: int = 0
-    nvencs: int = 0
     entire_gpu: bool = False
     gpus: float = 0.0
 
@@ -69,6 +65,9 @@ class Resources:
                 error_message = "gpu_memory_gb is too large for a single GPU. "
                 error_message += "Please use gpus for multi-GPU stages."
                 raise ValueError(error_message)
+
+        if self.entire_gpu:
+            self.gpus = 1.0
 
     @property
     def requires_gpu(self) -> bool:
