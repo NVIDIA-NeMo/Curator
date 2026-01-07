@@ -222,4 +222,4 @@ Key areas to explore next:
 
 * **[Custom Audio Manifests](../curate-audio/load-data/custom-manifests.md)** - Load your own audio datasets
 * **[Quality Assessment](../curate-audio/process-data/quality-assessment/index.md)** - Advanced filtering and quality metrics
-* **[Text Integration](../curate-audio/process-data/text-integration/index.md)** - Combine with text processing workflows  
+* **[Text Integration](../curate-audio/process-data/text-integration/index.md)** - Combine with text processing workflows
