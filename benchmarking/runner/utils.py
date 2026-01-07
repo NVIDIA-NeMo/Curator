@@ -139,7 +139,10 @@ def run_shm_size_check(human_readable: bool = False) -> tuple[int | None, str | 
         output = result.stdout
         line = output.strip().split("\n")[-1]
         try:
-            size = int(line.split()[1])  # Size is the second column
+            size = line.split()[1]  # Size is the second column
+            # Convert to a real number if not meant for simply reading by humans
+            if not human_readable:
+                size = int(size)
         except (ValueError, IndexError):
             logger.warning(f"Could not parse size from `{command_str}` output line: {line}")
             size = None

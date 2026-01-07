@@ -93,7 +93,7 @@ Divide tar files across workers for parallel processing.
 
 ```python
 pipeline.add_stage(FilePartitioningStage(
-    file_paths=INPUT_WDS_DIR,
+    file_paths=INPUT_TAR_DIR,
     files_per_partition=1,  # Adjust based on file sizes
     file_extensions=[".tar"],
 ))
@@ -210,7 +210,7 @@ def create_image_curation_pipeline():
     
     # Add stages
     pipeline.add_stage(FilePartitioningStage(
-        file_paths=INPUT_WDS_DIR,
+        file_paths=INPUT_TAR_DIR,
         files_per_partition=1,
         file_extensions=[".tar"],
     ))

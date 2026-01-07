@@ -104,14 +104,12 @@ class Entry:
     def get_command_to_run(
         self,
         session_entry_path: Path,
-        benchmark_results_path: Path,
         path_resolver: PathResolver,
         dataset_resolver: DatasetResolver,
     ) -> str:
         if self.script:
             script_path = self.script_base_dir / self.script
-            # TODO: should --benchmark-results-path always be passed?
-            cmd = f"python {script_path} {self.args or ''} --benchmark-results-path={benchmark_results_path}"
+            cmd = f"python {script_path} {self.args or ''}"
 
             cmd = self.substitute_paths_in_cmd(cmd, path_resolver, dataset_resolver)
             cmd = self.substitute_template_placeholders(cmd, session_entry_path)
