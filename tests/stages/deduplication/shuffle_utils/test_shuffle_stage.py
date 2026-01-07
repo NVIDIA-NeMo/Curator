@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,17 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
 import os
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
 
-cudf = pytest.importorskip("cudf", reason="ShuffleStage tests require cudf")
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.shuffle_utils.stage import ShuffleStage
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.shuffle_utils.stage import ShuffleStage
+
 from nemo_curator.tasks import FileGroupTask
 
 
@@ -81,7 +88,7 @@ class TestShuffleStage:
         return tasks
 
     @pytest.fixture(autouse=True)
-    def test_data_df(self, test_data: list[FileGroupTask]) -> cudf.DataFrame:
+    def test_data_df(self, test_data: list[FileGroupTask]) -> "cudf.DataFrame":
         """Create a dataframe from the test data."""
         return cudf.concat([cudf.read_parquet(task.data) for task in test_data], ignore_index=True)
 
@@ -98,7 +105,7 @@ class TestShuffleStage:
     def test_shuffle(
         self,
         test_data: list[FileGroupTask],
-        test_data_df: cudf.DataFrame,
+        test_data_df: "cudf.DataFrame",
         shuffle_on: list[str],
         total_nparts: int | None,
         tmp_path: Path,
