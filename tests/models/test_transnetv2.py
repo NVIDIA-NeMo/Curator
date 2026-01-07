@@ -30,7 +30,6 @@ from nemo_curator.models.transnetv2 import (
 )
 
 
-@pytest.mark.video
 class TestTransNetV2:
     """Test cases for _TransNetV2 main model class."""
 
@@ -130,7 +129,6 @@ class TestTransNetV2:
         assert output.shape == (1, 50, 1)
 
 
-@pytest.mark.video
 class TestStackedDDCNNV2:
     """Test cases for StackedDDCNNV2 class."""
 
@@ -193,7 +191,6 @@ class TestStackedDDCNNV2:
         assert output.shape == (batch_size, expected_channels, time_steps, expected_height, expected_width)
 
 
-@pytest.mark.video
 class TestDilatedDCNNV2:
     """Test cases for DilatedDCNNV2 class."""
 
@@ -241,7 +238,6 @@ class TestDilatedDCNNV2:
         assert output.shape == (batch_size, expected_channels, time_steps, height, width)
 
 
-@pytest.mark.video
 class TestConv3DConfigurable:
     """Test cases for Conv3DConfigurable class."""
 
@@ -286,7 +282,6 @@ class TestConv3DConfigurable:
         assert output.shape == (1, 16, 10, 27, 48)
 
 
-@pytest.mark.video
 class TestFrameSimilarity:
     """Test cases for FrameSimilarity class."""
 
@@ -335,7 +330,6 @@ class TestFrameSimilarity:
         assert output.dtype == torch.float32
 
 
-@pytest.mark.video
 class TestColorHistograms:
     """Test cases for ColorHistograms class."""
 
@@ -398,7 +392,6 @@ class TestColorHistograms:
         assert output.shape == (batch_size, time_steps, 128)
 
 
-@pytest.mark.video
 class TestTransNetV2Interface:
     """Test cases for TransNetV2 interface class."""
 
@@ -480,7 +473,6 @@ class TestTransNetV2Interface:
         mock_model.assert_called_once_with(inputs)
 
 
-@pytest.mark.video
 class TestModelIntegration:
     """Integration tests for model components."""
 

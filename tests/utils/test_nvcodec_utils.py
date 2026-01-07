@@ -32,7 +32,6 @@ from nemo_curator.utils.nvcodec_utils import (
 )
 
 
-@pytest.mark.video
 class TestFrameExtractionPolicy:
     """Test suite for FrameExtractionPolicy enum."""
 
@@ -42,7 +41,6 @@ class TestFrameExtractionPolicy:
         assert FrameExtractionPolicy.fps.value == 1
 
 
-@pytest.mark.video
 class TestImportHandling:
     """Test suite for handling missing GPU dependencies."""
 
@@ -103,7 +101,6 @@ class TestImportHandling:
         assert hasattr(nvcodec_utils, "PyNvcFrameExtractor")
 
 
-@pytest.mark.video
 class TestVideoBatchDecoder:
     """Test suite for VideoBatchDecoder class."""
 
@@ -484,7 +481,6 @@ class TestVideoBatchDecoder:
             assert mock_torch.empty.call_count >= 2
 
 
-@pytest.mark.video
 class TestNvVideoDecoder:
     """Test suite for NvVideoDecoder class."""
 
@@ -835,7 +831,6 @@ class TestNvVideoDecoder:
         mock_cvcuda.reformat_into.assert_called()
 
 
-@pytest.mark.video
 class TestPyNvcFrameExtractor:
     """Test suite for PyNvcFrameExtractor class."""
 
@@ -1009,7 +1004,6 @@ class TestPyNvcFrameExtractor:
             )
 
 
-@pytest.mark.video
 class TestGpuDecodeForStitching:
     """Test suite for gpu_decode_for_stitching function."""
 
@@ -1145,7 +1139,6 @@ class TestGpuDecodeForStitching:
         assert len(result) == 7
 
 
-@pytest.mark.video
 class TestPixelFormatMapping:
     """Test suite for pixel format mapping."""
 
@@ -1158,7 +1151,6 @@ class TestPixelFormatMapping:
         # Both cases are valid
 
 
-@pytest.mark.video
 class TestGracefulDegradation:
     """Test suite for ensuring graceful degradation when dependencies are missing."""
 

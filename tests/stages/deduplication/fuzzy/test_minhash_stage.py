@@ -114,7 +114,6 @@ def input_task(sample_files: tuple[list[str], str]) -> FileGroupTask:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestMinHashStage:
     """Test suite for MinHashStage ProcessingStage."""
 

@@ -33,7 +33,6 @@ with suppress(ImportError):
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestSemanticDeduplicationWorkflow:
     """Test the SemanticDeduplicationWorkflow against the same data and expectations as the original Dask-based test."""
 

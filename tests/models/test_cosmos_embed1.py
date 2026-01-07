@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
-@pytest.mark.video
 class TestCosmosEmbed1:
     """Test cases for CosmosEmbed1 model class."""
 

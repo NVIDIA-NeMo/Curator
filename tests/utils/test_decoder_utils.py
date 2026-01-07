@@ -41,7 +41,6 @@ from nemo_curator.utils.decoder_utils import (
 )
 
 
-@pytest.mark.video
 class TestResolution:
     """Test suite for Resolution NamedTuple."""
 
@@ -68,7 +67,6 @@ class TestResolution:
         assert width == 640
 
 
-@pytest.mark.video
 class TestVideoMetadata:
     """Test suite for VideoMetadata dataclass."""
 
@@ -111,7 +109,6 @@ class TestVideoMetadata:
         assert metadata.bit_rate_k == 5000
 
 
-@pytest.mark.video
 class TestFrameExtractionPolicy:
     """Test suite for FrameExtractionPolicy enum."""
 
@@ -130,7 +127,6 @@ class TestFrameExtractionPolicy:
         assert str(FrameExtractionPolicy.sequence) == "FrameExtractionPolicy.sequence"
 
 
-@pytest.mark.video
 class TestFrameExtractionSignature:
     """Test suite for FrameExtractionSignature dataclass."""
 
@@ -167,7 +163,6 @@ class TestFrameExtractionSignature:
         assert result == "FrameExtractionPolicy.first-29970"
 
 
-@pytest.mark.video
 class TestExtractVideoMetadata:
     """Test suite for extract_video_metadata function."""
 
@@ -320,7 +315,6 @@ class TestExtractVideoMetadata:
             extract_video_metadata(b"fake_data")
 
 
-@pytest.mark.video
 class TestMakeVideoStream:
     """Test suite for _make_video_stream function."""
 
@@ -380,7 +374,6 @@ class TestMakeVideoStream:
             _make_video_stream(123)
 
 
-@pytest.mark.video
 class TestSaveStreamPosition:
     """Test suite for save_stream_position context manager."""
 
@@ -427,7 +420,6 @@ class TestSaveStreamPosition:
         assert stream.tell() == initial_position
 
 
-@pytest.mark.video
 class TestFindClosestIndices:
     """Test suite for find_closest_indices function."""
 
@@ -472,7 +464,6 @@ class TestFindClosestIndices:
         np.testing.assert_array_equal(result, expected)
 
 
-@pytest.mark.video
 class TestSampleClosest:
     """Test suite for sample_closest function."""
 
@@ -532,7 +523,6 @@ class TestSampleClosest:
             sample_closest(src, -1.0)
 
 
-@pytest.mark.video
 class TestMockedVideoFunctions:
     """Test suite for video functions that require mocking external dependencies."""
 

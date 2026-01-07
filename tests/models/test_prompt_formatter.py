@@ -22,7 +22,6 @@ import torch
 from nemo_curator.models.prompt_formatter import VARIANT_MAPPING, PromptFormatter
 
 
-@pytest.mark.video
 class TestPromptFormatter:
     """Test cases for PromptFormatter class."""
 

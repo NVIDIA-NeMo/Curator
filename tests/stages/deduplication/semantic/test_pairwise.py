@@ -40,7 +40,6 @@ with suppress(ImportError):
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestPairwiseCosineSimilarityBatched:
     """Test cases for pairwise_cosine_similarity_batched function."""
 
@@ -91,7 +90,6 @@ class TestPairwiseCosineSimilarityBatched:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestPairwiseCosineSimilarityStage:
     """Test cases for PairwiseCosineSimilarityStage."""
 
@@ -341,7 +339,6 @@ class TestPairwiseCosineSimilarityStage:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestPairwiseStage:
     """Test cases for PairwiseStage composite stage."""
 

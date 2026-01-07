@@ -27,7 +27,6 @@ with suppress(ImportError):
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
-@pytest.mark.text
 class TestClusterWiseFilePartitioningStage:
     """Test cases for ClusterWiseFilePartitioningStage."""
 

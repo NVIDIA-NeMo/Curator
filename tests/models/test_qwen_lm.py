@@ -17,15 +17,12 @@
 import sys
 from unittest.mock import Mock, patch
 
-import pytest
-
 # Mock vllm before importing the module to avoid dependency issues
 sys.modules["vllm"] = Mock()
 
 from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
 
 
-@pytest.mark.video
 class TestQwenLM:
     """Test cases for QwenLM model class."""
 

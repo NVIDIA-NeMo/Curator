@@ -66,7 +66,6 @@ def sample_data():
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestGPUMinHash:
     """Test suite for GPU MinHash implementation."""
 

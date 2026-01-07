@@ -88,7 +88,6 @@ def input_tasks(sample_files: list[str]) -> list[FileGroupTask]:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestConnectedComponentsStage:
     """Test suite for ConnectedComponentsStage ProcessingStage."""
 

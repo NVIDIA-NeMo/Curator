@@ -28,7 +28,6 @@ with suppress(ImportError):
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestRankingStrategy:
     """Test cases for RankingStrategy."""
 

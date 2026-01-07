@@ -116,7 +116,6 @@ def exact_no_dedup_data_jsonl(tmp_path: Path) -> list[FileGroupTask]:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 @pytest.mark.usefixtures("ray_client_with_id_generator")
 class TestExactDuplicates:
     @pytest.mark.parametrize("assign_id", [True, False])

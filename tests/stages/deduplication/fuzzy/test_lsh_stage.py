@@ -35,7 +35,6 @@ from nemo_curator.tasks import FileGroupTask
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 @pytest.mark.usefixtures("shared_ray_client")
 class TestLSHStage:
     @pytest.fixture(autouse=True)

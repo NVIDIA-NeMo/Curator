@@ -29,7 +29,6 @@ with suppress(ImportError):
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestIdentifyDuplicatesStage:
     """Test cases for IdentifyDuplicatesStage."""
 

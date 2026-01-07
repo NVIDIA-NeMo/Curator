@@ -17,13 +17,11 @@
 from unittest.mock import Mock, patch
 
 import numpy as np
-import pytest
 import torch
 
 from nemo_curator.models.aesthetics import MLP, AestheticScorer
 
 
-@pytest.mark.image
 class TestMLP:
     """Test cases for MLP model class."""
 
@@ -85,7 +83,6 @@ class TestMLP:
         assert not torch.isnan(output).any()
 
 
-@pytest.mark.image
 class TestAestheticScorer:
     """Test cases for AestheticScorer model class."""
 
@@ -242,7 +239,6 @@ class TestAestheticScorer:
             mock_from_numpy.assert_called_once()
 
 
-@pytest.mark.image
 class TestModelIntegration:
     """Integration tests for aesthetic model components."""
 

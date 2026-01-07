@@ -144,7 +144,6 @@ def run_single_gpu_baseline(
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 @pytest.mark.parametrize(
     "file_format_config",
     ["parquet", "jsonl"],
@@ -289,7 +288,6 @@ class TestKMeansStageIntegration:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 class TestKMeansReadFitWriteStage:
     """Unit tests for KMeansReadFitWriteStage methods."""
 

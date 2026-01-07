@@ -90,7 +90,6 @@ def input_task(sample_files: list[str]) -> FileGroupTask:
 
 # Marking as GPU so that they don't get skiped on GPU CI runs
 @pytest.mark.gpu
-@pytest.mark.text
 class TestBucketsToEdgesStage:
     """Test suite for BucketsToEdgesStage ProcessingStage."""
 

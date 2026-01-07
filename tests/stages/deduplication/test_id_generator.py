@@ -41,7 +41,6 @@ def sample_batch_registry():
     }
 
 
-@pytest.mark.text
 class TestIdGeneratorBase:
     """Test the IdGeneratorBase class directly (not as Ray actor)."""
 
@@ -206,7 +205,6 @@ class TestIdGeneratorBase:
         assert end_id == 149
 
 
-@pytest.mark.text
 class TestIdGeneratorActor:
     """Test the IdGenerator as a Ray actor."""
 

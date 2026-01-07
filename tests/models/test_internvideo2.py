@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from unittest.mock import MagicMock
 
 
-@pytest.mark.video
 class TestInternVideo2FrameCreationStage:
     """Test cases for InternVideo2FrameCreationStage class."""
 
@@ -244,7 +243,6 @@ class TestInternVideo2FrameCreationStage:
         assert result == task
 
 
-@pytest.mark.video
 class TestInternVideo2EmbeddingStage:
     """Test cases for InternVideo2EmbeddingStage class."""
 

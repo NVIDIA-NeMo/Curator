@@ -272,9 +272,5 @@ fixable = ["ALL"]
 testpaths = ["tests"]
 markers = [
     "asyncio",
-    "audio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
-    "image",
-    "text",
-    "video",
 ]

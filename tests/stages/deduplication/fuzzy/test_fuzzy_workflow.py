@@ -161,7 +161,6 @@ def no_duplicates_fuzzy_dedup_data(tmp_path: Path) -> list[FileGroupTask]:
 
 
 @pytest.mark.gpu
-@pytest.mark.text
 @pytest.mark.usefixtures("shared_ray_client")
 class TestFuzzyDuplicates:
     @pytest.mark.parametrize("use_64_bit_hash", [False, True])
