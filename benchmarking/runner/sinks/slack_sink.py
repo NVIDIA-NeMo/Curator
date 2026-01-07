@@ -33,7 +33,7 @@ _post_template = """
       "type": "header",
       "text": {
         "type": "plain_text",
-        "text": "Curator Benchmark Summary $SESSION_NAME"
+        "text": "Curator Benchmark Summary$SESSION_NAME"
       }
     },
     {
@@ -76,7 +76,7 @@ class SlackSink(Sink):
         super().__init__(sink_config)
         self.sink_config = sink_config
         self.enabled = self.sink_config.get("enabled", True)
-        self.session_name: str = None
+        self.session_name: str | None = None
         self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
 
@@ -123,7 +123,7 @@ class SlackSink(Sink):
             "REPORT_JSON_TEXT": "REPORT_JSON_TEXT",
             "GOOGLE_DRIVE_LINK": "https://google.com",
             "EXECUTIVE_SUMMARY": " ",
-            "SESSION_NAME": f"- {self.session_name}" if self.session_name else "",
+            "SESSION_NAME": f" - {self.session_name}" if self.session_name else "",
         }
         indent = "-    "  # start with a dash since leading whitespace is stripped
 
