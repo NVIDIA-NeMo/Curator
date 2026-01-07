@@ -26,7 +26,7 @@ try:
         InternVideo2EmbeddingStage,
         InternVideo2FrameCreationStage,
     )
-except Exception:  # noqa: BLE001
+except ImportError:
     pytest.skip("InternVideo2 package is not available", allow_module_level=True)
 
 
