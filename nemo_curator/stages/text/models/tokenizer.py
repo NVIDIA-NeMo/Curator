@@ -83,7 +83,9 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.sort_by_length = sort_by_length
         self.unk_token = unk_token
 
+        transformers_kwargs = transformers_kwargs or {}
         tokenizer_stage_parameters = ["cache_dir", "padding_side"]
+
         for parameter in tokenizer_stage_parameters:
             if parameter in transformers_kwargs and transformers_kwargs[parameter] is not None:
                 msg = f"Please pass the {parameter} parameter directly to the stage instead of using the transformers_kwargs dictionary"
@@ -93,7 +95,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             msg = "Passing the local_files_only parameter is not allowed"
             raise ValueError(msg)
 
-        self.transformers_kwargs = transformers_kwargs or {}
+        self.transformers_kwargs = transformers_kwargs
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
