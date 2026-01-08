@@ -184,7 +184,7 @@ jobs:
           uv add InternVideo/InternVideo2/multi_modality
           FOLDER="${{ matrix.folder }}"
           FOLDER="${FOLDER/stages-/stages/}"
-          uv run coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+          uv run coverage run --branch --source=nemo_curator -m pytest -vv -s "tests/$FOLDER" -m "not gpu"
 
       - name: Generate report
         id: check
