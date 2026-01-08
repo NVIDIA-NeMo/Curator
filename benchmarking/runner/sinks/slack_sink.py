@@ -33,7 +33,7 @@ _post_template = """
       "type": "header",
       "text": {
         "type": "plain_text",
-        "text": "Curator Benchmark Summary"
+        "text": "Curator Benchmark Summary$SESSION_NAME"
       }
     },
     {
@@ -76,7 +76,7 @@ class SlackSink(Sink):
         super().__init__(sink_config)
         self.sink_config = sink_config
         self.enabled = self.sink_config.get("enabled", True)
-        self.session_name: str = None
+        self.session_name: str | None = None
         self.matrix_config: Session = None
         self.env_dict: dict[str, Any] = None
 
@@ -123,6 +123,7 @@ class SlackSink(Sink):
             "REPORT_JSON_TEXT": "REPORT_JSON_TEXT",
             "GOOGLE_DRIVE_LINK": "https://google.com",
             "EXECUTIVE_SUMMARY": " ",
+            "SESSION_NAME": f" - {self.session_name}" if self.session_name else "",
         }
         indent = "-    "  # start with a dash since leading whitespace is stripped
 
@@ -311,7 +312,7 @@ if __name__ == "__main__":
                     yield json.load(f)
 
     sink_config = {"webhook_url": webhook_url, "default_metrics": ["exec_time_s"]}
-    matrix_config = Session(results_path=results_root_path, artifacts_path=results_root_path)
+    matrix_config = Session(results_path=results_root_path)
     env_json_path = results_root_path / "env.json"
     with open(env_json_path) as f:
         env_data = json.load(f)

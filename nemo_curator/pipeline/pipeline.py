@@ -129,7 +129,7 @@ class Pipeline:
         stage_info = ", ".join([f"{s.name}({s.__class__.__name__})" for s in self.stages])
         return f"Pipeline(name='{self.name}', stages=[{stage_info}])"
 
-    def describe(self) -> str:  # noqa: C901
+    def describe(self) -> str:
         """Get a detailed description of the pipeline stages and their requirements."""
         lines = [
             f"Pipeline: {self.name}",
@@ -148,10 +148,6 @@ class Pipeline:
                 lines.append(f"  Resources: {stage.resources.cpus} CPUs")
                 if stage.resources.requires_gpu:
                     lines.append(f"    GPU Memory: {stage.resources.gpu_memory_gb} GB ({stage.resources.gpus} GPUs)")
-                if stage.resources.nvdecs > 0:
-                    lines.append(f"    NVDEC: {stage.resources.nvdecs}")
-                if stage.resources.nvencs > 0:
-                    lines.append(f"    NVENC: {stage.resources.nvencs}")
 
                 lines.append(f"  Batch size: {stage.batch_size}")
 

@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -31,7 +33,7 @@ try:
         _setup_internvideo2,
     )
 except ImportError:
-    pytest.skip("InternVideo2 package is not available")
+    pytest.skip("InternVideo2 package is not available", allow_module_level=True)
 
 # Create a random generator for consistent testing
 rng = np.random.default_rng(42)

@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,27 +14,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
 from pathlib import Path
 from unittest.mock import Mock, patch
+
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
+    import cuml
+    import cupy as cp
 
 import numpy as np
 import pandas as pd
 import pytest
 from sklearn.datasets import make_blobs
-
-cudf = pytest.importorskip("cudf")
-cuml = pytest.importorskip("cuml")
-cp = pytest.importorskip("cupy")
-
 from sklearn.metrics import adjusted_rand_score
 
-from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
-from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
-from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
-from nemo_curator.tasks import FileGroupTask
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
+    from nemo_curator.pipeline import Pipeline
+    from nemo_curator.stages.deduplication.semantic.kmeans import KMeansReadFitWriteStage, KMeansStage
+    from nemo_curator.stages.deduplication.semantic.utils import get_array_from_df
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+    from nemo_curator.tasks import FileGroupTask
 
 N_CLUSTERS = 4
 N_SAMPLES_PER_CLUSTER = 10_000

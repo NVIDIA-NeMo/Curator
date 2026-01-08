@@ -1,3 +1,5 @@
+# modality: video
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -27,8 +29,7 @@ try:
         InternVideo2FrameCreationStage,
     )
 except ImportError:
-    pytest.skip("InternVideo2 package is not available")
-
+    pytest.skip("InternVideo2 package is not available", allow_module_level=True)
 
 from nemo_curator.tasks.video import Clip, Video, VideoTask
 

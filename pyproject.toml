@@ -53,7 +53,7 @@ classifiers = [
 dependencies = [
     "absl-py>=2.0.0,<3.0.0",
     "comment_parser",
-    "cosmos-xenna==0.1.2",
+    "cosmos-xenna==0.1.8",
     "fsspec",
     "jieba==0.42.1",
     "loguru",
@@ -232,7 +232,7 @@ ignore = [
     "G",  # no enforcement during logging
     "FBT",  # allow booleans in function / class arguments
     "T20",  # allow printing
-    "E501",  # Allow line length violations, leave it to Black
+    "E501",  # allow line length violations, leave it to Black
     "ANN002",  # don't annotate **args
     "ANN003",  # don't annotate **kwargs
     "ANN204",  # don't annotate self/cls/special methods (__new__)
@@ -241,13 +241,13 @@ ignore = [
     "RET505", "RET506", "RET507", "RET508",  # allow branching (if else after return)
     "PGH004",  # allow generic noqa
     "PD901",  # allow naming dataframes df
-    "TD002",  # Allow TODO without author
-    "TD003",  # Allow TODO without link
-    "TRY003", # Allow long exception messages rather than creating a new exception class
-    "FIX002",  # Allow TODO to exist,
-    "EXE002", # Don't require for a shebang to be present if it's executable
-    "COM812", # Disable the trailing comma in linter, because ruff formatter ensures it
-    "SLF001", # Allow accessing private attributes
+    "TD002",  # allow TODO without author
+    "TD003",  # allow TODO without link
+    "TRY003", # allow long exception messages rather than creating a new exception class
+    "FIX002",  # allow TODO to exist,
+    "EXE002", # don't require for a shebang to be present if it's executable
+    "COM812", # disable the trailing comma in linter, because ruff formatter ensures it
+    "SLF001", # allow accessing private attributes
 ]
 fixable = ["ALL"]
 
@@ -255,20 +255,22 @@ fixable = ["ALL"]
 [tool.ruff.lint.extend-per-file-ignores]
 "nemo_curator/__init__.py" = ["F401"]
 "examples/**" = [
-    "INP001", # No __init__.py is required
+    "INP001", # no __init__.py is required
 ]
 "tests/**/*.py" = [
-    "S101", # asserts allowed in tests...
-    "ANN201", # Allow methods to not return something
-    "PLR2004", # Magic value used in comparison, ...
+    "S101", # asserts allowed in tests
+    "ANN201", # allow methods to not return something
+    "PLR2004", # magic value used in comparison
+    "ERA001", # allow commented-out code
 ]
 "tutorials/**" = [
-    "INP001", # No __init__.py is required
-    "PLE2515", # Ignore \u200b complaint
+    "INP001", # no __init__.py is required
+    "PLE2515", # ignore \u200b complaint
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
+    "asyncio",
     "gpu: marks tests as GPU tests (deselect with '-m \"not gpu\"')",
 ]
