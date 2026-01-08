@@ -26,7 +26,10 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 
 def build_pipeline(input_glob: str, output_dir: str) -> Pipeline:
-    p = Pipeline(name="math_quality_classifier", description="...")
+    p = Pipeline(
+        name="math_quality_classifier",
+        description="Classify mathematical content quality using the FineMath model",
+    )
 
     # Reader (composite): tune both file partitioning and jsonl_reader stages
     p.add_stage(

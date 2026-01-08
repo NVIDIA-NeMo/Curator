@@ -23,6 +23,7 @@ from resiliparse.parse.encoding import bytes_to_str, detect_encoding
 from nemo_curator.stages.text.download.base.extract import DocumentExtractor
 
 from .html_extractors.lynx import LynxExtractor
+from .mime_types import HTML_MAGIC_TYPES, HTML_MIME_TYPES, TEXT_MAGIC_TYPES, TEXT_MIME_TYPES
 
 
 def _remove_xml_encoding_declaration(text: str) -> str:
@@ -169,17 +170,15 @@ class MathContentExtractor(DocumentExtractor):
         result: str | None = None
 
         if magic_mime_type is None:
-            if mime_type in self._get_text_mime_types():
+            if mime_type in TEXT_MIME_TYPES:
                 result = "text"
-            elif mime_type in self._get_html_mime_types() or self._is_html_document(content):
+            elif mime_type in HTML_MIME_TYPES or self._is_html_document(content):
                 result = "html"
             else:
                 result = "html"
-        elif magic_mime_type in self._get_html_magic_types() or (
-            mime_type and mime_type in self._get_html_mime_types()
-        ):
+        elif magic_mime_type in HTML_MAGIC_TYPES or (mime_type and mime_type in HTML_MIME_TYPES):
             result = "html"
-        elif mime_type in self._get_text_mime_types() or magic_mime_type in self._get_text_magic_types():
+        elif mime_type in TEXT_MIME_TYPES or magic_mime_type in TEXT_MAGIC_TYPES:
             result = "text"
         else:
             result = "html"
@@ -194,104 +193,3 @@ class MathContentExtractor(DocumentExtractor):
             )
         except (TypeError, AttributeError, ValueError):
             return False
-
-    def _get_text_mime_types(self) -> set[str]:
-        """Get set of MIME types that indicate text content."""
-        return {
-            "text/x-web-markdown",
-            "text/x-verilog",
-            "text/x-rst",
-            "text/x-ruby",
-            "text/x-rsrc",
-            "text/x-python",
-            "text/x-perl",
-            "text/x-pascal",
-            "text/x-objcsrc",
-            "text/x-ml",
-            "text/x-matlab",
-            "text/x-log",
-            "text/x-haskell",
-            "text/x-fortran",
-            "text/x-expect",
-            "text/x-diff",
-            "text/x-csrc",
-            "text/x-common-lisp",
-            "text/x-chdr",
-            "text/x-cgi",
-            "text/x-c++src",
-            "text/x-basic",
-            "text/vtt",
-            "text/x-assembly",
-            "text/troff",
-            "text/plain",
-            "message/rfc822",
-            "message/news",
-            "application/mathematica",
-            "application/mbox",
-            "application/postscript",
-            "application/x-elc",
-            "application/x-matlab-data",
-            "application/x-sas",
-            "application/x-sh",
-            "application/x-subrip",
-            "application/x-tex",
-            "application/x-tika-msoffice",
-        }
-
-    def _get_html_mime_types(self) -> set[str]:
-        """Get set of MIME types that indicate HTML content."""
-        return {
-            "text/x-php",
-            "text/x-jsp",
-            "text/x-coldfusion",
-            "text/html",
-            "message/x-emlx",
-            "text/asp",
-            "image/svg+xml",
-            "application/xml",
-            "application/atom+xml",
-            "application/rdf+xml",
-            "application/rss+xml",
-            "application/x-bibtex-text-file",
-            "application/xhtml+xml",
-        }
-
-    def _get_text_magic_types(self) -> set[str]:
-        """Get set of magic MIME types that indicate text content."""
-        return {
-            "text/x-shellscript",
-            "text/x-perl",
-            "text/x-lisp",
-            "text/x-java",
-            "text/x-fortran",
-            "text/x-diff",
-            "application/postscript",
-            "application/x-matlab-data",
-            "message/news",
-            "message/rfc822",
-            "text/plain",
-            "text/texmacs",
-            "text/x-Algol68",
-        }
-
-    def _get_html_magic_types(self) -> set[str]:
-        """Get set of magic MIME types that indicate HTML content."""
-        return {
-            "text/xml",
-            "text/x-tex",
-            "text/x-php",
-            "text/x-ruby",
-            "text/x-script.python",
-            "text/x-objective-c",
-            "text/x-forth",
-            "text/x-c",
-            "text/x-c++",
-            "text/csv",
-            "text/html",
-            "application/octet-stream",
-            "application/x-appleworks3",
-            "application/x-bytecode.python",
-            "application/x-setupscript",
-            "application/x-wine-extension-ini",
-            "image/svg+xml",
-        }

@@ -15,7 +15,7 @@
 import pandas as pd
 
 from nemo_curator.backends.base import WorkerMetadata
-from nemo_curator.models.vllm_model import _MODELS, VLLMModel
+from nemo_curator.models.vllm_model import VLLMModel
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.models.utils import format_name_with_suffix
@@ -106,12 +106,7 @@ class LLMCleanupStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if hasattr(self._model, "_final_max_model_len"):
             self._final_max_model_len = self._model._final_max_model_len
         else:
-            model_name = self._model.model if hasattr(self._model, "model") else ""
-            model_spec = _MODELS.get(model_name)
-            if model_spec and self.max_model_len is not None:
-                self._final_max_model_len = min(self.max_model_len, model_spec.max_model_len)
-            else:
-                self._final_max_model_len = self.max_model_len
+            self._final_max_model_len = self.max_model_len
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()

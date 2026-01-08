@@ -1,0 +1,70 @@
+---
+alwaysApply: true
+---
+
+# `CompositeStage` Patterns
+
+## When to Use `CompositeStage`
+
+Use `CompositeStage` for high-level, user-facing stages that decompose into multiple low-level execution stages:
+
+- Provide simplified API while maintaining fine-grained execution control
+- Bundle multiple related stages into a single logical operation
+- Especially useful when stages require different resources (e.g., a CPU-based stage followed by a GPU-based stage)
+- Decomposed during pipeline planning
+
+## Creating a `CompositeStage`
+
+```python
+from dataclasses import dataclass
+
+from nemo_curator.stages.base import CompositeStage, ProcessingStage
+
+
+@dataclass
+class MyCompositeStage(CompositeStage[InputTaskType, OutputTaskType]):
+    param1: str
+    param2: int
+
+    def __post_init__(self) -> None:
+        super().__init__()
+
+        self.stages = [
+            StageA(param1=self.param1),
+            StageB(param2=self.param2),
+            StageC(),
+        ]
+
+    def inputs(self) -> tuple[list[str], list[str]]:
+        # StageA's inputs
+        return self.stages[0].inputs()
+
+    def outputs(self) -> tuple[list[str], list[str]]:
+        # StageC's outputs
+        return self.stages[2].outputs()
+
+    def decompose(self) -> list[ProcessingStage]:
+        return self.stages
+```
+
+## Configuration with `with_()`
+
+`CompositeStage` use a different `with_()` signature that takes a dictionary:
+
+```python
+from nemo_curator.stages.resources import Resources
+
+
+composite_stage = MyCompositeStage(param1, param2)
+
+# Add a with operation
+stage_config = {"StageA": {"resources": Resources(cpus=5.0)}}
+updated_composite_stage = composite_stage.with_(stage_config)
+```
+
+## Important Rules
+
+- Decomposed stages cannot be `CompositeStage`s themselves
+- `inputs()` returns first stage's inputs
+- `outputs()` returns last stage's outputs
+- All stages in `decompose()` must have unique names for `with_()` to work

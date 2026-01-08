@@ -34,13 +34,6 @@ class MockGpuInfo:
         self.name = name
 
 
-# Mock GPU resources class to simulate GPU resources
-class MockGpuResources:
-    def __init__(self, num_nvencs: int = 3, num_nvdecs: int = 3):
-        self.num_nvencs = num_nvencs
-        self.num_nvdecs = num_nvdecs
-
-
 class TestClipTranscodingStage:
     """Test cases for ClipTranscodingStage."""
 
@@ -279,6 +272,28 @@ class TestClipTranscodingStage:
 
         # Should not add any hwaccel options
         assert "-hwaccel" not in command
+
+    def test_add_hwaccel_options_enabled(self) -> None:
+        """Test hardware acceleration options when enabled."""
+        command = []
+        stage = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=1)
+
+        stage._add_hwaccel_options(command)
+
+        assert "-hwaccel" in command
+        assert "-hwaccel_output_format" in command
+        assert stage.resources.gpus == 1.0
+
+    def test_add_hwaccel_options_enabled_multiple_streams(self) -> None:
+        """Test hardware acceleration options when enabled."""
+        command = []
+        stage = ClipTranscodingStage(use_hwaccel=True, encoder="h264_nvenc", nb_streams_per_gpu=4)
+
+        stage._add_hwaccel_options(command)
+
+        assert "-hwaccel" in command
+        assert "-hwaccel_output_format" in command
+        assert stage.resources.gpus == 0.25
 
     def test_add_input_options(self) -> None:
         """Test adding input options to FFmpeg command."""

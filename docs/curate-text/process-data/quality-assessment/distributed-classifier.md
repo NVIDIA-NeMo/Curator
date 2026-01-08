@@ -122,7 +122,7 @@ results = pipeline.run()  # Uses XennaExecutor by default
 The exact label categories returned by the Quality Classifier depend on the model configuration. Check the prediction column in your results to see the available labels for filtering with the `filter_by` parameter.
 :::
 
-### AEGIS Safety Model
+### AEGIS Safety Classifier
 
 The AEGIS classifier detects unsafe content across 13 critical risk categories. It requires a HuggingFace token for access to Llama Guard.
 
@@ -365,28 +365,6 @@ pipeline.add_stage(writer)
 results = pipeline.run()  # Uses XennaExecutor by default
 ```
 
-## Scaling with Different Executors
-
-All NVIDIA NeMo Curator classifiers support different execution backends for enhanced scalability and performance. By default, pipelines use the `XennaExecutor`, but you can choose different backends based on your computational requirements.
-
-```python
-from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.classifiers import QualityClassifier
-
-# Create pipeline with classifier
-pipeline = Pipeline(name="classifier_pipeline")
-pipeline.add_stage(read_stage)
-pipeline.add_stage(QualityClassifier())
-pipeline.add_stage(write_stage)
-
-# Run with default Xenna executor (recommended)
-executor = XennaExecutor(config={"execution_mode": "streaming"})
-results = pipeline.run(executor)
-```
-
-For large-scale distributed classification tasks, consider using Ray-based executors or other backends. Refer to the {doc}`Pipeline Execution Backends </reference/infrastructure/execution-backends>` reference for detailed information about available executors, their configurations, and when to use each backend type.
-
 ## Performance Optimization
 
 NVIDIA NeMo Curator's distributed classifiers are optimized for high-throughput processing through several key features:
@@ -398,12 +376,3 @@ The classifiers optimize throughput through:
 - **Length-based sorting**: Input sequences are sorted by length when `sort_by_length=True` (default)
 - **Efficient batching**: Similar-length sequences are grouped together to minimize padding overhead
 - **GPU memory optimization**: Batches are sized to maximize GPU utilization based on available memory
-
-### Integration with RAPIDS AI Ecosystem
-
-NeMo Curator leverages components from the RAPIDS AI ecosystem for accelerated processing:
-
-- **GPU-accelerated tokenization**: Fast text preprocessing on GPU when available
-- **Optimized memory management**: Smart allocation and deallocation of GPU resources
-
-For more information about RAPIDS AI performance optimization libraries, see the [rapidsai/crossfit](https://github.com/rapidsai/crossfit) repository.
