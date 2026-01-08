@@ -19,13 +19,17 @@ GPU resources based on the test session's requirements.
 """
 
 import os
+import re
 import socket
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import pytest
 import ray
 from loguru import logger
+
+MODALITY_GROUPS = ["text", "image", "video", "audio"]
 
 
 def find_free_port() -> int:
@@ -94,6 +98,73 @@ def session_needs_gpu(config: pytest.Config, collected_items: list[pytest.Item])
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Hook to store collected items in config for later use."""
     config._collected_items = items  # Store in config instead of global
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:  # noqa: C901, PLR0912
+    m_opts = config.invocation_params.args
+    m_count = sum(arg == "-m" for arg in m_opts)
+
+    # At most one -m flag allowed
+    if m_count > 1:
+        msg = "At most one -m flag is allowed.\n"
+        msg += "Combine markers into a single boolean expression, e.g.:\n"
+        msg += '  pytest -m "not gpu and video"'
+        raise pytest.UsageError(msg)
+
+    selected = config.getoption("-m") or ""
+
+    # No -m expression → collect everything
+    if selected.strip() == "":
+        return False
+
+    # Determine which modalities (if any) were explicitly requested
+    selected_groups = set()
+
+    for group in MODALITY_GROUPS:
+        # Do not allow negating a modality
+        if re.search(rf"\bnot\s+{group}\b", selected):
+            msg = f"Negating a modality is not allowed: 'not {group}'."
+            raise pytest.UsageError(msg)
+
+        if re.search(rf"\b{group}\b", selected):
+            selected_groups.add(group)
+
+    # Do not allow multiple modalities to be selected at once
+    if len(selected_groups) > 1:
+        msg = f"Multiple modalities selected: {sorted(selected_groups)}. "
+        msg += "Please select only one modality at a time "
+        msg += f"({', '.join(MODALITY_GROUPS)})."
+        raise pytest.UsageError(msg)
+
+    # If no modality was requested → collect everything
+    if len(selected_groups) == 0:
+        return False
+
+    # If we reach this point, there should be exactly one modality selected
+    assert len(selected_groups) == 1
+
+    path_str = str(collection_path)
+
+    # 1. Directory-based detection
+    # e.g., if there is a subdirectory called "video", it is safe to assume it contains video tests only
+    for group in MODALITY_GROUPS:
+        if f"/{group}/" in path_str or path_str.endswith(f"{group}"):
+            return group not in selected_groups
+
+    # 2. File-based comment detection
+    # scan first 5 lines for: "# modality: video"
+    if collection_path.is_file() and collection_path.suffix == ".py":
+        try:
+            with open(collection_path, encoding="utf8") as f:
+                header = "".join([next(f) for _ in range(5)])
+        except StopIteration:
+            header = ""
+        for group in MODALITY_GROUPS:
+            if f"# modality: {group}" in header:
+                return group not in selected_groups
+
+    # Default → collect
+    return False
 
 
 def _build_ray_command(temp_dir: str, num_cpus: int, num_gpus: int, object_store_memory: int) -> tuple[list[str], int]:

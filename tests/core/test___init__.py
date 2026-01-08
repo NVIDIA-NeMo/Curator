@@ -12,12 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+
 import pytest
 
 
-@pytest.mark.gpu
-def test_basic_cudf_dataframe():
-    import cudf
+def test_raises_system_error(monkeypatch: pytest.MonkeyPatch):
+    dummy_platform = "asdfasdf"
+    monkeypatch.setattr(sys, "platform", dummy_platform)
 
-    df = cudf.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
-    assert len(df) == 3
+    # Remove module if already imported
+    if "nemo_curator" in sys.modules:
+        del sys.modules["nemo_curator"]
+
+    with pytest.raises(ValueError, match="only supports Linux systems") as excinfo:
+        import nemo_curator  # noqa
+
+    assert dummy_platform in str(excinfo.value)

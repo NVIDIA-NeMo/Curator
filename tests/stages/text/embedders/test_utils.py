@@ -12,15 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import suppress
+
 import pytest
 
-# ruff: noqa: E402
-cudf = pytest.importorskip("cudf", reason="utils tests require cudf")
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
+    import cupy as cp
 
-import cupy as cp
 import torch
 
-from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.text.embedders.utils import create_list_series_from_1d_or_2d_ar
 
 
 @pytest.mark.gpu
