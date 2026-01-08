@@ -192,7 +192,9 @@ class TestBackendIntegrations:
         """Test that Ray Data creates the expected execution plan with correct stage organization."""
         if self.backend_cls != RayDataExecutor:
             pytest.skip("Execution plan test only applies to RayDataExecutor")
-        if ray.__version__ < "2.53":
+        from packaging import version
+
+        if version.parse(ray.__version__) < version.parse("2.53.0"):
             streaming_partitioning_stage = "StreamingRepartition[num_rows_per_block=1]"
         else:
             streaming_partitioning_stage = "StreamingRepartition"
