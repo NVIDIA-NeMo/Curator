@@ -643,14 +643,14 @@ class TokenCountFilter(DocumentFilter):
     If the document contains more or less than a specified number of tokens, then discard.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         tokenizer: AutoTokenizer | None = None,
         hf_model_name: str | None = None,
         hf_token: str | None = None,
         min_tokens: int = 0,
         max_tokens: int = float("inf"),
-        transformers_kwargs: dict[str, Any] = {},
+        transformers_kwargs: dict[str, Any] | None = None,
     ):
         """
         Args:
@@ -680,7 +680,7 @@ class TokenCountFilter(DocumentFilter):
         self._hf_token = hf_token
         self._min_tokens = min_tokens
         self._max_tokens = max_tokens
-        self._transformers_kwargs = transformers_kwargs
+        self._transformers_kwargs = transformers_kwargs or {}
         self._name = "token_count"
 
     def model_check_or_download(self) -> None:

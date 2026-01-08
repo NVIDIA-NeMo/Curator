@@ -69,7 +69,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
         unk_token: bool = False,
-        transformers_kwargs: dict[str, Any] = {},
+        transformers_kwargs: dict[str, Any] | None = None,
     ):
         self.name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
 
@@ -93,7 +93,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             msg = "Passing the local_files_only parameter is not allowed"
             raise ValueError(msg)
 
-        self.transformers_kwargs = transformers_kwargs
+        self.transformers_kwargs = transformers_kwargs or {}
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]

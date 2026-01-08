@@ -41,7 +41,7 @@ class EmbeddingModelStage(ModelStage):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
-        transformers_kwargs: dict[str, Any] = {},
+        transformers_kwargs: dict[str, Any] | None = None,
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -55,6 +55,7 @@ class EmbeddingModelStage(ModelStage):
         self.embedding_field = embedding_field
         self.pooling = pooling
 
+        transformers_kwargs = transformers_kwargs or {}
         if "local_files_only" in transformers_kwargs and transformers_kwargs["local_files_only"] is not None:
             msg = "Passing the local_files_only parameter is not allowed"
             raise ValueError(msg)
