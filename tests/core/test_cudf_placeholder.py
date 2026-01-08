@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,17 +14,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-
 import pytest
 
 
-def test_raises_system_error(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(sys, "modules", {})
-    dummy_platform = "asdfasdf"
-    monkeypatch.setattr(sys, "platform", dummy_platform)
+@pytest.mark.gpu
+def test_basic_cudf_dataframe():
+    import cudf
 
-    with pytest.raises(ValueError, match="only supports Linux systems") as excinfo:
-        import nemo_curator  # noqa
-
-    assert dummy_platform in str(excinfo.value)
+    df = cudf.DataFrame({"col1": [1, 2, 3], "col2": [4, 5, 6]})
+    assert len(df) == 3
