@@ -700,7 +700,7 @@ class TokenCountFilter(DocumentFilter):
                 raise ValueError(msg)
 
             self._token_count_filter_tokenizer = AutoTokenizer.from_pretrained(
-                self._hf_model_name, local_files_only=True
+                self._hf_model_name, local_files_only=True, **self._transformers_kwargs
             )
 
     def score_document(self, text: str) -> int:
