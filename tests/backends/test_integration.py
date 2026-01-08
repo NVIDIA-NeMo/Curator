@@ -192,6 +192,10 @@ class TestBackendIntegrations:
         """Test that Ray Data creates the expected execution plan with correct stage organization."""
         if self.backend_cls != RayDataExecutor:
             pytest.skip("Execution plan test only applies to RayDataExecutor")
+        if ray.__version__ < "2.53":
+            streaming_partitioning_stage = "StreamingRepartition[num_rows_per_block=1]"
+        else:
+            streaming_partitioning_stage = "StreamingRepartition"
 
         # Look for execution plan in logs with multiple possible patterns
         matches = re.findall(r"Execution plan of Dataset.*?:\s*(.+)", self.all_logs, re.MULTILINE)
@@ -205,10 +209,10 @@ class TestBackendIntegrations:
         expected_stages = [
             "InputDataBuffer[Input]",
             "TaskPoolMapOperator[MapBatches(FilePartitioningStageTask)]",
-            "TaskPoolMapOperator[StreamingRepartition]",
+            f"TaskPoolMapOperator[{streaming_partitioning_stage}]",
             "ActorPoolMapOperator[MapBatches(JsonlReaderStageTask)->MapBatches(AddLengthStageActor)]",
             "ActorPoolMapOperator[MapBatches(SplitIntoRowsStageActor)]",
-            "TaskPoolMapOperator[StreamingRepartition]",
+            f"TaskPoolMapOperator[{streaming_partitioning_stage}]",
             "ActorPoolMapOperator[MapBatches(AddLengthStageActor)]",
             "ActorPoolMapOperator[MapBatches(StageWithSetupActor)]",
             "TaskPoolMapOperator[MapBatches(JsonlWriterTask)]",
