@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 import pandas as pd
 import torch
@@ -41,6 +41,7 @@ class EmbeddingModelStage(ModelStage):
         has_seq_order: bool = True,
         padding_side: Literal["left", "right"] = "right",
         autocast: bool = True,
+        transformers_kwargs: dict[str, Any] = {},
     ):
         super().__init__(
             model_identifier=model_identifier,
@@ -54,12 +55,17 @@ class EmbeddingModelStage(ModelStage):
         self.embedding_field = embedding_field
         self.pooling = pooling
 
+        if "local_files_only" in transformers_kwargs and transformers_kwargs["local_files_only"] is not None:
+            msg = "Passing the local_files_only parameter is not allowed"
+            raise ValueError(msg)
+        self.transformers_kwargs = transformers_kwargs
+
     def outputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.embedding_field]
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load the model for inference."""
-        self.model = AutoModel.from_pretrained(self.model_identifier, local_files_only=True)
+        self.model = AutoModel.from_pretrained(self.model_identifier, local_files_only=True, **self.transformers_kwargs)
         self.model.eval().to("cuda")
 
     def process_model_output(
@@ -111,6 +117,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     autocast: bool = True
     sort_by_length: bool = True
     hf_token: str | None = None
+    transformers_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         super().__init__()
@@ -124,6 +131,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 max_seq_length=self.max_seq_length,
                 padding_side=self.padding_side,
                 sort_by_length=self.sort_by_length,
+                transformers_kwargs=self.transformers_kwargs,
             ),
             EmbeddingModelStage(
                 model_identifier=self.model_identifier,
@@ -134,6 +142,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
                 has_seq_order=self.sort_by_length,
                 padding_side=self.padding_side,
                 autocast=self.autocast,
+                transformers_kwargs=self.transformers_kwargs,
             ),
         ]
 
