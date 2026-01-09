@@ -185,7 +185,6 @@ constraint-dependencies = [
     "ray[default,data]>=2.52", # Address CVE GHSA-q279-jhrf-cc6v
 ]
 override-dependencies = [
-    "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
