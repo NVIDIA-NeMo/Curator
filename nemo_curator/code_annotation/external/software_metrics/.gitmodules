@@ -1,0 +1,3 @@
+[submodule "rust-code-analysis"]
+	path = rust-code-analysis
+	url = https://github.com/mozilla/rust-code-analysis.git

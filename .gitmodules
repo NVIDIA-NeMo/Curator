@@ -1,0 +1,3 @@
+[submodule "nemo_curator/code_annotation/external/hyperpolyglot"]
+	path = nemo_curator/code_annotation/external/hyperpolyglot
+	url = https://github.com/VibhuJawa/hyperpolyglot.git

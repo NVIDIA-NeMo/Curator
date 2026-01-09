@@ -296,3 +296,220 @@ class PerExtensionFilter(DocumentFilter):
 
     def keep_document(self, score: float | None) -> bool:
         return not (score is None or score == 0)
+
+
+# ============================================================================
+# Filters using code_annotation library columns
+# ============================================================================
+
+
+class CommentFractionFilter(DocumentFilter):
+    """Filter based on comment fraction from code_annotation.
+
+    Requires 'ors_comment_lines_frac' column from CodeOpenCoderMetrics modifier.
+
+    Args:
+        min_comment_ratio: Minimum comment line fraction. Default 0.01.
+        max_comment_ratio: Maximum comment line fraction. Default 0.80.
+    """
+
+    def __init__(
+        self,
+        min_comment_ratio: float = 0.01,
+        max_comment_ratio: float = 0.80,
+    ):
+        self._min_ratio = min_comment_ratio
+        self._max_ratio = max_comment_ratio
+        self._name = "comment_fraction"
+
+    def score_document(self, ors_comment_lines_frac: float | None) -> float:
+        if ors_comment_lines_frac is None:
+            return -1
+        return ors_comment_lines_frac
+
+    def keep_document(self, score: float) -> bool:
+        if score < 0:
+            return False
+        return self._min_ratio <= score <= self._max_ratio
+
+
+class MaxLineLengthFilter(DocumentFilter):
+    """Filter based on maximum line length from code_annotation.
+
+    Requires 'basic_max_line_length' column from CodeBasicStats modifier.
+
+    Args:
+        max_line_length: Maximum allowed line length. Default 1000.
+    """
+
+    def __init__(self, max_line_length: int = 1000):
+        self._max_line_length = max_line_length
+        self._name = "max_line_length"
+
+    def score_document(self, basic_max_line_length: int | None) -> int:
+        if basic_max_line_length is None:
+            return -1
+        return basic_max_line_length
+
+    def keep_document(self, score: int) -> bool:
+        if score < 0:
+            return False
+        return score <= self._max_line_length
+
+
+class AverageLineLengthFilter(DocumentFilter):
+    """Filter based on average line length from code_annotation.
+
+    Requires 'basic_average_line_length' column from CodeBasicStats modifier.
+
+    Args:
+        min_avg_length: Minimum average line length. Default 5.
+        max_avg_length: Maximum average line length. Default 100.
+    """
+
+    def __init__(self, min_avg_length: float = 5, max_avg_length: float = 100):
+        self._min_avg = min_avg_length
+        self._max_avg = max_avg_length
+        self._name = "avg_line_length"
+
+    def score_document(self, basic_average_line_length: float | None) -> float:
+        if basic_average_line_length is None:
+            return -1
+        return basic_average_line_length
+
+    def keep_document(self, score: float) -> bool:
+        if score < 0:
+            return False
+        return self._min_avg <= score <= self._max_avg
+
+
+class AlphaPercentFilter(DocumentFilter):
+    """Filter based on alphabetic character percentage from code_annotation.
+
+    Requires 'basic_alpha_percent' column from CodeBasicStats modifier.
+
+    Args:
+        min_alpha_percent: Minimum alphabetic percentage. Default 0.25.
+    """
+
+    def __init__(self, min_alpha_percent: float = 0.25):
+        self._min_alpha = min_alpha_percent
+        self._name = "alpha_percent"
+
+    def score_document(self, basic_alpha_percent: float | None) -> float:
+        if basic_alpha_percent is None:
+            return -1
+        return basic_alpha_percent
+
+    def keep_document(self, score: float) -> bool:
+        if score < 0:
+            return False
+        return score >= self._min_alpha
+
+
+class HexContentFilter(DocumentFilter):
+    """Filter documents with high hex content from code_annotation.
+
+    Requires 'basic_hex_percent' column from CodeBasicStats modifier.
+
+    Args:
+        max_hex_percent: Maximum hex pattern percentage. Default 0.40.
+    """
+
+    def __init__(self, max_hex_percent: float = 0.40):
+        self._max_hex = max_hex_percent
+        self._name = "hex_content"
+
+    def score_document(self, basic_hex_percent: float | None) -> float:
+        if basic_hex_percent is None:
+            return -1
+        return basic_hex_percent
+
+    def keep_document(self, score: float) -> bool:
+        if score < 0:
+            return False
+        return score <= self._max_hex
+
+
+class Base64ContentFilter(DocumentFilter):
+    """Filter documents with high base64 content from code_annotation.
+
+    Requires 'basic_base64_percent' column from CodeBasicStats modifier.
+
+    Args:
+        max_base64_percent: Maximum base64 pattern percentage. Default 0.40.
+    """
+
+    def __init__(self, max_base64_percent: float = 0.40):
+        self._max_base64 = max_base64_percent
+        self._name = "base64_content"
+
+    def score_document(self, basic_base64_percent: float | None) -> float:
+        if basic_base64_percent is None:
+            return -1
+        return basic_base64_percent
+
+    def keep_document(self, score: float) -> bool:
+        if score < 0:
+            return False
+        return score <= self._max_base64
+
+
+class TokenCountFilter(DocumentFilter):
+    """Filter based on token count from code_annotation.
+
+    Requires 'num_tokens_*' column from CodeTokenizer modifier.
+
+    Args:
+        min_tokens: Minimum token count. Default 10.
+        max_tokens: Maximum token count. Default 100000.
+        tokenizer_name: Tokenizer used. Default "github_o200k_base".
+    """
+
+    def __init__(
+        self,
+        min_tokens: int = 10,
+        max_tokens: int = 100000,
+        tokenizer_name: str = "github_o200k_base",
+    ):
+        self._min_tokens = min_tokens
+        self._max_tokens = max_tokens
+        self._tokenizer_name = tokenizer_name
+        self._name = "token_count"
+
+    def score_document(self, **kwargs: object) -> int:
+        col_name = f"num_tokens_{self._tokenizer_name}"
+        token_count = kwargs.get(col_name)
+        if token_count is None:
+            return -1
+        return int(token_count)
+
+    def keep_document(self, score: int) -> bool:
+        if score < 0:
+            return False
+        return self._min_tokens <= score <= self._max_tokens
+
+
+class CyclomaticComplexityFilter(DocumentFilter):
+    """Filter based on cyclomatic complexity from code_annotation.
+
+    Requires 'software_metrics_cyclomatic_complexity' column from
+    CodeSoftwareMetrics modifier.
+
+    Args:
+        max_complexity: Maximum average cyclomatic complexity. Default 50.
+    """
+
+    def __init__(self, max_complexity: float = 50):
+        self._max_complexity = max_complexity
+        self._name = "cyclomatic_complexity"
+
+    def score_document(self, software_metrics_cyclomatic_complexity: float | None) -> float:
+        if software_metrics_cyclomatic_complexity is None:
+            return -1
+        return software_metrics_cyclomatic_complexity
+
+    def keep_document(self, score: float) -> bool:
+        if score < 0:
+            return True  # Keep if no score (parsing failed)
+        return score <= self._max_complexity
