@@ -209,6 +209,7 @@ class ExactDeduplicationWorkflow(WorkflowBase):
                 """
                 raise RuntimeError(err_msg) from None
 
+        id_generator_path = None
         try:
             if initial_tasks is None:
                 input_filegroups_pipeline = self._create_input_filegroups()

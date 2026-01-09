@@ -308,6 +308,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             """
             raise RuntimeError(err_msg) from None
 
+        id_generator_path = None
         try:
             minhash_pipeline = self._create_minhash_pipeline(generate_input_filegroups=initial_tasks is None)
             minhash_start_time = time.time()

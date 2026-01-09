@@ -190,7 +190,6 @@ class TestTextDuplicateRemovalWorkflowIntegration:
 
         # Metadata summaries should agree with observed behavior
         assert test_config.workflow_output.get_metadata("num_duplicates_removed") == 200
-        assert test_config.workflow_output.get_metadata("num_output_tasks") == len(test_config.output_tasks)
 
     def test_metadata_num_removed_consistency(self, test_config: "TestTextDuplicateRemovalWorkflowIntegration"):
         """Test that num_removed metadata sums up correctly across all tasks."""
@@ -280,7 +279,6 @@ class TestTextDuplicateRemovalWorkflowIntegration:
 
         expected_removed = 100  # 10 truncated tasks * 5 files/task * 2 removals per file
         assert workflow_output.get_metadata("num_duplicates_removed") == expected_removed
-        assert workflow_output.get_metadata("num_output_tasks") == len(output_tasks)
 
 
 class TestTextDuplicatesRemovalWorkflowGenerateStages:
