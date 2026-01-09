@@ -14,18 +14,32 @@
 
 from typing import Any
 
+import numpy as np
 import torch
 from transformers import AutoProcessor
 
-from nemo_curator.models.nemotron_prompt_formatter import NemotronPromptFormatter
+from nemo_curator.models.nemotron_h_vl import _NEMOTRON_VARIANTS_INFO
 
-VARIANT_MAPPING = {
+# Mapping of variants to their HuggingFace model IDs
+VARIANT_MAPPING: dict[str, str] = {
     "qwen": "Qwen/Qwen2.5-VL-7B-Instruct",
-    "nemotron": None,
+    **_NEMOTRON_VARIANTS_INFO,
 }
 
+
 class PromptFormatter:
-    def __init__(self, prompt_variant: str, model_path: str | None = None):
+    """Unified prompt formatter for VLM models using HuggingFace AutoProcessor.
+
+    Supports both Qwen and Nemotron model variants. Uses AutoProcessor.from_pretrained()
+    to load the appropriate tokenizer and chat template from HuggingFace Hub.
+    """
+
+    def __init__(self, prompt_variant: str):
+        """Initialize the prompt formatter.
+
+        Args:
+            prompt_variant: Model variant to use (e.g., "qwen", "nemotron", "nemotron-fp8").
+        """
         if prompt_variant not in VARIANT_MAPPING:
             msg = f"Invalid prompt variant: {prompt_variant}. Valid variants are: {', '.join(VARIANT_MAPPING.keys())}"
             raise ValueError(msg)
@@ -33,93 +47,122 @@ class PromptFormatter:
         self.prompt_variant = prompt_variant
         self.text_prompt = None
 
-        if prompt_variant == "qwen":
-            self.processor = AutoProcessor.from_pretrained(VARIANT_MAPPING[self.prompt_variant])
-            self.formatter = None
-        elif prompt_variant == "nemotron":
-            if model_path is None:
-                msg = f"model_path is required for nemotron models (variant: {prompt_variant})"
-                raise ValueError(msg)
-            self.processor = None
-            self.formatter = NemotronPromptFormatter(model_path)
-        else:
-            msg = f"Unsupported prompt variant: {prompt_variant}"
-            raise ValueError(msg)
+        # Load processor from HuggingFace (auto-downloads and caches)
+        hf_model_id = VARIANT_MAPPING[prompt_variant]
+        self.processor = AutoProcessor.from_pretrained(hf_model_id, trust_remote_code=True)
 
     def generate_inputs(
         self,
         prompt: str,
-        video_inputs: torch.Tensor | None = None,
+        video_inputs: torch.Tensor | np.ndarray | None = None,
         *,
         override_text_prompt: bool = False,
+        fps: float = 2.0,
     ) -> dict[str, Any]:
         """Generate inputs for video and text data based on prompt_variant.
 
-        Processes video and text inputs to create the input for the model. It handles both video and
-        image inputs, decoding video and applying preprocessing if needed, and creates a structured
-        input dictionary containing the processed prompt and multimodal data.
-
         Args:
             prompt: Text prompt to be included with the input.
-            fps: Frames per second of the input video.
-            preprocess_dtype: Data type to use for preprocessing the video/image inputs.
-            num_frames_to_use: Number of frames to extract from the video. If 0, uses all frames.
-            flip_input: Whether to flip the input video/image horizontally.
-            video_inputs: Pre-processed video inputs. If None, and video data is to be passed to
-                          the model, then video cannot be None.
-            override_text_prompt: whether the text prompt should be overridden
+            video_inputs: Pre-processed video inputs (tensor or numpy array).
+            override_text_prompt: Whether to regenerate the text prompt even if cached.
+            fps: Frames per second of the input video (used for Nemotron metadata).
 
         Returns:
             dict containing:
                 - "prompt": The processed text prompt with chat template applied
-                - "multi_modal_data": Dictionary containing processed "image" and/or "video" inputs
+                - "multi_modal_data": Dictionary containing processed "video" inputs
 
         """
-        # Use model-specific formatter
         if self.prompt_variant == "qwen":
-            message = self.create_message(prompt)
-            if self.text_prompt is None or override_text_prompt:
-                self.text_prompt = self.processor.apply_chat_template(
-                    message,
-                    tokenizer=False,
-                    add_generation_prompt=True,
-                )
-            return {
-                "prompt": self.text_prompt,
-                "multi_modal_data": {"video": video_inputs},
-            }
+            return self._generate_qwen_inputs(prompt, video_inputs, override_text_prompt)
 
-        if self.prompt_variant == "nemotron":
-            return self.formatter.generate_inputs(
-                prompt=prompt,
-                video_inputs=video_inputs,
-                add_generation_prompt=True,
-            )
+        if self.prompt_variant.startswith("nemotron"):
+            return self._generate_nemotron_inputs(prompt, video_inputs, fps)
 
         msg = f"Unsupported prompt variant: {self.prompt_variant}"
         raise ValueError(msg)
 
-    def create_message(self, prompt: str) -> list[dict[str, Any]]:
-        """Create a message.
+    def _generate_qwen_inputs(
+        self,
+        prompt: str,
+        video_inputs: torch.Tensor | None,
+        override_text_prompt: bool,
+    ) -> dict[str, Any]:
+        """Generate inputs for Qwen models."""
+        message = self._create_qwen_message(prompt)
+        if self.text_prompt is None or override_text_prompt:
+            self.text_prompt = self.processor.apply_chat_template(
+                message,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        return {
+            "prompt": self.text_prompt,
+            "multi_modal_data": {"video": video_inputs},
+        }
 
-        Args:
-            text_input: The text input to create a message for.
+    def _generate_nemotron_inputs(
+        self,
+        prompt: str,
+        video_inputs: torch.Tensor | np.ndarray | None,
+        fps: float,
+    ) -> dict[str, Any]:
+        """Generate inputs for Nemotron models.
 
-        Returns:
-            List of messages for the VLM model including the text prompt and video.
-
+        Nemotron requires video metadata (fps, frames_indices) for vLLM processing.
         """
+        # Format messages for Nemotron
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": [{"type": "text", "text": f"<video>\n{prompt}"}]},
+        ]
+
+        formatted_prompt = self.processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+        # Handle video metadata (vLLM's Nemotron processor requires this tuple format)
+        video_with_metadata = None
+        if video_inputs is not None:
+            video_np = self._convert_to_numpy(video_inputs)
+            num_frames = video_np.shape[0]
+            video_with_metadata = (
+                video_np,
+                {"fps": fps, "frames_indices": list(range(num_frames))},
+            )
+
+        return {
+            "prompt": formatted_prompt,
+            "multi_modal_data": {"video": video_with_metadata},
+        }
+
+    def _convert_to_numpy(self, video_inputs: torch.Tensor | np.ndarray) -> np.ndarray:
+        """Convert video inputs to numpy array in (T, H, W, C) format."""
+        if isinstance(video_inputs, torch.Tensor):
+            # Assume tensor is (T, C, H, W), convert to (T, H, W, C)
+            video_np = video_inputs.permute(0, 2, 3, 1).cpu().numpy()
+        else:
+            video_np = video_inputs
+
+        # Normalize to uint8 if needed
+        if video_np.dtype != np.uint8:
+            if video_np.dtype in (np.float32, np.float16) and video_np.max() <= 1.0:
+                video_np = (video_np * 255).astype(np.uint8)
+            else:
+                video_np = video_np.astype(np.uint8)
+
+        return video_np
+
+    def _create_qwen_message(self, prompt: str) -> list[dict[str, Any]]:
+        """Create a message for Qwen models."""
         return [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "video",
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt,
-                    },
+                    {"type": "video"},
+                    {"type": "text", "text": prompt},
                 ],
             },
         ]
