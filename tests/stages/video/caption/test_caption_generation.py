@@ -402,4 +402,3 @@ class TestCaptionGenerationStage:
         # Verify cleanup - nemotron inputs should be deleted
         assert "nemotron" not in result.data.clips[0].windows[0].llm_inputs
         assert "nemotron" not in result.data.clips[0].windows[1].llm_inputs
-        
