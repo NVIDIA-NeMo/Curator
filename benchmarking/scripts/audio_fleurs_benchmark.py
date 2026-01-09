@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: S101, PLR2004
+# ruff: noqa: S101  # Allow asserts in this script
 
 import argparse
 from operator import le
@@ -31,6 +31,8 @@ from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
+_expected_num_results = 50
+
 
 def read_jsonl(file_paths: Path | list[Path], executor: XennaExecutor) -> Pipeline:
     """Read jsonl files from one or more directories."""
@@ -46,7 +48,7 @@ def assert_valid_pipeline(pipeline: Pipeline, expected_values: argparse.Namespac
     assert isinstance(pipeline, Pipeline)
     assert pipeline.name == "audio_inference"
     assert "Inference audio" in pipeline.description
-    assert len(pipeline.stages) == 7
+    assert len(pipeline.stages) == 7  # noqa: PLR2004
 
     assert isinstance(pipeline.stages[0], CreateInitialManifestFleursStage)
     assert pipeline.stages[0].lang == expected_values.lang
@@ -117,10 +119,10 @@ def run_audio_fleurs_benchmark(args: argparse.Namespace) -> int:
     assert_valid_pipeline(pipeline, args)
 
     write_result = pipeline.run(executor)
-    assert len(write_result) == 50
+    assert len(write_result) == _expected_num_results
 
     predict = read_jsonl(args.benchmark_results_path, executor)
-    assert len(predict) == 50
+    assert len(predict) == _expected_num_results
 
     return 0
 
