@@ -55,15 +55,17 @@ dependencies = [
     "comment_parser",
     "cosmos-xenna==0.1.8",
     "fsspec",
+    "hydra-core",
     "jieba==0.42.1",
     "loguru",
     "mecab-python3",
+    "omegaconf",
+    "openai>=1.0.0",
     "pandas>=2.1.0",
     "pyarrow",
     "ray[default,data]>=2.50",
     "torch",
     "transformers",
-    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
