@@ -112,7 +112,7 @@ class TestNemotronHVL:
     def test_init_invalid_variant(self) -> None:
         """Raise ValueError for invalid variant."""
         with pytest.raises(ValueError, match="Invalid model_variant: invalid"):
-            NemotronHVL(model_dir=self.model_dir, model_variant="invalid")
+            NemotronHVL(model_dir=self.model_dir, model_variant="invalid")  # type: ignore[arg-type]
 
     def test_model_id_names(self) -> None:
         """Return HuggingFace model ID for selected variant."""
@@ -375,7 +375,7 @@ class TestNemotronHVL:
     def test_download_weights_invalid_variant(self) -> None:
         """Raise ValueError for invalid variant."""
         with tempfile.TemporaryDirectory() as tmpdir, pytest.raises(ValueError, match="Invalid variant: invalid"):
-            NemotronHVL.download_weights_on_node(tmpdir, variant="invalid")
+            NemotronHVL.download_weights_on_node(tmpdir, variant="invalid")  # type: ignore[arg-type]
 
     def test_refine_caption_prompt_with_video_tag(self) -> None:
         """Test _refine_caption_prompt with video tag in prompt."""

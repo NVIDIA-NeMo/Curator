@@ -140,7 +140,7 @@ class NemotronHVL(ModelInterface):
             dtype = "auto"  # FP4 determines dtype from quantization
 
         self.model = LLM(
-            model=self._hf_model_id,
+            model=self.weight_file,
             trust_remote_code=True,
             dtype=dtype,
             tensor_parallel_size=1,
