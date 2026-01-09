@@ -191,6 +191,17 @@ Domain-specific processing for code and advanced curation tasks
 {bdg-secondary}`code-processing`
 :::
 
+:::{grid-item-card} {octicon}`sparkles;1.5em;sd-mr-1` Synthetic Data Generation
+:link: synthetic/index
+:link-type: doc
+Generate and augment training data using LLMs
++++
+{bdg-secondary}`llm`
+{bdg-secondary}`augmentation`
+{bdg-secondary}`multilingual`
+{bdg-secondary}`nemotron-cc`
+:::
+
 ::::
 
 
