@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +15,7 @@
 # limitations under the License.
 
 import os
+from contextlib import suppress
 from pathlib import Path
 
 import pandas as pd
@@ -23,9 +26,9 @@ import pytest
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.tasks import FileGroupTask
 
-BucketsToEdgesStage = pytest.importorskip(
-    "nemo_curator.stages.deduplication.fuzzy.buckets_to_edges"
-).BucketsToEdgesStage
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.fuzzy.buckets_to_edges import BucketsToEdgesStage
 
 
 @pytest.fixture
