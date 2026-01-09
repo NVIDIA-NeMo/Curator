@@ -12,9 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, List, Optional, Union
+import math
+import torch
+
+from typing import Any
 
 from loguru import logger
+from transformers import AutoConfig
+
 
 from nemo_curator.models.base import ModelInterface
 
@@ -32,7 +37,7 @@ except ImportError:
         pass
 
 
-def _get_max_model_len_from_config(model: str) -> Optional[int]:
+def _get_max_model_len_from_config(model: str) -> int | None:
     """
     Try to get max model length from HuggingFace AutoConfig.
 
@@ -42,22 +47,16 @@ def _get_max_model_len_from_config(model: str) -> Optional[int]:
     Returns:
         Max model length if found, None otherwise.
     """
-    try:
-        from transformers import AutoConfig
+    config = AutoConfig.from_pretrained(model, trust_remote_code=True)
+    max_len = (
+        getattr(config, "max_position_embeddings", None)
+        or getattr(config, "n_positions", None)
+        or getattr(config, "max_sequence_length", None)
+    )
+    if max_len:
+        logger.info(f"Auto-detected max_model_len={max_len} for {model}")
 
-        config = AutoConfig.from_pretrained(model, trust_remote_code=True)
-        max_len = (
-            getattr(config, "max_position_embeddings", None)
-            or getattr(config, "n_positions", None)
-            or getattr(config, "max_sequence_length", None)
-        )
-        if max_len:
-            logger.info(f"Auto-detected max_model_len={max_len} for {model}")
-        return max_len
-
-    except ImportError:
-        logger.warning("Transformers not available, defaulting to None")
-        return None
+    return max_len  # noqa: TRY300
 
 
 def _get_gpu_count() -> int:
@@ -70,22 +69,15 @@ def _get_gpu_count() -> int:
     Returns:
         Power of 2 GPU count, minimum 1.
     """
-    try:
-        import math
-        import torch
-
-        count = torch.cuda.device_count()
-        if count >= 2:
-            tp_size = 2 ** int(math.log2(count))
-        else:
-            tp_size = 1
-        logger.info(
-            f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
-        )
-        return tp_size
-    except ImportError:
-        logger.warning("PyTorch not available, defaulting to 1 GPU")
-        return 1
+    count = torch.cuda.device_count()
+    if count >= 2:
+        tp_size = 2 ** int(math.log2(count))
+    else:
+        tp_size = 1
+    logger.info(
+        f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
+    )
+    return tp_size
 
 
 class VLLMModel(ModelInterface):
@@ -94,15 +86,15 @@ class VLLMModel(ModelInterface):
     def __init__(  # noqa: PLR0913
         self,
         model: str,
-        max_model_len: Optional[int] = None,
-        tensor_parallel_size: Optional[int] = None,
+        max_model_len: int | None = None,
+        tensor_parallel_size: int | None = None,
         max_num_batched_tokens: int = 4096,
         temperature: float = 0.7,
         top_p: float = 0.8,
         top_k: int = 20,
         min_p: float = 0.0,
-        max_tokens: Optional[int] = None,
-        cache_dir: Optional[str] = None,
+        max_tokens: int | None = None,
+        cache_dir: str | None = None,
     ):
         """
         Initialize the vLLM model wrapper.
@@ -132,12 +124,12 @@ class VLLMModel(ModelInterface):
         self.min_p = min_p
         self.max_tokens = max_tokens
         self.cache_dir = cache_dir
-        self._llm: Optional[LLM] = None
-        self._sampling_params: Optional[SamplingParams] = None
-        self._final_max_model_len: Optional[int] = None
+        self._llm: LLM | None = None
+        self._sampling_params: SamplingParams | None = None
+        self._final_max_model_len: int | None = None
         self._is_qwen3: bool = False
 
-    def model_id_names(self) -> List[str]:
+    def model_id_names(self) -> list[str]:
         """Return the model identifier."""
         return [self.model]
 
@@ -165,7 +157,7 @@ class VLLMModel(ModelInterface):
         # Set max_num_batched_tokens as user param or use default
         final_max_batched = self.max_num_batched_tokens
 
-        llm_kwargs: Dict[str, Any] = {
+        llm_kwargs: dict[str, Any] = {
             "model": self.model,
             "enforce_eager": False,
             "trust_remote_code": True,
@@ -196,7 +188,7 @@ class VLLMModel(ModelInterface):
         )
         is_qwen3 = "Qwen3" in self.model or "qwen3" in self.model.lower()
 
-        sampling_kwargs: Dict[str, Any] = {
+        sampling_kwargs: dict[str, Any] = {
             "temperature": self.temperature,
             "max_tokens": max_gen_tokens,
         }
@@ -217,8 +209,8 @@ class VLLMModel(ModelInterface):
 
     def generate(
         self,
-        prompts: Union[List[str], List[List[Dict[str, str]]]],
-    ) -> List[str]:
+        prompts: list[str] | list[list[dict[str, str]]],
+    ) -> list[str]:
         """
         Generate text from prompts.
 

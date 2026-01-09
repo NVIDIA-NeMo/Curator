@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -38,15 +37,6 @@ class DocumentDownloader(ABC):
         self._download_dir = download_dir
         self._verbose = verbose
         os.makedirs(download_dir, exist_ok=True)
-
-    def _check_s5cmd_installed(self) -> bool:
-        """Check if s5cmd is installed."""
-        try:
-            subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
-        except FileNotFoundError:
-            return False
-        else:
-            return True
 
     @abstractmethod
     def _get_output_filename(self, url: str) -> str:

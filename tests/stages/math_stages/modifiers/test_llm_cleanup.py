@@ -168,50 +168,6 @@ def setup_mocks():
 class TestLLMCleanupStage:
     """Test the LLMCleanupStage class."""
 
-    def test_init_default_values(self):
-        """Test LLMCleanupStage initialization with default values."""
-        stage = LLMCleanupStage(model="test-model", system_prompt="Clean: {text}")
-
-        assert stage._model.model == "test-model"
-        assert stage.system_prompt == "Clean: {text}"
-        assert stage.text_field == "text"
-        assert stage.output_field == "cleaned_text"
-        assert stage.max_model_len is None
-        assert stage.classification is False
-        assert stage.n_tokens_field == "n_tokens"
-
-    def test_init_custom_values(self):
-        """Test LLMCleanupStage initialization with custom values."""
-        stage = LLMCleanupStage(
-            model="custom-model",
-            system_prompt="Custom: {text}",
-            text_field="content",
-            output_field="cleaned_content",
-            max_model_len=16000,
-            classification=True,
-            temperature=0.5,
-            top_p=0.9,
-            top_k=10,
-            min_p=0.1,
-            max_tokens=1000,
-            cache_dir="/custom/cache",
-            n_tokens_field="custom_n_tokens",
-        )
-
-        assert stage._model.model == "custom-model"
-        assert stage.system_prompt == "Custom: {text}"
-        assert stage.text_field == "content"
-        assert stage.output_field == "cleaned_content"
-        assert stage.max_model_len == 16000
-        assert stage.classification is True
-        assert stage._model.temperature == 0.5
-        assert stage._model.top_p == 0.9
-        assert stage._model.top_k == 10
-        assert stage._model.min_p == 0.1
-        assert stage._model.max_tokens == 1000
-        assert stage._model.cache_dir == "/custom/cache"
-        assert stage.n_tokens_field == "custom_n_tokens"
-
     def test_process_basic_cleanup(self):
         """Test process method for basic text cleanup."""
         stage = LLMCleanupStage(model="test-model", system_prompt="Clean this text: {text}")

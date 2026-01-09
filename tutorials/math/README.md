@@ -280,7 +280,7 @@ flowchart TD
 
 | Step | Script | Input | Output | Required For |
 |------|--------|-------|--------|--------------|
-| — | `0_download.py` | HuggingFace | Raw parquet files | Optional (if data not already available) |
+| 0 | `0_download.py` | HuggingFace | Raw parquet files | Optional (if data not already available) |
 | 1 | `1_cc_index_lookup.py` | URLs | URLs + WARC metadata | Datasets without WARC metadata |
 | 2 | `2_text_preprocess.py` | WARC metadata | Extracted text | All datasets |
 | 3 | `3_quality_classifier.py` | Text | Text + quality scores | All datasets |

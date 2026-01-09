@@ -22,7 +22,6 @@ import cudf
 import ray
 from loguru import logger
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.base import ProcessingStage
@@ -220,8 +219,7 @@ def run_cc_index_lookup(config: CCIndexLookupConfig) -> None:
         logger.info(pipeline.describe())
 
         # Step 4: Run pipeline
-        executor = XennaExecutor()
-        result_tasks = pipeline.run(executor=executor)
+        result_tasks = pipeline.run()
 
         # Summarize
         total_input = sum(t._metadata.get("input_rows", 0) for t in result_tasks)

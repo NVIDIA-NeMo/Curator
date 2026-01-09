@@ -17,7 +17,7 @@ import gzip
 import io
 import os
 import subprocess
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import pandas as pd
 import requests
@@ -26,6 +26,7 @@ from warcio.archiveiterator import ArchiveIterator
 
 from nemo_curator.stages.base import ProcessingStage
 from nemo_curator.stages.text.download import DocumentDownloader
+from nemo_curator.stages.text.download.utils import check_s5cmd_installed
 from nemo_curator.tasks import DocumentBatch
 
 # Common Crawl base URL for HTTPS access
@@ -34,16 +35,6 @@ CC_BASE_URL = "https://data.commoncrawl.org/"
 # HTTP status codes
 HTTP_OK = 200
 HTTP_PARTIAL_CONTENT = 206
-
-
-def _check_s5cmd_installed() -> bool:
-    """Check if s5cmd is installed."""
-    try:
-        subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
-    except FileNotFoundError:
-        return False
-    else:
-        return True
 
 
 class CommonCrawlWARCDownloader(DocumentDownloader):
@@ -63,7 +54,7 @@ class CommonCrawlWARCDownloader(DocumentDownloader):
         """
         super().__init__(download_dir, verbose)
         self.use_aws_to_download = use_aws_to_download
-        if self.use_aws_to_download and not self._check_s5cmd_installed():
+        if self.use_aws_to_download and not check_s5cmd_installed():
             msg = "s5cmd is not installed. Please install it from https://github.com/peak/s5cmd"
             raise RuntimeError(msg)
 
@@ -199,7 +190,7 @@ class CommonCrawlWARCReader(ProcessingStage[DocumentBatch, DocumentBatch]):
             length = int(row[self.warc_record_length_col])
 
             # Build the URL
-            url = f"{CC_BASE_URL}{filename}"
+            url = urljoin(CC_BASE_URL, filename)
 
             # HTTP Range header (inclusive end byte)
             end_byte = offset + length - 1

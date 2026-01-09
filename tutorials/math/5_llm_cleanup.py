@@ -22,7 +22,6 @@ from loguru import logger
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
-from nemo_curator.models.vllm_model import _MODELS
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math.modifiers.chunking import TokenSplitterStage
 from nemo_curator.stages.math.modifiers.llm_cleanup import LLMCleanupStage
@@ -68,8 +67,8 @@ def build_pipeline(  # noqa: PLR0913
         p.add_stage(
             ParquetReader(file_paths=input_files).with_(
                 {
-                    "file_partitioning": {"resources": Resources(cpus=1.0)},
-                    "parquet_reader": {"resources": Resources(cpus=1.0)},
+                    "file_partitioning": {"resources": Resources(cpus=0.5)},
+                    "parquet_reader": {"resources": Resources(cpus=0.5)},
                 }
             )
         )
@@ -77,8 +76,8 @@ def build_pipeline(  # noqa: PLR0913
         p.add_stage(
             JsonlReader(file_paths=input_files).with_(
                 {
-                    "file_partitioning": {"resources": Resources(cpus=1.0)},
-                    "jsonl_reader": {"resources": Resources(cpus=1.0)},
+                    "file_partitioning": {"resources": Resources(cpus=0.5)},
+                    "jsonl_reader": {"resources": Resources(cpus=0.5)},
                 }
             )
         )
@@ -178,7 +177,7 @@ def main() -> None:
 
     if args.chunk_data and not args.chunk_length:
         parser.error("--chunk_length is required when --chunk_data is enabled")
-    if args.chunk_data and not args.max_model_len and args.model not in _MODELS:
+    if args.chunk_data and not args.max_model_len:
         parser.error("--max_model_len is required when --chunk_data is enabled for models not in the spec")
 
     if os.path.isdir(args.input):
