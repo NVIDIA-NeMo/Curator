@@ -516,7 +516,7 @@ class TextSemanticDeduplicationWorkflow:
                     for pipeline_name, tasks in removal_results.pipeline_tasks.items():
                         workflow_result.add_pipeline_tasks(pipeline_name, tasks)
                     removal_metadata = removal_results.metadata or {}
-                    num_duplicates_removed = removal_metadata.get("num_duplicates")
+                    num_duplicates_removed = removal_metadata.get("num_duplicates_removed")
                     workflow_result.add_metadata("num_duplicates_removed", num_duplicates_removed)
                     workflow_result.add_metadata("removal_num_output_tasks", removal_metadata.get("num_output_tasks"))
 
