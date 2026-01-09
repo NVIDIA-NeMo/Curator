@@ -63,10 +63,7 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
                 model_does_preprocess=self.model_does_preprocess,
                 disable_mmcache=self.disable_mmcache,
             )
-        elif self.model_variant == "nemotron":
-            if NemotronHVL is None:
-                msg = "NemotronHVL is not available. Please install required dependencies."
-                raise ImportError(msg)
+        elif self.model_variant.startswith("nemotron"):
             self.model = NemotronHVL(
                 model_dir=self.model_dir,
                 model_variant=self.model_variant,
@@ -84,11 +81,8 @@ class CaptionGenerationStage(ProcessingStage[VideoTask, VideoTask]):
         """Download/verify weights on the node."""
         if self.model_variant == "qwen":
             QwenVL.download_weights_on_node(self.model_dir)
-        elif self.model_variant == "nemotron":
-            if NemotronHVL is None:
-                msg = "NemotronHVL is not available. Please install required dependencies."
-                raise ImportError(msg)
-            NemotronHVL.download_weights_on_node(self.model_dir)
+        elif self.model_variant.startswith("nemotron"):
+            NemotronHVL.download_weights_on_node(self.model_dir, variant=self.model_variant)
 
     def __post_init__(self) -> None:
         self.resources = Resources(gpus=1)

@@ -417,3 +417,59 @@ class TestCaptionPreparationStage:
 
             # Verify formatter was not called
             mock_formatter.generate_inputs.assert_not_called()
+
+
+class TestCaptionPreparationStageNemotron:
+    """Test cases for CaptionPreparationStage with Nemotron variants.
+
+    Note: Nemotron now uses AutoProcessor from HuggingFace, same as Qwen.
+    """
+
+    def test_init_nemotron_variant(self):
+        """Test initialization with nemotron variant."""
+        stage = CaptionPreparationStage(model_variant="nemotron")
+        assert stage.model_variant == "nemotron"
+
+    def test_init_nemotron_fp8_variant(self):
+        """Test initialization with nemotron-fp8 variant."""
+        stage = CaptionPreparationStage(model_variant="nemotron-fp8")
+        assert stage.model_variant == "nemotron-fp8"
+
+    def test_init_nemotron_nvfp4_variant(self):
+        """Test initialization with nemotron-nvfp4 variant."""
+        stage = CaptionPreparationStage(model_variant="nemotron-nvfp4")
+        assert stage.model_variant == "nemotron-nvfp4"
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_nemotron_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with nemotron variant uses PromptFormatter."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="nemotron")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("nemotron")
+        assert stage.prompt_formatter == mock_formatter
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_nemotron_fp8_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with nemotron-fp8 variant."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="nemotron-fp8")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("nemotron-fp8")
+
+    @patch("nemo_curator.stages.video.caption.caption_preparation.PromptFormatter")
+    def test_setup_nemotron_nvfp4_variant(self, mock_prompt_formatter: Mock):
+        """Test setup method with nemotron-nvfp4 variant."""
+        mock_formatter = Mock()
+        mock_prompt_formatter.return_value = mock_formatter
+
+        stage = CaptionPreparationStage(model_variant="nemotron-nvfp4")
+        stage.setup()
+
+        mock_prompt_formatter.assert_called_once_with("nemotron-nvfp4")

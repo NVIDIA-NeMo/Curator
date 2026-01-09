@@ -192,13 +192,9 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
             raise ValueError(msg)
 
     if args.generate_captions:
-        # Determine model path for caption preparation
-        model_path = args.nemotronh_vl_model_path if hasattr(args, "nemotronh_vl_model_path") else None
-
         pipeline.add_stage(
             CaptionPreparationStage(
                 model_variant=args.captioning_algorithm,
-                model_path=model_path,  # Required for NemotronH
                 prompt_variant=args.captioning_prompt_variant,
                 prompt_text=args.captioning_prompt_text,
                 sampling_fps=args.captioning_sampling_fps,
@@ -219,16 +215,10 @@ def create_video_splitting_pipeline(args: argparse.Namespace) -> Pipeline:  # no
                 )
             )
 
-        # Determine model directory
-        model_dir = (
-            args.nemotronh_vl_model_path
-            if (args.captioning_algorithm.startswith("nemotron") or args.captioning_algorithm.startswith("NemotronH_"))
-            else args.model_dir
-        )
-
+        # All models now use the standard model_dir (auto-downloaded from HuggingFace)
         pipeline.add_stage(
             CaptionGenerationStage(
-                model_dir=model_dir,
+                model_dir=args.model_dir,
                 model_variant=args.captioning_algorithm,
                 caption_batch_size=args.captioning_batch_size,
                 fp8=args.captioning_use_fp8_weights,
@@ -301,16 +291,17 @@ if __name__ == "__main__":
         default="./models",
         help=(
             "Path to model directory containing required model weights. "
-            "Models will be automatically downloaded on first use if not present. "
+            "Models will be automatically downloaded from HuggingFace on first use if not present. "
             "Required models depend on selected algorithms:\n"
             "  - TransNetV2: For scene detection (--splitting-algorithm transnetv2)\n"
             "  - InternVideo2: For embeddings (--embedding-algorithm internvideo2)\n"
             "  - Cosmos-Embed1: For embeddings (--embedding-algorithm cosmos-embed1-*)\n"
-            "  - Qwen: For captioning (--generate-captions)\n"
+            "  - Qwen2.5-VL: For captioning (--captioning-algorithm qwen)\n"
+            "  - Nemotron Nano VL: For captioning (--captioning-algorithm nemotron[-bf16|-fp8|-nvfp4])\n"
             "  - Aesthetic models: For filtering (--aesthetic-threshold)\n"
             "Default: ./models\n"
             "Example: --model-dir /path/to/models or --model-dir ./models"
-        )
+        ),
     )
     parser.add_argument("--video-limit", type=int, default=None, help="Limit the number of videos to read")
     parser.add_argument("--verbose", action="store_true", default=False)
@@ -590,14 +581,14 @@ if __name__ == "__main__":
         "--captioning-algorithm",
         type=str,
         default="qwen",
-        choices=["qwen", "nemotron"],
-        help="Captioning algorithm to use (qwen or nemotron).",
-    )
-    parser.add_argument(
-        "--nemotronh-vl-model-path",
-        type=str,
-        default=None,
-        help="Path to NemotronH VL model checkpoint (required for NemotronH models)",
+        choices=["qwen", "nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"],
+        help=(
+            "Captioning algorithm to use. Options:\n"
+            "  - qwen: Qwen2.5-VL-7B-Instruct (default)\n"
+            "  - nemotron / nemotron-bf16: Nemotron Nano 12B v2 VL BF16 (auto-downloaded from HF)\n"
+            "  - nemotron-fp8: Nemotron Nano 12B v2 VL FP8 quantized\n"
+            "  - nemotron-nvfp4: Nemotron Nano 12B v2 VL NVFP4-QAD quantized"
+        ),
     )
     parser.add_argument(
         "--captioning-window-size",
@@ -670,13 +661,16 @@ if __name__ == "__main__":
         "--captioning-batch-size",
         type=int,
         default=8,
-        help="Batch size for Qwen captioning stage.",
+        help="Batch size for captioning stage (applies to both Qwen and Nemotron).",
     )
     parser.add_argument(
         "--captioning-use-fp8-weights",
         action="store_true",
         default=False,
-        help="Whether to use fp8 weights for Qwen VL model or not.",
+        help=(
+            "Whether to use fp8 weights for Qwen VL model. "
+            "Note: For Nemotron, use --captioning-algorithm nemotron-fp8 instead."
+        ),
     )
     parser.add_argument(
         "--captioning-max-output-tokens",

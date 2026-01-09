@@ -78,7 +78,6 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
     """Stage that prepares captions for video processing."""
 
     model_variant: str = "qwen"
-    model_path: str | None = None
     prompt_variant: str = "default"
     prompt_text: str | None = None
     verbose: bool = False
@@ -97,13 +96,8 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
         return [], []
 
     def setup(self, worker_metadata: WorkerMetadata | None = None) -> None:  # noqa: ARG002
-        if self.model_variant == "nemotron":
-            if self.model_path is None:
-                msg = f"model_path is required for nemotron models (variant: {self.model_variant})"
-                raise ValueError(msg)
-            self.prompt_formatter = PromptFormatter(self.model_variant, model_path=self.model_path)
-        else:
-            self.prompt_formatter = PromptFormatter(self.model_variant)
+        # PromptFormatter uses AutoProcessor from HuggingFace (auto-downloads/caches)
+        self.prompt_formatter = PromptFormatter(self.model_variant)
 
     def process(self, task: VideoTask) -> VideoTask:
         video = task.data
@@ -134,6 +128,7 @@ class CaptionPreparationStage(ProcessingStage[VideoTask, VideoTask]):
                     llm_input = self.prompt_formatter.generate_inputs(
                         prompt=prompt,
                         video_inputs=window_frames,
+                        fps=self.sampling_fps,
                     )
                 except Exception as e:  # noqa: BLE001
                     logger.error(f"Error in Caption preparation: {e}")

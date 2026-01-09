@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Final, Literal
 
 from loguru import logger
 
@@ -41,23 +40,70 @@ except ImportError:
         pass
 
 
-# HuggingFace model IDs (will be updated when models are published)
-_NEMOTRON_H_NANO_MODEL_ID = None
-_NEMOTRON_H_NANO_MODEL_REVISION = None
+# HuggingFace model IDs for Nemotron Nano V2 VL variants
+# Available variants: BF16 (default), FP8, NVFP4-QAD
+_NEMOTRON_VARIANTS_INFO: Final = {
+    "nemotron": "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16",  # Default BF16 variant
+    "nemotron-bf16": "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16",
+    "nemotron-fp8": "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8",
+    "nemotron-nvfp4": "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD",
+}
+
+_NEMOTRON_REVISION_INFO: Final = {
+    "nemotron": "5d250e2e111dc5e1434131bdf3d590c27a878ade",  # BF16 default
+    "nemotron-bf16": "5d250e2e111dc5e1434131bdf3d590c27a878ade",
+    "nemotron-fp8": "7394488badb786e1decc0e00e308de1cab9560e6",
+    "nemotron-nvfp4": "b8d3c170d9ee3a078917ef9bfd508eff988d6de7",
+}
+
+NemotronVariant = Literal["nemotron", "nemotron-bf16", "nemotron-fp8", "nemotron-nvfp4"]
 
 
 class NemotronHVL(ModelInterface):
-    """NemotronH hybrid Mamba-Attention VLM for video captioning."""
+    """NemotronH hybrid Mamba-Attention VLM for video captioning.
+
+    Supports multiple checkpoint variants from HuggingFace:
+    - nemotron / nemotron-bf16: BF16 precision (default)
+    - nemotron-fp8: FP8 quantized
+    - nemotron-nvfp4: NVFP4 quantized
+
+    Models are automatically downloaded from HuggingFace on first use.
+    """
 
     def __init__(  # noqa: PLR0913
         self,
         model_dir: str,
-        model_variant: str = "nemotron",
+        model_variant: NemotronVariant = "nemotron",
         caption_batch_size: int = 8,
         max_output_tokens: int = 512,
         stage2_prompt_text: str | None = None,
         verbose: bool = False,
     ):
+        """Initialize NemotronHVL model.
+
+        Args:
+            model_dir: Base directory for model weights. Models will be downloaded
+                to subdirectories named after the HuggingFace model ID.
+            model_variant: Model variant to use. Options:
+                - "nemotron" or "nemotron-bf16": BF16 precision (default)
+                - "nemotron-fp8": FP8 quantized
+                - "nemotron-nvfp4": NVFP4 quantized
+            caption_batch_size: Batch size for caption generation.
+            max_output_tokens: Maximum number of tokens to generate.
+            stage2_prompt_text: Optional prompt text for stage 2 caption refinement.
+            verbose: Whether to enable verbose logging.
+        """
+        # Normalize variant name - treat "nemotron" as "nemotron-bf16"
+        if model_variant == "nemotron":
+            self._normalized_variant: NemotronVariant = "nemotron-bf16"
+        else:
+            self._normalized_variant = model_variant
+
+        if self._normalized_variant not in _NEMOTRON_VARIANTS_INFO:
+            valid_variants = ", ".join(_NEMOTRON_VARIANTS_INFO.keys())
+            msg = f"Invalid model_variant: {model_variant}. Valid options are: {valid_variants}"
+            raise ValueError(msg)
+
         self.model_dir = model_dir
         self.model_variant = model_variant
         self.caption_batch_size = caption_batch_size
@@ -65,44 +111,44 @@ class NemotronHVL(ModelInterface):
         self.stage2_prompt = stage2_prompt_text if stage2_prompt_text else "Please refine this caption: "
         self.verbose = verbose
 
-        if _NEMOTRON_H_NANO_MODEL_ID is not None:
-            self.weight_file = str(Path(model_dir) / _NEMOTRON_H_NANO_MODEL_ID)
-        else:
-            # Local checkpoint: model_dir is the checkpoint path itself
-            self.weight_file = str(Path(model_dir))
+        # Set weight file path using HuggingFace model ID
+        self._hf_model_id = _NEMOTRON_VARIANTS_INFO[self._normalized_variant]
+        self.weight_file = str(Path(model_dir) / self._hf_model_id)
 
     @property
     def model_id_names(self) -> list[str]:
-        """Return model ID from config.json or HuggingFace ID."""
-        if _NEMOTRON_H_NANO_MODEL_ID is not None:
-            return [_NEMOTRON_H_NANO_MODEL_ID]
-
-        # Read from config.json if available
-        try:
-            config_path = Path(self.weight_file) / "config.json"
-            with open(config_path) as f:
-                config = json.load(f)
-            return [config.get("_name_or_path", Path(self.weight_file).name)]
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
-            return [Path(self.weight_file).name]
+        """Return HuggingFace model ID for the selected variant."""
+        return [self._hf_model_id]
 
     def setup(self) -> None:
         if not VLLM_AVAILABLE:
             msg = "vllm is required for NemotronHVL but is not installed. Please install vllm: pip install vllm"
             raise ImportError(msg)
 
-        os.environ["VLLM_USE_V1"] = "1"
-        logger.info("Using vLLM V1 engine.")
-
         os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
+        # Determine quantization and dtype based on variant
+        # See: https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-FP8
+        #      https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD
+        quantization = None
+        dtype = "bfloat16"  # BF16 variant requires explicit dtype
+        if self._normalized_variant == "nemotron-fp8":
+            quantization = "modelopt"  # vllm serve uses: --quantization modelopt
+            dtype = "auto"  # FP8 determines dtype from quantization
+        elif self._normalized_variant == "nemotron-nvfp4":
+            quantization = "modelopt_fp4"  # vllm serve uses: --quantization modelopt_fp4
+            dtype = "auto"  # FP4 determines dtype from quantization
+
         self.model = LLM(
-            model=self.weight_file,
+            model=self._hf_model_id,
             trust_remote_code=True,
+            dtype=dtype,
             tensor_parallel_size=1,
             gpu_memory_utilization=0.9,
             max_model_len=32768,
             limit_mm_per_prompt={"video": 1},
+            quantization=quantization,
+            video_pruning_rate=0,  # Disable video pruning
         )
 
         self.sampling_params = SamplingParams(
@@ -114,7 +160,7 @@ class NemotronHVL(ModelInterface):
 
         logger.info(
             f"NemotronHVL initialized: variant={self.model_variant}, "
-            f"TP=1, GPU_util=0.9, max_len=32768"
+            f"quantization={quantization}, TP=1, GPU_util=0.9, max_len=32768"
         )
 
     def _refine_caption_prompt(self, original_prompt: str, refinement_text: str) -> str:
@@ -163,9 +209,7 @@ class NemotronHVL(ModelInterface):
                         initial_caption = out.outputs[0].text
                         refinement_text = self.stage2_prompt + initial_caption
                         original_prompt = model_inputs[i]["prompt"]
-                        model_inputs[i]["prompt"] = self._refine_caption_prompt(
-                            original_prompt, refinement_text
-                        )
+                        model_inputs[i]["prompt"] = self._refine_caption_prompt(original_prompt, refinement_text)
 
                     outputs = self.model.generate(
                         model_inputs,
@@ -186,39 +230,48 @@ class NemotronHVL(ModelInterface):
         return generated_text
 
     @classmethod
-    def download_weights_on_node(cls, model_dir: str) -> None:
-        """Download or verify NemotronH weights on the node (follows Qwen pattern)."""
-        # If HuggingFace model ID is configured, download from HF
-        if _NEMOTRON_H_NANO_MODEL_ID is not None:
-            model_dir_path = Path(model_dir) / _NEMOTRON_H_NANO_MODEL_ID
-            model_dir_path.mkdir(parents=True, exist_ok=True)
+    def download_weights_on_node(
+        cls,
+        model_dir: str,
+        variant: NemotronVariant = "nemotron",
+    ) -> None:
+        """Download NemotronH VL weights from HuggingFace.
 
-            # Check if already downloaded
-            if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
-                logger.info(f"NemotronH checkpoint already exists at: {model_dir_path}")
-                return
+        Models are automatically downloaded from HuggingFace Hub on first use.
+        Supports multiple quantization variants for different performance/memory tradeoffs.
 
-            # Download from HuggingFace
-            download_model_from_hf(
-                model_id=_NEMOTRON_H_NANO_MODEL_ID,
-                local_dir=model_dir_path,
-                revision=_NEMOTRON_H_NANO_MODEL_REVISION,
-            )
-            logger.info(f"NemotronH weights downloaded to: {model_dir_path}")
-        else:
-            # Local checkpoint mode: validate path exists
-            model_path = Path(model_dir)
-            if not model_path.exists():
-                msg = f"NemotronH checkpoint path does not exist: {model_dir}"
-                raise FileNotFoundError(msg)
+        Args:
+            model_dir: Base directory for model weights. The model will be downloaded
+                to a subdirectory named after the HuggingFace model ID.
+            variant: Model variant to download. Options:
+                - "nemotron" or "nemotron-bf16": BF16 precision (default)
+                - "nemotron-fp8": FP8 quantized
+                - "nemotron-nvfp4": NVFP4 quantized
+        """
+        # Normalize variant name
+        normalized_variant: NemotronVariant = "nemotron-bf16" if variant == "nemotron" else variant
 
-            # Verify it contains model files
-            if not any(model_path.glob("*.safetensors")) and not any(model_path.glob("*.bin")):
-                msg = (
-                    f"No model files (.safetensors or .bin) found in: {model_dir}\n"
-                    f"Please ensure this directory contains a valid NemotronH checkpoint."
-                )
-                raise FileNotFoundError(msg)
+        if normalized_variant not in _NEMOTRON_VARIANTS_INFO:
+            valid_variants = ", ".join(_NEMOTRON_VARIANTS_INFO.keys())
+            msg = f"Invalid variant: {variant}. Valid options are: {valid_variants}"
+            raise ValueError(msg)
 
-            logger.info(f"Using local NemotronH checkpoint: {model_dir}")
+        hf_model_id = _NEMOTRON_VARIANTS_INFO[normalized_variant]
+        revision = _NEMOTRON_REVISION_INFO.get(normalized_variant)
 
+        model_dir_path = Path(model_dir) / hf_model_id
+        model_dir_path.mkdir(parents=True, exist_ok=True)
+
+        # Check if already downloaded
+        if model_dir_path.exists() and any(model_dir_path.glob("*.safetensors")):
+            logger.info(f"NemotronH {variant} checkpoint already exists at: {model_dir_path}")
+            return
+
+        # Download from HuggingFace
+        logger.info(f"Downloading NemotronH {variant} from HuggingFace: {hf_model_id}")
+        download_model_from_hf(
+            model_id=hf_model_id,
+            local_dir=model_dir_path,
+            revision=revision,
+        )
+        logger.info(f"NemotronH {variant} weights downloaded to: {model_dir_path}")
