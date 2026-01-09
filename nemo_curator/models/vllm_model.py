@@ -13,13 +13,11 @@
 # limitations under the License.
 
 import math
-import torch
-
 from typing import Any
 
+import torch
 from loguru import logger
 from transformers import AutoConfig
-
 
 from nemo_curator.models.base import ModelInterface
 
@@ -56,7 +54,7 @@ def _get_max_model_len_from_config(model: str) -> int | None:
     if max_len:
         logger.info(f"Auto-detected max_model_len={max_len} for {model}")
 
-    return max_len  # noqa: TRY300
+    return max_len
 
 
 def _get_gpu_count() -> int:
@@ -70,10 +68,7 @@ def _get_gpu_count() -> int:
         Power of 2 GPU count, minimum 1.
     """
     count = torch.cuda.device_count()
-    if count >= 2:
-        tp_size = 2 ** int(math.log2(count))
-    else:
-        tp_size = 1
+    tp_size = 2 ** int(math.log2(count)) if count >= 2 else 1  # noqa: PLR2004
     logger.info(
         f"Detected {count} GPU(s), using tensor_parallel_size={tp_size}"
     )
@@ -149,10 +144,7 @@ class VLLMModel(ModelInterface):
             final_max_model_len = _get_max_model_len_from_config(self.model)
 
         # Set tensor_parallel_size as user param or auto-detect from GPU count
-        if self.tensor_parallel_size is not None:
-            final_tp_size = self.tensor_parallel_size
-        else:
-            final_tp_size = _get_gpu_count()
+        final_tp_size = self.tensor_parallel_size if self.tensor_parallel_size is not None else _get_gpu_count()
 
         # Set max_num_batched_tokens as user param or use default
         final_max_batched = self.max_num_batched_tokens
