@@ -53,6 +53,8 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         sort_by_length: Whether to sort the input data by the length of the input tokens.
             Sorting is encouraged to improve the performance of the inference model. Defaults to True.
         unk_token: If True, set the pad_token to the tokenizer's unk_token. Defaults to False.
+        transformers_kwargs: Additional keyword arguments to pass to the tokenizer's from_pretrained method.
+            Passing the cache_dir, padding_side, or local_files_only parameter is not allowed. Defaults to {}.
 
     """
 
@@ -67,6 +69,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         padding_side: Literal["left", "right"] = "right",
         sort_by_length: bool = True,
         unk_token: bool = False,
+        transformers_kwargs: dict[str, Any] | None = None,
     ):
         self.name = format_name_with_suffix(model_identifier, suffix="_tokenizer")
 
@@ -79,6 +82,20 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.padding_side = padding_side
         self.sort_by_length = sort_by_length
         self.unk_token = unk_token
+
+        transformers_kwargs = transformers_kwargs or {}
+        tokenizer_stage_parameters = ["cache_dir", "padding_side"]
+
+        for parameter in tokenizer_stage_parameters:
+            if parameter in transformers_kwargs and transformers_kwargs[parameter] is not None:
+                msg = f"Please pass the {parameter} parameter directly to the stage instead of using the transformers_kwargs dictionary"
+                raise ValueError(msg)
+
+        if "local_files_only" in transformers_kwargs and transformers_kwargs["local_files_only"] is not None:
+            msg = "Passing the local_files_only parameter is not allowed"
+            raise ValueError(msg)
+
+        self.transformers_kwargs = transformers_kwargs
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
@@ -107,7 +124,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
     @lru_cache(maxsize=1)  # noqa: B019
     def load_cfg(self, local_files_only: bool = True) -> AutoConfig:
         return AutoConfig.from_pretrained(
-            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only
+            self.model_identifier, cache_dir=self.cache_dir, local_files_only=local_files_only, **self.transformers_kwargs
         )
 
     # We use the _setup function to ensure that everything needed for the tokenizer is downloaded and loaded properly
@@ -117,6 +134,7 @@ class TokenizerStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             padding_side=self.padding_side,
             cache_dir=self.cache_dir,
             local_files_only=local_files_only,
+            **self.transformers_kwargs
         )
         if self.unk_token:
             self.tokenizer.pad_token = self.tokenizer.unk_token

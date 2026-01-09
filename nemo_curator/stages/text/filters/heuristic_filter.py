@@ -14,7 +14,7 @@
 
 import os.path
 import tarfile
-from typing import Literal
+from typing import Any, Literal
 
 import huggingface_hub
 import requests
@@ -643,13 +643,14 @@ class TokenCountFilter(DocumentFilter):
     If the document contains more or less than a specified number of tokens, then discard.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         tokenizer: AutoTokenizer | None = None,
         hf_model_name: str | None = None,
         hf_token: str | None = None,
         min_tokens: int = 0,
         max_tokens: int = float("inf"),
+        transformers_kwargs: dict[str, Any] | None = None,
     ):
         """
         Args:
@@ -662,6 +663,8 @@ class TokenCountFilter(DocumentFilter):
                 Set to 0 to disable the minimum token count filter.
             max_tokens (int): The maximum number of tokens the document can contain.
                 Set to infinity to disable the maximum token count filter.
+            transformers_kwargs: Additional keyword arguments to pass to the tokenizer's from_pretrained method.
+                Defaults to {}.
         """
         super().__init__()
 
@@ -677,6 +680,7 @@ class TokenCountFilter(DocumentFilter):
         self._hf_token = hf_token
         self._min_tokens = min_tokens
         self._max_tokens = max_tokens
+        self._transformers_kwargs = transformers_kwargs or {}
         self._name = "token_count"
 
     def model_check_or_download(self) -> None:
@@ -691,8 +695,12 @@ class TokenCountFilter(DocumentFilter):
 
     def load_tokenizer(self) -> None:
         if self._hf_model_name is not None:
+            if "local_files_only" in self._transformers_kwargs and self._transformers_kwargs["local_files_only"] is not None:
+                msg = "Passing the local_files_only parameter is not allowed"
+                raise ValueError(msg)
+
             self._token_count_filter_tokenizer = AutoTokenizer.from_pretrained(
-                self._hf_model_name, local_files_only=True
+                self._hf_model_name, local_files_only=True, **self._transformers_kwargs
             )
 
     def score_document(self, text: str) -> int:
