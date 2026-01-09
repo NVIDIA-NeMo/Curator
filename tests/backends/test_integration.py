@@ -202,13 +202,18 @@ class TestBackendIntegrations:
         execution_plan_stages = [stage.strip() for stage in stages]
         # Tasks can get fused with Actors, but Actors can't get fused with Tasks or Actors
         # StreamingRepartition should never get fused
+
+        if ray.__version__ >= "2.53.0":
+            streaming_repartition = "StreamingRepartition[num_rows_per_block=1]"
+        else:
+            streaming_repartition = "StreamingRepartition"
         expected_stages = [
             "InputDataBuffer[Input]",
             "TaskPoolMapOperator[MapBatches(FilePartitioningStageTask)]",
-            "TaskPoolMapOperator[StreamingRepartition]",
+            f"TaskPoolMapOperator[{streaming_repartition}]",
             "ActorPoolMapOperator[MapBatches(JsonlReaderStageTask)->MapBatches(AddLengthStageActor)]",
             "ActorPoolMapOperator[MapBatches(SplitIntoRowsStageActor)]",
-            "TaskPoolMapOperator[StreamingRepartition]",
+            f"TaskPoolMapOperator[{streaming_repartition}]",
             "ActorPoolMapOperator[MapBatches(AddLengthStageActor)]",
             "ActorPoolMapOperator[MapBatches(StageWithSetupActor)]",
             "TaskPoolMapOperator[MapBatches(JsonlWriterTask)]",
