@@ -366,7 +366,6 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
 
         total_end_time = time.time()
         total_time = total_end_time - total_start_time
-        workflow_result.add_metadata("total_time", total_time)
         workflow_result.extend_metadata(
             {
                 "total_time": total_time,

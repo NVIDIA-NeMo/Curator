@@ -518,7 +518,6 @@ class TextSemanticDeduplicationWorkflow:
                     removal_metadata = removal_results.metadata or {}
                     num_duplicates_removed = removal_metadata.get("num_duplicates_removed")
                     workflow_result.add_metadata("num_duplicates_removed", num_duplicates_removed)
-                    workflow_result.add_metadata("removal_num_output_tasks", removal_metadata.get("num_output_tasks"))
 
                 logger.success(f"Duplicate removal completed in {removal_time:.2f} seconds")
 
