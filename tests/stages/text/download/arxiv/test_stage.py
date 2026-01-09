@@ -29,8 +29,8 @@ from nemo_curator.stages.text.download.base.url_generation import URLGenerationS
 class TestArxivDownloadExtractStage:
     """Test suite for ArxivDownloadExtractStage."""
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_decomposition(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_arxiv_stage_decomposition(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test that ArxivDownloadExtractStage can be decomposed into constituent stages."""
         download_dir = str(tmp_path / "downloads")
         stage = ArxivDownloadExtractStage(download_dir=download_dir)
@@ -63,16 +63,16 @@ class TestArxivDownloadExtractStage:
         extract_stage = stages[3]
         assert isinstance(extract_stage.extractor, ArxivExtractor)
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_name(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_arxiv_stage_name(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test that stage name is as expected."""
         download_dir = str(tmp_path / "downloads")
 
         stage = ArxivDownloadExtractStage(download_dir=download_dir)
         assert stage.name == "arxiv_pipeline"
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_description(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_arxiv_stage_description(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test that stage description is as expected."""
         download_dir = str(tmp_path / "downloads")
 
@@ -80,8 +80,8 @@ class TestArxivDownloadExtractStage:
         description = stage.get_description()
         assert description == "Arxiv pipeline"
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_parameters_propagation(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_arxiv_stage_parameters_propagation(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test that parameters are properly propagated to constituent stages."""
         download_dir = str(tmp_path / "downloads")
 
@@ -118,8 +118,8 @@ class TestArxivDownloadExtractStage:
         assert isinstance(extract_stage, DocumentExtractStage)
         assert extract_stage.filename_col == "custom_filename"
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_inputs_outputs(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_arxiv_stage_inputs_outputs(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test stage inputs and outputs specification."""
         download_dir = str(tmp_path / "downloads")
 
@@ -135,8 +135,8 @@ class TestArxivDownloadExtractStage:
         # Should produce DocumentBatch with extracted text (from extract stage) + filename column
         assert outputs == (["data"], ["text", "file_name"])
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_arxiv_stage_initialization_validation(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_arxiv_stage_initialization_validation(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test that stage initialization validates parameters correctly."""
         download_dir = str(tmp_path / "downloads")
 

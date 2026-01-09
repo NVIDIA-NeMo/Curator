@@ -12,10 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import subprocess
 import unicodedata
 
 import pycld2 as cld2
 from charset_normalizer import detect as charset_normalizer_detect
+
+
+def check_s5cmd_installed() -> bool:
+    """Check if s5cmd is installed.
+
+    s5cmd is a command-line tool for interacting with S3-compatible storage.
+    This function checks if it's available in the system PATH.
+
+    Returns:
+        True if s5cmd is installed and accessible, False otherwise.
+    """
+    try:
+        subprocess.run(["s5cmd", "version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)  # noqa: S603, S607
+    except FileNotFoundError:
+        return False
+    else:
+        return True
 
 
 def remove_control_characters(text: str) -> str:

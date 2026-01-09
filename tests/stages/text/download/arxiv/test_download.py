@@ -20,6 +20,7 @@ from unittest import mock
 import pytest
 
 from nemo_curator.stages.text.download.arxiv.download import ArxivDownloader
+from nemo_curator.stages.text.download.utils import check_s5cmd_installed
 
 
 class FakeCompletedProcess:
@@ -34,10 +35,10 @@ def fake_run_success(cmd: list[str], stdout: str, stderr: str) -> subprocess.Com
 class TestArxivDownloader:
     """Test suite for ArxivDownloader."""
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=0))
     @pytest.mark.parametrize("verbose", [True, False])
-    def test_download_to_path(self, mock_run: mock.Mock, tmp_path: Path, verbose: bool) -> None:
+    def test_download_to_path(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path, verbose: bool) -> None:  # noqa: ARG002
         """Test _download_to_path with s5cmd."""
         downloader = ArxivDownloader(str(tmp_path), verbose=verbose)
 
@@ -59,9 +60,9 @@ class TestArxivDownloader:
             stderr=stderr,
         )
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
     @mock.patch("subprocess.run", return_value=mock.Mock(returncode=1, stderr=b"Failed to download"))
-    def test_download_to_path_failed(self, mock_run: mock.Mock, tmp_path: Path) -> None:
+    def test_download_to_path_failed(self, mock_run: mock.Mock, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test _download_to_path with failed download."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
 
@@ -78,24 +79,21 @@ class TestArxivDownloader:
             stderr=subprocess.DEVNULL,
         )
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_init_with_s5cmd(self, tmp_path: Path) -> None:
-        """Test _check_s5cmd_installed when s5cmd is available."""
-        downloader = ArxivDownloader(str(tmp_path), verbose=False)
-
-        with mock.patch("subprocess.run") as mock_run:
+    def test_check_s5cmd_installed_true(self) -> None:
+        """Test check_s5cmd_installed when s5cmd is available."""
+        with mock.patch("nemo_curator.stages.text.download.utils.subprocess.run") as mock_run:
             mock_run.return_value = None
-            result = downloader._check_s5cmd_installed()
+            result = check_s5cmd_installed()
             assert result is True
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=False)
-    def test_init_without_s5cmd(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=False)
+    def test_init_without_s5cmd(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test initialization but s5cmd not installed."""
         with pytest.raises(RuntimeError, match="s5cmd is not installed"):
             ArxivDownloader(str(tmp_path), verbose=False)
 
-    @mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True)
-    def test_get_output_filename(self, tmp_path: Path) -> None:
+    @mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True)
+    def test_get_output_filename(self, mock_s5cmd_check: mock.Mock, tmp_path: Path) -> None:  # noqa: ARG002
         """Test conversion of URL to output filename."""
         downloader = ArxivDownloader(str(tmp_path), verbose=False)
 
@@ -105,7 +103,7 @@ class TestArxivDownloader:
         assert result == url
 
     def test_arxiv_downloader_existing_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        with mock.patch.object(ArxivDownloader, "_check_s5cmd_installed", return_value=True):
+        with mock.patch("nemo_curator.stages.text.download.arxiv.download.check_s5cmd_installed", return_value=True):
             # Create a temporary download directory and simulate an already-downloaded tar file.
             download_dir = tmp_path / "downloads"
             download_dir.mkdir()
