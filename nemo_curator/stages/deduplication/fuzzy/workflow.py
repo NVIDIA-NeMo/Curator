@@ -310,6 +310,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
 
         id_generator_path = None
         try:
+            # Step 1: Minhash
             minhash_pipeline = self._create_minhash_pipeline(generate_input_filegroups=initial_tasks is None)
             minhash_start_time = time.time()
             minhash_tasks = minhash_pipeline.run(executor=executor, initial_tasks=initial_tasks)
@@ -318,7 +319,19 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
             workflow_result.add_pipeline_tasks("minhash", minhash_tasks)
             workflow_result.add_metadata("minhash_time", minhash_time)
             logger.info(f"Minhash pipeline completed in {minhash_time:.2f} seconds")
+            output_fs = get_fs(
+                self.output_path,
+                self.write_kwargs.get("storage_options") if self.write_kwargs is not None else None,
+            )
+            id_generator_path = output_fs.sep.join([self.output_path, ID_GENERATOR_OUTPUT_FILENAME])
+            write_id_generator_to_disk(
+                id_generator_path,
+                storage_options=self.write_kwargs.get("storage_options") if self.write_kwargs is not None else None,
+            )
+            logger.info(f"Id generator written to {id_generator_path}")
+            workflow_result.add_metadata("id_generator_path", id_generator_path)
 
+            # Step 2: LSH
             lsh_pipeline = self._create_lsh_pipeline()
             lsh_start_time = time.time()
             # LSH stage generates it's own input tasks from the minhash directory
@@ -334,6 +347,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 logger.info("No potential duplicates found in the dataset. Skipping connected components pipeline.")
                 workflow_result.add_metadata("num_duplicates", 0)
             else:
+                # Step 3: Connected components
                 connected_components_pipeline = self._create_connected_components_pipeline()
                 connected_components_start_time = time.time()
                 connected_components_tasks = connected_components_pipeline.run(
@@ -349,29 +363,11 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 )
                 workflow_result.add_metadata("num_duplicates", num_duplicates_identified)
                 logger.info(f"Number of documents removed: {num_duplicates_identified}")
-                output_fs = get_fs(
-                    self.output_path,
-                    self.write_kwargs.get("storage_options") if self.write_kwargs is not None else None,
-                )
-                id_generator_path = output_fs.sep.join([self.output_path, ID_GENERATOR_OUTPUT_FILENAME])
-                write_id_generator_to_disk(
-                    id_generator_path,
-                    storage_options=self.write_kwargs.get("storage_options")
-                    if self.write_kwargs is not None
-                    else None,
-                )
-                logger.info(f"Id generator written to {id_generator_path}")
         finally:
             kill_id_generator_actor()
 
         total_end_time = time.time()
         total_time = total_end_time - total_start_time
-        workflow_result.extend_metadata(
-            {
-                "total_time": total_time,
-                # paths
-                "id_generator_path": id_generator_path,
-            }
-        )
+        workflow_result.add_metadata("total_time", total_time)
         logger.info(f"Fuzzy deduplication pipeline completed in {total_time:.2f} seconds")
         return workflow_result
