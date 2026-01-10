@@ -59,7 +59,7 @@ def write_benchmark_results(results: dict, output_path: Path) -> None:
     This utility is typically used by developer-written benchmark scripts to write results
     to the standard files expected by the benchmark framework.
     """
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.mkdir(parents=True, exist_ok=True)
     if "params" in results:
         (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
     if "metrics" in results:
