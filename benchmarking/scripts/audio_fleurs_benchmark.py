@@ -80,6 +80,7 @@ def assert_valid_pipeline(pipeline: Pipeline, expected_values: argparse.Namespac
 
 def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     success = False
+    results = []
     results_dir = args.benchmark_results_path / "results"
     try:
         # Ensure the results dir does not exist so that it will be created.
