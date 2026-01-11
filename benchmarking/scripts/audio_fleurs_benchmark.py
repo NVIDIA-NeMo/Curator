@@ -166,6 +166,8 @@ def main() -> int:
     logger.info("=== Audio Fleurs Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    success_code = 1  # assume failure until benchmark succeeds
+
     # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
     # The dictionary must contain objects which can be serialized to JSON or pickle files.
     result_dict = {
@@ -182,9 +184,10 @@ def main() -> int:
 
     try:
         result_dict.update(run_audio_fleurs_benchmark(args))
+        success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)
-    return 0
+    return success_code
 
 
 if __name__ == "__main__":
