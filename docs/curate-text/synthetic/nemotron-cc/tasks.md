@@ -13,6 +13,12 @@ modality: "text-only"
 
 This reference documents each NemotronCC synthetic data generation stage, including prompt templates, configuration options, and post-processing details.
 
+:::{note}
+**System Prompt Usage**: Not all stages use a system prompt.
+- `WikipediaParaphrasingStage` and `DistillStage` include system prompts
+- `DiverseQAStage`, `ExtractKnowledgeStage`, and `KnowledgeListStage` use only user prompts (no system prompt)
+:::
+
 ## WikipediaParaphrasingStage
 
 Rewrites low-quality text in Wikipedia-style prose, improving readability and structure.
@@ -292,8 +298,8 @@ post_stage = KnowledgeListPostProcessingStage(
 ```
 
 **Post-processing logic:**
-1. Remove leading bullet markers ("- ")
-2. Normalize indentation
+1. Skip the first line if it doesn't start with a bullet marker
+2. Remove leading bullet markers ("- ") and indentation prefixes ("  ")
 3. Join lines with newlines
 
 ---
@@ -329,15 +335,17 @@ The `{document}` placeholder is replaced with the content from `input_field`.
 
 ## Complete Configuration Example
 
+The following example shows the conceptual configuration structure for NemotronCC tasks. For production pipelines, see the [tutorial examples](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/synthetic/nemotron_cc).
+
 ```python
 TASK_CONFIG = {
     "diverse_qa": {
-        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "system_prompt": None,  # DiverseQAStage uses no system prompt
         "prompt_template": DIVERSE_QA_PROMPT_TEMPLATE,
         "min_document_tokens": 30,
         "min_segment_tokens": 30,
         "max_input_tokens": 1000,
-        "max_output_tokens": 600,
+        "max_output_tokens": 598,
     },
     "distill": {
         "system_prompt": NEMOTRON_CC_DISTILL_SYSTEM_PROMPT,
@@ -345,10 +353,10 @@ TASK_CONFIG = {
         "min_document_tokens": 30,
         "min_segment_tokens": 10,
         "max_input_tokens": 2000,
-        "max_output_tokens": 1600,
+        "max_output_tokens": 1598,
     },
     "extract_knowledge": {
-        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "system_prompt": None,  # ExtractKnowledgeStage uses no system prompt
         "prompt_template": EXTRACT_KNOWLEDGE_PROMPT_TEMPLATE,
         "min_document_tokens": 30,
         "min_segment_tokens": 30,
@@ -356,12 +364,12 @@ TASK_CONFIG = {
         "max_output_tokens": 1400,
     },
     "knowledge_list": {
-        "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
+        "system_prompt": None,  # KnowledgeListStage uses no system prompt
         "prompt_template": KNOWLEDGE_LIST_PROMPT_TEMPLATE,
         "min_document_tokens": 30,
         "min_segment_tokens": 30,
         "max_input_tokens": 1000,
-        "max_output_tokens": 600,
+        "max_output_tokens": 598,
     },
     "wikipedia_paraphrasing": {
         "system_prompt": NEMOTRON_CC_SYSTEM_PROMPT,
@@ -369,7 +377,7 @@ TASK_CONFIG = {
         "min_document_tokens": 5,
         "min_segment_tokens": 5,
         "max_input_tokens": 512,
-        "max_output_tokens": 512,
+        "max_output_tokens": 510,
     },
 }
 
@@ -390,4 +398,5 @@ GENERATION_CONFIG = {
 - **Stages**: [`nemo_curator/stages/synthetic/nemotron_cc/nemotron_cc.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/synthetic/nemotron_cc/nemotron_cc.py)
 - **Base Class**: [`nemo_curator/stages/synthetic/nemotron_cc/base.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/synthetic/nemotron_cc/base.py)
 - **Pipeline Helpers**: [`tutorials/synthetic/nemotron_cc/nemotron_cc_pipelines.py`](https://github.com/NVIDIA-NeMo/Curator/blob/main/tutorials/synthetic/nemotron_cc/nemotron_cc_pipelines.py)
+- **Full Tutorial Examples**: [`tutorials/synthetic/nemotron_cc/`](https://github.com/NVIDIA-NeMo/Curator/tree/main/tutorials/synthetic/nemotron_cc)
 

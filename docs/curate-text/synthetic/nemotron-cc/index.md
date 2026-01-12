@@ -173,7 +173,7 @@ pipeline = add_diverse_qa_postprocessing_pipeline(
 
 Each task has specific token count and preprocessing requirements:
 
-```{list-table} Task Configuration Defaults
+```{list-table} Recommended Task Configuration
 :header-rows: 1
 :widths: 25 15 15 20 25
 
@@ -216,7 +216,7 @@ import os
 from transformers import AutoTokenizer
 from nemo_curator.core.client import RayClient
 from nemo_curator.backends.xenna import XennaExecutor
-from nemo_curator.models.client.openai_client import AsyncOpenAIClient
+from nemo_curator.models.client import AsyncOpenAIClient
 from nemo_curator.models.client.llm_client import GenerationConfig
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.synthetic.nemotron_cc.nemotron_cc import DiverseQAStage
@@ -235,10 +235,14 @@ llm_client = AsyncOpenAIClient(
     max_concurrent_requests=5,
 )
 
-# Build pipeline
+# Build pipeline (see "Using Helper Functions" section for preprocessing/postprocessing)
 pipeline = Pipeline(name="nemotron_cc_diverse_qa")
 pipeline.add_stage(ParquetReader(file_paths=["./input_data/*.parquet"]))
-# ... add preprocessing stages ...
+
+# Add preprocessing stages using helper function:
+# pipeline = add_preprocessing_pipeline(pipeline, text_field="text", ...)
+
+# Add generation stage
 pipeline.add_stage(
     DiverseQAStage(
         client=llm_client,
@@ -248,7 +252,10 @@ pipeline.add_stage(
         output_field="diverse_qa",
     )
 )
-# ... add postprocessing stages ...
+
+# Add postprocessing stages using helper function:
+# pipeline = add_diverse_qa_postprocessing_pipeline(pipeline, llm_response_field="diverse_qa", ...)
+
 pipeline.add_stage(ParquetWriter(path="./output/"))
 
 # Execute

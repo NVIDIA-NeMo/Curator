@@ -75,11 +75,9 @@ Before using synthetic data generation, ensure you have:
    uv pip install --extra-index-url https://pypi.nvidia.com nemo-curator[text_cuda12]
    ```
 
-3. **Additional dependencies** (for NemotronCC pipelines)
-
-   ```bash
-   pip install transformers  # For tokenizer support
-   ```
+   :::{note}
+   NemotronCC pipelines use the `transformers` library for tokenization, which is included in NeMo Curator's core dependencies.
+   :::
 
 ## Available SDG Stages
 

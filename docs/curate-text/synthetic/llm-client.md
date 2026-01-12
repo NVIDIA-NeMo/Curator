@@ -44,7 +44,16 @@ Set your API key as an environment variable to avoid hardcoding credentials:
 export NVIDIA_API_KEY="nvapi-..."
 ```
 
-The client automatically uses `NVIDIA_API_KEY` or `OPENAI_API_KEY` if not explicitly provided.
+The underlying OpenAI client automatically uses the `OPENAI_API_KEY` environment variable if no `api_key` is provided. For NVIDIA APIs, explicitly pass the key:
+
+```python
+import os
+
+client = AsyncOpenAIClient(
+    api_key=os.environ["NVIDIA_API_KEY"],
+    base_url="https://integrate.api.nvidia.com/v1",
+)
+```
 
 ## Generation Parameters
 

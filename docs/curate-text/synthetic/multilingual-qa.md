@@ -97,10 +97,10 @@ llm_client = AsyncOpenAIClient(
 
 # Configure generation parameters
 generation_config = GenerationConfig(
-    temperature=0.9,   # Higher for more diverse outputs
+    temperature=0.9,   # Higher for more diverse outputs (default: 0.0)
     top_p=0.95,
     max_tokens=2048,
-    seed=None,         # None for non-deterministic generation
+    seed=None,         # Set to None for non-deterministic (default: 0 for reproducibility)
 )
 ```
 
@@ -156,7 +156,8 @@ class BeginsWithLanguageFilter(DocumentFilter):
     """Filter documents based on language prefix codes."""
 
     def __init__(self, languages: list[str]):
-        self.name = "begins_with_language_filter"
+        super().__init__()
+        self._name = "begins_with_language_filter"
         self.languages = languages
 
     def score_document(self, text: str) -> float:
@@ -257,8 +258,8 @@ python synthetic_data_generation_example.py \
   - meta/llama-3.3-70b-instruct
   - Model to use for generation
 * - `--languages`
-  - EN, FR, DE, ES, IT
-  - Languages to generate Q&A pairs for
+  - English, French, German, Spanish, Italian
+  - Languages to generate Q&A pairs for (use full names)
 * - `--num-samples`
   - 100
   - Number of samples to generate
