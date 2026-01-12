@@ -14,6 +14,8 @@
 
 # ruff: noqa: E402
 from contextlib import suppress
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -90,6 +92,50 @@ class TestVLLMEmbeddingModelStage:
 
         assert stage.resources.gpus == 1
         assert stage.resources.cpus == 1
+
+    def test_llm_uses_cache_dir_for_download(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Ensure vLLM receives download_dir so weights reuse snapshot cache."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        hf_token = "test-token"  # noqa: S105
+
+        stage = VLLMEmbeddingModelStage(
+            model_identifier=TEST_MODEL,
+            cache_dir=str(cache_dir),
+            hf_token=hf_token,
+            verbose=True,
+        )
+
+        captured: dict[str, Any] = {}
+
+        def _fake_snapshot_download(
+            model_identifier: str,
+            cache_dir: str | None = None,
+            token: str | None = None,
+            local_files_only: bool | None = None,
+        ) -> None:
+            captured["snapshot_download"] = {
+                "model_identifier": model_identifier,
+                "cache_dir": cache_dir,
+                "token": token,
+                "local_files_only": local_files_only,
+            }
+
+        class _FakeLLM:
+            def __init__(self, model: str, **kwargs: Any) -> None:  # noqa: ANN401
+                captured["llm"] = {"model": model, "kwargs": kwargs}
+
+        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.snapshot_download", _fake_snapshot_download)
+        monkeypatch.setattr("nemo_curator.stages.text.embedders.vllm.LLM", _FakeLLM)
+
+        stage.setup_on_node()
+
+        assert captured["snapshot_download"]["cache_dir"] == str(cache_dir)
+        assert captured["snapshot_download"]["token"] == hf_token
+        assert captured["snapshot_download"]["local_files_only"] is False
+
+        assert captured["llm"]["model"] == TEST_MODEL
+        assert captured["llm"]["kwargs"]["download_dir"] == str(cache_dir)
 
     @pytest.mark.parametrize("pretokenize", [True, False])
     def test_vllm_produces_valid_embeddings(

@@ -79,6 +79,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if "model_impl" not in vllm_init_kwargs:
             # TODO: Once transformers is bumped to 5.0 then we should also support transformers
             vllm_init_kwargs["model_impl"] = "vllm"
+        if self.cache_dir is not None and "download_dir" not in vllm_init_kwargs:
+            vllm_init_kwargs["download_dir"] = self.cache_dir
 
         # Reduce verbosity when not in verbose mode
         if not self.verbose and "disable_log_stats" not in vllm_init_kwargs:
@@ -101,7 +103,12 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if self.pretokenize:
             from transformers import AutoTokenizer
 
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_identifier)
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_identifier,
+                cache_dir=self.cache_dir,
+                token=self.hf_token,
+                local_files_only=False,
+            )
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()

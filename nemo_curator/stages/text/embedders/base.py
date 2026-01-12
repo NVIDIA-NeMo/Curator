@@ -36,6 +36,7 @@ class EmbeddingModelStage(ModelStage):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        cache_dir: str | None = None,
         embedding_field: str = "embeddings",
         pooling: Literal["mean_pooling", "last_token"] = "mean_pooling",
         hf_token: str | None = None,
@@ -46,6 +47,7 @@ class EmbeddingModelStage(ModelStage):
     ):
         super().__init__(
             model_identifier=model_identifier,
+            cache_dir=cache_dir,
             hf_token=hf_token,
             model_inference_batch_size=model_inference_batch_size,
             has_seq_order=has_seq_order,
@@ -61,7 +63,7 @@ class EmbeddingModelStage(ModelStage):
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load the model for inference."""
-        self.model = AutoModel.from_pretrained(self.model_identifier, local_files_only=True)
+        self.model = AutoModel.from_pretrained(self.model_identifier, cache_dir=self.cache_dir, local_files_only=True)
         self.model.eval().to("cuda")
 
     def process_model_output(
@@ -104,6 +106,7 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
     def __init__(  # noqa: PLR0913
         self,
         model_identifier: str,
+        cache_dir: str | None = None,
         embedding_field: str = "embeddings",
         hf_token: str | None = None,
         model_inference_batch_size: int = 1024,
@@ -113,6 +116,7 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
     ):
         super().__init__(
             model_identifier=model_identifier,
+            cache_dir=cache_dir,
             hf_token=hf_token,
             model_inference_batch_size=model_inference_batch_size,
             has_seq_order=has_seq_order,
@@ -128,7 +132,12 @@ class SentenceTransformerEmbeddingModelStage(EmbeddingModelStage):
 
     def setup(self, _: WorkerMetadata | None = None) -> None:
         """Load the model for inference."""
-        self.model = SentenceTransformer(self.model_identifier, local_files_only=True)
+        self.model = SentenceTransformer(
+            self.model_identifier,
+            cache_folder=self.cache_dir,
+            use_auth_token=self.hf_token,
+            local_files_only=True,
+        )
         self.model.eval().to("cuda")
 
     def process_model_output(
@@ -145,6 +154,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
     use_sentence_transformer: bool = True
     text_field: str = "text"
     embedding_field: str = "embeddings"
+    cache_dir: str | None = None
     max_chars: int | None = None
     max_seq_length: int | None = None
     padding_side: Literal["left", "right"] = "right"
@@ -170,6 +180,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
         self.stages = [
             TokenizerStage(
                 model_identifier=self.model_identifier,
+                cache_dir=self.cache_dir,
                 hf_token=self.hf_token,
                 text_field=self.text_field,
                 max_chars=self.max_chars,
@@ -179,6 +190,7 @@ class EmbeddingCreatorStage(CompositeStage[DocumentBatch, DocumentBatch]):
             ),
             model_class(
                 model_identifier=self.model_identifier,
+                cache_dir=self.cache_dir,
                 embedding_field=self.embedding_field,
                 hf_token=self.hf_token,
                 model_inference_batch_size=self.model_inference_batch_size,
