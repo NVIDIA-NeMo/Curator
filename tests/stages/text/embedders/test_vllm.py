@@ -32,12 +32,6 @@ from nemo_curator.tasks import DocumentBatch
 TEST_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
-@pytest.fixture(scope="module")
-def reference_model() -> SentenceTransformer:
-    """Load SentenceTransformer model once for the module."""
-    return SentenceTransformer(TEST_MODEL).to("cuda")
-
-
 @pytest.fixture
 def sample_data() -> DocumentBatch:
     """Create sample text data for testing."""
@@ -49,6 +43,11 @@ def sample_data() -> DocumentBatch:
 @pytest.mark.gpu
 class TestVLLMEmbeddingModelStage:
     """Test VLLMEmbeddingModelStage initialization and processing."""
+
+    @pytest.fixture(scope="module")
+    def reference_model() -> "SentenceTransformer":
+        """Load SentenceTransformer model once for the module."""
+        return SentenceTransformer(TEST_MODEL).to("cuda")
 
     def test_default_initialization(self) -> None:
         """Test initialization with default parameters."""
