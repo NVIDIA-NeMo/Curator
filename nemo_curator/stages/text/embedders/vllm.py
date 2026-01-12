@@ -36,6 +36,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         text_field: str = "text",
         pretokenize: bool = False,
         embedding_field: str = "embeddings",
+        max_chars: int | None = None,
         cache_dir: str | None = None,
         hf_token: str | None = None,
         verbose: bool = False,
@@ -46,6 +47,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         self.text_field = text_field
         self.pretokenize = pretokenize
         self.embedding_field = embedding_field
+        self.max_chars = max_chars
 
         self.cache_dir = cache_dir
         self.hf_token = hf_token
@@ -75,7 +77,7 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
         if "runner" not in vllm_init_kwargs:
             vllm_init_kwargs["runner"] = "pooling"
         if "model_impl" not in vllm_init_kwargs:
-            # TODO: Once transformers is bumpted to 5.0 then we should also support transformers
+            # TODO: Once transformers is bumped to 5.0 then we should also support transformers
             vllm_init_kwargs["model_impl"] = "vllm"
 
         # Reduce verbosity when not in verbose mode
@@ -103,6 +105,8 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
 
     def process(self, batch: DocumentBatch) -> DocumentBatch:
         df = batch.to_pandas()
+        if self.max_chars is not None:
+            df[self.text_field] = df[self.text_field].str.slice(0, self.max_chars)
         input_data = df[self.text_field].tolist()
         metrics = {}
 

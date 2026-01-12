@@ -13,9 +13,12 @@
 # limitations under the License.
 
 # ruff: noqa: E402
+from contextlib import suppress
+
 import pytest
 
-pytest.importorskip("vllm", reason="VLLMEmbeddingModelStage tests require vllm")
+with suppress(ImportError):
+    pass
 
 import numpy as np
 import pandas as pd
