@@ -97,8 +97,6 @@ See the [NemotronCC documentation](../../docs/curate-text/synthetic/nemotron-cc/
 
 ---
 
-## Additional Resources
-
-- [LLM Client Configuration](../../docs/curate-text/synthetic/llm-client.md)
+## Additional Resources- [LLM Client Configuration](../../docs/curate-text/synthetic/llm-client.md)
 - [NemotronCC Pipeline Documentation](../../docs/curate-text/synthetic/nemotron-cc/index.md)
 - [Task Reference](../../docs/curate-text/synthetic/nemotron-cc/tasks.md)
