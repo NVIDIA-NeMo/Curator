@@ -18,7 +18,7 @@ from contextlib import suppress
 import pytest
 
 with suppress(ImportError):
-    pass
+    import vllm  # noqa: F401
 
 import numpy as np
 import pandas as pd
