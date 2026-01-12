@@ -11,21 +11,21 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: E402
+
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pytest
-
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
-
-_ = pytest.importorskip("cudf")
 from huggingface_hub import snapshot_download
 
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.backends.experimental.ray_data import RayDataExecutor
+    from nemo_curator.backends.xenna import XennaExecutor
+    from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
 # Pre-download the model to avoid rate limiting in CI. If it fails, skip the test.
 try:
@@ -69,8 +69,8 @@ def create_data_with_duplicates(input_dir: Path) -> pd.DataFrame:
     "test_config",
     [
         pytest.param((XennaExecutor, {}, True), id="xenna_with_id_generator"),
-        # TODO: Uncomment this when we are able to figure out how to run Xenna again after Dedup
-        # pytest.param((XennaExecutor, {}, False), id="xenna_without_id_generator"),  # noqa: ERA001
+        # TODO: Uncomment this when we are able to figure out how to run Xenna again after deduplication
+        # pytest.param((XennaExecutor, {}, False), id="xenna_without_id_generator"),
         pytest.param((RayDataExecutor, {}, False), id="ray_data_without_id_generator"),
     ],
     indirect=True,

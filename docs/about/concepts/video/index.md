@@ -39,7 +39,7 @@ Stages, pipelines, and execution modes in video curation workflows
 :link: about-concepts-video-data-flow
 :link-type: ref
 
-How data moves through the system, from ingestion to output
+How data moves through the system from ingestion to output
 :::
 
 ::::
@@ -58,7 +58,7 @@ The video curation concepts build on NVIDIA NeMo Curator's core infrastructure c
 :::{grid-item-card} {octicon}`database;1.5em;sd-mr-1` Memory Management
 :link: reference-infra-memory-management
 :link-type: ref
-Optimize memory usage when processing large datasets
+Optimize memory usage for large datasets
 +++
 {bdg-secondary}`partitioning`
 {bdg-secondary}`batching`
@@ -78,7 +78,7 @@ Leverage NVIDIA GPU acceleration for faster data processing
 :::{grid-item-card} {octicon}`sync;1.5em;sd-mr-1` Resumable Processing
 :link: reference-infra-resumable-processing
 :link-type: ref
-Continue interrupted operations across large datasets
+Continue interrupted operations on large datasets
 +++
 {bdg-secondary}`checkpoints`
 {bdg-secondary}`recovery`

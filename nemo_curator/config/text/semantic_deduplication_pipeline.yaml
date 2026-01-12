@@ -1,0 +1,77 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  NeMo Curator Pipeline Semantic Deduplication Configuration File
+  ###############################################################
+  This configuration file can be used to build a NeMo Curator pipeline that performs semantic deduplication.
+  This example reads the input files, runs the semantic deduplication workflow, and saves the results.
+
+input_path: ???
+output_path: ???
+cache_path: ???
+input_filetype: jsonl
+output_filetype: jsonl
+text_field: "text"
+id_field: "id"
+
+ray_client:
+  _target_: nemo_curator.core.client.RayClient
+  num_cpus: null  # if null, will use all available CPUs
+  num_gpus: 4  # deduplication workflow requires at least 1 GPU
+
+workflow:
+  - _target_: nemo_curator.stages.text.deduplication.semantic.TextSemanticDeduplicationWorkflow
+    input_path: ${input_path}
+    output_path: ${output_path}
+    cache_path: ${cache_path}
+    perform_removal: True
+    # Embedding generation parameters
+    text_field: ${text_field}
+    model_identifier: "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_max_seq_length: 512
+    embedding_max_chars: null
+    embedding_pooling: "mean_pooling"
+    embedding_model_inference_batch_size: 256
+    # Semantic deduplication parameters
+    n_clusters: 100  # this number can be much higher when the data is large
+    # For large scale data removal we should use CURATOR_DEDUP_ID_STR
+    id_field: ${id_field}
+    eps: 0.01
+    # K-Means clustering parameters
+    ranking_strategy:
+      _target_: nemo_curator.stages.deduplication.semantic.RankingStrategy
+      metadata_cols: ["cosine_dist_to_cent"]
+      ascending: True
+    pairwise_batch_size: 1024
+    # ID generator parameters
+    # For large scale data removal we should set use_id_generator to True
+    use_id_generator: False
+    id_generator_state_file: null
+    # I/O parameters
+    input_filetype: ${input_filetype}
+    input_files_per_partition: 1
+    output_filetype: ${output_filetype}
+    verbose: True
+    clear_output: True

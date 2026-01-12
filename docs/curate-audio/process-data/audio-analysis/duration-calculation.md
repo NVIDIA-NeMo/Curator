@@ -105,7 +105,7 @@ duration_stage = GetAudioDurationStage(
 for sample in audio_samples:
     audio_batch = AudioBatch(data=[sample])
     result_batch = duration_stage.process(audio_batch)
-    
+
     processed_sample = result_batch[0].data[0]
     print(f"File: {processed_sample['audio_filepath']}")
     print(f"Duration: {processed_sample['duration']:.3f} seconds")
@@ -189,7 +189,7 @@ For corrupted or unreadable files:
 ```json
 {
   "audio_filepath": "/path/to/corrupted.wav",
-  "text": "Sample transcription text", 
+  "text": "Sample transcription text",
   "duration": -1.0
 }
 ```
@@ -258,7 +258,7 @@ pipeline.add_stage(PreserveByValueStage(
 ))
 
 pipeline.add_stage(PreserveByValueStage(
-    input_value_key="duration", 
+    input_value_key="duration",
     target_value=15.0,     # Maximum 15 seconds
     operator="le"
 ))
@@ -283,17 +283,15 @@ pipeline.add_stage(PreserveByValueStage(
 ### Processing Speed
 
 - Duration calculation is I/O bound and scales with file size
-- Network-mounted files may be slower than local storage
+- Network-mounted files can be slower than local storage
 - Consider parallel processing for large datasets using Ray
 
 ### File System Optimization
 
-```python
-# For better performance with large datasets:
-# 1. Use local storage when possible
-# 2. Ensure sufficient I/O bandwidth
-# 3. Consider file system caching
-```
+For better performance with large datasets:
+- Use local storage when possible
+- Ensure sufficient I/O bandwidth
+- Consider file system caching
 
 ## Troubleshooting
 

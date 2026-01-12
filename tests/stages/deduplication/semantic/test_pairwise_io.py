@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,21 +14,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
-cudf = pytest.importorskip("cudf")
-cupy = pytest.importorskip("cupy")
-
-from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
-from nemo_curator.tasks import FileGroupTask, _EmptyTask
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic.pairwise_io import ClusterWiseFilePartitioningStage
+    from nemo_curator.tasks import FileGroupTask, _EmptyTask
 
 
 @pytest.mark.gpu  # TODO : Remove this once we figure out how to import semantic on CPU
 class TestClusterWiseFilePartitioningStage:
     """Test cases for ClusterWiseFilePartitioningStage."""
+
+    def test_setup(self):
+        # Test fs and path_normalizer are set correctly
+        stage = ClusterWiseFilePartitioningStage("s3://test-bucket/test-path")
+        stage.setup()
+        assert stage.fs is not None
+        assert stage.path_normalizer is not None
+        assert stage.path_normalizer("test-bucket/test-path") == "s3://test-bucket/test-path"
+
+        # Test for local filesystem
+        stage = ClusterWiseFilePartitioningStage("/test/path")
+        stage.setup()
+        assert stage.fs is not None
+        assert stage.path_normalizer is not None
+        assert stage.path_normalizer("/test/path") == "/test/path"
 
     def test_process_finds_all_centroid_files(self, tmp_path: Path):
         """Test that process method finds all files in centroid directories."""
@@ -58,8 +75,21 @@ class TestClusterWiseFilePartitioningStage:
         stage = ClusterWiseFilePartitioningStage(str(tmp_path))
         stage.setup()
 
+        # Mock path_normalizer to track calls and verify it's used correctly
+        # For local filesystem, path_normalizer is lambda x: x, so mock should return input
+        mock_path_normalizer = Mock(side_effect=lambda x: x)
+        stage.path_normalizer = mock_path_normalizer
+
         empty_task = _EmptyTask(task_id="test", dataset_name="test", data=None)
         result = stage.process(empty_task)
+
+        # Verify path_normalizer was called exactly 3 times (once per centroid directory)
+        assert mock_path_normalizer.call_count == 3
+
+        # Verify it was called with centroid directory paths
+        # fs.ls() returns entries that contain "centroid="
+        call_args = [call[0][0] for call in mock_path_normalizer.call_args_list]
+        assert all("centroid=" in str(arg) for arg in call_args)
 
         # Should create 3 FileGroupTasks for 3 centroids
         assert len(result) == 3

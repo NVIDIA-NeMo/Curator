@@ -224,8 +224,11 @@ class SemanticDeduplicationWorkflow:
             if self.eps is not None:
                 create_or_overwrite_dir(self.duplicates_output_path, storage_options=storage_options)
 
-    def _run_kmeans_stage(self) -> list[Any]:
+    def _run_kmeans_stage(self, kmeans_executor: RayActorPoolExecutor) -> list[Any]:
         """Run K-means clustering stage (always uses RayActorPoolExecutor)."""
+        if not isinstance(kmeans_executor, RayActorPoolExecutor):
+            msg = "K-means executor must be a RayActorPoolExecutor"
+            raise TypeError(msg)
         logger.info("Starting K-means clustering stage (RayActorPoolExecutor)...")
 
         pipeline = Pipeline(
@@ -255,9 +258,7 @@ class SemanticDeduplicationWorkflow:
         )
         pipeline.add_stage(kmeans_stage)
 
-        # Always use RayActorPoolExecutor for K-means
-        executor = RayActorPoolExecutor()
-        return pipeline.run(executor)
+        return pipeline.run(kmeans_executor)
 
     def _run_pairwise_stage(self, pairwise_executor: BaseExecutor | None = None) -> list[Any]:
         """Run pairwise similarity + duplicate identification stage."""
@@ -325,17 +326,24 @@ class SemanticDeduplicationWorkflow:
         logger.info(f"Random state: {self.random_state}")
         logger.info("=" * 60)
 
-    def run(self, pairwise_executor: BaseExecutor | None = None) -> dict[str, Any]:
+    def run(
+        self, kmeans_executor: BaseExecutor | None = None, pairwise_executor: BaseExecutor | None = None
+    ) -> dict[str, Any]:
         """
         Run the complete semantic deduplication pipeline.
 
         Args:
+            kmeans_executor: Executor for kmeans stage. Defaults to RayActorPoolExecutor().
             pairwise_executor: Executor for pairwise stage. Defaults to XennaExecutor().
 
         Returns:
             Dictionary with results and timing information
         """
         total_start_time = time.time()
+        if kmeans_executor is not None and not isinstance(kmeans_executor, RayActorPoolExecutor):
+            msg = "kmeans_executor must be an instance of RayActorPoolExecutor."
+            raise ValueError(msg)
+        kmeans_executor = kmeans_executor or RayActorPoolExecutor()
         pairwise_executor = pairwise_executor or XennaExecutor()
 
         try:
@@ -343,9 +351,9 @@ class SemanticDeduplicationWorkflow:
             self._setup_directories()
             self._log_configuration(pairwise_executor)
 
-            # Stage 1: K-means clustering (always RayActorPoolExecutor)
+            # Stage 1: K-means clustering
             kmeans_start_time = time.time()
-            kmeans_results = self._run_kmeans_stage()
+            kmeans_results = self._run_kmeans_stage(kmeans_executor)
             kmeans_end_time = time.time()
             kmeans_time = kmeans_end_time - kmeans_start_time
 

@@ -70,7 +70,7 @@ class RayDataStageAdapter(BaseStageAdapter):
         # For Task objects, we return them in the 'item' column
         return {"item": results}
 
-    def process_dataset(self, dataset: Dataset) -> Dataset:
+    def process_dataset(self, dataset: Dataset, ignore_head_node: bool = False) -> Dataset:
         """Process a Ray Data dataset through this stage.
 
         Args:
@@ -79,17 +79,15 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
-        # TODO: Support nvdecs / nvencs
-        if self.stage.resources.gpus <= 0 and (self.stage.resources.nvdecs > 0 or self.stage.resources.nvencs > 0):
-            msg = "Ray Data does not support nvdecs / nvencs. Please use gpus instead."
-            raise ValueError(msg)
 
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
         if is_actor_stage_:
             map_batches_fn = create_actor_from_stage(self.stage)
             concurrency_kwargs = {
-                "concurrency": calculate_concurrency_for_actors_for_stage(self.stage),
+                "concurrency": calculate_concurrency_for_actors_for_stage(
+                    self.stage, ignore_head_node=ignore_head_node
+                ),
             }
         else:
             map_batches_fn = create_task_from_stage(self.stage)
