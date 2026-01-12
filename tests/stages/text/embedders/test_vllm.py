@@ -92,7 +92,7 @@ class TestVLLMEmbeddingModelStage:
 
     @pytest.mark.parametrize("pretokenize", [True, False])
     def test_vllm_produces_valid_embeddings(
-        self, sample_data: DocumentBatch, pretokenize: bool, reference_model: SentenceTransformer
+        self, sample_data: DocumentBatch, pretokenize: bool, reference_model: "SentenceTransformer"
     ) -> None:
         """Test that VLLM produces embeddings matching SentenceTransformer reference."""
         vllm_stage = VLLMEmbeddingModelStage(
