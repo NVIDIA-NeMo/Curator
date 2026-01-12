@@ -40,14 +40,15 @@ def sample_data() -> DocumentBatch:
     return DocumentBatch(task_id="test_batch", dataset_name="test_dataset", data=data)
 
 
+@pytest.fixture(scope="module")
+def reference_model() -> "SentenceTransformer":
+    """Load SentenceTransformer model once for the module."""
+    return SentenceTransformer(TEST_MODEL).to("cuda")
+
+
 @pytest.mark.gpu
 class TestVLLMEmbeddingModelStage:
     """Test VLLMEmbeddingModelStage initialization and processing."""
-
-    @pytest.fixture(scope="module")
-    def reference_model() -> "SentenceTransformer":
-        """Load SentenceTransformer model once for the module."""
-        return SentenceTransformer(TEST_MODEL).to("cuda")
 
     def test_default_initialization(self) -> None:
         """Test initialization with default parameters."""
