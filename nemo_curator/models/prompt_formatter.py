@@ -148,7 +148,7 @@ class PromptFormatter:
 
         # Normalize to uint8 if needed
         if video_np.dtype != np.uint8:
-            if video_np.dtype in (np.float32, np.float16) and video_np.max() <= 1.0:
+            if np.issubdtype(video_np.dtype, np.floating) and video_np.max() <= 1.0:
                 video_np = (video_np * 255).astype(np.uint8)
             else:
                 video_np = video_np.astype(np.uint8)
