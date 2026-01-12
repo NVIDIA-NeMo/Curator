@@ -1,0 +1,243 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+defaults:
+  - _self_
+  - override hydra/job_logging: none
+  - override hydra/hydra_logging: none
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+
+documentation: |
+  NeMo Curator Pipeline English Heuristic Filter Configuration File
+  #################################################################
+  This configuration file can be used to build a NeMo Curator pipeline that filters English text.
+  This example reads the input files, runs the heuristic filters, and saves the results.
+
+  The filters below define a chain of heuristic filters to be applied to each document in a corpus.
+  This particular cascade of filters is intended to filter English language data.
+  The filter listed at the top will be applied first, and the following filters will be applied in
+  the order they appear in this file. Each filter can be removed and re-ordered as desired.
+
+  To customize your own pipeline, you can add or remove stages from the stages list,
+  where _target_ is the stage class and includes all the parameters for the stage.
+
+input_path: ???
+output_path: ???
+text_field: text
+
+stages:
+  - _target_: nemo_curator.stages.text.io.reader.JsonlReader
+    file_paths: ${input_path}
+    files_per_partition: null
+    blocksize: null
+    fields: null
+
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.NonAlphaNumericFilter
+      max_non_alpha_numeric_to_text_ratio: 0.25
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.SymbolsToWordsFilter
+      max_symbol_to_word_ratio: 0.1
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.NumbersFilter
+      max_number_to_text_ratio: 0.15
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.UrlsFilter
+      max_url_to_text_ratio: 0.2
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.WhiteSpaceFilter
+      max_white_space_ratio: 0.25
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.ParenthesesFilter
+      max_parentheses_ratio: 0.1
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.BoilerPlateStringFilter
+      remove_if_at_top_or_bottom: True
+      max_boilerplate_string_ratio: 0.4
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatedLinesFilter
+      max_repeated_line_fraction: 0.7
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatedParagraphsFilter
+      max_repeated_paragraphs_ratio: 0.7
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatedLinesByCharFilter
+      max_repeated_lines_char_ratio: 0.8
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatedParagraphsByCharFilter
+      max_repeated_paragraphs_char_ratio: 0.8
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordCountFilter
+      min_words: 50
+      max_words: 100000
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.PunctuationFilter
+      max_num_sentences_without_endmark_ratio: 0.85
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.WordsWithoutAlphabetsFilter
+      min_words_with_alphabets: 0.8
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.CommonEnglishWordsFilter
+      min_num_common_words: 2
+      stop_at_false: True
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.MeanWordLengthFilter
+      max_mean_word_length: 10
+      min_mean_word_length: 3
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.LongWordFilter
+      max_word_length: 1000
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.EllipsisFilter
+      max_num_lines_ending_with_ellipsis_ratio: 0.3
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Top N-Gram filters for N-gram 2
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingTopNGramsFilter
+      n: 2
+      max_repeating_ngram_ratio: 0.2
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Top N-Gram filters for N-gram 3
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingTopNGramsFilter
+      n: 3
+      max_repeating_ngram_ratio: 0.18
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Top N-Gram filters for N-gram 4
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingTopNGramsFilter
+      n: 4
+      max_repeating_ngram_ratio: 0.16
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Duplicate N-gram filters for N-gram 5
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingDuplicateNGramsFilter
+      n: 5
+      max_repeating_duplicate_ngram_ratio: 0.15
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Duplicate N-gram filters for N-gram 6
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingDuplicateNGramsFilter
+      n: 6
+      max_repeating_duplicate_ngram_ratio: 0.14
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Duplicate N-gram filters for N-gram 7
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingDuplicateNGramsFilter
+      n: 7
+      max_repeating_duplicate_ngram_ratio: 0.13
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Duplicate N-gram filters for N-gram 8
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingDuplicateNGramsFilter
+      n: 8
+      max_repeating_duplicate_ngram_ratio: 0.12
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Duplicate N-gram filters for N-gram 9
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingDuplicateNGramsFilter
+      n: 9
+      max_repeating_duplicate_ngram_ratio: 0.11
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      # Duplicate N-gram filters for N-gram 10
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.RepeatingDuplicateNGramsFilter
+      n: 10
+      max_repeating_duplicate_ngram_ratio: 0.10
+    text_field: ${text_field}
+    score_field: null
+  - _target_: nemo_curator.stages.text.modules.score_filter.ScoreFilter
+    filter_obj:
+      _target_: nemo_curator.stages.text.filters.heuristic_filter.BulletsFilter
+      max_bullet_lines_ratio: 0.9
+    text_field: ${text_field}
+    score_field: null
+
+  - _target_: nemo_curator.stages.text.io.writer.JsonlWriter
+    path: ${output_path}
+    fields: null
