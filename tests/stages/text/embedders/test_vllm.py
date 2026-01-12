@@ -18,14 +18,14 @@ from contextlib import suppress
 import pytest
 
 with suppress(ImportError):
-    import vllm  # noqa: F401
+    from sentence_transformers import SentenceTransformer
+
+    from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 
 import numpy as np
 import pandas as pd
 import torch
-from sentence_transformers import SentenceTransformer
 
-from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
 from nemo_curator.tasks import DocumentBatch
 
 # Test model that works with both VLLM and SentenceTransformer
