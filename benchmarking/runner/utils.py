@@ -29,30 +29,6 @@ except ImportError:
     import logging as logger
 
 
-def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
-    """
-    Recursively convert objects to Python primitives for JSON serialization.
-    Useful for objects like Path, sets, bytes, etc.
-    """
-    if isinstance(obj, dict):
-        retval = {get_obj_for_json(k): get_obj_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple, set)):
-        retval = [get_obj_for_json(item) for item in obj]
-    elif hasattr(obj, "as_posix"):  # Path objects
-        retval = obj.as_posix()
-    elif isinstance(obj, bytes):
-        retval = obj.decode("utf-8", errors="replace")
-    elif hasattr(obj, "to_json") and callable(obj.to_json):
-        retval = obj.to_json()
-    elif obj is None:
-        retval = "null"
-    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack, empty strings not allowed
-        retval = " "
-    else:
-        retval = obj
-    return retval
-
-
 def write_benchmark_results(results: dict, output_path: Path) -> None:
     """Write results to the standard files expected by the benchmark framework.
 
@@ -68,9 +44,6 @@ def write_benchmark_results(results: dict, output_path: Path) -> None:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 
 
-_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
-
-
 def _replace_env_var(match: re.Match[str]) -> str:
     env_var_name = match.group(1)
     env_value = os.getenv(env_var_name)
@@ -79,6 +52,9 @@ def _replace_env_var(match: re.Match[str]) -> str:
     else:
         msg = f"Environment variable {env_var_name} not found in the environment or is empty"
         raise ValueError(msg)
+
+
+_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
 
 def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | object:
