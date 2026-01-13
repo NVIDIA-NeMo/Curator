@@ -26,33 +26,6 @@ try:
 except ImportError:
     import logging as logger
 
-
-def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
-    """
-    Recursively convert objects to Python primitives for JSON serialization.
-    Useful for objects like Path, sets, bytes, etc.
-    """
-    if isinstance(obj, dict):
-        retval = {get_obj_for_json(k): get_obj_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, (list, tuple, set)):
-        retval = [get_obj_for_json(item) for item in obj]
-    elif hasattr(obj, "as_posix"):  # Path objects
-        retval = obj.as_posix()
-    elif isinstance(obj, bytes):
-        retval = obj.decode("utf-8", errors="replace")
-    elif hasattr(obj, "to_json") and callable(obj.to_json):
-        retval = obj.to_json()
-    elif hasattr(obj, "__dict__"):
-        retval = get_obj_for_json(vars(obj))
-    elif obj is None:
-        retval = "null"
-    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack, empty strings not allowed
-        retval = " "
-    else:
-        retval = obj
-    return retval
-
-
 _env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
 
