@@ -32,14 +32,13 @@ Duplicate identification operates on clip-level embeddings produced during proce
    - Pairwise: `PairwiseStage` computes within-cluster similarity on GPU and, for each clip, emits `max_id` and `cosine_sim_score`. Ranking controls whether to prefer outliers ("hard") or representatives ("easy").
    - Identify: `IdentifyDuplicatesStage` filters pairs with `cosine_sim_score >= 1.0 - eps` and writes Parquet files of duplicate `id`s for removal during export.
 
-
 ---
 
 ## Quickstart
 
 Use the semantic duplicate workflow with clip embeddings written to Parquet.
 
-::::{tab-set}
+:::::{tab-set}
 
 ::::{tab-item} Single Step Workflow
 
@@ -146,7 +145,7 @@ pipe.run()
 No example script flags are available for duplicate identification in the split pipeline. Run these stages as a separate job against Parquet embeddings written by the example pipeline's writer.
 
 ::::
-::::
+:::::
 
 :::{tip}
 **Recommended Workflow: Determine `eps` First**
@@ -197,7 +196,7 @@ The metadata columns must be present in your embedding Parquet files and will be
 
 ## Parameters
 
-::::{tab-set}
+:::::{tab-set}
 
 ::::{tab-item} KMeansStage
 
@@ -296,7 +295,7 @@ For parameters shared with individual stages, refer to:
 - Common parameters: `read_kwargs`, `write_kwargs`, `verbose`
 
 ::::
-::::
+:::::
 
 ---
 
