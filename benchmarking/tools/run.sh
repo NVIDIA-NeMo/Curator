@@ -27,7 +27,7 @@ GDRIVE_SERVICE_ACCOUNT_FILE=${GDRIVE_SERVICE_ACCOUNT_FILE:-""}
 # get the following vars from the command line, config file(s), etc. and
 # set them in this environment:
 #   BASH_ENTRYPOINT_OVERRIDE
-#   DOCKER_IMAGE
+#   CURATOR_BENCHMARKING_IMAGE
 #   GPUS
 #   CONTAINER_MEMORY_BYTES
 #   SHM_SIZE_BYTES
@@ -39,10 +39,10 @@ eval_str=$(python ${THIS_SCRIPT_DIR}/gen_runscript_vars.py "${BASH_SOURCE[0]}" "
 eval "$eval_str"
 
 # Get the image digest/ID for benchmark reports. This is not known at image build time.
-IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.Digest}}' 2>/dev/null) || true
+IMAGE_DIGEST=$(docker image inspect ${CURATOR_BENCHMARKING_IMAGE} --format '{{.Digest}}' 2>/dev/null) || true
 if [ -z "${IMAGE_DIGEST}" ] || [ "${IMAGE_DIGEST}" = "<none>" ]; then
     # Use the image ID as a fallback
-    IMAGE_DIGEST=$(docker image inspect ${DOCKER_IMAGE} --format '{{.ID}}' 2>/dev/null) || true
+    IMAGE_DIGEST=$(docker image inspect ${CURATOR_BENCHMARKING_IMAGE} --format '{{.ID}}' 2>/dev/null) || true
 fi
 if [ -z "${IMAGE_DIGEST}" ] || [ "${IMAGE_DIGEST}" = "<none>" ]; then
     IMAGE_DIGEST="<unknown>"
@@ -70,7 +70,7 @@ docker run \
   --env=HOST_HOSTNAME=$(hostname) \
   \
   ${BASH_ENTRYPOINT_OVERRIDE} \
-  ${DOCKER_IMAGE} \
+  ${CURATOR_BENCHMARKING_IMAGE} \
     "${ENTRYPOINT_ARGS[@]}"
 
 exit $?

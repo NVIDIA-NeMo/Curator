@@ -35,7 +35,6 @@ from runner.utils import get_total_memory_bytes
 @dataclass(frozen=True, kw_only=True)
 class Session:
     results_path: Path
-    artifacts_path: Path
     entries: list[Entry] = field(default_factory=list)
     sinks: list[Sink] = field(default_factory=list)
     default_timeout_s: int = 7200
@@ -72,7 +71,7 @@ class Session:
     @classmethod
     def assert_valid_config_dict(cls, data: dict) -> None:
         """Assert that the configuration contains the minimum required config values."""
-        required_fields = ["results_path", "artifacts_path", "datasets_path", "entries"]
+        required_fields = ["results_path", "datasets_path", "entries"]
         missing_fields = [k for k in required_fields if k not in data]
         if missing_fields:
             msg = f"Invalid configuration: missing required fields: {missing_fields}"
@@ -100,7 +99,6 @@ class Session:
         entries = [Entry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
 
         mc_data["results_path"] = path_resolver.resolve("results_path")
-        mc_data["artifacts_path"] = path_resolver.resolve("artifacts_path")
         mc_data["entries"] = entries
         mc_data["sinks"] = sinks
         mc_data["path_resolver"] = path_resolver
