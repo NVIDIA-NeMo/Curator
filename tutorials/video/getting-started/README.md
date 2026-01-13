@@ -320,7 +320,7 @@ print(f"Results saved to: {OUTPUT_DIR}")
 
 The `video_split_clip_example.py` script provides a convenient CLI for common workflows:
 
-### Basic splitting with embeddings
+### Basic Splitting with Embeddings
 
 ```bash
 python video_split_clip_example.py \
@@ -331,7 +331,7 @@ python video_split_clip_example.py \
   --embedding-algorithm cosmos-embed1-224p
 ```
 
-### Scene-aware splitting with TransNetV2
+### Scene-Aware Splitting with TransNetV2
 
 ```bash
 python video_split_clip_example.py \
@@ -344,7 +344,7 @@ python video_split_clip_example.py \
   --embedding-algorithm cosmos-embed1-224p
 ```
 
-### Full pipeline with captions and filtering
+### Full Pipeline with Captions and Filtering
 
 ```bash
 python video_split_clip_example.py \
