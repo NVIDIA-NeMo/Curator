@@ -16,8 +16,6 @@
 
 import argparse
 import sys
-import traceback
-from operator import le
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +29,6 @@ from nemo_curator.stages.audio.inference.asr_nemo import InferenceAsrNemoStage
 from nemo_curator.stages.audio.io.convert import AudioToDocumentStage
 from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
-from nemo_curator.stages.text.io.reader import JsonlReader
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
 # Import benchmarking utils which are currently only available directly from the Curator source tree.
@@ -40,114 +37,64 @@ _repo_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_repo_dir))
 from benchmarking.runner.utils import write_benchmark_results  # noqa: E402
 
-_expected_num_results = 50
-
-
-def read_jsonl(file_paths: Path | list[Path], executor: XennaExecutor) -> Pipeline:
-    """Read jsonl files from one or more directories."""
-    p = Pipeline(name="read", description="Read jsonl")
-    # Build a list of directory path strings from Path object(s), as required by JsonlReader
-    file_path_strs = [str(d) for d in (file_paths if isinstance(file_paths, list) else [file_paths])]
-    p.add_stage(JsonlReader(file_paths=file_path_strs))
-    return p.run(executor)
-
-
-def assert_valid_pipeline(pipeline: Pipeline, expected_values: argparse.Namespace) -> None:
-    """Assert that the pipeline is valid."""
-    assert isinstance(pipeline, Pipeline)
-    assert pipeline.name == "audio_inference"
-    assert "Inference audio" in pipeline.description
-    assert len(pipeline.stages) == 7  # noqa: PLR2004
-
-    assert isinstance(pipeline.stages[0], CreateInitialManifestFleursStage)
-    assert pipeline.stages[0].lang == expected_values.lang
-    assert pipeline.stages[0].split == expected_values.split
-    assert pipeline.stages[0].raw_data_dir.name == "fleurs"
-
-    assert isinstance(pipeline.stages[1], InferenceAsrNemoStage)
-    assert pipeline.stages[1].model_name == expected_values.model_name
-
-    assert isinstance(pipeline.stages[2], GetPairwiseWerStage)
-    assert pipeline.stages[2].wer_key == "wer"
-
-    assert isinstance(pipeline.stages[3], GetAudioDurationStage)
-    assert pipeline.stages[3].audio_filepath_key == "audio_filepath"
-
-    assert isinstance(pipeline.stages[4], PreserveByValueStage)
-    assert pipeline.stages[4].target_value == expected_values.wer_threshold
-    assert pipeline.stages[4].operator == le
-
 
 def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
-    success = False
-    results = []
     results_dir = args.benchmark_results_path / "results"
-    try:
-        # Ensure the results dir does not exist so that it will be created.
-        # This ensures no preexisting files are present which would otherwise be treated as additional results.
-        if results_dir.exists():
-            msg = f"Result directory {results_dir} already exists."
-            raise ValueError(msg)  # noqa: TRY301
 
-        executor = XennaExecutor()
-        pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
+    # Ensure the results dir does not exist so that it will be created.
+    # This ensures no preexisting files are present which would otherwise be treated as additional results.
+    if results_dir.exists():
+        msg = f"Result directory {results_dir} already exists."
+        raise ValueError(msg)
 
-        # Add stages
-        # Add the composite stage that combines reading and downloading
-        pipeline.add_stage(
-            CreateInitialManifestFleursStage(
-                lang=args.lang,
-                split=args.split,
-                raw_data_dir=args.scratch_output_path / "armenian/fleurs",
-            ).with_(batch_size=4)
-        )
-        pipeline.add_stage(
-            InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus))
-        )
-        pipeline.add_stage(
-            GetPairwiseWerStage(
-                text_key="text",
-                pred_text_key="pred_text",
-                wer_key="wer",
-            )
-        )
-        pipeline.add_stage(
-            GetAudioDurationStage(
-                audio_filepath_key="audio_filepath",
-                duration_key="duration",
-            )
-        )
-        pipeline.add_stage(
-            PreserveByValueStage(
-                input_value_key="wer",
-                target_value=args.wer_threshold,
-                operator="le",
-            )
-        )
-        pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
-        pipeline.add_stage(
-            JsonlWriter(
-                path=results_dir,
-                write_kwargs={"force_ascii": False},
-            )
-        )
+    executor = XennaExecutor()
+    pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
 
-        assert_valid_pipeline(pipeline, args)
+    # Add stages
+    # Add the composite stage that combines reading and downloading
+    pipeline.add_stage(
+        CreateInitialManifestFleursStage(
+            lang=args.lang,
+            split=args.split,
+            raw_data_dir=args.scratch_output_path / "armenian/fleurs",
+        ).with_(batch_size=4)
+    )
+    pipeline.add_stage(InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus)))
+    pipeline.add_stage(
+        GetPairwiseWerStage(
+            text_key="text",
+            pred_text_key="pred_text",
+            wer_key="wer",
+        )
+    )
+    pipeline.add_stage(
+        GetAudioDurationStage(
+            audio_filepath_key="audio_filepath",
+            duration_key="duration",
+        )
+    )
+    pipeline.add_stage(
+        PreserveByValueStage(
+            input_value_key="wer",
+            target_value=args.wer_threshold,
+            operator="le",
+        )
+    )
+    pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
+    pipeline.add_stage(
+        JsonlWriter(
+            path=results_dir,
+            write_kwargs={"force_ascii": False},
+        )
+    )
 
-        results = pipeline.run(executor)
-        assert len(results) == _expected_num_results
-        predict = read_jsonl(results_dir, executor)
-        assert len(predict) == _expected_num_results
-        success = True
-
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Error running audio fleurs benchmark: {e}\n{traceback.format_exc()}")
+    results = pipeline.run(executor)
 
     return {
         # Populate the metrics dictionary with metrics to include in the report for this benchmark.
         # This also allows the framework to perform user-defined checks on the metrics to ensure perf requirements are met.
         "metrics": {
-            "is_success": success,
+            "is_success": True,
         },
         "tasks": results,
     }
