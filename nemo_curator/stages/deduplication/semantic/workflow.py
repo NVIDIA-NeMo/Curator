@@ -32,6 +32,7 @@ from nemo_curator.backends.base import BaseExecutor
 from nemo_curator.backends.experimental.ray_actor_pool import RayActorPoolExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
+from nemo_curator.pipeline.workflow import WorkflowBase, WorkflowRunResult
 
 # Stage imports
 from nemo_curator.stages.deduplication.semantic.identify_duplicates import IdentifyDuplicatesStage
@@ -41,7 +42,7 @@ from nemo_curator.stages.deduplication.semantic.ranking import RankingStrategy
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
 
-class SemanticDeduplicationWorkflow:
+class SemanticDeduplicationWorkflow(WorkflowBase):
     """
     End-to-End Semantic Deduplication Workflow.
     It consists of the following stages:
@@ -328,7 +329,7 @@ class SemanticDeduplicationWorkflow:
 
     def run(
         self, kmeans_executor: BaseExecutor | None = None, pairwise_executor: BaseExecutor | None = None
-    ) -> dict[str, Any]:
+    ) -> WorkflowRunResult:
         """
         Run the complete semantic deduplication pipeline.
 
@@ -337,9 +338,10 @@ class SemanticDeduplicationWorkflow:
             pairwise_executor: Executor for pairwise stage. Defaults to XennaExecutor().
 
         Returns:
-            Dictionary with results and timing information
+            WorkflowRunResult object containing the results and timing information
         """
         total_start_time = time.time()
+        workflow_result = WorkflowRunResult(workflow_name="semantic_deduplication")
         if kmeans_executor is not None and not isinstance(kmeans_executor, RayActorPoolExecutor):
             msg = "kmeans_executor must be an instance of RayActorPoolExecutor."
             raise ValueError(msg)
@@ -356,6 +358,8 @@ class SemanticDeduplicationWorkflow:
             kmeans_results = self._run_kmeans_stage(kmeans_executor)
             kmeans_end_time = time.time()
             kmeans_time = kmeans_end_time - kmeans_start_time
+            workflow_result.add_pipeline_tasks("kmeans", kmeans_results)
+            workflow_result.add_metadata("kmeans_time", kmeans_time)
 
             logger.success(f"K-means clustering completed in {kmeans_time:.2f} seconds")
 
@@ -364,6 +368,8 @@ class SemanticDeduplicationWorkflow:
             pairwise_results = self._run_pairwise_stage(pairwise_executor)
             pairwise_end_time = time.time()
             pairwise_time = pairwise_end_time - pairwise_start_time
+            workflow_result.add_pipeline_tasks("pairwise", pairwise_results)
+            workflow_result.add_metadata("pairwise_time", pairwise_time)
 
             logger.success(f"Pairwise similarity stage completed in {pairwise_time:.2f} seconds")
 
@@ -372,11 +378,13 @@ class SemanticDeduplicationWorkflow:
             total_time = total_end_time - total_start_time
 
             # Count duplicates if identified
-            total_duplicates = 0
+            num_duplicates_identified = 0
             if self.eps is not None and pairwise_results:
                 for task in pairwise_results:
                     if hasattr(task, "_metadata") and "num_removed" in task._metadata:
-                        total_duplicates += task._metadata["num_removed"]
+                        num_duplicates_identified += task._metadata["num_removed"]
+
+            workflow_result.extend_metadata({"total_time": total_time, "num_duplicates": num_duplicates_identified})
 
             # Log final summary
             logger.success("=" * 60)
@@ -385,8 +393,8 @@ class SemanticDeduplicationWorkflow:
             logger.success(f"Total execution time: {total_time:.2f} seconds")
             logger.info(f"K-means time: {kmeans_time:.2f} seconds")
             logger.info(f"Pairwise time: {pairwise_time:.2f} seconds")
-            if total_duplicates > 0:
-                logger.success(f"Total documents identified as duplicates: {total_duplicates}")
+            if num_duplicates_identified > 0:
+                logger.success(f"Total documents identified as duplicates: {num_duplicates_identified:,}")
                 logger.info(f"Similarity threshold used: {1.0 - self.eps:.3f} (eps={self.eps})")
             elif self.eps is not None:
                 logger.info(
@@ -398,11 +406,4 @@ class SemanticDeduplicationWorkflow:
             logger.error(f"Semantic deduplication pipeline failed: {e}")
             raise
         else:
-            return {
-                "total_execution_time": total_time,
-                "kmeans_execution_time": kmeans_time,
-                "pairwise_execution_time": pairwise_time,
-                "kmeans_results": kmeans_results,
-                "pairwise_results": pairwise_results,
-                **({"total_duplicates_identified": total_duplicates} if self.eps is not None else {}),
-            }
+            return workflow_result
