@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +15,8 @@
 # limitations under the License.
 
 import json
+import random
+import string
 from pathlib import Path
 
 import pytest
@@ -255,3 +259,32 @@ class TestIdGeneratorActor:
             else:
                 assert result_file2 == 0
                 assert result_file1 == 5
+
+    def test_id_generator_creation_is_synchronous(self, tmp_path: Path):
+        """Test if create_id_generator_actor actor creation is synchronous. To do so we:
+
+        1. Build an id generator.
+        2. Fill it with many batch registries.
+        3. Dump the IdGenerator to disk, then kill it.
+        4. Load this JSon, and use it to start a new id generator.
+           Doing so should take some time to start the generator,
+           and subsequent calls to get_id_generator() should fail
+           unless we wait for the generator to be up before returning
+           from create_id_generator_actor.
+        """
+        create_id_generator_actor()
+        id_generator = get_id_generator_actor()
+        json_dump = tmp_path / "id_generator.json"
+        # Build a big enough json, to increase the chance of reproducing the
+        # issue.
+        for _ in range(100000):
+            file = "".join(random.choices(string.ascii_uppercase + string.digits, k=20))  # noqa: S311
+            ray.get(id_generator.register_batch.remote(files=file, count=1))
+        ray.get(id_generator.to_disk.remote(str(json_dump)))
+        kill_id_generator_actor()
+
+        # Try the cycle 10 times.
+        for _ in range(10):
+            create_id_generator_actor(json_dump)
+            _ = get_id_generator_actor()
+            kill_id_generator_actor()

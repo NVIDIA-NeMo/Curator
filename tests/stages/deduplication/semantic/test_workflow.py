@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,10 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa:E402
 import glob
 import os
 import random
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
@@ -25,8 +27,9 @@ import pytest
 import torch
 from sklearn.datasets import make_blobs
 
-cupy = pytest.importorskip("cupy")
-from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWorkflow
 
 
 @pytest.mark.gpu
@@ -123,13 +126,14 @@ class TestSemanticDeduplicationWorkflow:
             executor = RayDataExecutor()
 
         results = pipeline.run(pairwise_executor=executor)
+        assert results.pipeline_tasks
 
         # Validate basic execution
-        assert results["total_execution_time"] > 0
-        assert results["kmeans_execution_time"] > 0
-        assert results["pairwise_execution_time"] > 0
-        assert len(results["kmeans_results"]) > 0
-        assert len(results["pairwise_results"]) > 0
+        assert results.get_metadata("total_time") > 0
+        assert results.get_metadata("kmeans_time") > 0
+        assert results.get_metadata("pairwise_time") > 0
+        assert len(results.pipeline_tasks.get("kmeans", [])) > 0
+        assert len(results.pipeline_tasks.get("pairwise", [])) > 0
 
         # Check that output directories were created (now automatically created)
         kmeans_output_dir = os.path.join(output_dir, "kmeans_results")
@@ -141,7 +145,7 @@ class TestSemanticDeduplicationWorkflow:
         assert os.path.exists(duplicates_dir)
 
         # Check duplicate identification results
-        duplicates_identified = results["total_duplicates_identified"]
+        duplicates_identified = results.get_metadata("num_duplicates") or 0
         assert duplicates_identified > 0
 
         # Validate against expected results from original test

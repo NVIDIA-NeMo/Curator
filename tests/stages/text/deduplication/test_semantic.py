@@ -11,21 +11,23 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-# ruff: noqa: E402
+
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 import pytest
+from huggingface_hub import snapshot_download
 
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 
-_ = pytest.importorskip("cudf")
-from huggingface_hub import snapshot_download
-
-from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.text.deduplication.semantic import TextSemanticDeduplicationWorkflow
 
 # Pre-download the model to avoid rate limiting in CI. If it fails, skip the test.
 try:
@@ -69,8 +71,8 @@ def create_data_with_duplicates(input_dir: Path) -> pd.DataFrame:
     "test_config",
     [
         pytest.param((XennaExecutor, {}, True), id="xenna_with_id_generator"),
-        # TODO: Uncomment this when we are able to figure out how to run Xenna again after Dedup
-        # pytest.param((XennaExecutor, {}, False), id="xenna_without_id_generator"),  # noqa: ERA001
+        # TODO: Uncomment this when we are able to figure out how to run Xenna again after deduplication
+        # pytest.param((XennaExecutor, {}, False), id="xenna_without_id_generator"),
         pytest.param((RayDataExecutor, {}, False), id="ray_data_without_id_generator"),
     ],
     indirect=True,
@@ -86,7 +88,7 @@ class TestTextSemanticDeduplicationWorkflow:
     output_dir: Path | None = None
     cache_dir: Path | None = None
     expected_df: pd.DataFrame | None = None
-    results: dict[str, Any] | None = None
+    results: WorkflowRunResult | None = None
     final_df: pd.DataFrame | None = None
 
     @pytest.fixture(scope="class", autouse=True)
@@ -127,9 +129,10 @@ class TestTextSemanticDeduplicationWorkflow:
 
         # Run the workflow
         request.cls.results = workflow.run(executor_cls(config))
+        assert request.cls.results.pipeline_tasks
 
         # Read the final deduplicated output for use in tests
-        final_output_path = request.cls.results["final_output_path"]
+        final_output_path = request.cls.results.get_metadata("final_output_path")
         output_files = list(Path(final_output_path).glob("*.parquet"))
         if output_files:
             request.cls.final_df = pd.read_parquet(output_files)
@@ -142,11 +145,9 @@ class TestTextSemanticDeduplicationWorkflow:
         """Test that semantic deduplication produces the correct number of records from each group."""
         # Verify the workflow completed successfully
         assert self.results is not None, "Workflow results should be available"
-        assert "total_execution_time" in self.results
-        assert self.results["total_execution_time"] > 0
 
         # Check that final output directory exists
-        final_output_path = self.results["final_output_path"]
+        final_output_path = self.results.get_metadata("final_output_path")
         assert final_output_path is not None
         assert os.path.exists(final_output_path)
 
@@ -261,3 +262,18 @@ class TestTextSemanticDeduplicationWorkflow:
             f"Deduplicated missing columns: {expected_dedup_cols - set(deduplicated_df.columns)}"
         )
         assert len(deduplicated_df) == 5, f"Expected 5 deduplicated records, got {len(deduplicated_df)}"
+
+    def test_metadata_counts_and_timings(self) -> None:
+        """Ensure workflow metadata exposes identification vs removal counts distinctly."""
+        assert self.results is not None, "Workflow results should be available"
+
+        metadata = self.results.metadata
+        # Identified duplicates (semantic stage)
+        assert metadata.get("num_duplicates") == 2
+        # Removed duplicates (removal stage)
+        assert metadata.get("num_duplicates_removed") == 2
+
+        # Timings should be present and positive
+        for key in ["total_time", "embedding_time", "identification_time", "removal_time"]:
+            assert metadata.get(key) is not None, f"{key} missing from metadata"
+            assert metadata[key] > 0, f"{key} should be > 0"

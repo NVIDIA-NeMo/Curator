@@ -1,3 +1,5 @@
+# modality: text
+
 # Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,36 +14,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: E402
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-cudf = pytest.importorskip("cudf")
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    import cudf
+
 import numpy as np
 import pandas as pd
 
-from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import DUPLICATE_IDS_SUBDIR
-from nemo_curator.stages.deduplication.fuzzy.utils import (
-    CURATOR_FUZZY_DUPLICATE_GROUP_FIELD,
-)
-from nemo_curator.stages.deduplication.fuzzy.workflow import (
-    ID_GENERATOR_OUTPUT_FILENAME,
-    FuzzyDeduplicationWorkflow,
-)
-from nemo_curator.stages.deduplication.id_generator import (
-    CURATOR_DEDUP_ID_STR,
-    IdGeneratorBase,
-    create_id_generator_actor,
-    kill_id_generator_actor,
-)
+# Suppress GPU-related import errors when running pytest -m "not gpu"
+with suppress(ImportError):
+    from nemo_curator.stages.deduplication.fuzzy.identify_duplicates import DUPLICATE_IDS_SUBDIR
+    from nemo_curator.stages.deduplication.fuzzy.utils import (
+        CURATOR_FUZZY_DUPLICATE_GROUP_FIELD,
+    )
+    from nemo_curator.stages.deduplication.fuzzy.workflow import (
+        ID_GENERATOR_OUTPUT_FILENAME,
+        FuzzyDeduplicationWorkflow,
+    )
+    from nemo_curator.stages.deduplication.id_generator import (
+        CURATOR_DEDUP_ID_STR,
+        IdGeneratorBase,
+        create_id_generator_actor,
+        kill_id_generator_actor,
+    )
+
 from nemo_curator.tasks import FileGroupTask
 
 
 def get_original_df_with_curator_ids(
     id_generator_path: str, tasks: list[FileGroupTask], filetype: Literal["parquet", "jsonl"]
-) -> cudf.DataFrame:
+) -> "cudf.DataFrame":
     """Get mapping from curator IDs to original IDs using IDGeneratorActor.
 
     Args:
@@ -192,7 +200,10 @@ class TestFuzzyDuplicates:
             bands_per_iteration=5,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("connected_components_pipeline_time") > 0
 
         # Verify the duplicate groups found match expected
         connected_components_df = cudf.read_parquet(cache_path / "ConnectedComponentsStage")
@@ -218,6 +229,7 @@ class TestFuzzyDuplicates:
         removal_ids = set(removal_ids_df.id.to_arrow().to_pylist())
         # For every duplicate group assert that 1 document was not removed
         assert all(len(set(expected_group) - removal_ids) == 1 for expected_group in duplicate_docs)
+        assert result.get_metadata("num_duplicates") == len(removal_ids)
 
     def test_fuzzy_dedup_no_duplicates(
         self,
@@ -243,7 +255,10 @@ class TestFuzzyDuplicates:
             bands_per_iteration=10,
         )
 
-        workflow.run(initial_tasks=tasks)
+        result = workflow.run(initial_tasks=tasks)
+        assert result.pipeline_tasks
+        assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("num_duplicates") == 0
 
         assert not (cache_path / "ConnectedComponentsStage").exists()
         assert not (cache_path / "BucketsToEdgesStage").exists()
