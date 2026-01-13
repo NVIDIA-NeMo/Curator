@@ -25,7 +25,7 @@ import git
 import pynvml
 from loguru import logger
 from runner.session import Session
-from runner.utils import get_total_memory_bytes, run_shm_size_check
+from runner.utils import get_obj_for_json, get_total_memory_bytes, run_shm_size_check
 
 
 def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
@@ -52,7 +52,7 @@ def dump_env(session_obj: Session, output_path: Path) -> dict[str, Any]:
         )
 
     # Write env data to file as JSON and return the dictionary written
-    (output_path / "env.json").write_text(json.dumps(env_data))
+    (output_path / "env.json").write_text(json.dumps(get_obj_for_json(env_data)))
     return env_data
 
 
