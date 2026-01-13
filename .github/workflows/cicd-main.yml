@@ -32,6 +32,7 @@ permissions:
 
 env:
   UV_HTTP_TIMEOUT: 60
+  PYTHONFAULTHANDLER: 1
 
 jobs:
   pre-flight:
@@ -70,6 +71,7 @@ jobs:
             pyproject.toml
             docker/**
             tests/**
+            uv.lock
           base_sha: ${{ steps.base-ref.outputs.base }}
 
       - name: Check if docs only
@@ -183,7 +185,7 @@ jobs:
           uv add InternVideo/InternVideo2/multi_modality
           FOLDER="${{ matrix.folder }}"
           FOLDER="${FOLDER/stages-/stages/}"
-          uv run coverage run --branch --source=nemo_curator -m pytest -v "tests/$FOLDER" -m "not gpu"
+          uv run coverage run --branch --source=nemo_curator -m pytest -vv -s "tests/$FOLDER" -m "not gpu"
 
       - name: Generate report
         id: check
