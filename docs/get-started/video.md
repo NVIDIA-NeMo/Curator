@@ -58,7 +58,7 @@ To use NeMo Curator's video curation capabilities, ensure your system meets thes
   - Reduced configuration (lower batch sizes, FP8): ~21GB VRAM
 
 #### Software Dependencies
-* **FFmpeg 7.0+** with H.264 encoding support
+* **FFmpeg 8.0+** with H.264 encoding support
   - GPU encoder: `h264_nvenc` (recommended for performance)
   - CPU encoders: `libopenh264` or `libx264` (fallback options)
 

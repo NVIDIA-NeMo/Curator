@@ -49,7 +49,7 @@ The primary container includes comprehensive support for all curation modalities
 - NeMo Curator with all optional dependencies (`[all]` extras)
 - CUDA 12.8.1 with cuDNN
 - Python 3.12 with uv package manager
-- FFmpeg 7+ with NVENC support (for video processing)
+- FFmpeg 8+ with NVENC support (for video processing)
 - Ray, Dask, and distributed computing frameworks
 - NVIDIA optimized Python packages
 
