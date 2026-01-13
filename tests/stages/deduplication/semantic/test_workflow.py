@@ -126,13 +126,14 @@ class TestSemanticDeduplicationWorkflow:
             executor = RayDataExecutor()
 
         results = pipeline.run(pairwise_executor=executor)
+        assert results.pipeline_tasks
 
         # Validate basic execution
-        assert results["total_execution_time"] > 0
-        assert results["kmeans_execution_time"] > 0
-        assert results["pairwise_execution_time"] > 0
-        assert len(results["kmeans_results"]) > 0
-        assert len(results["pairwise_results"]) > 0
+        assert results.get_metadata("total_time") > 0
+        assert results.get_metadata("kmeans_time") > 0
+        assert results.get_metadata("pairwise_time") > 0
+        assert len(results.pipeline_tasks.get("kmeans", [])) > 0
+        assert len(results.pipeline_tasks.get("pairwise", [])) > 0
 
         # Check that output directories were created (now automatically created)
         kmeans_output_dir = os.path.join(output_dir, "kmeans_results")
@@ -144,7 +145,7 @@ class TestSemanticDeduplicationWorkflow:
         assert os.path.exists(duplicates_dir)
 
         # Check duplicate identification results
-        duplicates_identified = results["total_duplicates_identified"]
+        duplicates_identified = results.get_metadata("num_duplicates") or 0
         assert duplicates_identified > 0
 
         # Validate against expected results from original test
