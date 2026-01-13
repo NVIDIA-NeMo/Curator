@@ -22,6 +22,7 @@ import pytest
 
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.deduplication.removal import TextDuplicatesRemovalStage
@@ -84,6 +85,7 @@ class TestTextDuplicateRemovalWorkflowIntegration:
     output_dir: Path | None = None
     expected_input_df: pd.DataFrame | None = None
     ids_to_remove: list[int] | None = None
+    workflow_output: WorkflowRunResult | None = None
     output_tasks: list[DocumentBatch] | None = None
 
     @pytest.fixture
@@ -121,12 +123,18 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         )
 
         executor = executor_cls(config)
-        self.output_tasks = workflow.run(executor)
+        workflow_output = workflow.run(executor)
+        self.workflow_output = workflow_output
+        # Extract tasks from the "removal" pipeline
+        self.output_tasks = workflow_output.pipeline_tasks.get("removal", [])
 
         return self
 
     def test_output_correctness_and_files(self, test_config: "TestTextDuplicateRemovalWorkflowIntegration"):
         """Test output correctness and file system integrity."""
+        assert test_config.workflow_output is not None
+        assert test_config.workflow_output.pipeline_tasks
+        assert test_config.workflow_output.get_metadata("total_time") > 0
         assert test_config.output_tasks is not None
         assert test_config.expected_input_df is not None
         assert test_config.ids_to_remove is not None
@@ -180,6 +188,9 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         # Total records across all files should match combined total
         assert total_records == 800
 
+        # Metadata summaries should agree with observed behavior
+        assert test_config.workflow_output.get_metadata("num_duplicates_removed") == 200
+
     def test_metadata_num_removed_consistency(self, test_config: "TestTextDuplicateRemovalWorkflowIntegration"):
         """Test that num_removed metadata sums up correctly across all tasks."""
         assert test_config.output_tasks is not None
@@ -194,6 +205,8 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         expected_total_removed = 200  # 2 * 100 files
 
         assert total_removed_from_metadata == expected_total_removed
+        assert test_config.workflow_output is not None
+        assert test_config.workflow_output.get_metadata("num_duplicates_removed") == expected_total_removed
 
         # Also verify by checking the actual difference in record counts
         total_input_records = len(test_config.expected_input_df)
@@ -237,9 +250,10 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         )
 
         executor = test_config.executor_cls(test_config.config)
-        output_tasks = workflow.run(executor, initial_tasks=initial_tasks)
+        workflow_output = workflow.run(executor, initial_tasks=initial_tasks)
+        output_tasks = workflow_output.pipeline_tasks.get("removal", [])
 
-        # Verify we get 20 output tasks (one per input task)
+        # Verify we get 20 output tasks (one per input task) after truncation
         assert len(output_tasks) == 10, (
             f"Expected 10 output tasks, got {len(output_tasks)} for {test_config.executor_cls.__name__}"
         )
@@ -262,6 +276,9 @@ class TestTextDuplicateRemovalWorkflowIntegration:
         assert set(combined_output_df.columns) == expected_columns, (
             f"Column mismatch for {test_config.executor_cls.__name__}"
         )
+
+        expected_removed = 100  # 10 truncated tasks * 5 files/task * 2 removals per file
+        assert workflow_output.get_metadata("num_duplicates_removed") == expected_removed
 
 
 class TestTextDuplicatesRemovalWorkflowGenerateStages:
