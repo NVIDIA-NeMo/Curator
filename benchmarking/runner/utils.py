@@ -44,6 +44,27 @@ def write_benchmark_results(results: dict, output_path: Path) -> None:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 
 
+# TODO: This utility contains some special cases for Slack JSON messages used in the Slack sink.
+# Consider moving these special cases to the Slack sink itself.
+def get_obj_for_json(obj: object) -> object:
+    """
+    Convert common objects used in the benchmark framework to JSON-friendly primitives.
+    """
+    if isinstance(obj, dict):
+        retval = {get_obj_for_json(k): get_obj_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple, set)):
+        retval = [get_obj_for_json(item) for item in obj]
+    elif isinstance(obj, Path):
+        retval = str(obj)
+    elif obj is None:  # special case for Slack: JSON null not allowed, convert to string
+        retval = "null"
+    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack: empty strings not allowed
+        retval = " "
+    else:
+        retval = obj
+    return retval
+
+
 def _replace_env_var(match: re.Match[str]) -> str:
     env_var_name = match.group(1)
     env_value = os.getenv(env_var_name)
