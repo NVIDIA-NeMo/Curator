@@ -41,7 +41,7 @@ Use the semantic duplicate workflow with clip embeddings written to Parquet.
 
 ::::{tab-set}
 
-:::{tab-item} Single Step Workflow
+::::{tab-item} Single Step Workflow
 
 The `SemanticDeduplicationWorkflow` provides an end-to-end interface that orchestrates K-means clustering, pairwise similarity computation, and duplicate identification:
 
@@ -89,9 +89,9 @@ The workflow automatically:
 For detailed information about how semantic deduplication works, see [Semantic Deduplication](text-process-data-format-sem-dedup). The algorithm and concepts are the same for video clips as for text documents.
 ```
 
-:::
+::::
 
-:::{tab-item} Individual Stages
+::::{tab-item} Individual Stages
 
 For advanced users who need fine-grained control, you can run the stages individually:
 
@@ -139,13 +139,13 @@ pipe.add_stage(
 pipe.run()
 ```
 
-:::
+::::
 
-:::{tab-item} Script Flags
+::::{tab-item} Script Flags
 
 No example script flags are available for duplicate identification in the split pipeline. Run these stages as a separate job against Parquet embeddings written by the example pipeline's writer.
 
-:::
+::::
 ::::
 
 :::{tip}
@@ -199,7 +199,7 @@ The metadata columns must be present in your embedding Parquet files and will be
 
 ::::{tab-set}
 
-:::{tab-item} KMeansStage
+::::{tab-item} KMeansStage
 
 ```{list-table} KMeansStage (semantic clustering)
 :header-rows: 1
@@ -222,9 +222,9 @@ The metadata columns must be present in your embedding Parquet files and will be
   - Embedding dimension (InternVideo2: 512; Cosmos‑Embed1 varies by variant).
 ```
 
-:::
+::::
 
-:::{tab-item} PairwiseStage
+::::{tab-item} PairwiseStage
 
 ```{list-table} PairwiseStage (within‑cluster similarity)
 :header-rows: 1
@@ -247,9 +247,9 @@ The metadata columns must be present in your embedding Parquet files and will be
   - Directory for pairwise similarity outputs.
 ```
 
-:::
+::::
 
-:::{tab-item} IdentifyDuplicatesStage
+::::{tab-item} IdentifyDuplicatesStage
 
 ```{list-table} IdentifyDuplicatesStage (duplicate identification)
 :header-rows: 1
@@ -268,9 +268,9 @@ The metadata columns must be present in your embedding Parquet files and will be
   - Enable verbose logging (default `False`).
 ```
 
-:::
+::::
 
-:::{tab-item} SemanticDeduplicationWorkflow
+::::{tab-item} SemanticDeduplicationWorkflow
 
 The `SemanticDeduplicationWorkflow` accepts parameters from all three stages (KMeansStage, PairwiseStage, and IdentifyDuplicatesStage). See the tabs above for parameter descriptions.
 
@@ -295,7 +295,7 @@ For parameters shared with individual stages, refer to:
 - **IdentifyDuplicatesStage** tab: `eps`
 - Common parameters: `read_kwargs`, `write_kwargs`, `verbose`
 
-:::
+::::
 ::::
 
 ---
