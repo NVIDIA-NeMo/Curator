@@ -203,6 +203,7 @@ class TestFuzzyDuplicates:
         result = workflow.run(initial_tasks=tasks)
         assert result.pipeline_tasks
         assert result.get_metadata("total_time") > 0
+        assert result.get_metadata("connected_components_pipeline_time") > 0
 
         # Verify the duplicate groups found match expected
         connected_components_df = cudf.read_parquet(cache_path / "ConnectedComponentsStage")

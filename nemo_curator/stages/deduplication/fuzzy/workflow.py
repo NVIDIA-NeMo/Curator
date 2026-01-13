@@ -356,7 +356,7 @@ class FuzzyDeduplicationWorkflow(WorkflowBase):
                 connected_components_end_time = time.time()
                 connected_components_time = connected_components_end_time - connected_components_start_time
                 workflow_result.add_pipeline_tasks("connected_components", connected_components_tasks)
-                workflow_result.add_metadata("connected_components_time", connected_components_time)
+                workflow_result.add_metadata("connected_components_pipeline_time", connected_components_time)
                 logger.info(f"Connected components pipeline completed in {connected_components_time:.2f} seconds")
                 num_duplicates_identified = sum(
                     task._metadata.get("num_removal_ids", 0) for task in (connected_components_tasks or [])
