@@ -15,7 +15,7 @@
 import struct
 import uuid
 from dataclasses import dataclass, field
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import numpy as np
 from huggingface_hub import snapshot_download
@@ -43,6 +43,7 @@ class MegatronTokenizerWriter(BaseWriter):
     text_field: str = "text"
     tokenization_batch_size: int = 1000  # Renamed from batch_size to avoid shadowing ProcessingStage.batch_size
     append_eod: bool = False
+    transformers_kwargs: dict[str, Any] = field(default_factory=dict)
 
     # Disable the inherited fields attribute
     fields: list[str] | None = field(default=None, init=False, repr=False)
@@ -68,11 +69,19 @@ class MegatronTokenizerWriter(BaseWriter):
             raise RuntimeError(msg) from e
 
     def setup(self, _worker_metadata: WorkerMetadata | None = None) -> None:
+        if "cache_dir" in self.transformers_kwargs and self.transformers_kwargs["cache_dir"] is not None:
+            msg = "Please pass the cache_dir parameter directly to the stage instead of using the transformers_kwargs dictionary"
+            raise ValueError(msg)
+        if "local_files_only" in self.transformers_kwargs and self.transformers_kwargs["local_files_only"] is not None:
+            msg = "Passing the local_files_only parameter is not allowed"
+            raise ValueError(msg)
+
         # Load the tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.model_identifier,
             cache_dir=self.cache_dir,
             local_files_only=True,
+            **self.transformers_kwargs
         )
 
     def process(self, task: DocumentBatch) -> FileGroupTask:
