@@ -17,7 +17,8 @@
 import sys
 from unittest.mock import Mock, patch
 
-# Mock vllm before importing the module to avoid dependency issues
+_ORIG_VLLM = sys.modules.get("vllm")
+# Mock vllm before importing the module to avoid dependency issues. Restore in teardown_module.
 sys.modules["vllm"] = Mock()
 
 from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
@@ -340,3 +341,10 @@ class TestQwenLM:
                 max_tokens=self.max_output_tokens,
                 stop_token_ids=[],
             )
+
+
+def teardown_module() -> None:
+    if _ORIG_VLLM is not None:
+        sys.modules["vllm"] = _ORIG_VLLM
+    else:
+        sys.modules.pop("vllm", None)
