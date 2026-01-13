@@ -22,7 +22,7 @@ from loguru import logger
 from runner.entry import Entry
 from runner.session import Session
 from runner.sinks.sink import Sink
-from runner.utils import find_result, human_readable_bytes_repr
+from runner.utils import find_result, get_obj_for_json, human_readable_bytes_repr
 
 _post_template = """
 {
@@ -196,7 +196,7 @@ class SlackSink(Sink):
         report_data.append(table_dict)
         # Add a comma to separate each item to be added to the "blocks" array in the template.
         message_text_values["REPORT_JSON_TEXT"] = ",".join(
-            [json.dumps(item, indent=2, sort_keys=True) for item in report_data]
+            [json.dumps(get_obj_for_json(item), indent=2, sort_keys=True) for item in report_data]
         )
 
         payload = self.substitute_template_placeholders(_post_template, message_text_values).strip()
