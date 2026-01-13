@@ -4,16 +4,15 @@ categories: ["tutorials"]
 tags: ["multilingual", "qa-generation", "synthetic-data", "quickstart"]
 personas: ["data-scientist-focused", "mle-focused"]
 difficulty: "beginner"
-content_type: "tutorial"
+content_type: "how-to"
 modality: "text-only"
 ---
 
 (multilingual-qa-tutorial)=
 # Generate Multilingual Q&A Data
 
-This tutorial shows how to generate synthetic Q&A pairs across multiple languages using NeMo Curator's `QAMultilingualSyntheticStage`. You'll learn to configure an LLM client, create a generation pipeline, and optionally filter the output.
+This guide shows how to generate synthetic Q&A pairs across multiple languages using NeMo Curator's `QAMultilingualSyntheticStage`. You'll learn to configure an LLM client, create a generation pipeline, and optionally filter the output.
 
-**Time to complete**: ~15 minutes
 
 ## What You'll Build
 
