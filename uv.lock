@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12' and platform_machine == 'x86_64' and sys_platform == 'linux'",
@@ -4102,6 +4102,7 @@ all = [
     { name = "rapidsmpf-cu12" },
     { name = "resiliparse" },
     { name = "s5cmd" },
+    { name = "scikit-learn" },
     { name = "sentencepiece" },
     { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torch", version = "2.9.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
@@ -4132,6 +4133,7 @@ deduplication-cuda12 = [
     { name = "pylibraft-cu12" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
+    { name = "scikit-learn" },
 ]
 image-cpu = [
     { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
@@ -4147,6 +4149,7 @@ image-cuda12 = [
     { name = "pylibraft-cu12" },
     { name = "raft-dask-cu12" },
     { name = "rapidsmpf-cu12" },
+    { name = "scikit-learn" },
     { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'" },
     { name = "torchvision", version = "0.24.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
@@ -4184,6 +4187,7 @@ text-cuda12 = [
     { name = "rapidsmpf-cu12" },
     { name = "resiliparse" },
     { name = "s5cmd" },
+    { name = "scikit-learn" },
     { name = "sentencepiece" },
     { name = "trafilatura" },
     { name = "warcio" },
@@ -4297,6 +4301,7 @@ requires-dist = [
     { name = "ray", extras = ["data", "default"], specifier = ">=2.50" },
     { name = "resiliparse", marker = "extra == 'text-cpu'" },
     { name = "s5cmd", marker = "extra == 'text-cpu'" },
+    { name = "scikit-learn", marker = "extra == 'deduplication-cuda12'", specifier = "<1.8.0" },
     { name = "sentencepiece", marker = "extra == 'text-cpu'" },
     { name = "torch", marker = "platform_machine != 'x86_64' or sys_platform == 'darwin'", index = "https://pypi.org/simple" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'", index = "https://download.pytorch.org/whl/cu128" },
@@ -4334,7 +4339,7 @@ test = [
     { name = "pytest-cov" },
     { name = "pytest-loguru" },
     { name = "s3fs" },
-    { name = "scikit-learn" },
+    { name = "scikit-learn", specifier = "<1.8.0" },
 ]
 
 [[package]]
