@@ -28,7 +28,14 @@ datasets:
     formats:
     - type: "parquet"
       path: "{datasets_path}/commoncrawl/IDs/parquet_data"
-
+  - name: "mscoco"
+    formats:
+    - type: "wds"
+      path: "{datasets_path}/mscoco/wds/truncated_100K_mscoco_benchmarking"
+  - name: "mscoco_model_weights"
+    formats:
+    - type: "files"
+      path: "{datasets_path}/mscoco/model_weights"
 
 default_timeout_s: 7200
 
@@ -171,3 +178,20 @@ entries:
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
     timeout_s: 20000
+
+  - name: image_curation
+    enabled: true
+    script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
+    args: >-
+      --input-wds-dataset-dir {dataset:mscoco,wds}
+      --output-dataset-dir {session_entry_dir}/results_truncated_100K_mscoco
+      --model-dir {dataset:mscoco_model_weights,files}
+      --batch-size 100
+      --embedding-batch-size 100
+      --aesthetic-batch-size 100
+      --nsfw-batch-size 100
+      --tar-files-per-partition 10
+      --aesthetic-threshold 0.9
+      --nsfw-threshold 0.9
+      --skip-download
+      --verbose
