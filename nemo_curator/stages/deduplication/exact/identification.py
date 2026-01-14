@@ -14,6 +14,8 @@
 
 from typing import TYPE_CHECKING, Any, Literal
 
+import cudf
+
 from nemo_curator.stages.deduplication.id_generator import CURATOR_DEDUP_ID_STR, get_id_generator_actor
 from nemo_curator.stages.deduplication.io_utils import DeduplicationIO
 from nemo_curator.stages.deduplication.shuffle_utils.rapidsmpf_shuffler import pylibcudf_to_cudf_dataframe
@@ -22,8 +24,6 @@ from nemo_curator.tasks import FileGroupTask
 from nemo_curator.utils.file_utils import get_fs
 
 if TYPE_CHECKING:
-    import cudf
-
     from nemo_curator.backends.base import WorkerMetadata
 
 
@@ -145,31 +145,60 @@ class ExactDuplicateIdentification(DeduplicationIO, ShuffleStage):
     def outputs(self) -> tuple[list[str], list[str]]:
         return (["data"], [])
 
-    def read_and_insert(self, task: FileGroupTask) -> FileGroupTask:
+    def _hash_and_insert(self, df: "cudf.DataFrame") -> None:
+        """Hash the text field and insert into the shuffle actor.
+
+        Parameters
+        ----------
+        df
+            DataFrame containing the id_field and text_field columns.
+        """
         self._check_actor_obj()
-
-        if self.assign_id_field and self.id_generator is None:
-            msg = "ID generator not initialized. Call setup() first."
-            raise RuntimeError(msg)
-        input_columns = [self.text_field] if self.assign_id_field else [self.text_field, self.id_field]
-        if self.input_filetype == "jsonl":
-            df = self.read_jsonl(
-                filepath=task.data, columns=input_columns, assign_id=self.assign_id_field, **self.read_kwargs
-            )
-        elif self.input_filetype == "parquet":
-            df = self.read_parquet(
-                filepath=task.data, columns=input_columns, assign_id=self.assign_id_field, **self.read_kwargs
-            )
-        else:
-            msg = f"Unsupported input filetype: {self.input_filetype}"
-            raise ValueError(msg)
-
         hashed_df = df[[self.id_field]]
         hashed_df[EXACT_DUPLICATE_GROUP_FIELD] = df[self.text_field].hash_values(method="md5")
         self.output_columns = list(hashed_df.columns)
-        self.dataset_name = task.dataset_name
-
         self._actor_obj.insert_chunk(hashed_df, self.output_columns)
+
+    def _read_files(self, filepaths: list[str]) -> "cudf.DataFrame":
+        """Read files and return a DataFrame.
+
+        Parameters
+        ----------
+        filepaths
+            List of file paths to read.
+
+        Returns
+        -------
+        cudf.DataFrame
+            DataFrame containing the id_field and text_field columns.
+        """
+        input_columns = [self.text_field] if self.assign_id_field else [self.text_field, self.id_field]
+        if self.input_filetype == "jsonl":
+            read_func = self.read_jsonl
+        elif self.input_filetype == "parquet":
+            read_func = self.read_parquet
+        else:
+            msg = f"Unsupported input filetype: {self.input_filetype}"
+            raise ValueError(msg)
+        return read_func(filepaths, columns=input_columns, assign_id=self.assign_id_field, **self.read_kwargs)
+
+    def read_and_insert_batch(self, tasks: list[FileGroupTask]) -> list[FileGroupTask]:
+        if self.assign_id_field and self.id_generator is None:
+            msg = "ID generator not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        dfs = [self._read_files(task.data) for task in tasks]
+        df = cudf.concat(dfs, ignore_index=True)
+        self.dataset_name = tasks[0].dataset_name
+        self._hash_and_insert(df)
+        return tasks
+
+    def read_and_insert(self, task: FileGroupTask) -> FileGroupTask:
+        if self.assign_id_field and self.id_generator is None:
+            msg = "ID generator not initialized. Call setup() first."
+            raise RuntimeError(msg)
+        df = self._read_files(task.data)
+        self.dataset_name = task.dataset_name
+        self._hash_and_insert(df)
         return task
 
     def insert_finished(self) -> None:

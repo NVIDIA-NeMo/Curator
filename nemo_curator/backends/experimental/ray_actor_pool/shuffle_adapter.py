@@ -130,8 +130,12 @@ class ShuffleStageAdapter(BaseStageAdapter):
         """Read and insert tasks into the shuffler."""
         insert_kwargs = {"band_range": band_range} if band_range is not None else {}
         results = []
-        for task in tasks:
-            results.append(self.stage.read_and_insert(task, **insert_kwargs))
+        if hasattr(self.stage, "read_and_insert_batch"):
+            logger.debug(f"Using read_and_insert_batch for {self.stage.name}")
+            results = self.stage.read_and_insert_batch(tasks, **insert_kwargs)
+        else:
+            for task in tasks:
+                results.append(self.stage.read_and_insert(task, **insert_kwargs))
         return results
 
     def insert_finished(self) -> None:
