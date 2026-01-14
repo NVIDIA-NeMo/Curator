@@ -1,0 +1,338 @@
+instances:
+  - url: https://nemo-curator.docs.buildwithfern.com
+
+title: NeMo Curator
+
+tabs:
+  docs:
+    display-name: Documentation
+    slug: docs
+  api:
+    display-name: API Reference
+    slug: api
+
+navigation:
+  - tab: docs
+    layout:
+      - section: Home
+        contents:
+          - page: Welcome
+            path: pages/index.mdx
+      - section: About NeMo Curator
+        contents:
+          - page: Overview
+            path: pages/about/index.mdx
+          - page: Key Features
+            path: pages/about/key-features.mdx
+          - section: Concepts
+            contents:
+              - page: Overview
+                path: pages/about/concepts/index.mdx
+              - page: Deduplication
+                path: pages/about/concepts/deduplication.mdx
+              - section: Text Concepts
+                contents:
+                  - page: Overview
+                    path: pages/about/concepts/text/index.mdx
+                  - page: Data Acquisition
+                    path: pages/about/concepts/text/data-acquisition-concepts.mdx
+                  - page: Data Curation Pipeline
+                    path: pages/about/concepts/text/data-curation-pipeline.mdx
+                  - page: Data Loading
+                    path: pages/about/concepts/text/data-loading-concepts.mdx
+                  - page: Data Processing
+                    path: pages/about/concepts/text/data-processing-concepts.mdx
+              - section: Image Concepts
+                contents:
+                  - page: Overview
+                    path: pages/about/concepts/image/index.mdx
+                  - page: Data Loading
+                    path: pages/about/concepts/image/data-loading-concepts.mdx
+                  - page: Data Processing
+                    path: pages/about/concepts/image/data-processing-concepts.mdx
+                  - page: Data Export
+                    path: pages/about/concepts/image/data-export-concepts.mdx
+              - section: Video Concepts
+                contents:
+                  - page: Overview
+                    path: pages/about/concepts/video/index.mdx
+                  - page: Architecture
+                    path: pages/about/concepts/video/architecture.mdx
+                  - page: Abstractions
+                    path: pages/about/concepts/video/abstractions.mdx
+                  - page: Data Flow
+                    path: pages/about/concepts/video/data-flow.mdx
+              - section: Audio Concepts
+                contents:
+                  - page: Overview
+                    path: pages/about/concepts/audio/index.mdx
+                  - page: ASR Pipeline
+                    path: pages/about/concepts/audio/asr-pipeline.mdx
+                  - page: Audio Batch
+                    path: pages/about/concepts/audio/audio-batch.mdx
+                  - page: Manifests and Ingest
+                    path: pages/about/concepts/audio/manifests-ingest.mdx
+                  - page: Quality Metrics
+                    path: pages/about/concepts/audio/quality-metrics.mdx
+                  - page: Text Integration
+                    path: pages/about/concepts/audio/text-integration.mdx
+                  - page: Curation Pipeline
+                    path: pages/about/concepts/audio/curation-pipeline.mdx
+          - section: Release Notes
+            contents:
+              - page: Overview
+                path: pages/about/release-notes/index.mdx
+              - page: Migration FAQ
+                path: pages/about/release-notes/migration-faq.mdx
+              - page: Migration Guide
+                path: pages/about/release-notes/migration-guide.mdx
+      - section: Get Started
+        contents:
+          - page: Overview
+            path: pages/get-started/index.mdx
+          - page: Text Quickstart
+            path: pages/get-started/text.mdx
+          - page: Image Quickstart
+            path: pages/get-started/image.mdx
+          - page: Video Quickstart
+            path: pages/get-started/video.mdx
+          - page: Audio Quickstart
+            path: pages/get-started/audio.mdx
+      - section: Curate Text
+        contents:
+          - page: Overview
+            path: pages/curate-text/index.mdx
+          - section: Tutorials
+            contents:
+              - page: Overview
+                path: pages/curate-text/tutorials/index.mdx
+          - section: Load Data
+            contents:
+              - page: Overview
+                path: pages/curate-text/load-data/index.mdx
+              - page: ArXiv
+                path: pages/curate-text/load-data/arxiv.mdx
+              - page: Common Crawl
+                path: pages/curate-text/load-data/common-crawl.mdx
+              - page: Custom Sources
+                path: pages/curate-text/load-data/custom.mdx
+              - page: Read Existing Data
+                path: pages/curate-text/load-data/read-existing.mdx
+              - page: Wikipedia
+                path: pages/curate-text/load-data/wikipedia.mdx
+          - section: Process Data
+            contents:
+              - page: Overview
+                path: pages/curate-text/process-data/index.mdx
+              - section: Content Processing
+                contents:
+                  - page: Overview
+                    path: pages/curate-text/process-data/content-processing/index.mdx
+                  - page: Add IDs
+                    path: pages/curate-text/process-data/content-processing/add-id.mdx
+                  - page: Text Cleaning
+                    path: pages/curate-text/process-data/content-processing/text-cleaning.mdx
+              - section: Deduplication
+                contents:
+                  - page: Overview
+                    path: pages/curate-text/process-data/deduplication/index.mdx
+                  - page: Exact Deduplication
+                    path: pages/curate-text/process-data/deduplication/exact.mdx
+                  - page: Fuzzy Deduplication
+                    path: pages/curate-text/process-data/deduplication/fuzzy.mdx
+                  - page: Semantic Deduplication
+                    path: pages/curate-text/process-data/deduplication/semdedup.mdx
+              - section: Language Management
+                contents:
+                  - page: Overview
+                    path: pages/curate-text/process-data/language-management/index.mdx
+                  - page: Language Detection
+                    path: pages/curate-text/process-data/language-management/language.mdx
+                  - page: Stopwords
+                    path: pages/curate-text/process-data/language-management/stopwords.mdx
+              - section: Quality Assessment
+                contents:
+                  - page: Overview
+                    path: pages/curate-text/process-data/quality-assessment/index.mdx
+                  - page: Classifier
+                    path: pages/curate-text/process-data/quality-assessment/classifier.mdx
+                  - page: Distributed Classifier
+                    path: pages/curate-text/process-data/quality-assessment/distributed-classifier.mdx
+                  - page: Heuristic Filtering
+                    path: pages/curate-text/process-data/quality-assessment/heuristic.mdx
+              - section: Specialized Processing
+                contents:
+                  - page: Overview
+                    path: pages/curate-text/process-data/specialized-processing/index.mdx
+                  - page: Code Processing
+                    path: pages/curate-text/process-data/specialized-processing/code.mdx
+      - section: Curate Images
+        contents:
+          - page: Overview
+            path: pages/curate-images/index.mdx
+          - section: Tutorials
+            contents:
+              - page: Overview
+                path: pages/curate-images/tutorials/index.mdx
+              - page: Beginner Tutorial
+                path: pages/curate-images/tutorials/beginner.mdx
+              - page: Deduplication Workflow
+                path: pages/curate-images/tutorials/dedup-workflow.mdx
+          - section: Load Data
+            contents:
+              - page: Overview
+                path: pages/curate-images/load-data/index.mdx
+              - page: TAR Archives
+                path: pages/curate-images/load-data/tar-archives.mdx
+          - section: Process Data
+            contents:
+              - page: Overview
+                path: pages/curate-images/process-data/index.mdx
+          - page: Save and Export
+            path: pages/curate-images/save-export.mdx
+      - section: Curate Video
+        contents:
+          - page: Overview
+            path: pages/curate-video/index.mdx
+          - section: Tutorials
+            contents:
+              - page: Overview
+                path: pages/curate-video/tutorials/index.mdx
+              - page: Beginner Tutorial
+                path: pages/curate-video/tutorials/beginner.mdx
+              - page: Split and Dedup
+                path: pages/curate-video/tutorials/split-dedup.mdx
+          - section: Load Data
+            contents:
+              - page: Overview
+                path: pages/curate-video/load-data/index.mdx
+          - section: Process Data
+            contents:
+              - page: Overview
+                path: pages/curate-video/process-data/index.mdx
+              - page: Clipping
+                path: pages/curate-video/process-data/clipping.mdx
+              - page: Transcoding
+                path: pages/curate-video/process-data/transcoding.mdx
+              - page: Filtering
+                path: pages/curate-video/process-data/filtering.mdx
+              - page: Embeddings
+                path: pages/curate-video/process-data/embeddings.mdx
+              - page: Deduplication
+                path: pages/curate-video/process-data/dedup.mdx
+              - page: Frame Extraction
+                path: pages/curate-video/process-data/frame-extraction.mdx
+              - page: Captions Preview
+                path: pages/curate-video/process-data/captions-preview.mdx
+          - page: Save and Export
+            path: pages/curate-video/save-export.mdx
+      - section: Curate Audio
+        contents:
+          - page: Overview
+            path: pages/curate-audio/index.mdx
+          - section: Tutorials
+            contents:
+              - page: Overview
+                path: pages/curate-audio/tutorials/index.mdx
+              - page: Beginner Tutorial
+                path: pages/curate-audio/tutorials/beginner.mdx
+          - section: Load Data
+            contents:
+              - page: Overview
+                path: pages/curate-audio/load-data/index.mdx
+              - page: Custom Manifests
+                path: pages/curate-audio/load-data/custom-manifests.mdx
+              - page: FLEURS Dataset
+                path: pages/curate-audio/load-data/fleurs-dataset.mdx
+              - page: Local Files
+                path: pages/curate-audio/load-data/local-files.mdx
+          - section: Process Data
+            contents:
+              - page: Overview
+                path: pages/curate-audio/process-data/index.mdx
+          - page: Save and Export
+            path: pages/curate-audio/save-export.mdx
+      - section: Setup & Deployment
+        contents:
+          - page: Overview
+            path: pages/admin/index.mdx
+          - page: Installation
+            path: pages/admin/installation.mdx
+          - section: Deployment
+            contents:
+              - page: Overview
+                path: pages/admin/deployment/index.mdx
+              - page: Requirements
+                path: pages/admin/deployment/requirements.mdx
+          - section: Integrations
+            contents:
+              - page: Overview
+                path: pages/admin/integrations/index.mdx
+      - section: Reference
+        contents:
+          - page: Overview
+            path: pages/reference/index.mdx
+          - section: Infrastructure
+            contents:
+              - page: Overview
+                path: pages/reference/infrastructure/index.mdx
+              - page: Memory Management
+                path: pages/reference/infrastructure/memory-management.mdx
+              - page: GPU Processing
+                path: pages/reference/infrastructure/gpu-processing.mdx
+              - page: Resumable Processing
+                path: pages/reference/infrastructure/resumable-processing.mdx
+              - page: Execution Backends
+                path: pages/reference/infrastructure/execution-backends.mdx
+              - page: Container Environments
+                path: pages/reference/infrastructure/container-environments.mdx
+          - page: Related Tools
+            path: pages/reference/related-tools.mdx
+  - tab: api
+    layout:
+      - section: API Reference
+        contents:
+          - page: Overview
+            path: pages/api-reference/index.mdx
+          - page: Pipeline
+            path: pages/api-reference/pipeline.mdx
+          - page: ProcessingStage
+            path: pages/api-reference/processing-stage.mdx
+          - page: CompositeStage
+            path: pages/api-reference/composite-stage.mdx
+          - section: Tasks
+            contents:
+              - page: DocumentBatch
+                path: pages/api-reference/tasks/document-batch.mdx
+              - page: ImageBatch
+                path: pages/api-reference/tasks/image-batch.mdx
+              - page: VideoTask
+                path: pages/api-reference/tasks/video-task.mdx
+              - page: AudioBatch
+                path: pages/api-reference/tasks/audio-batch.mdx
+          - section: Executors
+            contents:
+              - page: XennaExecutor
+                path: pages/api-reference/executors/xenna-executor.mdx
+              - page: Experimental
+                path: pages/api-reference/executors/experimental.mdx
+          - page: Resources
+            path: pages/api-reference/resources.mdx
+
+colors:
+  accent-primary:
+    dark: "#76B900"
+    light: "#4a7300"
+  background:
+    dark: "#1a1a1a"
+    light: "#ffffff"
+
+logo:
+  dark: assets/favicon.png
+  light: assets/favicon.png
+
+favicon: assets/favicon.png
+
+navbar-links:
+  - type: github
+    value: https://github.com/NVIDIA-NeMo/Curator

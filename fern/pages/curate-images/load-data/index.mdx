@@ -1,0 +1,33 @@
+---
+title: Image Data Loading
+description: "Load image data for curation using tar archives with distributed processing and GPU acceleration"
+---
+
+Load image data for curation using NeMo Curator. The primary supported format is tar archives containing JPEG images, which enables efficient distributed processing of large-scale image datasets.
+
+## How it Works
+
+NeMo Curator's image data loading uses a pipeline-based approach optimized for large-scale, distributed curation workflows:
+
+1. **File Partitioning**: `FilePartitioningStage` distributes `.tar` files across workers for parallel processing.
+
+2. **High-Performance Reading**: `ImageReaderStage` uses NVIDIA DALI to accelerate image loading, decoding, and batching on GPU with CPU fallback.
+
+3. **Tar Archive Format**: Processes sharded `.tar` archives containing JPEG images (other file types are ignored during loading).
+
+4. **Batch Processing**: Images are processed in `ImageBatch` objects containing decoded images, metadata, and processing results.
+
+The result is a stream of `ImageBatch` objects ready for embedding, classification, and filtering in downstream pipeline stages.
+
+---
+
+## Options
+
+<Cards>
+
+<Card title="Tar Archive Pipeline" href="/docs/image/load/data/tar/archives">
+Load and process JPEG images from tar archives using `FilePartitioningStage` and `ImageReaderStage` for scalable distributed curation.
+</Card>
+
+</Cards>
+

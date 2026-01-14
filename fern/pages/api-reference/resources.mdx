@@ -1,0 +1,138 @@
+---
+title: Resources
+description: "API reference for Resources configuration - defining CPU and GPU requirements for processing stages"
+---
+
+The `Resources` dataclass defines compute requirements for processing stages.
+
+## Import
+
+```python
+from nemo_curator.stages.resources import Resources
+```
+
+## Class Definition
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Resources:
+    """Define compute requirements for a stage.
+
+    Attributes:
+        cpus: Number of CPU cores (default: 1.0).
+        gpu_memory_gb: GPU memory in GB for single-GPU stages (default: 0.0).
+        gpus: Number of GPUs for multi-GPU stages (default: 0.0).
+    """
+
+    cpus: float = 1.0
+    gpu_memory_gb: float = 0.0
+    gpus: float = 0.0
+```
+
+## Properties
+
+### `requires_gpu`
+
+Check if any GPU resources are requested.
+
+```python
+@property
+def requires_gpu(self) -> bool:
+    """Returns True if any GPU resources are requested."""
+```
+
+## Usage Examples
+
+### CPU-Only Stage
+
+```python
+# Default: 1 CPU core
+resources = Resources()
+
+# Multiple CPU cores
+resources = Resources(cpus=4.0)
+```
+
+### Single-GPU Stage
+
+Use `gpu_memory_gb` for stages that need a fraction of a GPU:
+
+```python
+# Request 16GB of GPU memory
+resources = Resources(
+    cpus=4.0,
+    gpu_memory_gb=16.0,
+)
+```
+
+The system automatically calculates the GPU fraction based on available GPU memory.
+
+### Multi-GPU Stage
+
+Use `gpus` for stages that need one or more full GPUs:
+
+```python
+# Request 2 full GPUs
+resources = Resources(
+    cpus=8.0,
+    gpus=2.0,
+)
+```
+
+## Important Constraints
+
+<Warning>
+You **cannot specify both** `gpus` and `gpu_memory_gb`. Choose one:
+
+- Use `gpu_memory_gb` for single-GPU stages (< 1 GPU)
+- Use `gpus` for multi-GPU stages (>= 1 GPU)
+</Warning>
+
+```python
+# ❌ Invalid - cannot specify both
+resources = Resources(gpus=1.0, gpu_memory_gb=16.0)
+
+# ✅ Valid - use gpu_memory_gb for partial GPU
+resources = Resources(gpu_memory_gb=16.0)
+
+# ✅ Valid - use gpus for full GPUs
+resources = Resources(gpus=2.0)
+```
+
+## Using Resources with Stages
+
+```python
+from dataclasses import dataclass, field
+from nemo_curator.stages.base import ProcessingStage
+from nemo_curator.stages.resources import Resources
+
+@dataclass
+class GPUClassifierStage(ProcessingStage[DocumentBatch, DocumentBatch]):
+    name: str = "GPUClassifier"
+    resources: Resources = field(
+        default_factory=lambda: Resources(cpus=4.0, gpu_memory_gb=16.0)
+    )
+
+    def process(self, task: DocumentBatch) -> DocumentBatch:
+        # GPU-accelerated classification
+        ...
+```
+
+## Configuring Resources at Runtime
+
+Use `with_()` to override resource configurations:
+
+```python
+stage = GPUClassifierStage()
+
+# Override with more resources
+high_resource_stage = stage.with_(
+    resources=Resources(cpus=8.0, gpu_memory_gb=32.0)
+)
+```
+
+## Source Code
+
+[View source on GitHub](https://github.com/NVIDIA-NeMo/Curator/blob/main/nemo_curator/stages/resources.py)

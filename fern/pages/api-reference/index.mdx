@@ -1,0 +1,60 @@
+---
+title: API Reference
+description: "API reference documentation for NeMo Curator core classes, tasks, executors, and resources"
+---
+
+This section provides API reference documentation for NeMo Curator's core classes and interfaces.
+
+## Core Classes
+
+<Cards>
+  <Card title="Pipeline" href="/api/pipeline">
+    The main orchestrator for executing sequences of processing stages.
+  </Card>
+  <Card title="ProcessingStage" href="/api/processing-stage">
+    Base class for all data processing stages in NeMo Curator.
+  </Card>
+  <Card title="CompositeStage" href="/api/composite-stage">
+    High-level stages that decompose into multiple execution stages.
+  </Card>
+</Cards>
+
+## Task Types
+
+<Cards>
+  <Card title="DocumentBatch" href="/api/tasks/document-batch">
+    Task type for text document processing.
+  </Card>
+  <Card title="ImageBatch" href="/api/tasks/image-batch">
+    Task type for image processing.
+  </Card>
+  <Card title="VideoTask" href="/api/tasks/video-task">
+    Task type for video processing.
+  </Card>
+  <Card title="AudioBatch" href="/api/tasks/audio-batch">
+    Task type for audio processing.
+  </Card>
+</Cards>
+
+## Executors
+
+<Cards>
+  <Card title="XennaExecutor" href="/api/executors/xenna-executor">
+    Production executor using Cosmos-Xenna for distributed execution.
+  </Card>
+  <Card title="Experimental Executors" href="/api/executors/experimental">
+    Ray-based experimental executors.
+  </Card>
+</Cards>
+
+## Configuration
+
+<Cards>
+  <Card title="Resources" href="/api/resources">
+    CPU and GPU resource configuration for stages.
+  </Card>
+</Cards>
+
+## Source Code
+
+For complete implementation details, see the [NeMo Curator source code on GitHub](https://github.com/NVIDIA-NeMo/Curator).
