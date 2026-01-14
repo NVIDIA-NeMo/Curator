@@ -14,19 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from unittest.mock import Mock, patch
 
-# Mock vllm before importing the module to avoid dependency issues
-sys.modules["vllm"] = Mock()
-
-from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM  # noqa: E402
+from nemo_curator.models.qwen_lm import _QWEN_LM_MODEL_ID, QwenLM
 
 
 class TestQwenLM:
     """Test cases for QwenLM model class."""
 
     def setup_method(self) -> None:
+        # Ensure tests can run without vllm installed by forcing availability flag to True.
+        self.vllm_available_patcher = patch("nemo_curator.models.qwen_lm.VLLM_AVAILABLE", True)
+        self.vllm_available_patcher.start()
+
         self.model_dir = "/test/model/dir"
         self.caption_batch_size = 4
         self.fp8 = True
@@ -340,3 +340,6 @@ class TestQwenLM:
                 max_tokens=self.max_output_tokens,
                 stop_token_ids=[],
             )
+
+    def teardown_method(self) -> None:
+        self.vllm_available_patcher.stop()
