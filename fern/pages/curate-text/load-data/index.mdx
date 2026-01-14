@@ -9,7 +9,7 @@ Curator provides a task-centric pipeline for downloading and processing large-sc
 
 ## How it Works
 
-Curator uses a [4-step pipeline pattern](/docs/about/concepts/text/data/acquisition) where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to Curator's [pipeline-based architecture](/docs/about/concepts/text/data/loading).
+Curator uses a [4-step pipeline pattern](/about/concepts/text/data-acquisition-concepts) where data flows through stages as tasks. Each step uses a `ProcessingStage` that transforms tasks according to Curator's [pipeline-based architecture](/about/concepts/text/data-loading-concepts).
 
 Data sources provide composite stages that combine these steps into complete download-and-extract pipelines, producing `DocumentBatch` tasks for further processing.
 
@@ -62,19 +62,19 @@ Load data from public datasets and custom data sources using Curator stages.
 
 <Cards>
 
-<Card title="Read Existing Data" href="/docs/text/load/data/read/existing">
+<Card title="Read Existing Data" href="/curate-text/load-data/read-existing">
 Read existing JSONL and Parquet datasets using Curator's reader stages
 </Card>
 
-<Card title="Common Crawl" href="/docs/text/load/data/common/crawl">
+<Card title="Common Crawl" href="/curate-text/load-data/common-crawl">
 Download and extract web archive data from Common Crawl
 </Card>
 
-<Card title="Wikipedia" href="/docs/text/load/data/wikipedia">
+<Card title="Wikipedia" href="/curate-text/load-data/wikipedia">
 Download and extract Wikipedia articles from Wikipedia dumps
 </Card>
 
-<Card title="Custom Data Sources" href="/docs/text/load/data/custom">
+<Card title="Custom Data Sources" href="/curate-text/load-data/custom">
 Implement a download and extract pipeline for a custom data source
 </Card>
 

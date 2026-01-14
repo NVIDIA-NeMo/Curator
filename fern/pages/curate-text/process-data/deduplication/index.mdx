@@ -5,7 +5,7 @@ description: "Remove duplicate and near-duplicate documents efficiently using GP
 
 Remove duplicate and near-duplicate documents from text datasets using NeMo Curator's GPU-accelerated deduplication workflows. Removing duplicates prevents overrepresentation of repeated content in language model training.
 
-NeMo Curator provides three deduplication approaches: exact matching (MD5 hashing), fuzzy matching (MinHash + LSH), and semantic matching (embeddings). All methods are GPU-accelerated and integrate with the [data processing pipeline](/docs/about/concepts/text/data/processing).
+NeMo Curator provides three deduplication approaches: exact matching (MD5 hashing), fuzzy matching (MinHash + LSH), and semantic matching (embeddings). All methods are GPU-accelerated and integrate with the [data processing pipeline](/about/concepts/text/data-processing-concepts).
 
 ## How It Works
 
@@ -39,7 +39,7 @@ exact_workflow = ExactDeduplicationWorkflow(
 exact_workflow.run()
 ```
 
-For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal](/docs/text/process/data/dedup/exact) for details.
+For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Exact Duplicate Removal](/curate-text/process-data/deduplication/exact) for details.
 </Accordion>
 </Tab>
 
@@ -74,7 +74,7 @@ fuzzy_workflow = FuzzyDeduplicationWorkflow(
 fuzzy_workflow.run()
 ```
 
-For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal](/docs/text/process/data/dedup/fuzzy) for details.
+For removal, use `TextDuplicatesRemovalWorkflow` with the generated duplicate IDs. See [Fuzzy Duplicate Removal](/curate-text/process-data/deduplication/fuzzy) for details.
 </Accordion>
 </Tab>
 
@@ -108,7 +108,7 @@ text_workflow.run()
 - `TextSemanticDeduplicationWorkflow`: For raw text with automatic embedding generation
 - `SemanticDeduplicationWorkflow`: For pre-computed embeddings
 
-See [Semantic Deduplication](/docs/text/process/data/dedup/semdedup) for details.
+See [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup) for details.
 </Accordion>
 
 <Accordion title="Advanced: Step-by-Step Semantic Deduplication">
@@ -163,15 +163,15 @@ Choose a deduplication method based on your needs:
 
 <Cards>
 
-<Card title="Exact Duplicate Removal" href="/docs/exact">
+<Card title="Exact Duplicate Removal" href="/curate-text/process-data/deduplication/exact">
 Identify and remove character-for-character duplicates using MD5 hashing
 </Card>
 
-<Card title="Fuzzy Duplicate Removal" href="/docs/fuzzy">
+<Card title="Fuzzy Duplicate Removal" href="/curate-text/process-data/deduplication/fuzzy">
 Identify and remove near-duplicates using MinHash and LSH similarity
 </Card>
 
-<Card title="Semantic Deduplication" href="/docs/semdedup">
+<Card title="Semantic Deduplication" href="/curate-text/process-data/deduplication/semdedup">
 Remove semantically similar documents using embeddings
 </Card>
 
@@ -326,9 +326,9 @@ Run each method independently, then combine duplicate IDs before removal.
 
 For detailed implementation guides, see:
 
-- [Exact Duplicate Removal](/docs/text/process/data/dedup/exact)
-- [Fuzzy Duplicate Removal](/docs/text/process/data/dedup/fuzzy)
-- [Semantic Deduplication](/docs/text/process/data/dedup/semdedup)
+- [Exact Duplicate Removal](/curate-text/process-data/deduplication/exact)
+- [Fuzzy Duplicate Removal](/curate-text/process-data/deduplication/fuzzy)
+- [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup)
 
 <Accordion title="Performance Considerations">
 ### GPU Acceleration
@@ -401,10 +401,10 @@ The ID Generator ensures consistent IDs across workflow stages.
 
 **Ready to use deduplication?**
 
-- **New to deduplication**: Start with [Exact Duplicate Removal](/docs/text/process/data/dedup/exact) for the fastest approach
-- **Need near-duplicate detection**: See [Fuzzy Duplicate Removal](/docs/text/process/data/dedup/fuzzy) for MinHash-based matching
-- **Require semantic matching**: Explore [Semantic Deduplication](/docs/text/process/data/dedup/semdedup) for meaning-based deduplication
+- **New to deduplication**: Start with [Exact Duplicate Removal](/curate-text/process-data/deduplication/exact) for the fastest approach
+- **Need near-duplicate detection**: See [Fuzzy Duplicate Removal](/curate-text/process-data/deduplication/fuzzy) for MinHash-based matching
+- **Require semantic matching**: Explore [Semantic Deduplication](/curate-text/process-data/deduplication/semdedup) for meaning-based deduplication
 
-**For hands-on guidance**: See [Text Curation Tutorials](/docs/text/tutorials) for step-by-step examples.
+**For hands-on guidance**: See [Text Curation Tutorials](/curate-text/tutorials) for step-by-step examples.
 
 

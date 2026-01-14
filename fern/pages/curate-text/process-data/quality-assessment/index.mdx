@@ -9,7 +9,7 @@ Large datasets often contain many documents considered "low quality." In this co
 
 ## How It Works
 
-NeMo Curator's filtering framework is built around several key components that work within the [data processing architecture](/docs/about/concepts/text/data/processing):
+NeMo Curator's filtering framework is built around several key components that work within the [data processing architecture](/about/concepts/text/data-processing-concepts):
 
 <Tabs>
 <Tab title="ScoreFilter">
@@ -115,15 +115,15 @@ pipeline.add_stage(Filter(lambda x: x <= 0.3, filter_field="symbol_ratio"))
 
 <Cards>
 
-<Card title="Heuristic Filtering" href="/docs/heuristic">
+<Card title="Heuristic Filtering" href="/curate-text/process-data/quality-assessment/heuristic">
 Filter text using configurable rules and metrics
 </Card>
 
-<Card title="Classifier Filtering" href="/docs/classifier">
+<Card title="Classifier Filtering" href="/curate-text/process-data/quality-assessment/classifier">
 Filter text using trained quality classifiers
 </Card>
 
-<Card title="Distributed Classification" href="/docs/distributed/classifier">
+<Card title="Distributed Classification" href="/curate-text/process-data/quality-assessment/distributed-classifier">
 GPU-accelerated classification with pre-trained models
 </Card>
 

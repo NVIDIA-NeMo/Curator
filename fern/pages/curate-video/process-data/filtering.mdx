@@ -14,7 +14,7 @@ Filtering runs in two passes that balance speed and quality:
 
 ## Before You Start
 
-Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](video-process-clipping) and [encoding](video-process-transcoding) first so each clip has a valid `buffer` (bytes). 
+Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](/curate-video/process-data/clipping) and [encoding](/curate-video/process-data/transcoding) first so each clip has a valid `buffer` (bytes). 
 
 ---
 
@@ -160,7 +160,7 @@ Motion filtering is a two‑step process: first decode motion vectors, then filt
 
 Aesthetic filtering works best when you prepare frames first, then score clips using a CLIP‑based aesthetic model.
 
-1. Extract frames earlier in the pipeline. Use a frame extraction stage with a `sequence` policy and set a `target_fps` that matches the aesthetic stage. Refer to [Frame Extraction](video-process-frame-extraction) for guidance.
+1. Extract frames earlier in the pipeline. Use a frame extraction stage with a `sequence` policy and set a `target_fps` that matches the aesthetic stage. Refer to [Frame Extraction](/curate-video/process-data/frame-extraction) for guidance.
 
    ```python
    # Example: upstream frame extraction snippet (pseudocode)
