@@ -51,7 +51,7 @@ class BeginsWithLanguageFilter(DocumentFilter):
     """
 
     def __init__(self, languages: list[str]):
-        self.name = "begins_with_language_filter"
+        self._name = "begins_with_language_filter"
         self.languages = languages
 
     def score_document(self, text: str) -> float:
