@@ -6,7 +6,7 @@ title: NeMo Curator
 tabs:
   docs:
     display-name: Documentation
-    slug: docs
+    slug: ""
   api:
     display-name: API Reference
     slug: api
@@ -18,306 +18,456 @@ navigation:
         contents:
           - page: Welcome
             path: pages/index.mdx
+            slug: ""
       - section: About NeMo Curator
+        slug: about
         contents:
           - page: Overview
             path: pages/about/index.mdx
+            slug: about
           - page: Key Features
             path: pages/about/key-features.mdx
+            slug: about/key-features
           - section: Concepts
+            slug: about/concepts
             contents:
               - page: Overview
                 path: pages/about/concepts/index.mdx
+                slug: about/concepts
               - page: Deduplication
                 path: pages/about/concepts/deduplication.mdx
+                slug: about/concepts/deduplication
               - section: Text Concepts
+                slug: about/concepts/text
                 contents:
                   - page: Overview
                     path: pages/about/concepts/text/index.mdx
+                    slug: about/concepts/text
                   - page: Data Acquisition
                     path: pages/about/concepts/text/data-acquisition-concepts.mdx
+                    slug: about/concepts/text/data-acquisition-concepts
                   - page: Data Curation Pipeline
                     path: pages/about/concepts/text/data-curation-pipeline.mdx
+                    slug: about/concepts/text/data-curation-pipeline
                   - page: Data Loading
                     path: pages/about/concepts/text/data-loading-concepts.mdx
+                    slug: about/concepts/text/data-loading-concepts
                   - page: Data Processing
                     path: pages/about/concepts/text/data-processing-concepts.mdx
+                    slug: about/concepts/text/data-processing-concepts
               - section: Image Concepts
+                slug: about/concepts/image
                 contents:
                   - page: Overview
                     path: pages/about/concepts/image/index.mdx
+                    slug: about/concepts/image
                   - page: Data Loading
                     path: pages/about/concepts/image/data-loading-concepts.mdx
+                    slug: about/concepts/image/data-loading-concepts
                   - page: Data Processing
                     path: pages/about/concepts/image/data-processing-concepts.mdx
+                    slug: about/concepts/image/data-processing-concepts
                   - page: Data Export
                     path: pages/about/concepts/image/data-export-concepts.mdx
+                    slug: about/concepts/image/data-export-concepts
               - section: Video Concepts
+                slug: about/concepts/video
                 contents:
                   - page: Overview
                     path: pages/about/concepts/video/index.mdx
+                    slug: about/concepts/video
                   - page: Architecture
                     path: pages/about/concepts/video/architecture.mdx
+                    slug: about/concepts/video/architecture
                   - page: Abstractions
                     path: pages/about/concepts/video/abstractions.mdx
+                    slug: about/concepts/video/abstractions
                   - page: Data Flow
                     path: pages/about/concepts/video/data-flow.mdx
+                    slug: about/concepts/video/data-flow
               - section: Audio Concepts
+                slug: about/concepts/audio
                 contents:
                   - page: Overview
                     path: pages/about/concepts/audio/index.mdx
+                    slug: about/concepts/audio
                   - page: ASR Pipeline
                     path: pages/about/concepts/audio/asr-pipeline.mdx
+                    slug: about/concepts/audio/asr-pipeline
                   - page: Audio Batch
                     path: pages/about/concepts/audio/audio-batch.mdx
+                    slug: about/concepts/audio/audio-batch
                   - page: Manifests and Ingest
                     path: pages/about/concepts/audio/manifests-ingest.mdx
+                    slug: about/concepts/audio/manifests-ingest
                   - page: Quality Metrics
                     path: pages/about/concepts/audio/quality-metrics.mdx
+                    slug: about/concepts/audio/quality-metrics
                   - page: Text Integration
                     path: pages/about/concepts/audio/text-integration.mdx
+                    slug: about/concepts/audio/text-integration
                   - page: Curation Pipeline
                     path: pages/about/concepts/audio/curation-pipeline.mdx
+                    slug: about/concepts/audio/curation-pipeline
           - section: Release Notes
+            slug: about/release-notes
             contents:
               - page: Overview
                 path: pages/about/release-notes/index.mdx
+                slug: about/release-notes
               - page: Migration FAQ
                 path: pages/about/release-notes/migration-faq.mdx
+                slug: about/release-notes/migration-faq
               - page: Migration Guide
                 path: pages/about/release-notes/migration-guide.mdx
+                slug: about/release-notes/migration-guide
       - section: Get Started
+        slug: get-started
         contents:
           - page: Overview
             path: pages/get-started/index.mdx
+            slug: get-started
           - page: Text Quickstart
             path: pages/get-started/text.mdx
+            slug: get-started/text
           - page: Image Quickstart
             path: pages/get-started/image.mdx
+            slug: get-started/image
           - page: Video Quickstart
             path: pages/get-started/video.mdx
+            slug: get-started/video
           - page: Audio Quickstart
             path: pages/get-started/audio.mdx
+            slug: get-started/audio
       - section: Curate Text
+        slug: curate-text
         contents:
           - page: Overview
             path: pages/curate-text/index.mdx
+            slug: curate-text
           - section: Tutorials
+            slug: curate-text/tutorials
             contents:
               - page: Overview
                 path: pages/curate-text/tutorials/index.mdx
+                slug: curate-text/tutorials
           - section: Load Data
+            slug: curate-text/load-data
             contents:
               - page: Overview
                 path: pages/curate-text/load-data/index.mdx
+                slug: curate-text/load-data
               - page: ArXiv
                 path: pages/curate-text/load-data/arxiv.mdx
+                slug: curate-text/load-data/arxiv
               - page: Common Crawl
                 path: pages/curate-text/load-data/common-crawl.mdx
+                slug: curate-text/load-data/common-crawl
               - page: Custom Sources
                 path: pages/curate-text/load-data/custom.mdx
+                slug: curate-text/load-data/custom
               - page: Read Existing Data
                 path: pages/curate-text/load-data/read-existing.mdx
+                slug: curate-text/load-data/read-existing
               - page: Wikipedia
                 path: pages/curate-text/load-data/wikipedia.mdx
+                slug: curate-text/load-data/wikipedia
           - section: Process Data
+            slug: curate-text/process-data
             contents:
               - page: Overview
                 path: pages/curate-text/process-data/index.mdx
+                slug: curate-text/process-data
               - section: Content Processing
+                slug: curate-text/process-data/content-processing
                 contents:
                   - page: Overview
                     path: pages/curate-text/process-data/content-processing/index.mdx
+                    slug: curate-text/process-data/content-processing
                   - page: Add IDs
                     path: pages/curate-text/process-data/content-processing/add-id.mdx
+                    slug: curate-text/process-data/content-processing/add-id
                   - page: Text Cleaning
                     path: pages/curate-text/process-data/content-processing/text-cleaning.mdx
+                    slug: curate-text/process-data/content-processing/text-cleaning
               - section: Deduplication
+                slug: curate-text/process-data/deduplication
                 contents:
                   - page: Overview
                     path: pages/curate-text/process-data/deduplication/index.mdx
+                    slug: curate-text/process-data/deduplication
                   - page: Exact Deduplication
                     path: pages/curate-text/process-data/deduplication/exact.mdx
+                    slug: curate-text/process-data/deduplication/exact
                   - page: Fuzzy Deduplication
                     path: pages/curate-text/process-data/deduplication/fuzzy.mdx
+                    slug: curate-text/process-data/deduplication/fuzzy
                   - page: Semantic Deduplication
                     path: pages/curate-text/process-data/deduplication/semdedup.mdx
+                    slug: curate-text/process-data/deduplication/semdedup
               - section: Language Management
+                slug: curate-text/process-data/language-management
                 contents:
                   - page: Overview
                     path: pages/curate-text/process-data/language-management/index.mdx
+                    slug: curate-text/process-data/language-management
                   - page: Language Detection
                     path: pages/curate-text/process-data/language-management/language.mdx
+                    slug: curate-text/process-data/language-management/language
                   - page: Stopwords
                     path: pages/curate-text/process-data/language-management/stopwords.mdx
+                    slug: curate-text/process-data/language-management/stopwords
               - section: Quality Assessment
+                slug: curate-text/process-data/quality-assessment
                 contents:
                   - page: Overview
                     path: pages/curate-text/process-data/quality-assessment/index.mdx
+                    slug: curate-text/process-data/quality-assessment
                   - page: Classifier
                     path: pages/curate-text/process-data/quality-assessment/classifier.mdx
+                    slug: curate-text/process-data/quality-assessment/classifier
                   - page: Distributed Classifier
                     path: pages/curate-text/process-data/quality-assessment/distributed-classifier.mdx
+                    slug: curate-text/process-data/quality-assessment/distributed-classifier
                   - page: Heuristic Filtering
                     path: pages/curate-text/process-data/quality-assessment/heuristic.mdx
+                    slug: curate-text/process-data/quality-assessment/heuristic
               - section: Specialized Processing
+                slug: curate-text/process-data/specialized-processing
                 contents:
                   - page: Overview
                     path: pages/curate-text/process-data/specialized-processing/index.mdx
+                    slug: curate-text/process-data/specialized-processing
                   - page: Code Processing
                     path: pages/curate-text/process-data/specialized-processing/code.mdx
+                    slug: curate-text/process-data/specialized-processing/code
       - section: Curate Images
+        slug: curate-images
         contents:
           - page: Overview
             path: pages/curate-images/index.mdx
+            slug: curate-images
           - section: Tutorials
+            slug: curate-images/tutorials
             contents:
               - page: Overview
                 path: pages/curate-images/tutorials/index.mdx
+                slug: curate-images/tutorials
               - page: Beginner Tutorial
                 path: pages/curate-images/tutorials/beginner.mdx
+                slug: curate-images/tutorials/beginner
               - page: Deduplication Workflow
                 path: pages/curate-images/tutorials/dedup-workflow.mdx
+                slug: curate-images/tutorials/dedup-workflow
           - section: Load Data
+            slug: curate-images/load-data
             contents:
               - page: Overview
                 path: pages/curate-images/load-data/index.mdx
+                slug: curate-images/load-data
               - page: TAR Archives
                 path: pages/curate-images/load-data/tar-archives.mdx
+                slug: curate-images/load-data/tar-archives
           - section: Process Data
+            slug: curate-images/process-data
             contents:
               - page: Overview
                 path: pages/curate-images/process-data/index.mdx
+                slug: curate-images/process-data
           - page: Save and Export
             path: pages/curate-images/save-export.mdx
+            slug: curate-images/save-export
       - section: Curate Video
+        slug: curate-video
         contents:
           - page: Overview
             path: pages/curate-video/index.mdx
+            slug: curate-video
           - section: Tutorials
+            slug: curate-video/tutorials
             contents:
               - page: Overview
                 path: pages/curate-video/tutorials/index.mdx
+                slug: curate-video/tutorials
               - page: Beginner Tutorial
                 path: pages/curate-video/tutorials/beginner.mdx
+                slug: curate-video/tutorials/beginner
               - page: Split and Dedup
                 path: pages/curate-video/tutorials/split-dedup.mdx
+                slug: curate-video/tutorials/split-dedup
           - section: Load Data
+            slug: curate-video/load-data
             contents:
               - page: Overview
                 path: pages/curate-video/load-data/index.mdx
+                slug: curate-video/load-data
           - section: Process Data
+            slug: curate-video/process-data
             contents:
               - page: Overview
                 path: pages/curate-video/process-data/index.mdx
+                slug: curate-video/process-data
               - page: Clipping
                 path: pages/curate-video/process-data/clipping.mdx
+                slug: curate-video/process-data/clipping
               - page: Transcoding
                 path: pages/curate-video/process-data/transcoding.mdx
+                slug: curate-video/process-data/transcoding
               - page: Filtering
                 path: pages/curate-video/process-data/filtering.mdx
+                slug: curate-video/process-data/filtering
               - page: Embeddings
                 path: pages/curate-video/process-data/embeddings.mdx
+                slug: curate-video/process-data/embeddings
               - page: Deduplication
                 path: pages/curate-video/process-data/dedup.mdx
+                slug: curate-video/process-data/dedup
               - page: Frame Extraction
                 path: pages/curate-video/process-data/frame-extraction.mdx
+                slug: curate-video/process-data/frame-extraction
               - page: Captions Preview
                 path: pages/curate-video/process-data/captions-preview.mdx
+                slug: curate-video/process-data/captions-preview
           - page: Save and Export
             path: pages/curate-video/save-export.mdx
+            slug: curate-video/save-export
       - section: Curate Audio
+        slug: curate-audio
         contents:
           - page: Overview
             path: pages/curate-audio/index.mdx
+            slug: curate-audio
           - section: Tutorials
+            slug: curate-audio/tutorials
             contents:
               - page: Overview
                 path: pages/curate-audio/tutorials/index.mdx
+                slug: curate-audio/tutorials
               - page: Beginner Tutorial
                 path: pages/curate-audio/tutorials/beginner.mdx
+                slug: curate-audio/tutorials/beginner
           - section: Load Data
+            slug: curate-audio/load-data
             contents:
               - page: Overview
                 path: pages/curate-audio/load-data/index.mdx
+                slug: curate-audio/load-data
               - page: Custom Manifests
                 path: pages/curate-audio/load-data/custom-manifests.mdx
+                slug: curate-audio/load-data/custom-manifests
               - page: FLEURS Dataset
                 path: pages/curate-audio/load-data/fleurs-dataset.mdx
+                slug: curate-audio/load-data/fleurs-dataset
               - page: Local Files
                 path: pages/curate-audio/load-data/local-files.mdx
+                slug: curate-audio/load-data/local-files
           - section: Process Data
+            slug: curate-audio/process-data
             contents:
               - page: Overview
                 path: pages/curate-audio/process-data/index.mdx
+                slug: curate-audio/process-data
           - page: Save and Export
             path: pages/curate-audio/save-export.mdx
+            slug: curate-audio/save-export
       - section: Setup & Deployment
+        slug: admin
         contents:
           - page: Overview
             path: pages/admin/index.mdx
+            slug: admin
           - page: Installation
             path: pages/admin/installation.mdx
+            slug: admin/installation
           - section: Deployment
+            slug: admin/deployment
             contents:
               - page: Overview
                 path: pages/admin/deployment/index.mdx
+                slug: admin/deployment
               - page: Requirements
                 path: pages/admin/deployment/requirements.mdx
+                slug: admin/deployment/requirements
           - section: Integrations
+            slug: admin/integrations
             contents:
               - page: Overview
                 path: pages/admin/integrations/index.mdx
+                slug: admin/integrations
       - section: Reference
+        slug: reference
         contents:
           - page: Overview
             path: pages/reference/index.mdx
+            slug: reference
           - section: Infrastructure
+            slug: reference/infrastructure
             contents:
               - page: Overview
                 path: pages/reference/infrastructure/index.mdx
+                slug: reference/infrastructure
               - page: Memory Management
                 path: pages/reference/infrastructure/memory-management.mdx
+                slug: reference/infrastructure/memory-management
               - page: GPU Processing
                 path: pages/reference/infrastructure/gpu-processing.mdx
+                slug: reference/infrastructure/gpu-processing
               - page: Resumable Processing
                 path: pages/reference/infrastructure/resumable-processing.mdx
+                slug: reference/infrastructure/resumable-processing
               - page: Execution Backends
                 path: pages/reference/infrastructure/execution-backends.mdx
+                slug: reference/infrastructure/execution-backends
               - page: Container Environments
                 path: pages/reference/infrastructure/container-environments.mdx
+                slug: reference/infrastructure/container-environments
           - page: Related Tools
             path: pages/reference/related-tools.mdx
+            slug: reference/related-tools
   - tab: api
     layout:
       - section: API Reference
+        slug: reference/api-reference
         contents:
           - page: Overview
             path: pages/api-reference/index.mdx
+            slug: reference/api-reference
           - page: Pipeline
             path: pages/api-reference/pipeline.mdx
+            slug: reference/api-reference/pipeline
           - page: ProcessingStage
             path: pages/api-reference/processing-stage.mdx
+            slug: reference/api-reference/processing-stage
           - page: CompositeStage
             path: pages/api-reference/composite-stage.mdx
+            slug: reference/api-reference/composite-stage
           - section: Tasks
+            slug: reference/api-reference/tasks
             contents:
               - page: DocumentBatch
                 path: pages/api-reference/tasks/document-batch.mdx
+                slug: reference/api-reference/tasks/document-batch
               - page: ImageBatch
                 path: pages/api-reference/tasks/image-batch.mdx
+                slug: reference/api-reference/tasks/image-batch
               - page: VideoTask
                 path: pages/api-reference/tasks/video-task.mdx
+                slug: reference/api-reference/tasks/video-task
               - page: AudioBatch
                 path: pages/api-reference/tasks/audio-batch.mdx
+                slug: reference/api-reference/tasks/audio-batch
           - section: Executors
+            slug: reference/api-reference/executors
             contents:
               - page: XennaExecutor
                 path: pages/api-reference/executors/xenna-executor.mdx
+                slug: reference/api-reference/executors/xenna-executor
               - page: Experimental
                 path: pages/api-reference/executors/experimental.mdx
+                slug: reference/api-reference/executors/experimental
           - page: Resources
             path: pages/api-reference/resources.mdx
+            slug: reference/api-reference/resources
 
 colors:
   accent-primary:

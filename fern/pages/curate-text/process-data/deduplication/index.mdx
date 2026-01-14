@@ -225,27 +225,13 @@ removal_workflow.run()
 
 Each deduplication method produces specific output files and directories:
 
-```{list-table} Output Locations
-:header-rows: 1
-:name: output-locations
+**Output Locations**
 
-* - Method
-  - Duplicate IDs Location
-  - ID Generator File
-  - Deduplicated Output
-* - Exact
-  - `ExactDuplicateIds/` (parquet)
-  - `exact_id_generator.json` (if `assign_id=True`)
-  - Via `TextDuplicatesRemovalWorkflow`
-* - Fuzzy
-  - `FuzzyDuplicateIds/` (parquet)
-  - `fuzzy_id_generator.json` (if IDs auto-assigned)
-  - Via `TextDuplicatesRemovalWorkflow`
-* - Semantic
-  - `output_path/duplicates/` (parquet)
-  - N/A
-  - `output_path/deduplicated/` (if `perform_removal=True`)
-```
+| Method | Duplicate IDs Location | ID Generator File | Deduplicated Output |
+| ------ | ---------------------- | ----------------- | ------------------- |
+| Exact | `ExactDuplicateIds/` (parquet) | `exact_id_generator.json` (if `assign_id=True`) | Via `TextDuplicatesRemovalWorkflow` |
+| Fuzzy | `FuzzyDuplicateIds/` (parquet) | `fuzzy_id_generator.json` (if IDs auto-assigned) | Via `TextDuplicatesRemovalWorkflow` |
+| Semantic | `output_path/duplicates/` (parquet) | N/A | `output_path/deduplicated/` (if `perform_removal=True`) |
 
 **Column names**:
 
@@ -256,31 +242,13 @@ Each deduplication method produces specific output files and directories:
 
 Compare deduplication methods to select the best approach for your dataset:
 
-```{list-table} Method Comparison
-:header-rows: 1
-:name: method-comparison
+**Method Comparison**
 
-* - Method
-  - Best For
-  - Speed
-  - Duplicate Types
-  - GPU Required
-* - **Exact**
-  - Identical copies
-  - Very fast
-  - Character-for-character matches
-  - Required
-* - **Fuzzy**
-  - Near-duplicates with small changes
-  - Fast
-  - Minor edits, reformatting (~80% similarity)
-  - Required
-* - **Semantic**
-  - Similar meaning, different words
-  - Moderate
-  - Paraphrases, translations, rewrites
-  - Required
-```
+| Method | Best For | Speed | Duplicate Types | GPU Required |
+| ------ | -------- | ----- | --------------- | ------------ |
+| **Exact** | Identical copies | Very fast | Character-for-character matches | Required |
+| **Fuzzy** | Near-duplicates with small changes | Fast | Minor edits, reformatting (~80% similarity) | Required |
+| **Semantic** | Similar meaning, different words | Moderate | Paraphrases, translations, rewrites | Required |
 
 ### Quick Decision Guide
 

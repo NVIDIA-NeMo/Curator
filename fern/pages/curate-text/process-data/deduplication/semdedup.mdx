@@ -275,27 +275,13 @@ The workflow produces these output files:
 - Use batched cosine similarity to reduce memory requirements
 - Consider distributed processing for very large datasets
 
-```{list-table} Performance Scaling (Example)
-:header-rows: 1
-:name: semantic-performance
+**Performance Scaling (Example)**
 
-* - Dataset Size
-  - GPU Memory
-  - Processing Time
-  - Recommended GPUs
-* - <100K docs
-  - 4-8 GB
-  - 1-2 hours
-  - RTX 3080, A100
-* - 100K-1M docs
-  - 8-16 GB
-  - 2-8 hours
-  - RTX 4090, A100
-* - >1M docs
-  - >16 GB
-  - 8+ hours
-  - A100, H100
-```
+| Dataset Size | GPU Memory | Processing Time | Recommended GPUs |
+| ------------ | ---------- | --------------- | ---------------- |
+| Less than 100K docs | 4-8 GB | 1-2 hours | RTX 3080, A100 |
+| 100K-1M docs | 8-16 GB | 2-8 hours | RTX 4090, A100 |
+| More than 1M docs | 16+ GB | 8+ hours | A100, H100 |
 
 For more details, see the [SemDeDup paper](https://arxiv.org/pdf/2303.09540) by Abbas et al.
 </Accordion>

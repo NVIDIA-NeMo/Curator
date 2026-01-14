@@ -14,32 +14,16 @@ This major release represents a fundamental architecture shift from [Dask](https
 - **UV source installations**: Integrated UV package manager (v0.8.22) for faster dependency management
 - **PyPI improvements**: Enhanced PyPI installation with modular extras for targeted functionality:
 
-  ```{list-table} Available Installation Extras
-  :header-rows: 1
-  :widths: 25 35 40
+  **Available Installation Extras**
 
-  * - Extra
-    - Installation Command
-    - Description
-  * - **All Modalities**
-    - `nemo-curator[all]`
-    - Complete installation with all modalities and GPU support
-  * - **Text Curation**
-    - `nemo-curator[text_cuda12]`
-    - GPU-accelerated text processing with RAPIDS
-  * - **Image Curation**
-    - `nemo-curator[image_cuda12]`
-    - Image processing with NVIDIA DALI
-  * - **Audio Curation**
-    - `nemo-curator[audio_cuda12]`
-    - Speech recognition with NeMo ASR models
-  * - **Video Curation**
-    - `nemo-curator[video_cuda12]`
-    - Video processing with GPU acceleration
-  * - **Basic GPU**
-    - `nemo-curator[cuda12]`
-    - CUDA utilities without modality-specific dependencies
-  ```
+  | Extra | Installation Command | Description |
+  | ----- | -------------------- | ----------- |
+  | **All Modalities** | `nemo-curator[all]` | Complete installation with all modalities and GPU support |
+  | **Text Curation** | `nemo-curator[text_cuda12]` | GPU-accelerated text processing with RAPIDS |
+  | **Image Curation** | `nemo-curator[image_cuda12]` | Image processing with NVIDIA DALI |
+  | **Audio Curation** | `nemo-curator[audio_cuda12]` | Speech recognition with NeMo ASR models |
+  | **Video Curation** | `nemo-curator[video_cuda12]` | Video processing with GPU acceleration |
+  | **Basic GPU** | `nemo-curator[cuda12]` | CUDA utilities without modality-specific dependencies |
 
   All GPU installations require the NVIDIA PyPI index:
   ```bash
