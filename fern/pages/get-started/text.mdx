@@ -41,7 +41,7 @@ uv pip install "nemo-curator[text_cuda12]"
 ```
 
 <Note>
-For other modalities (image, video) or all modules, see the [Installation Guide](../admin/installation.md).
+For other modalities (image, video) or all modules, see the [Installation Guide](/admin/installation).
 </Note>
 </Tab>
 
@@ -90,7 +90,7 @@ mkdir -p ~/nemo_curator/data/curated
 ```
 
 <Note>
-For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to [Read Existing Data](/docs/text/load/data/read/existing) and [Data Loading](/docs/text/load/data) for information on downloading data.
+For this example, you'll need sample JSONL files in `~/nemo_curator/data/sample/`. Each line should be a JSON object with at least `text` and `id` fields. You can create test data or refer to [Read Existing Data](/curate-text/load-data/read-existing) and [Data Loading](/curate-text/load-data) for information on downloading data.
 </Note>
 
 ## Basic Text Curation Example
@@ -148,5 +148,5 @@ print(f"Pipeline completed successfully! Processed {len(results) if results else
 
 ## Next Steps
 
-Explore the [Text Curation documentation](text-overview) for more advanced filtering techniques, GPU acceleration options, and large-scale processing workflows.
+Explore the [Text Curation documentation](/curate-text) for more advanced filtering techniques, GPU acceleration options, and large-scale processing workflows.
 

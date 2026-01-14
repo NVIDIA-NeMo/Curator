@@ -22,7 +22,7 @@ Understand how components work together so you can plan, scale, and troubleshoot
 ![High-level outline of NeMo Curator's video curation architecture](/assets/images/video-pipeline-diagram.png)
 
 <Note>
-Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders (`nvdecs`) and encoders (`nvencs`). You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Add a Custom Stage](video-tutorials-pipeline-cust-add-stage).
+Video pipelines use the `XennaExecutor` backend by default, which provides optimized support for GPU-accelerated video processing including hardware decoders (`nvdecs`) and encoders (`nvencs`). You do not need to import or configure the executor unless you want to use an alternative backend. For more information about customizing backends, refer to [Add a Custom Stage](/curate-video/tutorials/pipeline-customization).
 </Note>
 
 ---
@@ -33,11 +33,11 @@ Get oriented and prepare your environment so you can start curating videos with 
 
 <Cards>
 
-<Card title="Concepts" href="/docs/about/concepts/video">
+<Card title="Concepts" href="/about/concepts/video">
 Learn about the architecture, stages, pipelines, and data flow for video curation
 </Card>
 
-<Card title="Get Started" href="/docs/get-started/video">
+<Card title="Get Started" href="/get-started/video">
 Install NeMo Curator, configure storage, prepare data, and run your first video pipeline.
 </Card>
 
@@ -54,12 +54,8 @@ Bring videos into your pipeline from local paths or remote sources you control.
 
 <Cards>
 
-<Card title="Local & Cloud" href="/docs/video/load/data/local/cloud">
-Load videos from local paths or S3-compatible and HTTP(S) URLs.
-</Card>
-
-<Card title="Remote (JSON)" href="/docs/video/load/data/json/list">
-Provide an explicit JSON file list for remote datasets under a root prefix.
+<Card title="Video Data Loading" href="/curate-video/load-data">
+Load videos from local paths, cloud storage, or explicit file lists
 </Card>
 
 </Cards>
@@ -69,31 +65,31 @@ Transform raw videos into curated clips, frames, embeddings, and metadata you ca
 
 <Cards>
 
-<Card title="Clip Videos" href="/docs/video/process/clipping">
+<Card title="Clip Videos" href="/curate-video/process-data/clipping">
 Split long videos into shorter clips using fixed stride or scene-change detection.
 </Card>
 
-<Card title="Encode Clips" href="/docs/video/process/transcoding">
+<Card title="Encode Clips" href="/curate-video/process-data/transcoding">
 Encode clips to H.264 using CPU or GPU encoders and tune performance.
 </Card>
 
-<Card title="Filter Clips and Frames" href="/docs/video/process/filtering">
+<Card title="Filter Clips and Frames" href="/curate-video/process-data/filtering">
 Apply motion-based filtering and aesthetic filtering to improve dataset quality.
 </Card>
 
-<Card title="Extract Frames" href="/docs/video/process/frame/extraction">
+<Card title="Extract Frames" href="/curate-video/process-data/frame-extraction">
 Extract frames from clips or full videos for embeddings, filtering, and analysis.
 </Card>
 
-<Card title="Create Embeddings" href="/docs/video/process/embeddings">
+<Card title="Create Embeddings" href="/curate-video/process-data/embeddings">
 Generate clip-level embeddings with InternVideo2 or Cosmos-Embed1 for search and duplicate removal.
 </Card>
 
-<Card title="Create Captions & Preview" href="/docs/video/process/captions/preview">
+<Card title="Create Captions & Preview" href="/curate-video/process-data/captions-preview">
 Generate Qwen‑VL captions and optional WebP previews; optionally enhance with Qwen‑LM.
 </Card>
 
-<Card title="Remove Duplicate Embeddings" href="/docs/video/process/dedup">
+<Card title="Remove Duplicate Embeddings" href="/curate-video/process-data/dedup">
 Remove near-duplicates using semantic clustering and similarity with generated embeddings.
 </Card>
 
@@ -104,7 +100,7 @@ Save outputs in formats your training or retrieval systems can consume at scale.
 
 <Cards>
 
-<Card title="Save & Export" href="/docs/video/save/export">
+<Card title="Save & Export" href="/curate-video/save-export">
 Understand output directories, parquet embeddings, and packaging for training.
 </Card>
 
@@ -117,12 +113,12 @@ Practice with guided, hands-on examples to build, customize, and run video pipel
 
 <Cards>
 
-<Card title="Beginner Tutorial" href="/docs/curate-video/tutorials/beginner">
+<Card title="Beginner Tutorial" href="/curate-video/tutorials/beginner">
 Create and run your first video pipeline: read, split, encode, embed, write.
 </Card>
 
-<Card title="Pipeline Customization Tutorials" href="/docs/video/tutorials/pipeline/cust/series">
-Customize environments, code, models, and stages for video pipelines.
+<Card title="Split and Deduplicate" href="/curate-video/tutorials/split-dedup">
+Split videos and then remove near-duplicates using semantic dedup.
 </Card>
 
 </Cards>
