@@ -77,9 +77,6 @@ def _replace_env_var(match: re.Match[str]) -> str:
         raise ValueError(msg)
 
 
-_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
-
-
 def resolve_env_vars(data: dict | list | str | object) -> dict | list | str | object:
     """Recursively resolve environment variables in strings in/from various objects.
 
