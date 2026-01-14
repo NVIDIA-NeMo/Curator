@@ -182,10 +182,11 @@ entries:
   - name: score_filter_raydata
     enabled: true
     script: score_filter_benchmark.py
+    # heuristic_filter_english_pipeline.yaml expects a jsonl input but can be modified to accept parquet
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=ray_data
-      --input-path={dataset:tinystories,parquet}
+      --input-path={dataset:tinystories,jsonl}
       --yaml-config=/opt/Curator/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
     timeout_s: 20000
     ray:
@@ -196,10 +197,11 @@ entries:
   - name: score_filter_xenna
     enabled: true
     script: score_filter_benchmark.py
+    # heuristic_filter_english_pipeline.yaml expects a jsonl input but can be modified to accept parquet
     args: >-
       --benchmark-results-path={session_entry_dir}
       --executor=xenna
-      --input-path={dataset:tinystories,parquet}
+      --input-path={dataset:tinystories,jsonl}
       --yaml-config=/opt/Curator/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
     timeout_s: 20000
     ray:
