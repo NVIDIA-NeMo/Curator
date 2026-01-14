@@ -28,6 +28,8 @@ try:
 except ImportError:
     import logging as logger
 
+_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
+
 
 def write_benchmark_results(results: dict, output_path: Path) -> None:
     """Write results to the standard files expected by the benchmark framework.
