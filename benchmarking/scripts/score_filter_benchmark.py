@@ -99,7 +99,6 @@ def run_score_filter_classification_benchmark(
     try:
         logger.info("Running ScoreFilter pipeline...")
 
-        executor = RayDataExecutor() if executor_name == "ray_data" else XennaExecutor()
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
@@ -107,7 +106,6 @@ def run_score_filter_classification_benchmark(
         # Instead simply use the num_items property of the task to get the number of documents processed.
         num_documents_processed = sum(task.num_items for task in output_tasks)
 
-        run_time_taken = time.perf_counter() - run_start_time
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
         logger.success(f"Processed {num_documents_processed} documents")
         success = True
