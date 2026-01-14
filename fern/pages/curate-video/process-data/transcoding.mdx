@@ -54,9 +54,9 @@ python -m ray_curator.examples.video.video_split_clip_example \
 | `libopenh264` | CPU | Good quality and throughput balance. Often faster than `libx264` at similar presets. |
 | `h264_nvenc` | NVIDIA GPU (NVENC) | Uses NVENC for high-throughput H.264 encoding on NVIDIA GPU hardware. |
 
-```{tip}
+<Tip>
 On systems with supported NVIDIA GPU hardware and an `ffmpeg` build with NVENC, `h264_nvenc` can significantly increase throughput. Refer to the verification steps below to confirm NVENC availability.
-```
+</Tip>
 
 ### Verify `ffmpeg`/NVENC Support
 

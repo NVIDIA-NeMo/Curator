@@ -5,7 +5,7 @@ description: "Identify and remove near-duplicate documents using MinHash and LSH
 
 Find and remove near-duplicate documents with small edits or reformatting using MinHash and Locality Sensitive Hashing (LSH). This approach identifies candidate pairs with a similarity threshold efficiently at scale on GPU.
 
-For other approaches, refer to [Deduplication](/docs/text/process/data/dedup).
+For other approaches, refer to [Deduplication](/curate-text/process-data/deduplication).
 
 ## How It Works
 
@@ -200,5 +200,5 @@ The workflow produces these output files:
 **Note**: Performance depends on hardware configuration, dataset characteristics, and parameter choices such as `bands_per_iteration`, `char_ngrams`, and `input_blocksize`.
 </Accordion>
 
-For comparison with other deduplication methods and guidance on when to use fuzzy deduplication, refer to the [Deduplication overview](/docs/text/process/data/dedup).
+For comparison with other deduplication methods and guidance on when to use fuzzy deduplication, refer to the [Deduplication overview](/curate-text/process-data/deduplication).
 
