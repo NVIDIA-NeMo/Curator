@@ -21,7 +21,7 @@ This module contains a complete end-to-end workflow for text semantic deduplicat
 3. Optional duplicate removal based on identified duplicates
 """
 
-import os
+import posixpath
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -181,14 +181,14 @@ class TextSemanticDeduplicationWorkflow:
         self.cache_path = self.cache_path or self.output_path
 
         # Intermediate paths
-        self.embeddings_path = os.path.join(self.cache_path, "embeddings")
-        self.semantic_dedup_path = os.path.join(self.cache_path, "semantic_dedup")
+        self.embeddings_path = posixpath.join(self.cache_path, "embeddings")
+        self.semantic_dedup_path = posixpath.join(self.cache_path, "semantic_dedup")
         # Output paths
-        self.duplicates_path = None if self.eps is None else os.path.join(self.output_path, "duplicates")
+        self.duplicates_path = None if self.eps is None else posixpath.join(self.output_path, "duplicates")
         self.deduplicated_output_path = (
-            None if not self.perform_removal else os.path.join(self.output_path, "deduplicated")
+            None if not self.perform_removal else posixpath.join(self.output_path, "deduplicated")
         )
-        self.id_generator_state_file = os.path.join(self.output_path, "semantic_id_generator.json")
+        self.id_generator_state_file = posixpath.join(self.output_path, "semantic_id_generator.json")
 
         self._validate_config()
 
