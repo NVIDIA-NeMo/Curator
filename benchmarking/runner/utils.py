@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
+import pickle
 import re
 import subprocess
 from pathlib import Path
@@ -26,34 +28,43 @@ try:
 except ImportError:
     import logging as logger
 
+_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
-def get_obj_for_json(obj: object) -> str | int | float | bool | list | dict:
+
+def write_benchmark_results(results: dict, output_path: Path) -> None:
+    """Write results to the standard files expected by the benchmark framework.
+
+    This utility is typically used by developer-written benchmark scripts to write results
+    to the standard files expected by the benchmark framework.
     """
-    Recursively convert objects to Python primitives for JSON serialization.
-    Useful for objects like Path, sets, bytes, etc.
+    output_path.mkdir(parents=True, exist_ok=True)
+    if "params" in results:
+        (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
+    if "metrics" in results:
+        (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
+    if "tasks" in results:
+        (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+
+
+# TODO: This utility contains some special cases for Slack JSON messages used in the Slack sink.
+# Consider moving these special cases to the Slack sink itself.
+def get_obj_for_json(obj: object) -> object:
+    """
+    Convert common objects used in the benchmark framework to JSON-friendly primitives.
     """
     if isinstance(obj, dict):
         retval = {get_obj_for_json(k): get_obj_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, (list, tuple, set)):
         retval = [get_obj_for_json(item) for item in obj]
-    elif hasattr(obj, "as_posix"):  # Path objects
-        retval = obj.as_posix()
-    elif isinstance(obj, bytes):
-        retval = obj.decode("utf-8", errors="replace")
-    elif hasattr(obj, "to_json") and callable(obj.to_json):
-        retval = obj.to_json()
-    elif hasattr(obj, "__dict__"):
-        retval = get_obj_for_json(vars(obj))
-    elif obj is None:
+    elif isinstance(obj, Path):
+        retval = str(obj)
+    elif obj is None:  # special case for Slack: JSON null not allowed, convert to string
         retval = "null"
-    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack, empty strings not allowed
+    elif isinstance(obj, str) and len(obj) == 0:  # special case for Slack: empty strings not allowed
         retval = " "
     else:
         retval = obj
     return retval
-
-
-_env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
 
 def _replace_env_var(match: re.Match[str]) -> str:

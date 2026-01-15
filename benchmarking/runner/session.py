@@ -95,7 +95,7 @@ class Session:
         mc_data = {k: v for k, v in data.items() if k in mc_field_names}
         sinks = cls.create_sinks_from_dict(mc_data.get("sinks", []))
         # Load entries only if enabled (enabled by default)
-        # TODO: should entries be created unconditionally and have an "enabled" field instead?
+        # TODO: should entries be created unconditionally and use their "enabled" field instead?
         entries = [Entry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
 
         mc_data["results_path"] = path_resolver.resolve("results_path")
