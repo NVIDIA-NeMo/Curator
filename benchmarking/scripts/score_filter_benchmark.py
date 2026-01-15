@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -66,6 +66,7 @@ def run_score_filter_classification_benchmark(
     executor_name: str,
     benchmark_results_path: Path,
     yaml_config: Path,
+    overrides: str | None = None,
 ) -> dict[str, Any]:
     """Run the ScoreFilter benchmark and collect comprehensive metrics."""
 
@@ -87,11 +88,14 @@ def run_score_filter_classification_benchmark(
     logger.debug(f"Executor: {executor}")
 
     # Load YAML configuration and create pipeline
-    overrides = [
+    overrides_list = [
         f"input_path={input_path}",
         f"output_path={output_path}",
     ]
-    cfg = load_hydra_yaml(yaml_config, overrides)
+    if overrides is not None:
+        overrides_list.extend(overrides.split(","))
+
+    cfg = load_hydra_yaml(yaml_config, overrides_list)
     pipeline = create_pipeline_from_yaml(cfg)
 
     run_start_time = time.perf_counter()
@@ -159,6 +163,8 @@ def main() -> int:
     parser.add_argument(
         "--yaml-config", required=True, type=Path, help="Path to YAML file containing pipeline configuration"
     )
+    # example: --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,stages.0.files_per_partition=10"
+    parser.add_argument("--overrides", type=str, help="Overrides to pass to the YAML configuration")
 
     args = parser.parse_args()
 
@@ -172,6 +178,7 @@ def main() -> int:
             executor_name=args.executor,
             benchmark_results_path=args.benchmark_results_path,
             yaml_config=args.yaml_config,
+            overrides=args.overrides,
         )
 
     except Exception as e:  # noqa: BLE001
