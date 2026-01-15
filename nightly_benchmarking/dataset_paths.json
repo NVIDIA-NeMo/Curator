@@ -1,0 +1,14 @@
+{
+  "sample": {
+    "json": "/tmp/sample_data.json",
+    "parquet": "/tmp/sample_data.parquet"
+  },
+  "tinystories": {
+    "json": "/raid/prospector-lm/clean/tinystories_train",
+    "parquet": "/raid/prospector-lm/clean/tinystories_train_parquet"
+  },
+  "cleaned_cc": {
+    "jsonl": "/raid/prospector-lm/cleaned_exact_dedup_all_cc/",
+    "parquet": "/raid/prospector-lm/cleaned_exact_dedup_all_cc_parquet/"
+  }
+}
