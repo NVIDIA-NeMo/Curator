@@ -15,7 +15,6 @@
 # ruff: noqa: S101  # Allow asserts in this script
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -31,11 +30,7 @@ from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
-# Import benchmarking utils which are currently only available directly from the Curator source tree.
-# __file__ is expected to be <curator repo>/benchmarking/scripts/audio_fleurs_benchmark.py
-_repo_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_repo_dir))
-from benchmarking.runner.utils import write_benchmark_results  # noqa: E402
+from utils import write_benchmark_results
 
 
 def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
