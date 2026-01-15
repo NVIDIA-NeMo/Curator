@@ -116,7 +116,7 @@ class Entry:
             # Using the Path "/" operator means that if script is an abs path here then
             # self.script_base_path will be ignored automatically.
             script_path = self.script_base_path / script
-            cmd = f"python -Xfrozen_modules=off {script_path} {self.args or ''}"
+            cmd = f"python {script_path} {self.args or ''}"
 
             cmd = self.substitute_reserved_placeholders(cmd, session_entry_path, dataset_resolver)
             cmd = self.substitute_container_or_host_paths(cmd, path_resolver, allow_other_placeholders=False)
