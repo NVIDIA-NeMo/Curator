@@ -179,6 +179,36 @@ entries:
       --blocksize=1.5GiB
     timeout_s: 20000
 
+  - name: score_filter_raydata
+    enabled: true
+    script: score_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
+    timeout_s: 20000
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: score_filter_xenna
+    enabled: true
+    script: score_filter_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --executor=xenna
+      --input-path={dataset:tinystories,parquet}
+      --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
+      --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
+    timeout_s: 20000
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
   - name: image_curation
     enabled: true
     script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
