@@ -13,3 +13,5 @@ Additionally, the tutorial uses the [GLiNER](https://github.com/urchade/GLiNER) 
 ```bash
 uv pip install gliner
 ```
+
+For reference, this tutorial was tested with `gliner==0.2.24`.
