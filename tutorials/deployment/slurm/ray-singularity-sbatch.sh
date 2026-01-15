@@ -60,7 +60,7 @@ fi
 : "${IMAGE:=/path/to/your-container-image.sif}"   # override to your .sif image
 
 # Base bind-mounts (comma-separated, Singularity/Apptainer style)
-: "${CONTAINER_MOUNTS:=$(pwd)}"
+: "${CONTAINER_MOUNTS:="$(pwd)"}"
 
 # Scratch / temporary directories (default under $PWD, override to $SCRATCH, /tmp, etc.)
 : "${SCRATCH_ROOT:=${SCRATCH:-$(pwd)}}"
@@ -134,7 +134,7 @@ WORKER_CONTAINER_MOUNTS="${CONTAINER_MOUNTS}"
 ########################################################
 export PYTHONNOUSERSITE=1
 export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
-export PYTHONPATH="${PYTHONPATH:-$(pwd)}"
+export PYTHONPATH="${PYTHONPATH:-"$(pwd)"}"
 export HF_HOME
 export HF_HUB_OFFLINE
 export OMP_NUM_THREADS="${NUM_CPUS_PER_NODE}"
