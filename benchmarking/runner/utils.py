@@ -31,17 +31,18 @@ except ImportError:
 _env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
 
 
-def write_benchmark_results(results: dict, output_path: Path) -> None:
+def write_benchmark_results(results: dict, output_path: str | Path) -> None:
     """Write results to the standard files expected by the benchmark framework.
 
     This utility is typically used by developer-written benchmark scripts to write results
     to the standard files expected by the benchmark framework.
     """
+    output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
     if "params" in results:
-        (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
+        (output_path / "params.json").write_text(json.dumps(results["params"], default=get_obj_for_json, indent=2))
     if "metrics" in results:
-        (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
+        (output_path / "metrics.json").write_text(json.dumps(results["metrics"], default=get_obj_for_json, indent=2))
     if "tasks" in results:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 

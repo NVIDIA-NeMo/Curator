@@ -226,7 +226,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -242,6 +242,21 @@ def main() -> int:
         "--session-name",
         default=None,
         help=("Optional human-readable session name. Default is benchmark-run__<timestamp>."),
+    )
+    parser.add_argument(
+        "--entries",
+        default=None,
+        help=(
+            "Expression to filter entries to run. Example: 'foo and not foobar' will include "
+            "all entries with 'foo' in the name but not 'foobar'. If not specified, all "
+            "enabled entries will be run."
+        ),
+    )
+    parser.add_argument(
+        "--list",
+        default=False,
+        action="store_true",
+        help="List entries to run and exit.",
     )
     args = parser.parse_args()
 
@@ -260,7 +275,12 @@ def main() -> int:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    session = Session.create_from_dict(config_dict)
+    session = Session.create_from_dict(config_dict, args.entries)
+
+    if args.list:
+        for entry in session.entries:
+            logger.info(f"\t{entry.name}")
+        return 0
 
     # Create session folder under results_dir
     session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")

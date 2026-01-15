@@ -12,16 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Removal logic benchmarking script for nightly benchmarking framework.
-
-This script runs removal benchmarks with comprehensive metrics collection
-using TaskPerfUtils and logs results to configured sinks.
-"""
+"""Duplicates removal benchmarking script for nightly benchmarking framework."""
 
 import argparse
-import json
-import os
-import pickle
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -32,12 +26,18 @@ from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 from nemo_curator.tasks import EmptyTask
 
+# Import benchmarking utils which are currently only available directly from the Curator source tree.
+# __file__ is expected to be <curator repo>/benchmarking/scripts/audio_fleurs_benchmark.py
+_repo_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_repo_dir))
+from benchmarking.runner.utils import write_benchmark_results  # noqa: E402
+
 
 def run_removal_benchmark(  # noqa: PLR0913
     input_path: str,
     ids_to_remove_path: str,
     output_path: str,
-    executor_name: str,
+    executor: str,
     input_filetype: str = "jsonl",
     output_filetype: str = "parquet",
     id_field: str = "_curator_dedup_id",
@@ -48,25 +48,26 @@ def run_removal_benchmark(  # noqa: PLR0913
     use_initial_tasks: bool = False,
     limit: int | None = None,
     use_ray_data_settings: bool = False,
+    **kwargs,  # noqa: ARG001
 ) -> dict[str, Any]:
     """Run the removal benchmark and collect comprehensive metrics."""
 
     # Setup executor
-    if executor_name == "ray_data":
+    if executor == "ray_data":
         from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
-        executor = RayDataExecutor()
+        executor_obj = RayDataExecutor()
         if use_ray_data_settings:
             from ray.data import DataContext
 
             DataContext.get_current().target_max_block_size = 1
 
-    elif executor_name == "xenna":
+    elif executor == "xenna":
         from nemo_curator.backends.xenna import XennaExecutor
 
-        executor = XennaExecutor()
+        executor_obj = XennaExecutor()
     else:
-        msg = f"Executor {executor_name} not supported"
+        msg = f"Executor {executor} not supported"
         raise ValueError(msg)
 
     # Ensure output directory
@@ -75,108 +76,74 @@ def run_removal_benchmark(  # noqa: PLR0913
     logger.info("Starting removal benchmark")
     run_start_time = time.perf_counter()
 
-    try:
-        # Validate partitioning: exactly one of files_per_partition or blocksize must be provided
-        if (files_per_partition is None) == (blocksize is None):
-            msg = "Exactly one of --files-per-partition or --blocksize must be provided"
-            raise ValueError(msg)  # noqa: TRY301
+    # Validate partitioning: exactly one of files_per_partition or blocksize must be provided
+    if (files_per_partition is None) == (blocksize is None):
+        msg = "Exactly one of --files-per-partition or --blocksize must be provided"
+        raise ValueError(msg)
 
-        # Create and run workflow-backed pipeline
-        workflow = TextDuplicatesRemovalWorkflow(
-            input_path=input_path,
-            ids_to_remove_path=ids_to_remove_path,
-            output_path=output_path,
-            input_filetype=input_filetype,  # jsonl or parquet
-            input_id_field=id_field,
-            input_files_per_partition=files_per_partition,
-            input_blocksize=blocksize,
-            input_task_limit=limit,
-            ids_to_remove_duplicate_id_field=duplicate_id_field,
-            output_filetype=output_filetype,
-            id_generator_path=id_generator_path,
-            input_kwargs={},
-            output_kwargs={},
+    # Create and run workflow-backed pipeline
+    workflow = TextDuplicatesRemovalWorkflow(
+        input_path=input_path,
+        ids_to_remove_path=ids_to_remove_path,
+        output_path=output_path,
+        input_filetype=input_filetype,  # jsonl or parquet
+        input_id_field=id_field,
+        input_files_per_partition=files_per_partition,
+        input_blocksize=blocksize,
+        input_task_limit=limit,
+        ids_to_remove_duplicate_id_field=duplicate_id_field,
+        output_filetype=output_filetype,
+        id_generator_path=id_generator_path,
+        input_kwargs={},
+        output_kwargs={},
+    )
+
+    initial_tasks = None
+    if use_initial_tasks:
+        logger.info("Using initial tasks produced by FilePartitioningStage on driver")
+        partitioner = FilePartitioningStage(
+            file_paths=input_path,
+            files_per_partition=files_per_partition,
+            blocksize=blocksize,
+            file_extensions=[".jsonl", ".json", ".parquet"],
+            storage_options=None,
         )
+        initial_tasks = partitioner.process(EmptyTask)
+        log_msg = f"Initial tasks: {len(initial_tasks)}"
+        if limit:
+            initial_tasks = initial_tasks[:limit]
+            log_msg += f" (limited to {limit})"
+        logger.info(log_msg)
 
-        initial_tasks = None
-        if use_initial_tasks:
-            logger.info("Using initial tasks produced by FilePartitioningStage on driver")
-            partitioner = FilePartitioningStage(
-                file_paths=input_path,
-                files_per_partition=files_per_partition,
-                blocksize=blocksize,
-                file_extensions=[".jsonl", ".json", ".parquet"],
-                storage_options=None,
-            )
-            initial_tasks = partitioner.process(EmptyTask)
-            log_msg = f"Initial tasks: {len(initial_tasks)}"
-            if limit:
-                initial_tasks = initial_tasks[:limit]
-                log_msg += f" (limited to {limit})"
-            logger.info(log_msg)
+    # Run the workflow, extract metrics from the WorkflowRunResult object
+    workflow_run_result = workflow.run(executor_obj, initial_tasks=initial_tasks)
 
-        output_tasks = workflow.run(executor, initial_tasks=initial_tasks)
-        run_time_taken = time.perf_counter() - run_start_time
+    run_time_taken = time.perf_counter() - run_start_time
+    num_removed = workflow_run_result.get_metadata("num_duplicates_removed") or 0
+    num_output_tasks = len(workflow_run_result.pipeline_tasks)
 
-        # Calculate removal statistics
-        num_removed = sum(task._metadata.get("num_removed", 0) for task in output_tasks if hasattr(task, "_metadata"))
-        logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_removed} documents")
-        success = True
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"Benchmark failed: {e}")
-        output_tasks = []
-        run_time_taken = time.perf_counter() - run_start_time
-        num_removed = 0
-        success = False
+    logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_removed} documents")
 
     return {
-        "params": {
-            "executor": executor_name,
-            "input_path": input_path,
-            "input_filetype": input_filetype,
-            "ids_to_remove_path": ids_to_remove_path,
-            "output_filetype": output_filetype,
-            "id_field": id_field,
-            "duplicate_id_field": duplicate_id_field,
-            "files_per_partition": files_per_partition,
-            "blocksize": blocksize,
-            "id_generator_path": id_generator_path,
-            "use_initial_tasks": use_initial_tasks,
-            "limit": limit,
-        },
         "metrics": {
-            "is_success": success,
+            "is_success": True,
             "time_taken": run_time_taken,
             "num_removed": num_removed,
-            "num_output_tasks": len(output_tasks),
+            "num_output_tasks": num_output_tasks,
         },
-        "tasks": output_tasks,
+        "tasks": workflow_run_result,
     }
-
-
-def write_results(results: dict, output_path: str | None = None) -> None:
-    """Write results to a file or stdout."""
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(os.path.join(output_path, "params.json"), "w") as f:
-        json.dump(results["params"], f, indent=2)
-    with open(os.path.join(output_path, "metrics.json"), "w") as f:
-        json.dump(results["metrics"], f, indent=2)
-    with open(os.path.join(output_path, "tasks.pkl"), "wb") as f:
-        pickle.dump(results["tasks"], f)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Removal logic benchmark for nightly benchmarking")
-    # Paths
+    parser.add_argument("--benchmark-results-path", type=str, required=True, help="Path to benchmark results")
+    parser.add_argument("--input-path", type=str, required=True, help="Path to input data")
     parser.add_argument(
-        "--benchmark-results-path", required=True, help="Path to benchmark results"
-    )  # we should write params.json / metrics.json / tasks.pkl here
-    parser.add_argument("--input-path", required=True, help="Path to input data")
-    parser.add_argument("--ids-to-remove-path", required=True, help="Path to parquet file with IDs to remove")
-    parser.add_argument("--output-path", required=True, help="Output directory for results")
-    # Executor
+        "--ids-to-remove-path", type=str, required=True, help="Path to parquet file with IDs to remove"
+    )
+    parser.add_argument("--output-path", type=str, required=True, help="Output directory for results")
     parser.add_argument("--executor", default="xenna", choices=["xenna", "ray_data"], help="Executor to use")
-    # Pipeline Specific
     parser.add_argument("--input-filetype", default="jsonl", choices=["jsonl", "parquet"], help="Input filetype")
     parser.add_argument("--output-filetype", default="parquet", choices=["parquet", "jsonl"], help="Output filetype")
     parser.add_argument("--id-field", default="_curator_dedup_id", help="ID field in input data")
@@ -207,38 +174,22 @@ def main() -> int:
     logger.info("=== Removal Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
+    success_code = 1  # assume failure until benchmark succeeds
+
+    # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
+    result_dict = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
     try:
-        results = run_removal_benchmark(
-            input_path=args.input_path,
-            ids_to_remove_path=args.ids_to_remove_path,
-            output_path=args.output_path,
-            executor_name=args.executor,
-            input_filetype=args.input_filetype,
-            output_filetype=args.output_filetype,
-            id_field=args.id_field,
-            duplicate_id_field=args.duplicate_id_field,
-            files_per_partition=args.files_per_partition,
-            blocksize=args.blocksize,
-            id_generator_path=args.id_generator_path,
-            use_initial_tasks=args.use_initial_tasks,
-            limit=args.limit,
-            use_ray_data_settings=args.use_ray_data_settings,
-        )
-
-    except Exception as e:  # noqa: BLE001
-        print(f"Benchmark failed: {e}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
+        result_dict.update(run_removal_benchmark(**vars(args)))
+        success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
-        write_results(results, args.benchmark_results_path)
-
-    # Return proper exit code based on success
-    return 0 if results["metrics"]["is_success"] else 1
+        write_benchmark_results(result_dict, args.benchmark_results_path)
+    return success_code
 
 
 if __name__ == "__main__":
