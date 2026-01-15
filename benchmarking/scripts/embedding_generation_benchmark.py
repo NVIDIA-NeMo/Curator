@@ -48,6 +48,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     model_identifier: str,
     model_inference_batch_size: int,
     benchmark_results_path: Path,
+    use_id_generator: bool,
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
 
@@ -68,6 +69,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     logger.info(f"Dataset size: {dataset_size_gb} GB")
     logger.info(f"Model: {model_identifier}")
     logger.info(f"Batch size: {model_inference_batch_size}")
+    logger.info(f"Use ID generator: {use_id_generator}")
     logger.debug(f"Executor: {executor}")
 
     run_start_time = time.perf_counter()
@@ -82,7 +84,9 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         pipeline = Pipeline(
             name="embedding_generation_pipeline",
             stages=[
-                ParquetReader(file_paths=input_files, files_per_partition=1, fields=["text"], _generate_ids=False),
+                ParquetReader(
+                    file_paths=input_files, files_per_partition=20, fields=["text"], _generate_ids=use_id_generator
+                ),
                 EmbeddingCreatorStage(
                     model_identifier=model_identifier,
                     text_field="text",
@@ -95,7 +99,14 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
             ],
         )
 
-        output_tasks = pipeline.run(executor)
+        from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor, kill_id_generator_actor
+
+        if use_id_generator:
+            create_id_generator_actor()
+            output_tasks = pipeline.run(executor)
+            kill_id_generator_actor()
+        else:
+            output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
         # task._metadata is a dictionary of metadata for the task, but will not be used here.
@@ -188,6 +199,7 @@ def main() -> int:
         help="Model identifier (e.g., sentence-transformers/all-MiniLM-L6-v2)",
     )
     parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
+    parser.add_argument("--use-id-generator", action="store_true", help="If set, use the ID generator")
 
     args = parser.parse_args()
 
@@ -203,6 +215,7 @@ def main() -> int:
             model_identifier=args.model_identifier,
             model_inference_batch_size=args.model_inference_batch_size,
             benchmark_results_path=args.benchmark_results_path,
+            use_id_generator=args.use_id_generator,
         )
 
     except Exception as e:  # noqa: BLE001

@@ -16,6 +16,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from huggingface_hub import snapshot_download
+from loguru import logger
 from vllm import LLM
 
 from nemo_curator.backends.base import NodeInfo, WorkerMetadata
@@ -62,6 +63,10 @@ class VLLMEmbeddingModelStage(ProcessingStage[DocumentBatch, DocumentBatch]):
             gpus=1,
         )
         self.name = format_name_with_suffix(model_identifier, suffix="_vllm")
+
+        if "all-MiniLM-L6-v2" in self.model_identifier:
+            msg = "Using all-MiniLM-L6-v2 model. This model is slower when using vLLM, we recommend trying EmbeddingModelStage. If you wish to use vLLM please set pretokenize=True for better perf."
+            logger.warning(msg)
 
     def inputs(self) -> tuple[list[str], list[str]]:
         return ["data"], [self.text_field]
