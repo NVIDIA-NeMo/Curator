@@ -195,3 +195,15 @@ entries:
       --nsfw-threshold 0.9
       --skip-download
       --verbose
+
+  - name: audio_fleurs
+    enabled: true
+    script: audio_fleurs_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --scratch-output-path={session_entry_dir}/scratch
+      --model-name=nvidia/stt_hy_fastconformer_hybrid_large_pc
+      --lang=hy_am
+      --split=dev
+      --wer-threshold=5.5
+      --gpus=1
