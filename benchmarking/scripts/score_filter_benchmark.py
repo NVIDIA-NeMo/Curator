@@ -60,7 +60,7 @@ def create_pipeline_from_yaml(cfg: DictConfig) -> Pipeline:
     return pipeline
 
 
-def run_score_filter_classification_benchmark(
+def run_score_filter_classification_benchmark(  # noqa: PLR0913
     input_path: Path,
     output_path: Path,
     executor_name: str,
@@ -163,7 +163,7 @@ def main() -> int:
     parser.add_argument(
         "--yaml-config", required=True, type=Path, help="Path to YAML file containing pipeline configuration"
     )
-    # example: --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,stages.0.files_per_partition=10"
+    # example: --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader,stages.0.files_per_partition=10"  # noqa: ERA001
     parser.add_argument("--overrides", type=str, help="Overrides to pass to the YAML configuration")
 
     args = parser.parse_args()
