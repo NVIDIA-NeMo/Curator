@@ -96,12 +96,13 @@ def run_score_filter_classification_benchmark(  # noqa: PLR0913
         output_tasks = pipeline.run(executor)
         run_time_taken = time.perf_counter() - run_start_time
 
-        # task._metadata is a dictionary of metadata for the task, but will not be used here.
-        # Instead simply use the num_items property of the task to get the number of documents processed.
-        num_documents_processed = sum(task.num_items for task in output_tasks)
+        # _stage_perf[0] is the file partitioning stage, so _stage_perf[1] is the file reading stage
+        num_documents_processed = sum(task._stage_perf[1].num_items_processed for task in output_tasks)
+        num_kept_documents = sum(task._stage_perf[-1].num_items_processed for task in output_tasks)
 
         logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
-        logger.success(f"Processed {num_documents_processed} documents")
+        logger.success(f"Processed {num_documents_processed} rows (documents)")
+        logger.success(f"Kept {num_kept_documents} out of {num_documents_processed} rows (documents)")
         success = True
 
     except Exception as e:  # noqa: BLE001
@@ -111,6 +112,7 @@ def run_score_filter_classification_benchmark(  # noqa: PLR0913
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
+        num_kept_documents = 0
         success = False
 
     return {
@@ -124,6 +126,7 @@ def run_score_filter_classification_benchmark(  # noqa: PLR0913
             "is_success": success,
             "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
+            "num_kept_documents": num_kept_documents,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
         },
