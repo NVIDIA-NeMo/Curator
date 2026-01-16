@@ -252,6 +252,15 @@ entries:
       num_cpus: 64
       num_gpus: 0
       enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_documents_processed
+        min_value: 2119489
+        max_value: 2119489
+    # account for stochastic filters
+      - metric: num_kept_documents
+        min_value: 2090470
+        max_value: 2090490
 
   - name: score_filter_xenna
     enabled: true
@@ -267,6 +276,15 @@ entries:
       num_cpus: 64
       num_gpus: 0
       enable_object_spilling: false
+    requirements:
+      # ensure the total number of documents processed is correct
+      - metric: num_documents_processed
+        min_value: 2119489
+        max_value: 2119489
+    # account for stochastic filters
+      - metric: num_kept_documents
+        min_value: 2090470
+        max_value: 2090490
 
   - name: image_curation
     enabled: true
