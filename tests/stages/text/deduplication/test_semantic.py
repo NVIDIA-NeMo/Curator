@@ -116,6 +116,8 @@ class TestTextSemanticDeduplicationWorkflow:
             output_path=str(request.cls.output_dir),
             cache_path=str(request.cls.cache_dir),
             perform_removal=True,
+            # we purposely use miniLM instead of embeddinggemma since embeddinggemma requires login to hf
+            model_identifier="sentence-transformers/all-MiniLM-L6-v2",
             n_clusters=3,  # Use fewer clusters to group similar documents
             eps=0.1,  # Set epsilon to identify duplicates
             which_to_keep="hard",  # Keep harder examples (less similar to others)
