@@ -22,6 +22,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+# Use pytest's expression eval code to support "-k" style matching.
+# TODO: This adds a dependency on a pytest internal module.
+#       Consider vendoring the pytest code or implementing a custom expression evaluator.
+from _pytest.mark import Expression
 from loguru import logger
 
 if TYPE_CHECKING:
@@ -78,7 +82,7 @@ class Session:
             raise ValueError(msg)
 
     @classmethod
-    def create_from_dict(cls, data: dict) -> Session:
+    def create_from_dict(cls, data: dict, entry_filter_expr: str | None = None) -> Session:
         """
         Factory method to create a Session from a dictionary.
 
@@ -91,20 +95,36 @@ class Session:
         dataset_resolver = DatasetResolver(data.get("datasets", []))
 
         # Filter out data not needed for a Session object.
-        mc_field_names = {f.name for f in fields(cls)}
-        mc_data = {k: v for k, v in data.items() if k in mc_field_names}
-        sinks = cls.create_sinks_from_dict(mc_data.get("sinks", []))
+        sess_field_names = {f.name for f in fields(cls)}
+        sess_data = {k: v for k, v in data.items() if k in sess_field_names}
+        sinks = cls.create_sinks_from_dict(sess_data.get("sinks", []))
+
         # Load entries only if enabled (enabled by default)
         # TODO: should entries be created unconditionally and use their "enabled" field instead?
-        entries = [Entry(**e) for e in mc_data["entries"] if e.get("enabled", True)]
+        entries = [Entry(**e) for e in sess_data["entries"] if e.get("enabled", True)]
 
-        mc_data["results_path"] = path_resolver.resolve("results_path")
-        mc_data["entries"] = entries
-        mc_data["sinks"] = sinks
-        mc_data["path_resolver"] = path_resolver
-        mc_data["dataset_resolver"] = dataset_resolver
+        # Filter entries based on the expression, if provided.
+        # Example: expr "foo and not foobar" will include all entries
+        # with "foo" in the name but not "foobar".
+        if entry_filter_expr is not None:
+            filtered_entries = []
+            expr = Expression.compile(entry_filter_expr)
+            for entry in entries:
 
-        return cls(**mc_data)
+                def matcher(subname_in_expr: str, entry: Entry = entry) -> bool:
+                    return subname_in_expr in entry.name.lower()
+
+                if expr.evaluate(matcher):
+                    filtered_entries.append(entry)
+            entries = filtered_entries
+
+        sess_data["results_path"] = path_resolver.resolve("results_path")
+        sess_data["entries"] = entries
+        sess_data["sinks"] = sinks
+        sess_data["path_resolver"] = path_resolver
+        sess_data["dataset_resolver"] = dataset_resolver
+
+        return cls(**sess_data)
 
     @classmethod
     def create_sinks_from_dict(cls, sink_configs: list[dict]) -> list[Sink]:

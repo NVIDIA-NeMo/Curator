@@ -52,17 +52,45 @@ def load_dataset_files(dataset_path: Path, dataset_size_gb: float, keep_extensio
     return subset_files
 
 
-def write_benchmark_results(results: dict, output_path: Path | str) -> None:
-    """Write results to the standard files expected by the benchmark framework.
+def write_benchmark_results(results: dict, output_path: str | Path) -> None:
+    """Write benchmark results (params, metrics, tasks) to the appropriate files in the output directory.
 
-    This utility is typically used by developer-written benchmark scripts to write results
-    to the standard files expected by the benchmark framework.
+    - Writes 'params.json' and 'metrics.json' (merging with existing file contents if present and updating values).
+    - Writes 'tasks.pkl' as a pickle file if present in results.
+    - The output directory is created if it does not exist.
+
+    Typically used by benchmark scripts to persist results in the format expected by the benchmarking framework.
     """
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
     if "params" in results:
-        (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
+        params_path = output_path / "params.json"
+        params_data = {}
+        if params_path.exists():
+            params_data = json.loads(params_path.read_text())
+        params_data.update(results["params"])
+        params_path.write_text(json.dumps(params_data, default=convert_paths_to_strings, indent=2))
     if "metrics" in results:
-        (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
+        metrics_path = output_path / "metrics.json"
+        metrics_data = {}
+        if metrics_path.exists():
+            metrics_data = json.loads(metrics_path.read_text())
+        metrics_data.update(results["metrics"])
+        metrics_path.write_text(json.dumps(metrics_data, default=convert_paths_to_strings, indent=2))
     if "tasks" in results:
         (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
+
+
+def convert_paths_to_strings(obj: object) -> object:
+    """
+    Convert Path objects to strings, support conversions in container types in a recursive manner.
+    """
+    if isinstance(obj, dict):
+        retval = {convert_paths_to_strings(k): convert_paths_to_strings(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple, set)):
+        retval = [convert_paths_to_strings(item) for item in obj]
+    elif isinstance(obj, Path):
+        retval = str(obj)
+    else:
+        retval = obj
+    return retval
