@@ -94,7 +94,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     return {
         "metrics": {
             "is_success": True,
-            "time_taken": run_time_taken,
+            "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             "throughput_docs_per_sec": throughput_docs_per_sec,
         },

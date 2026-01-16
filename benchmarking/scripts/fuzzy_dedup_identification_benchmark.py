@@ -78,11 +78,11 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     connected_components_percent_time = None
     if workflow_total_time:
         if minhash_time is not None:
-            minhash_percent_time = minhash_time / workflow_total_time
+            minhash_percent_time = round((minhash_time / workflow_total_time) * 100, 2)
         if lsh_time is not None:
-            lsh_percent_time = lsh_time / workflow_total_time
+            lsh_percent_time = round((lsh_time / workflow_total_time) * 100, 2)
         if connected_components_time is not None:
-            connected_components_percent_time = connected_components_time / workflow_total_time
+            connected_components_percent_time = round((connected_components_time / workflow_total_time) * 100, 2)
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
 
@@ -95,9 +95,9 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
             "lsh_time": lsh_time,
             "connected_components_time": connected_components_time,
             "num_duplicates": num_duplicates,
-            "minhash_percent_time": round(minhash_percent_time * 100, 2),
-            "lsh_percent_time": round(lsh_percent_time * 100, 2),
-            "connected_components_percent_time": round(connected_components_percent_time * 100, 2),
+            "minhash_percent_time": minhash_percent_time,
+            "lsh_percent_time": lsh_percent_time,
+            "connected_components_percent_time": connected_components_percent_time,
         },
         "tasks": workflow_run_result,
     }
