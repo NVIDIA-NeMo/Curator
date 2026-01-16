@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,24 +20,18 @@ using various executors and logs results to configured sinks.
 # ruff: noqa: ERA001
 
 import argparse
-import json
-import pickle
 import time
 import traceback
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import load_dataset_files, setup_executor, write_benchmark_results
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
-
-_executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
 
 
 def run_embedding_generation_benchmark(  # noqa: PLR0913
@@ -51,12 +45,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
 
-    # Setup executor
-    try:
-        executor = _executor_map[executor_name]()
-    except KeyError:
-        msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg) from None
+    executor = setup_executor(executor_name)
 
     # Ensure output directory
     output_path = output_path.absolute()
@@ -76,8 +65,6 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         logger.info("Running embedding generation pipeline...")
 
         input_files = load_dataset_files(input_path, dataset_size_gb)
-
-        executor = RayDataExecutor() if executor_name == "ray_data" else XennaExecutor()
 
         pipeline = Pipeline(
             name="embedding_generation_pipeline",
@@ -131,7 +118,7 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         },
         "metrics": {
             "is_success": success,
-            "time_taken": run_time_taken,
+            "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             # "num_embeddings_generated": num_embeddings_generated,
             # "embedding_dimension": embedding_dimension,
@@ -141,32 +128,6 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         },
         "tasks": output_tasks,
     }
-
-
-def write_results(results: dict[str, Any], output_path: Path) -> None:
-    """Write results to files required by the benchmarking framework at the given path."""
-    output_path.mkdir(parents=True, exist_ok=True)
-    (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
-    (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
-    (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
-
-
-def load_dataset_files(dataset_path: Path, dataset_size_gb: float) -> list[str]:
-    """Load the dataset files at the given path and return a subset of the files whose combined size is approximately the given size in GB."""
-    input_files = get_all_file_paths_and_size_under(
-        dataset_path, recurse_subdirectories=True, keep_extensions="parquet"
-    )
-    desired_size_bytes = (1024**3) * dataset_size_gb
-    total_size = 0
-    subset_files = []
-    for file, size in input_files:
-        if size + total_size > desired_size_bytes:
-            break
-        else:
-            subset_files.append(file)
-            total_size += size
-
-    return subset_files
 
 
 def main() -> int:
@@ -217,7 +178,7 @@ def main() -> int:
             "tasks": [],
         }
     finally:
-        write_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path)
 
     # Return proper exit code based on success
     return 0 if results["metrics"]["is_success"] else 1
