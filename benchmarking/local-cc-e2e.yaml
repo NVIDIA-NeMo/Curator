@@ -1,0 +1,35 @@
+# Local paths (update these to your environment)
+results_path: /raid/vjawa/benchmark_results
+datasets_path: /raid/vjawa/datasets
+
+
+# Optional global settings
+default_timeout_s: 7200
+delete_scratch: true
+
+
+# No sinks needed for local testing
+sinks: []
+
+# No datasets needed since cc_e2e uses Common Crawl download
+datasets: []
+
+entries:
+  - name: cc_e2e_pipeline_local
+    enabled: true
+    script: cc_e2e_pipeline_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --fasttext_model_path=/raid/vjawa/models/lid.176.bin
+      --download_path={session_entry_dir}/scratch/downloads
+      --output_path={session_entry_dir}/scratch/output
+      --snapshot=2024-30
+      --url_limit=1
+      --record_limit=100
+      --executor=ray_data
+    timeout_s: 3600
+    ray:
+      num_cpus: 4
+      num_gpus: 0
+      enable_object_spilling: false
+    object_store_size_bytes: 11474836480
