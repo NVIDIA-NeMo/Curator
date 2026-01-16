@@ -13,9 +13,9 @@
 # limitations under the License.
 
 from cosmos_xenna.pipelines import v1 as pipelines_v1
-from cosmos_xenna.pipelines.private.resources import NodeInfo as XennaNodeInfo
-from cosmos_xenna.pipelines.private.resources import Resources as XennaResources
-from cosmos_xenna.pipelines.private.resources import WorkerMetadata as XennaWorkerMetadata
+from cosmos_xenna.ray_utils.resources import NodeInfo as XennaNodeInfo
+from cosmos_xenna.ray_utils.resources import Resources as XennaResources
+from cosmos_xenna.ray_utils.resources import WorkerMetadata as XennaWorkerMetadata
 from loguru import logger
 
 from nemo_curator.backends.base import BaseStageAdapter, NodeInfo, WorkerMetadata
@@ -44,6 +44,9 @@ class XennaStageAdapter(BaseStageAdapter, pipelines_v1.Stage):
         return XennaResources(
             cpus=self.processing_stage.resources.cpus,
             gpus=self.processing_stage.resources.gpus,
+            nvdecs=self.processing_stage.resources.nvdecs,
+            nvencs=self.processing_stage.resources.nvencs,
+            entire_gpu=self.processing_stage.resources.entire_gpu,
         )
 
     @property
