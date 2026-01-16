@@ -24,6 +24,7 @@ import json
 import pickle
 import time
 import traceback
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -32,12 +33,89 @@ from loguru import logger
 from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
 from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
 _executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
+_max_seq_length_map = {
+    "sentence-transformers/all-MiniLM-L6-v2": 256,
+    "google/embeddinggemma-300m": 2048,
+}
+
+
+class EmbeddingModelVariation(Enum):
+    # SentenceTransformer (default for nightly benchmarks)
+    SENTENCE_TRANSFORMER = "sentence_transformer"
+    PYTORCH_MODEL = "pytorch_model"
+
+    # VLLM variations
+    VLLM_TEXT = "vllm_text"
+    VLLM_TEXT_PRETOKENIZED = "vllm_text_pretokenized"
+
+
+def parse_partition_size(partition_size: str) -> dict[str, Any]:
+    """Parse partition size string into ParquetReader kwargs.
+
+    Args:
+        partition_size: Either ends with 'fpp' for files_per_partition (e.g., '1fpp')
+                       or a number for blocksize in MB (e.g., '128').
+
+    Returns:
+        Dictionary with either files_per_partition or blocksize kwarg.
+    """
+    if partition_size.endswith("fpp"):
+        return {"files_per_partition": int(partition_size[:-3]), "blocksize": None}
+    else:
+        return {"files_per_partition": None, "blocksize": f"{partition_size}MB"}
+
+
+def create_embedding_generation_pipeline(  # noqa: PLR0913
+    input_files: list[str],
+    output_path: Path,
+    model_identifier: str,
+    model_inference_batch_size: int,
+    model_variation: EmbeddingModelVariation,
+    partition_size: str,
+    use_id_generator: bool,
+) -> Pipeline:
+    if model_variation in {EmbeddingModelVariation.SENTENCE_TRANSFORMER, EmbeddingModelVariation.PYTORCH_MODEL}:
+        from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
+
+        embedding_stage = EmbeddingCreatorStage(
+            model_identifier=model_identifier,
+            use_sentence_transformer=model_variation is EmbeddingModelVariation.SENTENCE_TRANSFORMER,
+            text_field="text",
+            max_seq_length=_max_seq_length_map[model_identifier],
+            max_chars=None,
+            embedding_pooling="mean_pooling",
+            model_inference_batch_size=model_inference_batch_size,
+        )
+    elif model_variation in {EmbeddingModelVariation.VLLM_TEXT, EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED}:
+        from nemo_curator.stages.text.embedders.vllm import VLLMEmbeddingModelStage
+
+        embedding_stage = VLLMEmbeddingModelStage(
+            model_identifier=model_identifier,
+            text_field="text",
+            pretokenize=model_variation is EmbeddingModelVariation.VLLM_TEXT_PRETOKENIZED,
+        )
+    else:
+        msg = f"Unsupported model variation: {model_variation}"
+        raise ValueError(msg)
+
+    return Pipeline(
+        name="embedding_generation_pipeline",
+        stages=[
+            ParquetReader(
+                file_paths=input_files,
+                **parse_partition_size(partition_size),
+                fields=["text"],
+                _generate_ids=use_id_generator,
+            ),
+            embedding_stage,
+            ParquetWriter(path=str(output_path), fields=["embeddings"]),
+        ],
+    )
 
 
 def run_embedding_generation_benchmark(  # noqa: PLR0913
@@ -47,8 +125,9 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     dataset_size_gb: float,
     model_identifier: str,
     model_inference_batch_size: int,
-    benchmark_results_path: Path,
     use_id_generator: bool,
+    model_variation: EmbeddingModelVariation,
+    partition_size: str,
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
 
@@ -70,6 +149,8 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     logger.info(f"Model: {model_identifier}")
     logger.info(f"Batch size: {model_inference_batch_size}")
     logger.info(f"Use ID generator: {use_id_generator}")
+    logger.info(f"Model variation: {model_variation.name}")
+    logger.info(f"Partition size: {partition_size}")
     logger.debug(f"Executor: {executor}")
 
     run_start_time = time.perf_counter()
@@ -78,25 +159,14 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
         logger.info("Running embedding generation pipeline...")
 
         input_files = load_dataset_files(input_path, dataset_size_gb)
-
-        executor = RayDataExecutor() if executor_name == "ray_data" else XennaExecutor()
-
-        pipeline = Pipeline(
-            name="embedding_generation_pipeline",
-            stages=[
-                ParquetReader(
-                    file_paths=input_files, files_per_partition=20, fields=["text"], _generate_ids=use_id_generator
-                ),
-                EmbeddingCreatorStage(
-                    model_identifier=model_identifier,
-                    text_field="text",
-                    max_seq_length=None,
-                    max_chars=None,
-                    embedding_pooling="mean_pooling",
-                    model_inference_batch_size=model_inference_batch_size,
-                ),
-                ParquetWriter(path=str(output_path), fields=["embeddings"]),
-            ],
+        pipeline = create_embedding_generation_pipeline(
+            input_files=input_files,
+            output_path=output_path,
+            model_identifier=model_identifier,
+            model_inference_batch_size=model_inference_batch_size,
+            model_variation=model_variation,
+            partition_size=partition_size,
+            use_id_generator=use_id_generator,
         )
 
         from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor, kill_id_generator_actor
@@ -138,7 +208,9 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
             "dataset_size_gb": dataset_size_gb,
             "model_identifier": model_identifier,
             "model_inference_batch_size": model_inference_batch_size,
-            "benchmark_results_path": str(benchmark_results_path),
+            "model_variation": model_variation.value,
+            "partition_size": partition_size,
+            "use_id_generator": use_id_generator,
         },
         "metrics": {
             "is_success": success,
@@ -183,10 +255,12 @@ def load_dataset_files(dataset_path: Path, dataset_size_gb: float) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Embedding generation benchmark")
     # Paths
-    parser.add_argument("--benchmark-results-path", type=Path, required=True, help="Path to benchmark results")
     parser.add_argument("--input-path", required=True, type=Path, help="Path to input data")
     parser.add_argument(
-        "--output-path", default=Path("./embedding_generation_output"), type=Path, help="Output directory for results"
+        "--benchmark-results-path",
+        default=Path("./embedding_generation_output"),
+        type=Path,
+        help="Output directory for results",
     )
     # Executor
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
@@ -200,22 +274,38 @@ def main() -> int:
     )
     parser.add_argument("--model-inference-batch-size", type=int, default=1024, help="Batch size for model inference")
     parser.add_argument("--use-id-generator", action="store_true", help="If set, use the ID generator")
+    parser.add_argument(
+        "--partition-size",
+        type=str,
+        default="1fpp",
+        help="Partition size: ends with 'fpp' for files_per_partition (e.g., '1fpp') or number for MB blocksize (e.g., '128')",
+    )
+    parser.add_argument(
+        "--model-variation",
+        type=str,
+        default="sentence_transformer",
+        choices=[v.value for v in EmbeddingModelVariation],
+        help="Embedding model variation to use (default: sentence_transformer)",
+    )
 
     args = parser.parse_args()
 
     logger.info("=== Embedding Generation Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
-
+    if args.model_identifier not in _max_seq_length_map:
+        msg = f"Unknown model '{args.model_identifier}'. max_seq_length not set. "
+        raise ValueError(msg)
     try:
         results = run_embedding_generation_benchmark(
             input_path=args.input_path,
-            output_path=args.output_path,
+            output_path=args.benchmark_results_path,
             executor_name=args.executor,
             dataset_size_gb=args.dataset_size_gb,
             model_identifier=args.model_identifier,
             model_inference_batch_size=args.model_inference_batch_size,
-            benchmark_results_path=args.benchmark_results_path,
             use_id_generator=args.use_id_generator,
+            model_variation=EmbeddingModelVariation(args.model_variation),
+            partition_size=args.partition_size,
         )
 
     except Exception as e:  # noqa: BLE001
