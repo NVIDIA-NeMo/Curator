@@ -19,8 +19,6 @@ with comprehensive metrics collection using various executors and logs results t
 """
 
 import argparse
-import json
-import pickle
 import time
 import traceback
 from pathlib import Path
@@ -30,12 +28,9 @@ import hydra
 from hydra import compose, initialize_config_dir
 from loguru import logger
 from omegaconf import DictConfig
+from utils import setup_executor, write_benchmark_results
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
-
-_executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
 
 
 def load_hydra_yaml(config_path: Path, overrides: list[str] | None = None) -> DictConfig:
@@ -70,12 +65,7 @@ def run_score_filter_classification_benchmark(  # noqa: PLR0913
 ) -> dict[str, Any]:
     """Run the ScoreFilter benchmark and collect comprehensive metrics."""
 
-    # Setup executor
-    try:
-        executor = _executor_map[executor_name]()
-    except KeyError:
-        msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg) from None
+    executor = setup_executor(executor_name)
 
     input_path = input_path.absolute()
 
@@ -132,21 +122,13 @@ def run_score_filter_classification_benchmark(  # noqa: PLR0913
         },
         "metrics": {
             "is_success": success,
-            "time_taken": run_time_taken,
+            "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             "num_output_tasks": len(output_tasks),
             "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
         },
         "tasks": output_tasks,
     }
-
-
-def write_results(results: dict[str, Any], output_path: Path) -> None:
-    """Write results to files required by the benchmarking framework at the given path."""
-    output_path.mkdir(parents=True, exist_ok=True)
-    (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
-    (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
-    (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 
 
 def main() -> int:
@@ -193,7 +175,7 @@ def main() -> int:
             "tasks": [],
         }
     finally:
-        write_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path)
 
     # Return proper exit code based on success
     return 0 if results["metrics"]["is_success"] else 1
