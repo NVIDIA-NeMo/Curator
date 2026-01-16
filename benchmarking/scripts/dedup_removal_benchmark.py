@@ -25,6 +25,7 @@ from utils import write_benchmark_results
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 from nemo_curator.tasks import EmptyTask
+from nemo_curator.tasks.utils import TaskPerfUtils
 
 
 def run_removal_benchmark(  # noqa: PLR0913
@@ -117,12 +118,22 @@ def run_removal_benchmark(  # noqa: PLR0913
     num_duplicates_removed = workflow_run_result.get_metadata("num_duplicates_removed") or 0
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_duplicates_removed} duplicates")
+    # Measuring I/O time
+    task_metrics = {
+        k.replace("_process_time_mean", ""): v
+        for k, v in TaskPerfUtils.aggregate_task_metrics(workflow_run_result).items()
+        if k.endswith("_process_time_mean")
+    }
+    io_percentage = round(
+        (task_metrics["jsonl_reader"] + task_metrics["parquet_writer"]) * 100 / sum(task_metrics.values()), 2
+    )
 
     return {
         "metrics": {
             "is_success": True,
             "time_taken_s": run_time_taken,
             "num_duplicates_removed": num_duplicates_removed,
+            "io_percentage": io_percentage,
         },
         "tasks": workflow_run_result,
     }
