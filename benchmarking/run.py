@@ -20,12 +20,14 @@ import shutil
 import sys
 import time
 import traceback
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
 from loguru import logger
 
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
@@ -80,13 +82,11 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
     else:
         with open(tasks_pkl, "rb") as f:
             script_tasks = pickle.load(f)  # noqa: S301
-        if isinstance(script_tasks, list):
+        if isinstance(script_tasks, (list, WorkflowRunResult, Mapping)):
             script_metrics.update(TaskPerfUtils.aggregate_task_metrics(script_tasks, prefix="task"))
-        elif isinstance(script_tasks, dict):
-            for pipeline_name, pipeline_tasks in script_tasks.items():
-                script_metrics.update(
-                    TaskPerfUtils.aggregate_task_metrics(pipeline_tasks, prefix=pipeline_name.lower())
-                )
+        else:
+            msg = f"Invalid tasks type loaded from {tasks_pkl}: {type(script_tasks)}"
+            raise TypeError(msg)
 
     return {"params": script_params, "metrics": script_metrics}
 
@@ -148,8 +148,12 @@ def run_entry(
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs"]
     ]
     cmd = entry.get_command_to_run(session_entry_path, path_resolver, dataset_resolver)
+    stdouterr_path = logs_path / "stdouterr.log"
     run_id = result_data.get("run_id", f"{entry.name}-{int(time.time())}")
     ray_client = ray_temp_dir = None
+    ray_num_cpus = entry.ray.get("num_cpus", os.cpu_count() or 1)
+    ray_num_gpus = entry.ray.get("num_gpus", 0)
+    ray_enable_object_spilling = bool(entry.ray.get("enable_object_spilling", False))
 
     try:
         # Create subdirs individually
@@ -157,20 +161,36 @@ def run_entry(
             create_or_overwrite_dir(directory)
 
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
-            num_cpus=entry.ray.get("num_cpus", os.cpu_count() or 1),
-            num_gpus=entry.ray.get("num_gpus", 0),
-            enable_object_spilling=bool(entry.ray.get("enable_object_spilling", False)),
+            num_cpus=ray_num_cpus,
+            num_gpus=ray_num_gpus,
+            enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
             object_store_size_bytes=entry.object_store_size_bytes,
         )
 
+        # Prepopulate <session_entry_path>/params.json with entry params.
+        # These will be appended with the benchmark params by the benchmark script.
+        (session_entry_path / "params.json").write_text(
+            json.dumps(
+                {
+                    "object_store_size_bytes": entry.object_store_size_bytes,
+                    "ray_num_cpus": ray_num_cpus,
+                    "ray_num_gpus": ray_num_gpus,
+                    "ray_enable_object_spilling": ray_enable_object_spilling,
+                    "entry_timeout_s": entry.timeout_s,
+                },
+                default=get_obj_for_json,
+                indent=2,
+            )
+        )
+
         # Execute command with timeout
-        logger.info(f"\t\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+        logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
-            stdouterr_path=logs_path / "stdouterr.log",
+            stdouterr_path=stdouterr_path,
             run_id=run_id,
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
@@ -208,12 +228,13 @@ def run_entry(
             success = check_requirements_update_results(result_data, entry.requirements)
         else:
             success = False
-            logger.error(f"\t\t❌ Run Failed in {duration:.1f} seconds")
+            logger.error(f"\t❌ Run Failed in {duration:.1f} seconds")
             if run_data["timed_out"]:
-                logger.warning(f"\t\t⏰ Timed out after {entry.timeout_s}s")
+                logger.warning(f"\t⏰ Timed out after {entry.timeout_s}s")
+            logger.error(f"\t➡️  Full output here: {stdouterr_path}")
 
         result_data["success"] = success
-        logger.info(f"\t\tLogs found in {logs_path}")
+        logger.info(f"\tLogs found in {logs_path}")
         Path(session_entry_path / "results.json").write_text(json.dumps(get_obj_for_json(result_data)))
 
         return success

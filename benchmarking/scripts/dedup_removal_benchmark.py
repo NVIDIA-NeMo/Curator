@@ -119,16 +119,16 @@ def run_removal_benchmark(  # noqa: PLR0913
     workflow_run_result = workflow.run(executor_obj, initial_tasks=initial_tasks)
 
     run_time_taken = time.perf_counter() - run_start_time
-    num_removed = workflow_run_result.get_metadata("num_duplicates_removed") or 0
-    num_output_tasks = len(workflow_run_result.pipeline_tasks)
+    num_duplicates_removed = workflow_run_result.get_metadata("num_duplicates_removed") or 0
+    num_output_tasks = sum([len(tasks) for tasks in workflow_run_result.pipeline_tasks.values()])
 
-    logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_removed} documents")
+    logger.success(f"Benchmark completed in {run_time_taken:.2f}s, removed {num_duplicates_removed} duplicates")
 
     return {
         "metrics": {
             "is_success": True,
             "time_taken": run_time_taken,
-            "num_removed": num_removed,
+            "num_duplicates_removed": num_duplicates_removed,
             "num_output_tasks": num_output_tasks,
         },
         "tasks": workflow_run_result,
