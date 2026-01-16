@@ -22,7 +22,6 @@ This module contains the complete semantic deduplication workflow:
 
 import os
 import time
-import warnings
 from typing import Any, Literal
 
 import numpy as np
@@ -201,12 +200,10 @@ class SemanticDeduplicationWorkflow(WorkflowBase):
 
         # Warn if n_clusters is too small for large datasets
         if self.n_clusters < MIN_RECOMMENDED_N_CLUSTERS:
-            warnings.warn(
+            logger.warning(
                 f"n_clusters={self.n_clusters} is less than {MIN_RECOMMENDED_N_CLUSTERS}. "
                 "For large datasets, this may result in out-of-memory errors since "
-                f"each cluster must fit in memory. Consider using n_clusters >= {MIN_RECOMMENDED_N_CLUSTERS} for large datasets.",
-                UserWarning,
-                stacklevel=2,
+                f"each cluster must fit in memory. Consider using n_clusters >= {MIN_RECOMMENDED_N_CLUSTERS} for large datasets."
             )
 
         # Validate distance_metric
