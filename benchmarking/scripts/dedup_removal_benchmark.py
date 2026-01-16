@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,14 +19,12 @@ using TaskPerfUtils and logs results to configured sinks.
 """
 
 import argparse
-import json
-import os
-import pickle
 import time
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import write_benchmark_results
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
@@ -146,23 +144,12 @@ def run_removal_benchmark(  # noqa: PLR0913
         },
         "metrics": {
             "is_success": success,
-            "time_taken": run_time_taken,
+            "time_taken_s": run_time_taken,
             "num_removed": num_removed,
             "num_output_tasks": len(output_tasks),
         },
         "tasks": output_tasks,
     }
-
-
-def write_results(results: dict, output_path: str | None = None) -> None:
-    """Write results to a file or stdout."""
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(os.path.join(output_path, "params.json"), "w") as f:
-        json.dump(results["params"], f, indent=2)
-    with open(os.path.join(output_path, "metrics.json"), "w") as f:
-        json.dump(results["metrics"], f, indent=2)
-    with open(os.path.join(output_path, "tasks.pkl"), "wb") as f:
-        pickle.dump(results["tasks"], f)
 
 
 def main() -> int:
@@ -235,7 +222,7 @@ def main() -> int:
             "tasks": [],
         }
     finally:
-        write_results(results, args.benchmark_results_path)
+        write_benchmark_results(results, args.benchmark_results_path)
 
     # Return proper exit code based on success
     return 0 if results["metrics"]["is_success"] else 1
