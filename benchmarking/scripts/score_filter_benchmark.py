@@ -112,6 +112,7 @@ def run_score_filter_classification_benchmark(  # noqa: PLR0913
         output_tasks = []
         run_time_taken = time.perf_counter() - run_start_time
         num_documents_processed = 0
+        num_kept_documents = 0
         success = False
 
     return {
