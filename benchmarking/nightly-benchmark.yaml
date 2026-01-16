@@ -55,7 +55,7 @@ sinks:
 #    service_account_file: ${GDRIVE_SERVICE_ACCOUNT_FILE}
 
 # Whether to delete scratch dirs after each run
-delete_scratch: false
+delete_scratch: true
 
 entries:
   - name: domain_classification_raydata
