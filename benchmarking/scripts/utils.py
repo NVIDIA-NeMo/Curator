@@ -52,12 +52,13 @@ def load_dataset_files(dataset_path: Path, dataset_size_gb: float, keep_extensio
     return subset_files
 
 
-def write_benchmark_results(results: dict, output_path: Path) -> None:
+def write_benchmark_results(results: dict, output_path: Path | str) -> None:
     """Write results to the standard files expected by the benchmark framework.
 
     This utility is typically used by developer-written benchmark scripts to write results
     to the standard files expected by the benchmark framework.
     """
+    output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
     if "params" in results:
         (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
