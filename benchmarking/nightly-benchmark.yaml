@@ -248,6 +248,11 @@ entries:
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
     timeout_s: 20000
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_kept_documents
+          - throughput_docs_per_sec
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -260,6 +265,8 @@ entries:
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
+      - metric: throughput_docs_per_sec
+        min_value: 19000
 
   - name: score_filter_xenna
     enabled: true
@@ -271,6 +278,11 @@ entries:
       --yaml-config={curator_repo_dir}/nemo_curator/config/text/heuristic_filter_english_pipeline.yaml
       --overrides="stages.0._target_=nemo_curator.stages.text.io.reader.ParquetReader"
     timeout_s: 20000
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - num_kept_documents
+          - throughput_docs_per_sec
     ray:
       num_cpus: 64
       num_gpus: 0
@@ -283,6 +295,8 @@ entries:
       - metric: num_kept_documents
         min_value: 2090470
         max_value: 2090490
+      - metric: throughput_docs_per_sec
+        min_value: 8500
 
   - name: image_curation
     enabled: true
