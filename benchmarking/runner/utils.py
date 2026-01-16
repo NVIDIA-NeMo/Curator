@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
-import pickle
 import re
 import subprocess
 from pathlib import Path
@@ -29,35 +27,6 @@ except ImportError:
     import logging as logger
 
 _env_var_pattern = re.compile(r"\$\{([^}]+)\}")  # Pattern to match ${VAR_NAME}
-
-
-def write_benchmark_results(results: dict, output_path: str | Path) -> None:
-    """Write benchmark results (params, metrics, tasks) to the appropriate files in the output directory.
-
-    - Writes 'params.json' and 'metrics.json' (merging with existing file contents if present and updating values).
-    - Writes 'tasks.pkl' as a pickle file if present in results.
-    - The output directory is created if it does not exist.
-
-    Typically used by benchmark scripts to persist results in the format expected by the benchmarking framework.
-    """
-    output_path = Path(output_path)
-    output_path.mkdir(parents=True, exist_ok=True)
-    if "params" in results:
-        params_path = output_path / "params.json"
-        params_data = {}
-        if params_path.exists():
-            params_data = json.loads(params_path.read_text())
-        params_data.update(results["params"])
-        params_path.write_text(json.dumps(params_data, default=get_obj_for_json, indent=2))
-    if "metrics" in results:
-        metrics_path = output_path / "metrics.json"
-        metrics_data = {}
-        if metrics_path.exists():
-            metrics_data = json.loads(metrics_path.read_text())
-        metrics_data.update(results["metrics"])
-        metrics_path.write_text(json.dumps(metrics_data, default=get_obj_for_json, indent=2))
-    if "tasks" in results:
-        (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
 
 
 # TODO: This utility contains some special cases for Slack JSON messages used in the Slack sink.

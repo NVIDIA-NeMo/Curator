@@ -182,7 +182,9 @@ entries:
       enable_object_spilling: false
     requirements:
       - metric: num_duplicates
-        min_value: 58633871  # 59226133 is expected, this allows for 1% less
+        # 59226133 is expected, ensure +/- 1%
+        min_value: 58633871
+        max_value: 59818394
 
   - name: dedup_removal_raydata
     enabled: true
@@ -204,14 +206,13 @@ entries:
       - name: slack
         additional_metrics:
           - num_duplicates_removed
-          - num_output_tasks
     ray:
       num_cpus: 64
       num_gpus: 4
       enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
-        min_value: 1  # smoke test
+        exact_value: 59226133
 
   - name: dedup_removal_xenna
     enabled: true
@@ -233,10 +234,9 @@ entries:
       - name: slack
         additional_metrics:
           - num_duplicates_removed
-          - num_output_tasks
     requirements:
       - metric: num_duplicates_removed
-        min_value: 1  # smoke test
+        exact_value: 59226133
 
   - name: score_filter_raydata
     enabled: true

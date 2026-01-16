@@ -91,7 +91,7 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
     return {"params": script_params, "metrics": script_metrics}
 
 
-def check_requirements_update_results(result_data: dict[str, Any], requirements: dict[str, Any]) -> bool:
+def check_requirements_update_results(result_data: dict[str, Any], requirements: dict[str, Any]) -> bool:  # noqa: C901, PLR0912
     """
     Check if the benchmark meets the requirements. Creates a new "requirements" key in the result_data
     dictionary with the results of the requirements checks.
@@ -106,18 +106,25 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
         if actual_value is None:
             reason_not_met = f"{metric_name} not found in metrics"
         else:
+            # Already ensured to not have exact and min/max together in Entry
+            has_exact = "exact_value" in requirement_dict
             has_min = "min_value" in requirement_dict
             has_max = "max_value" in requirement_dict
-            if has_min:
-                min_value = requirement_dict["min_value"]
-                if actual_value < min_value:
-                    reason_not_met = f"{metric_name} < {min_value}"
-            if has_max:
-                max_value = requirement_dict["max_value"]
-                if actual_value > max_value:
-                    reason_not_met = f"{metric_name} > {max_value}"
-            if not has_min and not has_max:
-                reason_not_met = f"No min or max value specified for {metric_name}"
+            if has_exact:
+                exact_value = requirement_dict["exact_value"]
+                if actual_value != exact_value:
+                    reason_not_met = f"{metric_name} != {exact_value}"
+            else:
+                if has_min:
+                    min_value = requirement_dict["min_value"]
+                    if actual_value < min_value:
+                        reason_not_met = f"{metric_name} < {min_value}"
+                if has_max:
+                    max_value = requirement_dict["max_value"]
+                    if actual_value > max_value:
+                        reason_not_met = f"{metric_name} > {max_value}"
+                if not has_min and not has_max:
+                    reason_not_met = f"No min or max value specified for {metric_name}"
 
         # Update the requirements_data dictionary with the result of the requirements check
         meets_requirements &= reason_not_met is None

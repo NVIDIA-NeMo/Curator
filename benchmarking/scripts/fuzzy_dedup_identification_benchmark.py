@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,20 +21,14 @@ using TaskPerfUtils and logs results to configured sinks.
 """
 
 import argparse
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import write_benchmark_results
 
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
-
-# Import benchmarking utils which are currently only available directly from the Curator source tree.
-# __file__ is expected to be <curator repo>/benchmarking/scripts/audio_fleurs_benchmark.py
-_repo_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_repo_dir))
-from benchmarking.runner.utils import write_benchmark_results  # noqa: E402
 
 
 def run_duplicate_identification_benchmark(  # noqa: PLR0913
@@ -78,6 +72,7 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     lsh_time = workflow_run_result.metadata.get("lsh_time")
     connected_components_time = workflow_run_result.metadata.get("connected_components_pipeline_time")
     num_duplicates = workflow_run_result.metadata.get("num_duplicates")
+
     minhash_percent_time = None
     lsh_percent_time = None
     connected_components_percent_time = None
@@ -94,15 +89,15 @@ def run_duplicate_identification_benchmark(  # noqa: PLR0913
     return {
         "metrics": {
             "is_success": True,
-            "time_taken": run_time_taken,
+            "time_taken_s": run_time_taken,
             "workflow_total_time": workflow_total_time,
             "minhash_time": minhash_time,
             "lsh_time": lsh_time,
             "connected_components_time": connected_components_time,
             "num_duplicates": num_duplicates,
-            "minhash_percent_time": minhash_percent_time,
-            "lsh_percent_time": lsh_percent_time,
-            "connected_components_percent_time": connected_components_percent_time,
+            "minhash_percent_time": round(minhash_percent_time * 100, 2),
+            "lsh_percent_time": round(lsh_percent_time * 100, 2),
+            "connected_components_percent_time": round(connected_components_percent_time * 100, 2),
         },
         "tasks": workflow_run_result,
     }
