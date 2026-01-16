@@ -24,12 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import write_benchmark_results
 
 from nemo_curator.stages.file_partitioning import FilePartitioningStage
 from nemo_curator.stages.text.deduplication.removal_workflow import TextDuplicatesRemovalWorkflow
 from nemo_curator.tasks import EmptyTask
-
-from utils import write_benchmark_results
 
 
 def run_removal_benchmark(  # noqa: PLR0913

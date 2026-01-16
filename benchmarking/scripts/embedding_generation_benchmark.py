@@ -26,13 +26,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.embedders import EmbeddingCreatorStage
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
-
-from utils import load_dataset_files, setup_executor, write_benchmark_results
 
 
 def run_embedding_generation_benchmark(  # noqa: PLR0913

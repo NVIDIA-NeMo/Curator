@@ -25,12 +25,11 @@ from pathlib import Path
 from typing import Literal
 
 from loguru import logger
+from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline.pipeline import Pipeline
 from nemo_curator.stages.text.download.common_crawl.stage import CommonCrawlDownloadExtractStage
 from nemo_curator.stages.text.io.writer import JsonlWriter, ParquetWriter
-
-from utils import setup_executor, write_benchmark_results
 
 
 def create_common_crawl_pipeline(  # noqa: PLR0913
@@ -170,7 +169,7 @@ def main() -> int:
 
     args = p.parse_args()
     results = run_benchmark(args)
-    write_benchmark_results(args.benchmark_results_path, results)
+    write_benchmark_results(results, args.benchmark_results_path)
     return 0 if results["metrics"]["is_success"] else 1
 
 

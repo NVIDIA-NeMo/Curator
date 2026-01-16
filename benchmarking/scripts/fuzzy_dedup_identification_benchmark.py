@@ -26,10 +26,9 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import write_benchmark_results
 
 from nemo_curator.stages.deduplication.fuzzy.workflow import FuzzyDeduplicationWorkflow
-
-from utils import write_benchmark_results
 
 
 def run_duplicate_identification_benchmark(  # noqa: PLR0913

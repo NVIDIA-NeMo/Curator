@@ -28,10 +28,9 @@ import hydra
 from hydra import compose, initialize_config_dir
 from loguru import logger
 from omegaconf import DictConfig
+from utils import setup_executor, write_benchmark_results
 
 from nemo_curator.pipeline import Pipeline
-
-from utils import setup_executor, write_benchmark_results
 
 
 def load_hydra_yaml(config_path: Path, overrides: list[str] | None = None) -> DictConfig:
