@@ -255,8 +255,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
-        min_value: 2119489
-        max_value: 2119489
+        exact_value: 2119489
     # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
@@ -279,8 +278,7 @@ entries:
     requirements:
       # ensure the total number of documents processed is correct
       - metric: num_documents_processed
-        min_value: 2119489
-        max_value: 2119489
+        exact_value: 2119489
     # account for stochastic filters
       - metric: num_kept_documents
         min_value: 2090470
