@@ -219,7 +219,7 @@ entries:
           - num_duplicates_removed
     ray:
       num_cpus: 64
-      num_gpus: 4
+      num_gpus: 0
       enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
@@ -248,7 +248,7 @@ entries:
           - io_percentage
     ray:
       num_cpus: 64
-      num_gpus: 4
+      num_gpus: 0
       enable_object_spilling: false
     requirements:
       - metric: num_duplicates_removed
