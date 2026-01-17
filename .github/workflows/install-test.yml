@@ -410,26 +410,11 @@ jobs:
     needs: [pre-flight, cuda-pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
-    container:
-      image: ${{ needs.cuda-pre-flight.outputs.cuda_base_image }}
-      options: --gpus all
     name: "ALL Extras - Install + Import (uv) - Py3.12"
     steps:
-      - name: Install dependencies for setup-python
-        run: apt-get update && apt-get install -y --no-install-recommends git curl
-
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-          enable-cache: false
 
       - name: Install ALL extras (uv)
         id: install
@@ -437,51 +422,56 @@ jobs:
         run: |
           set -o pipefail
           echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
-          export PATH="/root/.local/bin:$PATH"
-          if uv sync --locked --link-mode copy --extra all 2>&1 | tee install.log; then
+          if docker run --rm --gpus all \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e UV_HTTP_TIMEOUT=300 \
+            ${{ needs.cuda-pre-flight.outputs.cuda_base_image }} \
+            bash -c '
+              apt-get update && apt-get install -y --no-install-recommends git curl software-properties-common
+              add-apt-repository -y ppa:deadsnakes/ppa
+              apt-get update
+              apt-get install -y python3.12 python3.12-venv python3.12-dev
+              curl -LsSf https://astral.sh/uv/install.sh | sh
+              export PATH="/root/.local/bin:$PATH"
+              uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
+
+              echo "::group::🔍 Import Verification"
+              uv run python -c "
+import sys
+print(\"Python:\", sys.version)
+
+from nemo_curator import package_info
+print(f\"✅ nemo_curator v{package_info.__version__}\")
+
+try:
+    import torch
+    print(f\"✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})\")
+except Exception as e:
+    print(f\"⚠️ torch: {e}\")
+
+try:
+    import cudf, cuml
+    print(\"✅ cudf, cuml\")
+except Exception as e:
+    print(f\"⚠️ cudf/cuml: {e}\")
+
+try:
+    import torchvision
+    print(f\"✅ torchvision {torchvision.__version__}\")
+except Exception as e:
+    print(f\"⚠️ torchvision: {e}\")
+"
+              echo "::endgroup::"
+            '; then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "✅ INSTALL SUCCESS"
           else
             echo "install_status=failure" >> $GITHUB_OUTPUT
             echo "❌ INSTALL FAILED"
-            grep -E "(ERROR|error:|failed|conflict)" install.log | head -20 || true
+            cat ${{ github.workspace }}/install.log 2>/dev/null | grep -E "(ERROR|error:|failed|conflict)" | head -20 || true
             exit 1
           fi
-        env:
-          UV_HTTP_TIMEOUT: 300
-
-      - name: Verify imports
-        if: steps.install.outputs.install_status == 'success'
-        shell: bash
-        run: |
-          echo "::group::🔍 Import Verification"
-          export PATH="/root/.local/bin:$PATH"
-          uv run python -c "
-          import sys
-          print('Python:', sys.version)
-
-          from nemo_curator import package_info
-          print(f'✅ nemo_curator v{package_info.__version__}')
-
-          try:
-              import torch
-              print(f'✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})')
-          except Exception as e:
-              print(f'⚠️ torch: {e}')
-
-          try:
-              import cudf, cuml
-              print('✅ cudf, cuml')
-          except Exception as e:
-              print(f'⚠️ cudf/cuml: {e}')
-
-          try:
-              import torchvision
-              print(f'✅ torchvision {torchvision.__version__}')
-          except Exception as e:
-              print(f'⚠️ torchvision: {e}')
-          "
-          echo "::endgroup::"
 
       - name: Report
         if: always()
@@ -496,7 +486,7 @@ jobs:
             echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
             echo "Install log errors:"
-            grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" install.log 2>/dev/null | head -20 || echo "Install log not available or no errors found"
+            cat ${{ github.workspace }}/install.log 2>/dev/null | grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" | head -20 || echo "Install log not available or no errors found"
           fi
 
   # ============================================================================
