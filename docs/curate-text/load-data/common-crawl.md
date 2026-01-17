@@ -172,7 +172,7 @@ The pipeline processes Common Crawl data through several stages, ultimately prod
 ```json
 {
   "url": "http://example.com/page.html",
-  "warc_id": "a515a7b6-b6ec-4bed-998b-8be2f86f8eac", 
+  "warc_id": "a515a7b6-b6ec-4bed-998b-8be2f86f8eac",
   "source_id": "CC-MAIN-20201123153826-20201123183826-00000.warc.gz",
   "language": "ENGLISH",
   "text": "Extracted web page content..."
@@ -238,7 +238,7 @@ cc_stage = CommonCrawlDownloadExtractStage(
 
 # Or use Trafilatura with custom parameters
 cc_stage = CommonCrawlDownloadExtractStage(
-    start_snapshot="2020-50", 
+    start_snapshot="2020-50",
     end_snapshot="2020-50",
     download_dir="./downloads",
     html_extraction=TrafilaturaExtractor(
@@ -261,7 +261,7 @@ stop_lists = {
 
 cc_stage = CommonCrawlDownloadExtractStage(
     start_snapshot="2020-50",
-    end_snapshot="2020-50", 
+    end_snapshot="2020-50",
     download_dir="./downloads",
     stop_lists=stop_lists
 )
@@ -291,7 +291,7 @@ For production workloads, consider these optimizations:
 ```python
 cc_stage = CommonCrawlDownloadExtractStage(
     start_snapshot="2020-50",
-    end_snapshot="2020-50", 
+    end_snapshot="2020-50",
     download_dir="/fast_storage/cc_downloads",
     use_aws_to_download=True,  # Faster S3 downloads
     verbose=False,  # Reduce logging overhead

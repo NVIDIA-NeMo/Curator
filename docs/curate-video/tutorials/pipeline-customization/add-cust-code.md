@@ -20,9 +20,9 @@ The NeMo Curator container includes a robust set of default pipelines with commo
 
 Before you begin adding custom code, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
-* A working NeMo Curator development environment.  
-* Optionally prepared a container image that includes your dependencies.  
+* Reviewed the [pipeline concepts and diagrams](about-concepts-video).
+* A working NeMo Curator development environment.
+* Optionally prepared a container image that includes your dependencies.
 * Optionally [created a custom environment](video-tutorials-pipeline-cust-env) to support your new custom code.
 
 ---
@@ -31,7 +31,7 @@ Before you begin adding custom code, make sure that you have:
 
 ### Define New Functionality
 
-1. Create a `custom_code` directory anywhere on your system to organize your custom pipeline code.  
+1. Create a `custom_code` directory anywhere on your system to organize your custom pipeline code.
 2. Create a new folder for your environment, for example: `new_stage/`.
 3. Create a new file, for example `my_file.py`. This file must define a class (`MyClass`) made available for import.
 

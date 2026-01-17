@@ -140,7 +140,7 @@ Conversational speech typically has higher WER due to informal language, disflue
 # More lenient thresholds for conversational speech
 conversational_wer_config = {
     "excellent_threshold": 15.0,  # compared to 10.0 for read speech
-    "good_threshold": 35.0,       # compared to 25.0 for read speech  
+    "good_threshold": 35.0,       # compared to 25.0 for read speech
     "acceptable_threshold": 60.0   # compared to 50.0 for read speech
 }
 
@@ -168,7 +168,7 @@ broadcast_wer_config = {
 }
 
 broadcast_filter = PreserveByValueStage(
-    input_value_key="wer", 
+    input_value_key="wer",
     target_value=broadcast_wer_config["good_threshold"],
     operator="le"
 )
@@ -198,8 +198,8 @@ pipeline = Pipeline(name="wer_filtering")
 
 # 1. Load audio data with ground truth transcriptions
 pipeline.add_stage(CreateInitialManifestFleursStage(
-    lang="en_us", 
-    split="validation", 
+    lang="en_us",
+    split="validation",
     raw_data_dir="./audio_data"
 ).with_(batch_size=8))
 

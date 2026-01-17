@@ -154,7 +154,7 @@ The pipeline produces `ImageBatch` objects containing `ImageObject` instances fo
 ```python
 ImageObject(
     image_path="00000.tar/000000031.jpg",
-    image_id="000000031", 
+    image_id="000000031",
     image_data=np.array(...),  # Shape: (H, W, 3)
     metadata={}
 )

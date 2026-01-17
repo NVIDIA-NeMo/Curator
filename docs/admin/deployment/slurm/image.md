@@ -3,7 +3,7 @@
 
 <!-- Note: This documentation has been verified against NeMo Curator source code for technical accuracy -->
 
-This workflow covers the full image curation pipeline on Slurm, including model download, embedding generation, classification, filtering, and deduplication. 
+This workflow covers the full image curation pipeline on Slurm, including model download, embedding generation, classification, filtering, and deduplication.
 
 ```{seealso}
 For details on image container environments and Slurm environment variables, see [Container Environments](reference-infrastructure-container-environments).
@@ -122,14 +122,14 @@ For details on image container environments and Slurm environment variables, see
    import timm
    from nemo_curator.image.embedders import TimmImageEmbedder
    from nemo_curator.image.classifiers import AestheticClassifier, NsfwClassifier
-   
+
    # Download and cache CLIP model
    embedder = TimmImageEmbedder('vit_large_patch14_clip_quickgelu_224.openai', pretrained=True)
-   
+
    # Download aesthetic and NSFW classifiers
    aesthetic = AestheticClassifier()
    nsfw = NsfwClassifier()
-   
+
    print('Image models downloaded successfully')
    "
    ```
@@ -289,7 +289,7 @@ filters = []
 if 'min_aesthetic_score' in filter_params:
     filters.append(f\"aesthetic_score >= {filter_params['min_aesthetic_score']}\")
 
-# NSFW score filter  
+# NSFW score filter
 if 'max_nsfw_score' in filter_params:
     filters.append(f\"nsfw_score <= {filter_params['max_nsfw_score']}\")
 
@@ -297,7 +297,7 @@ if 'max_nsfw_score' in filter_params:
 if filters:
     filter_expression = ' and '.join(filters)
     dataset.metadata['passes_filter'] = dataset.metadata.eval(filter_expression)
-    
+
     # Save filtered dataset
     dataset.to_webdataset('${OUTPUT_DATA_PATH}', filter_column='passes_filter')
 else:
@@ -385,11 +385,11 @@ clustered_dataset = clustering_model(embeddings_dataset)
 
 if clustered_dataset:
     print('Clustering completed successfully')
-    
+
     # Run cluster-level deduplication
     emb_by_cluster_output = os.path.join(clustering_output, 'embs_by_nearest_center')
     duplicate_output = '${CACHE_DIR}/duplicates'
-    
+
     semantic_dedup = SemanticClusterLevelDedup(
         n_clusters=dedup_config['n_clusters'],
         emb_by_clust_dir=emb_by_cluster_output,
@@ -399,18 +399,18 @@ if clustered_dataset:
         batched_cosine_similarity=1024,
         output_dir=duplicate_output,
     )
-    
+
     semantic_dedup.compute_semantic_match_dfs()
     deduplicated_dataset_ids = semantic_dedup.extract_dedup_data(
         eps_to_extract=dedup_config['eps_to_extract']
     )
-    
+
     # Mark unique images and save
     dataset.metadata['is_unique'] = dataset.metadata['key'].isin(
         deduplicated_dataset_ids.df['key'].compute()
     )
     dataset.to_webdataset('${OUTPUT_DATA_PATH}', filter_column='is_unique')
-    
+
     print(f'Deduplication completed. Unique images saved to ${OUTPUT_DATA_PATH}')
 else:
     print('Clustering failed')
@@ -451,4 +451,4 @@ client.close()
 - **GPU Memory**: Image processing requires significant GPU memory. Consider using nodes with high-memory GPUs (40GB+ VRAM) for large batch sizes.
 - **Tar Archive Format**: Ensure your input data is in tar archive format (`.tar` files containing JPEG images).
 - **Network I/O**: Image data can be large. Consider local caching or high-bandwidth storage for better performance.
-- **Clustering Scale**: For datasets with millions of images, increase `n_clusters` to 50,000+ to improve deduplication performance. 
+- **Clustering Scale**: For datasets with millions of images, increase `n_clusters` to 50,000+ to improve deduplication performance.

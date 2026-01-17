@@ -89,7 +89,7 @@ only: not ga
 
 **Supported conditions:**
 - `only: not ga` - Exclude from GA builds (EA-only content)
-- `only: ga` - Include only in GA builds  
+- `only: ga` - Include only in GA builds
 - `only: not ea` - Exclude from EA builds
 - `only: internal` - Include only in internal builds
 
@@ -101,7 +101,7 @@ Hide specific grid cards from certain builds:
 
 ```markdown
 :::{grid-item-card} Video Curation Features
-:link: video-overview  
+:link: video-overview
 :link-type: ref
 :only: not ga
 Content for EA-only features
@@ -122,7 +122,7 @@ Control navigation entries conditionally:
 :only: not ga
 
 ea-feature1.md
-ea-feature2.md  
+ea-feature2.md
 ::::
 
 # Inline entry conditions (hides individual entries)
@@ -149,7 +149,7 @@ another-standard-doc.md
 # Test default build (includes all content)
 make docs-html
 
-# Test GA build (excludes EA-only content)  
+# Test GA build (excludes EA-only content)
 make docs-html-ga
 
 # Verify content is properly hidden/shown in each build
@@ -211,7 +211,7 @@ extensions = [
 # Define reusable variables
 myst_substitutions = {
     "product_name": "NeMo Curator",
-    "product_name_short": "Curator", 
+    "product_name_short": "Curator",
     "company": "NVIDIA",
     "version": release,  # Uses the release variable from conf.py
     "current_year": "2025",
@@ -280,7 +280,7 @@ image:
   repository: nvcr.io/nvidia/nemo-curator
   tag: {{ .Values.image.tag | default "latest" }}        # ← Helm template (preserved)
 
-# Documentation URLs using MyST substitutions  
+# Documentation URLs using MyST substitutions
 downloads:
   releaseUrl: "https://github.com/NVIDIA-NeMo/Curator/releases/download/v{{ version }}/nemo-curator.tar.gz"  # ← MyST substitution
   docsUrl: "{{ docs_url }}"                              # ← MyST substitution
@@ -288,22 +288,22 @@ downloads:
 
 service:
   name: {{ include "nemo-curator.fullname" . }}          # ← Helm template (preserved)
-  
+
 env:
   - name: CURATOR_VERSION
     value: "{{ .Chart.AppVersion }}"                     # ← Helm template (preserved)
-  - name: DOCS_VERSION  
+  - name: DOCS_VERSION
     value: "{{ version }}"                               # ← MyST substitution
 ```
 
-#### Ansible with Mixed Syntax  
+#### Ansible with Mixed Syntax
 
 ```yaml
 # MyST substitutions for documentation
 - name: "Install {{ product_name }} version {{ version }}"     # ← MyST substitution
   shell: |
     wget {{ github_repo }}/releases/download/v{{ version }}/nemo-curator.tar.gz  # ← MyST substitution
-    
+
   # Ansible templates preserved
   when: "{{ ansible_distribution }} == 'Ubuntu'"              # ← Ansible template (preserved)
   notify: "{{ handlers.restart_service }}"                    # ← Ansible template (preserved)

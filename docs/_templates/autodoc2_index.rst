@@ -14,7 +14,7 @@ NeMo Curator's API reference provides comprehensive technical documentation for 
       **Ray-based execution backends**
 
       Adapters and executors for running pipelines at scale.
-      
+
       :bdg-secondary:`ray-data` :bdg-secondary:`xenna`
 
    .. grid-item-card:: :octicon:`workflow;1.5em;sd-mr-1` Pipeline
@@ -34,7 +34,7 @@ NeMo Curator's API reference provides comprehensive technical documentation for 
       **Download, transform, and write data**
 
       Modular stages for download/extract, text models/classifiers, I/O, and utilities.
-      
+
       :bdg-secondary:`download` :bdg-secondary:`text` :bdg-secondary:`io` :bdg-secondary:`modules`
 
    .. grid-item-card:: :octicon:`tasklist;1.5em;sd-mr-1` Tasks

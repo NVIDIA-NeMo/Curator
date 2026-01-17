@@ -36,11 +36,11 @@ flowchart LR
     E --> F[NSFW Filtering<br/>Content filtering]
     F --> G[Duplicate Removal<br/>Semantic deduplication]
     G --> H[Export & Sharding<br/>Tar + Parquet output]
-    
+
     classDef input fill:#e1f5fe,stroke:#0277bd,color:#000
     classDef processing fill:#f3e5f5,stroke:#7b1fa2,color:#000
     classDef output fill:#e8f5e8,stroke:#2e7d32,color:#000
-    
+
     class A input
     class B,C,D,E,F,G processing
     class H output

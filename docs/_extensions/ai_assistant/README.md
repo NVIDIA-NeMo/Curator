@@ -194,4 +194,4 @@ The extension gracefully handles:
 - **Caching**: Reduces redundant API calls
 - **Request throttling**: Prevents excessive requests during typing
 - **Asynchronous loading**: Non-blocking AI analysis
-- **Fallback UI**: Maintains functionality when AI is unavailable 
+- **Fallback UI**: Maintains functionality when AI is unavailable

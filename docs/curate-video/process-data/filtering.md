@@ -23,7 +23,7 @@ Filtering runs in two passes that balance speed and quality:
 
 ## Before You Start
 
-Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](video-process-clipping) and [encoding](video-process-transcoding) first so each clip has a valid `buffer` (bytes). 
+Motion decoding and aesthetic scoring operate on clip buffers. You must run [clipping](video-process-clipping) and [encoding](video-process-transcoding) first so each clip has a valid `buffer` (bytes).
 
 ---
 

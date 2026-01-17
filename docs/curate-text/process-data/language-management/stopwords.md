@@ -157,7 +157,7 @@ custom_stop_lists = {
 # Create Common Crawl processing stage with custom stop lists
 cc_stage = CommonCrawlDownloadExtractStage(
     start_snapshot="2023-06",
-    end_snapshot="2023-10", 
+    end_snapshot="2023-10",
     download_dir="/output/folder",
     stop_lists=custom_stop_lists
 )

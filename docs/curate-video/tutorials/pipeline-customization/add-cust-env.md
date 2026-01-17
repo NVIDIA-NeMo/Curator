@@ -20,9 +20,9 @@ The NeMo Curator container provides a primary `curator` conda environment with p
 
 Before you begin, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
-* A base container image suitable for NeMo Curator.  
-* Optionally [created custom code](video-tutorials-pipeline-cust-add-code) that defines your new requirements.  
+* Reviewed the [pipeline concepts and diagrams](about-concepts-video).
+* A base container image suitable for NeMo Curator.
+* Optionally [created custom code](video-tutorials-pipeline-cust-add-code) that defines your new requirements.
 
 ---
 
@@ -30,7 +30,7 @@ Before you begin, make sure that you have:
 
 ### Define Build Steps
 
-1. Create an `environments` directory anywhere on your system to organize your custom pipeline stage environments.  
+1. Create an `environments` directory anywhere on your system to organize your custom pipeline stage environments.
 2. Create a new folder for your environment, for example: `my-env/`.
 3. Create a `Dockerfile` that installs your environment's dependencies on top of the base image.
 

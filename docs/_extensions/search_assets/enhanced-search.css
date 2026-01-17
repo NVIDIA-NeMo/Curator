@@ -53,7 +53,7 @@
         grid-template-columns: repeat(2, minmax(160px, 1fr));
         gap: 0.75rem;
     }
-    
+
     .filter-actions {
         grid-column: span 2;
         justify-self: center;
@@ -164,20 +164,20 @@
     .search-controls-container {
         padding: 0.75rem;
     }
-    
+
     .search-filters {
         margin-bottom: 0.75rem;
     }
-    
+
     .filter-row {
         grid-template-columns: 1fr;
         gap: 0.75rem;
     }
-    
+
     .filter-group {
         min-width: auto;
     }
-    
+
     .filter-actions {
         grid-column: 1;
         justify-self: center;
@@ -784,37 +784,37 @@ mark {
         padding: 1rem;
         margin-bottom: 1rem;
     }
-    
+
     .result-header {
         flex-direction: column;
         gap: 0.75rem;
     }
-    
+
     .section-icon {
         width: 2.5rem;
         height: 2.5rem;
         font-size: 1rem;
     }
-    
+
     .result-title {
         font-size: var(--pst-font-size-h5);
     }
-    
+
     .result-meta {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.5rem;
     }
-    
+
     .section-links {
         padding: 0.5rem;
     }
-    
+
     .section-link {
         padding: 0.375rem 0.5rem;
         font-size: 0.8125rem;
     }
-    
+
     #enhanced-search-page-input {
         font-size: 1rem;
         padding: 0.875rem 1rem;
@@ -826,11 +826,11 @@ mark {
     .search-result {
         border-width: 2px;
     }
-    
+
     .search-result:hover {
         border-width: 3px;
     }
-    
+
     .search-highlight,
     mark {
         outline: 1px solid var(--pst-color-text-base);
@@ -845,7 +845,7 @@ mark {
     .search-result::before {
         transition: none;
     }
-    
+
     .spinner {
         animation: none;
     }
@@ -860,16 +860,16 @@ mark {
         margin-bottom: 1rem;
         background: transparent !important;
     }
-    
+
     .section-icon {
         background: transparent !important;
         border: 1px solid;
     }
-    
+
     .section-link {
         text-decoration: underline !important;
     }
-    
+
     .search-highlight,
     mark {
         background: transparent !important;
@@ -921,7 +921,7 @@ html[data-theme="dark"] .search-results-header h3 {
     .search-result {
         border-color: var(--pst-color-text-base);
     }
-    
+
     .search-highlight,
     mark {
         background: var(--nv-color-green);
@@ -962,4 +962,3 @@ html[data-theme="dark"] .ai-assistant-container {
     border-color: var(--pst-color-border-dark, #374151);
 }
 
- 

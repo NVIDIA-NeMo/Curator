@@ -7,51 +7,51 @@ class MarkdownProcessor {
     constructor() {
         // Initialize markdown processor
     }
-    
+
     /**
      * Convert markdown to HTML for AI responses
      */
     markdownToHtml(markdown) {
         if (!markdown) return '';
-        
+
         let html = markdown
             // Headers
             .replace(/^### (.*$)/gim, '<h3>$1</h3>')
             .replace(/^## (.*$)/gim, '<h2>$1</h2>')
             .replace(/^# (.*$)/gim, '<h1>$1</h1>')
-            
+
             // Horizontal rules
             .replace(/^---+$/gm, '<hr>')
-            
+
             // Bold and italic
             .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
             .replace(/\*(.*?)\*/g, '<em>$1</em>')
-            
+
             // Links
             .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
-            
+
             // Code blocks (simple)
             .replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>')
             .replace(/`([^`]+)`/g, '<code>$1</code>');
-        
+
         // Process lists BEFORE line breaks to avoid breaking up consecutive items
         html = this.processLists(html);
-        
+
         // Now handle line breaks and paragraphs
         html = html
             // Double newlines become paragraph breaks
             .replace(/\n\n/g, '</p><p>')
             // Single line breaks become <br> tags
             .replace(/\n/g, '<br>');
-        
+
         // Wrap in paragraphs if not already wrapped and not starting with block elements
         if (!html.startsWith('<h') && !html.startsWith('<p') && !html.startsWith('<ul') && !html.startsWith('<ol') && !html.startsWith('<pre') && !html.startsWith('<hr>')) {
             html = '<p>' + html + '</p>';
         }
-        
+
         return html;
     }
-    
+
     /**
      * Process markdown lists properly by grouping consecutive items and handling nesting
      */
@@ -62,13 +62,13 @@ class MarkdownProcessor {
         let inList = false;
         let listItems = [];
         let listType = null; // 'ul' or 'ol'
-        
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const bulletMatch = line.match(/^([ ]*)([-*+])\s+(.*)$/);
             const numberedMatch = line.match(/^([ ]*)\d+\.\s+(.*)$/);
             const indentedBulletMatch = line.match(/^   ([-*+])\s+(.*)$/); // 3+ spaces for indented bullets
-            
+
             if (bulletMatch && bulletMatch[1].length === 0) {
                 // Top-level bulleted list item
                 if (!inList || listType !== 'ul') {
@@ -94,7 +94,7 @@ class MarkdownProcessor {
                     inList = true;
                     listType = 'ol';
                 }
-                
+
                 // Look ahead for indented sub-items
                 const subItems = [];
                 let j = i + 1;
@@ -111,7 +111,7 @@ class MarkdownProcessor {
                         break;
                     }
                 }
-                
+
                 // Build the list item with sub-items if any
                 let itemContent = numberedMatch[2];
                 if (subItems.length > 0) {
@@ -119,7 +119,7 @@ class MarkdownProcessor {
                     itemContent += `<ul>${subList}</ul>`;
                     i = j - 1; // Skip the processed sub-items
                 }
-                
+
                 listItems.push(itemContent);
             } else {
                 // Not a list item (or indented item already processed)
@@ -133,85 +133,85 @@ class MarkdownProcessor {
                 processedLines.push(line);
             }
         }
-        
+
         // Close any remaining list
         if (inList) {
             processedLines.push(this.closeList(listType, listItems));
         }
-        
+
         return processedLines.join('\n');
     }
-    
+
     /**
      * Helper to close a list and return HTML
      */
     closeList(listType, listItems) {
         if (listItems.length === 0) return '';
-        
+
         const tag = listType === 'ol' ? 'ol' : 'ul';
         const listItemsHtml = listItems.map(item => `<li>${item}</li>`).join('');
         return `<${tag}>${listItemsHtml}</${tag}>`;
     }
-    
+
     /**
      * Process markdown with enhanced features
      */
     processMarkdown(markdown, options = {}) {
         if (!markdown) return '';
-        
+
         const {
             enableTables = false,
             enableStrikethrough = false,
             enableTaskLists = false,
             sanitizeHtml = true
         } = options;
-        
+
         let html = this.markdownToHtml(markdown);
-        
+
         // Enhanced features
         if (enableStrikethrough) {
             html = html.replace(/~~(.*?)~~/g, '<del>$1</del>');
         }
-        
+
         if (enableTaskLists) {
             html = html.replace(/- \[ \] (.*$)/gim, '<li class="task-list-item"><input type="checkbox" disabled> $1</li>');
             html = html.replace(/- \[x\] (.*$)/gim, '<li class="task-list-item"><input type="checkbox" checked disabled> $1</li>');
         }
-        
+
         if (enableTables) {
             html = this.processMarkdownTables(html);
         }
-        
+
         if (sanitizeHtml) {
             html = this.sanitizeHtml(html);
         }
-        
+
         return html;
     }
-    
+
     /**
      * Process markdown tables (basic implementation)
      */
     processMarkdownTables(text) {
         // Basic table processing - could be enhanced
         const tableRegex = /(\|.*\|[\r\n]+\|[-\s|:]+\|[\r\n]+((\|.*\|[\r\n]*)+))/g;
-        
+
         return text.replace(tableRegex, (match) => {
             const lines = match.trim().split('\n');
             if (lines.length < 3) return match;
-            
+
             const headerLine = lines[0];
             const separatorLine = lines[1];
             const dataLines = lines.slice(2);
-            
+
             // Parse header
             const headers = headerLine.split('|').map(h => h.trim()).filter(h => h);
-            
+
             // Parse data rows
-            const rows = dataLines.map(line => 
+            const rows = dataLines.map(line =>
                 line.split('|').map(cell => cell.trim()).filter(cell => cell !== '')
             ).filter(row => row.length > 0);
-            
+
             // Build table HTML
             let tableHtml = '<table class="table ai-markdown-table">';
             tableHtml += '<thead><tr>';
@@ -219,7 +219,7 @@ class MarkdownProcessor {
                 tableHtml += `<th>${header}</th>`;
             });
             tableHtml += '</tr></thead>';
-            
+
             tableHtml += '<tbody>';
             rows.forEach(row => {
                 tableHtml += '<tr>';
@@ -229,11 +229,11 @@ class MarkdownProcessor {
                 tableHtml += '</tr>';
             });
             tableHtml += '</tbody></table>';
-            
+
             return tableHtml;
         });
     }
-    
+
     /**
      * Sanitize HTML to prevent XSS
      */
@@ -247,18 +247,18 @@ class MarkdownProcessor {
             'table', 'thead', 'tbody', 'tr', 'th', 'td',
             'blockquote', 'div', 'span'
         ];
-        
+
         const allowedAttributes = {
             'a': ['href', 'target', 'rel'],
             'table': ['class'],
             'li': ['class'],
             'input': ['type', 'checked', 'disabled']
         };
-        
+
         // This is a basic implementation - in production, use a proper HTML sanitizer
         return html;
     }
-    
+
     /**
      * Escape HTML to prevent XSS
      */
@@ -270,13 +270,13 @@ class MarkdownProcessor {
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
     }
-    
+
     /**
      * Extract plain text from markdown
      */
     markdownToPlainText(markdown) {
         if (!markdown) return '';
-        
+
         return markdown
             // Remove headers
             .replace(/^#+\s*/gm, '')
@@ -295,7 +295,7 @@ class MarkdownProcessor {
             .replace(/\n+/g, ' ')
             .trim();
     }
-    
+
     /**
      * Get reading time estimate
      */
@@ -304,7 +304,7 @@ class MarkdownProcessor {
         const wordCount = plainText.split(/\s+/).length;
         const wordsPerMinute = 200; // Average reading speed
         const readingTime = Math.ceil(wordCount / wordsPerMinute);
-        
+
         return {
             wordCount,
             estimatedMinutes: readingTime,
@@ -314,4 +314,4 @@ class MarkdownProcessor {
 }
 
 // Make MarkdownProcessor available globally
-window.MarkdownProcessor = MarkdownProcessor; 
+window.MarkdownProcessor = MarkdownProcessor;

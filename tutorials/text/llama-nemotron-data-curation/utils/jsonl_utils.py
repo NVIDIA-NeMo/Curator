@@ -75,7 +75,4 @@ def interleave_datasets(dir1: str, dir2: str, out_path: str, chunk_size: int = 1
             for line in chunk2:
                 out.write(line + "\n")
 
-    print(
-        f"Interleaved datasets from {dir1} and {dir2} into {out_path} "
-        f"with adaptive chunk size up to {chunk_size}"
-    )
+    print(f"Interleaved datasets from {dir1} and {dir2} into {out_path} with adaptive chunk size up to {chunk_size}")

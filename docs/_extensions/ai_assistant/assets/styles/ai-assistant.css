@@ -11,7 +11,7 @@
     border-radius: 12px;
     margin-bottom: 1.5rem;
     overflow: hidden;
-    box-shadow: 
+    box-shadow:
         0 20px 25px -5px rgba(0, 0, 0, 0.15),
         0 10px 10px -5px rgba(0, 0, 0, 0.08);
     animation: fadeInUp 0.3s ease-out;
@@ -471,17 +471,17 @@ html[data-theme="dark"] .ai-usage-title {
         margin-bottom: 16px;
         border-radius: 12px;
     }
-    
+
     .ai-assistant-header {
         padding: 12px 16px;
         gap: 8px;
         flex-wrap: wrap;
     }
-    
+
     .ai-assistant-title {
         font-size: 14px;
     }
-    
+
     .ai-status-badge,
     .ai-status-badge-error,
     .ai-status-badge-loading,
@@ -489,35 +489,35 @@ html[data-theme="dark"] .ai-usage-title {
         padding: 2px 4px;
         font-size: 10px;
     }
-    
+
     .ai-assistant-content {
         padding: 16px;
         font-size: 14px;
     }
-    
+
     .ai-assistant-footer {
         padding: 12px 16px;
         flex-direction: column;
         align-items: flex-start;
         gap: 8px;
     }
-    
+
     .ai-disclaimer {
         font-size: 12px;
     }
-    
+
     .ai-usage-stats .row {
         gap: 8px;
     }
-    
+
     .ai-usage-item {
         padding: 8px;
     }
-    
+
     .ai-usage-number {
         font-size: 16px;
     }
-    
+
 
 }
 
@@ -529,17 +529,17 @@ html[data-theme="dark"] .ai-usage-title {
         box-shadow: none;
         background: white !important;
     }
-    
+
     .ai-assistant-header {
         background: #f0f0f0 !important;
         color: #333 !important;
     }
-    
+
     .ai-assistant-icon,
     .ai-assistant-title {
         color: #333 !important;
     }
-    
+
     .ai-status-badge,
     .ai-status-badge-error,
     .ai-status-badge-loading,
@@ -555,17 +555,17 @@ html[data-theme="dark"] .ai-usage-title {
     .ai-assistant-response {
         border: 3px solid #000;
     }
-    
+
     .ai-assistant-header {
         background: #000 !important;
         color: #f0f0f0;
     }
-    
+
     .ai-usage-number {
         color: #000;
         font-weight: 900;
     }
-    
+
     .ai-status-badge,
     .ai-status-badge-error,
     .ai-status-badge-loading,
@@ -584,9 +584,9 @@ html[data-theme="dark"] .ai-usage-title {
     .ai-spinner {
         animation: none;
     }
-    
+
     .ai-usage-item,
     .ai-manual-trigger {
         transition: none;
     }
-} 
+}

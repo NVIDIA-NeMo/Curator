@@ -66,7 +66,7 @@ Install the latest version directly from GitHub:
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 uv sync --extra text_cuda12 --all-groups
-source .venv/bin/activate 
+source .venv/bin/activate
 ```
 
 ```{note}

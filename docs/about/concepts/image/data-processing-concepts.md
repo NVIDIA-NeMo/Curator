@@ -41,7 +41,7 @@ pipeline.add_stage(ImageEmbeddingStage(
 Image filtering stages score and filter images based on their embeddings in a single operation. These stages must always be run after embedding generation, as they require pre-computed embeddings as input.
 
 - **ImageAestheticFilterStage:** Predicts aesthetic scores (0–1) and automatically filters out images below the threshold
-- **ImageNSFWFilterStage:** Predicts NSFW probability (0–1) and automatically filters out images above the threshold  
+- **ImageNSFWFilterStage:** Predicts NSFW probability (0–1) and automatically filters out images above the threshold
 - **Pipeline Integration:** Filtering stages must be run after embedding generation in the same pipeline
 
 ```{note}
@@ -62,7 +62,7 @@ pipeline.add_stage(ImageAestheticFilterStage(
 ))
 
 pipeline.add_stage(ImageNSFWFilterStage(
-    model_dir="/path/to/models", 
+    model_dir="/path/to/models",
     score_threshold=0.5,
     model_inference_batch_size=32,
 ))
@@ -71,7 +71,7 @@ pipeline.add_stage(ImageNSFWFilterStage(
 **How Filtering Works:**
 
 - **Aesthetic Filtering:** Images with scores below `score_threshold` are automatically filtered out
-- **NSFW Filtering:** Images with scores above `score_threshold` are automatically filtered out  
+- **NSFW Filtering:** Images with scores above `score_threshold` are automatically filtered out
 - **Seamless Processing:** Filtering happens automatically within the stages—they remove images that don't meet criteria from the `ImageBatch` before passing to the next stage
 
 ## Deduplication

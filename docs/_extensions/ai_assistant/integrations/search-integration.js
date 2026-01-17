@@ -11,7 +11,7 @@ function initializeAIAssistantForSearch() {
     if (typeof window.AIAssistant === 'undefined') {
         return;
     }
-    
+
     // Create AI Assistant instance with search-optimized settings
     aiAssistantInstance = new window.AIAssistant({
         enableAI: true,
@@ -19,10 +19,10 @@ function initializeAIAssistantForSearch() {
         autoTrigger: true,
         debounceDelay: 2000
     });
-    
+
     // Make it globally available
     window.aiAssistantInstance = aiAssistantInstance;
-    
+
     // Listen for search events
     document.addEventListener('search-ai-request', handleSearchAIRequest);
     document.addEventListener('enhanced-search-results', handleEnhancedSearchResults);
@@ -31,20 +31,20 @@ function initializeAIAssistantForSearch() {
 // Handle AI request from search page
 async function handleSearchAIRequest(event) {
     const { query, results, count, container } = event.detail;
-    
+
     const containerElement = document.getElementById(container);
     if (!containerElement) {
         return;
     }
-    
+
     // Show loading state
     containerElement.style.display = 'block';
     containerElement.innerHTML = aiAssistantInstance.renderLoading();
-    
+
     try {
         // Analyze with AI
         const aiResponse = await aiAssistantInstance.analyzeQuery(query, results);
-        
+
         if (aiResponse && !aiResponse.error) {
             // Show AI response
             containerElement.innerHTML = aiAssistantInstance.renderResponse(aiResponse, query);
@@ -63,20 +63,20 @@ async function handleSearchAIRequest(event) {
 // Handle search results from enhanced search modal
 async function handleEnhancedSearchResults(event) {
     const { query, results, count } = event.detail;
-    
+
     if (!aiAssistantInstance || !aiAssistantInstance.isAvailable()) {
         return;
     }
-    
+
     // Check if we should trigger AI analysis
     if (count >= aiAssistantInstance.options.aiTriggerThreshold && !aiAssistantInstance.options.autoTrigger) {
         return;
     }
-    
+
     // Use the AI Assistant to analyze the query
     try {
         const aiResponse = await aiAssistantInstance.analyzeQuery(query, results);
-        
+
         if (aiResponse && !aiResponse.error) {
             // Emit event that modal can listen to for AI enhancement
             const aiResultEvent = new CustomEvent('ai-analysis-complete', {
@@ -93,4 +93,4 @@ async function handleEnhancedSearchResults(event) {
 document.addEventListener('DOMContentLoaded', function() {
     // Small delay to ensure both extensions are loaded
     setTimeout(initializeAIAssistantForSearch, 100);
-}); 
+});

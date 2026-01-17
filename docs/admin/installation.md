@@ -273,7 +273,7 @@ try:
         print(f"✓ GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
         print("⚠ No GPU detected")
-    
+
     # Check cuDF for GPU deduplication
     import cudf
     print("✓ cuDF available for GPU-accelerated deduplication")

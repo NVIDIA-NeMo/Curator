@@ -20,9 +20,9 @@ The NeMo Curator container includes a robust set of default models, but you can 
 
 Before you begin adding a custom model, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
-* A working NeMo Curator development environment.  
-* Optionally prepared a container image that includes your model dependencies.  
+* Reviewed the [pipeline concepts and diagrams](about-concepts-video).
+* A working NeMo Curator development environment.
+* Optionally prepared a container image that includes your model dependencies.
 * Optionally [created a custom environment](video-tutorials-pipeline-cust-env) to support your new custom model.
 
 ---

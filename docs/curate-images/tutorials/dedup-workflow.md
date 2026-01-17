@@ -43,19 +43,19 @@ from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 def create_image_embedding_pipeline(input_dir, embeddings_dir, model_dir):
     """Create pipeline to generate embeddings for duplicate removal."""
-    
+
     pipeline = Pipeline(
-        name="image_embedding", 
+        name="image_embedding",
         description="Generate CLIP embeddings for image duplicate removal"
     )
-    
+
     # Partition tar files for parallel processing
     pipeline.add_stage(FilePartitioningStage(
         file_paths=input_dir,
         files_per_partition=1,
         file_extensions=[".tar"],
     ))
-    
+
     # Read images from tar archives
     pipeline.add_stage(ImageReaderStage(
         batch_size=100,
@@ -63,7 +63,7 @@ def create_image_embedding_pipeline(input_dir, embeddings_dir, model_dir):
         num_threads=16,
         num_gpus_per_worker=0.25,
     ))
-    
+
     # Generate CLIP embeddings
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=model_dir,
@@ -71,15 +71,15 @@ def create_image_embedding_pipeline(input_dir, embeddings_dir, model_dir):
         model_inference_batch_size=32,
         verbose=True,
     ))
-    
+
     # Convert to document format for deduplication
     pipeline.add_stage(ConvertImageBatchToDocumentBatchStage(
         fields=["image_id", "embedding"]
     ))
-    
+
     # Save embeddings to Parquet
     pipeline.add_stage(ParquetWriter(path=embeddings_dir))
-    
+
     return pipeline
 ```
 
@@ -161,7 +161,7 @@ from nemo_curator.stages.deduplication.semantic import SemanticDeduplicationWork
 
 def create_deduplication_workflow(embeddings_dir, removal_dir):
     """Create semantic deduplication workflow."""
-    
+
     return SemanticDeduplicationWorkflow(
         input_path=embeddings_dir,
         output_path=removal_dir,
@@ -195,19 +195,19 @@ from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
 def create_image_removal_pipeline(input_dir, removal_dir, output_dir):
     """Create pipeline to remove duplicate images."""
-    
+
     pipeline = Pipeline(
         name="image_deduplication",
         description="Remove duplicate images from dataset"
     )
-    
+
     # Partition input files
     pipeline.add_stage(FilePartitioningStage(
         file_paths=input_dir,
         files_per_partition=1,
         file_extensions=[".tar"],
     ))
-    
+
     # Read original images
     pipeline.add_stage(ImageReaderStage(
         batch_size=100,
@@ -215,21 +215,21 @@ def create_image_removal_pipeline(input_dir, removal_dir, output_dir):
         num_threads=16,
         num_gpus_per_worker=0.25,
     ))
-    
+
     # Remove duplicates based on removal list
     pipeline.add_stage(ImageDuplicatesRemovalStage(
         removal_parquets_dir=removal_dir + "/duplicates",
         duplicate_id_field="id",
         verbose=True,
     ))
-    
+
     # Write deduplicated dataset
     pipeline.add_stage(ImageWriterStage(
         output_dir=output_dir,
         remove_image_data=True,
         verbose=True,
     ))
-    
+
     return pipeline
 ```
 
@@ -310,19 +310,19 @@ from nemo_curator.stages.text.io.writer.parquet import ParquetWriter
 
 def run_image_deduplication_workflow():
     """Run complete image deduplication workflow."""
-    
+
     # Define paths
     INPUT_TAR_DIR = "/path/to/input/tar_dataset"
     EMBEDDINGS_DIR = "/path/to/embeddings"
     REMOVAL_DIR = "/path/to/removal_ids"
     OUTPUT_DIR = "/path/to/deduplicated/dataset"
     MODEL_DIR = "/path/to/models"
-    
+
     print("Step 1: Generating embeddings...")
-    
+
     # Step 1: Generate embeddings
     embedding_pipeline = Pipeline(name="embedding", description="Generate embeddings")
-    
+
     embedding_pipeline.add_stage(FilePartitioningStage(
         file_paths=INPUT_TAR_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
@@ -330,18 +330,18 @@ def run_image_deduplication_workflow():
         batch_size=100, verbose=True, num_threads=16, num_gpus_per_worker=0.25
     ))
     embedding_pipeline.add_stage(ImageEmbeddingStage(
-        model_dir=MODEL_DIR, num_gpus_per_worker=0.25, 
+        model_dir=MODEL_DIR, num_gpus_per_worker=0.25,
         model_inference_batch_size=32, verbose=True
     ))
     embedding_pipeline.add_stage(ConvertImageBatchToDocumentBatchStage(
         fields=["image_id", "embedding"]
     ))
     embedding_pipeline.add_stage(ParquetWriter(path=EMBEDDINGS_DIR))
-    
+
     embedding_pipeline.run()  # Uses XennaExecutor by default
-    
+
     print("Step 2: Running semantic deduplication...")
-    
+
     # Step 2: Semantic deduplication
     dedup_workflow = SemanticDeduplicationWorkflow(
         input_path=EMBEDDINGS_DIR,
@@ -353,12 +353,12 @@ def run_image_deduplication_workflow():
         verbose=True,
     )
     dedup_workflow.run()
-    
+
     print("Step 3: Removing duplicate images...")
-    
+
     # Step 3: Remove duplicates
     removal_pipeline = Pipeline(name="removal", description="Remove duplicates")
-    
+
     removal_pipeline.add_stage(FilePartitioningStage(
         file_paths=INPUT_TAR_DIR, files_per_partition=1, file_extensions=[".tar"]
     ))
@@ -373,9 +373,9 @@ def run_image_deduplication_workflow():
     removal_pipeline.add_stage(ImageWriterStage(
         output_dir=OUTPUT_DIR, remove_image_data=True, verbose=True
     ))
-    
+
     removal_pipeline.run()  # Uses XennaExecutor by default
-    
+
     print(f"Deduplication complete! Results saved to: {OUTPUT_DIR}")
 
 if __name__ == "__main__":

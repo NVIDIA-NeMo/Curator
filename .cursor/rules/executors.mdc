@@ -50,20 +50,20 @@ All executors inherit from `BaseExecutor` and implement:
 class BaseExecutor(ABC):
     def __init__(self, config: dict[str, Any] | None = None, ignore_head_node: bool = False):
         """Initialize executor with configuration.
-        
+
         Args:
             config: Executor-specific configuration dictionary
             ignore_head_node: Whether to exclude head node from execution (not supported by XennaExecutor)
         """
-        
+
     @abstractmethod
     def execute(self, stages: list[ProcessingStage], initial_tasks: list[Task] | None = None) -> list[Task]:
         """Execute the pipeline stages.
-        
+
         Args:
             stages: List of processing stages to execute
             initial_tasks: Initial tasks to start pipeline (defaults to EmptyTask)
-            
+
         Returns:
             List of output tasks from final stage
         """

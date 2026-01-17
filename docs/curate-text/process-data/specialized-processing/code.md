@@ -233,10 +233,10 @@ When filtering code datasets, consider these best practices:
    from nemo_curator.stages.text.filters import FastTextLangId
    from nemo_curator.pipeline import Pipeline
    from nemo_curator.stages.text.modules import ScoreFilter
-   
+
    # Create pipeline for Python code filtering with language detection
    pipeline = Pipeline(name="python_code_filtering")
-   
+
    # Add language detection stage
    pipeline.add_stage(ScoreFilter(
        filter_obj=FastTextLangId(
@@ -246,7 +246,7 @@ When filtering code datasets, consider these best practices:
        text_field="content",
        score_field="language"
    ))
-   
+
    # Then apply Python-specific filters
    pipeline.add_stage(ScoreFilter(
        filter_obj=PythonCommentToCodeFilter(),
@@ -263,17 +263,17 @@ When filtering code datasets, consider these best practices:
    ```python
    # Track filter statistics by running individual filters and measuring results
    from nemo_curator.stages.text.io.reader import JsonlReader
-   
+
    # Load dataset for testing
    reader = JsonlReader(file_paths="test_data/*.jsonl")
-   
+
    # Test individual filters to measure rejection rates
    filters_to_test = {
        "python_comment": PythonCommentToCodeFilter(),
        "line_count": NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
        "alpha_content": AlphaFilter(min_alpha_ratio=0.3)
    }
-   
+
    # Note: Actual statistics collection would require running the pipeline
    # and analyzing the results to determine optimal thresholds
    ```

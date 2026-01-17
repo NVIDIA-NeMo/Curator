@@ -91,4 +91,3 @@ class DocumentSplitter(ProcessingStage[DocumentBatch, DocumentBatch]):
             _metadata=batch._metadata,
             _stage_perf=batch._stage_perf,
         )
-

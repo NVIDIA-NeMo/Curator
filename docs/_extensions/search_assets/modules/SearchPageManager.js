@@ -27,50 +27,50 @@ class SearchPageManager {
             difficulties: [],
             modalities: []
         };
-        
+
         this.init();
     }
-    
+
     async init() {
         console.log('🔍 Initializing search page...');
-        
+
         // Get page elements
         this.searchInput = document.querySelector('#enhanced-search-page-input');
         this.resultsContainer = document.querySelector('#enhanced-search-page-results');
-        
+
         if (!this.searchInput || !this.resultsContainer) {
             console.error('❌ Required search page elements not found');
             return;
         }
-        
+
         // Wait for enhanced search to be available
         await this.waitForEnhancedSearch();
-        
+
         // Create filter interface
         this.createFilterInterface();
-        
+
         // Set up event listeners
         this.setupEventListeners();
-        
+
         // Handle URL search parameter
         this.handleUrlSearch();
-        
+
         console.log('✅ Search page initialized');
     }
-    
+
     async waitForEnhancedSearch() {
         return new Promise((resolve) => {
             const checkForSearch = () => {
                 if (window.enhancedSearchInstance && window.enhancedSearchInstance.isLoaded) {
                     this.searchEngine = window.enhancedSearchInstance.getSearchEngine();
                     this.documents = window.enhancedSearchInstance.getDocuments();
-                    
+
                     // Get filter options
                     if (this.searchEngine && this.searchEngine.getFilterOptions) {
                         this.filterOptions = this.searchEngine.getFilterOptions();
                         console.log('✅ Filter options loaded:', this.filterOptions);
                     }
-                    
+
                     resolve();
                 } else {
                     setTimeout(checkForSearch, 100);
@@ -79,54 +79,54 @@ class SearchPageManager {
             checkForSearch();
         });
     }
-    
+
     createFilterInterface() {
         // Get the search controls container
         const searchControlsContainer = this.searchInput.parentNode;
-        
+
         // Add unified styling to the container
         searchControlsContainer.className = 'search-controls-container mb-4';
-        
+
         // Create filter section
         const filterSection = document.createElement('div');
         filterSection.className = 'search-filters';
         filterSection.innerHTML = this.renderFilterInterface();
-        
+
         // Insert filters before the search input within the same container
         searchControlsContainer.insertBefore(filterSection, this.searchInput);
-        
+
         // Add search input wrapper class for consistent styling
         this.searchInput.className = 'form-control search-input-unified';
-        
+
         // Bind filter events
         this.bindFilterEvents();
     }
-    
+
     renderFilterInterface() {
-        const categoryOptions = this.filterOptions.categories.map(cat => 
+        const categoryOptions = this.filterOptions.categories.map(cat =>
             `<option value="${cat}">${this.formatCategoryName(cat)}</option>`
         ).join('');
-        
-        const tagOptions = this.filterOptions.tags.map(tag => 
+
+        const tagOptions = this.filterOptions.tags.map(tag =>
             `<option value="${tag}">${tag}</option>`
         ).join('');
-        
-        const typeOptions = this.filterOptions.documentTypes.map(type => 
+
+        const typeOptions = this.filterOptions.documentTypes.map(type =>
             `<option value="${type}">${this.formatTypeName(type)}</option>`
         ).join('');
-        
-        const personaOptions = this.filterOptions.personas.map(persona => 
+
+        const personaOptions = this.filterOptions.personas.map(persona =>
             `<option value="${persona}">${this.formatPersonaName(persona)}</option>`
         ).join('');
-        
-        const difficultyOptions = this.filterOptions.difficulties.map(difficulty => 
+
+        const difficultyOptions = this.filterOptions.difficulties.map(difficulty =>
             `<option value="${difficulty}">${this.formatDifficultyName(difficulty)}</option>`
         ).join('');
-        
-        const modalityOptions = this.filterOptions.modalities.map(modality => 
+
+        const modalityOptions = this.filterOptions.modalities.map(modality =>
             `<option value="${modality}">${this.formatModalityName(modality)}</option>`
         ).join('');
-        
+
         return `
             <div class="filter-row">
                 <div class="filter-group">
@@ -135,21 +135,21 @@ class SearchPageManager {
                         ${categoryOptions}
                     </select>
                 </div>
-                
+
                 <div class="filter-group">
                     <select id="tag-filter" class="filter-select">
                         <option value="">All Tags</option>
                         ${tagOptions}
                     </select>
                 </div>
-                
+
                 <div class="filter-group">
                     <select id="type-filter" class="filter-select">
                         <option value="">All Types</option>
                         ${typeOptions}
                     </select>
                 </div>
-                
+
                 <div class="filter-actions">
                     <button id="clear-filters" class="btn btn-secondary btn-sm">
                         <i class="fa-solid fa-xmark"></i> Clear
@@ -158,21 +158,21 @@ class SearchPageManager {
             </div>
         `;
     }
-    
+
     formatCategoryName(category) {
         return category
             .split(/[-_]/)
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
     }
-    
+
     formatTypeName(type) {
         return type
             .split(/[-_]/)
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
     }
-    
+
     formatPersonaName(persona) {
         // Convert "data-scientist-focused" to "Data Scientist Focused"
         return persona
@@ -181,89 +181,89 @@ class SearchPageManager {
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
     }
-    
+
     formatDifficultyName(difficulty) {
         return difficulty.charAt(0).toUpperCase() + difficulty.slice(1);
     }
-    
+
     formatModalityName(modality) {
         return modality
             .split(/[-_]/)
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
     }
-    
+
     bindFilterEvents() {
         // Category filter
         document.getElementById('category-filter').addEventListener('change', (e) => {
             this.currentFilters.category = e.target.value;
             this.applyFiltersAndSearch();
         });
-        
+
         // Tag filter
         document.getElementById('tag-filter').addEventListener('change', (e) => {
             this.currentFilters.tag = e.target.value;
             this.applyFiltersAndSearch();
         });
-        
+
         // Type filter
         document.getElementById('type-filter').addEventListener('change', (e) => {
             this.currentFilters.type = e.target.value;
             this.applyFiltersAndSearch();
         });
-        
+
         // Clear filters
         document.getElementById('clear-filters').addEventListener('click', () => {
             this.clearFilters();
         });
     }
-    
+
     clearFilters() {
-        this.currentFilters = { 
-            category: '', 
-            tag: '', 
+        this.currentFilters = {
+            category: '',
+            tag: '',
             type: '',
             persona: '',
             difficulty: '',
             modality: ''
         };
-        
+
         // Reset filter selects
         document.getElementById('category-filter').value = '';
         document.getElementById('tag-filter').value = '';
         document.getElementById('type-filter').value = '';
-        
+
         // Clear active filter display
         this.updateActiveFiltersDisplay();
-        
+
         // Re-run search
         this.applyFiltersAndSearch();
     }
-    
+
     handleBadgeClick(filterType, filterValue) {
         // Update the appropriate filter
         this.currentFilters[filterType] = filterValue;
-        
+
         // Update dropdown if it exists
         const dropdown = document.getElementById(`${filterType}-filter`);
         if (dropdown) {
             dropdown.value = filterValue;
         }
-        
+
         // Update active filters display
         this.updateActiveFiltersDisplay();
-        
+
         // Re-run search
         this.applyFiltersAndSearch();
     }
-    
+
     updateActiveFiltersDisplay() {
         // Remove existing active filters display
         const existingDisplay = document.querySelector('.active-filters-display');
         if (existingDisplay) {
             existingDisplay.remove();
         }
-        
+
         // Check for active metadata filters (not in dropdowns)
         const activeMetadataFilters = [];
         if (this.currentFilters.persona) {
@@ -275,7 +275,7 @@ class SearchPageManager {
         if (this.currentFilters.modality) {
             activeMetadataFilters.push(`${this.getModalityIcon(this.currentFilters.modality)} ${this.formatModalityName(this.currentFilters.modality)}`);
         }
-        
+
         if (activeMetadataFilters.length > 0) {
             const filtersContainer = document.querySelector('.search-filters');
             const activeFiltersHtml = `
@@ -290,7 +290,7 @@ class SearchPageManager {
             filtersContainer.insertAdjacentHTML('afterend', activeFiltersHtml);
         }
     }
-    
+
     clearMetadataFilters() {
         this.currentFilters.persona = '';
         this.currentFilters.difficulty = '';
@@ -298,26 +298,26 @@ class SearchPageManager {
         this.updateActiveFiltersDisplay();
         this.applyFiltersAndSearch();
     }
-    
+
     applyFiltersAndSearch() {
         if (this.currentQuery) {
             this.handleSearch(this.currentQuery);
         }
     }
-    
+
     setupEventListeners() {
         // Search input
         this.searchInput.addEventListener('input', this.debounce((e) => {
             this.handleSearch(e.target.value);
         }, 300));
-        
+
         this.searchInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 this.handleSearch(e.target.value);
             }
         });
-        
+
         // Badge click handlers (using event delegation)
         this.resultsContainer.addEventListener('click', (e) => {
             if (e.target.classList.contains('clickable-badge')) {
@@ -326,14 +326,14 @@ class SearchPageManager {
                 this.handleBadgeClick(filterType, filterValue);
             }
         });
-        
+
         // Make instance available globally for button callbacks
         window.searchPageManager = this;
-        
+
         // Focus input on page load
         this.searchInput.focus();
     }
-    
+
     handleUrlSearch() {
         const urlParams = new URLSearchParams(window.location.search);
         const query = urlParams.get('q');
@@ -342,31 +342,31 @@ class SearchPageManager {
             this.handleSearch(query);
         }
     }
-    
+
     handleSearch(query) {
         this.currentQuery = query.trim();
-        
+
         if (!this.currentQuery) {
             this.showEmptyState();
             return;
         }
-        
+
         if (this.currentQuery.length < 2) {
             this.showMinLengthMessage();
             return;
         }
-        
+
         // Perform search with filters
         const results = this.searchEngine.search(this.currentQuery, this.currentFilters);
         this.allResults = results;
         this.displayResults(results);
-        
+
         // Update URL without reload
         const newUrl = new URL(window.location);
         newUrl.searchParams.set('q', this.currentQuery);
         window.history.replaceState(null, '', newUrl);
     }
-    
+
         displayResults(results) {
         if (results.length === 0) {
             this.showNoResults();
@@ -374,7 +374,7 @@ class SearchPageManager {
         }
 
         const resultsHtml = results.map((result, index) => this.renderResult(result, index)).join('');
-        
+
         this.resultsContainer.innerHTML = `
             <div id="ai-assistant-container" class="ai-assistant-container mb-4" style="display: none;"></div>
             <div class="search-results-header mb-4">
@@ -388,14 +388,14 @@ class SearchPageManager {
                 ${resultsHtml}
             </div>
         `;
-        
+
         // Emit event for AI assistant integration
         this.emitSearchAIRequest(this.currentQuery, results);
     }
-    
+
     getActiveFiltersText() {
         const activeFilters = [];
-        
+
         if (this.currentFilters.category) {
             activeFilters.push(`Category: ${this.formatCategoryName(this.currentFilters.category)}`);
         }
@@ -414,10 +414,10 @@ class SearchPageManager {
         if (this.currentFilters.modality) {
             activeFilters.push(`Modality: ${this.formatModalityName(this.currentFilters.modality)}`);
         }
-        
+
         return activeFilters.length > 0 ? ` (filtered by ${activeFilters.join(', ')})` : '';
     }
-    
+
     renderResult(result, index) {
         const title = this.highlightText(result.title, this.currentQuery);
         const summary = this.highlightText(result.content?.substring(0, 200) || result.summary || '', this.currentQuery);
@@ -427,12 +427,12 @@ class SearchPageManager {
         const resultTags = this.renderResultTags(result);
         const resultCategories = this.renderResultCategories(result);
         const metadataBadges = this.renderMetadataBadges(result);
-        
+
         // Multiple matches indicator
-        const multipleMatchesIndicator = result.totalMatches > 1 
+        const multipleMatchesIndicator = result.totalMatches > 1
             ? `<span class="multiple-matches-indicator">+${result.totalMatches - 1} more matches</span>`
             : '';
-        
+
         return `
             <div class="search-result mb-4">
                 <div class="result-header d-flex align-items-start mb-2">
@@ -460,35 +460,35 @@ class SearchPageManager {
             </div>
         `;
     }
-    
+
     renderResultTags(result) {
         const tags = this.searchEngine.getDocumentTags(result);
         if (!tags || tags.length === 0) return '';
-        
+
         const tagsToShow = tags.slice(0, 6); // Show more tags since they're now on their own line
-        const tagsHtml = tagsToShow.map(tag => 
+        const tagsHtml = tagsToShow.map(tag =>
             `<span class="result-tag clickable-badge" data-filter-type="tag" data-filter-value="${this.escapeHtml(tag)}" title="Click to filter by this tag">${tag}</span>`
         ).join('');
-        
+
         const moreText = tags.length > 6 ? `<span class="more-tags">+${tags.length - 6} more</span>` : '';
-        
+
         return `<div class="result-tags mb-2">${tagsHtml}${moreText}</div>`;
     }
-    
+
     renderResultCategories(result) {
         const categories = this.searchEngine.getDocumentCategories(result);
         if (!categories || categories.length === 0) return '';
-        
-        const categoriesHtml = categories.slice(0, 2).map(category => 
+
+        const categoriesHtml = categories.slice(0, 2).map(category =>
             `<span class="result-category badge bg-info">${this.formatCategoryName(category)}</span>`
         ).join('');
-        
+
         return `<div class="result-categories">${categoriesHtml}</div>`;
     }
-    
+
     renderMetadataBadges(result) {
         const badges = [];
-        
+
         // Persona badge
         if (result.personas) {
             const personas = Array.isArray(result.personas) ? result.personas : [result.personas];
@@ -496,22 +496,22 @@ class SearchPageManager {
             const personaText = personas.map(p => this.formatPersonaName(p)).join(', ');
             badges.push(`<span class="metadata-badge persona-badge clickable-badge" data-filter-type="persona" data-filter-value="${this.escapeHtml(firstPersona)}" title="Click to filter by ${this.formatPersonaName(firstPersona)}">👤 ${personaText}</span>`);
         }
-        
+
         // Difficulty badge
         if (result.difficulty) {
             const difficultyIcon = this.getDifficultyIcon(result.difficulty);
             badges.push(`<span class="metadata-badge difficulty-badge clickable-badge" data-filter-type="difficulty" data-filter-value="${this.escapeHtml(result.difficulty)}" title="Click to filter by ${this.formatDifficultyName(result.difficulty)}">${difficultyIcon} ${this.formatDifficultyName(result.difficulty)}</span>`);
         }
-        
+
         // Modality badge
         if (result.modality) {
             const modalityIcon = this.getModalityIcon(result.modality);
             badges.push(`<span class="metadata-badge modality-badge clickable-badge" data-filter-type="modality" data-filter-value="${this.escapeHtml(result.modality)}" title="Click to filter by ${this.formatModalityName(result.modality)}">${modalityIcon} ${this.formatModalityName(result.modality)}</span>`);
         }
-        
+
         return badges.join('');
     }
-    
+
     getDifficultyIcon(difficulty) {
         switch (difficulty.toLowerCase()) {
             case 'beginner': return '🔰';
@@ -521,7 +521,7 @@ class SearchPageManager {
             default: return '📖';
         }
     }
-    
+
     getModalityIcon(modality) {
         switch (modality.toLowerCase()) {
             case 'text-only': return '📝';
@@ -532,21 +532,21 @@ class SearchPageManager {
             default: return '📄';
         }
     }
-    
+
     renderMatchingSections(result, query) {
         if (!result.matchingSections || result.matchingSections.length <= 1) {
             return '';
         }
-        
+
         const sectionsToShow = result.matchingSections.slice(0, 5);
         const hasMore = result.matchingSections.length > 5;
-        
+
         const sectionsHtml = sectionsToShow.map(section => {
             const sectionIcon = this.getSectionIcon(section.type, section.level);
             const sectionText = this.highlightText(section.text, query);
             const anchor = section.anchor ? `#${section.anchor}` : '';
             const sectionUrl = this.getDocumentUrl(result) + anchor;
-            
+
             return `
                 <a href="${sectionUrl}" class="section-link d-flex align-items-center text-decoration-none mb-1 p-2 rounded">
                     <span class="section-icon me-2">${sectionIcon}</span>
@@ -555,14 +555,14 @@ class SearchPageManager {
                 </a>
             `;
         }).join('');
-        
+
         const moreIndicator = hasMore ? `
             <div class="text-muted small mt-1 ms-4">
                 <i class="fas fa-ellipsis-h me-1"></i>
                 +${result.matchingSections.length - 5} more sections
             </div>
         ` : '';
-        
+
         return `
             <div class="matching-sections">
                 <h5 class="h6 mb-2">
@@ -576,7 +576,7 @@ class SearchPageManager {
             </div>
         `;
     }
-    
+
     getSectionIcon(type, level) {
         switch (type) {
             case 'title':
@@ -591,15 +591,15 @@ class SearchPageManager {
                 return '<i class="fas fa-circle-dot text-muted"></i>';
         }
     }
-    
+
     getBreadcrumb(docId) {
         const parts = docId.split('/').filter(part => part && part !== 'index');
         return parts.length > 0 ? parts.join(' › ') : 'Home';
     }
-    
+
     getSectionInfo(docId) {
         const path = docId.toLowerCase();
-        
+
         if (path.includes('get-started') || path.includes('getting-started')) {
             return {
                 class: 'getting-started',
@@ -638,28 +638,28 @@ class SearchPageManager {
             };
         }
     }
-    
+
     getDocumentUrl(result) {
         if (result.url) {
             return result.url;
         }
         return `${result.id.replace(/^\/+/, '')}.html`;
     }
-    
+
     highlightText(text, query) {
         if (!query) return this.escapeHtml(text);
-        
+
         const terms = query.toLowerCase().split(/\s+/).filter(term => term.length > 1);
         let highlightedText = this.escapeHtml(text);
-        
+
         terms.forEach(term => {
             const regex = new RegExp(`(${this.escapeRegex(term)})`, 'gi');
             highlightedText = highlightedText.replace(regex, '<mark class="search-highlight">$1</mark>');
         });
-        
+
         return highlightedText;
     }
-    
+
     showEmptyState() {
         this.resultsContainer.innerHTML = `
             <div class="text-center py-4">
@@ -675,7 +675,7 @@ class SearchPageManager {
             </div>
         `;
     }
-    
+
     showMinLengthMessage() {
         this.resultsContainer.innerHTML = `
             <div class="text-center py-4">
@@ -685,13 +685,13 @@ class SearchPageManager {
             </div>
         `;
     }
-    
+
     showNoResults() {
         const filtersActive = this.currentFilters.category || this.currentFilters.tag || this.currentFilters.type;
-        const suggestionText = filtersActive 
+        const suggestionText = filtersActive
             ? 'Try clearing some filters or using different keywords'
             : 'Try different keywords or check your spelling';
-        
+
         this.resultsContainer.innerHTML = `
             <div class="no-results text-center py-4">
                 <i class="fas fa-search fa-2x mb-3 text-muted"></i>
@@ -712,7 +712,7 @@ class SearchPageManager {
             </div>
         `;
     }
-    
+
     // Utility methods
     debounce(func, wait) {
         let timeout;
@@ -725,7 +725,7 @@ class SearchPageManager {
             timeout = setTimeout(later, wait);
         };
     }
-    
+
     escapeHtml(unsafe) {
         return unsafe
             .replace(/&/g, "&amp;")
@@ -734,11 +734,11 @@ class SearchPageManager {
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#039;");
     }
-    
+
     escapeRegex(string) {
         return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
-    
+
     emitSearchAIRequest(query, results) {
         // Emit event for AI assistant integration (search page)
         const aiRequestEvent = new CustomEvent('search-ai-request', {
@@ -750,7 +750,7 @@ class SearchPageManager {
             }
         });
         document.dispatchEvent(aiRequestEvent);
-        
+
         console.log(`🤖 Emitted search-ai-request event for query: "${query}" with ${results.length} results`);
     }
-} 
+}

@@ -58,7 +58,7 @@ FLEURS supports 102 languages identified by ISO 639-1 and ISO 3166-1 alpha-2 cod
 # Common language examples
 languages = [
     "en_us",    # English (US)
-    "es_419",   # Spanish (Latin America) 
+    "es_419",   # Spanish (Latin America)
     "fr_fr",    # French (France)
     "de_de",    # German (Germany)
     "zh_cn",    # Chinese (Simplified)
@@ -80,7 +80,7 @@ splits = ["train", "dev", "test"]
 for lang in ["en_us", "es_419", "fr_fr"]:
     stage = CreateInitialManifestFleursStage(
         lang=lang,
-        split="train", 
+        split="train",
         raw_data_dir=f"/data/fleurs/{lang}"
     )
 ```

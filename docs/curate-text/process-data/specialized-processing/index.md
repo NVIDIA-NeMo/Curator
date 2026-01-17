@@ -76,7 +76,7 @@ code_pipeline = Pipeline(
     ),
     ScoreFilter(
         filter_obj=NumberOfLinesOfCodeFilter(min_lines=5, max_lines=1000),
-        text_field="content", 
+        text_field="content",
         score_field="line_count"
     )
 ])

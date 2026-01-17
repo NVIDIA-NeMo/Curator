@@ -78,7 +78,7 @@ For more specific use cases, NeMo Curator provides two specialized modules:
   - Takes a scoring function that evaluates text and returns a score
   - Adds the score to a specified metadata field
   - Useful for analysis or multi-stage filtering pipelines
-  
+
 ```python
 # Example: Score documents without filtering
 from nemo_curator.stages.text.modules import Score
@@ -95,7 +95,7 @@ scored_dataset = scoring_step.process(dataset)
   - Takes a filter function that evaluates metadata and returns True/False
   - Only uses existing metadata fields (doesn't compute new scores)
   - Efficient for filtering on pre-computed metrics
-  
+
 ```python
 # Example: Filter using pre-computed scores
 from nemo_curator.stages.text.modules import Filter

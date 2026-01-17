@@ -72,4 +72,4 @@ A typical end-to-end workflow with NVIDIA's AI tools includes:
 4. **Alignment**: Align models with human preferences using NeMo Aligner
 5. **Deployment**: Deploy models using NVIDIA AI Enterprise or Triton Inference Server
 
-This integrated ecosystem allows you to move from raw data to deployed, production-ready models with consistent tooling and optimized performance. 
+This integrated ecosystem allows you to move from raw data to deployed, production-ready models with consistent tooling and optimized performance.

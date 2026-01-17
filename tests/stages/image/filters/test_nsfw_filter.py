@@ -30,11 +30,7 @@ class TestImageNSFWFilterStage:
     @pytest.fixture
     def stage(self) -> ImageNSFWFilterStage:
         """Create a test stage instance."""
-        return ImageNSFWFilterStage(
-            model_dir="test_models/nsfw",
-            score_threshold=0.5,
-            model_inference_batch_size=2
-        )
+        return ImageNSFWFilterStage(model_dir="test_models/nsfw", score_threshold=0.5, model_inference_batch_size=2)
 
     @pytest.fixture
     def mock_model(self) -> Mock:
@@ -84,7 +80,7 @@ class TestImageNSFWFilterStage:
             dataset_name="test_dataset",
             task_id="test_task_001",
             _metadata={"test": "metadata"},
-            _stage_perf={}
+            _stage_perf={},
         )
 
     def test_stage_properties(self, stage: ImageNSFWFilterStage) -> None:
@@ -126,7 +122,7 @@ class TestImageNSFWFilterStage:
         # So keep img1 (0.3), img3 (0.2), filter out img2 (0.7), img4 (0.8)
         mock_model.side_effect = [
             torch.tensor([0.3, 0.7]),  # First batch
-            torch.tensor([0.2, 0.8])   # Second batch
+            torch.tensor([0.2, 0.8]),  # Second batch
         ]
 
         result = stage.process(sample_image_batch)
@@ -167,7 +163,7 @@ class TestImageNSFWFilterStage:
         # All images have high NSFW scores (above threshold)
         mock_model.side_effect = [
             torch.tensor([0.8, 0.9]),  # First batch
-            torch.tensor([0.7, 0.6])   # Second batch
+            torch.tensor([0.7, 0.6]),  # Second batch
         ]
 
         result = stage.process(sample_image_batch)
@@ -206,17 +202,13 @@ class TestImageNSFWFilterStage:
         """Test boundary cases at threshold."""
         mock_nsfw_scorer.return_value = mock_model
 
-        stage = ImageNSFWFilterStage(
-            model_dir="test_models/nsfw",
-            score_threshold=0.5,
-            model_inference_batch_size=2
-        )
+        stage = ImageNSFWFilterStage(model_dir="test_models/nsfw", score_threshold=0.5, model_inference_batch_size=2)
         stage.setup()
 
         # Test scores around threshold (0.5)
         mock_model.side_effect = [
-            torch.tensor([0.5, 0.49]),   # First batch: exactly at and just below
-            torch.tensor([0.51, 0.499])  # Second batch: just above and just below
+            torch.tensor([0.5, 0.49]),  # First batch: exactly at and just below
+            torch.tensor([0.51, 0.499]),  # Second batch: just above and just below
         ]
 
         result = stage.process(sample_image_batch)
@@ -236,17 +228,13 @@ class TestImageNSFWFilterStage:
         """Test when all images are filtered out."""
         mock_nsfw_scorer.return_value = mock_model
 
-        stage = ImageNSFWFilterStage(
-            model_dir="test_models/nsfw",
-            score_threshold=0.5,
-            model_inference_batch_size=2
-        )
+        stage = ImageNSFWFilterStage(model_dir="test_models/nsfw", score_threshold=0.5, model_inference_batch_size=2)
         stage.setup()
 
         # All high NSFW scores
         mock_model.side_effect = [
             torch.tensor([0.9, 0.8]),  # First batch
-            torch.tensor([0.7, 0.6])   # Second batch
+            torch.tensor([0.7, 0.6]),  # Second batch
         ]
 
         result = stage.process(sample_image_batch)
@@ -265,17 +253,13 @@ class TestImageNSFWFilterStage:
         """Test when no images are filtered out."""
         mock_nsfw_scorer.return_value = mock_model
 
-        stage = ImageNSFWFilterStage(
-            model_dir="test_models/nsfw",
-            score_threshold=0.5,
-            model_inference_batch_size=2
-        )
+        stage = ImageNSFWFilterStage(model_dir="test_models/nsfw", score_threshold=0.5, model_inference_batch_size=2)
         stage.setup()
 
         # All low NSFW scores
         mock_model.side_effect = [
             torch.tensor([0.1, 0.2]),  # First batch
-            torch.tensor([0.3, 0.4])   # Second batch
+            torch.tensor([0.3, 0.4]),  # Second batch
         ]
 
         result = stage.process(sample_image_batch)
@@ -326,21 +310,20 @@ class TestImageNSFWFilterStage:
             model_dir="test_models/nsfw",
             score_threshold=0.5,
             model_inference_batch_size=2,  # Match the mock data structure
-            verbose=True
+            verbose=True,
         )
         verbose_stage.setup()
         verbose_stage.model = mock_model
 
         mock_model.side_effect = [
             torch.tensor([0.3, 0.7]),  # First batch: one pass, one fail
-            torch.tensor([0.2, 0.8])   # Second batch: one pass, one fail
+            torch.tensor([0.2, 0.8]),  # Second batch: one pass, one fail
         ]
 
         verbose_stage.process(sample_image_batch)
 
         # Should log filtering results
-        filtering_calls = [call for call in mock_logger.info.call_args_list
-                          if "NSFW" in str(call)]
+        filtering_calls = [call for call in mock_logger.info.call_args_list if "NSFW" in str(call)]
         assert len(filtering_calls) > 0
 
     @patch("nemo_curator.stages.image.filters.nsfw_filter.NSFWScorer")
@@ -385,7 +368,9 @@ def test_image_nsfw_filter_on_gpu() -> None:
 
     tmp_dir = tempfile.gettempdir()
     images = [
-        ImageObject(image_id=f"img_{i}", image_path=f"{tmp_dir}/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32))
+        ImageObject(
+            image_id=f"img_{i}", image_path=f"{tmp_dir}/{i}.jpg", embedding=rng.normal(size=(8,)).astype(np.float32)
+        )
         for i in range(6)
     ]
     batch = ImageBatch(data=images, dataset_name="ds", task_id="t0")

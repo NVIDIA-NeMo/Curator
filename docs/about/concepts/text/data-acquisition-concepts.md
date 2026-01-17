@@ -60,11 +60,11 @@ from nemo_curator.stages.text.download import DocumentDownloader
 class CustomDownloader(DocumentDownloader):
     def __init__(self, download_dir: str):
         super().__init__(download_dir=download_dir)
-    
+
     def _get_output_filename(self, url: str) -> str:
         # Custom logic to extract filename from URL
         return url.split("/")[-1]
-    
+
     def _download_to_path(self, url: str, path: str) -> tuple[bool, str | None]:
         # Custom download logic
         # Return (success_bool, error_message)
@@ -90,12 +90,12 @@ class CustomIterator(DocumentIterator):
     def __init__(self, log_frequency: int = 1000):
         super().__init__()
         self._log_frequency = log_frequency
-    
+
     def iterate(self, file_path: str) -> Iterator[dict[str, Any]]:
         # Custom iteration logic to load local file and return documents
         for record in load_local_file_fn(file_path):
             yield {"content": record_content, "metadata": record_metadata}
-    
+
     def output_columns(self) -> list[str]:
         return ["content", "metadata"]
 ```
@@ -113,16 +113,16 @@ from nemo_curator.stages.text.download import DocumentExtractor
 class CustomExtractor(DocumentExtractor):
     def __init__(self):
         super().__init__()
-    
+
     def extract(self, record: dict[str, str]) -> dict[str, Any] | None:
         # Custom extraction logic
         cleaned_text = clean_content(record["content"])
         detected_lang = detect_language(cleaned_text)
         return {"text": cleaned_text, "language": detected_lang}
-    
+
     def input_columns(self):
         return ["content", "metadata"]
-    
+
     def output_columns(self):
         return ["text", "language"]
 ```

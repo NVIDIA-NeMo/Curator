@@ -21,7 +21,7 @@ The primary metric for measuring ASR transcription quality:
 
 **Definition**: Percentage of words that differ between ground truth and predicted transcriptions.
 
-**Calculation**: 
+**Calculation**:
 ```
 WER = (Substitutions + Deletions + Insertions) / Total_Words × 100
 ```
@@ -63,7 +63,7 @@ CER = (Character_Substitutions + Character_Deletions + Character_Insertions) / T
 **Example**:
 ```python
 # Ground truth: "hello"
-# Prediction:   "helo" 
+# Prediction:   "helo"
 # CER = 1/5 × 100 = 20% (1 deletion out of 5 characters)
 ```
 
@@ -134,7 +134,7 @@ Different languages require different quality thresholds:
 - Extensive ASR model availability
 
 **Medium-Resource Languages** (German, Italian, Portuguese):
-- Moderate WER thresholds (≤ 30%) 
+- Moderate WER thresholds (≤ 30%)
 - Slightly more lenient filtering
 - Good ASR model availability
 
@@ -152,18 +152,18 @@ Combine multiple metrics for overall quality assessment:
 ```python
 def calculate_composite_quality(wer: float, duration: float, text: str) -> float:
     """Calculate composite quality score (0-100)."""
-    
+
     # WER component (50% weight)
     wer_score = max(0, 100 - wer)
-    
-    # Duration component (30% weight) 
+
+    # Duration component (30% weight)
     if 1.0 <= duration <= 15.0:
         duration_score = 100
     elif 0.5 <= duration < 1.0 or 15.0 < duration <= 30.0:
         duration_score = 75
     else:
         duration_score = 25
-    
+
     # Text length component (20% weight)
     word_count = len(text.split())
     if word_count >= 5:
@@ -172,14 +172,14 @@ def calculate_composite_quality(wer: float, duration: float, text: str) -> float
         length_score = 75
     else:
         length_score = 50
-    
+
     # Weighted combination
     composite_score = (
         0.5 * wer_score +
-        0.3 * duration_score + 
+        0.3 * duration_score +
         0.2 * length_score
     )
-    
+
     return round(composite_score, 2)
 ```
 
@@ -213,15 +213,15 @@ Monitor quality across your dataset:
 ```python
 def analyze_quality_distribution(manifest_data: list) -> dict:
     """Analyze quality distribution across dataset."""
-    
+
     wer_values = [item["wer"] for item in manifest_data]
     duration_values = [item["duration"] for item in manifest_data]
-    
+
     return {
         "total_samples": len(manifest_data),
         "wer_stats": {
             "mean": np.mean(wer_values),
-            "median": np.median(wer_values), 
+            "median": np.median(wer_values),
             "std": np.std(wer_values),
             "percentiles": np.percentile(wer_values, [25, 50, 75, 90, 95])
         },
