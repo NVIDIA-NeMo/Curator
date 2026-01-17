@@ -422,71 +422,64 @@ jobs:
         run: |
           set -o pipefail
           echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
+
+          cat > /tmp/run_install.sh << 'SCRIPT'
+          apt-get update && apt-get install -y --no-install-recommends git curl software-properties-common
+          add-apt-repository -y ppa:deadsnakes/ppa
+          apt-get update
+          apt-get install -y python3.12 python3.12-venv python3.12-dev
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="/root/.local/bin:$PATH"
+          uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
+
+          echo "::group::🔍 Import Verification"
+          uv run python << 'PYTHON'
+          import sys
+          print("Python:", sys.version)
+
+          from nemo_curator import package_info
+          print(f"✅ nemo_curator v{package_info.__version__}")
+
+          try:
+              import torch
+              print(f"✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})")
+          except Exception as e:
+              print(f"⚠️ torch: {e}")
+
+          try:
+              import cudf, cuml
+              print("✅ cudf, cuml")
+          except Exception as e:
+              print(f"⚠️ cudf/cuml: {e}")
+
+          try:
+              import torchvision
+              print(f"✅ torchvision {torchvision.__version__}")
+          except Exception as e:
+              print(f"⚠️ torchvision: {e}")
+          PYTHON
+          echo "::endgroup::"
+          SCRIPT
+
           if docker run --rm --gpus all \
             -v "${{ github.workspace }}:/workspace" \
+            -v /tmp/run_install.sh:/tmp/run_install.sh \
             -w /workspace \
             -e UV_HTTP_TIMEOUT=300 \
             ${{ needs.cuda-pre-flight.outputs.cuda_base_image }} \
-            bash -c '
-              apt-get update && apt-get install -y --no-install-recommends git curl software-properties-common
-              add-apt-repository -y ppa:deadsnakes/ppa
-              apt-get update
-              apt-get install -y python3.12 python3.12-venv python3.12-dev
-              curl -LsSf https://astral.sh/uv/install.sh | sh
-              export PATH="/root/.local/bin:$PATH"
-              uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
-
-              echo "::group::🔍 Import Verification"
-              uv run python -c "
-import sys
-print(\"Python:\", sys.version)
-
-from nemo_curator import package_info
-print(f\"✅ nemo_curator v{package_info.__version__}\")
-
-try:
-    import torch
-    print(f\"✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})\")
-except Exception as e:
-    print(f\"⚠️ torch: {e}\")
-
-try:
-    import cudf, cuml
-    print(\"✅ cudf, cuml\")
-except Exception as e:
-    print(f\"⚠️ cudf/cuml: {e}\")
-
-try:
-    import torchvision
-    print(f\"✅ torchvision {torchvision.__version__}\")
-except Exception as e:
-    print(f\"⚠️ torchvision: {e}\")
-"
-              echo "::endgroup::"
-            '; then
+            bash /tmp/run_install.sh; then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "✅ INSTALL SUCCESS"
           else
             echo "install_status=failure" >> $GITHUB_OUTPUT
             echo "❌ INSTALL FAILED"
-            cat ${{ github.workspace }}/install.log 2>/dev/null | grep -E "(ERROR|error:|failed|conflict)" | head -20 || true
-            exit 1
-          fi
-
-      - name: Report
-        if: always()
-        run: |
-          echo "📊 ALL EXTRAS (uv, Py3.12) - Install + Import"
-          if [ "${{ steps.install.outputs.install_status }}" = "success" ]; then
-            echo "✅ Install: SUCCESS"
-          else
-            echo "❌ Install: FAILED"
             echo ""
             echo "Known conflicts that may cause this:"
             echo "  - nemo_toolkit[asr] requires transformers<4.55 but vllm requires transformers>=4.55"
             echo ""
             echo "Install log errors:"
-            cat ${{ github.workspace }}/install.log 2>/dev/null | grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" | head -20 || echo "Install log not available or no errors found"
+            cat ${{ github.workspace }}/install.log 2>/dev/null | grep -E "(ResolutionImpossible|ERROR:|versions have conflicting|incompatible)" | head -20 || true
+            exit 1
           fi
 
   # ============================================================================
