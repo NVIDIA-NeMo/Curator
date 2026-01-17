@@ -172,7 +172,8 @@ jobs:
           azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           PAT: ${{ secrets.PAT }}
           timeout: 20
-          test-data-path: ${{ needs.pre-flight.outputs.default_test_data_path }}
+          test-data-path: ${{ needs.pre-flight.outputs.test_data_path }}
+          runner: ${{ matrix.runner }}
 
   Nemo_CICD_Test:
     needs:

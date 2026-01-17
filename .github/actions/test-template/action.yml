@@ -54,6 +54,9 @@ inputs:
   test-data-path:
     description: "Test data path"
     required: true
+  runner:
+    description: "Runner to use"
+    required: true
 runs:
   using: "composite"
   steps:
@@ -70,6 +73,13 @@ runs:
         client-id: ${{ inputs.azure-client-id }}
         tenant-id: ${{ inputs.azure-tenant-id }}
         subscription-id: ${{ inputs.azure-subscription-id }}
+
+    - name: Install uuidgen
+      shell: bash -x -e -u -o pipefail {0}
+      if: ${{ contains(inputs.runner, 'aws') }}
+      run: |
+        apt-get update
+        apt-get install -y uuid-runtime
 
     - name: Checkout repository
       uses: actions/checkout@v2

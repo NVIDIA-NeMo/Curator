@@ -322,7 +322,7 @@ jobs:
   # ALL Extras - Install Only (CPU Runner)
   # ============================================================================
   # all-install-only-test:
-  #   needs: [pre-flight]
+  #   needs: [pre-flight, cuda-pre-flight]
   #   if: needs.pre-flight.outputs.docs_only != 'true'
   #   runs-on: linux-amd64-cpu16
   #   container:
@@ -407,7 +407,7 @@ jobs:
   # ALL Extras - Install + Import (GPU Runner, uv Py3.12 only)
   # ============================================================================
   all-install-import-test:
-    needs: [pre-flight]
+    needs: [pre-flight, cuda-pre-flight]
     if: needs.pre-flight.outputs.docs_only != 'true'
     runs-on: ${{ needs.pre-flight.outputs.runner_prefix }}-gpu-x2
     container:
