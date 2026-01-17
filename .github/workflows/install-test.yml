@@ -423,7 +423,12 @@ jobs:
           set -o pipefail
           echo "🚀 Installing ALL extras (uv, Py3.12) - Install + Import"
 
-          cat > /tmp/run_install.sh << 'SCRIPT'
+          if docker run --rm --gpus all \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            -e UV_HTTP_TIMEOUT=300 \
+            -i ${{ needs.cuda-pre-flight.outputs.cuda_base_image }} \
+            bash << 'SCRIPT'
           apt-get update && apt-get install -y --no-install-recommends git curl software-properties-common
           add-apt-repository -y ppa:deadsnakes/ppa
           apt-get update
@@ -433,41 +438,34 @@ jobs:
           uv sync --locked --link-mode copy --extra all --python 3.12 2>&1 | tee install.log
 
           echo "::group::🔍 Import Verification"
-          uv run python << 'PYTHON'
+          uv run python -c "
           import sys
-          print("Python:", sys.version)
+          print('Python:', sys.version)
 
           from nemo_curator import package_info
-          print(f"✅ nemo_curator v{package_info.__version__}")
+          print(f'✅ nemo_curator v{package_info.__version__}')
 
           try:
               import torch
-              print(f"✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})")
+              print(f'✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})')
           except Exception as e:
-              print(f"⚠️ torch: {e}")
+              print(f'⚠️ torch: {e}')
 
           try:
               import cudf, cuml
-              print("✅ cudf, cuml")
+              print('✅ cudf, cuml')
           except Exception as e:
-              print(f"⚠️ cudf/cuml: {e}")
+              print(f'⚠️ cudf/cuml: {e}')
 
           try:
               import torchvision
-              print(f"✅ torchvision {torchvision.__version__}")
+              print(f'✅ torchvision {torchvision.__version__}')
           except Exception as e:
-              print(f"⚠️ torchvision: {e}")
-          PYTHON
+              print(f'⚠️ torchvision: {e}')
+          "
           echo "::endgroup::"
           SCRIPT
-
-          if docker run --rm --gpus all \
-            -v "${{ github.workspace }}:/workspace" \
-            -v /tmp/run_install.sh:/tmp/run_install.sh \
-            -w /workspace \
-            -e UV_HTTP_TIMEOUT=300 \
-            ${{ needs.cuda-pre-flight.outputs.cuda_base_image }} \
-            bash /tmp/run_install.sh; then
+          then
             echo "install_status=success" >> $GITHUB_OUTPUT
             echo "✅ INSTALL SUCCESS"
           else
