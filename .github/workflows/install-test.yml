@@ -51,6 +51,9 @@ jobs:
     outputs:
       cuda_base_image: ${{ steps.cuda_config.outputs.base_image }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Extract CUDA config
         id: cuda_config
         run: |
