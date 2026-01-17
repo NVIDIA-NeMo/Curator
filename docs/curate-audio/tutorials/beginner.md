@@ -100,9 +100,9 @@ Build the audio curation pipeline by adding stages in sequence:
 ```python
 def create_audio_pipeline(args):
     """Create audio curation pipeline."""
-    
+
     pipeline = Pipeline(name="audio_inference", description="Process FLEURS dataset with ASR")
-    
+
     # Stage 1: Load FLEURS dataset
     pipeline.add_stage(
         CreateInitialManifestFleursStage(
@@ -111,7 +111,7 @@ def create_audio_pipeline(args):
             raw_data_dir=args.raw_data_dir
         ).with_(batch_size=4)  # Process 4 samples per batch
     )
-    
+
     # Stage 2: ASR inference
     pipeline.add_stage(
         InferenceAsrNemoStage(
@@ -119,7 +119,7 @@ def create_audio_pipeline(args):
             pred_text_key="pred_text"  # Field name for ASR predictions
         ).with_(resources=Resources(gpus=1.0))  # Allocate 1 GPU
     )
-    
+
     # Stage 3: Calculate WER
     pipeline.add_stage(
         GetPairwiseWerStage(
@@ -128,7 +128,7 @@ def create_audio_pipeline(args):
             wer_key="wer"             # Output WER field
         )
     )
-    
+
     # Stage 4: Extract duration
     pipeline.add_stage(
         GetAudioDurationStage(
@@ -136,7 +136,7 @@ def create_audio_pipeline(args):
             duration_key="duration"
         )
     )
-    
+
     # Stage 5: Filter by WER threshold
     pipeline.add_stage(
         PreserveByValueStage(
@@ -145,10 +145,10 @@ def create_audio_pipeline(args):
             operator="le"  # less than or equal
         )
     )
-    
+
     # Stage 6: Convert to DocumentBatch for export
     pipeline.add_stage(AudioToDocumentStage())
-    
+
     # Stage 7: Export results
     result_dir = f"{args.raw_data_dir}/result"
     pipeline.add_stage(
@@ -157,7 +157,7 @@ def create_audio_pipeline(args):
             write_kwargs={"force_ascii": False}
         )
     )
-    
+
     return pipeline
 ```
 
@@ -183,18 +183,18 @@ def main():
         raw_data_dir = "/data/fleurs_output"
         model_name = "nvidia/stt_hy_fastconformer_hybrid_large_pc"
         wer_threshold = 75.0
-    
+
     args = Args()
-    
+
     # Create pipeline
     pipeline = create_audio_pipeline(args)
-    
+
     # Create executor
     executor = XennaExecutor()
-    
+
     # Run pipeline
     pipeline.run(executor)
-    
+
     print("Pipeline completed!")
     print(f"Results saved to: {args.raw_data_dir}/result/")
 
@@ -262,7 +262,7 @@ Example output entry:
 {
     "audio_filepath": "/data/fleurs_output/dev/sample.wav",
     "text": "բարև աշխարհ",
-    "pred_text": "բարև աշխարհ", 
+    "pred_text": "բարև աշխարհ",
     "wer": 0.0,
     "duration": 2.3
 }

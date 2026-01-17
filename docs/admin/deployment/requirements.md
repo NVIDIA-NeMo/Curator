@@ -79,4 +79,4 @@ This page details the comprehensive system, hardware, and software requirements 
 ### Network Optimization
 - Use high-bandwidth interconnects for multi-node deployments
 - Configure appropriate network protocols (TCP vs UCX)
-- Optimize data transfer patterns to minimize network overhead 
+- Optimize data transfer patterns to minimize network overhead

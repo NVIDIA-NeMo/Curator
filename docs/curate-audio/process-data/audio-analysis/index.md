@@ -126,7 +126,7 @@ pipeline.add_stage(PreserveByValueStage(
 ))
 
 pipeline.add_stage(PreserveByValueStage(
-    input_value_key="duration", 
+    input_value_key="duration",
     target_value=15.0,
     operator="le"  # <= 15 seconds
 ))

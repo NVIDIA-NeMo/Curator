@@ -52,7 +52,7 @@ from nemo_curator.backends.experimental.ray_data import RayDataExecutor
 
 workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
-    output_path="./results", 
+    output_path="./results",
     cache_path="./sem_cache",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
     n_clusters=100,
@@ -139,7 +139,7 @@ Compare semantic deduplication with other methods:
   - ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`)
   - Two-step (identification + removal workflow)
 * - FuzzyDuplicates
-  - Duplicates (ID list only)  
+  - Duplicates (ID list only)
   - ❌ Not supported (must remain `False`; use `TextDuplicatesRemovalWorkflow`)
   - Two-step (identification + removal workflow)
 * - TextSemanticDeduplicationWorkflow
@@ -255,25 +255,25 @@ workflow = TextSemanticDeduplicationWorkflow(
     input_path="input_data/",
     output_path="results/",
     cache_path="semdedup_cache",
-    
+
     # Embedding generation
     text_field="text",
     model_identifier="sentence-transformers/all-MiniLM-L6-v2",
     embedding_max_seq_length=512,
     embedding_pooling="mean_pooling",
     embedding_model_inference_batch_size=256,
-    
+
     # Deduplication
     n_clusters=100,
     eps=0.01,  # Similarity threshold
     distance_metric="cosine",
     which_to_keep="hard",
-    
+
     # K-means
     kmeans_max_iter=300,
     kmeans_tol=1e-4,
     pairwise_batch_size=1024,
-    
+
     perform_removal=True
 )
 ```
@@ -321,7 +321,7 @@ The workflow produces these output files:
    - **Important**: Contains only the IDs of documents to remove, not the full document content
    - When `perform_removal=True`, clean dataset is saved to `output_path/deduplicated/`
 
- 
+
 
 :::{dropdown} Performance Considerations
 :icon: zap

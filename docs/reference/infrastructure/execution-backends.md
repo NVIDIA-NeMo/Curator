@@ -69,23 +69,23 @@ executor = XennaExecutor(
         # Execution mode: 'streaming' (default) or 'batch'
         # Batch processes all data for a stage before moving to the next; streaming runs stages concurrently.
         "execution_mode": "streaming",
-        
+
         # Logging interval: seconds between status logs (default: 60)
         # Controls how frequently progress updates are printed
         "logging_interval": 60,
-        
+
         # Ignore failures: whether to continue on failures (default: False)
         # When True, the pipeline continues execution instead of failing fast when stages raise errors.
         "ignore_failures": False,
-        
+
         # CPU allocation percentage: ratio of CPU to allocate (0-1, default: 0.95)
         # Fraction of available CPU resources to use for pipeline execution
         "cpu_allocation_percentage": 0.95,
-        
+
         # Autoscale interval: seconds between auto-scaling checks (default: 180)
         # How often to run the stage auto-scaler.
         "autoscale_interval_s": 180,
-        
+
         # Max workers per stage: maximum number of workers (optional)
         # Limits worker count per stage; None means no limit
         "max_workers_per_stage": None,
@@ -143,7 +143,7 @@ results = pipeline.run(executor)
 Ray-based executors provide enhanced scalability and performance for large-scale data processing tasks. They're beneficial for:
 
 - **Large-scale classification tasks**: Distributed inference across multi-GPU setups
-- **Deduplication workflows**: Parallel processing of document similarity computations  
+- **Deduplication workflows**: Parallel processing of document similarity computations
 - **Resource-intensive stages**: Automatic scaling based on computational demands
 
 ### When to Use Ray Executors

@@ -100,13 +100,13 @@ quality_filters = [
     ),
     # Keep samples with duration 1-30 seconds
     PreserveByValueStage(
-        input_value_key="duration", 
+        input_value_key="duration",
         target_value=1.0,
         operator="ge"
     ),
     PreserveByValueStage(
         input_value_key="duration",
-        target_value=30.0, 
+        target_value=30.0,
         operator="le"
     )
 ]

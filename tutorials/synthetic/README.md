@@ -33,4 +33,3 @@ python synthetic_data_generation_example.py --num-samples 20
 | Tutorial | Description | Files |
 |----------|-------------|-------|
 | **[Multilingual Q&A Generation](synthetic_data_generation_example.py)** | Generate synthetic Q&A pairs in multiple languages using LLMs | `synthetic_data_generation_example.py` |
-

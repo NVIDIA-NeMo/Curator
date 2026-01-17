@@ -119,10 +119,10 @@ jobs:
           CPU_EXTRAS=("audio_cpu" "image_cpu" "text_cpu" "video_cpu")
           RESULTS=""
           FAILED=0
-          
+
           for extra in "${CPU_EXTRAS[@]}"; do
             echo "::group::📦 Testing: $extra ($INSTALLER)"
-            
+
             # Setup environment
             if [ "$INSTALLER" == "pip" ]; then
               python -m venv "venv_$extra"
@@ -132,28 +132,28 @@ jobs:
               rm -rf .venv
               uv cache clean
             fi
-            
+
             INSTALL_OK=false
             IMPORT_OK=false
-            
+
             # Install
             if [ "$INSTALLER" == "pip" ]; then
               INSTALL_CMD="pip install '.[$extra]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi
-            
+
             if eval "$INSTALL_CMD" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               INSTALL_OK=true
-              
+
               # Import test
               if [ "$INSTALLER" == "pip" ]; then
                 RUN_CMD="python"
               else
                 RUN_CMD="uv run python"
               fi
-              
+
               if $RUN_CMD -c "from nemo_curator import package_info; print(f'  nemo_curator v{package_info.__version__}')" 2>&1 | tee -a "install-$extra.log"; then
                 echo "✅ $extra: IMPORT SUCCESS"
                 IMPORT_OK=true
@@ -167,14 +167,14 @@ jobs:
               grep -E "(ERROR:|error:|Cannot install|conflicting dependencies|ResolutionImpossible|No space left|Failed to install)" "install-$extra.log" | tail -15 || tail -30 "install-$extra.log"
               echo "========================="
             fi
-            
+
             if [ "$INSTALL_OK" = "true" ] && [ "$IMPORT_OK" = "true" ]; then
               RESULTS="$RESULTS\n| $extra | ✅ | ✅ |"
             else
               RESULTS="$RESULTS\n| $extra | $( [ "$INSTALL_OK" = "true" ] && echo '✅' || echo '❌') | $( [ "$IMPORT_OK" = "true" ] && echo '✅' || echo '❌') |"
               FAILED=$((FAILED + 1))
             fi
-            
+
             # Cleanup
             rm -f "install-$extra.log"
             if [ "$INSTALLER" == "pip" ]; then
@@ -186,13 +186,13 @@ jobs:
             fi
             echo "::endgroup::"
           done
-          
+
           echo ""
           echo "## CPU Installation Results ($INSTALLER)"
           echo "| Extra | Install | Import |"
           echo "|-------|---------|--------|"
           echo -e "$RESULTS"
-          
+
           if [ $FAILED -gt 0 ]; then
             echo "test_status=failure" >> $GITHUB_OUTPUT
             exit 1
@@ -256,10 +256,10 @@ jobs:
           GPU_EXTRAS=("cuda12" "deduplication_cuda12" "audio_cuda12" "image_cuda12" "text_cuda12")
           RESULTS=""
           FAILED=0
-          
+
           for extra in "${GPU_EXTRAS[@]}"; do
             echo "::group::🎮 Testing: $extra ($INSTALLER) - Install Only"
-            
+
             # Setup isolated environment
             if [ "$INSTALLER" = "pip" ]; then
               python -m venv "venv_$extra"
@@ -269,14 +269,14 @@ jobs:
               rm -rf .venv
               uv cache clean
             fi
-            
+
             # Install
             if [ "$INSTALLER" = "pip" ]; then
               INSTALL_CMD="pip install --no-cache-dir '.[$extra]'"
             else
               INSTALL_CMD="uv sync --locked --link-mode copy --extra $extra"
             fi
-            
+
             if eval "$INSTALL_CMD" 2>&1 | tee "install-$extra.log"; then
               echo "✅ $extra: INSTALL SUCCESS"
               RESULTS="$RESULTS\n| $extra | ✅ |"
@@ -293,7 +293,7 @@ jobs:
               RESULTS="$RESULTS\n| $extra | ❌ |"
               FAILED=$((FAILED + 1))
             fi
-            
+
             # Cleanup
             rm -f "install-$extra.log"
             if [ "$INSTALLER" = "pip" ]; then
@@ -305,13 +305,13 @@ jobs:
             fi
             echo "::endgroup::"
           done
-          
+
           echo ""
           echo "## GPU Installation Results ($INSTALLER)"
           echo "| Extra | Status |"
           echo "|-------|--------|"
           echo -e "$RESULTS"
-          
+
           if [ $FAILED -gt 0 ]; then
             echo "test_status=failure" >> $GITHUB_OUTPUT
             exit 1
@@ -477,22 +477,22 @@ jobs:
           uv run python -c "
           import sys
           print('Python:', sys.version)
-          
+
           from nemo_curator import package_info
           print(f'✅ nemo_curator v{package_info.__version__}')
-          
+
           try:
               import torch
               print(f'✅ torch {torch.__version__} (CUDA: {torch.cuda.is_available()})')
           except Exception as e:
               print(f'⚠️ torch: {e}')
-          
+
           try:
               import cudf, cuml
               print('✅ cudf, cuml')
           except Exception as e:
               print(f'⚠️ cudf/cuml: {e}')
-          
+
           try:
               import torchvision
               print(f'✅ torchvision {torchvision.__version__}')
@@ -550,7 +550,7 @@ jobs:
           CPU_UV=$(read_status "${{ needs.cpu-install-test.result }}" cpu-status/uv_status.txt)
           GPU_PIP=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/pip_status.txt)
           GPU_UV=$(read_status "${{ needs.gpu-install-test.result }}" gpu-status/uv_status.txt)
-          
+
           echo "# 📊 Installation Test Summary"
           echo ""
           echo "## Individual Extras"
@@ -567,7 +567,7 @@ jobs:
           # echo "| ALL (pip/uv, Py3.10/3.12) | CPU | Install Only | ${{ needs.all-install-only-test.result == 'success' && '✅' || '⚠️ (expected)' }} |"
           echo "| ALL (uv, Py3.12) | **GPU** | **Install+Import** | ${{ needs.all-install-import-test.result == 'success' && '✅' || '❌' }} |"
           echo ""
-          
+
           # Core tests: CPU extras (both), GPU extras (uv), and ALL extras (uv) must pass
           if [ "$CPU_PIP" = "success" ] && [ "$CPU_UV" = "success" ] && \
              [ "$GPU_UV" = "success" ] && [ "${{ needs.all-install-import-test.result }}" = "success" ]; then
@@ -575,4 +575,3 @@ jobs:
           else
             echo "❌ Core installation tests failed"; exit 1
           fi
-

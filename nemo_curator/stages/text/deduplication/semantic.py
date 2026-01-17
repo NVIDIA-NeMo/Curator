@@ -352,14 +352,14 @@ class TextSemanticDeduplicationWorkflow:
             ids_to_remove_path=self.duplicates_path,
             output_path=self.deduplicated_output_path,
             input_filetype=self.input_filetype,
-            input_id_field=self.id_field,
+            id_field=self.id_field,
             input_files_per_partition=self.input_files_per_partition,
             input_blocksize=self.input_blocksize,
             input_file_extensions=self.input_file_extensions,
             input_kwargs=self.read_kwargs,
             # Ids to remove args
-            ids_to_remove_duplicate_id_field="id",
-            ids_to_remove_read_kwargs=self.write_kwargs,
+            duplicate_id_field="id",
+            duplicate_id_read_kwargs=self.write_kwargs,
             # ID generator parameters
             id_generator_path=self.id_generator_state_file if self.use_id_generator else None,
             id_generator_storage_options=self.write_kwargs.get("storage_options"),

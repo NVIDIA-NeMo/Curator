@@ -55,35 +55,35 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 # Get all input files
 input_files = get_all_file_paths_under(
-    "input_directory/", 
-    recurse_subdirectories=True, 
+    "input_directory/",
+    recurse_subdirectories=True,
     keep_extensions=[".jsonl"]
 )
 
 # Get already processed output files
 output_files = get_all_file_paths_under(
-    "output_directory/", 
-    recurse_subdirectories=True, 
+    "output_directory/",
+    recurse_subdirectories=True,
     keep_extensions=[".jsonl"]
 )
 
-# Simple approach: if output directory has fewer files than input, 
+# Simple approach: if output directory has fewer files than input,
 # process all remaining inputs
 if len(output_files) < len(input_files):
     # Process remaining files
     pipeline = Pipeline(name="resumable_processing")
-    
+
     # Read input files
     reader = JsonlReader(file_paths=input_files, fields=["text", "id"])
     pipeline.add_stage(reader)
-    
+
     # Add your processing stages here
     # pipeline.add_stage(your_processing_stage)
-    
+
     # Write results
     writer = JsonlWriter(path="output_directory/")
     pipeline.add_stage(writer)
-    
+
     # Execute pipeline
     pipeline.run()
 ```
@@ -102,7 +102,7 @@ pipeline = Pipeline(name="batch_processing")
 
 # JsonlReader automatically handles file partitioning
 reader = JsonlReader(
-    file_paths="input_directory/", 
+    file_paths="input_directory/",
     files_per_partition=64,  # Process 64 files at a time
     fields=["text", "id"]
 )

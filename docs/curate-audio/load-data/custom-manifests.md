@@ -102,8 +102,8 @@ pipeline.add_stage(
 # Calculate WER between ground truth and prediction
 pipeline.add_stage(
     GetPairwiseWerStage(
-        text_key="text", 
-        pred_text_key="pred_text", 
+        text_key="text",
+        pred_text_key="pred_text",
         wer_key="wer"
     )
 )
@@ -138,38 +138,38 @@ from nemo_curator.stages.text.io.writer import JsonlWriter
 
 def create_custom_audio_pipeline(manifest_path: str, output_path: str) -> Pipeline:
     """Create pipeline for custom audio manifest processing."""
-    
+
     pipeline = Pipeline(name="custom_audio_processing")
-    
+
     # Load custom manifest
     pipeline.add_stage(JsonlReader(
         file_paths=manifest_path,
         fields=["audio_filepath", "text"]
     ))
-    
+
     # ASR processing
     pipeline.add_stage(InferenceAsrNemoStage(
         model_name="nvidia/stt_en_fastconformer_hybrid_large_pc"
     ))
-    
+
     # Quality assessment
     pipeline.add_stage(GetPairwiseWerStage())
     pipeline.add_stage(GetAudioDurationStage(
         audio_filepath_key="audio_filepath",
         duration_key="duration"
     ))
-    
+
     # Filter by quality (keep WER <= 40%)
     pipeline.add_stage(PreserveByValueStage(
         input_value_key="wer",
         target_value=40.0,
         operator="le"
     ))
-    
+
     # Export results
     pipeline.add_stage(AudioToDocumentStage())
     pipeline.add_stage(JsonlWriter(path=output_path))
-    
+
     return pipeline
 
 # Usage

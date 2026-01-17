@@ -83,7 +83,7 @@ reader = JsonlReader(
     blocksize="128MB"  # Optimal for object store performance
 )
 
-# Option 2: File count-based partitioning  
+# Option 2: File count-based partitioning
 reader = JsonlReader(
     file_paths="/path/to/data",
     files_per_partition=16  # Match your cluster size
@@ -124,7 +124,7 @@ pipeline.add_stage(ParquetWriter(path="output_directory/"))
 # Combine multiple directories with same reader type
 reader = JsonlReader(file_paths=[
     "dataset_v1/",
-    "dataset_v2/", 
+    "dataset_v2/",
     "additional_data/"
 ])
 ```
@@ -140,7 +140,7 @@ This page focuses on loading text data from **local files** using `JsonlReader` 
 For downloading and processing data from **remote sources** like ArXiv, Common Crawl, and Wikipedia, refer to the {ref}`Data Acquisition Concepts <about-concepts-text-data-acquisition>` page which covers:
 
 - **URLGenerator, DocumentDownloader, DocumentIterator, DocumentExtractor** components
-- **Built-in support** for Common Crawl, ArXiv, Wikipedia, and custom sources  
+- **Built-in support** for Common Crawl, ArXiv, Wikipedia, and custom sources
 - **Integration patterns** with pipeline-based processing
 - **Configuration and scaling** strategies
 

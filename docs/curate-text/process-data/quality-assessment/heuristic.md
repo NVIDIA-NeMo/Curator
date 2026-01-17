@@ -26,7 +26,7 @@ These filters assess quality using measurable document characteristics such as:
 
 For details on filter structure and the filtering process, refer to {ref}`Data Processing Concepts <about-concepts-text-data-processing>`.
 
---- 
+---
 
 ## Usage
 
@@ -289,9 +289,9 @@ cn_filter = ScoreFilter(
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.modules import ScoreFilter
 from nemo_curator.stages.text.filters import (
-    WordCountFilter, 
-    PunctuationFilter, 
-    CommonEnglishWordsFilter, 
+    WordCountFilter,
+    PunctuationFilter,
+    CommonEnglishWordsFilter,
     RepeatingTopNGramsFilter
 )
 

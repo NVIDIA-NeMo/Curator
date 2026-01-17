@@ -43,9 +43,7 @@ def create_audio_pipeline(args: argparse.Namespace) -> Pipeline:
             raw_data_dir=args.raw_data_dir,
         ).with_(batch_size=4)
     )
-    pipeline.add_stage(
-        InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus))
-    )
+    pipeline.add_stage(InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus)))
     pipeline.add_stage(GetPairwiseWerStage(text_key="text", pred_text_key="pred_text", wer_key="wer"))
     pipeline.add_stage(GetAudioDurationStage(audio_filepath_key="audio_filepath", duration_key="duration"))
     pipeline.add_stage(PreserveByValueStage(input_value_key="wer", target_value=args.wer_threshold, operator="le"))

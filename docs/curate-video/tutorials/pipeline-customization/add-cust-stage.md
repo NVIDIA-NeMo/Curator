@@ -20,12 +20,12 @@ NeMo Curator includes a series of pipelines with default stages; however, they m
 
 Before you begin adding a new pipeline stage, make sure that you have:
 
-* Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
-* Downloaded the NeMo Curator container.  
-* Reviewed the [container environments](reference-infrastructure-container-environments) available.  
-* Optionally [created custom code](video-tutorials-pipeline-cust-add-code) that defines your new requirements.  
-* Optionally [created a custom environment](video-tutorials-pipeline-cust-env) to support your new custom code.  
-* Optionally [created a custom model](video-tutorials-pipeline-cust-add-model).  
+* Reviewed the [pipeline concepts and diagrams](about-concepts-video).
+* Downloaded the NeMo Curator container.
+* Reviewed the [container environments](reference-infrastructure-container-environments) available.
+* Optionally [created custom code](video-tutorials-pipeline-cust-add-code) that defines your new requirements.
+* Optionally [created a custom environment](video-tutorials-pipeline-cust-env) to support your new custom code.
+* Optionally [created a custom model](video-tutorials-pipeline-cust-add-model).
 
 ## How to Add a Custom Pipeline Stage
 

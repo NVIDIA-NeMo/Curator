@@ -40,10 +40,9 @@ jobs:
           enable-cache: true
 
       - name: Run pre-commit checks
-        env:   
+        env:
           SKIP: ruff,ruff-format,trailing-whitespace,end-of-file-fixer,requirements-txt-fixer  # checked separately in other workflows
         run: |
           pip install pre-commit==3.6.0
           pre-commit install
           pre-commit run --all-files --show-diff-on-failure --color=always
-

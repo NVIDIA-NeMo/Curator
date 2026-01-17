@@ -135,7 +135,7 @@ cd Curator
 uv sync --extra video_cuda12 --all-groups
 bash external/intern_video2_installation.sh
 uv add InternVideo/InternVideo2/multi_modality
-source .venv/bin/activate 
+source .venv/bin/activate
 ```
 
 :::
@@ -225,7 +225,7 @@ NeMo Curator supports two embedding model families:
 
 #### InternVideo2 (IV2)
 
-Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage. 
+Open model that requires the IV2 checkpoint and BERT model files to be available locally; higher VRAM usage.
 - [InternVideo Official Github Page](https://github.com/OpenGVLab/InternVideo)
 
 For this quickstart, we're going to set up support for **Cosmos-Embed1-224p**.

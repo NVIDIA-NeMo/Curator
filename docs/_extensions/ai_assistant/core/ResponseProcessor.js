@@ -8,27 +8,27 @@ class ResponseProcessor {
         this.cache = new Map();
         this.maxCacheSize = 50; // Limit cache size
     }
-    
+
     normalizeQuery(query) {
         return query.toLowerCase().trim().replace(/\s+/g, ' ');
     }
-    
+
     /**
      * Process and cache AI response
      */
     processResponse(query, rawResponse) {
         const normalizedQuery = this.normalizeQuery(query);
-        
+
         // Check cache first
         if (this.cache.has(normalizedQuery)) {
             return { ...this.cache.get(normalizedQuery), cached: true };
         }
-        
+
         // Handle error responses
         if (rawResponse.error) {
             return this.processError(new Error(rawResponse.message), query);
         }
-        
+
         // Process the response
         const processedResponse = {
             content: rawResponse.content,
@@ -36,13 +36,13 @@ class ResponseProcessor {
             cached: false,
             processedAt: new Date().toISOString()
         };
-        
+
         // Cache the response
         this.cache.set(normalizedQuery, { ...processedResponse, cached: true });
-        
+
         return processedResponse;
     }
-    
+
     /**
      * Check if response is cached
      */
@@ -50,7 +50,7 @@ class ResponseProcessor {
         const normalizedQuery = this.normalizeQuery(query);
         return this.cache.has(normalizedQuery);
     }
-    
+
     /**
      * Get cached response
      */
@@ -66,7 +66,7 @@ class ResponseProcessor {
         }
         return null;
     }
-    
+
     /**
      * Process error response
      */
@@ -79,7 +79,7 @@ class ResponseProcessor {
             processedAt: new Date().toISOString()
         };
     }
-    
+
     /**
      * Validate response format
      */
@@ -87,18 +87,18 @@ class ResponseProcessor {
         if (!response) {
             throw new Error('No response received');
         }
-        
+
         if (response.error) {
             return false; // Error responses are valid but indicate failure
         }
-        
+
         if (!response.content || typeof response.content !== 'string') {
             throw new Error('Invalid response format: missing or invalid content');
         }
-        
+
         return true;
     }
-    
+
     /**
      * Extract usage statistics
      */
@@ -106,11 +106,11 @@ class ResponseProcessor {
         if (!response.usage) {
             return null;
         }
-        
+
         const usage = response.usage;
-        const totalTokens = usage.total_tokens || 
+        const totalTokens = usage.total_tokens ||
                           (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
-        
+
         return {
             promptTokens: usage.prompt_tokens || 0,
             completionTokens: usage.completion_tokens || 0,
@@ -118,28 +118,28 @@ class ResponseProcessor {
             hasUsageData: totalTokens > 0
         };
     }
-    
+
     /**
      * Clear cache
      */
     clearCache() {
         this.cache.clear();
     }
-    
+
     /**
      * Get cache size
      */
     getCacheSize() {
         return this.cache.size;
     }
-    
+
     /**
      * Get cache keys (for debugging)
      */
     getCacheKeys() {
         return Array.from(this.cache.keys());
     }
-    
+
     /**
      * Remove specific cache entry
      */
@@ -148,7 +148,7 @@ class ResponseProcessor {
         const removed = this.cache.delete(normalizedQuery);
         return removed;
     }
-    
+
     /**
      * Get cache statistics
      */
@@ -159,7 +159,7 @@ class ResponseProcessor {
             memoryUsage: this.estimateMemoryUsage()
         };
     }
-    
+
     /**
      * Estimate memory usage (rough calculation)
      */
@@ -175,14 +175,14 @@ class ResponseProcessor {
             entries: this.cache.size
         };
     }
-    
+
     cacheResponse(normalizedQuery, response) {
         // Manage cache size
         if (this.cache.size >= this.maxCacheSize) {
             const firstKey = this.cache.keys().next().value;
             this.cache.delete(firstKey);
         }
-        
+
         this.cache.set(normalizedQuery, {
             ...response,
             timestamp: new Date().toISOString()
@@ -191,4 +191,4 @@ class ResponseProcessor {
 }
 
 // Make ResponseProcessor available globally
-window.ResponseProcessor = ResponseProcessor; 
+window.ResponseProcessor = ResponseProcessor;

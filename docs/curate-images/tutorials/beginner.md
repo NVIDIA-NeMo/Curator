@@ -78,7 +78,7 @@ Instantiate a named pipeline to orchestrate the stages.
 
 ```python
 pipeline = Pipeline(
-    name="image_curation", 
+    name="image_curation",
     description="Curate images with embeddings and quality scoring"
 )
 ```
@@ -196,32 +196,32 @@ from nemo_curator.stages.image.io.image_writer import ImageWriterStage
 
 def create_image_curation_pipeline():
     """Create image curation pipeline with quality filtering."""
-    
+
     # Define paths
     INPUT_TAR_DIR = "/path/to/input/tar_archives"
-    OUTPUT_DIR = "/path/to/output/dataset" 
+    OUTPUT_DIR = "/path/to/output/dataset"
     MODEL_DIR = "/path/to/models"
-    
+
     # Create pipeline
     pipeline = Pipeline(
         name="image_curation",
         description="Curate images with embeddings and quality scoring"
     )
-    
+
     # Add stages
     pipeline.add_stage(FilePartitioningStage(
         file_paths=INPUT_TAR_DIR,
         files_per_partition=1,
         file_extensions=[".tar"],
     ))
-    
+
     pipeline.add_stage(ImageReaderStage(
         batch_size=100,
         verbose=True,
         num_threads=16,
         num_gpus_per_worker=0.25,
     ))
-    
+
     pipeline.add_stage(ImageEmbeddingStage(
         model_dir=MODEL_DIR,
         num_gpus_per_worker=0.25,
@@ -229,7 +229,7 @@ def create_image_curation_pipeline():
         remove_image_data=False,
         verbose=True,
     ))
-    
+
     pipeline.add_stage(ImageAestheticFilterStage(
         model_dir=MODEL_DIR,
         num_gpus_per_worker=0.25,
@@ -237,7 +237,7 @@ def create_image_curation_pipeline():
         score_threshold=0.5,
         verbose=True,
     ))
-    
+
     pipeline.add_stage(ImageNSFWFilterStage(
         model_dir=MODEL_DIR,
         num_gpus_per_worker=0.25,
@@ -245,14 +245,14 @@ def create_image_curation_pipeline():
         score_threshold=0.5,
         verbose=True,
     ))
-    
+
     pipeline.add_stage(ImageWriterStage(
         output_dir=OUTPUT_DIR,
         images_per_tar=1000,  # Default value
         remove_image_data=True,
         verbose=True,
     ))
-    
+
     return pipeline
 
 # Run the pipeline

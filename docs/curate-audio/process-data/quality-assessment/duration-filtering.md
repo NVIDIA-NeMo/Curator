@@ -44,14 +44,14 @@ min_duration_filter = PreserveByValueStage(
 )
 
 max_duration_filter = PreserveByValueStage(
-    input_value_key="duration", 
+    input_value_key="duration",
     target_value=15.0,
     operator="le"  # less than or equal
 )
 
 # Add to pipeline
 pipeline.add_stage(duration_stage)
-pipeline.add_stage(min_duration_filter) 
+pipeline.add_stage(min_duration_filter)
 pipeline.add_stage(max_duration_filter)
 ```
 
@@ -65,19 +65,19 @@ duration_configs = {
         "max_duration": 20.0,
         "optimal_range": (2.0, 10.0)
     },
-    
+
     "voice_cloning": {
         "min_duration": 3.0,
-        "max_duration": 10.0, 
+        "max_duration": 10.0,
         "optimal_range": (4.0, 8.0)
     },
-    
+
     "speech_synthesis": {
         "min_duration": 2.0,
         "max_duration": 15.0,
         "optimal_range": (3.0, 12.0)
     },
-    
+
     "keyword_spotting": {
         "min_duration": 0.5,
         "max_duration": 3.0,
@@ -87,9 +87,9 @@ duration_configs = {
 
 def create_use_case_duration_filter(use_case: str) -> list[PreserveByValueStage]:
     """Create duration filters for specific use case."""
-    
+
     config = duration_configs.get(use_case, duration_configs["asr_training"])
-    
+
     return [
         PreserveByValueStage(
             input_value_key="duration",
@@ -110,7 +110,7 @@ Speech rate metrics (words per second, characters per second) help identify samp
 
 ### Calculate Speech Rate Metrics
 
-The built-in speech rate calculation functions can be used within custom processing stages to analyze speaking speed and add metrics to your pipeline data. 
+The built-in speech rate calculation functions can be used within custom processing stages to analyze speaking speed and add metrics to your pipeline data.
 
 ### Speech Rate Filtering
 
@@ -236,54 +236,54 @@ from nemo_curator.stages.resources import Resources
 
 def create_audio_pipeline(raw_data_dir: str, wer_threshold: float = 75.0) -> Pipeline:
     """Real working pipeline from NeMo Curator tutorials."""
-    
+
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
-    
+
     # Load FLEURS dataset
     pipeline.add_stage(
         CreateInitialManifestFleursStage(
             lang="hy_am",
-            split="dev", 
+            split="dev",
             raw_data_dir=raw_data_dir,
         ).with_(batch_size=4)
     )
-    
+
     # ASR inference
     pipeline.add_stage(
         InferenceAsrNemoStage(
             model_name="nvidia/stt_hy_fastconformer_hybrid_large_pc"
         ).with_(resources=Resources(gpus=1.0))
     )
-    
+
     # Calculate WER
     pipeline.add_stage(
         GetPairwiseWerStage(
-            text_key="text", 
-            pred_text_key="pred_text", 
+            text_key="text",
+            pred_text_key="pred_text",
             wer_key="wer"
         )
     )
-    
+
     # Calculate duration
     pipeline.add_stage(
         GetAudioDurationStage(
-            audio_filepath_key="audio_filepath", 
+            audio_filepath_key="audio_filepath",
             duration_key="duration"
         )
     )
-    
+
     # Filter by WER threshold
     pipeline.add_stage(
         PreserveByValueStage(
-            input_value_key="wer", 
-            target_value=wer_threshold, 
+            input_value_key="wer",
+            target_value=wer_threshold,
             operator="le"
         )
     )
-    
+
     # Convert to document format
     pipeline.add_stage(AudioToDocumentStage().with_(batch_size=1))
-    
+
     return pipeline
 ```
 

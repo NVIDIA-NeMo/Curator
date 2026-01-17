@@ -117,49 +117,49 @@ graph LR
         S3[ProcessingStage Z→W]
         R[Resources<br/>CPU/GPU/NVDEC/NVENC]
     end
-    
+
     subgraph "Orchestration Layer"
         BE[BaseExecutor Interface]
     end
-    
+
     subgraph "Backend Layer"
         XE[XennaExecutor<br/>Production Ready]
         RAP[RayActorPoolExecutor<br/>Experimental]
         RDE[RayDataExecutor<br/>Experimental]
     end
-    
+
     subgraph "Adaptation Layer"
         XA[Xenna Adapter]
         RAPA[Ray Actor Adapter]
         RDA[Ray Data Adapter]
     end
-    
+
     subgraph "Execution Layer"
         X[Cosmos-Xenna<br/>Streaming/Batch]
         RAY1[Ray Actor Pool<br/>Load Balancing]
         RAY2[Ray Data API<br/>Dataset Processing]
     end
-    
+
     P --> S1
     P --> S2
     P --> S3
     S1 -.-> R
     S2 -.-> R
     S3 -.-> R
-    
+
     P --> BE
     BE --> XE
     BE --> RAP
     BE --> RDE
-    
+
     XE --> XA
     RAP --> RAPA
     RDE --> RDA
-    
+
     XA --> X
     RAPA --> RAY1
     RDA --> RAY2
-    
+
     style XE fill:#90EE90
     style RAP fill:#FFE4B5
     style RDE fill:#FFE4B5

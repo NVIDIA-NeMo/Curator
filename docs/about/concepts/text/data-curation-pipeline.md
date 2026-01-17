@@ -24,7 +24,7 @@ flowchart LR
     C --> D["Quality Assessment<br/>& Filtering"]
     D --> E["Deduplication<br/>(Exact, Fuzzy,<br/>Semantic)"]
     E --> F["Curated Dataset<br/>(JSONL/Parquet)"]
-    
+
     G["Ray + RAPIDS<br/>(GPU-accelerated)"] -.->|"Distributed Execution"| B
     G -.->|"Distributed Execution"| C
     G -.->|"GPU Acceleration"| D

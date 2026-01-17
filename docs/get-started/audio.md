@@ -68,7 +68,7 @@ Install the latest version directly from GitHub:
 git clone https://github.com/NVIDIA-NeMo/Curator.git
 cd Curator
 uv sync --extra audio_cuda12 --all-groups
-source .venv/bin/activate 
+source .venv/bin/activate
 ```
 
 ```{note}
@@ -134,7 +134,7 @@ pipeline = Pipeline(name="audio_curation", description="FLEURS audio curation wi
 pipeline.add_stage(
     CreateInitialManifestFleursStage(
         lang="hy_am",
-        split="dev", 
+        split="dev",
         raw_data_dir="~/nemo_curator/audio_data"
     ).with_(batch_size=4)
 )
@@ -150,7 +150,7 @@ pipeline.add_stage(
 pipeline.add_stage(
     GetPairwiseWerStage(
         text_key="text",
-        pred_text_key="pred_text", 
+        pred_text_key="pred_text",
         wer_key="wer"
     )
 )
@@ -208,7 +208,7 @@ Each output entry contains:
 {
     "audio_filepath": "/absolute/path/to/audio.wav",
     "text": "ground truth transcription",
-    "pred_text": "asr model prediction", 
+    "pred_text": "asr model prediction",
     "wer": 12.5,
     "duration": 4.2
 }

@@ -64,8 +64,8 @@ Alternatively, the dataset can be downloaded via Python:
 from huggingface_hub import snapshot_download
 
 snapshot_download(
-    repo_id="nvidia/Llama-Nemotron-Post-Training-Dataset", 
-    repo_type="dataset", 
+    repo_id="nvidia/Llama-Nemotron-Post-Training-Dataset",
+    repo_type="dataset",
     local_dir="/path/to/save/data",
     # allow_patterns=["SFT/chat/chat.jsonl", "SFT/math/math_v1.1.jsonl"],  # Select specific files or directories (if desired)
 )

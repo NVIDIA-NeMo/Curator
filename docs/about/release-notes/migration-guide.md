@@ -107,7 +107,7 @@ In the previous version of NeMo Curator, the data loading and formatting process
 # Old: Define curation logic
 def main():
     dataset = DocumentDataset.read_json(files)
-    
+
     # Clean and unify
     cleaners = Sequential([
         Modify(QuotationUnifier()),

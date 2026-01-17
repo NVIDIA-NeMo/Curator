@@ -7,7 +7,7 @@ class ResponseRenderer {
     constructor(markdownProcessor = null) {
         this.markdownProcessor = markdownProcessor || new MarkdownProcessor();
     }
-    
+
     /**
      * Render AI response in a standardized format
      */
@@ -15,10 +15,10 @@ class ResponseRenderer {
         if (!aiResponse || aiResponse.error) {
             return this.renderError(aiResponse?.message || 'AI Assistant unavailable');
         }
-        
+
         // Calculate usage display
         const usageHTML = this.renderUsageStats(aiResponse.usage);
-        
+
         const cacheIndicator = aiResponse.cached ? `
             <div class="mt-3 pt-3 border-top">
                 <small class="ai-cache-indicator">
@@ -27,7 +27,7 @@ class ResponseRenderer {
                 </small>
             </div>
         ` : '';
-        
+
         return `
             <div class="ai-assistant-response">
                 <div class="ai-assistant-header">
@@ -54,18 +54,18 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render usage statistics
      */
     renderUsageStats(usage) {
         if (!usage) return '';
-        
-        const totalTokens = usage.total_tokens || 
+
+        const totalTokens = usage.total_tokens ||
                           (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
-        
+
         if (totalTokens <= 0) return '';
-        
+
         return `
             <div class="ai-usage-stats mt-3 pt-3 border-top">
                 <h6 class="ai-usage-title mb-2">
@@ -95,7 +95,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render error state
      */
@@ -133,7 +133,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render loading state
      */
@@ -160,7 +160,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render manual trigger option
      */
@@ -189,7 +189,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render compact response (for sidebars, modals, etc.)
      */
@@ -197,10 +197,10 @@ class ResponseRenderer {
         if (!aiResponse || aiResponse.error) {
             return this.renderCompactError(aiResponse?.message || 'AI unavailable');
         }
-        
+
         const shortContent = this.truncateContent(aiResponse.content, 200);
         const cacheIcon = aiResponse.cached ? '<i class="fa-solid fa-clock text-muted"></i>' : '';
-        
+
         return `
             <div class="ai-assistant-compact">
                 <div class="ai-compact-header d-flex align-items-center mb-2">
@@ -215,7 +215,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render compact error
      */
@@ -232,7 +232,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render response summary (for search result enhancement)
      */
@@ -240,9 +240,9 @@ class ResponseRenderer {
         if (!aiResponse || aiResponse.error) {
             return '';
         }
-        
+
         const summary = this.extractSummary(aiResponse.content);
-        
+
         return `
             <div class="ai-response-summary">
                 <div class="ai-summary-header">
@@ -255,13 +255,13 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Render debug information
      */
     renderDebugInfo(aiResponse, query, processingTime = null) {
         if (!aiResponse) return '';
-        
+
         const debugData = {
             query: query,
             cached: aiResponse.cached || false,
@@ -271,7 +271,7 @@ class ResponseRenderer {
             processingTime: processingTime,
             timestamp: new Date().toISOString()
         };
-        
+
         return `
             <div class="ai-debug-info mt-3 p-3 bg-light rounded">
                 <h6 class="mb-2">
@@ -282,7 +282,7 @@ class ResponseRenderer {
             </div>
         `;
     }
-    
+
     /**
      * Truncate content for compact display
      */
@@ -290,41 +290,41 @@ class ResponseRenderer {
         if (!content || content.length <= maxLength) {
             return content;
         }
-        
+
         // Try to truncate at word boundary
         const truncated = content.substring(0, maxLength);
         const lastSpace = truncated.lastIndexOf(' ');
-        
+
         if (lastSpace > maxLength * 0.8) {
             return truncated.substring(0, lastSpace);
         }
-        
+
         return truncated;
     }
-    
+
     /**
      * Extract summary from AI response content
      */
     extractSummary(content, maxSentences = 2) {
         if (!content) return '';
-        
+
         // Split into sentences (basic approach)
         const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 10);
-        
+
         if (sentences.length <= maxSentences) {
             return content;
         }
-        
+
         return sentences.slice(0, maxSentences).join('. ') + '.';
     }
-    
+
     /**
      * Set markdown processor
      */
     setMarkdownProcessor(processor) {
         this.markdownProcessor = processor;
     }
-    
+
     /**
      * Get markdown processor
      */
@@ -334,4 +334,4 @@ class ResponseRenderer {
 }
 
 // Make ResponseRenderer available globally
-window.ResponseRenderer = ResponseRenderer; 
+window.ResponseRenderer = ResponseRenderer;

@@ -6,7 +6,7 @@ Similar to Hugo's output formats, this creates parallel JSON files for each docu
 containing metadata, content, and other structured data that can be consumed by
 search engines, APIs, or other applications.
 
-The main use case is generating comprehensive search indexes for tools like Solr, 
+The main use case is generating comprehensive search indexes for tools like Solr,
 Lunr.js, or custom search implementations.
 
 ## Search Index Integration
@@ -25,7 +25,7 @@ The JSON structure includes search-optimized fields:
 ```json
 {
     "id": "guide/installation",
-    "title": "Installation Guide", 
+    "title": "Installation Guide",
     "content": "Full markdown content here...",
     "content_length": 5420,
     "word_count": 850,
@@ -94,7 +94,7 @@ json_output_settings = {
     'enabled': True,
     'main_index_mode': 'metadata_only',  # Only titles, descriptions, tags
     'extract_code_blocks': False,        # Skip code extraction
-    'extract_links': False,              # Skip link extraction  
+    'extract_links': False,              # Skip link extraction
     'lazy_extraction': True,             # Minimal processing
     'skip_complex_parsing': True,        # Skip complex features
 }
@@ -156,7 +156,7 @@ This extension automatically respects content gating rules set by the content_ga
 ### Document-Level Gating
 Documents with 'only' conditions in frontmatter that fail evaluation (e.g., 'only: not ga' when building with -t ga) will be excluded from JSON generation entirely, ensuring sensitive content doesn't leak into search indexes.
 
-### Content-Level Gating  
+### Content-Level Gating
 Content sections wrapped in `{conditional}` directives are also properly filtered. When conditions don't match, the content is excluded from the document tree and won't appear in the generated JSON.
 
 ### Integration Details
@@ -174,4 +174,4 @@ The integration works seamlessly - just enable both extensions and your JSON out
 3. **Set content length limits** for large documentation sites
 4. **Enable content filtering** to reduce JSON file sizes
 5. **Use batch processing** to control memory usage
-6. **Skip large files** to avoid processing massive documents 
+6. **Skip large files** to avoid processing massive documents

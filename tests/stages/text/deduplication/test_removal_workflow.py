@@ -115,10 +115,10 @@ class TestTextDuplicateRemovalWorkflowIntegration:
             output_path=str(self.output_dir),
             input_filetype="parquet",
             output_filetype="parquet",
-            input_id_field=CURATOR_DEDUP_ID_STR,
-            ids_to_remove_duplicate_id_field="id",
+            id_field=CURATOR_DEDUP_ID_STR,
+            duplicate_id_field="id",
             input_kwargs={},
-            ids_to_remove_read_kwargs={},
+            duplicate_id_read_kwargs={},
             output_kwargs={},
         )
 
@@ -241,11 +241,11 @@ class TestTextDuplicateRemovalWorkflowIntegration:
             ),  # Different output dir to avoid conflicts
             input_filetype="parquet",
             output_filetype="parquet",
-            input_id_field=CURATOR_DEDUP_ID_STR,
-            ids_to_remove_duplicate_id_field="id",
+            id_field=CURATOR_DEDUP_ID_STR,
+            duplicate_id_field="id",
             input_task_limit=10,  # truncate to 10 tasks only
             input_kwargs={},
-            ids_to_remove_read_kwargs={},
+            duplicate_id_read_kwargs={},
             output_kwargs={},
         )
 
@@ -312,7 +312,7 @@ class TestTextDuplicatesRemovalWorkflowGenerateStages:
             output_path="output_path",
             input_filetype=input_filetype,
             id_generator_path=id_generator_path,
-            input_id_field=CURATOR_DEDUP_ID_STR,
+            id_field=CURATOR_DEDUP_ID_STR,
         )
 
         stages = workflow._generate_stages(initial_tasks=None)

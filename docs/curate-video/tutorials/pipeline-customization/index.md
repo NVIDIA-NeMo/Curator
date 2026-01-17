@@ -20,8 +20,8 @@ You can customize the **environments**, **code**, **models**, and **stages** use
 
 Before you begin customizing NeMo Curator pipelines, make sure that you have:
 
-- Reviewed the [pipeline concepts and diagrams](about-concepts-video).  
-- A working NeMo Curator development environment.  
+- Reviewed the [pipeline concepts and diagrams](about-concepts-video).
+- A working NeMo Curator development environment.
 - Reviewed the [container environments](reference-infrastructure-container-environments) reference.
 
 ---

@@ -27,6 +27,7 @@ from sphinx.util import logging
 # Import YAML for frontmatter parsing
 try:
     import yaml
+
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
@@ -250,7 +251,7 @@ def build_meta_tags(metadata: dict[str, Any], context: dict[str, Any]) -> dict[s
         "basic": _add_basic_fields(metadata),
         "opengraph": _add_opengraph_fields(metadata, context),
         "twitter": _add_twitter_fields(metadata, context),
-        "custom": _add_custom_fields(metadata)
+        "custom": _add_custom_fields(metadata),
     }
 
 
@@ -474,4 +475,3 @@ def setup(app: Sphinx) -> dict[str, Any]:
         "parallel_read_safe": True,
         "parallel_write_safe": True,
     }
-

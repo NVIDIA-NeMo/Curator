@@ -91,7 +91,7 @@ manifest_data = [
         "language": "en"
     },
     {
-        "audio_filepath": "/path/to/audio2.wav", 
+        "audio_filepath": "/path/to/audio2.wav",
         "text": "Good morning",
         "duration": 2.1,
         "language": "en"
