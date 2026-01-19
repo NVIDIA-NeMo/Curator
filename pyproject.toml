@@ -192,7 +192,6 @@ constraint-dependencies = [
     "urllib3>=2.6.3", #Address CVE GHSA-38jv-5279-wg99
 ]
 override-dependencies = [
-    "apex; sys_platform == 'never'",
     "distance; sys_platform == 'never'",
     "kaldiio;  sys_platform == 'never'",
     "levenshtein;  sys_platform == 'never'",
