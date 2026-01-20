@@ -20,12 +20,14 @@ import shutil
 import sys
 import time
 import traceback
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
 from loguru import logger
 
+from nemo_curator.pipeline.workflow import WorkflowRunResult
 from nemo_curator.tasks.utils import TaskPerfUtils
 from nemo_curator.utils.file_utils import create_or_overwrite_dir
 
@@ -80,18 +82,16 @@ def get_entry_script_persisted_data(session_entry_path: Path) -> dict[str, Any]:
     else:
         with open(tasks_pkl, "rb") as f:
             script_tasks = pickle.load(f)  # noqa: S301
-        if isinstance(script_tasks, list):
+        if isinstance(script_tasks, (list, WorkflowRunResult, Mapping)):
             script_metrics.update(TaskPerfUtils.aggregate_task_metrics(script_tasks, prefix="task"))
-        elif isinstance(script_tasks, dict):
-            for pipeline_name, pipeline_tasks in script_tasks.items():
-                script_metrics.update(
-                    TaskPerfUtils.aggregate_task_metrics(pipeline_tasks, prefix=pipeline_name.lower())
-                )
+        else:
+            msg = f"Invalid tasks type loaded from {tasks_pkl}: {type(script_tasks)}"
+            raise TypeError(msg)
 
     return {"params": script_params, "metrics": script_metrics}
 
 
-def check_requirements_update_results(result_data: dict[str, Any], requirements: dict[str, Any]) -> bool:
+def check_requirements_update_results(result_data: dict[str, Any], requirements: dict[str, Any]) -> bool:  # noqa: C901, PLR0912
     """
     Check if the benchmark meets the requirements. Creates a new "requirements" key in the result_data
     dictionary with the results of the requirements checks.
@@ -106,18 +106,25 @@ def check_requirements_update_results(result_data: dict[str, Any], requirements:
         if actual_value is None:
             reason_not_met = f"{metric_name} not found in metrics"
         else:
+            # Already ensured to not have exact and min/max together in Entry
+            has_exact = "exact_value" in requirement_dict
             has_min = "min_value" in requirement_dict
             has_max = "max_value" in requirement_dict
-            if has_min:
-                min_value = requirement_dict["min_value"]
-                if actual_value < min_value:
-                    reason_not_met = f"{metric_name} < {min_value}"
-            if has_max:
-                max_value = requirement_dict["max_value"]
-                if actual_value > max_value:
-                    reason_not_met = f"{metric_name} > {max_value}"
-            if not has_min and not has_max:
-                reason_not_met = f"No min or max value specified for {metric_name}"
+            if has_exact:
+                exact_value = requirement_dict["exact_value"]
+                if actual_value != exact_value:
+                    reason_not_met = f"{metric_name} != {exact_value}"
+            else:
+                if has_min:
+                    min_value = requirement_dict["min_value"]
+                    if actual_value < min_value:
+                        reason_not_met = f"{metric_name} < {min_value}"
+                if has_max:
+                    max_value = requirement_dict["max_value"]
+                    if actual_value > max_value:
+                        reason_not_met = f"{metric_name} > {max_value}"
+                if not has_min and not has_max:
+                    reason_not_met = f"No min or max value specified for {metric_name}"
 
         # Update the requirements_data dictionary with the result of the requirements check
         meets_requirements &= reason_not_met is None
@@ -148,8 +155,12 @@ def run_entry(
         (session_entry_path / d).absolute() for d in ["scratch", "ray_cluster", "logs"]
     ]
     cmd = entry.get_command_to_run(session_entry_path, path_resolver, dataset_resolver)
+    stdouterr_path = logs_path / "stdouterr.log"
     run_id = result_data.get("run_id", f"{entry.name}-{int(time.time())}")
     ray_client = ray_temp_dir = None
+    ray_num_cpus = entry.ray.get("num_cpus", os.cpu_count() or 1)
+    ray_num_gpus = entry.ray.get("num_gpus", 0)
+    ray_enable_object_spilling = bool(entry.ray.get("enable_object_spilling", False))
 
     try:
         # Create subdirs individually
@@ -157,20 +168,36 @@ def run_entry(
             create_or_overwrite_dir(directory)
 
         ray_client, ray_temp_dir = setup_ray_cluster_and_env(
-            num_cpus=entry.ray.get("num_cpus", os.cpu_count() or 1),
-            num_gpus=entry.ray.get("num_gpus", 0),
-            enable_object_spilling=bool(entry.ray.get("enable_object_spilling", False)),
+            num_cpus=ray_num_cpus,
+            num_gpus=ray_num_gpus,
+            enable_object_spilling=ray_enable_object_spilling,
             ray_log_path=logs_path / "ray.log",
             object_store_size_bytes=entry.object_store_size_bytes,
         )
 
+        # Prepopulate <session_entry_path>/params.json with entry params.
+        # These will be appended with the benchmark params by the benchmark script.
+        (session_entry_path / "params.json").write_text(
+            json.dumps(
+                {
+                    "object_store_size_bytes": entry.object_store_size_bytes,
+                    "ray_num_cpus": ray_num_cpus,
+                    "ray_num_gpus": ray_num_gpus,
+                    "ray_enable_object_spilling": ray_enable_object_spilling,
+                    "entry_timeout_s": entry.timeout_s,
+                },
+                default=get_obj_for_json,
+                indent=2,
+            )
+        )
+
         # Execute command with timeout
-        logger.info(f"\t\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+        logger.info(f"\tRunning command {' '.join(cmd) if isinstance(cmd, list) else cmd}")
         started_exec = time.time()
         run_data = run_command_with_timeout(
             command=cmd,
             timeout=entry.timeout_s,
-            stdouterr_path=logs_path / "stdouterr.log",
+            stdouterr_path=stdouterr_path,
             run_id=run_id,
             fancy=os.environ.get("CURATOR_BENCHMARKING_DEBUG", "0") == "0",
         )
@@ -208,12 +235,13 @@ def run_entry(
             success = check_requirements_update_results(result_data, entry.requirements)
         else:
             success = False
-            logger.error(f"\t\t❌ Run Failed in {duration:.1f} seconds")
+            logger.error(f"\t❌ Run Failed in {duration:.1f} seconds")
             if run_data["timed_out"]:
-                logger.warning(f"\t\t⏰ Timed out after {entry.timeout_s}s")
+                logger.warning(f"\t⏰ Timed out after {entry.timeout_s}s")
+            logger.error(f"\t➡️  Full output here: {stdouterr_path}")
 
         result_data["success"] = success
-        logger.info(f"\t\tLogs found in {logs_path}")
+        logger.info(f"\tLogs found in {logs_path}")
         Path(session_entry_path / "results.json").write_text(json.dumps(get_obj_for_json(result_data)))
 
         return success
@@ -226,7 +254,7 @@ def run_entry(
             shutil.rmtree(scratch_path, ignore_errors=True)
 
 
-def main() -> int:
+def main() -> int:  # noqa: C901
     parser = argparse.ArgumentParser(description="Runs the benchmarking application")
     parser.add_argument(
         "--config",
@@ -242,6 +270,21 @@ def main() -> int:
         "--session-name",
         default=None,
         help=("Optional human-readable session name. Default is benchmark-run__<timestamp>."),
+    )
+    parser.add_argument(
+        "--entries",
+        default=None,
+        help=(
+            "Expression to filter entries to run. Example: 'foo and not foobar' will include "
+            "all entries with 'foo' in the name but not 'foobar'. If not specified, all "
+            "enabled entries will be run."
+        ),
+    )
+    parser.add_argument(
+        "--list",
+        default=False,
+        action="store_true",
+        help="List entries to run and exit.",
     )
     args = parser.parse_args()
 
@@ -260,7 +303,12 @@ def main() -> int:
         logger.error(f"Invalid configuration: {e}")
         return 1
 
-    session = Session.create_from_dict(config_dict)
+    session = Session.create_from_dict(config_dict, args.entries)
+
+    if args.list:
+        for entry in session.entries:
+            logger.info(f"\t{entry.name}")
+        return 0
 
     # Create session folder under results_dir
     session_name = args.session_name or time.strftime("benchmark-run__%Y-%m-%d_%H-%M-%S_UTC")
