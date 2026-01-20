@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# ruff: noqa: S101  # Allow asserts in this script
+"""Audio Fleurs benchmarking script.
+
+This script runs audio Fleurs benchmarks with comprehensive metrics collection
+using XennaExecutor and logs results to configured sinks.
+"""
 
 import argparse
-import sys
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import write_benchmark_results
 
 from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
@@ -31,21 +35,35 @@ from nemo_curator.stages.audio.metrics.get_wer import GetPairwiseWerStage
 from nemo_curator.stages.resources import Resources
 from nemo_curator.stages.text.io.writer import JsonlWriter
 
-# Import benchmarking utils which are currently only available directly from the Curator source tree.
-# __file__ is expected to be <curator repo>/benchmarking/scripts/audio_fleurs_benchmark.py
-_repo_dir = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_repo_dir))
-from benchmarking.runner.utils import write_benchmark_results  # noqa: E402
 
+def run_audio_fleurs_benchmark(  # noqa: PLR0913
+    benchmark_results_path: str,
+    scratch_output_path: str,
+    model_name: str,
+    lang: str,
+    split: str,
+    wer_threshold: float,
+    gpus: int,
+    **kwargs,  # noqa: ARG001
+) -> dict[str, Any]:
+    """Run the audio fleurs benchmark and collect comprehensive metrics."""
 
-def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
-    results_dir = args.benchmark_results_path / "results"
+    benchmark_results_path = Path(benchmark_results_path)
+    scratch_output_path = Path(scratch_output_path)
+    results_dir = benchmark_results_path / "results"
 
     # Ensure the results dir does not exist so that it will be created.
     # This ensures no preexisting files are present which would otherwise be treated as additional results.
     if results_dir.exists():
         msg = f"Result directory {results_dir} already exists."
         raise ValueError(msg)
+
+    logger.info("Starting audio fleurs benchmark")
+    logger.info(f"Model: {model_name}")
+    logger.info(f"Language: {lang}")
+    logger.info(f"Split: {split}")
+    logger.info(f"WER threshold: {wer_threshold}")
+    logger.info(f"GPUs: {gpus}")
 
     executor = XennaExecutor()
     pipeline = Pipeline(name="audio_inference", description="Inference audio and filter by WER threshold.")
@@ -54,12 +72,12 @@ def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     # Add the composite stage that combines reading and downloading
     pipeline.add_stage(
         CreateInitialManifestFleursStage(
-            lang=args.lang,
-            split=args.split,
-            raw_data_dir=args.scratch_output_path / "armenian/fleurs",
+            lang=lang,
+            split=split,
+            raw_data_dir=scratch_output_path / "armenian/fleurs",
         ).with_(batch_size=4)
     )
-    pipeline.add_stage(InferenceAsrNemoStage(model_name=args.model_name).with_(resources=Resources(gpus=args.gpus)))
+    pipeline.add_stage(InferenceAsrNemoStage(model_name=model_name).with_(resources=Resources(gpus=gpus)))
     pipeline.add_stage(
         GetPairwiseWerStage(
             text_key="text",
@@ -76,7 +94,7 @@ def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     pipeline.add_stage(
         PreserveByValueStage(
             input_value_key="wer",
-            target_value=args.wer_threshold,
+            target_value=wer_threshold,
             operator="le",
         )
     )
@@ -90,9 +108,9 @@ def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
     results = pipeline.run(executor)
 
+    logger.success("Benchmark completed successfully")
+
     return {
-        # Populate the metrics dictionary with metrics to include in the report for this benchmark.
-        # This also allows the framework to perform user-defined checks on the metrics to ensure perf requirements are met.
         "metrics": {
             "is_success": True,
         },
@@ -101,7 +119,7 @@ def run_audio_fleurs_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Audio Fleurs benchmark")
+    parser = argparse.ArgumentParser(description="Audio Fleurs benchmark for nightly benchmarking")
     parser.add_argument("--benchmark-results-path", required=True, help="Path to benchmark results")
     parser.add_argument("--scratch-output-path", required=True, help="Path to scratch output directory")
     parser.add_argument("--model-name", default="nvidia/stt_hy_fastconformer_hybrid_large_pc", help="ASR model name")
@@ -109,28 +127,24 @@ def main() -> int:
     parser.add_argument("--split", default="dev", help="Dataset split to use")
     parser.add_argument("--wer-threshold", type=float, default=5.5, help="WER threshold for filtering")
     parser.add_argument("--gpus", type=int, default=1, help="Number of GPUs to use")
+
     args = parser.parse_args()
+
     logger.info("=== Audio Fleurs Benchmark Starting ===")
     logger.info(f"Arguments: {vars(args)}")
 
     success_code = 1  # assume failure until benchmark succeeds
 
     # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
-    # The dictionary must contain objects which can be serialized to JSON or pickle files.
     result_dict = {
-        "params": vars(args).copy(),
+        "params": vars(args),
         "metrics": {
             "is_success": False,
         },
         "tasks": [],
     }
-    # Now that the args have been saved as JSON-serializable strings for the result_dict, convert paths to Path
-    # objects for use in the benchmark script.
-    args.benchmark_results_path = Path(args.benchmark_results_path)
-    args.scratch_output_path = Path(args.scratch_output_path)
-
     try:
-        result_dict.update(run_audio_fleurs_benchmark(args))
+        result_dict.update(run_audio_fleurs_benchmark(**vars(args)))
         success_code = 0 if result_dict["metrics"]["is_success"] else 1
     finally:
         write_benchmark_results(result_dict, args.benchmark_results_path)

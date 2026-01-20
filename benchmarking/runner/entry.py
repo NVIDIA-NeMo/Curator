@@ -45,7 +45,7 @@ class Entry:
     delete_scratch: bool | None = None
     enabled: bool = True
 
-    def __post_init__(self) -> None:  # noqa: C901
+    def __post_init__(self) -> None:  # noqa: C901, PLR0912
         """Post-initialization checks and updates for dataclass."""
         # Convert the sink_data list of dicts to a dict of dicts for easier lookup with key from "name".
         # sink_data typically starts as a list of dicts from reading YAML, like this:
@@ -92,8 +92,15 @@ class Entry:
             if not isinstance(req, dict):
                 msg = f"Requirement for metric '{metric_name}' is not a dict: {type(req)}"
                 raise TypeError(msg)
+            has_exact = "exact_value" in req
             has_min = "min_value" in req
             has_max = "max_value" in req
+            if has_exact and (has_min or has_max):
+                msg = (
+                    f"Invalid requirement for metric '{metric_name}': 'exact_value' "
+                    f"cannot be combined with 'min_value' or 'max_value'."
+                )
+                raise ValueError(msg)
             if has_min and has_max:
                 min_value = req["min_value"]
                 max_value = req["max_value"]

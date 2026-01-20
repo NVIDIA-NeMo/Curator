@@ -13,6 +13,7 @@
 # limitations under the License.
 
 # ruff: noqa: E402
+import gc
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,20 @@ def reference_model() -> "SentenceTransformer":
 @pytest.mark.gpu
 class TestVLLMEmbeddingModelStage:
     """Test VLLMEmbeddingModelStage initialization and processing."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup_vllm(self) -> None:
+        """Clean up vLLM resources after each test to prevent Ray cluster corruption.
+
+        vLLM uses Ray internally, and its LLM destructor communicates with Ray workers.
+        If not properly cleaned up, it can leave the shared Ray cluster in a bad state,
+        causing subsequent tests to fail with GCS connection errors.
+        """
+        yield
+        # Force garbage collection to trigger LLM destructor before Ray state becomes stale
+        gc.collect()
+        # Clear CUDA cache to release GPU memory
+        torch.cuda.empty_cache()
 
     def test_default_initialization(self) -> None:
         """Test initialization with default parameters."""
@@ -167,3 +182,7 @@ class TestVLLMEmbeddingModelStage:
 
         cosine_sim = torch.nn.functional.cosine_similarity(vllm_embeddings_torch, reference_embeddings_torch, dim=1)
         assert torch.allclose(cosine_sim, torch.ones_like(cosine_sim), atol=1e-5)
+
+        # Explicit cleanup: delete the vLLM model before test ends to prevent Ray state corruption
+        del vllm_stage.model
+        vllm_stage.model = None

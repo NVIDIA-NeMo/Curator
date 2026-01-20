@@ -1,4 +1,4 @@
-# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2026, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,11 +17,8 @@
 This script runs embedding generation benchmarks with comprehensive metrics collection
 using various executors and logs results to configured sinks.
 """
-# ruff: noqa: ERA001
 
 import argparse
-import json
-import pickle
 import time
 import traceback
 from enum import Enum
@@ -29,15 +26,12 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
+from utils import load_dataset_files, parse_partition_size, setup_executor, write_benchmark_results
 
-from nemo_curator.backends.experimental.ray_data import RayDataExecutor
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.text.io.reader import ParquetReader
 from nemo_curator.stages.text.io.writer import ParquetWriter
-from nemo_curator.utils.file_utils import get_all_file_paths_and_size_under
 
-_executor_map = {"ray_data": RayDataExecutor, "xenna": XennaExecutor}
 _max_seq_length_map = {
     "sentence-transformers/all-MiniLM-L6-v2": 256,
     "google/embeddinggemma-300m": 2048,
@@ -52,22 +46,6 @@ class EmbeddingModelVariation(Enum):
     # VLLM variations
     VLLM_TEXT = "vllm_text"
     VLLM_TEXT_PRETOKENIZED = "vllm_text_pretokenized"
-
-
-def parse_partition_size(partition_size: str) -> dict[str, Any]:
-    """Parse partition size string into ParquetReader kwargs.
-
-    Args:
-        partition_size: Either ends with 'fpp' for files_per_partition (e.g., '1fpp')
-                       or a number for blocksize in MB (e.g., '128').
-
-    Returns:
-        Dictionary with either files_per_partition or blocksize kwarg.
-    """
-    if partition_size.endswith("fpp"):
-        return {"files_per_partition": int(partition_size[:-3]), "blocksize": None}
-    else:
-        return {"files_per_partition": None, "blocksize": f"{partition_size}MB"}
 
 
 def create_embedding_generation_pipeline(  # noqa: PLR0913
@@ -113,15 +91,17 @@ def create_embedding_generation_pipeline(  # noqa: PLR0913
                 _generate_ids=use_id_generator,
             ),
             embedding_stage,
-            ParquetWriter(path=str(output_path), fields=["embeddings"]),
+            ParquetWriter(
+                path=str(output_path), fields=(["_curator_dedup_id"] if use_id_generator else []) + ["embeddings"]
+            ),
         ],
     )
 
 
 def run_embedding_generation_benchmark(  # noqa: PLR0913
-    input_path: Path,
-    output_path: Path,
-    executor_name: str,
+    input_path: str,
+    output_path: str,
+    executor: str,
     dataset_size_gb: float,
     model_identifier: str,
     model_inference_batch_size: int,
@@ -131,15 +111,9 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
 ) -> dict[str, Any]:
     """Run the embedding generation benchmark and collect comprehensive metrics."""
 
-    # Setup executor
-    try:
-        executor = _executor_map[executor_name]()
-    except KeyError:
-        msg = f"Executor {executor_name} not supported"
-        raise ValueError(msg) from None
+    input_path = Path(input_path)
+    output_path = Path(output_path).absolute()
 
-    # Ensure output directory
-    output_path = output_path.absolute()
     output_path.mkdir(parents=True, exist_ok=True)
 
     logger.info("Starting embedding generation benchmark")
@@ -151,58 +125,40 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
     logger.info(f"Use ID generator: {use_id_generator}")
     logger.info(f"Model variation: {model_variation.name}")
     logger.info(f"Partition size: {partition_size}")
-    logger.debug(f"Executor: {executor}")
+    logger.info(f"Executor: {executor}")
 
     run_start_time = time.perf_counter()
 
-    try:
-        logger.info("Running embedding generation pipeline...")
+    logger.info("Running embedding generation pipeline...")
 
-        input_files = load_dataset_files(input_path, dataset_size_gb)
-        pipeline = create_embedding_generation_pipeline(
-            input_files=input_files,
-            output_path=output_path,
-            model_identifier=model_identifier,
-            model_inference_batch_size=model_inference_batch_size,
-            model_variation=model_variation,
-            partition_size=partition_size,
-            use_id_generator=use_id_generator,
-        )
+    input_files = load_dataset_files(input_path, dataset_size_gb)
+    executor_obj = setup_executor(executor)
 
+    pipeline = create_embedding_generation_pipeline(
+        input_files=input_files,
+        output_path=output_path,
+        model_identifier=model_identifier,
+        model_inference_batch_size=model_inference_batch_size,
+        model_variation=model_variation,
+        partition_size=partition_size,
+        use_id_generator=use_id_generator,
+    )
+
+    if use_id_generator:
         from nemo_curator.stages.deduplication.id_generator import create_id_generator_actor, kill_id_generator_actor
 
-        if use_id_generator:
-            create_id_generator_actor()
-            output_tasks = pipeline.run(executor)
-            kill_id_generator_actor()
-        else:
-            output_tasks = pipeline.run(executor)
-        run_time_taken = time.perf_counter() - run_start_time
-
-        # task._metadata is a dictionary of metadata for the task, but will not be used here.
-        # Instead simply use the num_items property of the task to get the number of documents processed.
-        # TODO: can we get the number of embeddings generated?
-        num_documents_processed = sum(task.num_items for task in output_tasks)
-
-        logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
-        logger.success(f"Processed {num_documents_processed} documents")
-        # logger.success(f"Generated {num_embeddings_generated} embeddings")
-        success = True
-
-    except Exception as e:  # noqa: BLE001
-        error_traceback = traceback.format_exc()
-        logger.error(f"Benchmark failed: {e}")
-        logger.debug(f"Full traceback:\n{error_traceback}")
-        output_tasks = []
-        run_time_taken = time.perf_counter() - run_start_time
-        num_documents_processed = 0
-        # num_embeddings_generated = 0
-        # embedding_dimension = 0
-        success = False
+        create_id_generator_actor()
+        output_tasks = pipeline.run(executor_obj)
+        kill_id_generator_actor()
+    else:
+        output_tasks = pipeline.run(executor_obj)
+    num_documents_processed = sum(task._stage_perf[-1].num_items_processed for task in output_tasks)
+    run_time_taken = time.perf_counter() - run_start_time
+    throughput_docs_per_sec = num_documents_processed / run_time_taken if run_time_taken > 0 else 0
 
     return {
         "params": {
-            "executor": executor_name,
+            "executor": executor,
             "input_path": str(input_path),
             "output_path": str(output_path),
             "dataset_size_gb": dataset_size_gb,
@@ -213,43 +169,13 @@ def run_embedding_generation_benchmark(  # noqa: PLR0913
             "use_id_generator": use_id_generator,
         },
         "metrics": {
-            "is_success": success,
-            "time_taken": run_time_taken,
+            "is_success": True,
+            "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
-            # "num_embeddings_generated": num_embeddings_generated,
-            # "embedding_dimension": embedding_dimension,
-            "num_output_tasks": len(output_tasks),
-            "throughput_docs_per_sec": num_documents_processed / run_time_taken if run_time_taken > 0 else 0,
-            # "throughput_embeddings_per_sec": num_embeddings_generated / run_time_taken if run_time_taken > 0 else 0,
+            "throughput_docs_per_sec": throughput_docs_per_sec,
         },
         "tasks": output_tasks,
     }
-
-
-def write_results(results: dict[str, Any], output_path: Path) -> None:
-    """Write results to files required by the benchmarking framework at the given path."""
-    output_path.mkdir(parents=True, exist_ok=True)
-    (output_path / "params.json").write_text(json.dumps(results["params"], indent=2))
-    (output_path / "metrics.json").write_text(json.dumps(results["metrics"], indent=2))
-    (output_path / "tasks.pkl").write_bytes(pickle.dumps(results["tasks"]))
-
-
-def load_dataset_files(dataset_path: Path, dataset_size_gb: float) -> list[str]:
-    """Load the dataset files at the given path and return a subset of the files whose combined size is approximately the given size in GB."""
-    input_files = get_all_file_paths_and_size_under(
-        dataset_path, recurse_subdirectories=True, keep_extensions="parquet"
-    )
-    desired_size_bytes = (1024**3) * dataset_size_gb
-    total_size = 0
-    subset_files = []
-    for file, size in input_files:
-        if size + total_size > desired_size_bytes:
-            break
-        else:
-            subset_files.append(file)
-            total_size += size
-
-    return subset_files
 
 
 def main() -> int:
@@ -258,17 +184,19 @@ def main() -> int:
     parser.add_argument("--input-path", required=True, type=Path, help="Path to input data")
     parser.add_argument(
         "--benchmark-results-path",
-        default=Path("./embedding_generation_output"),
         type=Path,
         help="Output directory for results",
     )
+    parser.add_argument(
+        "--output-path",
+        type=Path,
+        help="Output directory for embeddings",
+    )
     # Executor
     parser.add_argument("--executor", default="ray_data", choices=["xenna", "ray_data"], help="Executor to use")
-    # Pipeline Specific
     parser.add_argument("--dataset-size-gb", type=float, required=True, help="Size of dataset to process in GB")
     parser.add_argument(
         "--model-identifier",
-        type=str,
         required=True,
         help="Model identifier (e.g., sentence-transformers/all-MiniLM-L6-v2)",
     )
@@ -295,35 +223,39 @@ def main() -> int:
     if args.model_identifier not in _max_seq_length_map:
         msg = f"Unknown model '{args.model_identifier}'. max_seq_length not set. "
         raise ValueError(msg)
-    try:
-        results = run_embedding_generation_benchmark(
-            input_path=args.input_path,
-            output_path=args.benchmark_results_path,
-            executor_name=args.executor,
-            dataset_size_gb=args.dataset_size_gb,
-            model_identifier=args.model_identifier,
-            model_inference_batch_size=args.model_inference_batch_size,
-            use_id_generator=args.use_id_generator,
-            model_variation=EmbeddingModelVariation(args.model_variation),
-            partition_size=args.partition_size,
-        )
 
+    success_code = 1  # assume failure until benchmark succeeds
+
+    # This dictionary will contain benchmark metadata and results, written to files for the benchmark framework to read.
+    result_dict = {
+        "params": vars(args),
+        "metrics": {
+            "is_success": False,
+        },
+        "tasks": [],
+    }
+    try:
+        result_dict.update(
+            run_embedding_generation_benchmark(
+                input_path=args.input_path,
+                output_path=args.output_path,
+                executor=args.executor,
+                dataset_size_gb=args.dataset_size_gb,
+                model_identifier=args.model_identifier,
+                model_inference_batch_size=args.model_inference_batch_size,
+                use_id_generator=args.use_id_generator,
+                model_variation=EmbeddingModelVariation(args.model_variation),
+                partition_size=args.partition_size,
+            )
+        )
+        success_code = 0 if result_dict["metrics"]["is_success"] else 1
     except Exception as e:  # noqa: BLE001
         error_traceback = traceback.format_exc()
         print(f"Benchmark failed: {e}")
         logger.debug(f"Full traceback:\n{error_traceback}")
-        results = {
-            "params": vars(args),
-            "metrics": {
-                "is_success": False,
-            },
-            "tasks": [],
-        }
     finally:
-        write_results(results, args.benchmark_results_path)
-
-    # Return proper exit code based on success
-    return 0 if results["metrics"]["is_success"] else 1
+        write_benchmark_results(result_dict, args.benchmark_results_path)
+    return success_code
 
 
 if __name__ == "__main__":
