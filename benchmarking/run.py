@@ -49,7 +49,7 @@ from runner.ray_cluster import (
     teardown_ray_cluster_and_env,
 )
 from runner.session import Session
-from runner.utils import find_result, get_obj_for_json, resolve_env_vars
+from runner.utils import find_result, get_obj_for_json, remove_disabled_blocks, resolve_env_vars
 
 
 def ensure_dir(dir_path: Path) -> None:
@@ -298,6 +298,7 @@ def main() -> int:  # noqa: C901
     # Preprocess the config dict prior to creating objects from it
     try:
         Session.assert_valid_config_dict(config_dict)
+        config_dict = remove_disabled_blocks(config_dict)
         config_dict = resolve_env_vars(config_dict)
     except ValueError as e:
         logger.error(f"Invalid configuration: {e}")
