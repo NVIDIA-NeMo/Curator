@@ -79,6 +79,10 @@ class RayDataStageAdapter(BaseStageAdapter):
         Returns:
             Dataset: Processed Ray Data dataset
         """
+        # TODO: Support nvdecs / nvencs
+        if self.stage.resources.gpus <= 0 and (self.stage.resources.nvdecs > 0 or self.stage.resources.nvencs > 0):
+            msg = "Ray Data does not support nvdecs / nvencs. Please use gpus instead."
+            raise ValueError(msg)
 
         is_actor_stage_ = self.stage.ray_stage_spec().get(RayStageSpecKeys.IS_ACTOR_STAGE, is_actor_stage(self.stage))
 
