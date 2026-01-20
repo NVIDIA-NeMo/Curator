@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from loguru import logger
 from utils import load_dataset_files, setup_executor, write_benchmark_results
 
@@ -79,8 +80,12 @@ def run_domain_classification_benchmark(
     run_time_taken = time.perf_counter() - run_start_time
 
     # Calculate metrics
-    num_documents_processed = sum(task.num_items for task in output_tasks)
+    num_documents_processed = sum(task._stage_perf[-1].num_items_processed for task in output_tasks)
     throughput_docs_per_sec = num_documents_processed / run_time_taken if run_time_taken > 0 else 0
+
+    domain_category_to_count = (
+        pd.read_parquet(output_path, columns=["domain_pred"])["domain_pred"].value_counts().to_dict()
+    )
 
     logger.success(f"Benchmark completed in {run_time_taken:.2f}s")
     logger.success(f"Processed {num_documents_processed} documents")
@@ -91,6 +96,9 @@ def run_domain_classification_benchmark(
             "time_taken_s": run_time_taken,
             "num_documents_processed": num_documents_processed,
             "throughput_docs_per_sec": throughput_docs_per_sec,
+            "number_of_domains_predicted": len(domain_category_to_count),
+            "domain_label_games_count": domain_category_to_count.get("Games", 0),
+            "domain_label_news_count": domain_category_to_count.get("News", 0),
         },
         "tasks": output_tasks,
     }
