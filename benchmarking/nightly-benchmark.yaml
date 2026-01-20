@@ -318,6 +318,42 @@ entries:
       - metric: throughput_docs_per_sec
         min_value: 8500
 
+  - name: modifier_raydata
+    enabled: true
+    script: modifier_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=ray_data
+      --input-path={dataset:tinystories,parquet}
+    timeout_s: 20000
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
+  - name: modifier_xenna
+    enabled: true
+    script: modifier_benchmark.py
+    args: >-
+      --benchmark-results-path={session_entry_dir}
+      --output-path={session_entry_dir}/scratch/output
+      --executor=xenna
+      --input-path={dataset:tinystories,parquet}
+    timeout_s: 20000
+    sink_data:
+      - name: slack
+        additional_metrics:
+          - throughput_docs_per_sec
+    ray:
+      num_cpus: 64
+      num_gpus: 0
+      enable_object_spilling: false
+
   - name: image_curation
     enabled: true
     script: "{curator_repo_dir}/tutorials/image/getting-started/image_curation_example.py"
