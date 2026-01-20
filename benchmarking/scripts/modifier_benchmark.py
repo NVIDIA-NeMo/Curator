@@ -41,7 +41,7 @@ from nemo_curator.stages.text.modifiers import (
 from nemo_curator.stages.text.modules import Modify
 
 
-def run_modify_benchmark(  # noqa: PLR0913
+def run_modify_benchmark(
     input_path: Path,
     output_path: Path,
     executor_name: str,
