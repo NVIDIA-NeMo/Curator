@@ -212,7 +212,7 @@ entries:
       --id-field=_curator_dedup_id
       --duplicate-id-field=_curator_dedup_id
       --blocksize=1.5GiB
-    timeout_s: 1000
+    timeout_s: 1100
     sink_data:
       - name: slack
         additional_metrics:
