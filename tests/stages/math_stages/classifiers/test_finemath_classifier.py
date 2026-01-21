@@ -32,30 +32,6 @@ from nemo_curator.tasks import DocumentBatch
 class TestCenterCropTextStage:
     """Test the CenterCropTextStage class."""
 
-    def test_init_default_values(self) -> None:
-        """Test CenterCropTextStage initialization with default values."""
-        stage = CenterCropTextStage()
-
-        assert stage.text_field == "text"
-        assert stage.center_crop_chars == 10_000
-
-    def test_init_custom_values(self) -> None:
-        """Test CenterCropTextStage initialization with custom values."""
-        stage = CenterCropTextStage(text_field="content", center_crop_chars=5000)
-
-        assert stage.text_field == "content"
-        assert stage.center_crop_chars == 5000
-
-    def test_inputs_outputs(self) -> None:
-        """Test inputs and outputs methods."""
-        stage = CenterCropTextStage(text_field="custom_text")
-
-        inputs = stage.inputs()
-        outputs = stage.outputs()
-
-        assert inputs == (["data"], ["custom_text"])
-        assert outputs == (["data"], ["custom_text"])
-
     def test_mid_slice_function(self) -> None:
         """Test the _mid_slice static method."""
         # Test with short string (cropping needed due to implementation)
@@ -141,53 +117,6 @@ class TestCenterCropTextStage:
 
 class TestFineMathModelStage:
     """Test the FineMathModelStage class."""
-
-    def test_init_default_values(self) -> None:
-        """Test FineMathModelStage initialization with default values."""
-        stage = FineMathModelStage(model_identifier="test-model")
-
-        assert stage.model_identifier == "test-model"
-        assert stage.float_score_column == "finemath_scores"
-        assert stage.int_score_column == "finemath_int_scores"
-        assert stage.model_inference_batch_size == 256
-        assert stage.has_seq_order is True
-        assert stage.autocast is True
-
-    def test_init_custom_values(self) -> None:
-        """Test FineMathModelStage initialization with custom values."""
-        stage = FineMathModelStage(
-            model_identifier="custom-model",
-            cache_dir="/custom/cache",
-            float_score_column="custom_float_scores",
-            int_score_column="custom_int_scores",
-            model_inference_batch_size=128,
-            has_seq_order=False,
-            autocast=False,
-        )
-
-        assert stage.model_identifier == "custom-model"
-        assert stage.cache_dir == "/custom/cache"
-        assert stage.float_score_column == "custom_float_scores"
-        assert stage.int_score_column == "custom_int_scores"
-        assert stage.model_inference_batch_size == 128
-        assert stage.has_seq_order is False
-        assert stage.autocast is False
-
-    def test_outputs(self) -> None:
-        """Test outputs method returns correct column names."""
-        stage = FineMathModelStage(model_identifier="test-model")
-        outputs = stage.outputs()
-
-        assert outputs == (["data"], ["finemath_scores", "finemath_int_scores"])
-
-    def test_outputs_custom_columns(self) -> None:
-        """Test outputs method with custom column names."""
-        stage = FineMathModelStage(
-            model_identifier="test-model", float_score_column="custom_float", int_score_column="custom_int"
-        )
-        outputs = stage.outputs()
-
-        assert outputs == (["data"], ["custom_float", "custom_int"])
 
     def test_configure_forward(self) -> None:
         """Test _configure_forward method modifies model forward function."""

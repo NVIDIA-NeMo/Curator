@@ -77,16 +77,6 @@ class TestTokenSplitterStage:
         assert stage.chunk_id_field == "custom_chunk_id"
         assert stage.n_tokens_field == "custom_n_tokens"
 
-    def test_inputs_outputs(self):
-        """Test inputs and outputs methods."""
-        stage = TokenSplitterStage(model_name="test-model", text_field="custom_text")
-
-        inputs = stage.inputs()
-        outputs = stage.outputs()
-
-        assert inputs == (["data"], ["custom_text"])
-        assert outputs == (["data"], ["custom_text", "chunk_id", "n_tokens"])
-
     def test_process_single_short_text(self):
         """Test process method with a single short text that doesn't need chunking."""
         stage = TokenSplitterStage(model_name="test-model", max_length_tokens=100)

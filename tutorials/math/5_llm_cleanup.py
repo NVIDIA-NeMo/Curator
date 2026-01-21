@@ -20,7 +20,6 @@ from datetime import datetime
 import pandas as pd
 from loguru import logger
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math.modifiers.chunking import TokenSplitterStage
@@ -136,8 +135,12 @@ def main() -> None:
     parser.add_argument("--input", required=True, help="Input directory or glob pattern for JSONL/Parquet files")
     parser.add_argument("--output", required=True, help="Output directory for cleaned JSONL files")
     parser.add_argument("--model", required=True, help="Model identifier (e.g., microsoft/phi-4)")
-    parser.add_argument("--prompt", required=True, help="""Prompt name from prompts module (e.g., HTML_TO_TEXT_PROMPT).
-        Must match one of the prompts from the prompts module.""")
+    parser.add_argument(
+        "--prompt",
+        required=True,
+        help="""Prompt name from prompts module (e.g., HTML_TO_TEXT_PROMPT).
+        Must match one of the prompts from the prompts module.""",
+    )
     parser.add_argument(
         "--input_filetype",
         choices=["jsonl", "parquet"],
@@ -222,8 +225,7 @@ def main() -> None:
 
         logger.info(pipeline.describe())
 
-        executor = XennaExecutor()
-        pipeline.run(executor)
+        pipeline.run()
 
         logger.info("Pipeline completed successfully.")
         logger.info(f"Output written to: {output_dir}")

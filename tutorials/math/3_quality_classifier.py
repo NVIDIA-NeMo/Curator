@@ -16,7 +16,6 @@ import argparse
 
 from loguru import logger
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math.classifiers.finemath import FineMathClassifier
@@ -79,8 +78,7 @@ def main() -> None:
     pipeline = build_pipeline(args.input, args.output)
     logger.info(pipeline.describe())
 
-    executor = XennaExecutor()
-    pipeline.run(executor)
+    pipeline.run()
 
     ray_client.stop()
 

@@ -18,7 +18,7 @@ uv pip install --force-reinstall pynvml
 ## Prerequisites
 
 ### System Dependencies
-- GPU(s) with CUDA for the Hugging Face model and vLLM
+- A100 or above GPU(s) with CUDA for the Hugging Face model and vLLM
 - Python environment with `nemo-curator[math_cuda12]` installed (uv sync above)
 - Lynx system dependency for HTML rendering to text:
   - Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y lynx`

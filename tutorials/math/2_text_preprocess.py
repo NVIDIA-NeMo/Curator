@@ -18,7 +18,6 @@ from dataclasses import dataclass
 import ray.data
 from loguru import logger
 
-from nemo_curator.backends.xenna import XennaExecutor
 from nemo_curator.core.client import RayClient
 from nemo_curator.pipeline import Pipeline
 from nemo_curator.stages.math.download.extract import MathContentExtractor
@@ -143,8 +142,7 @@ def main() -> None:
     pipeline = build_pipeline(config)
     logger.info(pipeline.describe())
 
-    executor = XennaExecutor()
-    pipeline.run(executor)
+    pipeline.run()
 
     logger.info("Pipeline completed successfully.")
 

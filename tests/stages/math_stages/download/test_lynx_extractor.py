@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import shutil
 import subprocess
 from unittest import mock
+
+import pytest
 
 from nemo_curator.stages.math.download.html_extractors.lynx import LynxExtractor
 
 
+@pytest.mark.skipif(not shutil.which("lynx"), reason="lynx executable not found in PATH")
 class TestLynxExtractor:
     """Test the LynxExtractor class."""
 
