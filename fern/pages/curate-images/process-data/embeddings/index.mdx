@@ -1,0 +1,25 @@
+---
+title: Image Embedding
+description: "Generate image embeddings using built-in embedders for classification, filtering, and similarity search"
+---
+
+Generate image embeddings for large-scale datasets using NeMo Curator's built-in embedders. Image embeddings enable downstream tasks such as classification, filtering, duplicate removal, and similarity search.
+
+## How It Works
+
+Image embedding in NeMo Curator typically follows these steps:
+
+1. Load your dataset using `FilePartitioningStage` and `ImageReaderStage`
+2. Configure the `ImageEmbeddingStage` with CLIP model settings
+3. Apply the embedding stage to generate CLIP embeddings for each image
+4. Continue with downstream processing stages (filtering, classification, etc.)
+
+The embedding stage integrates seamlessly into NeMo Curator's pipeline architecture.
+
+## Available Embedding Tools
+
+<Cards>
+  <Card title="ImageEmbeddingStage" href="/curate-images/process-data/embeddings/clip-embedder">
+    Generate CLIP embeddings using OpenAI's ViT-L/14 model for high-quality image representations.
+  </Card>
+</Cards>
