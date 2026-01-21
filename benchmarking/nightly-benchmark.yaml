@@ -326,7 +326,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=ray_data
       --input-path={dataset:tinystories,parquet}
-    timeout_s: 250
+    timeout_s: 200
     sink_data:
       - name: slack
         additional_metrics:
@@ -344,7 +344,7 @@ entries:
       --output-path={session_entry_dir}/scratch/output
       --executor=xenna
       --input-path={dataset:tinystories,parquet}
-    timeout_s: 200
+    timeout_s: 250
     sink_data:
       - name: slack
         additional_metrics:
