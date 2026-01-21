@@ -57,25 +57,25 @@ gpus: 1.0
 sample_rate: 48000
 
 # VAD settings
-enable_vad: false
+enable_vad: true
 vad_min_duration_sec: 2.0
 vad_max_duration_sec: 60.0
 vad_threshold: 0.5
 
 # Quality filter settings
 enable_nisqa: true
-nisqa_mos_threshold: 0
-nisqa_noi_threshold: 0
+nisqa_mos_threshold: 4.5
+nisqa_noi_threshold: 4.3
 
-enable_sigmos: false
+enable_sigmos: true
 sigmos_noise_threshold: 4.0
 sigmos_ovrl_threshold: 3.5
 
-enable_band_filter: false
+enable_band_filter: true
 band_value: full_band
 
 # Speaker separation settings
-enable_speaker_separation: false
+enable_speaker_separation: true
 speaker_min_duration: 0.8
 speaker_exclude_overlaps: true
 
